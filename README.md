@@ -11,10 +11,10 @@
 
 ## Documentation
 For detailed guides on how to use ForgeLM, please see our dedicated documentations:
-1. [Architecture Overview](docs/architecture.md)
-2. [Configuration Guide](docs/configuration.md)
-3. [Usage & Execution](docs/usage.md)
-4. [Data Preparation Format](docs/data_preparation.md)
+1. [Architecture Overview](docs/architecture.md) (🇹🇷 [Türkçe](docs/architecture-tr.md))
+2. [Configuration Guide](docs/configuration.md) (🇹🇷 [Türkçe](docs/configuration-tr.md))
+3. [Usage & Execution](docs/usage.md) (🇹🇷 [Türkçe](docs/usage-tr.md))
+4. [Data Preparation Format](docs/data_preparation.md) (🇹🇷 [Türkçe](docs/data_preparation-tr.md))
 
 ## Installation
 
