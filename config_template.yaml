@@ -1,0 +1,38 @@
+# ForgeLM Configuration Template
+---
+model:
+  name_or_path: "meta-llama/Llama-2-7b-hf"
+  max_length: 2048
+
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.1
+  bias: "none"
+  target_modules: 
+    - "q_proj"
+    - "v_proj"
+  task_type: "CAUSAL_LM"
+
+training:
+  output_dir: "./checkpoints"
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 2
+  learning_rate: 2.0e-5
+  warmup_ratio: 0.1
+  weight_decay: 0.01
+  eval_steps: 200
+  save_steps: 200
+  save_total_limit: 3
+
+data:
+  dataset_name_or_path: "your_dataset_here"
+  shuffle: true
+  clean_text: true
+  add_eos: true
+
+# Authentication can be provided via HUGGINGFACE_TOKEN env var,
+# an interactive prompt, or hardcoded here (not recommended).
+# auth:
+#   hf_token: "hf_your_token_here"
