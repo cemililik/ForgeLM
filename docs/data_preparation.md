@@ -24,16 +24,11 @@ If you are bringing custom company data, format it into a `.jsonl` file where ea
 {"System": "You are a helpful Python coding assistant.", "User": "What is a loop?", "Assistant": "A loop is used to iterate over a sequence."}
 ```
 
-## The Final Prompt Format
-Internally, ForgeLM builds a prompt using specific bounding tags before passing it to the tokenizer.
+## Chat Templates & Formatting
+In 2026, modern conversational fine-tuning no longer relies on manual string formatting (e.g., `[SYSTEM]...[USER]...`). 
 
-```text
-[SYSTEM]
-{system_text}
-[USER]
-{user_text}
-[ASSISTANT]
-{assistant_text}
-```
+Instead, ForgeLM utilizes Hugging Face's `tokenizer.apply_chat_template()`. This means ForgeLM dynamically understands the architecture of the model you are using (be it Llama-3, Mistral, Gemma, or Qwen) and automatically formats your data into that specific model's native conversational token structure (e.g., `<|im_start|>user\n...<|im_end|>`).
 
-Ensure your base model is compatible or adaptable to interpreting these bounding tokens for the best inference results post-training.
+This guarantees the highest possible fine-tuning accuracy with zero manual effort required on your part.
+
+Ensure your base model supports chat templates. If it does not, ForgeLM will fall back to a generic bounding token structure.

@@ -8,12 +8,15 @@ ForgeLM tüm yapılandırma için YAML dosyalarını kullanır. Bu sayede, etkil
 model:
   name_or_path: "meta-llama/Llama-2-7b-hf"
   max_length: 2048
+  load_in_4bit: true
+  backend: "transformers" # 2-5x hız için "unsloth" seçilebilir
 
 lora:
   r: 8
   alpha: 16
   dropout: 0.1
   bias: "none"
+  use_dora: false
   target_modules: 
     - "q_proj"
     - "v_proj"
@@ -46,6 +49,8 @@ auth:
 ### `model`
 - **`name_or_path`**: (Zorunlu) Hugging Face repo ID'si (örn. `mistralai/Mistral-7B-v0.1`) veya temel modele doğrudan işaret eden bir yerel dizin yolu.
 - **`max_length`**: (Tamsayı) Tokenizer için maksimum bağlam uzunluğu (context length).
+- **`load_in_4bit`**: (Boolean) Bellek kullanımını büyük ölçüde azaltmak için QLoRA 4-bit (NF4) kuantizasyonunu etkinleştirir. Standart değer `true`.
+- **`backend`**: (String) Eğitim için kullanılacak motor. Standart olan `'transformers'` ayarıdır. Eğitim hızını 2 ile 5 kat arası artırmak için `'unsloth'` olarak değiştirilebilir (unsloth kütüphanesini sisteminize kurmayı gerektirir).
 
 ### `lora`
 Parametre-Verimli İnce Ayar (Parameter-Efficient Fine-Tuning - PEFT) stratejilerini tanımlar.
@@ -53,6 +58,7 @@ Parametre-Verimli İnce Ayar (Parameter-Efficient Fine-Tuning - PEFT) stratejile
 - **`alpha`**: LoRA ölçeklendirmesi (scaling) için alpha parametresi.
 - **`dropout`**: LoRA katmanları için dropout olasılığı.
 - **`bias`**: LoRA için bias türü. `'none'`, `'all'` veya `'lora_only'` değerlerini alabilir.
+- **`use_dora`**: (Boolean) Ağırlık Ayrıştırılmış (Weight-Decomposed - DoRA) yapıyı kullanmayı açar, ağırlıkların yönünü ve büyüklüğünü ayırarak aynı parametre sayısıyla LoRA'dan daha iyi performans sağlar. Standart olarak `false`.
 - **`target_modules`**: LoRA'nın uygulanacağı model modüllerinin listesi. Genellikle `["q_proj", "k_proj", "v_proj", "o_proj"]` şeklindedir.
 
 ### `training`

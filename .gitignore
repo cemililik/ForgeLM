@@ -54,3 +54,5 @@ logs/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+docs/2026_upgrade_proposal-tr.md
+docs/2026_upgrade_proposal.md

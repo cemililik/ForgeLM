@@ -34,14 +34,14 @@ This ensures that any YAML file provided to the CLI is immediately validated. If
 This module interfaces with the `datasets` library. It contains logic to:
 - Load local files or Hugging Face hub datasets.
 - Ensure a validation split exists (creating a 10% slice if necessary).
-- Format system, user, and assistant prompts into a cohesive string.
+- Format system, user, and assistant messages dynamically using `tokenizer.apply_chat_template()` for perfect native model formatting.
 - Tokenize the strings and correctly mask padding tokens in the Labels array to prevent the model from learning padding.
 
 ### 3. `model.py`
-This module sets up the Hugging Face `AutoModelForCausalLM`. Crucially, it detects if a GPU is available (`torch.cuda.is_available()`) and injects `bitsandbytes` 8-bit quantization (`load_in_8bit=True`). Afterward, it wraps the model with `peft` based on the user's LoRA configuration to prepare for parameter-efficient fine-tuning.
+This module sets up the training engine. It supports both standard Hugging Face `AutoModelForCausalLM` and the highly optimized `Unsloth` backend. Crucially, it detects GPU availability and injects `bitsandbytes` 4-bit (NF4) quantization (`load_in_4bit=True`). Afterward, it wraps the model with `peft` based on the user's LoRA/DoRA configuration to prepare for parameter-efficient fine-tuning.
 
 ### 4. `trainer.py`
-Provides the `ForgeTrainer` wrapper around Hugging Face's `SFTTrainer` or standard `Trainer`. It handles mapping the configuration outputs directly into `TrainingArguments`.
+Provides the `ForgeTrainer` wrapper around `TRL`'s `SFTTrainer`. It handles mapping the configuration outputs directly into `TrainingArguments` and launching the fine-tuning loop.
 
 ### 5. `utils.py`
 Handles Hugging Face Hub `login()` functions, preferring explicit tokens mapped in the config, falling back to OS Environment Variables, and finally falling back to `~/.huggingface/token`. Also contains the checkpoint zipping/deletion logic.

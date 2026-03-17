@@ -8,12 +8,15 @@ ForgeLM uses YAML files for all configuration, allowing for deterministic, repea
 model:
   name_or_path: "meta-llama/Llama-2-7b-hf"
   max_length: 2048
+  load_in_4bit: true
+  backend: "transformers" # Can be "unsloth" for 2x faster training
 
 lora:
   r: 8
   alpha: 16
   dropout: 0.1
   bias: "none"
+  use_dora: false
   target_modules: 
     - "q_proj"
     - "v_proj"
@@ -46,6 +49,8 @@ auth:
 ### `model`
 - **`name_or_path`**: (Required) The Hugging Face repo ID (e.g., `mistralai/Mistral-7B-v0.1`) or a local directory path to the base model.
 - **`max_length`**: (Integer) Maximum context length for the tokenizer.
+- **`load_in_4bit`**: (Boolean) Enables QLoRA 4-bit (NF4) quantization to drastically reduce memory usage. Default is `true`.
+- **`backend`**: (String) Engine used for training. `'transformers'` is standard. Change to `'unsloth'` for 2x-5x faster training speeds (requires the unsloth library).
 
 ### `lora`
 Defines Parameter-Efficient Fine-Tuning strategies.
@@ -53,6 +58,7 @@ Defines Parameter-Efficient Fine-Tuning strategies.
 - **`alpha`**: The alpha parameter for LoRA scaling.
 - **`dropout`**: Dropout probability for LoRA layers.
 - **`bias`**: Bias type for LoRA. Can be `'none'`, `'all'`, or `'lora_only'`.
+- **`use_dora`**: (Boolean) Enables Weight-Decomposed Low-Rank Adaptation (DoRA), dynamically separating parameter magnitude and direction for better performance at the same rank. Default is `false`.
 - **`target_modules`**: List of model modules to apply LoRA. Often `["q_proj", "k_proj", "v_proj", "o_proj"]`.
 
 ### `training`

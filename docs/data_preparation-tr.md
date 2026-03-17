@@ -25,16 +25,11 @@ Aşağıda standart kabul görmüş örnek JSONL yapısı:
 {"System": "Sen kodlamada uzman, yardımcı bir Python yapay zeka asistanısın.", "User": "Python'da döngü (loop) nedir?", "Assistant": "Döngü (Loop), dizilim veya benzeri işlemlerde belirli işlemleri devamlı tekrarlatarak otomatik işleterek üzerinde dönmek için kullanılır. For ya da While kullanabilirsin."}
 ```
 
-## Nihai Metin İstemi Formatı (Prompt Format)
-Kullanıcılar anlamasa da ve hissetmese de, ForgeLM arka planda verileri derlerken veri metin yapılarınıza etiketler geçirerek (bounding tags) özel işlemler (tokenizing) gerçekleştirerek makinenin öğrenebileceği son noktaya hazırlar:
+## Chat Templates (Sohbet Şablonları) ve Otomatik Biçimlendirme
+2026 yılı itibarıyla, modern diyalogsal modellerin eğitiminde artık manuel metin biçimlendirmesine (örneğin `[SYSTEM]...[USER]...` yazmaya) gerek yoktur.
 
-```text
-[SYSTEM]
-{system_text} (sistemden gelen metin)
-[USER]
-{user_text} (kullanıcıdan gelen sorgu / question)
-[ASSISTANT]
-{assistant_text} (AI asistan cevabı / answer)
-```
+ForgeLM, bunun yerine Hugging Face'in `tokenizer.apply_chat_template()` metodunu kullanır. Bu da şu anlama gelir: ForgeLM, eğitmekte olduğunuz modelin mimarisini (ister Llama-3, ister Mistral, Gemma veya Qwen olsun) dinamik olarak anlar ve verilerinizi otomatik olarak **tam olarak o modelin kendi doğal dil bilgisine özgü yapıya** (örneğin `<|im_start|>user\n...<|im_end|>`) göre düzenler.
 
-Eğitim işleminde başarıyı artırmak için asıl baz modelin bu girdi yapısını kullanmaya ne kadar meyilli veya adaptasyonunun açık olduğundan emin olun!
+Bu özellik, sizin hiçbir manuel efor sarf etmenize gerek kalmadan SOTA (En ileri teknoloji) standardında maksimum model uyumluluğu ve eğitim doğruluğu sağlar.
+
+Baz (temel) modelinizin sohbet şablonlarını (chat templates) desteklediğinden emin olun. Desteklemiyorsa, ForgeLM jenerik/standart bir etiket (bounding token) yapısına geri dönecektir.
