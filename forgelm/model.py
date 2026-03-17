@@ -1,48 +1,80 @@
 import torch
 from typing import Tuple, Any
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
-try:
-    from peft import prepare_model_for_int8_training
-except ImportError:
-    prepare_model_for_int8_training = None
-
-def get_model_and_tokenizer(config: Any) -> Tuple[AutoModelForCausalLM, AutoTokenizer]:
+def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
     """Loads the base model, tokenizer, and configures LoRA."""
-    print(f"Loading Base Model: {config.model.name_or_path}")
+    print(f"Loading Base Model: {config.model.name_or_path} with backend: {config.model.backend}")
 
+    # --- UNSLOTH BACKEND ---
+    if config.model.backend.lower() == "unsloth":
+        try:
+            from unsloth import FastLanguageModel
+        except ImportError:
+            raise ImportError("Unsloth backend selected but 'unsloth' is not installed. Please install it.")
+            
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=config.model.name_or_path,
+            max_seq_length=config.model.max_length,
+            dtype=None, # Auto detection
+            load_in_4bit=config.model.load_in_4bit,
+        )
+        
+        print(f"Setting up Unsloth LoRA configuration (DoRA={config.lora.use_dora})...")
+        model = FastLanguageModel.get_peft_model(
+            model,
+            r=config.lora.r,
+            target_modules=config.lora.target_modules,
+            lora_alpha=config.lora.alpha,
+            lora_dropout=config.lora.dropout,
+            bias=config.lora.bias,
+            use_gradient_checkpointing="unsloth",
+            use_rslora=False,
+            use_dora=config.lora.use_dora,
+        )
+        
+        return model, tokenizer
+
+    # --- TRANSFORMERS BACKEND ---
     tokenizer = AutoTokenizer.from_pretrained(config.model.name_or_path, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Setup bitsandbytes configs or 8bit training parameters depending on PyTorch capabilities
     model_kwargs = {
         "device_map": "auto",
         "trust_remote_code": True,
     }
     
-    if torch.cuda.is_available():
-        model_kwargs["load_in_8bit"] = True
-    
+    if torch.cuda.is_available() and config.model.load_in_4bit:
+        print("Using 4-bit QLoRA quantization...")
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        )
+        model_kwargs["quantization_config"] = bnb_config
+
     model = AutoModelForCausalLM.from_pretrained(
         config.model.name_or_path,
         **model_kwargs
     )
     
-    if torch.cuda.is_available():
+    if torch.cuda.is_available() and config.model.load_in_4bit:
         if hasattr(model, "enable_input_require_grads"):
             model.enable_input_require_grads()
         model = prepare_model_for_kbit_training(model)
         
-    print("Setting up LoRA configuration...")
+    print(f"Setting up Transformers LoRA configuration (DoRA={config.lora.use_dora})...")
     lora_config = LoraConfig(
         r=config.lora.r,
         lora_alpha=config.lora.alpha,
         lora_dropout=config.lora.dropout,
         bias=config.lora.bias,
         task_type=config.lora.task_type,
-        target_modules=config.lora.target_modules
+        target_modules=config.lora.target_modules,
+        use_dora=config.lora.use_dora
     )
     
     model = get_peft_model(model, lora_config)

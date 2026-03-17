@@ -6,12 +6,15 @@ from typing import Optional, List, Dict, Any
 class ModelConfig(BaseModel):
     name_or_path: str
     max_length: int = 2048
+    load_in_4bit: bool = True
+    backend: str = "transformers"  # Can also be "unsloth"
 
 class LoraConfigModel(BaseModel):
     r: int = 8
     alpha: int = 16
     dropout: float = 0.1
     bias: str = "none"
+    use_dora: bool = False
     target_modules: List[str] = ["q_proj", "v_proj"]
     task_type: str = "CAUSAL_LM"
 

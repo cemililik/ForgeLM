@@ -3,12 +3,15 @@
 model:
   name_or_path: "meta-llama/Llama-2-7b-hf"
   max_length: 2048
+  load_in_4bit: true
+  backend: "transformers" # Can be "transformers" or "unsloth"
 
 lora:
   r: 8
   alpha: 16
   dropout: 0.1
   bias: "none"
+  use_dora: false
   target_modules: 
     - "q_proj"
     - "v_proj"

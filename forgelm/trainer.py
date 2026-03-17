@@ -1,10 +1,11 @@
 import torch
 import os
-from transformers import Trainer, TrainingArguments, DefaultDataCollator, EarlyStoppingCallback
+from trl import SFTTrainer
+from transformers import TrainingArguments, DefaultDataCollator, EarlyStoppingCallback
 from typing import Any, Dict
 
 class ForgeTrainer:
-    """Orchestrates the training process for ForgeLM using HuggingFace Trainer."""
+    """Orchestrates the training process for ForgeLM using TRL SFTTrainer."""
     def __init__(self, model: Any, tokenizer: Any, config: Any, dataset: Dict[str, Any]):
         self.model = model
         self.tokenizer = tokenizer
@@ -40,17 +41,20 @@ class ForgeTrainer:
         
     def train(self) -> None:
         """Starts the main training loop."""
-        print("Initializing HuggingFace Trainer...")
+        print("Initializing TRL SFTTrainer...")
         training_args = self._get_training_args()
         
         callbacks = [EarlyStoppingCallback(early_stopping_patience=3)]
         
-        self.trainer = Trainer(
+        self.trainer = SFTTrainer(
             model=self.model,
+            tokenizer=self.tokenizer,
             args=training_args,
             train_dataset=self.dataset["train"],
             eval_dataset=self.dataset.get("validation", None),
-            data_collator=DefaultDataCollator(),
+            dataset_text_field="text",
+            max_seq_length=self.config.model.max_length,
+            packing=False, # Standard training
             callbacks=callbacks
         )
         
