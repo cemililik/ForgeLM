@@ -9,7 +9,27 @@ NVIDIA GPU'ya ve CUDA'ya sahip bir makineniz olduğundan emin olun. ForgeLM CPU 
 ```bash
 git clone https://github.com/cemililik/ForgeLM.git
 cd ForgeLM
-pip install -r requirements.txt
+python3 -m pip install -e .
+```
+
+### Opsiyonel kurulumlar
+
+- QLoRA bağımlılıklarını aç (Linux):
+
+```bash
+python3 -m pip install -e ".[qlora]"
+```
+
+- Unsloth backend’i aç (Linux):
+
+```bash
+python3 -m pip install -e ".[unsloth]"
+```
+
+- Phase 2 değerlendirme/benchmark bağımlılıklarını aç:
+
+```bash
+python3 -m pip install -e ".[eval]"
 ```
 
 ## Kimlik Doğrulama (Authentication)
@@ -30,7 +50,27 @@ nano my_job.yaml
 
 2. Yaptığınız ayarları sisteme göstererek CLI komutunu yürütün:
 ```bash
-python -m forgelm.cli --config my_job.yaml
+python3 -m forgelm.cli --config my_job.yaml
+# veya (editable install sonrası):
+forgelm --config my_job.yaml
+```
+
+## Webhook Bildirimleri (Opsiyonel)
+
+Eğitim başladığında/başarıyla bittiğinde/hata aldığında bildirim almak istiyorsanız YAML içinde `webhook:` bloğunu kullanabilirsiniz. CI/CD için URL’yi dosyaya yazmak yerine env var ile vermek daha güvenlidir:
+
+```bash
+export FORGELM_WEBHOOK_URL="https://hooks.slack.com/services/XXX/YYY/ZZZ"
+```
+
+`my_job.yaml` içinde:
+
+```yaml
+webhook:
+  url_env: "FORGELM_WEBHOOK_URL"
+  notify_on_start: true
+  notify_on_success: true
+  notify_on_failure: true
 ```
 
 ## Günlükler (Logs) ve Çıktılar
@@ -47,5 +87,5 @@ tensorboard --logdir=./checkpoints/runs/
 
 ### Nihai Eserler (Artifacts)
 Eğitim başarıyla tamamlandığında:
-1. Son, birleştirilmiş ağırlıklar (veya LoRA adaptörleri) ve modifiye edilmiş yeni tokenizer (işaretleyici) `./final_model/` dizinine kaydedilecektir.
-2. Eğitiminizin aralardaki yedek ağırlıkları (intermediate checkpoints) ise sizin yaml konfigürasyonunda yer alan `save_total_limit` parametrenize bağlı olarak saklanacak ve `./checkpoints/` dizininde konumlandırılacaktır.
+1. Son model/adaptörler ve tokenizer `training.output_dir/training.final_model_dir` altına kaydedilir (varsayılan: `./checkpoints/final_model/`).
+2. Aradaki checkpoint’ler `training.output_dir` altında `save_total_limit` ayarınıza göre tutulur.

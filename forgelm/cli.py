@@ -12,7 +12,7 @@ def parse_args():
         "--config",
         type=str,
         required=True,
-        help="Path to the mapping YAML configuration file."
+        help="Path to the YAML configuration file."
     )
     return parser.parse_args()
 
@@ -34,17 +34,18 @@ def main():
         dataset = prepare_dataset(config, tokenizer)
         
         # 5. Training
-        trainer = ForgeTrainer(model, tokenizer, config, dataset)
-        trainer.train()
+        trainer = ForgeTrainer(model=model, tokenizer=tokenizer, config=config, dataset=dataset)
+        is_successful = trainer.train()
         
-        # 6. Save final
-        trainer.save_final_model(final_path="./final_model")
-        
-        # 7. Checkpoint cleanup/compression
-        print("Cleaning up checkpoints...")
+        # 6. Checkpoint cleanup/compression
+        print("Cleaning up intermediate checkpoints...")
         manage_checkpoints(config.training.output_dir, action="keep") # Defaulting to keep for safety
         
-        print("\nForgeLM Training Pipeline Completed Successfully!")
+        if is_successful:
+            print("\n✅ ForgeLM Training Pipeline Completed Successfully!")
+        else:
+            print("\n❌ ForgeLM Pipeline failed autonomous evaluation. Model was reverted.")
+            sys.exit(1)
         
     except Exception as e:
         print(f"\nError during training pipeline: {str(e)}", file=sys.stderr)

@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forgelm"
+version = "0.1.0"
+description = "ForgeLM: Config-driven LLM fine-tuning toolkit with LoRA/QLoRA and TRL SFTTrainer."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "ForgeLM Contributors" }]
+
+dependencies = [
+  "torch>=2.0.0",
+  "transformers>=4.38.0",
+  "peft>=0.9.0",
+  "datasets>=2.17.0",
+  "accelerate>=0.27.0",
+  "pyyaml>=6.0.1",
+  "pydantic>=2.0.0",
+  "trl>=0.8.0",
+  "tensorboard>=2.15.0",
+  "huggingface_hub>=0.20.0",
+  "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+# QLoRA/bitsandbytes is effectively Linux-only for most setups.
+qlora = [
+  "bitsandbytes>=0.42.0; sys_platform == 'linux'",
+]
+
+unsloth = [
+  "unsloth>=2024.3.0; sys_platform == 'linux'",
+]
+
+# Placeholder for Phase 2 benchmarking; keep optional to avoid dependency bloat.
+eval = [
+  "lm-eval>=0.4.4",
+]
+
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.4.0",
+]
+
+[project.scripts]
+forgelm = "forgelm.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["forgelm*"]

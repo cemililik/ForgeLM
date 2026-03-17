@@ -21,7 +21,55 @@ For detailed guides on how to use ForgeLM, please see our dedicated documentatio
 ```bash
 git clone https://github.com/cemililik/ForgeLM.git
 cd ForgeLM
-pip install -r requirements.txt
+python3 -m pip install -e .
+```
+
+### Optional installs (recommended)
+
+- **Enable QLoRA dependencies (Linux)**:
+
+```bash
+python3 -m pip install -e ".[qlora]"
+```
+
+- **Enable Unsloth backend (Linux)**:
+
+```bash
+python3 -m pip install -e ".[unsloth]"
+```
+
+- **Evaluation / Benchmark (Phase 2)**:
+
+```bash
+python3 -m pip install -e ".[eval]"
+```
+
+### Alternative (requirements files)
+
+If you prefer a requirements-based install (e.g., CI/CD images), you can use:
+
+- Core:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+- Linux speedups:
+
+```bash
+python3 -m pip install -r requirements-linux.txt
+```
+
+- Phase 2 evaluation:
+
+```bash
+python3 -m pip install -r requirements-eval.txt
+```
+
+- **Install as a package (CLI `forgelm`)**:
+
+```bash
+python3 -m pip install -e .
 ```
 
 ## Quick Start
@@ -35,7 +83,7 @@ cp config_template.yaml my_config.yaml
 
 3. Start training:
 ```bash
-python -m forgelm.cli --config my_config.yaml
+python3 -m forgelm.cli --config my_config.yaml
 ```
 
 ## Directory Structure

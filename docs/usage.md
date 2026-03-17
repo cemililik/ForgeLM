@@ -9,7 +9,27 @@ Ensure you have a machine with an NVIDIA GPU and CUDA installed. While ForgeLM w
 ```bash
 git clone https://github.com/cemililik/ForgeLM.git
 cd ForgeLM
-pip install -r requirements.txt
+python3 -m pip install -e .
+```
+
+### Optional installs
+
+- Enable QLoRA dependencies (Linux):
+
+```bash
+python3 -m pip install -e ".[qlora]"
+```
+
+- Enable Unsloth backend (Linux):
+
+```bash
+python3 -m pip install -e ".[unsloth]"
+```
+
+- Enable Phase 2 evaluation/benchmark dependencies:
+
+```bash
+python3 -m pip install -e ".[eval]"
 ```
 
 ## Authentication
@@ -30,7 +50,27 @@ nano my_job.yaml
 
 2. Execute the CLI, pointing it to your config:
 ```bash
-python -m forgelm.cli --config my_job.yaml
+python3 -m forgelm.cli --config my_job.yaml
+# or (after editable install):
+forgelm --config my_job.yaml
+```
+
+## Webhook Notifications (Optional)
+
+If you want notifications on start/success/failure, configure `webhook:` in your YAML. For CI/CD, prefer secrets via env vars:
+
+```bash
+export FORGELM_WEBHOOK_URL="https://hooks.slack.com/services/XXX/YYY/ZZZ"
+```
+
+And in `my_job.yaml`:
+
+```yaml
+webhook:
+  url_env: "FORGELM_WEBHOOK_URL"
+  notify_on_start: true
+  notify_on_success: true
+  notify_on_failure: true
 ```
 
 ## Logs and Outputs
@@ -46,5 +86,5 @@ tensorboard --logdir=./checkpoints/runs/
 
 ### Final Artifacts
 When training successfully finishes:
-1. The final, merged weights (or LoRA adapters) and the modified tokenizer will be saved to `./final_model/`.
-2. Intermediate checkpoints remain in `./checkpoints/` depending on your `save_total_limit` parameter in the config.
+1. The final model/adapters and the tokenizer will be saved under `training.output_dir/training.final_model_dir` (defaults to `./checkpoints/final_model/`).
+2. Intermediate checkpoints remain in `training.output_dir` depending on your `save_total_limit` parameter in the config.
