@@ -9,6 +9,13 @@
 - **CLI / Automation Ready**: Perfect for CI/CD or local automated runs. No necessary interactive prompts if a config is provided.
 - **Checkpoint Management**: Automatically handle saving, keeping, or compressing checkpoints.
 
+## Documentation
+For detailed guides on how to use ForgeLM, please see our dedicated documentations:
+1. [Architecture Overview](docs/architecture.md)
+2. [Configuration Guide](docs/configuration.md)
+3. [Usage & Execution](docs/usage.md)
+4. [Data Preparation Format](docs/data_preparation.md)
+
 ## Installation
 
 ```bash
