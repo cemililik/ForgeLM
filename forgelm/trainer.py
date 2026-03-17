@@ -136,7 +136,28 @@ class ForgeTrainer:
             raise e
         
     def save_final_model(self, final_path: str) -> None:
-        """Saves the final trained model weights and tokenizer."""
-        print(f"Saving temporary final model to {final_path}...")
-        self.trainer.save_model(final_path)
+        """Saves final artifacts (adapter-only by default)."""
+        os.makedirs(final_path, exist_ok=True)
+        merge_adapters = bool(getattr(self.config.training, "merge_adapters", False))
+
+        # Prefer adapter-only save for PEFT models. This keeps artifacts small and makes revert safe.
+        if not merge_adapters:
+            print(f"Saving final adapters to {final_path}...")
+            try:
+                self.trainer.model.save_pretrained(final_path)
+            except Exception:
+                # Fallback to trainer save_model behavior if model wrapper differs.
+                self.trainer.save_model(final_path)
+            self.tokenizer.save_pretrained(final_path)
+            return
+
+        # Optional: merge adapters into base weights and save a full model.
+        print(f"Merging adapters and saving full model to {final_path}...")
+        model_to_save = self.trainer.model
+        try:
+            merged = model_to_save.merge_and_unload()
+            merged.save_pretrained(final_path, safe_serialization=True)
+        except Exception:
+            # If merge isn't supported, save best-effort model state.
+            self.trainer.save_model(final_path)
         self.tokenizer.save_pretrained(final_path)

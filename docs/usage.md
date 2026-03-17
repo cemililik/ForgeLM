@@ -88,3 +88,10 @@ tensorboard --logdir=./checkpoints/runs/
 When training successfully finishes:
 1. The final model/adapters and the tokenizer will be saved under `training.output_dir/training.final_model_dir` (defaults to `./checkpoints/final_model/`).
 2. Intermediate checkpoints remain in `training.output_dir` depending on your `save_total_limit` parameter in the config.
+
+By default, ForgeLM saves **adapter-only** artifacts (LoRA) to keep outputs small and to make Phase 2 auto-revert safe. If you want a merged full model, set:
+
+```yaml
+training:
+  merge_adapters: true
+```

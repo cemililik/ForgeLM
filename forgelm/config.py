@@ -25,6 +25,7 @@ class LoraConfigModel(BaseModel):
 class TrainingConfig(BaseModel):
     output_dir: str = "./checkpoints"
     final_model_dir: str = "final_model"
+    merge_adapters: bool = False
     num_train_epochs: int = 3
     per_device_train_batch_size: int = 4
     gradient_accumulation_steps: int = 2

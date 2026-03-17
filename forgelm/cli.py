@@ -1,10 +1,6 @@
 import argparse
 import sys
 from .config import load_config
-from .data import prepare_dataset
-from .model import get_model_and_tokenizer
-from .trainer import ForgeTrainer
-from .utils import setup_authentication, manage_checkpoints
 
 def parse_args():
     parser = argparse.ArgumentParser(description="ForgeLM: Language Model Fine-Tuning Toolkit")
@@ -20,6 +16,12 @@ def main():
     args = parse_args()
     
     try:
+        # Defer heavy imports so `--help` and config parsing stay lightweight.
+        from .data import prepare_dataset
+        from .model import get_model_and_tokenizer
+        from .trainer import ForgeTrainer
+        from .utils import setup_authentication, manage_checkpoints
+
         # 1. Load configuration
         print(f"Loading configuration from {args.config}...")
         config = load_config(args.config)

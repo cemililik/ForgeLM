@@ -89,3 +89,10 @@ tensorboard --logdir=./checkpoints/runs/
 Eğitim başarıyla tamamlandığında:
 1. Son model/adaptörler ve tokenizer `training.output_dir/training.final_model_dir` altına kaydedilir (varsayılan: `./checkpoints/final_model/`).
 2. Aradaki checkpoint’ler `training.output_dir` altında `save_total_limit` ayarınıza göre tutulur.
+
+Varsayılan olarak ForgeLM **sadece adaptörleri (LoRA)** kaydeder; bu hem çıktıyı küçük tutar hem de Phase 2 auto-revert için güvenlidir. Birleştirilmiş (merge) tam modeli kaydetmek istersen:
+
+```yaml
+training:
+  merge_adapters: true
+```

@@ -8,7 +8,18 @@ class WebhookNotifier:
     def __init__(self, config):
         self.config = config.webhook
         
-    def _send(self, title: str, text: str, color: str = "#36a64f") -> None:
+    def _send(
+        self,
+        *,
+        event: str,
+        run_name: str,
+        status: str,
+        title: str,
+        text: str,
+        color: str = "#36a64f",
+        metrics: Optional[Dict[str, float]] = None,
+        reason: Optional[str] = None,
+    ) -> None:
         if not self.config:
             return
 
@@ -18,15 +29,16 @@ class WebhookNotifier:
 
         if not url:
             return
-            
+
+        # Generic webhook payload (works for most HTTP receivers)
         payload = {
-            "attachments": [
-                {
-                    "title": title,
-                    "text": text,
-                    "color": color
-                }
-            ]
+            "event": event,
+            "run_name": run_name,
+            "status": status,
+            "metrics": metrics or {},
+            "reason": reason,
+            # Slack-compatible formatting (receivers can ignore)
+            "attachments": [{"title": title, "text": text, "color": color}],
         }
         
         try:
@@ -42,24 +54,35 @@ class WebhookNotifier:
     def notify_start(self, run_name: str) -> None:
         if self.config and self.config.notify_on_start:
             self._send(
-                title=f"🚀 Training Started: {run_name}",
-                text="The fine-tuning job has officially started on the cluster.",
-                color="#0052cc"
+                event="training.start",
+                run_name=run_name,
+                status="started",
+                title=f"Training Started: {run_name}",
+                text="The fine-tuning job has started.",
+                color="#0052cc",
             )
 
     def notify_success(self, run_name: str, metrics: Dict[str, float]) -> None:
         if self.config and self.config.notify_on_success:
             metrics_str = "\n".join([f"• {k}: {v:.4f}" for k, v in metrics.items()])
             self._send(
-                title=f"✅ Training Succeeded: {run_name}",
-                text=f"The job completed successfully. Metrics:\n{metrics_str}",
-                color="#36a64f"
+                event="training.success",
+                run_name=run_name,
+                status="succeeded",
+                title=f"Training Succeeded: {run_name}",
+                text=f"The job completed successfully.\n\nMetrics:\n{metrics_str}",
+                color="#36a64f",
+                metrics=metrics,
             )
 
     def notify_failure(self, run_name: str, reason: str) -> None:
         if self.config and self.config.notify_on_failure:
             self._send(
-                title=f"❌ Training Failed: {run_name}",
-                text=f"The training job encountered an error or evaluation failed.\nReason: {reason}",
-                color="#ff0000"
+                event="training.failure",
+                run_name=run_name,
+                status="failed",
+                title=f"Training Failed: {run_name}",
+                text=f"The training job encountered an error or evaluation failed.\n\nReason: {reason}",
+                color="#ff0000",
+                reason=reason,
             )
