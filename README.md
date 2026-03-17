@@ -3,11 +3,11 @@
 **ForgeLM** is an enhanced, enterprise-ready Language Model Fine-Tuning Toolkit with LoRA support and advanced features. It's designed to make building your own specialized LLMs simple, modular, and easy to integrate into automated pipelines.
 
 ## Features
-- **Modular Architecture**: Separate modules for data processing, model loading, and training orchestration.
-- **LoRA Support**: Easily configure and integrate Low-Rank Adaptation (LoRA) for efficient fine-tuning.
-- **Config-Driven**: Run training jobs effortlessly using YAML configuration files.
-- **CLI / Automation Ready**: Perfect for CI/CD or local automated runs. No necessary interactive prompts if a config is provided.
-- **Checkpoint Management**: Automatically handle saving, keeping, or compressing checkpoints.
+- **Unsloth & Transformers**: Train blazingly fast with the `unsloth` backend, or fall back to standard `transformers` automatically.
+- **4-Bit QLoRA & DoRA**: State-of-the-Art parameter-efficient fine-tuning utilizing NF4 quantization and Weight-Decomposed LoRA for massive memory savings.
+- **Dynamic Chat Templates**: Datasets are automatically formatted to match your base model's native conversational structure (e.g. `<|im_start|>`) via `tokenizer.apply_chat_template`.
+- **Config-Driven**: Run training jobs effortlessly using declarative YAML files—built for CI/CD and MLOps automation.
+- **Checkpoint Management**: Automatically handle saving, early stopping, and disk cleanup.
 
 ## Documentation
 For detailed guides on how to use ForgeLM, please see our dedicated documentations:
