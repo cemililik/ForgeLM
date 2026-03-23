@@ -46,6 +46,19 @@ class TrainingConfig(BaseModel):
     report_to: str = "tensorboard"  # "tensorboard", "wandb", "mlflow", or "none"
     run_name: Optional[str] = None  # W&B/MLflow run name; auto-generated if None
 
+class DistributedConfig(BaseModel):
+    """Configuration for multi-GPU distributed training via DeepSpeed or FSDP."""
+    strategy: Optional[str] = None  # "deepspeed" or "fsdp"; None = single-GPU
+    # --- DeepSpeed ---
+    deepspeed_config: Optional[str] = None  # path to DS JSON or preset name: "zero2", "zero3", "zero3_offload"
+    # --- FSDP ---
+    fsdp_strategy: str = "full_shard"  # "full_shard", "shard_grad_op", "no_shard", "hybrid_shard"
+    fsdp_auto_wrap: bool = True  # auto wrap transformer layers
+    fsdp_offload: bool = False  # offload parameters to CPU
+    fsdp_backward_prefetch: str = "backward_pre"  # "backward_pre" or "backward_post"
+    fsdp_state_dict_type: str = "FULL_STATE_DICT"  # "FULL_STATE_DICT" or "SHARDED_STATE_DICT"
+
+
 class DataConfig(BaseModel):
     dataset_name_or_path: str
     extra_datasets: Optional[List[str]] = None  # additional datasets to mix in
@@ -88,6 +101,7 @@ class ForgeConfig(BaseModel):
     auth: Optional[AuthConfig] = None
     evaluation: Optional[EvaluationConfig] = None
     webhook: Optional[WebhookConfig] = None
+    distributed: Optional[DistributedConfig] = None
 
     @model_validator(mode="after")
     def _validate_consistency(self):
@@ -101,6 +115,21 @@ class ForgeConfig(BaseModel):
             logger.warning(
                 "trust_remote_code is ignored when using the Unsloth backend."
             )
+        # Distributed training validations
+        if self.distributed and self.distributed.strategy:
+            if self.model.backend == "unsloth":
+                logger.warning(
+                    "Unsloth backend does not support multi-GPU distributed training. "
+                    "Switch to backend: 'transformers' for DeepSpeed/FSDP."
+                )
+            if (self.distributed.strategy == "deepspeed"
+                    and self.distributed.deepspeed_config
+                    and "zero3" in str(self.distributed.deepspeed_config)
+                    and self.model.load_in_4bit):
+                logger.warning(
+                    "QLoRA (4-bit) with DeepSpeed ZeRO-3 has known compatibility issues. "
+                    "Consider using ZeRO-2 or disabling 4-bit quantization for stability."
+                )
         return self
 
 

@@ -108,6 +108,7 @@ def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
         "batch_size": config.training.per_device_train_batch_size,
         "output_dir": os.path.join(config.training.output_dir, config.training.final_model_dir),
         "offline": config.model.offline,
+        "distributed": config.distributed.strategy if config.distributed else None,
         "auto_revert": bool(config.evaluation and config.evaluation.auto_revert),
         "webhook_configured": bool(config.webhook and (config.webhook.url or config.webhook.url_env)),
     }

@@ -14,7 +14,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Phase 2: Evaluation & Validation | **Complete** | 5/5 |
 | Phase 2.5: Reliability & Maturity | **Complete** | 8/8 |
 | Phase 3: Enterprise Integration | **Complete** | 6/6 |
-| Phase 4: Ecosystem Growth | **Complete** | 4/5 |
+| Phase 4: Ecosystem Growth | **Complete** | 5/5 |
 
 ---
 
@@ -109,7 +109,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 2. [x] **Experiment Tracking Integration:** Optional W&B / MLflow integration for metric logging, model comparison, and hyperparameter search visualization.
 3. [x] **Multi-Dataset Training:** Support multiple JSONL/HF datasets in a single training run with configurable mixing ratios.
 4. [x] **Automatic Model Card Generation:** Generate HF-compatible model cards with training config, metrics, dataset info, and evaluation results.
-5. [ ] **DeepSpeed / FSDP Support:** Distributed training across multiple GPUs for larger models (30B+ parameters).
+5. [x] **DeepSpeed / FSDP Support:** Distributed training across multiple GPUs for larger models (30B+ parameters).
 
 ### Requirements:
 - Each feature must be fully optional (no new required dependencies)

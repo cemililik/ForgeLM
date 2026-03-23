@@ -67,7 +67,7 @@ class ForgeTrainer:
 
     def _get_common_training_kwargs(self) -> dict:
         """Return training arguments common to both SFT and ORPO."""
-        return dict(
+        kwargs = dict(
             output_dir=self.checkpoint_dir,
             num_train_epochs=self.config.training.num_train_epochs,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
@@ -93,6 +93,82 @@ class ForgeTrainer:
             run_name=getattr(self.config.training, "run_name", None) or self.run_name,
             max_length=self.config.model.max_length,
         )
+
+        # Inject distributed training configuration
+        dist_cfg = self.config.distributed
+        if dist_cfg and dist_cfg.strategy:
+            self._apply_distributed_config(kwargs, dist_cfg)
+
+        return kwargs
+
+    def _apply_distributed_config(self, kwargs: dict, dist_cfg) -> None:
+        """Apply DeepSpeed or FSDP configuration to training kwargs."""
+        if dist_cfg.strategy == "deepspeed":
+            ds_config = self._resolve_deepspeed_config(dist_cfg.deepspeed_config)
+            kwargs["deepspeed"] = ds_config
+            logger.info("DeepSpeed enabled with config: %s", dist_cfg.deepspeed_config or "auto")
+            # DeepSpeed manages its own optimizer — remove gradient_checkpointing conflict
+            kwargs["gradient_checkpointing"] = True
+
+        elif dist_cfg.strategy == "fsdp":
+            fsdp_options = [dist_cfg.fsdp_strategy]
+            if dist_cfg.fsdp_auto_wrap:
+                fsdp_options.append("auto_wrap")
+            if dist_cfg.fsdp_offload:
+                fsdp_options.append("offload")
+            kwargs["fsdp"] = " ".join(fsdp_options)
+            kwargs["fsdp_config"] = {
+                "backward_prefetch": dist_cfg.fsdp_backward_prefetch,
+                "state_dict_type": dist_cfg.fsdp_state_dict_type,
+            }
+            logger.info("FSDP enabled with strategy: %s", dist_cfg.fsdp_strategy)
+
+        else:
+            logger.warning("Unknown distributed strategy: %s. Ignoring.", dist_cfg.strategy)
+
+    def _resolve_deepspeed_config(self, config_ref: str = None) -> str:
+        """Resolve a DeepSpeed config reference to a file path.
+
+        Accepts:
+          - A preset name: "zero2", "zero3", "zero3_offload"
+          - An absolute or relative file path to a JSON file
+          - None: returns the default zero2 preset
+        """
+        presets = {
+            "zero2": "configs/deepspeed/zero2.json",
+            "zero3": "configs/deepspeed/zero3.json",
+            "zero3_offload": "configs/deepspeed/zero3_offload.json",
+        }
+
+        if not config_ref:
+            config_ref = "zero2"
+
+        # Check if it's a preset name
+        if config_ref in presets:
+            # Resolve relative to the package installation or CWD
+            preset_path = presets[config_ref]
+            # Try package-relative first
+            pkg_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            full_path = os.path.join(pkg_dir, preset_path)
+            if os.path.isfile(full_path):
+                logger.info("Using DeepSpeed preset '%s': %s", config_ref, full_path)
+                return full_path
+            # Fall back to CWD
+            if os.path.isfile(preset_path):
+                return preset_path
+            logger.warning(
+                "DeepSpeed preset '%s' not found at %s. "
+                "Ensure ForgeLM configs directory is accessible.",
+                config_ref, full_path
+            )
+            return full_path  # Let DeepSpeed handle the error
+
+        # It's a file path
+        if os.path.isfile(config_ref):
+            logger.info("Using custom DeepSpeed config: %s", config_ref)
+            return config_ref
+
+        raise FileNotFoundError(f"DeepSpeed config not found: {config_ref}")
 
     def _get_training_args(self) -> SFTConfig:
         kwargs = self._get_common_training_kwargs()

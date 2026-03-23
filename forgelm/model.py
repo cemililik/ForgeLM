@@ -64,10 +64,18 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
         logger.info("Tokenizer has no pad_token, using eos_token as pad_token.")
         tokenizer.pad_token = tokenizer.eos_token
 
+    # Distributed training (DeepSpeed/FSDP) manages device placement itself.
+    # device_map="auto" conflicts with multi-GPU distributed strategies.
+    dist_cfg = getattr(config, "distributed", None)
+    is_distributed = dist_cfg and dist_cfg.strategy
+
     model_kwargs = {
-        "device_map": "auto",
         "trust_remote_code": trust_remote_code,
     }
+    if not is_distributed:
+        model_kwargs["device_map"] = "auto"
+    else:
+        logger.info("Distributed training detected — skipping device_map='auto'.")
 
     if torch.cuda.is_available() and config.model.load_in_4bit:
         logger.info("Using 4-bit QLoRA quantization...")
