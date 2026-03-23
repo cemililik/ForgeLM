@@ -310,9 +310,17 @@ def _output_result(result, output_format: str) -> None:
         if result.resource_usage:
             output["resource_usage"] = result.resource_usage
         if result.safety_passed is not None:
-            output["safety_passed"] = result.safety_passed
+            output["safety"] = {
+                "passed": result.safety_passed,
+                "safety_score": result.safety_score,
+                "categories": result.safety_categories,
+                "severity": result.safety_severity,
+                "low_confidence_count": result.safety_low_confidence,
+            }
         if result.judge_score is not None:
-            output["judge_score"] = result.judge_score
+            output["judge"] = {
+                "average_score": result.judge_score,
+            }
         print(json.dumps(output, indent=2))
     else:
         if result.success:

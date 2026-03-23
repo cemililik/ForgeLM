@@ -258,6 +258,16 @@ class ForgeConfig(BaseModel):
                     "High-risk AI classification: safety evaluation is strongly recommended. "
                     "Set evaluation.safety.enabled: true."
                 )
+            if (
+                self.evaluation
+                and self.evaluation.safety
+                and self.evaluation.safety.enabled
+                and not self.evaluation.safety.track_categories
+            ):
+                logger.warning(
+                    "High-risk AI: harm category tracking (track_categories: true) is recommended "
+                    "for detailed EU AI Act compliance documentation."
+                )
         # Trainer type validation
         valid_trainers = {"sft", "orpo", "dpo", "simpo", "kto", "grpo"}
         if self.training.trainer_type not in valid_trainers:

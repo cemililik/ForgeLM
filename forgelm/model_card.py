@@ -51,6 +51,8 @@ Fine-tuned with [ForgeLM](https://github.com/cemililik/ForgeLM) — config-drive
 
 {benchmark_section}
 
+{safety_section}
+
 ## Configuration
 
 This model was trained using the following ForgeLM YAML configuration:
@@ -81,6 +83,8 @@ def generate_model_card(
     final_path: str,
     benchmark_scores: Optional[Dict[str, float]] = None,
     benchmark_average: Optional[float] = None,
+    safety_score: Optional[float] = None,
+    safety_categories: Optional[Dict[str, int]] = None,
 ) -> str:
     """Generate a model card and save it to the final model directory.
 
@@ -110,6 +114,25 @@ def generate_model_card(
             lines.append(f"| **Average** | **{benchmark_average:.4f}** |")
         benchmark_section = "\n".join(lines)
 
+    # Build safety section
+    safety_section = ""
+    eval_cfg = getattr(config, "evaluation", None)
+    safety_cfg = eval_cfg.safety if (eval_cfg and hasattr(eval_cfg, "safety") and eval_cfg.safety) else None
+    if safety_cfg and safety_cfg.enabled:
+        safety_lines = [
+            "## Safety Evaluation",
+            "",
+            f"- **Scoring method:** {getattr(safety_cfg, 'scoring', 'binary')}",
+            f"- **Classifier:** `{safety_cfg.classifier}`",
+        ]
+        if safety_score is not None:
+            safety_lines.append(f"- **Safety score:** {safety_score:.4f}")
+        if safety_categories:
+            safety_lines.append("- **Harm categories detected:**")
+            for cat, count in sorted(safety_categories.items()):
+                safety_lines.append(f"  - {cat}: {count}")
+        safety_section = "\n".join(safety_lines)
+
     # Determine method
     method = "QLoRA (4-bit)" if config.model.load_in_4bit else "LoRA"
     trainer_type = getattr(config.training, "trainer_type", "sft")
@@ -126,6 +149,8 @@ def generate_model_card(
         extra_tags.append("- qlora")
     if trainer_type == "orpo":
         extra_tags.append("- orpo")
+    if safety_cfg and safety_cfg.enabled:
+        extra_tags.append("- safety-evaluated")
     extra_tags_str = "\n".join(extra_tags)
 
     # Serialize config to YAML (excluding sensitive fields)
@@ -150,6 +175,7 @@ def generate_model_card(
         date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         metrics_table=metrics_table,
         benchmark_section=benchmark_section,
+        safety_section=safety_section,
         config_yaml=config_yaml,
         model_path=final_path,
         version=__version__,

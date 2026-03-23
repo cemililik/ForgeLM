@@ -1,7 +1,7 @@
 """Training result dataclass — importable without heavy ML dependencies."""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -17,5 +17,12 @@ class TrainResult:
     benchmark_average: Optional[float] = None
     benchmark_passed: Optional[bool] = None
     resource_usage: Optional[Dict[str, Any]] = None
+    # Safety evaluation (Phase 9)
     safety_passed: Optional[bool] = None
+    safety_score: Optional[float] = None
+    safety_categories: Optional[Dict[str, int]] = None
+    safety_severity: Optional[Dict[str, int]] = None
+    safety_low_confidence: int = 0
+    # Judge evaluation
     judge_score: Optional[float] = None
+    judge_details: Optional[List[Dict[str, Any]]] = None

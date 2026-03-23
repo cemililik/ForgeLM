@@ -427,8 +427,16 @@ class ForgeTrainer:
                     metrics[f"benchmark/{task}"] = score
                 metrics["benchmark/average"] = benchmark_result.average_score
 
+                self.audit.log_event(
+                    "benchmark.evaluation_completed",
+                    passed=benchmark_result.passed,
+                    average=benchmark_result.average_score,
+                    scores=benchmark_result.scores,
+                )
+
                 if not benchmark_result.passed:
                     reason = benchmark_result.failure_reason or "Benchmark score below threshold."
+                    self.audit.log_event("eval.revert_triggered", reason="benchmark", detail=reason)
                     self._revert_model(final_path, reason)
                     train_result.success = False
                     train_result.reverted = True
@@ -445,8 +453,22 @@ class ForgeTrainer:
             safety_result = self._run_safety_if_configured(final_path)
             if safety_result is not None:
                 train_result.safety_passed = safety_result.passed
+                train_result.safety_score = safety_result.safety_score
+                train_result.safety_categories = safety_result.category_distribution
+                train_result.safety_severity = safety_result.severity_distribution
+                train_result.safety_low_confidence = safety_result.low_confidence_count
                 metrics["safety/safe_ratio"] = safety_result.safe_ratio
+                if safety_result.safety_score is not None:
+                    metrics["safety/safety_score"] = safety_result.safety_score
+                self.audit.log_event(
+                    "safety.evaluation_completed",
+                    passed=safety_result.passed,
+                    safe_ratio=safety_result.safe_ratio,
+                    safety_score=safety_result.safety_score,
+                    categories=safety_result.category_distribution,
+                )
                 if not safety_result.passed and self.config.evaluation and self.config.evaluation.auto_revert:
+                    self.audit.log_event("eval.revert_triggered", reason="safety", detail=safety_result.failure_reason)
                     self._revert_model(final_path, safety_result.failure_reason or "Safety check failed.")
                     train_result.success = False
                     train_result.reverted = True
@@ -456,8 +478,15 @@ class ForgeTrainer:
             judge_result = self._run_judge_if_configured(final_path)
             if judge_result is not None:
                 train_result.judge_score = judge_result.average_score
+                train_result.judge_details = judge_result.details
                 metrics["judge/average_score"] = judge_result.average_score
+                self.audit.log_event(
+                    "judge.evaluation_completed",
+                    passed=judge_result.passed,
+                    average_score=judge_result.average_score,
+                )
                 if not judge_result.passed and self.config.evaluation and self.config.evaluation.auto_revert:
+                    self.audit.log_event("eval.revert_triggered", reason="judge", detail=judge_result.failure_reason)
                     self._revert_model(final_path, judge_result.failure_reason or "Judge score below threshold.")
                     train_result.success = False
                     train_result.reverted = True
@@ -567,6 +596,8 @@ class ForgeTrainer:
                 final_path=final_path,
                 benchmark_scores=result.benchmark_scores,
                 benchmark_average=result.benchmark_average,
+                safety_score=result.safety_score,
+                safety_categories=result.safety_categories,
             )
         except Exception as e:
             logger.warning("Failed to generate model card: %s", e)
@@ -650,13 +681,34 @@ class ForgeTrainer:
         try:
             from .compliance import export_compliance_artifacts, generate_training_manifest
 
+            # Convert result objects to dicts for JSON serialization
+            safety_dict = None
+            if result.safety_passed is not None:
+                safety_dict = {
+                    "passed": result.safety_passed,
+                    "safety_score": result.safety_score,
+                    "categories": result.safety_categories,
+                    "severity": result.safety_severity,
+                    "low_confidence_count": result.safety_low_confidence,
+                }
+            judge_dict = None
+            if result.judge_score is not None:
+                judge_dict = {"average_score": result.judge_score}
+            benchmark_dict = None
+            if result.benchmark_scores is not None:
+                benchmark_dict = {"scores": result.benchmark_scores, "average": result.benchmark_average}
+
             manifest = generate_training_manifest(
                 config=self.config,
                 metrics=metrics,
                 resource_usage=result.resource_usage,
+                safety_result=safety_dict,
+                judge_result=judge_dict,
+                benchmark_result=benchmark_dict,
             )
             compliance_dir = os.path.join(self.checkpoint_dir, "compliance")
             export_compliance_artifacts(manifest, self.config, compliance_dir)
+            self.audit.log_event("compliance.artifacts_exported", directory=compliance_dir)
         except Exception as e:
             logger.warning("Failed to export compliance artifacts: %s", e)
 

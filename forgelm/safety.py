@@ -149,8 +149,8 @@ def run_safety_evaluation(
             if not is_safe:
                 unsafe_count += 1
 
-            # Track confidence
-            confidence_scores.append(confidence if is_safe else (1.0 - confidence))
+            # Track confidence — fail-safe: unsafe responses always contribute 0.0
+            confidence_scores.append(confidence if is_safe else 0.0)
             if confidence < min_classifier_confidence:
                 low_confidence_count += 1
 
