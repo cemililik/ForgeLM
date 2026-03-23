@@ -47,11 +47,12 @@ FROM base AS deps
 COPY pyproject.toml README.md ./
 COPY forgelm/__init__.py forgelm/__init__.py
 
-# Install core package
-RUN python3 -m pip install --no-cache-dir -e .
-
-# Install QLoRA (bitsandbytes) — always included on Linux
-RUN python3 -m pip install --no-cache-dir -e ".[qlora]"
+# Install core + QLoRA (bitsandbytes included by default on Linux)
+ARG INSTALL_QLORA=true
+RUN python3 -m pip install --no-cache-dir -e . && \
+    if [ "$INSTALL_QLORA" = "true" ]; then \
+    python3 -m pip install --no-cache-dir -e ".[qlora]"; \
+    fi
 
 # Optional: evaluation harness
 ARG INSTALL_EVAL=false
@@ -71,7 +72,7 @@ FROM deps AS runtime
 # Copy full source
 COPY . .
 
-# Re-install in editable mode with full source
+# Re-install with full source
 RUN python3 -m pip install --no-cache-dir -e .
 
 # Default working directory for user configs/data

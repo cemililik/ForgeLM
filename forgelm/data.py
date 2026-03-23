@@ -25,7 +25,8 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
     """Loads and tokenizes the dataset based on ForgeConfig."""
 
     logger.info("Loading dataset from %s...", config.data.dataset_name_or_path)
-    dataset = _load_single_dataset(config.data.dataset_name_or_path)
+    primary_dataset = _load_single_dataset(config.data.dataset_name_or_path)
+    dataset = primary_dataset
 
     # Multi-dataset support: load and merge extra datasets
     extra_datasets = getattr(config.data, "extra_datasets", None)
@@ -41,15 +42,18 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
         # Apply mix ratios via sampling
         if mix_ratio and len(mix_ratio) == len(all_train):
             total_weight = sum(mix_ratio)
-            normalized = [w / total_weight for w in mix_ratio]
-            # Target size = primary dataset size
-            target_size = len(all_train[0])
-            sampled = []
-            for ds, ratio in zip(all_train, normalized):
-                n_samples = min(int(target_size * ratio / normalized[0]), len(ds))
-                sampled.append(ds.select(range(n_samples)))
-            all_train = sampled
-            logger.info("Applied mix ratios: %s", mix_ratio)
+            if total_weight == 0:
+                logger.warning("mix_ratio weights sum to 0. Using uniform mixing.")
+            else:
+                normalized = [w / total_weight for w in mix_ratio]
+                # Total target = sum of all dataset sizes weighted proportionally
+                max_dataset_size = max(len(ds) for ds in all_train)
+                sampled = []
+                for ds, ratio in zip(all_train, normalized):
+                    n_samples = min(int(max_dataset_size * ratio), len(ds))
+                    sampled.append(ds.select(range(n_samples)))
+                all_train = sampled
+                logger.info("Applied mix ratios: %s", mix_ratio)
         else:
             if mix_ratio:
                 logger.warning(
@@ -60,13 +64,13 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
         merged_train = concatenate_datasets(all_train)
         logger.info("Merged %d datasets into %d training samples.", len(all_train), len(merged_train))
         dataset = DatasetDict({"train": merged_train})
-        # Validation from primary dataset only
-        if "validation" in _load_single_dataset(config.data.dataset_name_or_path):
-            dataset["validation"] = _load_single_dataset(config.data.dataset_name_or_path)["validation"]
+        # Validation from primary dataset (already loaded, no re-fetch)
+        if "validation" in primary_dataset:
+            dataset["validation"] = primary_dataset["validation"]
 
     # Ensure splits exist (train / validation)
     if "validation" not in dataset and "test" in dataset:
-         dataset["validation"] = dataset["test"]
+        dataset["validation"] = dataset["test"]
     elif "validation" not in dataset:
         logger.info("No validation split found. Slicing 10%% off training data for validation.")
         split_dataset = dataset["train"].train_test_split(test_size=0.1, seed=42)

@@ -143,12 +143,10 @@ class ForgeTrainer:
             # Fall back to CWD
             if os.path.isfile(preset_path):
                 return preset_path
-            logger.warning(
-                "DeepSpeed preset '%s' not found at %s. "
-                "Ensure ForgeLM configs directory is accessible.",
-                config_ref, full_path
+            raise FileNotFoundError(
+                f"DeepSpeed preset '{config_ref}' not found at {full_path}. "
+                f"Ensure ForgeLM configs directory is accessible."
             )
-            return full_path  # Let DeepSpeed handle the error
 
         # It's a file path
         if os.path.isfile(config_ref):
@@ -531,7 +529,8 @@ class ForgeTrainer:
                 usage["peak_vram_gb"] = round(torch.cuda.max_memory_allocated(0) / (1024**3), 2)
                 usage["gpu_count"] = torch.cuda.device_count()
             # Training duration is in metrics from HF Trainer
-            train_runtime = self.trainer.state.log_history[-1].get("train_runtime") if self.trainer.state.log_history else None
+            log_history = getattr(self.trainer.state, "log_history", None)
+            train_runtime = log_history[-1].get("train_runtime") if log_history else None
             if train_runtime:
                 usage["training_duration_seconds"] = round(train_runtime, 1)
                 gpu_hours = (train_runtime / 3600) * usage.get("gpu_count", 1)

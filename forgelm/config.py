@@ -136,6 +136,7 @@ class WebhookConfig(BaseModel):
     notify_on_start: bool = True
     notify_on_success: bool = True
     notify_on_failure: bool = True
+    timeout: int = 5  # HTTP request timeout in seconds
 
 class AuthConfig(BaseModel):
     hf_token: Optional[str] = None

@@ -1,7 +1,7 @@
 # ForgeLM Configuration Template
 ---
 model:
-  name_or_path: "meta-llama/Llama-2-7b-hf"
+  name_or_path: "meta-llama/Llama-3.1-8B-Instruct"
   max_length: 2048
   load_in_4bit: true
   backend: "transformers" # Can be "transformers" or "unsloth"

@@ -108,12 +108,14 @@ def run_benchmark(
 
     for task_name, task_result in raw_results.items():
         # lm-eval stores metrics under various keys; prefer acc_norm, then acc
-        score = (
-            task_result.get("acc_norm,none")
-            or task_result.get("acc,none")
-            or task_result.get("acc_norm")
-            or task_result.get("acc")
-        )
+        # Use explicit None checks to avoid treating 0.0 as missing
+        score = task_result.get("acc_norm,none")
+        if score is None:
+            score = task_result.get("acc,none")
+        if score is None:
+            score = task_result.get("acc_norm")
+        if score is None:
+            score = task_result.get("acc")
         if score is not None:
             scores[task_name] = float(score)
             logger.info("  %s: %.4f", task_name, score)

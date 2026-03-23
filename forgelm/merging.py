@@ -90,6 +90,11 @@ def _linear_merge(base_model, adapters):
 
     # Load and merge each adapter with weighted interpolation
     total_weight = sum(a.get("weight", 1.0) for a in adapters)
+    if total_weight == 0:
+        raise ValueError("Adapter weights sum to 0. Provide positive weights for merging.")
+
+    # Capture base model state for reset between adapter loads
+    base_state = {k: v.clone() for k, v in base_model.state_dict().items()}
     merged_state = None
 
     for adapter_info in adapters:
@@ -97,6 +102,8 @@ def _linear_merge(base_model, adapters):
         weight = adapter_info.get("weight", 1.0) / total_weight
         logger.info("  Loading adapter: %s (weight=%.3f)", path, weight)
 
+        # Reset base model to original state before loading each adapter
+        base_model.load_state_dict(base_state, strict=True)
         adapter_model = PeftModel.from_pretrained(base_model, path)
         merged_adapter = adapter_model.merge_and_unload()
 
@@ -107,10 +114,11 @@ def _linear_merge(base_model, adapters):
                 if k in merged_state:
                     merged_state[k] += v * weight
 
-        # Reload base model for next adapter
         del adapter_model, merged_adapter
 
-    base_model.load_state_dict(merged_state, strict=False)
+    missing, unexpected = base_model.load_state_dict(merged_state, strict=False)
+    if unexpected:
+        logger.warning("Merge produced %d unexpected keys (ignored).", len(unexpected))
     return base_model
 
 

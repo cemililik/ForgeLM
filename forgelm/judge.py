@@ -35,10 +35,34 @@ class JudgeResult:
     details: List[Dict[str, Any]] = field(default_factory=list)
 
 
-def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o") -> Dict[str, Any]:
-    """Call an API-based judge (OpenAI-compatible)."""
+OPENAI_API_BASE = "https://api.openai.com/v1/chat/completions"
+
+
+def _parse_judge_json(text: str) -> Dict[str, Any]:
+    """Safely parse judge response JSON, handling common LLM output quirks."""
+    text = text.strip()
+    # Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Try extracting JSON from markdown code block
+    if "```" in text:
+        for block in text.split("```"):
+            block = block.strip().removeprefix("json").strip()
+            try:
+                return json.loads(block)
+            except json.JSONDecodeError:
+                continue
+    logger.warning("Could not parse judge response as JSON: %s", text[:200])
+    return {"score": 0, "reason": f"Invalid JSON response: {text[:200]}"}
+
+
+def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: str = None) -> Dict[str, Any]:
+    """Call an API-based judge (OpenAI-compatible endpoint)."""
     import requests
 
+    url = api_base or OPENAI_API_BASE
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -51,15 +75,13 @@ def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o") -> Dict[st
     }
 
     try:
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30,
-        )
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
-        return json.loads(content)
+        return _parse_judge_json(content)
+    except json.JSONDecodeError as e:
+        logger.warning("API judge returned invalid JSON: %s", e)
+        return {"score": 0, "reason": f"Invalid JSON from API: {e}"}
     except Exception as e:
         logger.warning("API judge call failed: %s", e)
         return {"score": 0, "reason": f"API error: {e}"}
@@ -67,13 +89,15 @@ def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o") -> Dict[st
 
 def _call_local_judge(prompt: str, model: Any, tokenizer: Any) -> Dict[str, Any]:
     """Call a local model as judge."""
+    import torch
+
     try:
         inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048)
         inputs = {k: v.to(model.device) for k, v in inputs.items()}
-        with __import__("torch").no_grad():
+        with torch.no_grad():
             outputs = model.generate(**inputs, max_new_tokens=200, do_sample=False)
         response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-        return json.loads(response)
+        return _parse_judge_json(response)
     except Exception as e:
         logger.warning("Local judge evaluation failed: %s", e)
         return {"score": 0, "reason": f"Local judge error: {e}"}

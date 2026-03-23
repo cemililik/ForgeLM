@@ -32,8 +32,8 @@ jobs:
       - name: Ruff
         run: |
           ruff --version
-          # Catch syntax errors, undefined names, and unused imports.
-          ruff check . --select F,E9
+          # Catch syntax errors, undefined names, unused imports, and common bugs.
+          ruff check . --select F,E9,W,B
 
       - name: Pytest with coverage
         run: |

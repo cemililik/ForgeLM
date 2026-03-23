@@ -246,10 +246,16 @@ def run_wizard() -> str:
     if not config_filename.endswith((".yaml", ".yml")):
         config_filename += ".yaml"
 
-    with open(config_filename, "w") as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-
-    print(f"\n  Config saved to: {config_filename}")
+    try:
+        with open(config_filename, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        print(f"\n  Config saved to: {config_filename}")
+    except OSError as e:
+        print(f"\n  Error: Could not save config to {config_filename}: {e}")
+        config_filename = "my_config.yaml"
+        with open(config_filename, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        print(f"  Saved to fallback location: {config_filename}")
 
     # Summary
     print("\n" + "=" * 60)

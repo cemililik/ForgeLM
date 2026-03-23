@@ -52,7 +52,7 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
             lora_dropout=config.lora.dropout,
             bias=config.lora.bias,
             use_gradient_checkpointing="unsloth",
-            use_rslora=False,
+            use_rslora=getattr(config.lora, "use_rslora", False),
             use_dora=config.lora.use_dora,
         )
 

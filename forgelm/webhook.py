@@ -49,7 +49,7 @@ class WebhookNotifier:
                 url,
                 data=json.dumps(payload),
                 headers={'Content-Type': 'application/json'},
-                timeout=5
+                timeout=getattr(self.config, "timeout", 5)
             )
         except requests.exceptions.Timeout:
             logger.warning("Webhook request timed out for event '%s' (url=%s).", event, url)
