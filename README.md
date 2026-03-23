@@ -83,6 +83,9 @@ See the [Quick Start Guide](docs/guides/quickstart.md) for a complete walkthroug
 
 - [Quick Start — SFT Fine-Tuning](notebooks/quickstart_sft.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/quickstart_sft.ipynb)
 - [DPO Preference Alignment](notebooks/dpo_alignment.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/dpo_alignment.ipynb)
+- [KTO Binary Feedback](notebooks/kto_binary_feedback.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/kto_binary_feedback.ipynb)
+- [GRPO Reasoning RL](notebooks/grpo_reasoning.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/grpo_reasoning.ipynb)
+- [Multi-Dataset Training](notebooks/multi_dataset.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/multi_dataset.ipynb)
 
 ---
 

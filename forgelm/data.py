@@ -8,6 +8,23 @@ from transformers import PreTrainedTokenizer
 logger = logging.getLogger("forgelm.data")
 
 
+def _detect_dataset_format(columns: list) -> dict:
+    """Detect the most likely dataset format from column names."""
+    if "chosen" in columns and "rejected" in columns:
+        return {"description": "preference format (chosen/rejected)", "suggested_trainer": "dpo"}
+    if "completion" in columns and "label" in columns:
+        return {"description": "binary feedback format (completion/label)", "suggested_trainer": "kto"}
+    if "messages" in columns:
+        return {"description": "conversational format (messages list)", "suggested_trainer": "sft"}
+    if "prompt" in columns and "chosen" not in columns:
+        return {"description": "prompt-only format", "suggested_trainer": "grpo"}
+    if any(c in columns for c in ("User", "instruction")) and any(
+        c in columns for c in ("Assistant", "output", "response")
+    ):
+        return {"description": "instruction-tuning format (User/Assistant)", "suggested_trainer": "sft"}
+    return {"description": f"unknown format ({', '.join(columns[:5])})", "suggested_trainer": "sft"}
+
+
 def clean_string(text: str, do_clean: bool) -> str:
     """Removes extra whitespace if configured."""
     if do_clean and isinstance(text, str):
@@ -164,25 +181,38 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
             processed[split] = current_dataset
         return processed
 
+    # Detect what format the dataset actually is
+    _detected_format = _detect_dataset_format(sample_columns)
+
     # Preference trainers: DPO, SimPO, ORPO require chosen/rejected
     preference_trainers = {"dpo", "simpo", "orpo"}
     if trainer_type in preference_trainers and not has_chosen_rejected:
         raise KeyError(
-            f"{trainer_type.upper()} trainer requires a preference dataset with 'chosen' and "
-            f"'rejected' columns. Found columns: {', '.join(sample_columns)}"
+            f"{trainer_type.upper()} trainer requires 'chosen' and 'rejected' columns, "
+            f"but found: {', '.join(sample_columns)}.\n\n"
+            f"Your dataset looks like: {_detected_format['description']}\n"
+            f'Suggested: Use trainer_type: "{_detected_format["suggested_trainer"]}" instead, '
+            f"or convert your data to preference format (prompt + chosen + rejected)."
         )
 
     # KTO requires completion/label format
     if trainer_type == "kto" and not has_kto_format:
         raise KeyError(
-            "KTO trainer requires a dataset with 'completion' and 'label' (boolean) columns. "
-            f"Found columns: {', '.join(sample_columns)}"
+            f"KTO trainer requires 'completion' and 'label' (boolean) columns, "
+            f"but found: {', '.join(sample_columns)}.\n\n"
+            f"Your dataset looks like: {_detected_format['description']}\n"
+            f'Suggested: Use trainer_type: "{_detected_format["suggested_trainer"]}" instead, '
+            f"or convert your data to KTO format (prompt + completion + label)."
         )
 
     # GRPO requires prompt column (generates responses during training)
     if trainer_type == "grpo" and not has_prompt_only and "prompt" not in sample_columns:
         raise KeyError(
-            f"GRPO trainer requires a dataset with a 'prompt' column. Found columns: {', '.join(sample_columns)}"
+            f"GRPO trainer requires a 'prompt' column, "
+            f"but found: {', '.join(sample_columns)}.\n\n"
+            f"Your dataset looks like: {_detected_format['description']}\n"
+            f'Suggested: Use trainer_type: "{_detected_format["suggested_trainer"]}" instead, '
+            f"or convert your data to prompt-only format."
         )
 
     # Preference / alignment datasets are passed through with minimal processing

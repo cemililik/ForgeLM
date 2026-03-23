@@ -87,6 +87,12 @@ def parse_args():
         help="Export compliance artifacts (audit trail, provenance) from an existing training run.",
     )
     parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress INFO logs. Only show warnings and errors.",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
@@ -340,7 +346,8 @@ def main():
         sys.exit(EXIT_CONFIG_ERROR)
 
     json_output = args.output_format == "json"
-    _setup_logging(args.log_level, json_format=json_output)
+    log_level = "WARNING" if args.quiet else args.log_level
+    _setup_logging(log_level, json_format=json_output)
 
     # 1. Load and validate configuration
     try:

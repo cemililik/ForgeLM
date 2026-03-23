@@ -51,6 +51,16 @@ class ForgeTrainer:
                 "if a validation set is available."
             )
 
+        # Warn if eval_steps is larger than training dataset
+        train_size = len(self.dataset.get("train", []))
+        if train_size > 0 and self.config.training.eval_steps > train_size:
+            logger.warning(
+                "eval_steps (%d) is larger than training dataset (%d samples). "
+                "Evaluation will not run during training. Consider reducing eval_steps.",
+                self.config.training.eval_steps,
+                train_size,
+            )
+
     @property
     def _trainer_type(self) -> str:
         return getattr(self.config.training, "trainer_type", "sft")
