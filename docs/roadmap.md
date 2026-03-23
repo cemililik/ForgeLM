@@ -1,8 +1,11 @@
 # ForgeLM Enterprise Roadmap (2026+)
 
-Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgrade_proposal.md) and the comprehensive product analysis conducted in March 2026, this roadmap details the execution phases required to transition ForgeLM from a foundational fine-tuning toolkit into a robust **Enterprise MLOps Station**.
+Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgrade_proposal.md), the comprehensive product analysis (March 2026), and competitive landscape research against Axolotl, LLaMA-Factory, Unsloth, TRL, and torchtune, this roadmap details the execution phases for ForgeLM's evolution into the standard **config-driven, enterprise-grade LLM fine-tuning platform**.
 
-> **Guiding Principle:** Reliability before features. Every new capability must be built on a tested, observable, and well-documented foundation.
+> **Guiding Principles:**
+> 1. Reliability before features.
+> 2. Enterprise differentiation over feature parity.
+> 3. Every new capability must be config-driven, testable, and optional.
 
 ---
 
@@ -15,105 +18,172 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Phase 2.5: Reliability & Maturity | **Complete** | 8/8 |
 | Phase 3: Enterprise Integration | **Complete** | 6/6 |
 | Phase 4: Ecosystem Growth | **Complete** | 5/5 |
+| Phase 5: Alignment & Post-Training Stack | **Planned** | 0/5 |
+| Phase 6: Enterprise Trust & Compliance | **Planned** | 0/5 |
+| Phase 7: Next-Gen Model Support | **Planned** | 0/5 |
 
 ---
 
-## Phase 1: Foundational SOTA Upgrades ✅
-**Goal:** Bring the core training engine up to the early-2026 State-of-the-Art (SOTA) standards.
-**Status:** Complete
+## Phase 1–4: Complete ✅
 
-### Tasks:
-1. [x] **4-Bit QLoRA & DoRA Implementation:** `model.py` updated to utilize `BitsAndBytesConfig` for NF4 quantization with `use_dora` flag support via PEFT config.
-2. [x] **TRL `SFTTrainer` Migration:** Standard HF `Trainer` replaced with `SFTTrainer` for automatic sequence packing and masking.
-3. [x] **Chat Template Standardization:** `data.py` now uses `tokenizer.apply_chat_template()` instead of manual string concatenation.
-4. [x] **Unsloth Backend Support:** `backend: "unsloth"` option available in YAML for 2x-5x faster training.
-5. [x] **Blackwell (GB10) Optimization:** Specific flags for CUDA 13.0 environments. [Design Doc](design_blackwell_optimized.md)
-6. [x] **Pre-flight Dataset & Model Validation:** Checks for `safetensors` format and dataset schema patterns before loading weights.
+<details>
+<summary>Click to expand completed phases</summary>
 
----
+### Phase 1: Foundational SOTA Upgrades ✅ (6/6)
+4-Bit QLoRA & DoRA, TRL SFTTrainer, Chat Templates, Unsloth Backend, Blackwell Optimization, Pre-flight Validation.
 
-## Phase 2: Autonomous Evaluation & Validation (In Progress)
-**Goal:** Ensure that training never blindly overwrites good models; implement automated checks.
-**Status:** 3 of 5 tasks complete
+### Phase 2: Autonomous Evaluation & Validation ✅ (5/5)
+Automated Benchmarking (lm-eval-harness), Model Reversion, Webhook Integration, Wizard Mode, Runtime Smoke Tests.
 
-### Tasks:
-1. [x] **Automated Benchmarking:** Post-training evaluation via `lm-evaluation-harness`. Full integration with configurable tasks, min_score threshold, auto-revert, webhook notifications, and `--benchmark-only` CLI mode.
-2. [x] **Model Reversion Mechanism:** Auto-discard LoRA adapters if they score worse than baseline. *(Edge cases hardened: NaN/inf handling, rmtree safety, improvement logging)*
-3. [x] **Slack/Teams Webhook Integration:** `webhook` section in YAML config sends structured JSON payloads on start/success/failure.
-4. [x] **Interactive Configuration Wizard (`forgelm --wizard`):** Step-by-step CLI to generate valid `config.yaml`. [Design Doc](design_wizard_mode.md) *(Implemented in Phase 3)*
-5. [x] **Runtime Smoke Test Automation:** `tests/runtime_smoke.py` verifies full training loops on CPU/CI environments.
+### Phase 2.5: Reliability & Production Readiness ✅ (8/8)
+Structured Logging, Silent Failure Elimination, Test Coverage, Dependency Pinning, Security Hardening, CLI Maturity, Error Diagnostics, CI/CD Hardening.
+
+### Phase 3: Enterprise Integration ✅ (6/6)
+Wizard Mode, Benchmarking, Docker/Compose, JSON Output, Offline/Air-Gapped Mode, Checkpoint Resume.
+
+### Phase 4: Ecosystem Growth ✅ (5/5)
+ORPO Trainer, W&B/MLflow/TensorBoard, Multi-Dataset Training, Model Card Generation, DeepSpeed/FSDP.
+
+</details>
 
 ---
 
-## Phase 2.5: Reliability & Production Readiness (NEW — Top Priority)
-**Goal:** Harden the existing codebase for production use. No new features — only stability, observability, and safety improvements.
-**Estimated Effort:** Medium (2-3 weeks)
+## Phase 5: Alignment & Post-Training Stack
+**Goal:** Provide the complete modern post-training pipeline: SFT → Preference Optimization → RL for Reasoning. This is the single most critical gap vs competitors — every major tool (Axolotl, TRL, Unsloth, LLaMA-Factory) supports DPO and GRPO.
+**Estimated Effort:** High (2-3 months)
+**Priority:** Critical — market expectation
 
-> **Rationale:** The March 2026 product analysis identified critical reliability gaps — silent exception handling, insufficient test coverage, and missing observability — that must be resolved before adding new features. Building on an untested foundation compounds technical debt.
-
-### Tasks:
-1. [x] **Structured Logging Migration:** Replace all `print()` statements with Python `logging` module. Add configurable log levels (`--log-level`) and JSON log format option for cloud/container environments.
-2. [x] **Silent Failure Elimination:** Audit and fix all `except Exception:` blocks across the codebase. Every caught exception must be logged with context. Critical failures (data formatting fallback, adapter disable failure) must emit warnings visible to the user.
-3. [x] **Test Coverage Expansion:** Add unit tests for each core module:
-   - `config.py`: Validation edge cases, conflicting configuration detection
-   - `data.py`: Format detection, chat template fallback, empty dataset handling
-   - `model.py`: Backend selection, quantization config resolution
-   - `webhook.py`: Payload format, env var resolution, timeout handling
-4. [x] **Dependency Version Pinning:** Add upper-bound version constraints to `pyproject.toml` for critical dependencies (`trl`, `peft`, `transformers`, `unsloth`). Create a compatibility matrix document.
-5. [x] **Security Hardening:** Make `trust_remote_code` configurable via YAML (default: `false`). Add warning when enabled. This is an enterprise adoption blocker.
-6. [x] **CLI Maturity:**
-   - `--version` flag
-   - `--dry-run` / `--validate-only` mode (parse config, validate model/dataset access, exit without training)
-   - Meaningful exit codes: `0` success, `1` config error, `2` training failure, `3` evaluation failure
-7. [x] **Error Diagnostics Improvement:** Differentiate error types in CLI output. Config validation errors should show the exact field and expected type. Training errors should include hardware context (GPU model, VRAM, CUDA version).
-8. [x] **CI/CD Pipeline Hardening:** Add to GitHub Actions:
-   - Unit test execution with coverage reporting
-   - Dependency vulnerability scanning
-   - Config template validation test
-
-### Success Criteria:
-- Zero silent failures in the codebase
-- >80% test coverage on core modules
-- All exceptions produce actionable log messages
-- `--dry-run` validates full pipeline without GPU
-
----
-
-## Phase 3: Enterprise Integration
-**Goal:** Make ForgeLM the standard tool for config-driven, CI/CD-native, on-premise LLM fine-tuning.
-**Estimated Effort:** High (1-3 months)
-
-> **Strategic Decision:** The original Phase 3 proposed direct RunPod/Lambda Labs API integration. After analysis, this approach is **deprioritized** in favor of a containerized strategy. Direct cloud API integration creates unsustainable maintenance burden, 3rd-party API dependency risk, and dilutes ForgeLM's core value proposition. Instead, we provide portable Docker images and let users handle infrastructure with their existing tools (Terraform, Pulumi, Kubernetes).
+> **Context:** The 2026 post-training landscape has settled on a modular stack: SFT first, then preference alignment (DPO/SimPO/KTO), optionally followed by reasoning RL (GRPO/DAPO). ORPO alone is insufficient — enterprises need the full menu. Research (arxiv 2603.19335) shows algorithm rankings are scale-dependent, so users must be able to choose.
 
 ### Tasks:
-1. [x] **Interactive Configuration Wizard (`forgelm --wizard`):** *(Moved from Phase 2)* Hardware detection, model selection, strategy recommendation, YAML generation. [Design Doc](design_wizard_mode.md)
-2. [x] **Automated Benchmarking Completion:** Full `lm-evaluation-harness` integration with configurable task sets. Results included in webhook notifications and final output.
-3. [x] **Docker Image & Container Support:** Official `Dockerfile` and `docker-compose.yaml` for single-command training: `docker run forgelm --config job.yaml`. Pre-built images with CUDA, Unsloth, and evaluation dependencies.
-4. [x] **JSON Output Mode (`--output-format json`):** Machine-readable structured output for all pipeline stages. Enables programmatic integration with CI/CD systems, dashboards, and orchestrators.
-5. [x] **Offline / Air-Gapped Mode:** Full operation without internet access. Local model loading, local dataset only, no HF Hub calls. Critical for defense/healthcare/banking deployments.
-6. [x] **Checkpoint Resume (`--resume`):** Resume training from the last saved checkpoint after interruption. Essential for long-running jobs on preemptible instances.
+1. [ ] **DPO Trainer:** Direct Preference Optimization — the baseline preference method. TRL's `DPOTrainer` integration with ForgeLM config. `trainer_type: "dpo"` in YAML. Requires `chosen`/`rejected` dataset format.
+2. [ ] **SimPO Trainer:** Simple Preference Optimization — no reference model needed, lower memory than DPO. +6.4 points on AlpacaEval 2 vs DPO at 7B scale. `trainer_type: "simpo"`.
+3. [ ] **KTO Trainer:** Kahneman-Tversky Optimization — uses binary thumbs-up/down feedback instead of paired preferences. More practical for production data collection. `trainer_type: "kto"`.
+4. [ ] **GRPO Trainer:** Group Relative Policy Optimization — the method behind DeepSeek-R1. Online RL that generates and scores responses during training. Critical for reasoning/math/code fine-tuning. `trainer_type: "grpo"`. Requires reward model or verifiable reward function.
+5. [ ] **Alignment Strategy Auto-Selection:** Based on dataset format (paired preferences vs binary feedback vs verifiable rewards), automatically recommend or select the appropriate trainer. Surfaced in `--wizard` and `--dry-run`.
+
+### Config Example:
+```yaml
+training:
+  trainer_type: "dpo"  # "sft", "orpo", "dpo", "simpo", "kto", "grpo"
+  dpo_beta: 0.1        # DPO temperature
+  simpo_gamma: 0.5     # SimPO margin term
+  grpo_num_generations: 4  # GRPO responses per prompt
+```
 
 ### Requirements:
-- Docker multi-stage builds for minimal image size
-- Comprehensive testing of offline mode across all code paths
-- Documentation: CI/CD integration guide with GitHub Actions, GitLab CI examples
+- TRL already provides DPOTrainer, KTOTrainer, and GRPO — integration is config-to-trainer mapping
+- Each trainer must support all existing features: auto-revert, benchmarks, webhooks, JSON output
+- Data module must auto-detect dataset format: `chosen`/`rejected` (DPO/SimPO), `completion`/`label` (KTO), `prompt`-only (GRPO)
 
 ---
 
-## Phase 4: Ecosystem Growth (Vision)
-**Goal:** Expand ForgeLM's capabilities for advanced use cases while maintaining simplicity.
-**Estimated Effort:** Ongoing
+## Phase 6: Enterprise Trust & Compliance
+**Goal:** Make ForgeLM the safest, most auditable fine-tuning tool — a unique differentiator that no competitor offers. Target: EU AI Act compliance (full enforcement August 2026) and regulated industry adoption.
+**Estimated Effort:** High (2-3 months)
+**Priority:** High — differentiator, no competitor does this well
+
+> **Context:** Fine-tuning aligned models demonstrably compromises safety, even with benign data (confirmed by multiple papers, Microsoft Feb 2026). The EU AI Act requires machine-readable audit trails, risk classification, and continuous monitoring for high-risk AI systems. No fine-tuning tool addresses this in the training loop today. ForgeLM can own this space.
 
 ### Tasks:
-1. [x] **ORPO Trainer:** Single-stage preference alignment using `chosen`/`rejected` datasets. Eliminates the need for separate SFT + DPO stages.
-2. [x] **Experiment Tracking Integration:** Optional W&B / MLflow integration for metric logging, model comparison, and hyperparameter search visualization.
-3. [x] **Multi-Dataset Training:** Support multiple JSONL/HF datasets in a single training run with configurable mixing ratios.
-4. [x] **Automatic Model Card Generation:** Generate HF-compatible model cards with training config, metrics, dataset info, and evaluation results.
-5. [x] **DeepSpeed / FSDP Support:** Distributed training across multiple GPUs for larger models (30B+ parameters).
+1. [ ] **Post-Training Safety Evaluation:** Run safety classifiers (Llama Guard, ShieldGemma, or configurable) on model outputs after training. Compare safety scores before vs after fine-tuning. Auto-revert if safety degrades beyond threshold. Integrated into the existing evaluation pipeline.
+   ```yaml
+   evaluation:
+     safety:
+       enabled: true
+       classifier: "meta-llama/Llama-Guard-3-8B"  # or local path
+       test_prompts: "safety_prompts.jsonl"  # adversarial test set
+       max_safety_regression: 0.05  # max allowed safety score drop
+   ```
+2. [ ] **LLM-as-Judge Evaluation Pipeline:** Use a strong LLM (GPT-4, Claude, local judge model) to score fine-tuned model outputs on quality, helpfulness, and instruction-following. 500x-5000x cheaper than human evaluation. Configurable judge model and scoring rubric.
+   ```yaml
+   evaluation:
+     llm_judge:
+       enabled: true
+       judge_model: "gpt-4o"  # or local model path
+       judge_api_key_env: "OPENAI_API_KEY"
+       eval_dataset: "eval_prompts.jsonl"
+       min_score: 7.0  # out of 10
+   ```
+3. [ ] **GPU Cost & Resource Tracking:** Track per-run metrics: GPU-hours, peak VRAM usage, total training time, estimated cloud cost (based on GPU type). Include in JSON output, webhook notifications, and model card.
+   ```json
+   {
+     "resource_usage": {
+       "gpu_hours": 2.4,
+       "peak_vram_gb": 22.1,
+       "training_duration_seconds": 8640,
+       "gpu_model": "NVIDIA A100 80GB",
+       "estimated_cost_usd": 7.20
+     }
+   }
+   ```
+4. [ ] **EU AI Act Compliance Export:** Generate machine-readable compliance artifacts alongside the model card. Includes: training data provenance (dataset source, size, date), model lineage (base model, adapter method, hyperparameters), evaluation results (benchmarks, safety scores, LLM-judge), risk classification metadata, and timestamp-signed audit trail.
+   ```bash
+   forgelm --config job.yaml --compliance-export ./audit/
+   # Outputs: audit/compliance_report.json, audit/training_manifest.yaml, audit/model_card.md
+   ```
+5. [ ] **Training Data Provenance Tracking:** Record dataset fingerprints (hash, size, schema, source URL), preprocessing steps applied, and sample counts per split. Stored in model card and compliance export. Critical for reproducibility audits.
 
 ### Requirements:
-- Each feature must be fully optional (no new required dependencies)
-- Modular installation: `pip install forgelm[tracking]`, `pip install forgelm[distributed]`
+- Safety evaluation requires a separate model load (judge/classifier) — must handle GPU memory carefully
+- LLM-as-judge must support both API-based (OpenAI, Anthropic) and local judge models
+- Cost estimation needs GPU pricing database (configurable, with defaults for common GPUs)
+- All compliance data must be exportable without GPU (post-hoc from saved artifacts)
+
+---
+
+## Phase 7: Next-Gen Model Support
+**Goal:** Support the model architectures and training paradigms that define mid-2026 and beyond: MoE, multimodal, long-context, and model merging.
+**Estimated Effort:** Very High (3-6 months, ongoing)
+**Priority:** High — market alignment
+
+> **Context:** The model landscape has shifted. Qwen3, Mixtral, and DeepSeek-V3 are all MoE architectures. Vision-language models (Qwen2.5-VL, Llama-3.2-Vision) are mainstream. Context windows exceed 128K tokens. Model merging (TIES, DARE) is a standard post-training workflow. ForgeLM must support these to remain relevant.
+
+### Tasks:
+1. [ ] **MoE (Mixture of Experts) Fine-Tuning:** Support LoRA/QLoRA fine-tuning of MoE models (Qwen3-30B-A3B, Mixtral, DeepSeek). Expert-aware quantization for VRAM reduction. Auto-detect MoE architecture and apply appropriate configuration.
+   ```yaml
+   model:
+     name_or_path: "Qwen/Qwen3-30B-A3B"
+     moe:
+       quantize_experts: true  # quantize inactive experts for VRAM savings
+       experts_to_train: "all"  # "all", "top_k", or list of expert indices
+   ```
+2. [ ] **Multimodal VLM Fine-Tuning:** Support vision-language model fine-tuning (Qwen2.5-VL, Llama-3.2-Vision, GLM-4V). Image+text dataset format with automatic processor handling. New `data.format: "multimodal"` config option.
+   ```yaml
+   model:
+     name_or_path: "Qwen/Qwen2.5-VL-7B-Instruct"
+   data:
+     dataset_name_or_path: "my_vlm_dataset"
+     format: "multimodal"  # expects image_url/image_path + text columns
+   ```
+3. [ ] **Model Merging Integration:** Post-training model merging via mergekit integration. Merge multiple LoRA adapters or fine-tuned models using TIES-Merging, DARE, SLERP, or linear interpolation. Config-driven, testable.
+   ```yaml
+   merge:
+     enabled: true
+     method: "ties"  # "ties", "dare", "slerp", "linear"
+     models:
+       - path: "./checkpoints/run1/final_model"
+         weight: 0.7
+       - path: "./checkpoints/run2/final_model"
+         weight: 0.3
+     output_dir: "./merged_model"
+   ```
+4. [ ] **Advanced PEFT Methods:** Support newer parameter-efficient methods beyond LoRA/DoRA:
+   - **PiSSA:** Principal component initialization — faster convergence, less quantization error than QLoRA
+   - **rsLoRA:** Recommended for high ranks (r>64)
+   - **GaLore:** Gradient low-rank projection — memory-efficient full-parameter-like training
+   ```yaml
+   lora:
+     method: "pissa"  # "lora", "dora", "pissa", "galore"
+   ```
+5. [ ] **Notebook & Colab Templates:** Pre-built Jupyter notebooks for common use cases: customer support bot, code assistant, domain-specific Q&A, multilingual fine-tuning. One-click Colab launch. Critical for community growth and onboarding.
+
+### Requirements:
+- MoE support depends on PEFT library's MoE handling — verify compatibility
+- Multimodal requires processor/image handling — significant data pipeline changes
+- Model merging can be a separate CLI command: `forgelm merge --config merge.yaml`
+- Notebook templates should auto-generate from config templates where possible
+- Each feature must be optional (`pip install forgelm[multimodal]`, `forgelm[merging]`)
 
 ---
 
@@ -123,51 +193,55 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|------------|------------|
 | **Dependency Breaking Changes** (TRL, PEFT, Unsloth) | Training pipeline breaks without warning | High | Version pinning with upper bounds, CI nightly builds against latest deps, compatibility matrix |
-| **Silent Failures in Production** | Models trained on incorrectly formatted data, undetected quality regression | High | Phase 2.5 eliminates all silent exception handling |
-| **Security: `trust_remote_code=True`** | Arbitrary code execution from untrusted model repos | Medium | Make configurable, default to `false`, document risk |
+| **EU AI Act Non-Compliance** (August 2026 deadline) | Enterprise customers cannot adopt ForgeLM for high-risk AI | Medium | Phase 6 compliance export prioritized before deadline |
+| **Safety Degradation from Fine-Tuning** | Fine-tuned models lose alignment, enterprise liability | High | Phase 6 safety evaluation pipeline, auto-revert on safety regression |
+| **Alignment Method Lock-In** | ForgeLM supports only ORPO while market demands DPO/GRPO | High | Phase 5 is top priority — critical market expectation |
 
 ### Medium Severity
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|------------|------------|
-| **Scope Creep** (cloud automation, too many features) | Maintenance burden exceeds capacity, core quality degrades | Medium | Strict phase gating — no Phase 3 work until Phase 2.5 criteria met |
-| **Ecosystem Commoditization** | Competing tools (Axolotl, LLaMA-Factory) add similar features | Medium | Double down on CI/CD-native + enterprise positioning |
+| **MoE/VLM Architecture Shift** | ForgeLM cannot train dominant model architectures | Medium | Phase 7 addresses this; monitor PEFT library MoE support |
+| **Scope Creep** (too many trainers, model types) | Maintenance burden exceeds capacity, core quality degrades | Medium | Strict phase gating, leverage TRL's existing trainers |
+| **Ecosystem Commoditization** (Axolotl, LLaMA-Factory) | Competing tools add similar enterprise features | Medium | Double down on safety + compliance differentiation |
 | **GPU/CUDA Version Fragmentation** | Users on different CUDA versions hit incompatibilities | Medium | Docker images pin CUDA versions, compatibility matrix |
 
 ### Low Severity
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|------------|------------|
-| **Blackwell-specific code becomes obsolete** | Wasted effort if architecture not widely adopted | Low | Keep as optional, detect-and-enable pattern |
-| **HF Hub API changes** | Dataset/model loading breaks | Low | Abstract behind interface, version pin `huggingface_hub` |
+| **Model merging adoption uncertainty** | Feature built but rarely used | Low | Implement as separate CLI command, minimal core changes |
+| **Notebook template maintenance** | Notebooks break with library updates | Low | Auto-generate from config templates, CI validation |
 
 ---
 
 ## Opportunity Analysis
 
 ### Immediate Opportunities
-1. **CI/CD Pipeline Integration** — ForgeLM's YAML-driven design is uniquely suited for `git push → train → evaluate → notify` workflows. A demo tutorial showing this flow would drive GitHub adoption significantly.
-2. **On-Premise / Air-Gapped Market** — Banks, healthcare, defense cannot send data externally. ForgeLM + Docker image = complete on-premise solution with zero cloud dependency.
+1. **Alignment Stack (Phase 5)** — DPO+GRPO support closes the most critical competitive gap. Every serious fine-tuning workflow in 2026 uses preference optimization.
+2. **Safety-as-a-Feature (Phase 6)** — No competitor integrates safety evaluation into the training pipeline. ForgeLM can own "the safest way to fine-tune an LLM."
 
 ### Medium-Term Opportunities
-3. **Enterprise Consulting & Support** — Organizations adopting ForgeLM for production will need custom integrations, training, and support contracts.
-4. **Model Registry Integration** — Versioned model storage with comparison dashboards bridges the gap between training and deployment.
+3. **EU AI Act Compliance** — August 2026 deadline creates urgent demand. ForgeLM as the only tool generating compliance artifacts is a powerful enterprise sales argument.
+4. **MoE Fine-Tuning** — Qwen3, DeepSeek-V3 dominance means MoE support is becoming table stakes.
+5. **Cost Transparency** — GPU cost tracking per run enables enterprise budget planning and optimization. Simple to implement, high perceived value.
 
 ### Long-Term Opportunities
-5. **Managed ForgeLM Service** — SaaS offering where users upload data + config and receive trained models. Built on the same open-source core.
-6. **Training Marketplace** — Pre-built config templates for common use cases (customer support bot, legal document analyzer, code assistant).
+6. **Managed ForgeLM Service** — SaaS offering: upload data + config → receive trained model + compliance artifacts.
+7. **Synthetic Data Pipeline** — Config-driven teacher model distillation before training. Unique integration no competitor offers.
+8. **Training Marketplace** — Community-contributed config templates for common use cases.
 
 ---
 
-## Competitive Positioning
+## Competitive Positioning (Updated March 2026)
 
-| Competitor | ForgeLM Advantage | ForgeLM Disadvantage |
-|------------|-------------------|----------------------|
-| **Axolotl** | Simpler config, easier onboarding, CI/CD-native | Axolotl supports more model architectures and training methods |
-| **LLaMA-Factory** | Declarative YAML vs GUI dependency, better for automation | LLaMA-Factory has web UI for non-technical users |
-| **Unsloth (direct)** | Multi-backend fallback, evaluation, webhook, enterprise features | Unsloth is faster when used directly |
-| **AutoTrain** | Open-source, on-premise, full control, no vendor lock-in | AutoTrain is more user-friendly for beginners |
-| **Custom Scripts** | Validated pipeline, config management, checkpoint handling | Custom scripts offer unlimited flexibility |
+| Competitor | Stars | ForgeLM Advantage | ForgeLM Gap |
+|------------|-------|-------------------|-------------|
+| **LLaMA-Factory** | ~55-68K | CI/CD-native, safety eval, compliance | Web UI, 100+ models, GaLore/PiSSA, VLM |
+| **Unsloth** | ~54-56K | Enterprise features, multi-trainer, safety | Speed (2-5x), Studio GUI, MoE optimization |
+| **TRL** | ~17.6K | Full pipeline (not just trainers), Docker, evaluation | GRPO, official HF integration |
+| **Axolotl** | ~11.4K | Simpler config, Docker, safety eval | GRPO, GDPO, sequence parallelism, MoE quant |
+| **torchtune** | Meta-backed | Config-driven enterprise focus | Knowledge distillation, QAT, PyTorch-native |
 
-**ForgeLM's niche is clear:** Config-driven, CI/CD-native, on-premise LLM fine-tuning. Own this niche — do not try to be everything.
+**ForgeLM's evolving niche:** Config-driven, CI/CD-native, **safety-conscious**, enterprise LLM fine-tuning. The safety + compliance angle is the strongest differentiator available — no competitor addresses it.
 
 ---
 
@@ -180,3 +254,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | 2026-03-23 | Adopted Docker-based deployment strategy | Portable, user-controlled infrastructure, minimal maintenance for ForgeLM team |
 | 2026-03-23 | Moved wizard mode from Phase 2 to Phase 3 | Reliability work takes priority over UX improvements |
 | 2026-03-23 | Added `trust_remote_code` as enterprise adoption blocker | Security risk incompatible with regulated industries |
+| 2026-03-23 | Phase 5 (Alignment Stack) prioritized as Critical | Competitive analysis: DPO/GRPO support is market expectation, ORPO alone insufficient |
+| 2026-03-23 | Phase 6 (Safety & Compliance) chosen as primary differentiator | No competitor integrates safety evaluation or EU AI Act compliance. August 2026 deadline creates urgency |
+| 2026-03-23 | Phase 7 (MoE/VLM/Merging) scoped as ongoing | Model landscape shifting to MoE and multimodal; must support but not at expense of Phase 5-6 |
+| 2026-03-23 | Leverage TRL trainers for alignment methods | TRL already implements DPO, KTO, GRPO — ForgeLM wraps with config, evaluation, and pipeline integration rather than reimplementing |
