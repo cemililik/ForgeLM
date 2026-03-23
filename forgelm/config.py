@@ -31,7 +31,7 @@ class TrainingConfig(BaseModel):
     output_dir: str = "./checkpoints"
     final_model_dir: str = "final_model"
     merge_adapters: bool = False
-    trainer_type: str = "sft"  # "sft" or "orpo"
+    trainer_type: str = "sft"  # "sft", "orpo", "dpo", "simpo", "kto", "grpo"
     num_train_epochs: int = 3
     per_device_train_batch_size: int = 4
     gradient_accumulation_steps: int = 2
@@ -42,7 +42,15 @@ class TrainingConfig(BaseModel):
     save_steps: int = 200
     save_total_limit: int = 3
     packing: bool = False
-    orpo_beta: float = 0.1  # ORPO beta parameter (odds ratio weight)
+    # --- Alignment trainer parameters ---
+    orpo_beta: float = 0.1          # ORPO odds ratio weight
+    dpo_beta: float = 0.1           # DPO temperature parameter
+    simpo_gamma: float = 0.5        # SimPO margin term
+    simpo_beta: float = 2.0         # SimPO scaling parameter
+    kto_beta: float = 0.1           # KTO loss parameter
+    grpo_num_generations: int = 4   # GRPO: number of responses to generate per prompt
+    grpo_max_new_tokens: int = 512  # GRPO: max tokens per generated response
+    # --- Tracking ---
     report_to: str = "tensorboard"  # "tensorboard", "wandb", "mlflow", or "none"
     run_name: Optional[str] = None  # W&B/MLflow run name; auto-generated if None
 
@@ -114,6 +122,13 @@ class ForgeConfig(BaseModel):
         if self.model.backend == "unsloth" and self.model.trust_remote_code:
             logger.warning(
                 "trust_remote_code is ignored when using the Unsloth backend."
+            )
+        # Trainer type validation
+        valid_trainers = {"sft", "orpo", "dpo", "simpo", "kto", "grpo"}
+        if self.training.trainer_type not in valid_trainers:
+            raise ValueError(
+                f"Invalid trainer_type: '{self.training.trainer_type}'. "
+                f"Must be one of: {', '.join(sorted(valid_trainers))}"
             )
         # Distributed training validations
         if self.distributed and self.distributed.strategy:

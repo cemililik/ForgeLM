@@ -123,21 +123,59 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
 
         return {"text": texts}
 
-    # Detect ORPO preference format (chosen/rejected columns)
+    # Detect dataset format and trainer type
     trainer_type = getattr(config.training, "trainer_type", "sft")
     sample_columns = dataset["train"].column_names if "train" in dataset else []
-    is_preference_data = "chosen" in sample_columns and "rejected" in sample_columns
+    has_chosen_rejected = "chosen" in sample_columns and "rejected" in sample_columns
+    has_kto_format = "completion" in sample_columns and "label" in sample_columns
+    has_prompt_only = "prompt" in sample_columns and not has_chosen_rejected
 
-    if trainer_type == "orpo" and not is_preference_data:
+    # Preference trainers: DPO, SimPO, ORPO require chosen/rejected
+    preference_trainers = {"dpo", "simpo", "orpo"}
+    if trainer_type in preference_trainers and not has_chosen_rejected:
         raise KeyError(
-            "ORPO trainer requires a preference dataset with 'chosen' and 'rejected' columns. "
-            "Found columns: " + ", ".join(sample_columns)
+            f"{trainer_type.upper()} trainer requires a preference dataset with 'chosen' and "
+            f"'rejected' columns. Found columns: {', '.join(sample_columns)}"
         )
 
-    if is_preference_data and trainer_type == "orpo":
-        logger.info("Detected preference dataset (chosen/rejected) for ORPO training.")
-        # ORPO datasets are passed through with minimal processing — TRL ORPOTrainer
-        # expects 'chosen' and 'rejected' columns containing message lists or text.
+    # KTO requires completion/label format
+    if trainer_type == "kto" and not has_kto_format:
+        raise KeyError(
+            "KTO trainer requires a dataset with 'completion' and 'label' (boolean) columns. "
+            f"Found columns: {', '.join(sample_columns)}"
+        )
+
+    # GRPO requires prompt column (generates responses during training)
+    if trainer_type == "grpo" and not has_prompt_only and "prompt" not in sample_columns:
+        raise KeyError(
+            "GRPO trainer requires a dataset with a 'prompt' column. "
+            f"Found columns: {', '.join(sample_columns)}"
+        )
+
+    # Preference / alignment datasets are passed through with minimal processing
+    # TRL trainers expect specific column formats
+    if trainer_type in preference_trainers and has_chosen_rejected:
+        logger.info("Detected preference dataset (chosen/rejected) for %s training.", trainer_type.upper())
+        processed = {}
+        for split in dataset:
+            current_dataset = dataset[split]
+            if config.data.shuffle:
+                current_dataset = current_dataset.shuffle(seed=42)
+            processed[split] = current_dataset
+        return processed
+
+    if trainer_type == "kto":
+        logger.info("Detected KTO dataset (completion/label) for KTO training.")
+        processed = {}
+        for split in dataset:
+            current_dataset = dataset[split]
+            if config.data.shuffle:
+                current_dataset = current_dataset.shuffle(seed=42)
+            processed[split] = current_dataset
+        return processed
+
+    if trainer_type == "grpo":
+        logger.info("Detected prompt dataset for GRPO training.")
         processed = {}
         for split in dataset:
             current_dataset = dataset[split]

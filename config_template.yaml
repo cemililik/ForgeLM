@@ -27,7 +27,7 @@ training:
   output_dir: "./checkpoints"
   final_model_dir: "final_model"
   merge_adapters: false
-  trainer_type: "sft"  # "sft" for supervised fine-tuning, "orpo" for preference alignment
+  trainer_type: "sft"  # "sft", "dpo", "simpo", "kto", "orpo", "grpo"
   num_train_epochs: 3
   per_device_train_batch_size: 4
   gradient_accumulation_steps: 2
@@ -38,7 +38,14 @@ training:
   save_steps: 200
   save_total_limit: 3
   packing: false
-  # orpo_beta: 0.1       # ORPO odds ratio weight (only when trainer_type: "orpo")
+  # --- Alignment trainer parameters (used by respective trainer_type) ---
+  # dpo_beta: 0.1           # DPO temperature
+  # simpo_gamma: 0.5        # SimPO margin term
+  # simpo_beta: 2.0         # SimPO scaling
+  # kto_beta: 0.1           # KTO loss parameter
+  # orpo_beta: 0.1          # ORPO odds ratio weight
+  # grpo_num_generations: 4 # GRPO: responses per prompt
+  # grpo_max_new_tokens: 512
   # report_to: "tensorboard"  # "tensorboard", "wandb", "mlflow", or "none"
   # run_name: "my_experiment"  # W&B/MLflow run name; auto-generated if omitted
 

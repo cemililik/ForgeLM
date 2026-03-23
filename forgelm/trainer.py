@@ -62,8 +62,8 @@ class ForgeTrainer:
             )
 
     @property
-    def _is_orpo(self) -> bool:
-        return getattr(self.config.training, "trainer_type", "sft") == "orpo"
+    def _trainer_type(self) -> str:
+        return getattr(self.config.training, "trainer_type", "sft")
 
     def _get_common_training_kwargs(self) -> dict:
         """Return training arguments common to both SFT and ORPO."""
@@ -170,17 +170,53 @@ class ForgeTrainer:
 
         raise FileNotFoundError(f"DeepSpeed config not found: {config_ref}")
 
-    def _get_training_args(self) -> SFTConfig:
+    def _get_training_args_for_type(self):
+        """Build the appropriate TRL config based on trainer_type."""
+        tt = self._trainer_type
         kwargs = self._get_common_training_kwargs()
-        kwargs["packing"] = bool(getattr(self.config.training, "packing", False))
-        kwargs["dataset_text_field"] = "text"
-        return SFTConfig(**kwargs)
 
-    def _get_orpo_training_args(self):
-        from trl import ORPOConfig
-        kwargs = self._get_common_training_kwargs()
-        kwargs["beta"] = getattr(self.config.training, "orpo_beta", 0.1)
-        return ORPOConfig(**kwargs)
+        if tt == "sft":
+            kwargs["packing"] = bool(getattr(self.config.training, "packing", False))
+            kwargs["dataset_text_field"] = "text"
+            return SFTConfig(**kwargs)
+
+        elif tt == "orpo":
+            from trl import ORPOConfig
+            kwargs["beta"] = self.config.training.orpo_beta
+            return ORPOConfig(**kwargs)
+
+        elif tt == "dpo":
+            from trl import DPOConfig
+            kwargs["beta"] = self.config.training.dpo_beta
+            return DPOConfig(**kwargs)
+
+        elif tt == "simpo":
+            from trl import CPOConfig
+            # SimPO is implemented via CPOTrainer with loss_type="simpo" in TRL
+            kwargs["beta"] = self.config.training.simpo_beta
+            kwargs["cpo_alpha"] = 0.0  # pure SimPO (no NLL term)
+            kwargs["simpo_gamma"] = self.config.training.simpo_gamma
+            kwargs["loss_type"] = "simpo"
+            return CPOConfig(**kwargs)
+
+        elif tt == "kto":
+            from trl import KTOConfig
+            kwargs["beta"] = self.config.training.kto_beta
+            return KTOConfig(**kwargs)
+
+        elif tt == "grpo":
+            from trl import GRPOConfig
+            # GRPO generates responses during training — needs generation params
+            kwargs["num_generations"] = self.config.training.grpo_num_generations
+            kwargs["max_new_tokens"] = self.config.training.grpo_max_new_tokens
+            # GRPO doesn't use load_best_model_at_end the same way
+            kwargs.pop("load_best_model_at_end", None)
+            kwargs.pop("metric_for_best_model", None)
+            kwargs.pop("greater_is_better", None)
+            return GRPOConfig(**kwargs)
+
+        else:
+            raise ValueError(f"Unknown trainer_type: {tt}")
 
     def execute_evaluation_checks(self, final_path: str, metrics: Dict[str, float]) -> bool:
         """Evaluates final loss against constraints. Returns True if acceptable, False if reverted."""
@@ -257,29 +293,46 @@ class ForgeTrainer:
         self.notifier.notify_start(run_name=self.run_name)
         callbacks = [EarlyStoppingCallback(early_stopping_patience=3)]
 
-        if self._is_orpo:
-            logger.info("Initializing TRL ORPOTrainer (preference alignment)...")
-            from trl import ORPOTrainer
-            training_args = self._get_orpo_training_args()
-            self.trainer = ORPOTrainer(
-                model=self.model,
-                processing_class=self.tokenizer,
-                args=training_args,
-                train_dataset=self.dataset["train"],
-                eval_dataset=self.dataset.get("validation", None),
-                callbacks=callbacks,
-            )
-        else:
+        tt = self._trainer_type
+        training_args = self._get_training_args_for_type()
+
+        trainer_kwargs = dict(
+            model=self.model,
+            processing_class=self.tokenizer,
+            args=training_args,
+            train_dataset=self.dataset["train"],
+            eval_dataset=self.dataset.get("validation", None),
+            callbacks=callbacks,
+        )
+
+        if tt == "sft":
             logger.info("Initializing TRL SFTTrainer...")
-            training_args = self._get_training_args()
-            self.trainer = SFTTrainer(
-                model=self.model,
-                processing_class=self.tokenizer,
-                args=training_args,
-                train_dataset=self.dataset["train"],
-                eval_dataset=self.dataset.get("validation", None),
-                callbacks=callbacks,
-            )
+            self.trainer = SFTTrainer(**trainer_kwargs)
+        elif tt == "orpo":
+            logger.info("Initializing TRL ORPOTrainer (ORPO preference alignment)...")
+            from trl import ORPOTrainer
+            self.trainer = ORPOTrainer(**trainer_kwargs)
+        elif tt == "dpo":
+            logger.info("Initializing TRL DPOTrainer (DPO preference alignment)...")
+            from trl import DPOTrainer
+            self.trainer = DPOTrainer(**trainer_kwargs)
+        elif tt == "simpo":
+            logger.info("Initializing TRL CPOTrainer (SimPO preference alignment)...")
+            from trl import CPOTrainer
+            self.trainer = CPOTrainer(**trainer_kwargs)
+        elif tt == "kto":
+            logger.info("Initializing TRL KTOTrainer (binary feedback alignment)...")
+            from trl import KTOTrainer
+            self.trainer = KTOTrainer(**trainer_kwargs)
+        elif tt == "grpo":
+            logger.info("Initializing TRL GRPOTrainer (reasoning RL)...")
+            from trl import GRPOTrainer
+            # GRPO doesn't use eval_dataset the same way — remove callbacks that depend on eval
+            trainer_kwargs.pop("eval_dataset", None)
+            trainer_kwargs["callbacks"] = []
+            self.trainer = GRPOTrainer(**trainer_kwargs)
+        else:
+            raise ValueError(f"Unknown trainer_type: {tt}")
 
         try:
             metrics: Dict[str, float] = {}

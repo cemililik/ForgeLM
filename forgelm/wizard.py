@@ -145,19 +145,43 @@ def run_wizard() -> str:
     lora_r = int(_prompt("LoRA rank (r)", str(DEFAULT_LORA_R)))
     lora_alpha = int(_prompt("LoRA alpha", str(lora_r * 2)))
 
-    # Step 4: Dataset
-    print("\n[4/6] Dataset")
+    # Step 4: Training Objective
+    print("\n[4/7] Training Objective")
+    objectives = [
+        "SFT — Supervised Fine-Tuning (standard instruction tuning)",
+        "DPO — Direct Preference Optimization (chosen/rejected pairs)",
+        "SimPO — Simple Preference Optimization (no reference model, lower memory)",
+        "KTO — Binary feedback alignment (thumbs up/down, practical for production)",
+        "ORPO — Odds Ratio Preference Optimization (SFT + alignment in one stage)",
+        "GRPO — Group Relative Policy Optimization (reasoning RL, like DeepSeek-R1)",
+    ]
+    objective = _prompt_choice("Choose your training objective:", objectives, default=1)
+    trainer_type = objective.split(" — ")[0].strip().lower()
+
+    # Dataset format guidance
+    dataset_format_hint = {
+        "sft": "Columns: System (opt), User/instruction, Assistant/output — or 'messages' list",
+        "dpo": "Columns: prompt, chosen, rejected",
+        "simpo": "Columns: prompt, chosen, rejected",
+        "orpo": "Columns: prompt, chosen, rejected",
+        "kto": "Columns: prompt, completion, label (boolean: true=good, false=bad)",
+        "grpo": "Columns: prompt (model generates responses during training)",
+    }
+    print(f"  Dataset format: {dataset_format_hint.get(trainer_type, 'Standard format')}")
+
+    # Step 5: Dataset
+    print("\n[5/7] Dataset")
     dataset_path = _prompt("HuggingFace dataset name or local file path")
 
-    # Step 5: Training Parameters
-    print("\n[5/6] Training Parameters")
+    # Step 6: Training Parameters
+    print("\n[6/7] Training Parameters")
     epochs = int(_prompt("Number of epochs", str(DEFAULT_EPOCHS)))
     batch_size = int(_prompt("Batch size per device", str(DEFAULT_BATCH_SIZE)))
     max_length = int(_prompt("Max sequence length", str(DEFAULT_MAX_LENGTH)))
     output_dir = _prompt("Output directory", "./checkpoints")
 
-    # Step 6: Build config
-    print("\n[6/6] Output")
+    # Step 7: Build config
+    print("\n[7/7] Output")
 
     config = {
         "model": {
@@ -180,6 +204,7 @@ def run_wizard() -> str:
             "output_dir": output_dir,
             "final_model_dir": "final_model",
             "merge_adapters": False,
+            "trainer_type": trainer_type,
             "num_train_epochs": epochs,
             "per_device_train_batch_size": batch_size,
             "gradient_accumulation_steps": 2,
@@ -233,6 +258,7 @@ def run_wizard() -> str:
     print(f"  Model:    {model_name}")
     print(f"  Backend:  {suggested_backend}")
     print(f"  Strategy: {'QLoRA' if load_in_4bit else 'LoRA'}{' + DoRA' if use_dora else ''}")
+    print(f"  Trainer:  {trainer_type.upper()}")
     print(f"  LoRA:     r={lora_r}, alpha={lora_alpha}")
     print(f"  Dataset:  {dataset_path}")
     print(f"  Epochs:   {epochs}, Batch: {batch_size}")
