@@ -22,7 +22,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Phase 5.5: Technical Debt Resolution | **Complete** | 7/7 |
 | Phase 6: Enterprise Trust & Compliance | **Complete** | 5/5 |
 | Phase 7: Next-Gen Model Support | **Complete** | 5/5 |
-| Phase 8: EU AI Act Deep Compliance | **In Progress** | 8/10 |
+| Phase 8: EU AI Act Deep Compliance | **Complete** | 10/10 |
 
 ---
 
@@ -342,7 +342,7 @@ graph LR
 
 #### Tier 3: Organizational / Long-term
 
-9. [ ] **QMS Template Library (Art. 17)**
+9. [x] **QMS Template Library (Art. 17)**
    Create `docs/qms/` with Standard Operating Procedure (SOP) templates:
    - `sop_model_training.md` — training approval workflow
    - `sop_data_management.md` — data collection, annotation, quality assurance
@@ -351,7 +351,7 @@ graph LR
    - `roles_responsibilities.md` — AI Officer, Data Steward, ML Engineer roles
    These are organizational documents, not code — but ForgeLM providing templates makes adoption dramatically easier.
 
-10. [ ] **Post-Market Monitoring Hooks (Art. 12 + 17)**
+10. [x] **Post-Market Monitoring Hooks (Art. 12 + 17)**
     Add config for runtime monitoring integration. After deployment, the fine-tuned model's behavior should feed back into the compliance system:
     ```yaml
     monitoring:

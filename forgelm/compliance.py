@@ -247,6 +247,16 @@ def generate_training_manifest(
             {"path": p, "fingerprint": compute_dataset_fingerprint(p)} for p in extra_datasets
         ]
 
+    # Monitoring config
+    mon_cfg = getattr(config, "monitoring", None)
+    if mon_cfg and mon_cfg.enabled:
+        manifest["monitoring"] = {
+            "endpoint": mon_cfg.endpoint or f"${mon_cfg.endpoint_env}",
+            "metrics_export": mon_cfg.metrics_export,
+            "alert_on_drift": mon_cfg.alert_on_drift,
+            "check_interval_hours": mon_cfg.check_interval_hours,
+        }
+
     if resource_usage:
         manifest["resource_usage"] = resource_usage
     if safety_result:

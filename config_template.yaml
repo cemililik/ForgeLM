@@ -129,3 +129,33 @@ data:
 #   notify_on_start: true
 #   notify_on_success: true
 #   notify_on_failure: true
+
+# EU AI Act Compliance (Art. 11 + Annex IV)
+# compliance:
+#   provider_name: "Your Organization"
+#   provider_contact: "ai-team@example.com"
+#   system_name: "Customer Support Assistant"
+#   intended_purpose: "Automated customer support for insurance claims"
+#   known_limitations: "Not suitable for medical or legal advice"
+#   system_version: "1.0.0"
+#   risk_classification: "high-risk"  # "high-risk", "limited-risk", "minimal-risk"
+
+# Risk Assessment (Art. 9)
+# risk_assessment:
+#   intended_use: "Customer support chatbot for insurance industry"
+#   foreseeable_misuse:
+#     - "Users may ask for medical advice"
+#     - "Model may generate incorrect policy details"
+#   risk_category: "high-risk"
+#   mitigation_measures:
+#     - "Safety classifier blocks harmful outputs"
+#     - "Human review required for policy-related responses"
+#   vulnerable_groups_considered: true
+
+# Post-Market Monitoring (Art. 12+17)
+# monitoring:
+#   enabled: true
+#   endpoint_env: "MONITORING_WEBHOOK_URL"
+#   metrics_export: "prometheus"  # "none", "prometheus", "datadog", "custom_webhook"
+#   alert_on_drift: true
+#   check_interval_hours: 24

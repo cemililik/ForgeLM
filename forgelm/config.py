@@ -175,6 +175,17 @@ class RiskAssessmentConfig(BaseModel):
     vulnerable_groups_considered: bool = False
 
 
+class MonitoringConfig(BaseModel):
+    """Art. 12+17: Post-market monitoring hooks."""
+
+    enabled: bool = False
+    endpoint: str = ""  # monitoring system webhook URL
+    endpoint_env: Optional[str] = None  # env var name for endpoint URL
+    metrics_export: str = "none"  # "none", "prometheus", "datadog", "custom_webhook"
+    alert_on_drift: bool = True
+    check_interval_hours: int = 24
+
+
 class ComplianceMetadataConfig(BaseModel):
     """Art. 11 + Annex IV: Provider and system metadata for technical documentation."""
 
@@ -212,6 +223,7 @@ class ForgeConfig(BaseModel):
     merge: Optional[MergeConfig] = None
     compliance: Optional[ComplianceMetadataConfig] = None
     risk_assessment: Optional[RiskAssessmentConfig] = None
+    monitoring: Optional[MonitoringConfig] = None
 
     @model_validator(mode="after")
     def _validate_consistency(self):
