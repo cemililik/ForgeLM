@@ -77,6 +77,11 @@ def parse_args():
         help="Run benchmark evaluation on an existing model without training. Requires evaluation.benchmark config."
     )
     parser.add_argument(
+        "--merge",
+        action="store_true",
+        help="Run model merging from the merge section of your config. No training."
+    )
+    parser.add_argument(
         "--output-format",
         type=str,
         default="text",
@@ -185,6 +190,40 @@ def _run_benchmark_only(config: ForgeConfig, model_path: str, output_format: str
 
     if not result.passed:
         sys.exit(EXIT_EVAL_FAILURE)
+
+
+def _run_merge(config: ForgeConfig, output_format: str) -> None:
+    """Run model merging from config without training."""
+    if not config.merge or not config.merge.enabled:
+        logger.error("No merge configuration found or merge not enabled. Add a 'merge' section to your config.")
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    from .merging import merge_peft_adapters
+    result = merge_peft_adapters(
+        base_model_path=config.model.name_or_path,
+        adapters=config.merge.models,
+        method=config.merge.method,
+        output_dir=config.merge.output_dir,
+        trust_remote_code=config.model.trust_remote_code,
+    )
+
+    if output_format == "json":
+        print(json.dumps({
+            "success": result.success,
+            "method": result.method,
+            "num_models": result.num_models,
+            "output_dir": result.output_dir,
+            "error": result.error,
+        }, indent=2))
+    else:
+        if result.success:
+            logger.info("Model merge completed: %d models merged with '%s' → %s",
+                        result.num_models, result.method, result.output_dir)
+        else:
+            logger.error("Model merge failed: %s", result.error)
+
+    if not result.success:
+        sys.exit(EXIT_TRAINING_ERROR)
 
 
 def _resolve_resume_checkpoint(checkpoint_dir: str, resume_arg: str) -> str:
@@ -314,6 +353,11 @@ def main():
     # 4. Benchmark-only mode: evaluate an existing model without training
     if args.benchmark_only:
         _run_benchmark_only(config, args.benchmark_only, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+
+    # 5. Merge mode: merge models from config without training
+    if args.merge:
+        _run_merge(config, args.output_format)
         sys.exit(EXIT_SUCCESS)
 
     try:

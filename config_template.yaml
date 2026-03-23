@@ -59,6 +59,28 @@ data:
   clean_text: true
   add_eos: true
 
+# Advanced PEFT method (default: "lora")
+# lora:
+#   method: "pissa"   # "lora", "dora", "pissa", "rslora"
+#   use_rslora: true   # rank-stabilized LoRA for high ranks (r>64)
+
+# MoE-specific settings (for Mixture of Experts models like Qwen3, Mixtral)
+# model:
+#   moe:
+#     quantize_experts: true     # quantize inactive experts for VRAM savings
+#     experts_to_train: "all"    # "all" or comma-separated expert indices
+
+# Model merging (post-training). Run with: forgelm --config config.yaml --merge
+# merge:
+#   enabled: true
+#   method: "ties"              # "ties", "dare", "slerp", "linear"
+#   models:
+#     - path: "./checkpoints/run1/final_model"
+#       weight: 0.7
+#     - path: "./checkpoints/run2/final_model"
+#       weight: 0.3
+#   output_dir: "./merged_model"
+
 # Distributed training (multi-GPU). Requires: pip install forgelm[distributed]
 # Launch with: torchrun --nproc_per_node=N forgelm --config my_config.yaml
 # distributed:

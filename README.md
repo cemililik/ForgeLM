@@ -22,8 +22,13 @@ For detailed guides on how to use ForgeLM, please see our dedicated documentatio
 3. [Usage & Execution](docs/usage.md) ([Türkçe](docs/usage-tr.md))
 4. [Data Preparation Format](docs/data_preparation.md) ([Türkçe](docs/data_preparation-tr.md))
 5. [Distributed Training (Multi-GPU)](docs/distributed_training.md) ([Türkçe](docs/distributed_training-tr.md))
-6. [Product Strategy](docs/product_strategy.md) ([Türkçe](docs/product_strategy-tr.md))
-7. [Roadmap](docs/roadmap.md) ([Türkçe](docs/roadmap-tr.md))
+6. [Distributed Training (Multi-GPU)](docs/distributed_training.md) ([Türkçe](docs/distributed_training-tr.md))
+7. [Product Strategy](docs/product_strategy.md) ([Türkçe](docs/product_strategy-tr.md))
+8. [Roadmap](docs/roadmap.md) ([Türkçe](docs/roadmap-tr.md))
+
+## Notebooks
+- [Quick Start — SFT Fine-Tuning](notebooks/quickstart_sft.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/quickstart_sft.ipynb)
+- [DPO Preference Alignment](notebooks/dpo_alignment.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/dpo_alignment.ipynb)
 
 ## Installation
 

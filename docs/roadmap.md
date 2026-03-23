@@ -20,7 +20,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Phase 4: Ecosystem Growth | **Complete** | 5/5 |
 | Phase 5: Alignment & Post-Training Stack | **Complete** | 5/5 |
 | Phase 6: Enterprise Trust & Compliance | **Complete** | 5/5 |
-| Phase 7: Next-Gen Model Support | **Planned** | 0/5 |
+| Phase 7: Next-Gen Model Support | **Complete** | 5/5 |
 
 ---
 
@@ -140,7 +140,7 @@ training:
 > **Context:** The model landscape has shifted. Qwen3, Mixtral, and DeepSeek-V3 are all MoE architectures. Vision-language models (Qwen2.5-VL, Llama-3.2-Vision) are mainstream. Context windows exceed 128K tokens. Model merging (TIES, DARE) is a standard post-training workflow. ForgeLM must support these to remain relevant.
 
 ### Tasks:
-1. [ ] **MoE (Mixture of Experts) Fine-Tuning:** Support LoRA/QLoRA fine-tuning of MoE models (Qwen3-30B-A3B, Mixtral, DeepSeek). Expert-aware quantization for VRAM reduction. Auto-detect MoE architecture and apply appropriate configuration.
+1. [x] **MoE (Mixture of Experts) Fine-Tuning:** Support LoRA/QLoRA fine-tuning of MoE models (Qwen3-30B-A3B, Mixtral, DeepSeek). Expert-aware quantization for VRAM reduction. Auto-detect MoE architecture and apply appropriate configuration.
    ```yaml
    model:
      name_or_path: "Qwen/Qwen3-30B-A3B"
@@ -148,7 +148,7 @@ training:
        quantize_experts: true  # quantize inactive experts for VRAM savings
        experts_to_train: "all"  # "all", "top_k", or list of expert indices
    ```
-2. [ ] **Multimodal VLM Fine-Tuning:** Support vision-language model fine-tuning (Qwen2.5-VL, Llama-3.2-Vision, GLM-4V). Image+text dataset format with automatic processor handling. New `data.format: "multimodal"` config option.
+2. [x] **Multimodal VLM Fine-Tuning:** Support vision-language model fine-tuning (Qwen2.5-VL, Llama-3.2-Vision, GLM-4V). Image+text dataset format with automatic processor handling. New `data.format: "multimodal"` config option.
    ```yaml
    model:
      name_or_path: "Qwen/Qwen2.5-VL-7B-Instruct"
@@ -156,7 +156,7 @@ training:
      dataset_name_or_path: "my_vlm_dataset"
      format: "multimodal"  # expects image_url/image_path + text columns
    ```
-3. [ ] **Model Merging Integration:** Post-training model merging via mergekit integration. Merge multiple LoRA adapters or fine-tuned models using TIES-Merging, DARE, SLERP, or linear interpolation. Config-driven, testable.
+3. [x] **Model Merging Integration:** Post-training model merging via mergekit integration. Merge multiple LoRA adapters or fine-tuned models using TIES-Merging, DARE, SLERP, or linear interpolation. Config-driven, testable.
    ```yaml
    merge:
      enabled: true
@@ -168,7 +168,7 @@ training:
          weight: 0.3
      output_dir: "./merged_model"
    ```
-4. [ ] **Advanced PEFT Methods:** Support newer parameter-efficient methods beyond LoRA/DoRA:
+4. [x] **Advanced PEFT Methods:** Support newer parameter-efficient methods beyond LoRA/DoRA:
    - **PiSSA:** Principal component initialization — faster convergence, less quantization error than QLoRA
    - **rsLoRA:** Recommended for high ranks (r>64)
    - **GaLore:** Gradient low-rank projection — memory-efficient full-parameter-like training
@@ -176,7 +176,7 @@ training:
    lora:
      method: "pissa"  # "lora", "dora", "pissa", "galore"
    ```
-5. [ ] **Notebook & Colab Templates:** Pre-built Jupyter notebooks for common use cases: customer support bot, code assistant, domain-specific Q&A, multilingual fine-tuning. One-click Colab launch. Critical for community growth and onboarding.
+5. [x] **Notebook & Colab Templates:** Pre-built Jupyter notebooks for common use cases: customer support bot, code assistant, domain-specific Q&A, multilingual fine-tuning. One-click Colab launch. Critical for community growth and onboarding.
 
 ### Requirements:
 - MoE support depends on PEFT library's MoE handling — verify compatibility

@@ -6,6 +6,24 @@ from typing import Optional, List, Dict, Any
 
 logger = logging.getLogger("forgelm.config")
 
+class MoeConfig(BaseModel):
+    """MoE-specific fine-tuning configuration."""
+    quantize_experts: bool = False  # quantize inactive experts for VRAM savings
+    experts_to_train: str = "all"  # "all" or comma-separated expert indices
+
+class MultimodalConfig(BaseModel):
+    """VLM multimodal fine-tuning configuration."""
+    enabled: bool = False
+    image_column: str = "image"  # column name for image paths/URLs
+    text_column: str = "text"  # column name for text/captions
+
+class MergeConfig(BaseModel):
+    """Post-training model merging configuration."""
+    enabled: bool = False
+    method: str = "ties"  # "ties", "dare", "slerp", "linear"
+    models: List[Dict[str, Any]] = []  # list of {path, weight} dicts
+    output_dir: str = "./merged_model"
+
 class ModelConfig(BaseModel):
     name_or_path: str
     max_length: int = 2048
@@ -13,6 +31,8 @@ class ModelConfig(BaseModel):
     backend: str = "transformers"  # Can also be "unsloth"
     trust_remote_code: bool = False  # Security: disabled by default for enterprise safety
     offline: bool = False  # Air-gapped mode: no HF Hub calls, local models/datasets only
+    moe: Optional[MoeConfig] = None  # MoE-specific settings
+    multimodal: Optional[MultimodalConfig] = None  # VLM fine-tuning settings
     # Optional advanced bitsandbytes knobs (Transformers backend)
     bnb_4bit_use_double_quant: bool = True
     bnb_4bit_quant_type: str = "nf4"  # typically "nf4"
@@ -23,7 +43,9 @@ class LoraConfigModel(BaseModel):
     alpha: int = 16
     dropout: float = 0.1
     bias: str = "none"
-    use_dora: bool = False
+    method: str = "lora"  # "lora", "dora", "pissa", "rslora"
+    use_dora: bool = False  # kept for backward compat; method="dora" also works
+    use_rslora: bool = False  # rank-stabilized LoRA for high ranks (r>64)
     target_modules: List[str] = ["q_proj", "v_proj"]
     task_type: str = "CAUSAL_LM"
 
@@ -127,6 +149,7 @@ class ForgeConfig(BaseModel):
     evaluation: Optional[EvaluationConfig] = None
     webhook: Optional[WebhookConfig] = None
     distributed: Optional[DistributedConfig] = None
+    merge: Optional[MergeConfig] = None
 
     @model_validator(mode="after")
     def _validate_consistency(self):

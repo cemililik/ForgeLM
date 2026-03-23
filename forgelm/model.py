@@ -98,17 +98,39 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
             model.enable_input_require_grads()
         model = prepare_model_for_kbit_training(model)
 
-    logger.info("Setting up Transformers LoRA configuration (DoRA=%s)...", config.lora.use_dora)
-    lora_config = LoraConfig(
+    # Resolve PEFT method
+    peft_method = getattr(config.lora, "method", "lora")
+    use_dora = config.lora.use_dora or peft_method == "dora"
+    use_rslora = getattr(config.lora, "use_rslora", False) or peft_method == "rslora"
+
+    # Detect MoE architecture
+    moe_cfg = getattr(config.model, "moe", None)
+    if moe_cfg and hasattr(model.config, "num_local_experts"):
+        num_experts = model.config.num_local_experts
+        logger.info("MoE model detected: %d experts", num_experts)
+        if moe_cfg.quantize_experts:
+            logger.info("Expert quantization enabled for VRAM savings.")
+
+    logger.info("Setting up PEFT configuration (method=%s, DoRA=%s, rsLoRA=%s)...",
+                peft_method, use_dora, use_rslora)
+
+    lora_kwargs = dict(
         r=config.lora.r,
         lora_alpha=config.lora.alpha,
         lora_dropout=config.lora.dropout,
         bias=config.lora.bias,
         task_type=config.lora.task_type,
         target_modules=config.lora.target_modules,
-        use_dora=config.lora.use_dora
+        use_dora=use_dora,
+        use_rslora=use_rslora,
     )
 
+    # PiSSA initialization
+    if peft_method == "pissa":
+        lora_kwargs["init_lora_weights"] = "pissa"
+        logger.info("Using PiSSA initialization (principal component adapter init).")
+
+    lora_config = LoraConfig(**lora_kwargs)
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
