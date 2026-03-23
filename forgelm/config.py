@@ -31,6 +31,7 @@ class TrainingConfig(BaseModel):
     output_dir: str = "./checkpoints"
     final_model_dir: str = "final_model"
     merge_adapters: bool = False
+    trainer_type: str = "sft"  # "sft" or "orpo"
     num_train_epochs: int = 3
     per_device_train_batch_size: int = 4
     gradient_accumulation_steps: int = 2
@@ -41,9 +42,14 @@ class TrainingConfig(BaseModel):
     save_steps: int = 200
     save_total_limit: int = 3
     packing: bool = False
+    orpo_beta: float = 0.1  # ORPO beta parameter (odds ratio weight)
+    report_to: str = "tensorboard"  # "tensorboard", "wandb", "mlflow", or "none"
+    run_name: Optional[str] = None  # W&B/MLflow run name; auto-generated if None
 
 class DataConfig(BaseModel):
     dataset_name_or_path: str
+    extra_datasets: Optional[List[str]] = None  # additional datasets to mix in
+    mix_ratio: Optional[List[float]] = None  # weight per dataset (primary + extras); uniform if None
     shuffle: bool = True
     clean_text: bool = True
     add_eos: bool = True

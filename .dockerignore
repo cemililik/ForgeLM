@@ -1,0 +1,32 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*.egg-info
+dist
+build
+.eggs
+
+# IDE
+.idea
+.vscode
+*.swp
+
+# Docs (not needed in runtime image)
+docs/
+
+# Test artifacts
+.pytest_cache
+htmlcov
+coverage.xml
+.coverage
+
+# Training artifacts (user mounts these)
+checkpoints/
+*.tar.gz
+
+# CI
+.github/

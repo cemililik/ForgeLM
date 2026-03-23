@@ -1,7 +1,7 @@
 import os
 import logging
 from typing import Dict, Any
-from datasets import load_dataset, DatasetDict
+from datasets import load_dataset, DatasetDict, concatenate_datasets
 from transformers import PreTrainedTokenizer
 
 logger = logging.getLogger("forgelm.data")
@@ -12,17 +12,57 @@ def clean_string(text: str, do_clean: bool) -> str:
         return " ".join(text.split())
     return str(text) if text else ""
 
+def _load_single_dataset(path: str):
+    """Load a single dataset from a local file or HF Hub."""
+    if os.path.isfile(path):
+        ext = path.split('.')[-1]
+        if ext == "jsonl": ext = "json"
+        return load_dataset(ext, data_files=path)
+    return load_dataset(path)
+
+
 def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, Any]:
     """Loads and tokenizes the dataset based on ForgeConfig."""
 
     logger.info("Loading dataset from %s...", config.data.dataset_name_or_path)
+    dataset = _load_single_dataset(config.data.dataset_name_or_path)
 
-    if os.path.isfile(config.data.dataset_name_or_path):
-        ext = config.data.dataset_name_or_path.split('.')[-1]
-        if ext == "jsonl": ext = "json"
-        dataset = load_dataset(ext, data_files=config.data.dataset_name_or_path)
-    else:
-        dataset = load_dataset(config.data.dataset_name_or_path)
+    # Multi-dataset support: load and merge extra datasets
+    extra_datasets = getattr(config.data, "extra_datasets", None)
+    if extra_datasets:
+        all_train = [dataset["train"]]
+        mix_ratio = getattr(config.data, "mix_ratio", None)
+
+        for i, extra_path in enumerate(extra_datasets):
+            logger.info("Loading extra dataset [%d]: %s", i + 1, extra_path)
+            extra_ds = _load_single_dataset(extra_path)
+            all_train.append(extra_ds["train"])
+
+        # Apply mix ratios via sampling
+        if mix_ratio and len(mix_ratio) == len(all_train):
+            total_weight = sum(mix_ratio)
+            normalized = [w / total_weight for w in mix_ratio]
+            # Target size = primary dataset size
+            target_size = len(all_train[0])
+            sampled = []
+            for ds, ratio in zip(all_train, normalized):
+                n_samples = min(int(target_size * ratio / normalized[0]), len(ds))
+                sampled.append(ds.select(range(n_samples)))
+            all_train = sampled
+            logger.info("Applied mix ratios: %s", mix_ratio)
+        else:
+            if mix_ratio:
+                logger.warning(
+                    "mix_ratio length (%d) doesn't match dataset count (%d). Using uniform mixing.",
+                    len(mix_ratio), len(all_train)
+                )
+
+        merged_train = concatenate_datasets(all_train)
+        logger.info("Merged %d datasets into %d training samples.", len(all_train), len(merged_train))
+        dataset = DatasetDict({"train": merged_train})
+        # Validation from primary dataset only
+        if "validation" in _load_single_dataset(config.data.dataset_name_or_path):
+            dataset["validation"] = _load_single_dataset(config.data.dataset_name_or_path)["validation"]
 
     # Ensure splits exist (train / validation)
     if "validation" not in dataset and "test" in dataset:
@@ -82,6 +122,29 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
             texts.append(formatted_text)
 
         return {"text": texts}
+
+    # Detect ORPO preference format (chosen/rejected columns)
+    trainer_type = getattr(config.training, "trainer_type", "sft")
+    sample_columns = dataset["train"].column_names if "train" in dataset else []
+    is_preference_data = "chosen" in sample_columns and "rejected" in sample_columns
+
+    if trainer_type == "orpo" and not is_preference_data:
+        raise KeyError(
+            "ORPO trainer requires a preference dataset with 'chosen' and 'rejected' columns. "
+            "Found columns: " + ", ".join(sample_columns)
+        )
+
+    if is_preference_data and trainer_type == "orpo":
+        logger.info("Detected preference dataset (chosen/rejected) for ORPO training.")
+        # ORPO datasets are passed through with minimal processing — TRL ORPOTrainer
+        # expects 'chosen' and 'rejected' columns containing message lists or text.
+        processed = {}
+        for split in dataset:
+            current_dataset = dataset[split]
+            if config.data.shuffle:
+                current_dataset = current_dataset.shuffle(seed=42)
+            processed[split] = current_dataset
+        return processed
 
     logger.info("Formatting dataset with Chat Templates...")
     processed = {}

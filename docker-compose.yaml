@@ -1,0 +1,55 @@
+# ==============================================================================
+# ForgeLM Docker Compose
+#
+# Usage:
+#   Training:
+#     docker compose run --rm train --config /workspace/config.yaml
+#
+#   Dry-run:
+#     docker compose run --rm train --config /workspace/config.yaml --dry-run
+#
+#   Benchmark only:
+#     docker compose run --rm train --config /workspace/config.yaml \
+#       --benchmark-only /workspace/output/final_model
+#
+#   Wizard (generate config):
+#     docker compose run --rm train --wizard
+#
+#   TensorBoard:
+#     docker compose up tensorboard
+#     Open http://localhost:6006
+# ==============================================================================
+
+services:
+  train:
+    build:
+      context: .
+      args:
+        INSTALL_EVAL: "true"
+    volumes:
+      # Mount your config, data, and output directories
+      - ./configs:/workspace/configs:ro
+      - ./data:/workspace/data:ro
+      - ./output:/workspace/output
+      # Optional: mount HF cache to avoid re-downloading models
+      - hf_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Override entrypoint args via: docker compose run train --config ...
+    entrypoint: ["forgelm"]
+
+  tensorboard:
+    image: tensorflow/tensorflow:latest
+    ports:
+      - "6006:6006"
+    volumes:
+      - ./output:/workspace/output:ro
+    command: ["tensorboard", "--logdir=/workspace/output", "--host=0.0.0.0"]
+
+volumes:
+  hf_cache:

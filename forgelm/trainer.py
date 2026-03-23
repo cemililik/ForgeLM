@@ -4,7 +4,7 @@ import torch
 import os
 import shutil
 from trl import SFTTrainer, SFTConfig
-from transformers import TrainingArguments, DefaultDataCollator, EarlyStoppingCallback
+from transformers import EarlyStoppingCallback
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 from .webhook import WebhookNotifier
@@ -61,8 +61,13 @@ class ForgeTrainer:
                 "if a validation set is available."
             )
 
-    def _get_training_args(self) -> SFTConfig:
-        return SFTConfig(
+    @property
+    def _is_orpo(self) -> bool:
+        return getattr(self.config.training, "trainer_type", "sft") == "orpo"
+
+    def _get_common_training_kwargs(self) -> dict:
+        """Return training arguments common to both SFT and ORPO."""
+        return dict(
             output_dir=self.checkpoint_dir,
             num_train_epochs=self.config.training.num_train_epochs,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
@@ -84,11 +89,22 @@ class ForgeTrainer:
             fp16=False,
             bf16=False,
             no_cuda=not torch.cuda.is_available(),
-            report_to="tensorboard",
+            report_to=getattr(self.config.training, "report_to", "tensorboard"),
+            run_name=getattr(self.config.training, "run_name", None) or self.run_name,
             max_length=self.config.model.max_length,
-            packing=bool(getattr(self.config.training, "packing", False)),
-            dataset_text_field="text" # SFTConfig needs this
         )
+
+    def _get_training_args(self) -> SFTConfig:
+        kwargs = self._get_common_training_kwargs()
+        kwargs["packing"] = bool(getattr(self.config.training, "packing", False))
+        kwargs["dataset_text_field"] = "text"
+        return SFTConfig(**kwargs)
+
+    def _get_orpo_training_args(self):
+        from trl import ORPOConfig
+        kwargs = self._get_common_training_kwargs()
+        kwargs["beta"] = getattr(self.config.training, "orpo_beta", 0.1)
+        return ORPOConfig(**kwargs)
 
     def execute_evaluation_checks(self, final_path: str, metrics: Dict[str, float]) -> bool:
         """Evaluates final loss against constraints. Returns True if acceptable, False if reverted."""
@@ -162,20 +178,32 @@ class ForgeTrainer:
 
     def train(self, resume_from_checkpoint: Optional[str] = None) -> TrainResult:
         """Starts the main training loop. Returns TrainResult with status and metrics."""
-        logger.info("Initializing TRL SFTTrainer...")
         self.notifier.notify_start(run_name=self.run_name)
-
-        training_args = self._get_training_args()
         callbacks = [EarlyStoppingCallback(early_stopping_patience=3)]
 
-        self.trainer = SFTTrainer(
-            model=self.model,
-            processing_class=self.tokenizer,
-            args=training_args,
-            train_dataset=self.dataset["train"],
-            eval_dataset=self.dataset.get("validation", None),
-            callbacks=callbacks
-        )
+        if self._is_orpo:
+            logger.info("Initializing TRL ORPOTrainer (preference alignment)...")
+            from trl import ORPOTrainer
+            training_args = self._get_orpo_training_args()
+            self.trainer = ORPOTrainer(
+                model=self.model,
+                processing_class=self.tokenizer,
+                args=training_args,
+                train_dataset=self.dataset["train"],
+                eval_dataset=self.dataset.get("validation", None),
+                callbacks=callbacks,
+            )
+        else:
+            logger.info("Initializing TRL SFTTrainer...")
+            training_args = self._get_training_args()
+            self.trainer = SFTTrainer(
+                model=self.model,
+                processing_class=self.tokenizer,
+                args=training_args,
+                train_dataset=self.dataset["train"],
+                eval_dataset=self.dataset.get("validation", None),
+                callbacks=callbacks,
+            )
 
         try:
             metrics: Dict[str, float] = {}
@@ -256,6 +284,9 @@ class ForgeTrainer:
                     train_result.reverted = True
                     return train_result
 
+            # Generate model card
+            self._generate_model_card(final_path, metrics, train_result)
+
             self.notifier.notify_success(run_name=self.run_name, metrics=metrics)
             return train_result
 
@@ -328,3 +359,17 @@ class ForgeTrainer:
             output_dir=output_dir,
             min_score=bench_cfg.min_score,
         )
+
+    def _generate_model_card(self, final_path: str, metrics: Dict[str, float], result: TrainResult) -> None:
+        """Generate a HuggingFace-compatible model card."""
+        try:
+            from .model_card import generate_model_card
+            generate_model_card(
+                config=self.config,
+                metrics=metrics,
+                final_path=final_path,
+                benchmark_scores=result.benchmark_scores,
+                benchmark_average=result.benchmark_average,
+            )
+        except Exception as e:
+            logger.warning("Failed to generate model card: %s", e)

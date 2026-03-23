@@ -13,8 +13,8 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Phase 1: SOTA Upgrades | **Complete** | 6/6 |
 | Phase 2: Evaluation & Validation | **Complete** | 5/5 |
 | Phase 2.5: Reliability & Maturity | **Complete** | 8/8 |
-| Phase 3: Enterprise Integration | **In Progress** | 6/6 |
-| Phase 4: Ecosystem Growth | **Vision** | 0/5 |
+| Phase 3: Enterprise Integration | **Complete** | 6/6 |
+| Phase 4: Ecosystem Growth | **Complete** | 4/5 |
 
 ---
 
@@ -88,7 +88,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 ### Tasks:
 1. [x] **Interactive Configuration Wizard (`forgelm --wizard`):** *(Moved from Phase 2)* Hardware detection, model selection, strategy recommendation, YAML generation. [Design Doc](design_wizard_mode.md)
 2. [x] **Automated Benchmarking Completion:** Full `lm-evaluation-harness` integration with configurable task sets. Results included in webhook notifications and final output.
-3. [ ] **Docker Image & Container Support:** Official `Dockerfile` and `docker-compose.yaml` for single-command training: `docker run forgelm --config job.yaml`. Pre-built images with CUDA, Unsloth, and evaluation dependencies.
+3. [x] **Docker Image & Container Support:** Official `Dockerfile` and `docker-compose.yaml` for single-command training: `docker run forgelm --config job.yaml`. Pre-built images with CUDA, Unsloth, and evaluation dependencies.
 4. [x] **JSON Output Mode (`--output-format json`):** Machine-readable structured output for all pipeline stages. Enables programmatic integration with CI/CD systems, dashboards, and orchestrators.
 5. [x] **Offline / Air-Gapped Mode:** Full operation without internet access. Local model loading, local dataset only, no HF Hub calls. Critical for defense/healthcare/banking deployments.
 6. [x] **Checkpoint Resume (`--resume`):** Resume training from the last saved checkpoint after interruption. Essential for long-running jobs on preemptible instances.
@@ -105,10 +105,10 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 **Estimated Effort:** Ongoing
 
 ### Tasks:
-1. [ ] **ORPO Trainer:** Single-stage preference alignment using `chosen`/`rejected` datasets. Eliminates the need for separate SFT + DPO stages.
-2. [ ] **Experiment Tracking Integration:** Optional W&B / MLflow integration for metric logging, model comparison, and hyperparameter search visualization.
-3. [ ] **Multi-Dataset Training:** Support multiple JSONL/HF datasets in a single training run with configurable mixing ratios.
-4. [ ] **Automatic Model Card Generation:** Generate HF-compatible model cards with training config, metrics, dataset info, and evaluation results.
+1. [x] **ORPO Trainer:** Single-stage preference alignment using `chosen`/`rejected` datasets. Eliminates the need for separate SFT + DPO stages.
+2. [x] **Experiment Tracking Integration:** Optional W&B / MLflow integration for metric logging, model comparison, and hyperparameter search visualization.
+3. [x] **Multi-Dataset Training:** Support multiple JSONL/HF datasets in a single training run with configurable mixing ratios.
+4. [x] **Automatic Model Card Generation:** Generate HF-compatible model cards with training config, metrics, dataset info, and evaluation results.
 5. [ ] **DeepSpeed / FSDP Support:** Distributed training across multiple GPUs for larger models (30B+ parameters).
 
 ### Requirements:

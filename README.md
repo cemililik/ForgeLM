@@ -5,9 +5,15 @@
 ## Features
 - **Unsloth & Transformers**: Train blazingly fast with the `unsloth` backend, or fall back to standard `transformers` automatically.
 - **4-Bit QLoRA & DoRA**: State-of-the-Art parameter-efficient fine-tuning utilizing NF4 quantization and Weight-Decomposed LoRA for massive memory savings.
+- **ORPO Preference Alignment**: Single-stage SFT + preference alignment using `chosen`/`rejected` datasets.
 - **Dynamic Chat Templates**: Datasets are automatically formatted to match your base model's native conversational structure (e.g. `<|im_start|>`) via `tokenizer.apply_chat_template`.
 - **Config-Driven**: Run training jobs effortlessly using declarative YAML files—built for CI/CD and MLOps automation.
-- **Checkpoint Management**: Automatically handle saving, early stopping, and disk cleanup.
+- **Automated Benchmarking**: Post-training evaluation via `lm-evaluation-harness` with configurable tasks and auto-revert.
+- **Checkpoint Management**: Automatically handle saving, early stopping, checkpoint resume, and disk cleanup.
+- **Docker Support**: Official Dockerfile and docker-compose for portable, single-command training.
+- **Multi-Dataset Training**: Mix multiple datasets with configurable ratios in a single training run.
+- **Model Card Generation**: Automatic HF-compatible model cards with training config, metrics, and benchmarks.
+- **W&B / MLflow / TensorBoard**: Flexible experiment tracking via `report_to` config parameter.
 
 ## Documentation
 For detailed guides on how to use ForgeLM, please see our dedicated documentations:
@@ -40,7 +46,7 @@ python3 -m pip install -e ".[qlora]"
 python3 -m pip install -e ".[unsloth]"
 ```
 
-- **Evaluation / Benchmark (Phase 2)**:
+- **Evaluation / Benchmark**:
 
 ```bash
 python3 -m pip install -e ".[eval]"
@@ -62,7 +68,7 @@ python3 -m pip install -r requirements.txt
 python3 -m pip install -r requirements-linux.txt
 ```
 
-- Phase 2 evaluation:
+- Evaluation harness:
 
 ```bash
 python3 -m pip install -r requirements-eval.txt
@@ -85,7 +91,28 @@ cp config_template.yaml my_config.yaml
 
 3. Start training:
 ```bash
-python3 -m forgelm.cli --config my_config.yaml
+forgelm --config my_config.yaml
+```
+
+Or use the interactive wizard to generate a config:
+```bash
+forgelm --wizard
+```
+
+## Docker
+
+```bash
+# Build
+docker build -t forgelm .
+
+# Run training
+docker run --gpus all \
+  -v $(pwd)/my_config.yaml:/workspace/config.yaml \
+  -v $(pwd)/output:/workspace/output \
+  forgelm --config /workspace/config.yaml
+
+# Dry-run
+docker run forgelm --config /workspace/config.yaml --dry-run --output-format json
 ```
 
 ## Directory Structure
@@ -93,6 +120,10 @@ python3 -m forgelm.cli --config my_config.yaml
   - `config.py`: Configuration parsing and validation using Pydantic.
   - `data.py`: Dataset loading, tokenizing, and preprocessing.
   - `model.py`: Model loading and PEFT/LoRA preparation.
-  - `trainer.py`: Fine-tuning orchestration loop.
+  - `trainer.py`: Fine-tuning orchestration loop (SFT & ORPO).
+  - `benchmark.py`: Post-training evaluation via lm-evaluation-harness.
+  - `model_card.py`: Automatic model card generation.
+  - `wizard.py`: Interactive configuration wizard.
+  - `webhook.py`: Webhook notifications (Slack/Teams/generic).
   - `utils.py`: Authentication, logging, and checkpoint management.
   - `cli.py`: Command Line Interface.
