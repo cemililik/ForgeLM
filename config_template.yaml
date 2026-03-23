@@ -5,6 +5,10 @@ model:
   max_length: 2048
   load_in_4bit: true
   backend: "transformers" # Can be "transformers" or "unsloth"
+  # Optional advanced bitsandbytes knobs (Transformers backend + 4bit):
+  # bnb_4bit_use_double_quant: true
+  # bnb_4bit_quant_type: "nf4"
+  # bnb_4bit_compute_dtype: "auto"   # auto|bfloat16|float16|float32
 
 lora:
   r: 8

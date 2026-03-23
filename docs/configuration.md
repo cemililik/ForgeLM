@@ -10,6 +10,10 @@ model:
   max_length: 2048
   load_in_4bit: true
   backend: "transformers" # Can be "unsloth" for 2x faster training
+  # Optional advanced bitsandbytes knobs (Transformers backend + 4bit):
+  # bnb_4bit_use_double_quant: true
+  # bnb_4bit_quant_type: "nf4"
+  # bnb_4bit_compute_dtype: "auto"   # auto|bfloat16|float16|float32
 
 lora:
   r: 8
@@ -24,6 +28,8 @@ lora:
 
 training:
   output_dir: "./checkpoints"
+  final_model_dir: "final_model"
+  merge_adapters: false
   num_train_epochs: 3
   per_device_train_batch_size: 4
   gradient_accumulation_steps: 2
@@ -33,6 +39,7 @@ training:
   eval_steps: 200
   save_steps: 200
   save_total_limit: 3
+  packing: false
 
 data:
   dataset_name_or_path: "your_huggingface_dataset_org/dataset_name"
@@ -42,6 +49,17 @@ data:
 
 auth:
   hf_token: "hf_YOUR_SECRET_TOKEN"
+
+evaluation:
+  auto_revert: false
+  max_acceptable_loss: 2.5
+  baseline_loss: null # Computed automatically if null
+
+webhook:
+  url: "https://your-webhook-endpoint.com/api/notify"
+  notify_on_start: true
+  notify_on_success: true
+  notify_on_failure: true
 ```
 
 ## Schema Details
@@ -64,9 +82,12 @@ Defines Parameter-Efficient Fine-Tuning strategies.
 ### `training`
 Defines Hyperparameters.
 - **`output_dir`**: Directory where checkpoints are saved during training.
+- **`final_model_dir`**: Subdirectory under `output_dir` for final artifacts (defaults to `final_model`).
+- **`merge_adapters`**: If `false` (default), saves adapter-only artifacts. If `true`, attempts to merge adapters and save a full model.
 - **`learning_rate`**: The initial learning rate for AdamW optimizer.
 - **`per_device_train_batch_size`**: Batch size per GPU core/device.
 - **`gradient_accumulation_steps`**: Number of updates steps to accumulate before a backward/update pass.
+- **`packing`**: Enables sequence packing in TRL `SFTTrainer` (advanced; keep `false` unless you know your data supports it).
 
 ### `data`
 - **`dataset_name_or_path`**: Hugging face repository ID (e.g. `timdettmers/openassistant-guanaco`) or a local path to a JSON/CSV file.
@@ -75,3 +96,31 @@ Defines Hyperparameters.
 
 ### `auth` (Optional)
 - **`hf_token`**: Your Hugging Face access token for accessing private or gated models (like Llama-2/3). It's generally safer to omit this and use the `HUGGINGFACE_TOKEN` environment variable in production.
+
+### `evaluation` (Optional)
+Configuration for automated quality checks after training.
+- **`auto_revert`**: (Boolean) If `true`, deletes the checkpoints if the final loss exceeds `max_acceptable_loss`. Default is `false`.
+- **`max_acceptable_loss`**: (Float) The threshold for failing the training run Based on evaluation loss. 
+- **`baseline_loss`**: (Float) Optional baseline. If not set, ForgeLM computes it from the validation set before training starts.
+
+### `webhook` (Optional)
+ForgeLM can send JSON payloads to an external service to track training progress.
+- **`url`**: The destination URL (POST request).
+- **`url_env`**: Alternatively, specify the name of an environment variable containing the URL.
+- **`notify_on_start`**: (Boolean) Send notification when training begins.
+- **`notify_on_success`**: (Boolean) Send notification on successful completion.
+- **`notify_on_failure`**: (Boolean) Send notification if the pipeline crashes or evaluation fails.
+
+#### Webhook Payload Format
+ForgeLM sends a JSON body with the following structure:
+```json
+{
+  "status": "started | success | failure",
+  "run_name": "model-name_finetune",
+  "message": "Step description...",
+  "metrics": {
+    "loss": 1.25,
+    "epoch": 3.0
+  }
+}
+```

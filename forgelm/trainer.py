@@ -1,7 +1,7 @@
 import torch
 import os
 import shutil
-from trl import SFTTrainer
+from trl import SFTTrainer, SFTConfig
 from transformers import TrainingArguments, DefaultDataCollator, EarlyStoppingCallback
 from typing import Any, Dict
 from .webhook import WebhookNotifier
@@ -19,8 +19,8 @@ class ForgeTrainer:
         
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         
-    def _get_training_args(self) -> TrainingArguments:
-        return TrainingArguments(
+    def _get_training_args(self) -> SFTConfig:
+        return SFTConfig(
             output_dir=self.checkpoint_dir,
             num_train_epochs=self.config.training.num_train_epochs,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
@@ -39,8 +39,13 @@ class ForgeTrainer:
             greater_is_better=False,
             gradient_checkpointing=True,
             optim="adamw_torch_fused" if torch.cuda.is_available() else "adamw_torch",
-            fp16=torch.cuda.is_available(),
-            report_to="tensorboard"
+            fp16=False,
+            bf16=False,
+            no_cuda=not torch.cuda.is_available(),
+            report_to="tensorboard",
+            max_length=self.config.model.max_length,
+            packing=bool(getattr(self.config.training, "packing", False)),
+            dataset_text_field="text" # SFTConfig needs this
         )
         
     def execute_evaluation_checks(self, final_path: str, metrics: Dict[str, float]) -> bool:
@@ -85,25 +90,32 @@ class ForgeTrainer:
         
         self.trainer = SFTTrainer(
             model=self.model,
-            tokenizer=self.tokenizer,
+            processing_class=self.tokenizer,
             args=training_args,
             train_dataset=self.dataset["train"],
             eval_dataset=self.dataset.get("validation", None),
-            dataset_text_field="text",
-            max_seq_length=self.config.model.max_length,
-            packing=bool(getattr(self.config.training, "packing", False)),
             callbacks=callbacks
         )
         
         try:
             metrics: Dict[str, float] = {}
 
-            # Baseline evaluation (base model + adapters before training).
+            # Baseline evaluation (base model, without adapters).
             # This enables Phase 2 "never overwrite a better model" behavior.
             if self.dataset.get("validation") and self.config.evaluation and self.config.evaluation.auto_revert:
                 if self.config.evaluation.baseline_loss is None:
                     print("Measuring baseline eval_loss (pre-training)...")
-                    baseline_metrics = self.trainer.evaluate()
+                    model_obj = self.trainer.model
+                    baseline_metrics = None
+                    # PEFT models often support disabling adapters for true base-model eval.
+                    if hasattr(model_obj, "disable_adapter"):
+                        try:
+                            with model_obj.disable_adapter():
+                                baseline_metrics = self.trainer.evaluate()
+                        except Exception:
+                            baseline_metrics = self.trainer.evaluate()
+                    else:
+                        baseline_metrics = self.trainer.evaluate()
                     baseline_loss = baseline_metrics.get("eval_loss")
                     if baseline_loss is not None:
                         self.config.evaluation.baseline_loss = float(baseline_loss)

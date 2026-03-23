@@ -13,6 +13,8 @@ Bu yol haritası, 2026 İyileştirme Önerisi belgesinde belirtilen stratejik vi
 2. **TRL `SFTTrainer` Geçişi:** Otomatik veri paketlemeyi (sequence packing) ve maskelemeyi desteklemek için standart HF `Trainer` sınıfını `SFTTrainer` ile değiştirin.
 3. **Sohbet Şablonu (Chat Template) Standardizasyonu:** Çeşitli modern modeller (Llama-3, Mistral) için en kusursuz yapılandırmayı (formatting) sağlamak adına `data.py` içinde manuel metin birleştirme yerine `tokenizer.apply_chat_template()` kullanın.
 4. **Unsloth Arka Uç (Backend) Desteği:** Kullanıcıların standart transformers yüklemesini atlayıp eğitimleri 2-5 kat daha hızlı tamamlayabilmelerine olanak tanımak için YAML yapılandırmasına `backend: "unsloth"` seçeneğini ekleyin.
+5. **Blackwell (GB10) Optimizasyonu (v1.1):** CUDA 13.0 ortamları için `expandable_segments:True` gibi spesifik bayrakları araştırın ve uygulayın; Blackwell için özel bir `setup_for_blackwell.sh` oluşturun. [Tasarım Dokümanı](design_blackwell_optimized.md)
+6. **Veri Seti ve Model Ön Doğrulaması:** Ağırlıkları yüklemeden önce modellerin `safetensors` formatında olduğunu ve veri setlerinin beklenen sohbet/istek-tamamlama (conversational/prompt-completion) şablonlarına uyduğunu doğrulayan kontroller ekleyin.
 
 ### İhtiyaçlar:
 - `unsloth` kütüphanesinin farklı GPU'larla uyumluluğunun derinlemesine test edilmesi.
@@ -28,6 +30,7 @@ Bu yol haritası, 2026 İyileştirme Önerisi belgesinde belirtilen stratejik vi
 1. **Otomatik Kıyaslama (Benchmarking):** Eğitim sonrası bir değerlendirme (evaluation) betiği entegre edin (örn., EleutherAI `lm-evaluation-harness` veya Hakim-Olarak-LLM mantığı).
 2. **Model Geri Alma (Reversion) Mekanizması:** Yeni eğitilen LoRA adaptörleri doğrulama (validation) setlerinde baz (base) modelden daha kötü puan alırsa, bu adaptörleri otomatik olarak atın ve bir hata mesajı loglayın.
 3. **Slack/Teams Webhook Entegrasyonu:** Eğitim işleri başladığında, başarılı olduğunda (metriklerle birlikte) veya çöktüğünde mesaj göndermesi için YAML ayarlarına `notify_webhook` parametresi ekleyin.
+4. **Etkileşimli Yapılandırma Sihirbazı (`forgelm --wizard`):** Yeni başlayanların manuel düzenleme yapmadan ilk geçerli `config.yaml` dosyalarını oluşturmalarına yardımcı olacak adım adım bir CLI istemi. [Tasarım Dokümanı](design_wizard_mode.md)
 
 ### İhtiyaçlar:
 - Sistemi denetlemek amaçlı şirket içine ait, standartlaştırılmış bir gizli test (benchmark) veri seti.

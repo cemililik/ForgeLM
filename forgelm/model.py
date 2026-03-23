@@ -3,6 +3,18 @@ from typing import Tuple, Any
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
+def _resolve_bnb_compute_dtype(dtype_str: str):
+    if not dtype_str or dtype_str == "auto":
+        return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    normalized = str(dtype_str).lower()
+    if normalized in ("bf16", "bfloat16"):
+        return torch.bfloat16
+    if normalized in ("fp16", "float16"):
+        return torch.float16
+    if normalized in ("fp32", "float32"):
+        return torch.float32
+    raise ValueError(f"Unsupported bnb_4bit_compute_dtype: {dtype_str!r}")
+
 def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
     """Loads the base model, tokenizer, and configures LoRA."""
     print(f"Loading Base Model: {config.model.name_or_path} with backend: {config.model.backend}")
@@ -48,11 +60,12 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
     
     if torch.cuda.is_available() and config.model.load_in_4bit:
         print("Using 4-bit QLoRA quantization...")
+        compute_dtype = _resolve_bnb_compute_dtype(getattr(config.model, "bnb_4bit_compute_dtype", "auto"))
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            bnb_4bit_use_double_quant=bool(getattr(config.model, "bnb_4bit_use_double_quant", True)),
+            bnb_4bit_quant_type=str(getattr(config.model, "bnb_4bit_quant_type", "nf4")),
+            bnb_4bit_compute_dtype=compute_dtype,
         )
         model_kwargs["quantization_config"] = bnb_config
 

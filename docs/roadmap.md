@@ -13,6 +13,8 @@ Based on the strategic vision outlined in the 2026 Upgrade Proposal, this roadma
 2. **TRL `SFTTrainer` Migration:** Replace the standard HF `Trainer` with `SFTTrainer` to support automatic sequence packing and masking.
 3. **Chat Template Standardization:** Update `data.py` to use `tokenizer.apply_chat_template()` instead of manual string concatenation to ensure perfect conversational formatting for modern models.
 4. **Unsloth Backend Support:** Add a `backend: "unsloth"` option in the YAML configuration to allow users to bypass standard transformers loading for 2x-5x faster training.
+5. **Blackwell (GB10) Optimization (v1.1):** Research and implement specific flags like `expandable_segments:True` and create a dedicated `setup_for_blackwell.sh` for CUDA 13.0 environments. [Design Doc](design_blackwell_optimized.md)
+6. **Pre-flight Dataset & Model Validation:** Add checks to ensure models are in `safetensors` format and datasets match expected conversational/prompt-completion patterns before loading weights.
 
 ### Requirements:
 - Deep testing of the `unsloth` library compatibility across different GPUs.
@@ -28,6 +30,7 @@ Based on the strategic vision outlined in the 2026 Upgrade Proposal, this roadma
 1. **Automated Benchmarking:** Integrate a post-training evaluation script (e.g., using EleutherAI's `lm-evaluation-harness` or a custom LLM-as-a-Judge pipeline).
 2. **Model Reversion Mechanism:** If the newly trained LoRA adapters score worse on the validation/benchmark sets than the base model, automatically discard the adapters and log an error.
 3. **Slack/Teams Webhook Integration:** Add `notify_webhook` to the YAML config to send a message when a training job starts, succeeds (with metrics), or fails.
+4. **Interactive Configuration Wizard (`forgelm --wizard`):** A step-by-step CLI prompt to help beginners generate their first valid `config.yaml` without manual editing.
 
 ### Requirements:
 - A standardized set of internal test datasets.

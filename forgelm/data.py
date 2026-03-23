@@ -16,6 +16,7 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
     
     if os.path.isfile(config.data.dataset_name_or_path):
         ext = config.data.dataset_name_or_path.split('.')[-1]
+        if ext == "jsonl": ext = "json"
         dataset = load_dataset(ext, data_files=config.data.dataset_name_or_path)
     else:
         dataset = load_dataset(config.data.dataset_name_or_path)
@@ -32,6 +33,22 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
         })
 
     def process_batch(examples):
+        # Handle modern conversational format (messages column)
+        if "messages" in examples:
+            texts = []
+            for msg_list in examples["messages"]:
+                try:
+                    formatted_text = tokenizer.apply_chat_template(msg_list, tokenize=False, add_generation_prompt=False)
+                except Exception:
+                    # Fallback
+                    formatted_text = ""
+                    for m in msg_list:
+                        formatted_text += f"[{m['role'].upper()}]\n{m['content']}\n"
+                    if config.data.add_eos:
+                        formatted_text += tokenizer.eos_token
+                texts.append(formatted_text)
+            return {"text": texts}
+
         has_system = "System" in examples
         sys_texts = examples["System"] if has_system else [""] * len(examples.get("User", examples.get("text", [])))
         user_texts = examples.get("User", examples.get("instruction", []))
