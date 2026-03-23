@@ -11,9 +11,9 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Phase | Status | Completion |
 |-------|--------|------------|
 | Phase 1: SOTA Upgrades | **Complete** | 6/6 |
-| Phase 2: Evaluation & Validation | **In Progress** | 4/5 |
+| Phase 2: Evaluation & Validation | **Complete** | 5/5 |
 | Phase 2.5: Reliability & Maturity | **Complete** | 8/8 |
-| Phase 3: Enterprise Integration | **In Progress** | 5/6 |
+| Phase 3: Enterprise Integration | **In Progress** | 6/6 |
 | Phase 4: Ecosystem Growth | **Vision** | 0/5 |
 
 ---
@@ -37,7 +37,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 **Status:** 3 of 5 tasks complete
 
 ### Tasks:
-1. [/] **Automated Benchmarking:** Post-training evaluation via `lm-evaluation-harness` or LLM-as-a-Judge pipeline. *(Implementation started, integration pending)*
+1. [x] **Automated Benchmarking:** Post-training evaluation via `lm-evaluation-harness`. Full integration with configurable tasks, min_score threshold, auto-revert, webhook notifications, and `--benchmark-only` CLI mode.
 2. [x] **Model Reversion Mechanism:** Auto-discard LoRA adapters if they score worse than baseline. *(Edge cases hardened: NaN/inf handling, rmtree safety, improvement logging)*
 3. [x] **Slack/Teams Webhook Integration:** `webhook` section in YAML config sends structured JSON payloads on start/success/failure.
 4. [x] **Interactive Configuration Wizard (`forgelm --wizard`):** Step-by-step CLI to generate valid `config.yaml`. [Design Doc](design_wizard_mode.md) *(Implemented in Phase 3)*
@@ -87,7 +87,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 
 ### Tasks:
 1. [x] **Interactive Configuration Wizard (`forgelm --wizard`):** *(Moved from Phase 2)* Hardware detection, model selection, strategy recommendation, YAML generation. [Design Doc](design_wizard_mode.md)
-2. [ ] **Automated Benchmarking Completion:** Full `lm-evaluation-harness` integration with configurable task sets. Results included in webhook notifications and final output.
+2. [x] **Automated Benchmarking Completion:** Full `lm-evaluation-harness` integration with configurable task sets. Results included in webhook notifications and final output.
 3. [ ] **Docker Image & Container Support:** Official `Dockerfile` and `docker-compose.yaml` for single-command training: `docker run forgelm --config job.yaml`. Pre-built images with CUDA, Unsloth, and evaluation dependencies.
 4. [x] **JSON Output Mode (`--output-format json`):** Machine-readable structured output for all pipeline stages. Enables programmatic integration with CI/CD systems, dashboards, and orchestrators.
 5. [x] **Offline / Air-Gapped Mode:** Full operation without internet access. Local model loading, local dataset only, no HF Hub calls. Critical for defense/healthcare/banking deployments.

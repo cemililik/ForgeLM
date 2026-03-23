@@ -48,10 +48,21 @@ class DataConfig(BaseModel):
     clean_text: bool = True
     add_eos: bool = True
 
+class BenchmarkConfig(BaseModel):
+    """Configuration for post-training benchmark evaluation via lm-evaluation-harness."""
+    enabled: bool = False
+    tasks: List[str] = []  # e.g. ["arc_easy", "hellaswag", "mmlu"]
+    num_fewshot: Optional[int] = None  # task default if None
+    batch_size: str = "auto"  # "auto" or integer string
+    limit: Optional[int] = None  # limit samples per task (useful for quick checks)
+    output_dir: Optional[str] = None  # save benchmark results JSON; defaults to training output_dir
+    min_score: Optional[float] = None  # minimum average accuracy; triggers revert if below
+
 class EvaluationConfig(BaseModel):
     auto_revert: bool = False
     max_acceptable_loss: Optional[float] = None
     baseline_loss: Optional[float] = None  # if not provided, computed automatically (when validation exists)
+    benchmark: Optional[BenchmarkConfig] = None  # post-training benchmark via lm-eval-harness
 
 class WebhookConfig(BaseModel):
     url: Optional[str] = None

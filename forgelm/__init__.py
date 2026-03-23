@@ -9,7 +9,7 @@ from .config import load_config, ForgeConfig, ConfigError
 
 __version__ = "0.1.0"
 
-__all__ = ["load_config", "ForgeConfig", "ConfigError", "prepare_dataset", "get_model_and_tokenizer", "ForgeTrainer", "TrainResult", "setup_authentication", "manage_checkpoints"]
+__all__ = ["load_config", "ForgeConfig", "ConfigError", "prepare_dataset", "get_model_and_tokenizer", "ForgeTrainer", "TrainResult", "setup_authentication", "manage_checkpoints", "run_benchmark", "BenchmarkResult"]
 
 
 def __getattr__(name: str):
@@ -25,6 +25,12 @@ def __getattr__(name: str):
         return v
     if name == "TrainResult":
         from .trainer import TrainResult as v
+        return v
+    if name == "run_benchmark":
+        from .benchmark import run_benchmark as v
+        return v
+    if name == "BenchmarkResult":
+        from .benchmark import BenchmarkResult as v
         return v
     if name == "setup_authentication":
         from .utils import setup_authentication as v

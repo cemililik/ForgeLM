@@ -20,6 +20,9 @@ class TrainResult:
     final_model_path: Optional[str] = None
     reverted: bool = False
     error: Optional[str] = None
+    benchmark_scores: Optional[Dict[str, float]] = None
+    benchmark_average: Optional[float] = None
+    benchmark_passed: Optional[bool] = None
 
 
 class ForgeTrainer:
@@ -222,13 +225,39 @@ class ForgeTrainer:
             )
             self.save_final_model(final_path)
 
-            # Autonomous Evaluation Check
+            # Autonomous Evaluation Check (loss-based)
             is_valid = self.execute_evaluation_checks(final_path, metrics)
-            if is_valid:
-                self.notifier.notify_success(run_name=self.run_name, metrics=metrics)
-                return TrainResult(success=True, metrics=metrics, final_model_path=final_path)
-            else:
+            if not is_valid:
                 return TrainResult(success=False, metrics=metrics, reverted=True)
+
+            # Post-training benchmark evaluation (lm-eval-harness)
+            benchmark_result = self._run_benchmark_if_configured(final_path, metrics)
+
+            train_result = TrainResult(
+                success=True,
+                metrics=metrics,
+                final_model_path=final_path,
+            )
+
+            if benchmark_result is not None:
+                train_result.benchmark_scores = benchmark_result.scores
+                train_result.benchmark_average = benchmark_result.average_score
+                train_result.benchmark_passed = benchmark_result.passed
+
+                # Add benchmark scores to metrics for webhook
+                for task, score in benchmark_result.scores.items():
+                    metrics[f"benchmark/{task}"] = score
+                metrics["benchmark/average"] = benchmark_result.average_score
+
+                if not benchmark_result.passed:
+                    reason = benchmark_result.failure_reason or "Benchmark score below threshold."
+                    self._revert_model(final_path, reason)
+                    train_result.success = False
+                    train_result.reverted = True
+                    return train_result
+
+            self.notifier.notify_success(run_name=self.run_name, metrics=metrics)
+            return train_result
 
         except Exception as e:
             logger.exception("Training pipeline failed.")
@@ -265,3 +294,37 @@ class ForgeTrainer:
             )
             self.trainer.save_model(final_path)
         self.tokenizer.save_pretrained(final_path)
+
+    def _run_benchmark_if_configured(self, final_path: str, metrics: Dict[str, float]):
+        """Run post-training benchmarks if configured. Returns BenchmarkResult or None."""
+        eval_cfg = self.config.evaluation
+        if not eval_cfg or not eval_cfg.benchmark or not eval_cfg.benchmark.enabled:
+            return None
+
+        bench_cfg = eval_cfg.benchmark
+        if not bench_cfg.tasks:
+            logger.warning("Benchmark enabled but no tasks specified. Skipping.")
+            return None
+
+        try:
+            from .benchmark import run_benchmark
+        except ImportError as e:
+            logger.error(
+                "Benchmark evaluation requested but lm-eval is not installed: %s. "
+                "Install with: pip install forgelm[eval]", e
+            )
+            return None
+
+        logger.info("Running post-training benchmark evaluation...")
+        output_dir = bench_cfg.output_dir or os.path.join(self.checkpoint_dir, "benchmark")
+
+        return run_benchmark(
+            model=self.trainer.model,
+            tokenizer=self.tokenizer,
+            tasks=bench_cfg.tasks,
+            num_fewshot=bench_cfg.num_fewshot,
+            batch_size=bench_cfg.batch_size,
+            limit=bench_cfg.limit,
+            output_dir=output_dir,
+            min_score=bench_cfg.min_score,
+        )

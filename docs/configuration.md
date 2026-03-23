@@ -101,8 +101,23 @@ Defines Hyperparameters.
 ### `evaluation` (Optional)
 Configuration for automated quality checks after training.
 - **`auto_revert`**: (Boolean) If `true`, deletes the checkpoints if the final loss exceeds `max_acceptable_loss`. Default is `false`.
-- **`max_acceptable_loss`**: (Float) The threshold for failing the training run Based on evaluation loss. 
+- **`max_acceptable_loss`**: (Float) The threshold for failing the training run based on evaluation loss.
 - **`baseline_loss`**: (Float) Optional baseline. If not set, ForgeLM computes it from the validation set before training starts.
+- **`benchmark`**: (Object) Post-training benchmark evaluation via lm-evaluation-harness. Requires `pip install forgelm[eval]`.
+
+#### `evaluation.benchmark` (Optional)
+- **`enabled`**: (Boolean) Enable benchmark evaluation after training. Default is `false`.
+- **`tasks`**: (List[String]) Benchmark task names from lm-evaluation-harness (e.g., `["arc_easy", "hellaswag", "mmlu"]`).
+- **`num_fewshot`**: (Integer) Number of few-shot examples. Task default if omitted.
+- **`batch_size`**: (String) Evaluation batch size. `"auto"` for automatic detection.
+- **`limit`**: (Integer) Limit number of samples per task. Useful for quick validation checks.
+- **`output_dir`**: (String) Directory to save benchmark result JSON. Defaults to `{output_dir}/benchmark/`.
+- **`min_score`**: (Float) Minimum average accuracy threshold. If the model scores below this, auto-revert is triggered (if enabled).
+
+You can also run benchmarks on an existing model without training using `--benchmark-only`:
+```bash
+forgelm --config my_config.yaml --benchmark-only /path/to/model
+```
 
 ### `webhook` (Optional)
 ForgeLM can send JSON payloads to an external service to track training progress.

@@ -53,6 +53,15 @@ data:
 #   auto_revert: true
 #   max_acceptable_loss: 0.8  # If final eval_loss is higher, reverts adapters
 #   # baseline_loss: 0.75     # Optional; if omitted, computed pre-training when validation exists
+#   benchmark:
+#     enabled: true
+#     tasks:
+#       - "arc_easy"
+#       - "hellaswag"
+#     # num_fewshot: 5        # Few-shot examples (task default if omitted)
+#     # batch_size: "auto"    # "auto" or integer
+#     # limit: 100            # Limit samples per task (useful for quick checks)
+#     # min_score: 0.4        # Minimum average accuracy; triggers revert if below
 
 # webhook:
 #   # Prefer providing secrets via env vars in CI/CD

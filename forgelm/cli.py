@@ -70,6 +70,13 @@ def parse_args():
         help="Air-gapped mode: disable all HF Hub network calls. Models and datasets must be available locally."
     )
     parser.add_argument(
+        "--benchmark-only",
+        type=str,
+        default=None,
+        metavar="MODEL_PATH",
+        help="Run benchmark evaluation on an existing model without training. Requires evaluation.benchmark config."
+    )
+    parser.add_argument(
         "--output-format",
         type=str,
         default="text",
@@ -121,6 +128,64 @@ def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
 
     logger.info("=== DRY RUN COMPLETE — config is valid ===")
 
+def _run_benchmark_only(config: ForgeConfig, model_path: str, output_format: str) -> None:
+    """Run benchmark evaluation on an existing model without training."""
+    from .model import get_model_and_tokenizer
+    from .benchmark import run_benchmark
+
+    eval_cfg = config.evaluation
+    if not eval_cfg or not eval_cfg.benchmark or not eval_cfg.benchmark.tasks:
+        logger.error("No benchmark tasks configured. Add evaluation.benchmark.tasks to your config.")
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    bench_cfg = eval_cfg.benchmark
+
+    # Override model path to the provided one
+    config.model.name_or_path = model_path
+    logger.info("Loading model from %s for benchmark evaluation...", model_path)
+
+    model, tokenizer = get_model_and_tokenizer(config)
+
+    output_dir = bench_cfg.output_dir or os.path.join(os.path.dirname(model_path), "benchmark")
+
+    result = run_benchmark(
+        model=model,
+        tokenizer=tokenizer,
+        tasks=bench_cfg.tasks,
+        num_fewshot=bench_cfg.num_fewshot,
+        batch_size=bench_cfg.batch_size,
+        limit=bench_cfg.limit,
+        output_dir=output_dir,
+        min_score=bench_cfg.min_score,
+    )
+
+    if output_format == "json":
+        output = {
+            "success": result.passed,
+            "model_path": model_path,
+            "benchmark": {
+                "scores": result.scores,
+                "average": result.average_score,
+                "passed": result.passed,
+            },
+        }
+        if result.failure_reason:
+            output["failure_reason"] = result.failure_reason
+        print(json.dumps(output, indent=2))
+    else:
+        logger.info("Benchmark Results:")
+        for task, score in result.scores.items():
+            logger.info("  %s: %.4f", task, score)
+        logger.info("  Average: %.4f", result.average_score)
+        if result.passed:
+            logger.info("Benchmark evaluation PASSED.")
+        else:
+            logger.error("Benchmark evaluation FAILED: %s", result.failure_reason)
+
+    if not result.passed:
+        sys.exit(EXIT_EVAL_FAILURE)
+
+
 def _resolve_resume_checkpoint(checkpoint_dir: str, resume_arg: str) -> str:
     """Resolve the checkpoint path for --resume."""
     if resume_arg != "auto":
@@ -156,6 +221,12 @@ def _output_result(result, output_format: str) -> None:
             "final_model_path": result.final_model_path,
             "reverted": result.reverted,
         }
+        if result.benchmark_scores is not None:
+            output["benchmark"] = {
+                "scores": result.benchmark_scores,
+                "average": result.benchmark_average,
+                "passed": result.benchmark_passed,
+            }
         print(json.dumps(output, indent=2))
     else:
         if result.success:
@@ -167,6 +238,13 @@ def _output_result(result, output_format: str) -> None:
                 logger.error("ForgeLM Pipeline failed autonomous evaluation. Model was reverted.")
             else:
                 logger.error("ForgeLM Pipeline failed.")
+
+        # Print benchmark results in text mode
+        if result.benchmark_scores:
+            logger.info("Benchmark Results:")
+            for task, score in result.benchmark_scores.items():
+                logger.info("  %s: %.4f", task, score)
+            logger.info("  Average: %.4f", result.benchmark_average)
 
 def main():
     args = parse_args()
@@ -226,6 +304,11 @@ def main():
         _run_dry_run(config, args.output_format)
         sys.exit(EXIT_SUCCESS)
 
+    # 4. Benchmark-only mode: evaluate an existing model without training
+    if args.benchmark_only:
+        _run_benchmark_only(config, args.benchmark_only, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+
     try:
         # Defer heavy imports so `--help`, `--version`, and `--dry-run` stay lightweight.
         from .data import prepare_dataset
@@ -233,13 +316,13 @@ def main():
         from .trainer import ForgeTrainer
         from .utils import setup_authentication, manage_checkpoints
 
-        # 4. Setup HF Authentication (skipped in offline mode)
+        # 5. Setup HF Authentication (skipped in offline mode)
         if not config.model.offline:
             setup_authentication(config.auth.hf_token if config.auth else None)
         else:
             logger.info("Skipping HF authentication (offline mode).")
 
-        # 4. Model & Tokenizer
+        # 6. Model & Tokenizer
         model, tokenizer = get_model_and_tokenizer(config)
 
         # 5. Data Preprocessing
