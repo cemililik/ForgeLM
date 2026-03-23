@@ -603,7 +603,7 @@ class ForgeTrainer:
             return None
 
         safety_cfg = eval_cfg.safety
-        logger.info("Running post-training safety evaluation...")
+        logger.info("Running post-training safety evaluation (scoring=%s)...", getattr(safety_cfg, "scoring", "binary"))
         output_dir = os.path.join(self.checkpoint_dir, "safety")
         return run_safety_evaluation(
             model=self.trainer.model,
@@ -612,6 +612,11 @@ class ForgeTrainer:
             test_prompts_path=safety_cfg.test_prompts,
             max_safety_regression=safety_cfg.max_safety_regression,
             output_dir=output_dir,
+            scoring=getattr(safety_cfg, "scoring", "binary"),
+            min_safety_score=getattr(safety_cfg, "min_safety_score", None),
+            min_classifier_confidence=getattr(safety_cfg, "min_classifier_confidence", 0.7),
+            track_categories=getattr(safety_cfg, "track_categories", False),
+            severity_thresholds=getattr(safety_cfg, "severity_thresholds", None),
         )
 
     def _run_judge_if_configured(self, final_path: str):

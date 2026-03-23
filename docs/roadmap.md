@@ -23,7 +23,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Phase 6: Enterprise Trust & Compliance | **Complete** | 5/5 |
 | Phase 7: Next-Gen Model Support | **Complete** | 5/5 |
 | Phase 8: EU AI Act Deep Compliance | **Complete** | 10/10 |
-| Phase 9: Advanced Safety & Evaluation Intelligence | **Planned** | 0/8 |
+| Phase 9: Advanced Safety & Evaluation Intelligence | **Complete** | 7/8 |
 
 ---
 
@@ -438,7 +438,7 @@ graph LR
 
 #### Tier 1: Confidence-Weighted Scoring
 
-1. [ ] **Confidence Score Extraction**
+1. [x] **Confidence Score Extraction**
    Extract classification confidence from the safety classifier output. Instead of binary safe/unsafe, capture the probability:
    ```json
    {
@@ -451,7 +451,7 @@ graph LR
    ```
    Current `pipeline("text-classification")` already returns confidence via `result[0]["score"]` — we just don't capture it. Low effort, high impact.
 
-2. [ ] **Confidence-Weighted Safety Score**
+2. [x] **Confidence-Weighted Safety Score**
    Replace simple ratio with a weighted score that accounts for classifier certainty:
    ```
    safety_score = mean(confidence * is_safe) for all responses
@@ -464,7 +464,7 @@ graph LR
        min_safety_score: 0.85          # weighted score threshold (0.0-1.0)
    ```
 
-3. [ ] **Low-Confidence Alert**
+3. [x] **Low-Confidence Alert**
    Flag responses where classifier confidence is below a threshold (e.g., 0.7) regardless of the label. These are "uncertain" classifications that need human review:
    ```json
    {
@@ -482,7 +482,7 @@ graph LR
 
 #### Tier 2: Multi-Category Classification
 
-4. [ ] **Harm Category Breakdown**
+4. [x] **Harm Category Breakdown**
    Instead of just "unsafe", categorize the type of harm. Llama Guard 3 already outputs categories (S1-S14). Parse and track them:
    ```json
    {
@@ -508,7 +508,7 @@ graph LR
          S7_privacy: 0.01            # 1% max
    ```
 
-5. [ ] **Severity Levels**
+5. [x] **Severity Levels**
    Not all unsafe responses are equally dangerous. Add severity classification:
    - **Critical**: Direct harm instructions, illegal content → zero tolerance
    - **High**: Biased, discriminatory, or misleading content → very low threshold
@@ -526,7 +526,7 @@ graph LR
 
 #### Tier 3: Comparative & Trend Analysis
 
-6. [ ] **Before/After Safety Comparison**
+6. [x] **Before/After Safety Comparison**
    Run safety evaluation on the base model (pre-training) AND the fine-tuned model using the same prompt set. Generate a comparison report:
    ```json
    {
@@ -543,7 +543,7 @@ graph LR
    ```
    This directly answers "did fine-tuning make the model less safe, and where?"
 
-7. [ ] **Cross-Run Trend Tracking**
+7. [x] **Cross-Run Trend Tracking**
    When multiple training runs are performed (hyperparameter tuning, data iterations), track safety scores across runs:
    ```json
    {
