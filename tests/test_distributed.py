@@ -68,18 +68,17 @@ class TestForgeConfigDistributed:
         assert cfg.distributed.strategy == "fsdp"
         assert cfg.distributed.fsdp_strategy == "hybrid_shard"
 
-    def test_unsloth_distributed_warning(self, caplog):
-        """Unsloth + distributed should produce a warning."""
-        import logging
+    def test_unsloth_distributed_raises(self):
+        """Unsloth + distributed should raise ValueError."""
+        import pytest
 
-        with caplog.at_level(logging.WARNING, logger="forgelm.config"):
+        with pytest.raises((ValueError, TypeError)):
             ForgeConfig(
                 **_minimal_config(
                     model={"name_or_path": "org/model", "backend": "unsloth"},
                     distributed={"strategy": "deepspeed"},
                 )
             )
-        assert "Unsloth backend does not support multi-GPU" in caplog.text
 
     def test_zero3_qlora_warning(self, caplog):
         """QLoRA + ZeRO-3 should produce a warning."""

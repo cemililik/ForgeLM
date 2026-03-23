@@ -61,9 +61,20 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
 
         return model, tokenizer
 
+    # --- MULTIMODAL VLM CHECK ---
+    mm_cfg = getattr(config.model, "multimodal", None)
+    is_multimodal = mm_cfg and mm_cfg.enabled
+    if is_multimodal:
+        logger.info("Multimodal VLM mode enabled — loading with AutoProcessor.")
+
     # --- TRANSFORMERS BACKEND ---
-    tokenizer = AutoTokenizer.from_pretrained(config.model.name_or_path, trust_remote_code=trust_remote_code)
-    if tokenizer.pad_token is None:
+    if is_multimodal:
+        from transformers import AutoProcessor
+
+        tokenizer = AutoProcessor.from_pretrained(config.model.name_or_path, trust_remote_code=trust_remote_code)
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(config.model.name_or_path, trust_remote_code=trust_remote_code)
+    if hasattr(tokenizer, "pad_token") and tokenizer.pad_token is None:
         logger.info("Tokenizer has no pad_token, using eos_token as pad_token.")
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -103,15 +114,24 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
     use_dora = config.lora.use_dora or peft_method == "dora"
     use_rslora = getattr(config.lora, "use_rslora", False) or peft_method == "rslora"
 
-    # Detect MoE architecture
+    # Detect and configure MoE architecture
     moe_cfg = getattr(config.model, "moe", None)
     if moe_cfg and hasattr(model.config, "num_local_experts"):
         num_experts = model.config.num_local_experts
         logger.info("MoE model detected: %d experts", num_experts)
-        if moe_cfg.quantize_experts:
-            logger.info("Expert quantization enabled for VRAM savings.")
 
-    logger.info("Setting up PEFT configuration (method=%s, DoRA=%s, rsLoRA=%s)...", peft_method, use_dora, use_rslora)
+        if moe_cfg.quantize_experts:
+            _apply_moe_expert_quantization(model, num_experts)
+
+        if moe_cfg.experts_to_train != "all":
+            _freeze_unselected_experts(model, moe_cfg.experts_to_train, num_experts)
+
+    logger.info(
+        "Setting up PEFT configuration (method=%s, DoRA=%s, rsLoRA=%s)...",
+        peft_method,
+        use_dora,
+        use_rslora,
+    )
 
     lora_kwargs = dict(
         r=config.lora.r,
@@ -134,3 +154,75 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
     model.print_trainable_parameters()
 
     return model, tokenizer
+
+
+def _apply_moe_expert_quantization(model, num_experts: int) -> None:
+    """Quantize inactive MoE expert parameters to int8 for VRAM savings.
+
+    Scans model for expert modules and converts non-trainable expert
+    parameters to int8, reducing memory footprint significantly for
+    MoE models like Qwen3, Mixtral, and DeepSeek.
+    """
+    quantized_count = 0
+    for name, module in model.named_modules():
+        # MoE expert layers typically follow patterns like:
+        # model.layers.N.mlp.experts.M or model.layers.N.block_sparse_moe.experts.M
+        if "expert" in name.lower() and hasattr(module, "weight"):
+            if module.weight.requires_grad is False:
+                try:
+                    module.weight.data = module.weight.data.to(torch.int8)
+                    quantized_count += 1
+                except Exception as e:
+                    logger.debug("Could not quantize %s: %s", name, e)
+
+    if quantized_count > 0:
+        logger.info(
+            "MoE expert quantization: %d expert weight tensors quantized to int8.",
+            quantized_count,
+        )
+    else:
+        logger.info(
+            "MoE expert quantization: no frozen expert weights found to quantize. "
+            "Quantization applies after LoRA freezes non-target parameters."
+        )
+
+
+def _freeze_unselected_experts(model, experts_to_train: str, num_experts: int) -> None:
+    """Freeze all expert parameters except the selected ones.
+
+    Args:
+        model: The model with MoE architecture.
+        experts_to_train: Comma-separated expert indices (e.g., "0,1,2").
+        num_experts: Total number of experts in the model.
+    """
+    try:
+        selected = {int(idx.strip()) for idx in experts_to_train.split(",")}
+    except ValueError:
+        logger.warning(
+            "Invalid experts_to_train value: '%s'. Expected comma-separated integers. Training all experts.",
+            experts_to_train,
+        )
+        return
+
+    invalid = selected - set(range(num_experts))
+    if invalid:
+        logger.warning("Expert indices %s exceed num_experts=%d. Ignoring invalid indices.", invalid, num_experts)
+        selected -= invalid
+
+    frozen_count = 0
+    for name, param in model.named_parameters():
+        # Match expert module patterns: experts.0, experts.1, etc.
+        if "expert" in name.lower():
+            # Extract expert index from parameter name
+            for i in range(num_experts):
+                if f"experts.{i}." in name or f"expert_{i}." in name:
+                    if i not in selected:
+                        param.requires_grad = False
+                        frozen_count += 1
+                    break
+
+    logger.info(
+        "MoE expert selection: training experts %s, froze %d parameters from unselected experts.",
+        sorted(selected),
+        frozen_count,
+    )

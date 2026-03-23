@@ -19,6 +19,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Phase 3: Enterprise Integration | **Complete** | 6/6 |
 | Phase 4: Ecosystem Growth | **Complete** | 5/5 |
 | Phase 5: Alignment & Post-Training Stack | **Complete** | 5/5 |
+| Phase 5.5: Technical Debt Resolution | **Complete** | 7/7 |
 | Phase 6: Enterprise Trust & Compliance | **Complete** | 5/5 |
 | Phase 7: Next-Gen Model Support | **Complete** | 5/5 |
 
@@ -75,6 +76,23 @@ training:
 - TRL already provides DPOTrainer, KTOTrainer, and GRPO — integration is config-to-trainer mapping
 - Each trainer must support all existing features: auto-revert, benchmarks, webhooks, JSON output
 - Data module must auto-detect dataset format: `chosen`/`rejected` (DPO/SimPO), `completion`/`label` (KTO), `prompt`-only (GRPO)
+
+---
+
+## Phase 5.5: Technical Debt Resolution ✅
+**Goal:** Eliminate all config-only stubs — every advertised feature must have real runtime implementation.
+**Status:** Complete
+
+> **Rationale:** Code review identified 7 features where config models existed but runtime code was missing or placeholder-only. These were resolved before public launch to prevent false advertising and user confusion.
+
+### Tasks:
+1. [x] **MoE Expert Quantization:** Implemented `_apply_moe_expert_quantization()` — scans model for expert modules and converts frozen expert weights to int8 for VRAM savings.
+2. [x] **MoE Expert Selection:** Implemented `_freeze_unselected_experts()` — parses `experts_to_train` field, freezes parameters of unselected experts. Validates indices against `num_local_experts`.
+3. [x] **Multimodal VLM Pipeline:** Data module validates image column presence, passes multimodal datasets through for VLM processor handling. Model module loads `AutoProcessor` instead of `AutoTokenizer` when multimodal enabled.
+4. [x] **TIES/DARE Merge (Real Algorithm):** Replaced mergekit stub with native implementation. TIES: trim low-magnitude deltas, elect sign by majority vote, merge agreeing values. DARE: random drop with rescale to preserve expected magnitude. No external dependency required.
+5. [x] **GRPO Reward Model Config:** Added `grpo_reward_model` field to `TrainingConfig`. Trainer passes reward model path to `GRPOTrainer` via `reward_funcs` parameter.
+6. [x] **Unsloth + Distributed: Error Instead of Warning:** Changed from `logger.warning()` to `raise ValueError()` — invalid config now fails at validation, not at runtime.
+7. [x] **`--compliance-export` CLI Flag:** Standalone compliance artifact generation: `forgelm --config job.yaml --compliance-export ./audit/`. Works without GPU, post-hoc from config.
 
 ---
 

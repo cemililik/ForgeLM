@@ -82,6 +82,9 @@ class TrainingConfig(BaseModel):
     kto_beta: float = 0.1  # KTO loss parameter
     grpo_num_generations: int = 4  # GRPO: number of responses to generate per prompt
     grpo_max_new_tokens: int = 512  # GRPO: max tokens per generated response
+    grpo_reward_model: Optional[str] = (
+        None  # GRPO: HF model path for reward scoring (None = use default verifiable rewards)
+    )
     # --- Tracking ---
     report_to: str = "tensorboard"  # "tensorboard", "wandb", "mlflow", or "none"
     run_name: Optional[str] = None  # W&B/MLflow run name; auto-generated if None
@@ -194,9 +197,9 @@ class ForgeConfig(BaseModel):
         # Distributed training validations
         if self.distributed and self.distributed.strategy:
             if self.model.backend == "unsloth":
-                logger.warning(
+                raise ValueError(
                     "Unsloth backend does not support multi-GPU distributed training. "
-                    "Switch to backend: 'transformers' for DeepSpeed/FSDP."
+                    "Set backend: 'transformers' for DeepSpeed/FSDP."
                 )
             if (
                 self.distributed.strategy == "deepspeed"

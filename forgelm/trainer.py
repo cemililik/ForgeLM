@@ -326,6 +326,13 @@ class ForgeTrainer:
             # GRPO doesn't use eval_dataset the same way — remove callbacks that depend on eval
             trainer_kwargs.pop("eval_dataset", None)
             trainer_kwargs["callbacks"] = []
+
+            # Load reward model if configured
+            reward_model_path = getattr(self.config.training, "grpo_reward_model", None)
+            if reward_model_path:
+                logger.info("Loading GRPO reward model: %s", reward_model_path)
+                trainer_kwargs["reward_funcs"] = reward_model_path
+
             self.trainer = GRPOTrainer(**trainer_kwargs)
         else:
             raise ValueError(f"Unknown trainer_type: {tt}")

@@ -80,6 +80,13 @@ def parse_args():
         help="Output format for results (default: text). JSON mode outputs machine-readable results to stdout.",
     )
     parser.add_argument(
+        "--compliance-export",
+        type=str,
+        default=None,
+        metavar="OUTPUT_DIR",
+        help="Export compliance artifacts (audit trail, provenance) from an existing training run.",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
@@ -229,6 +236,22 @@ def _run_merge(config: ForgeConfig, output_format: str) -> None:
         sys.exit(EXIT_TRAINING_ERROR)
 
 
+def _run_compliance_export(config: ForgeConfig, output_dir: str, output_format: str) -> None:
+    """Generate compliance artifacts from config without training."""
+    from .compliance import export_compliance_artifacts, generate_training_manifest
+
+    logger.info("Generating compliance artifacts to %s...", output_dir)
+    manifest = generate_training_manifest(config=config, metrics={})
+    files = export_compliance_artifacts(manifest, config, output_dir)
+
+    if output_format == "json":
+        print(json.dumps({"success": True, "files": files, "output_dir": output_dir}, indent=2))
+    else:
+        logger.info("Compliance artifacts exported:")
+        for f in files:
+            logger.info("  %s", f)
+
+
 def _resolve_resume_checkpoint(checkpoint_dir: str, resume_arg: str) -> str:
     """Resolve the checkpoint path for --resume."""
     if resume_arg != "auto":
@@ -364,6 +387,11 @@ def main():
     # 5. Merge mode: merge models from config without training
     if args.merge:
         _run_merge(config, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+
+    # 6. Compliance export mode: generate audit artifacts from config
+    if args.compliance_export:
+        _run_compliance_export(config, args.compliance_export, args.output_format)
         sys.exit(EXIT_SUCCESS)
 
     try:

@@ -140,6 +140,30 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
     has_kto_format = "completion" in sample_columns and "label" in sample_columns
     has_prompt_only = "prompt" in sample_columns and not has_chosen_rejected
 
+    # Multimodal VLM datasets: pass through with image column handling
+    mm_cfg = getattr(config.model, "multimodal", None)
+    if mm_cfg and mm_cfg.enabled:
+        image_col = mm_cfg.image_column
+        text_col = mm_cfg.text_column
+        if image_col not in sample_columns:
+            raise KeyError(
+                f"Multimodal mode enabled but image column '{image_col}' not found. "
+                f"Found columns: {', '.join(sample_columns)}. "
+                f"Set model.multimodal.image_column to match your dataset."
+            )
+        logger.info(
+            "Multimodal VLM dataset detected (image='%s', text='%s'). Passing through for VLM processor handling.",
+            image_col,
+            text_col,
+        )
+        processed = {}
+        for split in dataset:
+            current_dataset = dataset[split]
+            if config.data.shuffle:
+                current_dataset = current_dataset.shuffle(seed=42)
+            processed[split] = current_dataset
+        return processed
+
     # Preference trainers: DPO, SimPO, ORPO require chosen/rejected
     preference_trainers = {"dpo", "simpo", "orpo"}
     if trainer_type in preference_trainers and not has_chosen_rejected:

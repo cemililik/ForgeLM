@@ -186,10 +186,105 @@ def _slerp_merge(base_model, adapters):
 
 
 def _mergekit_merge(base_model, adapters, method):
-    """Merge using mergekit library."""
-    # This is a placeholder for full mergekit integration.
-    # mergekit uses its own config format and CLI — here we provide
-    # a programmatic bridge.
-    logger.info("Full mergekit integration: generating mergekit config and executing...")
-    logger.warning("Programmatic mergekit bridge not yet implemented. Using linear fallback.")
-    return _linear_merge(base_model, adapters)
+    """Merge using TIES or DARE algorithm directly on state dicts.
+
+    TIES (TIES-Merging): Trim, Elect Sign, and Merge
+    - Trims small delta values (keeps top-k% by magnitude)
+    - Resolves sign conflicts by majority vote
+    - Merges remaining values
+
+    DARE (Drop And REscale):
+    - Randomly drops delta values with probability p
+    - Rescales remaining values by 1/(1-p) to preserve expected magnitude
+    """
+    from peft import PeftModel
+
+    logger.info("Running %s merge on %d adapters...", method.upper(), len(adapters))
+
+    # Collect task vectors (deltas from base model)
+    base_state = {k: v.clone() for k, v in base_model.state_dict().items()}
+    task_vectors = []
+    weights = []
+
+    for adapter_info in adapters:
+        path = adapter_info["path"]
+        weight = adapter_info.get("weight", 1.0)
+        weights.append(weight)
+        logger.info("  Loading adapter: %s (weight=%.3f)", path, weight)
+
+        base_model.load_state_dict(base_state, strict=True)
+        adapter_model = PeftModel.from_pretrained(base_model, path)
+        merged = adapter_model.merge_and_unload()
+        delta = {k: merged.state_dict()[k] - base_state[k] for k in base_state if k in merged.state_dict()}
+        task_vectors.append(delta)
+        del adapter_model, merged
+
+    # Normalize weights
+    total_w = sum(weights)
+    weights = [w / total_w for w in weights]
+
+    # Merge
+    merged_delta = {}
+    for key in task_vectors[0]:
+        deltas = [tv[key].float() for tv in task_vectors if key in tv]
+        if not deltas:
+            continue
+
+        if method == "ties":
+            merged_delta[key] = _ties_merge_tensor(deltas, weights, trim_fraction=0.2)
+        elif method == "dare":
+            merged_delta[key] = _dare_merge_tensor(deltas, weights, drop_rate=0.3)
+        else:
+            merged_delta[key] = sum(d * w for d, w in zip(deltas, weights))
+
+    # Apply merged delta to base model
+    final_state = {k: base_state[k] + merged_delta[k].to(base_state[k].dtype) for k in merged_delta}
+    for k in base_state:
+        if k not in final_state:
+            final_state[k] = base_state[k]
+
+    base_model.load_state_dict(final_state, strict=False)
+    logger.info("%s merge complete.", method.upper())
+    return base_model
+
+
+def _ties_merge_tensor(deltas, weights, trim_fraction=0.2):
+    """TIES-Merging for a single tensor: trim small values, elect sign, merge."""
+    import torch
+
+    stacked = torch.stack(deltas)
+
+    # Step 1: Trim — zero out bottom trim_fraction by magnitude per task
+    for i in range(len(deltas)):
+        flat = stacked[i].abs().flatten()
+        if flat.numel() == 0:
+            continue
+        threshold = torch.quantile(flat.float(), trim_fraction)
+        stacked[i][stacked[i].abs() < threshold] = 0.0
+
+    # Step 2: Elect sign — majority vote
+    sign_votes = torch.sign(stacked).sum(dim=0)
+    elected_sign = torch.sign(sign_votes)
+
+    # Step 3: Merge — weighted average of values that agree with elected sign
+    result = torch.zeros_like(deltas[0])
+    for i, (_delta, w) in enumerate(zip(deltas, weights)):
+        mask = torch.sign(stacked[i]) == elected_sign
+        result += (stacked[i] * mask.float()) * w
+
+    return result
+
+
+def _dare_merge_tensor(deltas, weights, drop_rate=0.3):
+    """DARE merge for a single tensor: random drop + rescale."""
+    import torch
+
+    result = torch.zeros_like(deltas[0])
+    for delta, w in zip(deltas, weights):
+        # Random binary mask (keep with probability 1-drop_rate)
+        mask = torch.bernoulli(torch.full_like(delta, 1.0 - drop_rate))
+        # Rescale to preserve expected magnitude
+        rescaled = delta * mask / (1.0 - drop_rate)
+        result += rescaled * w
+
+    return result
