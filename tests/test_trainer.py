@@ -77,7 +77,7 @@ class TestEvaluationChecks:
         with patch("forgelm.trainer.WebhookNotifier"):
             trainer = ForgeTrainer.__new__(ForgeTrainer)
             trainer.config = config
-            trainer.dataset = {"train": [], "validation": []}
+            trainer.dataset = {"train": ["dummy"], "validation": ["dummy"]}
             trainer.checkpoint_dir = "/tmp/test_forge_eval"
             trainer.run_name = "test_finetune"
             trainer.notifier = MagicMock()
