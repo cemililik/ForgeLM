@@ -272,3 +272,52 @@ If any step fails and `auto_revert: true`:
   ↓ fail
 Model deleted + Webhook notification (failure) + Exit code 3
 ```
+
+### Human Approval Gate (Art. 14)
+
+Add `require_human_approval: true` to pause the pipeline after all automated checks pass:
+
+```yaml
+evaluation:
+  auto_revert: true
+  require_human_approval: true
+```
+
+**What happens:**
+1. Training completes, all automated evaluations pass
+2. Model is saved to the final directory
+3. ForgeLM exits with **code 4** ("awaiting approval")
+4. A human reviews the evaluation results, model card, and compliance artifacts
+5. The human approves or rejects the model
+
+**CI/CD integration:**
+```bash
+forgelm --config job.yaml --output-format json
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -eq 4 ]; then
+  echo "Model awaiting human approval. Review results and approve."
+  # Trigger approval workflow (e.g., GitHub issue, Slack notification)
+fi
+```
+
+### QMS Templates
+
+ForgeLM provides Standard Operating Procedure templates in `docs/qms/`:
+- `sop_model_training.md` — training approval workflow
+- `sop_data_management.md` — data collection and governance
+- `sop_incident_response.md` — handling model failures
+- `sop_change_management.md` — version control and rollback
+- `roles_responsibilities.md` — AI Officer, Data Steward roles
+
+These are organizational documents — adapt them to your organization.
+
+### Compliance Export (Standalone)
+
+Generate compliance artifacts without training:
+
+```bash
+forgelm --config job.yaml --compliance-export ./audit/
+```
+
+This produces all audit artifacts from the config alone — no GPU needed.

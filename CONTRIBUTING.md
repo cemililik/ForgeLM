@@ -78,7 +78,7 @@ forgelm/
 ├── webhook.py       # Notifications
 └── utils.py         # Auth & checkpoints
 
-tests/               # 17 test files, 179+ tests
+tests/               # 18+ test files, 200+ tests
 notebooks/           # 5 Colab notebooks
 configs/deepspeed/   # ZeRO presets
 docs/guides/         # 6 user guides

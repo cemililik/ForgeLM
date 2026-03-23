@@ -164,6 +164,7 @@ training:
   trainer_type: "grpo"
   grpo_num_generations: 4    # Generate 4 responses per prompt
   grpo_max_new_tokens: 512   # Max response length
+  grpo_reward_model: null    # Custom reward model (HF path or local). null = use TRL defaults
   learning_rate: 1.0e-6      # Very low LR for RL stability
   num_train_epochs: 1
 

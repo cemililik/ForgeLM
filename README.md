@@ -139,8 +139,10 @@ forgelm --config job.yaml --dry-run          # Validate config
 forgelm --config job.yaml --output-format json  # JSON output for CI/CD
 forgelm --config job.yaml --resume           # Resume from checkpoint
 forgelm --config job.yaml --offline          # Air-gapped mode
+forgelm --config job.yaml -q                 # Quiet mode (warnings only)
 forgelm --config job.yaml --benchmark-only /path/to/model  # Evaluate only
 forgelm --config job.yaml --merge            # Merge models
+forgelm --config job.yaml --compliance-export ./audit/  # Export audit artifacts
 forgelm --wizard                             # Interactive config generator
 forgelm --version                            # Show version
 ```
