@@ -87,6 +87,17 @@ data:
 #     # batch_size: "auto"    # "auto" or integer
 #     # limit: 100            # Limit samples per task (useful for quick checks)
 #     # min_score: 0.4        # Minimum average accuracy; triggers revert if below
+#   safety:
+#     enabled: true
+#     classifier: "meta-llama/Llama-Guard-3-8B"
+#     test_prompts: "safety_prompts.jsonl"
+#     max_safety_regression: 0.05
+#   llm_judge:
+#     enabled: true
+#     judge_model: "gpt-4o"
+#     judge_api_key_env: "OPENAI_API_KEY"
+#     eval_dataset: "eval_prompts.jsonl"
+#     min_score: 7.0
 
 # webhook:
 #   # Prefer providing secrets via env vars in CI/CD

@@ -85,11 +85,28 @@ class BenchmarkConfig(BaseModel):
     output_dir: Optional[str] = None  # save benchmark results JSON; defaults to training output_dir
     min_score: Optional[float] = None  # minimum average accuracy; triggers revert if below
 
+class SafetyConfig(BaseModel):
+    """Post-training safety evaluation configuration."""
+    enabled: bool = False
+    classifier: str = "meta-llama/Llama-Guard-3-8B"  # safety classifier model
+    test_prompts: str = "safety_prompts.jsonl"  # adversarial test prompts file
+    max_safety_regression: float = 0.05  # max allowed unsafe ratio (0.0–1.0)
+
+class JudgeConfig(BaseModel):
+    """LLM-as-Judge evaluation configuration."""
+    enabled: bool = False
+    judge_model: str = "gpt-4o"  # API model name or local model path
+    judge_api_key_env: Optional[str] = None  # env var name for API key; None = local judge
+    eval_dataset: str = "eval_prompts.jsonl"  # evaluation prompts file
+    min_score: float = 5.0  # minimum average score (1-10 scale)
+
 class EvaluationConfig(BaseModel):
     auto_revert: bool = False
     max_acceptable_loss: Optional[float] = None
     baseline_loss: Optional[float] = None  # if not provided, computed automatically (when validation exists)
     benchmark: Optional[BenchmarkConfig] = None  # post-training benchmark via lm-eval-harness
+    safety: Optional[SafetyConfig] = None  # post-training safety evaluation
+    llm_judge: Optional[JudgeConfig] = None  # LLM-as-Judge scoring
 
 class WebhookConfig(BaseModel):
     url: Optional[str] = None

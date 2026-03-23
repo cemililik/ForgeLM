@@ -19,7 +19,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Phase 3: Enterprise Integration | **Complete** | 6/6 |
 | Phase 4: Ecosystem Growth | **Complete** | 5/5 |
 | Phase 5: Alignment & Post-Training Stack | **Complete** | 5/5 |
-| Phase 6: Enterprise Trust & Compliance | **Planned** | 0/5 |
+| Phase 6: Enterprise Trust & Compliance | **Complete** | 5/5 |
 | Phase 7: Next-Gen Model Support | **Planned** | 0/5 |
 
 ---
@@ -86,7 +86,7 @@ training:
 > **Context:** Fine-tuning aligned models demonstrably compromises safety, even with benign data (confirmed by multiple papers, Microsoft Feb 2026). The EU AI Act requires machine-readable audit trails, risk classification, and continuous monitoring for high-risk AI systems. No fine-tuning tool addresses this in the training loop today. ForgeLM can own this space.
 
 ### Tasks:
-1. [ ] **Post-Training Safety Evaluation:** Run safety classifiers (Llama Guard, ShieldGemma, or configurable) on model outputs after training. Compare safety scores before vs after fine-tuning. Auto-revert if safety degrades beyond threshold. Integrated into the existing evaluation pipeline.
+1. [x] **Post-Training Safety Evaluation:** Run safety classifiers (Llama Guard, ShieldGemma, or configurable) on model outputs after training. Compare safety scores before vs after fine-tuning. Auto-revert if safety degrades beyond threshold. Integrated into the existing evaluation pipeline.
    ```yaml
    evaluation:
      safety:
@@ -95,7 +95,7 @@ training:
        test_prompts: "safety_prompts.jsonl"  # adversarial test set
        max_safety_regression: 0.05  # max allowed safety score drop
    ```
-2. [ ] **LLM-as-Judge Evaluation Pipeline:** Use a strong LLM (GPT-4, Claude, local judge model) to score fine-tuned model outputs on quality, helpfulness, and instruction-following. 500x-5000x cheaper than human evaluation. Configurable judge model and scoring rubric.
+2. [x] **LLM-as-Judge Evaluation Pipeline:** Use a strong LLM (GPT-4, Claude, local judge model) to score fine-tuned model outputs on quality, helpfulness, and instruction-following. 500x-5000x cheaper than human evaluation. Configurable judge model and scoring rubric.
    ```yaml
    evaluation:
      llm_judge:
@@ -105,7 +105,7 @@ training:
        eval_dataset: "eval_prompts.jsonl"
        min_score: 7.0  # out of 10
    ```
-3. [ ] **GPU Cost & Resource Tracking:** Track per-run metrics: GPU-hours, peak VRAM usage, total training time, estimated cloud cost (based on GPU type). Include in JSON output, webhook notifications, and model card.
+3. [x] **GPU Cost & Resource Tracking:** Track per-run metrics: GPU-hours, peak VRAM usage, total training time, estimated cloud cost (based on GPU type). Include in JSON output, webhook notifications, and model card.
    ```json
    {
      "resource_usage": {
@@ -117,12 +117,12 @@ training:
      }
    }
    ```
-4. [ ] **EU AI Act Compliance Export:** Generate machine-readable compliance artifacts alongside the model card. Includes: training data provenance (dataset source, size, date), model lineage (base model, adapter method, hyperparameters), evaluation results (benchmarks, safety scores, LLM-judge), risk classification metadata, and timestamp-signed audit trail.
+4. [x] **EU AI Act Compliance Export:** Generate machine-readable compliance artifacts alongside the model card. Includes: training data provenance (dataset source, size, date), model lineage (base model, adapter method, hyperparameters), evaluation results (benchmarks, safety scores, LLM-judge), risk classification metadata, and timestamp-signed audit trail.
    ```bash
    forgelm --config job.yaml --compliance-export ./audit/
    # Outputs: audit/compliance_report.json, audit/training_manifest.yaml, audit/model_card.md
    ```
-5. [ ] **Training Data Provenance Tracking:** Record dataset fingerprints (hash, size, schema, source URL), preprocessing steps applied, and sample counts per split. Stored in model card and compliance export. Critical for reproducibility audits.
+5. [x] **Training Data Provenance Tracking:** Record dataset fingerprints (hash, size, schema, source URL), preprocessing steps applied, and sample counts per split. Stored in model card and compliance export. Critical for reproducibility audits.
 
 ### Requirements:
 - Safety evaluation requires a separate model load (judge/classifier) — must handle GPU memory carefully

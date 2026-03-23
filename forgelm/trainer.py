@@ -23,6 +23,9 @@ class TrainResult:
     benchmark_scores: Optional[Dict[str, float]] = None
     benchmark_average: Optional[float] = None
     benchmark_passed: Optional[bool] = None
+    resource_usage: Optional[Dict[str, Any]] = None
+    safety_passed: Optional[bool] = None
+    judge_score: Optional[float] = None
 
 
 class ForgeTrainer:
@@ -413,8 +416,40 @@ class ForgeTrainer:
                     train_result.reverted = True
                     return train_result
 
+            # Resource tracking
+            train_result.resource_usage = self._collect_resource_usage()
+            if train_result.resource_usage:
+                for k, v in train_result.resource_usage.items():
+                    if isinstance(v, (int, float)):
+                        metrics[f"resource/{k}"] = v
+
+            # Post-training safety evaluation
+            safety_result = self._run_safety_if_configured(final_path)
+            if safety_result is not None:
+                train_result.safety_passed = safety_result.passed
+                metrics["safety/safe_ratio"] = safety_result.safe_ratio
+                if not safety_result.passed and self.config.evaluation and self.config.evaluation.auto_revert:
+                    self._revert_model(final_path, safety_result.failure_reason or "Safety check failed.")
+                    train_result.success = False
+                    train_result.reverted = True
+                    return train_result
+
+            # LLM-as-Judge evaluation
+            judge_result = self._run_judge_if_configured(final_path)
+            if judge_result is not None:
+                train_result.judge_score = judge_result.average_score
+                metrics["judge/average_score"] = judge_result.average_score
+                if not judge_result.passed and self.config.evaluation and self.config.evaluation.auto_revert:
+                    self._revert_model(final_path, judge_result.failure_reason or "Judge score below threshold.")
+                    train_result.success = False
+                    train_result.reverted = True
+                    return train_result
+
             # Generate model card
             self._generate_model_card(final_path, metrics, train_result)
+
+            # Generate compliance artifacts
+            self._export_compliance_if_needed(final_path, metrics, train_result)
 
             self.notifier.notify_success(run_name=self.run_name, metrics=metrics)
             return train_result
@@ -502,3 +537,85 @@ class ForgeTrainer:
             )
         except Exception as e:
             logger.warning("Failed to generate model card: %s", e)
+
+    def _collect_resource_usage(self) -> Optional[Dict[str, Any]]:
+        """Collect GPU resource usage metrics."""
+        usage = {}
+        try:
+            if torch.cuda.is_available():
+                usage["gpu_model"] = torch.cuda.get_device_name(0)
+                usage["peak_vram_gb"] = round(torch.cuda.max_memory_allocated(0) / (1024**3), 2)
+                usage["gpu_count"] = torch.cuda.device_count()
+            # Training duration is in metrics from HF Trainer
+            train_runtime = self.trainer.state.log_history[-1].get("train_runtime") if self.trainer.state.log_history else None
+            if train_runtime:
+                usage["training_duration_seconds"] = round(train_runtime, 1)
+                gpu_hours = (train_runtime / 3600) * usage.get("gpu_count", 1)
+                usage["gpu_hours"] = round(gpu_hours, 3)
+        except Exception as e:
+            logger.warning("Failed to collect resource usage: %s", e)
+        return usage if usage else None
+
+    def _run_safety_if_configured(self, final_path: str):
+        """Run safety evaluation if configured. Returns SafetyResult or None."""
+        eval_cfg = self.config.evaluation
+        if not eval_cfg or not eval_cfg.safety or not eval_cfg.safety.enabled:
+            return None
+
+        try:
+            from .safety import run_safety_evaluation
+        except ImportError as e:
+            logger.error("Safety evaluation import failed: %s", e)
+            return None
+
+        safety_cfg = eval_cfg.safety
+        logger.info("Running post-training safety evaluation...")
+        output_dir = os.path.join(self.checkpoint_dir, "safety")
+        return run_safety_evaluation(
+            model=self.trainer.model,
+            tokenizer=self.tokenizer,
+            classifier_path=safety_cfg.classifier,
+            test_prompts_path=safety_cfg.test_prompts,
+            max_safety_regression=safety_cfg.max_safety_regression,
+            output_dir=output_dir,
+        )
+
+    def _run_judge_if_configured(self, final_path: str):
+        """Run LLM-as-Judge evaluation if configured. Returns JudgeResult or None."""
+        eval_cfg = self.config.evaluation
+        if not eval_cfg or not eval_cfg.llm_judge or not eval_cfg.llm_judge.enabled:
+            return None
+
+        try:
+            from .judge import run_judge_evaluation
+        except ImportError as e:
+            logger.error("Judge evaluation import failed: %s", e)
+            return None
+
+        judge_cfg = eval_cfg.llm_judge
+        api_key = os.getenv(judge_cfg.judge_api_key_env) if judge_cfg.judge_api_key_env else None
+        logger.info("Running LLM-as-Judge evaluation (judge: %s)...", judge_cfg.judge_model)
+        output_dir = os.path.join(self.checkpoint_dir, "judge")
+        return run_judge_evaluation(
+            model=self.trainer.model,
+            tokenizer=self.tokenizer,
+            eval_dataset_path=judge_cfg.eval_dataset,
+            judge_model=judge_cfg.judge_model,
+            judge_api_key=api_key,
+            min_score=judge_cfg.min_score,
+            output_dir=output_dir,
+        )
+
+    def _export_compliance_if_needed(self, final_path: str, metrics: Dict[str, float], result: TrainResult) -> None:
+        """Export compliance artifacts if evaluation config is present."""
+        try:
+            from .compliance import generate_training_manifest, export_compliance_artifacts
+            manifest = generate_training_manifest(
+                config=self.config,
+                metrics=metrics,
+                resource_usage=result.resource_usage,
+            )
+            compliance_dir = os.path.join(self.checkpoint_dir, "compliance")
+            export_compliance_artifacts(manifest, self.config, compliance_dir)
+        except Exception as e:
+            logger.warning("Failed to export compliance artifacts: %s", e)

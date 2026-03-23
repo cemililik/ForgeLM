@@ -228,6 +228,12 @@ def _output_result(result, output_format: str) -> None:
                 "average": result.benchmark_average,
                 "passed": result.benchmark_passed,
             }
+        if result.resource_usage:
+            output["resource_usage"] = result.resource_usage
+        if result.safety_passed is not None:
+            output["safety_passed"] = result.safety_passed
+        if result.judge_score is not None:
+            output["judge_score"] = result.judge_score
         print(json.dumps(output, indent=2))
     else:
         if result.success:
