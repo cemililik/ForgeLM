@@ -25,11 +25,11 @@ def _check_lm_eval_available() -> None:
     """Check if lm-eval is installed."""
     try:
         import lm_eval  # noqa: F401
-    except ImportError:
+    except ImportError as e:
         raise ImportError(
             "lm-evaluation-harness is required for benchmarking but not installed. "
             "Install it with: pip install forgelm[eval]"
-        )
+        ) from e
 
 
 def run_benchmark(

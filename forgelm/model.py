@@ -1,8 +1,9 @@
 import logging
+from typing import Any, Tuple
+
 import torch
-from typing import Tuple, Any
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 logger = logging.getLogger("forgelm.model")
 
@@ -33,8 +34,8 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
     if config.model.backend.lower() == "unsloth":
         try:
             from unsloth import FastLanguageModel
-        except ImportError:
-            raise ImportError("Unsloth backend selected but 'unsloth' is not installed. Please install it.")
+        except ImportError as e:
+            raise ImportError("Unsloth backend selected but 'unsloth' is not installed. Please install it.") from e
 
         model, tokenizer = FastLanguageModel.from_pretrained(
             model_name=config.model.name_or_path,

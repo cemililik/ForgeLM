@@ -1,11 +1,12 @@
 """Unit tests for forgelm.benchmark module."""
 import json
 import os
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from forgelm.benchmark import BenchmarkResult, run_benchmark, _check_lm_eval_available
-from forgelm.config import ForgeConfig, BenchmarkConfig, EvaluationConfig
+import pytest
+
+from forgelm.benchmark import BenchmarkResult, _check_lm_eval_available, run_benchmark
+from forgelm.config import BenchmarkConfig, ForgeConfig
 
 
 class TestBenchmarkResult:

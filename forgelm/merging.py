@@ -41,7 +41,6 @@ def merge_peft_adapters(
         MergeResult with status.
     """
     from transformers import AutoModelForCausalLM, AutoTokenizer
-    from peft import PeftModel
 
     if not adapters:
         return MergeResult(success=False, error="No adapters provided for merging.")
@@ -85,7 +84,6 @@ def merge_peft_adapters(
 
 def _linear_merge(base_model, adapters):
     """Linear interpolation merge: weighted average of adapter parameters."""
-    import torch
     from peft import PeftModel
 
     # Load and merge each adapter with weighted interpolation

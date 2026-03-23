@@ -1,10 +1,11 @@
-import os
 import json
-import yaml
-import torch
-import shutil
-from forgelm.cli import main
+import os
 from unittest.mock import patch
+
+import yaml
+
+from forgelm.cli import main
+
 
 def test_full_runtime_smoke():
     """
@@ -12,11 +13,11 @@ def test_full_runtime_smoke():
     """
     tmp_dir = "tmp_smoke_test"
     os.makedirs(tmp_dir, exist_ok=True)
-    
+
     config_path = os.path.join(tmp_dir, "smoke_config.yaml")
     dataset_path = os.path.join(tmp_dir, "smoke_data.jsonl")
     output_dir = os.path.join(tmp_dir, "output")
-    
+
     # 1. Mock Dataset Oluştur (Conversational format)
     data = [
         {"messages": [{"role": "user", "content": "Hello"}, {"role": "assistant", "content": "Hi there!"}]},
@@ -28,7 +29,7 @@ def test_full_runtime_smoke():
     with open(dataset_path, "w") as f:
         for entry in data:
             f.write(json.dumps(entry) + "\n")
-            
+
     # 2. Mock Config Oluştur
     # Model: HuggingFaceTB/SmolLM2-135M-Instruct (Guaranteed safetensors)
     config = {
@@ -66,10 +67,10 @@ def test_full_runtime_smoke():
             "auto_revert": False # Smoke test için revert'ü şimdilik kapalı tutalım
         }
     }
-    
+
     with open(config_path, "w") as f:
         yaml.dump(config, f)
-        
+
     # 3. CLI'yı Çalıştır
     print("\n--- Starting Runtime Smoke Test ---")
     test_args = ["forgelm", "--config", config_path]
@@ -78,15 +79,15 @@ def test_full_runtime_smoke():
             main()
         except SystemExit as e:
             if e.code != 0:
-                raise RuntimeError(f"CLI exited with code {e.code}")
+                raise RuntimeError(f"CLI exited with code {e.code}") from e
 
     # 4. Doğrulamalar
     final_model_dir = os.path.join(output_dir, "final_model")
     assert os.path.exists(final_model_dir), "Final model dizini oluşturulmadı!"
     assert os.path.exists(os.path.join(final_model_dir, "adapter_config.json")), "Adapter konfigürasyonu bulunamadı!"
-    
+
     print("\n✅ Runtime Smoke Test Passed!")
-    
+
     # Cleanup
     # shutil.rmtree(tmp_dir)
 

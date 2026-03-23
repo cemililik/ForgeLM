@@ -1,16 +1,14 @@
 """Unit tests for forgelm.trainer module (non-GPU tests only)."""
-import math
-import os
-import pytest
-import shutil
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from forgelm.results import TrainResult
 
 # ForgeTrainer requires torch — skip evaluation tests if not available
 torch_available = True
 try:
-    import torch
+    import torch  # noqa: F401
 except ImportError:
     torch_available = False
 

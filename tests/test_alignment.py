@@ -2,7 +2,7 @@
 import pytest
 import yaml
 
-from forgelm.config import ForgeConfig, TrainingConfig, ConfigError, load_config
+from forgelm.config import ForgeConfig, TrainingConfig, load_config
 
 
 def _minimal_config(**overrides):
@@ -29,7 +29,7 @@ class TestTrainerTypeConfig:
             assert cfg.training.trainer_type == tt
 
     def test_invalid_trainer_type_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises((ValueError, TypeError)):
             ForgeConfig(**_minimal_config(training={"trainer_type": "invalid"}))
 
     def test_dpo_parameters(self):

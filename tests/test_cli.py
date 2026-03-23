@@ -1,21 +1,20 @@
 """Unit tests for forgelm.cli module."""
 import json
 import os
-import sys
+from unittest.mock import patch
+
 import pytest
 import yaml
-from unittest.mock import patch
-from io import StringIO
 
 from forgelm.cli import (
-    _get_version,
-    _setup_logging,
-    _run_dry_run,
-    _resolve_resume_checkpoint,
-    EXIT_SUCCESS,
     EXIT_CONFIG_ERROR,
-    EXIT_TRAINING_ERROR,
     EXIT_EVAL_FAILURE,
+    EXIT_SUCCESS,
+    EXIT_TRAINING_ERROR,
+    _get_version,
+    _resolve_resume_checkpoint,
+    _run_dry_run,
+    _setup_logging,
     main,
 )
 from forgelm.config import ForgeConfig

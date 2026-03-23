@@ -86,6 +86,7 @@ def generate_model_card(
     Returns the path to the generated model card.
     """
     import yaml
+
     from forgelm import __version__
 
     # Build metrics table

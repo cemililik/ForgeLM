@@ -1,21 +1,18 @@
 """Unit tests for forgelm.config module."""
 import os
-import tempfile
+
 import pytest
 import yaml
 
 from forgelm.config import (
-    load_config,
-    ForgeConfig,
-    ModelConfig,
-    LoraConfigModel,
-    TrainingConfig,
-    DataConfig,
     EvaluationConfig,
+    ForgeConfig,
+    LoraConfigModel,
+    ModelConfig,
+    TrainingConfig,
     WebhookConfig,
-    AuthConfig,
+    load_config,
 )
-
 
 # --- Helper ---
 
@@ -148,13 +145,13 @@ class TestForgeConfig:
     def test_invalid_type_raises(self):
         data = _minimal_config()
         data["model"]["max_length"] = "not_a_number"
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises((ValueError, TypeError)):
             ForgeConfig(**data)
 
     def test_missing_required_field(self):
         data = _minimal_config()
         del data["data"]["dataset_name_or_path"]
-        with pytest.raises(Exception):
+        with pytest.raises((ValueError, TypeError, KeyError)):
             ForgeConfig(**data)
 
 
@@ -173,10 +170,11 @@ class TestLoadConfig:
             load_config("/nonexistent/path/config.yaml")
 
     def test_invalid_yaml_raises(self, tmp_path):
+        from forgelm.config import ConfigError
         cfg_path = str(tmp_path / "bad.yaml")
         with open(cfg_path, "w") as f:
             f.write(": : invalid yaml [[[")
-        with pytest.raises(Exception):
+        with pytest.raises(ConfigError):
             load_config(cfg_path)
 
     def test_config_template_parses(self):

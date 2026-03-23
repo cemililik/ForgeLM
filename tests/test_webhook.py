@@ -1,11 +1,10 @@
 """Unit tests for forgelm.webhook module."""
 import json
 import os
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
+from forgelm.config import ForgeConfig
 from forgelm.webhook import WebhookNotifier
-from forgelm.config import ForgeConfig, WebhookConfig
 
 
 def _make_config(webhook_cfg=None):

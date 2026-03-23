@@ -2,20 +2,43 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
-  test:
+  # --- Job 1: Lint (fast, no heavy deps) ---
+  lint:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Install linter
+        run: pip install ruff
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+        continue-on-error: true  # warn but don't block
+
+  # --- Job 2: Test (matrix across Python versions) ---
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Install package (dev)
@@ -23,28 +46,37 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
 
-      - name: Smoke checks
-        run: |
-          forgelm --version
-          forgelm --config config_template.yaml --dry-run
-          python -c "from forgelm.config import load_config; load_config('config_template.yaml'); print('config ok')"
+      - name: Run tests with coverage
+        run: pytest -q --tb=short --cov=forgelm --cov-report=term-missing --cov-report=xml:coverage.xml
 
-      - name: Ruff
-        run: |
-          ruff --version
-          # Catch syntax errors, undefined names, unused imports, and common bugs.
-          ruff check . --select F,E9,W,B
-
-      - name: Pytest with coverage
-        run: |
-          pytest -q --tb=short --cov=forgelm --cov-report=term-missing --cov-report=xml:coverage.xml
-
-      - name: Upload coverage report
-        if: always()
+      - name: Upload coverage (3.11 only)
+        if: matrix.python-version == '3.11' && always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage.xml
+
+  # --- Job 3: Validate (config, CLI, assets) ---
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: CLI smoke checks
+        run: |
+          forgelm --version
+          forgelm --config config_template.yaml --dry-run
+          forgelm --config config_template.yaml --dry-run --output-format json
 
       - name: Config template validation
         run: |
@@ -53,6 +85,43 @@ jobs:
           cfg = load_config('config_template.yaml')
           assert cfg.model.name_or_path, 'model.name_or_path is empty'
           assert cfg.model.trust_remote_code is False, 'trust_remote_code should default to False'
+          assert cfg.model.offline is False, 'offline should default to False'
+          assert cfg.training.trainer_type == 'sft', 'default trainer_type should be sft'
           assert cfg.data.dataset_name_or_path, 'data.dataset_name_or_path is empty'
           print('Config template validation passed.')
           "
+
+      - name: DeepSpeed config validation
+        run: |
+          python -c "
+          import json, os
+          configs_dir = 'configs/deepspeed'
+          for preset in ['zero2.json', 'zero3.json', 'zero3_offload.json']:
+              path = os.path.join(configs_dir, preset)
+              assert os.path.isfile(path), f'Missing: {path}'
+              with open(path) as f:
+                  data = json.load(f)
+              assert 'zero_optimization' in data, f'{preset}: missing zero_optimization'
+              assert data['train_batch_size'] == 'auto', f'{preset}: train_batch_size should be auto'
+              print(f'{preset}: OK (ZeRO stage {data[\"zero_optimization\"][\"stage\"]})')
+          "
+
+      - name: Notebook validation
+        run: |
+          python -c "
+          import json, os
+          for nb_file in os.listdir('notebooks'):
+              if nb_file.endswith('.ipynb'):
+                  path = os.path.join('notebooks', nb_file)
+                  with open(path) as f:
+                      nb = json.load(f)
+                  assert nb['nbformat'] == 4, f'{nb_file}: invalid nbformat'
+                  assert len(nb['cells']) > 0, f'{nb_file}: no cells'
+                  print(f'{nb_file}: OK ({len(nb[\"cells\"])} cells)')
+          "
+
+      - name: License check
+        run: |
+          test -f LICENSE || (echo "LICENSE file missing" && exit 1)
+          head -1 LICENSE | grep -q "Apache" || (echo "Expected Apache License" && exit 1)
+          echo "License: OK"

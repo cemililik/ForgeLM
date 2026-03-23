@@ -1,13 +1,15 @@
 import logging
 import math
-import torch
 import os
 import shutil
-from trl import SFTTrainer, SFTConfig
-from transformers import EarlyStoppingCallback
 from typing import Any, Dict, Optional
-from .webhook import WebhookNotifier
+
+import torch
+from transformers import EarlyStoppingCallback
+from trl import SFTConfig, SFTTrainer
+
 from .results import TrainResult
+from .webhook import WebhookNotifier
 
 logger = logging.getLogger("forgelm.trainer")
 
@@ -592,7 +594,7 @@ class ForgeTrainer:
     def _export_compliance_if_needed(self, final_path: str, metrics: Dict[str, float], result: TrainResult) -> None:
         """Export compliance artifacts if evaluation config is present."""
         try:
-            from .compliance import generate_training_manifest, export_compliance_artifacts
+            from .compliance import export_compliance_artifacts, generate_training_manifest
             manifest = generate_training_manifest(
                 config=self.config,
                 metrics=metrics,

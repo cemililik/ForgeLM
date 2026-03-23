@@ -3,8 +3,10 @@ import json
 import logging
 import os
 import sys
-from importlib.metadata import version as pkg_version, PackageNotFoundError
-from .config import load_config, ForgeConfig, ConfigError
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as pkg_version
+
+from .config import ConfigError, ForgeConfig, load_config
 
 logger = logging.getLogger("forgelm.cli")
 
@@ -136,8 +138,8 @@ def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
 
 def _run_benchmark_only(config: ForgeConfig, model_path: str, output_format: str) -> None:
     """Run benchmark evaluation on an existing model without training."""
-    from .model import get_model_and_tokenizer
     from .benchmark import run_benchmark
+    from .model import get_model_and_tokenizer
 
     eval_cfg = config.evaluation
     if not eval_cfg or not eval_cfg.benchmark or not eval_cfg.benchmark.tasks:
@@ -365,7 +367,7 @@ def main():
         from .data import prepare_dataset
         from .model import get_model_and_tokenizer
         from .trainer import ForgeTrainer
-        from .utils import setup_authentication, manage_checkpoints
+        from .utils import manage_checkpoints, setup_authentication
 
         # 5. Setup HF Authentication (skipped in offline mode)
         if not config.model.offline:

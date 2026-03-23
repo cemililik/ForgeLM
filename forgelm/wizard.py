@@ -4,8 +4,8 @@ Generates a valid config.yaml through step-by-step prompts.
 No external dependencies required — uses stdlib input().
 """
 import logging
-import os
 import sys
+
 import yaml
 
 logger = logging.getLogger("forgelm.wizard")
@@ -109,7 +109,7 @@ def run_wizard() -> str:
         print(f"    {i}) {m}")
     print(f"    {len(POPULAR_MODELS) + 1}) Custom (enter your own)")
 
-    model_choice = input(f"  Choice [1]: ").strip()
+    model_choice = input("  Choice [1]: ").strip()
     try:
         idx = int(model_choice) if model_choice else 1
         if idx <= len(POPULAR_MODELS):
@@ -277,7 +277,7 @@ def run_wizard() -> str:
         print()
         return config_filename
     else:
-        print(f"\n  To start training later, run:")
+        print("\n  To start training later, run:")
         print(f"    forgelm --config {config_filename}")
         print()
         return None

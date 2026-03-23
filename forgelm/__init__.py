@@ -5,7 +5,7 @@ Keep imports lightweight so `python -m forgelm.cli --help` and config parsing wo
 without requiring heavy ML dependencies (torch/transformers).
 """
 
-from .config import load_config, ForgeConfig, ConfigError
+from .config import ConfigError, ForgeConfig, load_config
 
 __version__ = "0.1.0"
 

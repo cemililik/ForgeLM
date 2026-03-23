@@ -3,9 +3,9 @@
 Runs safety classifiers (Llama Guard, ShieldGemma, or configurable) on model
 outputs after training. Compares safety scores before vs after fine-tuning.
 """
+import json
 import logging
 import os
-import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -46,7 +46,7 @@ def run_safety_evaluation(
     Returns:
         SafetyResult with pass/fail status and details.
     """
-    from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+    from transformers import pipeline
 
     if not os.path.isfile(test_prompts_path):
         logger.error("Safety test prompts file not found: %s", test_prompts_path)
