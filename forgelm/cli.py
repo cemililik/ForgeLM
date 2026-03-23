@@ -121,6 +121,12 @@ def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
         "offline": config.model.offline,
         "distributed": config.distributed.strategy if config.distributed else None,
         "auto_revert": bool(config.evaluation and config.evaluation.auto_revert),
+        "safety_enabled": bool(config.evaluation and config.evaluation.safety and config.evaluation.safety.enabled),
+        "safety_scoring": config.evaluation.safety.scoring
+        if (config.evaluation and config.evaluation.safety)
+        else None,
+        "compliance_configured": bool(config.compliance and config.compliance.provider_name),
+        "risk_classification": config.compliance.risk_classification if config.compliance else None,
         "webhook_configured": bool(config.webhook and (config.webhook.url or config.webhook.url_env)),
     }
 

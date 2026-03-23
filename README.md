@@ -18,7 +18,7 @@
 
 ### Evaluation & Safety
 - **Automated Benchmarking**: Post-training evaluation via `lm-evaluation-harness`
-- **Safety Evaluation**: Llama Guard / ShieldGemma classifier with auto-revert on safety regression
+- **Safety Evaluation**: Llama Guard classifier with confidence-weighted scoring, S1-S14 harm categories, severity levels, cross-run trend tracking, and auto-revert
 - **LLM-as-Judge**: API-based (OpenAI) or local model scoring for quality assessment
 - **Auto-Revert**: Automatically discard models that fail loss, benchmark, or safety thresholds
 

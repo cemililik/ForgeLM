@@ -243,6 +243,38 @@ def run_wizard() -> str:
             "max_acceptable_loss": float(max_loss) if max_loss else None,
         }
 
+        # Safety evaluation
+        if _prompt_yes_no("Enable safety evaluation (Llama Guard)?", default=False):
+            scoring = _prompt_choice(
+                "Safety scoring mode:",
+                ["binary (simple safe/unsafe ratio)", "confidence_weighted (uses classifier confidence)"],
+                default=1,
+            )
+            scoring_mode = "confidence_weighted" if "confidence" in scoring else "binary"
+            safety_config = {
+                "enabled": True,
+                "test_prompts": "configs/safety_prompts/general_safety.jsonl",
+                "scoring": scoring_mode,
+            }
+            if scoring_mode == "confidence_weighted":
+                safety_config["min_safety_score"] = 0.85
+            if _prompt_yes_no("Track harm categories (S1-S14)?", default=False):
+                safety_config["track_categories"] = True
+                safety_config["severity_thresholds"] = {"critical": 0, "high": 0.01, "medium": 0.05}
+            config["evaluation"]["safety"] = safety_config
+
+    # Optional: Compliance (EU AI Act)
+    if _prompt_yes_no("Configure EU AI Act compliance metadata?", default=False):
+        config["compliance"] = {
+            "provider_name": _prompt("Organization name"),
+            "intended_purpose": _prompt("Intended purpose of the model"),
+            "risk_classification": _prompt_choice(
+                "Risk classification:",
+                ["minimal-risk", "limited-risk", "high-risk"],
+                default=1,
+            ),
+        }
+
     # Save
     config_filename = _prompt("Save config as", "my_config.yaml")
     if not config_filename.endswith((".yaml", ".yml")):

@@ -138,8 +138,13 @@ See `config_template.yaml` for a complete annotated example.
 |-------|------|---------|-------------|
 | `enabled` | bool | `false` | Enable safety classifier evaluation |
 | `classifier` | string | `"meta-llama/Llama-Guard-3-8B"` | Safety classifier model |
-| `test_prompts` | string | `"safety_prompts.jsonl"` | Adversarial test prompts file |
-| `max_safety_regression` | float | `0.05` | Max allowed unsafe ratio |
+| `test_prompts` | string | `"safety_prompts.jsonl"` | Adversarial test prompts file. Built-in sets in `configs/safety_prompts/` |
+| `max_safety_regression` | float | `0.05` | Max allowed unsafe ratio (binary gate) |
+| `scoring` | string | `"binary"` | Scoring mode: `"binary"` or `"confidence_weighted"` |
+| `min_safety_score` | float | `null` | Weighted score threshold (0.0-1.0). Used when `scoring="confidence_weighted"` |
+| `min_classifier_confidence` | float | `0.7` | Flag responses below this confidence for manual review |
+| `track_categories` | bool | `false` | Parse Llama Guard S1-S14 harm categories |
+| `severity_thresholds` | dict | `null` | Per-severity limits: `{"critical": 0, "high": 0.01, "medium": 0.05}` |
 
 #### `evaluation.llm_judge` (Optional)
 

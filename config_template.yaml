@@ -113,8 +113,17 @@ data:
 #   safety:
 #     enabled: true
 #     classifier: "meta-llama/Llama-Guard-3-8B"
-#     test_prompts: "safety_prompts.jsonl"
+#     test_prompts: "safety_prompts.jsonl"  # or "configs/safety_prompts/general_safety.jsonl"
 #     max_safety_regression: 0.05
+#     # Advanced scoring (Phase 9):
+#     # scoring: "confidence_weighted"     # "binary" (default) or "confidence_weighted"
+#     # min_safety_score: 0.85             # weighted score threshold
+#     # min_classifier_confidence: 0.7     # flag low-confidence classifications
+#     # track_categories: true             # parse Llama Guard S1-S14 harm categories
+#     # severity_thresholds:
+#     #   critical: 0                      # zero tolerance
+#     #   high: 0.01
+#     #   medium: 0.05
 #   llm_judge:
 #     enabled: true
 #     judge_model: "gpt-4o"
