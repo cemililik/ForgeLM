@@ -1,13 +1,26 @@
 import logging
+import math
 import torch
 import os
 import shutil
 from trl import SFTTrainer, SFTConfig
 from transformers import TrainingArguments, DefaultDataCollator, EarlyStoppingCallback
-from typing import Any, Dict
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional
 from .webhook import WebhookNotifier
 
 logger = logging.getLogger("forgelm.trainer")
+
+
+@dataclass
+class TrainResult:
+    """Result of a ForgeLM training run."""
+    success: bool
+    metrics: Dict[str, float] = field(default_factory=dict)
+    final_model_path: Optional[str] = None
+    reverted: bool = False
+    error: Optional[str] = None
+
 
 class ForgeTrainer:
     """Orchestrates the training process for ForgeLM using TRL SFTTrainer."""
@@ -21,6 +34,29 @@ class ForgeTrainer:
         self.run_name = config.model.name_or_path.split("/")[-1] + "_finetune"
 
         os.makedirs(self.checkpoint_dir, exist_ok=True)
+
+        # Validate evaluation config early
+        self._validate_evaluation_config()
+
+    def _validate_evaluation_config(self) -> None:
+        """Warn about evaluation configuration issues before training starts."""
+        eval_cfg = self.config.evaluation
+        if not eval_cfg or not eval_cfg.auto_revert:
+            return
+
+        if not self.dataset.get("validation"):
+            logger.warning(
+                "auto_revert is enabled but no validation split exists. "
+                "Evaluation checks will be skipped. Provide a validation set "
+                "or set auto_revert=false."
+            )
+
+        if eval_cfg.max_acceptable_loss is None and eval_cfg.baseline_loss is None:
+            logger.warning(
+                "auto_revert is enabled but neither max_acceptable_loss nor "
+                "baseline_loss is configured. Baseline will be computed automatically "
+                "if a validation set is available."
+            )
 
     def _get_training_args(self) -> SFTConfig:
         return SFTConfig(
@@ -56,9 +92,25 @@ class ForgeTrainer:
         if not self.config.evaluation or not self.config.evaluation.auto_revert:
             return True
 
-        final_loss = metrics.get('eval_loss', float('inf'))
+        # No validation data means we can't evaluate
+        if not self.dataset.get("validation"):
+            logger.warning("Skipping evaluation checks — no validation data available.")
+            return True
+
+        final_loss = metrics.get('eval_loss')
         baseline_loss = self.config.evaluation.baseline_loss
         max_loss = self.config.evaluation.max_acceptable_loss
+
+        # Handle missing or invalid eval_loss
+        if final_loss is None:
+            logger.warning("eval_loss not found in metrics. Skipping evaluation checks.")
+            return True
+
+        if math.isnan(final_loss) or math.isinf(final_loss):
+            reason = f"eval_loss is {final_loss} (NaN or Inf) — training diverged."
+            logger.error("EVALUATION FAILED: %s", reason)
+            self._revert_model(final_path, reason)
+            return False
 
         # Two independent checks:
         # 1) Hard ceiling (max_acceptable_loss)
@@ -72,19 +124,41 @@ class ForgeTrainer:
         if failed_reasons:
             reason = " ".join(failed_reasons)
             logger.error("EVALUATION FAILED: %s", reason)
-            logger.warning("Auto-revert enabled. Deleting generated adapters at %s...", final_path)
-            if os.path.exists(final_path):
-                shutil.rmtree(final_path)
-
-            self.notifier.notify_failure(
-                run_name=self.run_name,
-                reason=f"{reason} Adapters discarded."
-            )
+            self._revert_model(final_path, reason)
             return False
+
+        # Log success with improvement details
+        if baseline_loss is not None and baseline_loss > 0:
+            improvement = ((baseline_loss - final_loss) / baseline_loss) * 100
+            logger.info(
+                "Evaluation passed: eval_loss=%.4f (%.1f%% improvement over baseline %.4f)",
+                final_loss, improvement, baseline_loss
+            )
+        else:
+            logger.info("Evaluation passed: eval_loss=%.4f", final_loss)
+
         return True
 
-    def train(self) -> bool:
-        """Starts the main training loop. Returns True if successful and valid."""
+    def _revert_model(self, final_path: str, reason: str) -> None:
+        """Delete generated model artifacts and notify."""
+        logger.warning("Auto-revert enabled. Deleting generated artifacts at %s...", final_path)
+        if os.path.exists(final_path):
+            try:
+                shutil.rmtree(final_path)
+                logger.info("Reverted artifacts deleted successfully.")
+            except OSError as e:
+                logger.error(
+                    "Failed to delete reverted artifacts at %s: %s. "
+                    "Manual cleanup may be required.", final_path, e
+                )
+
+        self.notifier.notify_failure(
+            run_name=self.run_name,
+            reason=f"{reason} Adapters discarded."
+        )
+
+    def train(self, resume_from_checkpoint: Optional[str] = None) -> TrainResult:
+        """Starts the main training loop. Returns TrainResult with status and metrics."""
         logger.info("Initializing TRL SFTTrainer...")
         self.notifier.notify_start(run_name=self.run_name)
 
@@ -127,11 +201,17 @@ class ForgeTrainer:
                     if baseline_loss is not None:
                         self.config.evaluation.baseline_loss = float(baseline_loss)
                         metrics["baseline_eval_loss"] = float(baseline_loss)
+                        logger.info("Baseline eval_loss computed: %.4f", baseline_loss)
+                    else:
+                        logger.warning(
+                            "Baseline evaluation completed but eval_loss not found in results. "
+                            "Baseline regression check will be skipped."
+                        )
 
             logger.info("Starting training...")
-            train_result = self.trainer.train()
+            hf_train_result = self.trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
-            metrics.update(train_result.metrics)
+            metrics.update(hf_train_result.metrics)
             if self.dataset.get("validation"):
                 eval_metrics = self.trainer.evaluate()
                 metrics.update(eval_metrics)
@@ -146,9 +226,9 @@ class ForgeTrainer:
             is_valid = self.execute_evaluation_checks(final_path, metrics)
             if is_valid:
                 self.notifier.notify_success(run_name=self.run_name, metrics=metrics)
-                return True
+                return TrainResult(success=True, metrics=metrics, final_model_path=final_path)
             else:
-                return False
+                return TrainResult(success=False, metrics=metrics, reverted=True)
 
         except Exception as e:
             logger.exception("Training pipeline failed.")

@@ -12,6 +12,7 @@ class ModelConfig(BaseModel):
     load_in_4bit: bool = True
     backend: str = "transformers"  # Can also be "unsloth"
     trust_remote_code: bool = False  # Security: disabled by default for enterprise safety
+    offline: bool = False  # Air-gapped mode: no HF Hub calls, local models/datasets only
     # Optional advanced bitsandbytes knobs (Transformers backend)
     bnb_4bit_use_double_quant: bool = True
     bnb_4bit_quant_type: str = "nf4"  # typically "nf4"

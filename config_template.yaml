@@ -6,6 +6,7 @@ model:
   load_in_4bit: true
   backend: "transformers" # Can be "transformers" or "unsloth"
   trust_remote_code: false # Security: set true only for models that require custom code
+  # offline: false  # Air-gapped mode: no HF Hub calls, models/datasets must be local
   # Optional advanced bitsandbytes knobs (Transformers backend + 4bit):
   # bnb_4bit_use_double_quant: true
   # bnb_4bit_quant_type: "nf4"

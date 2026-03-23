@@ -1,7 +1,9 @@
 """Unit tests for forgelm.cli module."""
+import json
 import os
 import sys
 import pytest
+import yaml
 from unittest.mock import patch
 from io import StringIO
 
@@ -9,6 +11,7 @@ from forgelm.cli import (
     _get_version,
     _setup_logging,
     _run_dry_run,
+    _resolve_resume_checkpoint,
     EXIT_SUCCESS,
     EXIT_CONFIG_ERROR,
     EXIT_TRAINING_ERROR,
@@ -49,30 +52,72 @@ class TestSetupLogging:
         _setup_logging("WARNING")
         _setup_logging("ERROR")
 
+    def test_json_format_suppresses_logs(self):
+        _setup_logging("DEBUG", json_format=True)
+
 
 class TestDryRun:
-    def test_dry_run_minimal_config(self):
+    def test_dry_run_text_format(self):
         config = ForgeConfig(**_minimal_config_dict())
-        # Should not raise
-        _run_dry_run(config)
+        _run_dry_run(config, "text")
+
+    def test_dry_run_json_format(self, capsys):
+        config = ForgeConfig(**_minimal_config_dict())
+        _run_dry_run(config, "json")
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert result["status"] == "valid"
+        assert result["model"] == "org/model"
+        assert result["offline"] is False
 
     def test_dry_run_with_evaluation(self):
         data = _minimal_config_dict()
         data["evaluation"] = {"auto_revert": True, "max_acceptable_loss": 2.0}
         config = ForgeConfig(**data)
-        _run_dry_run(config)
+        _run_dry_run(config, "text")
 
     def test_dry_run_with_webhook(self):
         data = _minimal_config_dict()
         data["webhook"] = {"url": "https://example.com/hook"}
         config = ForgeConfig(**data)
-        _run_dry_run(config)
+        _run_dry_run(config, "text")
 
     def test_dry_run_trust_remote_code_warning(self):
         data = _minimal_config_dict()
         data["model"]["trust_remote_code"] = True
         config = ForgeConfig(**data)
-        _run_dry_run(config)
+        _run_dry_run(config, "text")
+
+    def test_dry_run_offline_mode(self, capsys):
+        data = _minimal_config_dict()
+        data["model"]["offline"] = True
+        config = ForgeConfig(**data)
+        _run_dry_run(config, "json")
+        result = json.loads(capsys.readouterr().out)
+        assert result["offline"] is True
+
+
+class TestResumeCheckpoint:
+    def test_explicit_path(self, tmp_path):
+        ckpt = tmp_path / "checkpoint-100"
+        ckpt.mkdir()
+        result = _resolve_resume_checkpoint(str(tmp_path), str(ckpt))
+        assert result == str(ckpt)
+
+    def test_auto_detect(self, tmp_path):
+        (tmp_path / "checkpoint-100").mkdir()
+        (tmp_path / "checkpoint-200").mkdir()
+        (tmp_path / "checkpoint-50").mkdir()
+        result = _resolve_resume_checkpoint(str(tmp_path), "auto")
+        assert result.endswith("checkpoint-200")
+
+    def test_auto_no_checkpoints(self, tmp_path):
+        result = _resolve_resume_checkpoint(str(tmp_path), "auto")
+        assert result is None
+
+    def test_auto_no_directory(self):
+        result = _resolve_resume_checkpoint("/nonexistent/dir", "auto")
+        assert result is None
 
 
 class TestMainEntrypoint:
@@ -89,7 +134,6 @@ class TestMainEntrypoint:
             assert exc_info.value.code == EXIT_CONFIG_ERROR
 
     def test_dry_run_exits_success(self, tmp_path):
-        import yaml
         cfg_path = str(tmp_path / "config.yaml")
         with open(cfg_path, "w") as f:
             yaml.dump(_minimal_config_dict(), f)
@@ -98,3 +142,42 @@ class TestMainEntrypoint:
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == EXIT_SUCCESS
+
+    def test_dry_run_json_output(self, tmp_path, capsys):
+        cfg_path = str(tmp_path / "config.yaml")
+        with open(cfg_path, "w") as f:
+            yaml.dump(_minimal_config_dict(), f)
+
+        with patch("sys.argv", ["forgelm", "--config", cfg_path, "--dry-run", "--output-format", "json"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == EXIT_SUCCESS
+
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert result["status"] == "valid"
+
+    def test_config_error_json_output(self, capsys):
+        with patch("sys.argv", ["forgelm", "--config", "/nonexistent.yaml", "--output-format", "json"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == EXIT_CONFIG_ERROR
+
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_offline_flag_sets_env(self, tmp_path):
+        cfg_path = str(tmp_path / "config.yaml")
+        with open(cfg_path, "w") as f:
+            yaml.dump(_minimal_config_dict(), f)
+
+        with patch("sys.argv", ["forgelm", "--config", cfg_path, "--dry-run", "--offline"]):
+            with pytest.raises(SystemExit):
+                main()
+
+        assert os.environ.get("HF_HUB_OFFLINE") == "1"
+        # Cleanup
+        for key in ["HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"]:
+            os.environ.pop(key, None)

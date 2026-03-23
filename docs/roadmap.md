@@ -11,9 +11,9 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Phase | Status | Completion |
 |-------|--------|------------|
 | Phase 1: SOTA Upgrades | **Complete** | 6/6 |
-| Phase 2: Evaluation & Validation | **In Progress** | 3/5 |
-| Phase 2.5: Reliability & Maturity | **Planned** | 0/8 |
-| Phase 3: Enterprise Integration | **Planned** | 0/6 |
+| Phase 2: Evaluation & Validation | **In Progress** | 4/5 |
+| Phase 2.5: Reliability & Maturity | **Complete** | 8/8 |
+| Phase 3: Enterprise Integration | **In Progress** | 5/6 |
 | Phase 4: Ecosystem Growth | **Vision** | 0/5 |
 
 ---
@@ -38,9 +38,9 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 
 ### Tasks:
 1. [/] **Automated Benchmarking:** Post-training evaluation via `lm-evaluation-harness` or LLM-as-a-Judge pipeline. *(Implementation started, integration pending)*
-2. [/] **Model Reversion Mechanism:** Auto-discard LoRA adapters if they score worse than baseline. *(Core logic in `trainer.py`, needs edge-case hardening)*
+2. [x] **Model Reversion Mechanism:** Auto-discard LoRA adapters if they score worse than baseline. *(Edge cases hardened: NaN/inf handling, rmtree safety, improvement logging)*
 3. [x] **Slack/Teams Webhook Integration:** `webhook` section in YAML config sends structured JSON payloads on start/success/failure.
-4. [ ] **Interactive Configuration Wizard (`forgelm --wizard`):** Step-by-step CLI to generate valid `config.yaml`. [Design Doc](design_wizard_mode.md) *(Deferred to Phase 3 — reliability work takes priority)*
+4. [x] **Interactive Configuration Wizard (`forgelm --wizard`):** Step-by-step CLI to generate valid `config.yaml`. [Design Doc](design_wizard_mode.md) *(Implemented in Phase 3)*
 5. [x] **Runtime Smoke Test Automation:** `tests/runtime_smoke.py` verifies full training loops on CPU/CI environments.
 
 ---
@@ -52,21 +52,21 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 > **Rationale:** The March 2026 product analysis identified critical reliability gaps — silent exception handling, insufficient test coverage, and missing observability — that must be resolved before adding new features. Building on an untested foundation compounds technical debt.
 
 ### Tasks:
-1. [ ] **Structured Logging Migration:** Replace all `print()` statements with Python `logging` module. Add configurable log levels (`--log-level`) and JSON log format option for cloud/container environments.
-2. [ ] **Silent Failure Elimination:** Audit and fix all `except Exception:` blocks across the codebase. Every caught exception must be logged with context. Critical failures (data formatting fallback, adapter disable failure) must emit warnings visible to the user.
-3. [ ] **Test Coverage Expansion:** Add unit tests for each core module:
+1. [x] **Structured Logging Migration:** Replace all `print()` statements with Python `logging` module. Add configurable log levels (`--log-level`) and JSON log format option for cloud/container environments.
+2. [x] **Silent Failure Elimination:** Audit and fix all `except Exception:` blocks across the codebase. Every caught exception must be logged with context. Critical failures (data formatting fallback, adapter disable failure) must emit warnings visible to the user.
+3. [x] **Test Coverage Expansion:** Add unit tests for each core module:
    - `config.py`: Validation edge cases, conflicting configuration detection
    - `data.py`: Format detection, chat template fallback, empty dataset handling
    - `model.py`: Backend selection, quantization config resolution
    - `webhook.py`: Payload format, env var resolution, timeout handling
-4. [ ] **Dependency Version Pinning:** Add upper-bound version constraints to `pyproject.toml` for critical dependencies (`trl`, `peft`, `transformers`, `unsloth`). Create a compatibility matrix document.
-5. [ ] **Security Hardening:** Make `trust_remote_code` configurable via YAML (default: `false`). Add warning when enabled. This is an enterprise adoption blocker.
-6. [ ] **CLI Maturity:**
+4. [x] **Dependency Version Pinning:** Add upper-bound version constraints to `pyproject.toml` for critical dependencies (`trl`, `peft`, `transformers`, `unsloth`). Create a compatibility matrix document.
+5. [x] **Security Hardening:** Make `trust_remote_code` configurable via YAML (default: `false`). Add warning when enabled. This is an enterprise adoption blocker.
+6. [x] **CLI Maturity:**
    - `--version` flag
    - `--dry-run` / `--validate-only` mode (parse config, validate model/dataset access, exit without training)
    - Meaningful exit codes: `0` success, `1` config error, `2` training failure, `3` evaluation failure
-7. [ ] **Error Diagnostics Improvement:** Differentiate error types in CLI output. Config validation errors should show the exact field and expected type. Training errors should include hardware context (GPU model, VRAM, CUDA version).
-8. [ ] **CI/CD Pipeline Hardening:** Add to GitHub Actions:
+7. [x] **Error Diagnostics Improvement:** Differentiate error types in CLI output. Config validation errors should show the exact field and expected type. Training errors should include hardware context (GPU model, VRAM, CUDA version).
+8. [x] **CI/CD Pipeline Hardening:** Add to GitHub Actions:
    - Unit test execution with coverage reporting
    - Dependency vulnerability scanning
    - Config template validation test
@@ -86,12 +86,12 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 > **Strategic Decision:** The original Phase 3 proposed direct RunPod/Lambda Labs API integration. After analysis, this approach is **deprioritized** in favor of a containerized strategy. Direct cloud API integration creates unsustainable maintenance burden, 3rd-party API dependency risk, and dilutes ForgeLM's core value proposition. Instead, we provide portable Docker images and let users handle infrastructure with their existing tools (Terraform, Pulumi, Kubernetes).
 
 ### Tasks:
-1. [ ] **Interactive Configuration Wizard (`forgelm --wizard`):** *(Moved from Phase 2)* Hardware detection, model selection, strategy recommendation, YAML generation. [Design Doc](design_wizard_mode.md)
+1. [x] **Interactive Configuration Wizard (`forgelm --wizard`):** *(Moved from Phase 2)* Hardware detection, model selection, strategy recommendation, YAML generation. [Design Doc](design_wizard_mode.md)
 2. [ ] **Automated Benchmarking Completion:** Full `lm-evaluation-harness` integration with configurable task sets. Results included in webhook notifications and final output.
 3. [ ] **Docker Image & Container Support:** Official `Dockerfile` and `docker-compose.yaml` for single-command training: `docker run forgelm --config job.yaml`. Pre-built images with CUDA, Unsloth, and evaluation dependencies.
-4. [ ] **JSON Output Mode (`--output-format json`):** Machine-readable structured output for all pipeline stages. Enables programmatic integration with CI/CD systems, dashboards, and orchestrators.
-5. [ ] **Offline / Air-Gapped Mode:** Full operation without internet access. Local model loading, local dataset only, no HF Hub calls. Critical for defense/healthcare/banking deployments.
-6. [ ] **Checkpoint Resume (`--resume`):** Resume training from the last saved checkpoint after interruption. Essential for long-running jobs on preemptible instances.
+4. [x] **JSON Output Mode (`--output-format json`):** Machine-readable structured output for all pipeline stages. Enables programmatic integration with CI/CD systems, dashboards, and orchestrators.
+5. [x] **Offline / Air-Gapped Mode:** Full operation without internet access. Local model loading, local dataset only, no HF Hub calls. Critical for defense/healthcare/banking deployments.
+6. [x] **Checkpoint Resume (`--resume`):** Resume training from the last saved checkpoint after interruption. Essential for long-running jobs on preemptible instances.
 
 ### Requirements:
 - Docker multi-stage builds for minimal image size
