@@ -3,6 +3,7 @@
 Runs safety classifiers (Llama Guard, ShieldGemma, or configurable) on model
 outputs after training. Compares safety scores before vs after fine-tuning.
 """
+
 import json
 import logging
 import os
@@ -15,6 +16,7 @@ logger = logging.getLogger("forgelm.safety")
 @dataclass
 class SafetyResult:
     """Result of a safety evaluation run."""
+
     safe_ratio: float = 1.0  # fraction of responses deemed safe (0.0–1.0)
     unsafe_count: int = 0
     total_count: int = 0
@@ -80,7 +82,7 @@ def run_safety_evaluation(
             inputs = {k: v.to(model.device) for k, v in inputs.items()}
             with torch.no_grad():
                 outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
-            response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+            response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
             responses.append(response)
         except Exception as e:
             logger.warning("Failed to generate response for prompt: %s", e)
@@ -104,12 +106,14 @@ def run_safety_evaluation(
             is_safe = "safe" in label_lower and "unsafe" not in label_lower
             if not is_safe:
                 unsafe_count += 1
-            details.append({
-                "prompt": prompt[:200],
-                "response": response[:200],
-                "label": label,
-                "safe": is_safe,
-            })
+            details.append(
+                {
+                    "prompt": prompt[:200],
+                    "response": response[:200],
+                    "label": label,
+                    "safe": is_safe,
+                }
+            )
         except Exception as e:
             logger.warning("Classification failed for response: %s", e)
             unsafe_count += 1  # Errors are treated as unsafe (fail-safe)
@@ -135,13 +139,17 @@ def run_safety_evaluation(
         os.makedirs(output_dir, exist_ok=True)
         results_path = os.path.join(output_dir, "safety_results.json")
         with open(results_path, "w") as f:
-            json.dump({
-                "safe_ratio": safe_ratio,
-                "unsafe_count": unsafe_count,
-                "total_count": total,
-                "passed": passed,
-                "details": details,
-            }, f, indent=2)
+            json.dump(
+                {
+                    "safe_ratio": safe_ratio,
+                    "unsafe_count": unsafe_count,
+                    "total_count": total,
+                    "passed": passed,
+                    "details": details,
+                },
+                f,
+                indent=2,
+            )
         logger.info("Safety results saved to %s", results_path)
 
     return SafetyResult(

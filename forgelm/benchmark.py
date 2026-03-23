@@ -2,6 +2,7 @@
 
 This module is optional — requires `pip install forgelm[eval]`.
 """
+
 import json
 import logging
 import os
@@ -14,6 +15,7 @@ logger = logging.getLogger("forgelm.benchmark")
 @dataclass
 class BenchmarkResult:
     """Holds the results of a benchmark evaluation run."""
+
     scores: Dict[str, float] = field(default_factory=dict)  # task_name -> accuracy
     average_score: float = 0.0
     passed: bool = True
@@ -138,10 +140,7 @@ def run_benchmark(
     failure_reason = None
     if min_score is not None and average_score < min_score:
         passed = False
-        failure_reason = (
-            f"Average benchmark score ({average_score:.4f}) is below "
-            f"minimum threshold ({min_score:.4f})."
-        )
+        failure_reason = f"Average benchmark score ({average_score:.4f}) is below minimum threshold ({min_score:.4f})."
         logger.error("BENCHMARK FAILED: %s", failure_reason)
 
     # Save results to file

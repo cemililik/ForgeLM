@@ -7,23 +7,30 @@ from pydantic import BaseModel, model_validator
 
 logger = logging.getLogger("forgelm.config")
 
+
 class MoeConfig(BaseModel):
     """MoE-specific fine-tuning configuration."""
+
     quantize_experts: bool = False  # quantize inactive experts for VRAM savings
     experts_to_train: str = "all"  # "all" or comma-separated expert indices
 
+
 class MultimodalConfig(BaseModel):
     """VLM multimodal fine-tuning configuration."""
+
     enabled: bool = False
     image_column: str = "image"  # column name for image paths/URLs
     text_column: str = "text"  # column name for text/captions
 
+
 class MergeConfig(BaseModel):
     """Post-training model merging configuration."""
+
     enabled: bool = False
     method: str = "ties"  # "ties", "dare", "slerp", "linear"
     models: List[Dict[str, Any]] = []  # list of {path, weight} dicts
     output_dir: str = "./merged_model"
+
 
 class ModelConfig(BaseModel):
     name_or_path: str
@@ -39,6 +46,7 @@ class ModelConfig(BaseModel):
     bnb_4bit_quant_type: str = "nf4"  # typically "nf4"
     bnb_4bit_compute_dtype: str = "auto"  # "auto" | "bfloat16" | "float16" | "float32"
 
+
 class LoraConfigModel(BaseModel):
     r: int = 8
     alpha: int = 16
@@ -49,6 +57,7 @@ class LoraConfigModel(BaseModel):
     use_rslora: bool = False  # rank-stabilized LoRA for high ranks (r>64)
     target_modules: List[str] = ["q_proj", "v_proj"]
     task_type: str = "CAUSAL_LM"
+
 
 class TrainingConfig(BaseModel):
     output_dir: str = "./checkpoints"
@@ -66,19 +75,21 @@ class TrainingConfig(BaseModel):
     save_total_limit: int = 3
     packing: bool = False
     # --- Alignment trainer parameters ---
-    orpo_beta: float = 0.1          # ORPO odds ratio weight
-    dpo_beta: float = 0.1           # DPO temperature parameter
-    simpo_gamma: float = 0.5        # SimPO margin term
-    simpo_beta: float = 2.0         # SimPO scaling parameter
-    kto_beta: float = 0.1           # KTO loss parameter
-    grpo_num_generations: int = 4   # GRPO: number of responses to generate per prompt
+    orpo_beta: float = 0.1  # ORPO odds ratio weight
+    dpo_beta: float = 0.1  # DPO temperature parameter
+    simpo_gamma: float = 0.5  # SimPO margin term
+    simpo_beta: float = 2.0  # SimPO scaling parameter
+    kto_beta: float = 0.1  # KTO loss parameter
+    grpo_num_generations: int = 4  # GRPO: number of responses to generate per prompt
     grpo_max_new_tokens: int = 512  # GRPO: max tokens per generated response
     # --- Tracking ---
     report_to: str = "tensorboard"  # "tensorboard", "wandb", "mlflow", or "none"
     run_name: Optional[str] = None  # W&B/MLflow run name; auto-generated if None
 
+
 class DistributedConfig(BaseModel):
     """Configuration for multi-GPU distributed training via DeepSpeed or FSDP."""
+
     strategy: Optional[str] = None  # "deepspeed" or "fsdp"; None = single-GPU
     # --- DeepSpeed ---
     deepspeed_config: Optional[str] = None  # path to DS JSON or preset name: "zero2", "zero3", "zero3_offload"
@@ -98,8 +109,10 @@ class DataConfig(BaseModel):
     clean_text: bool = True
     add_eos: bool = True
 
+
 class BenchmarkConfig(BaseModel):
     """Configuration for post-training benchmark evaluation via lm-evaluation-harness."""
+
     enabled: bool = False
     tasks: List[str] = []  # e.g. ["arc_easy", "hellaswag", "mmlu"]
     num_fewshot: Optional[int] = None  # task default if None
@@ -108,20 +121,25 @@ class BenchmarkConfig(BaseModel):
     output_dir: Optional[str] = None  # save benchmark results JSON; defaults to training output_dir
     min_score: Optional[float] = None  # minimum average accuracy; triggers revert if below
 
+
 class SafetyConfig(BaseModel):
     """Post-training safety evaluation configuration."""
+
     enabled: bool = False
     classifier: str = "meta-llama/Llama-Guard-3-8B"  # safety classifier model
     test_prompts: str = "safety_prompts.jsonl"  # adversarial test prompts file
     max_safety_regression: float = 0.05  # max allowed unsafe ratio (0.0–1.0)
 
+
 class JudgeConfig(BaseModel):
     """LLM-as-Judge evaluation configuration."""
+
     enabled: bool = False
     judge_model: str = "gpt-4o"  # API model name or local model path
     judge_api_key_env: Optional[str] = None  # env var name for API key; None = local judge
     eval_dataset: str = "eval_prompts.jsonl"  # evaluation prompts file
     min_score: float = 5.0  # minimum average score (1-10 scale)
+
 
 class EvaluationConfig(BaseModel):
     auto_revert: bool = False
@@ -131,6 +149,7 @@ class EvaluationConfig(BaseModel):
     safety: Optional[SafetyConfig] = None  # post-training safety evaluation
     llm_judge: Optional[JudgeConfig] = None  # LLM-as-Judge scoring
 
+
 class WebhookConfig(BaseModel):
     url: Optional[str] = None
     url_env: Optional[str] = None
@@ -139,8 +158,10 @@ class WebhookConfig(BaseModel):
     notify_on_failure: bool = True
     timeout: int = 5  # HTTP request timeout in seconds
 
+
 class AuthConfig(BaseModel):
     hf_token: Optional[str] = None
+
 
 class ForgeConfig(BaseModel):
     model: ModelConfig
@@ -162,9 +183,7 @@ class ForgeConfig(BaseModel):
                 "the merged full model will be deleted. Consider using adapter-only saves."
             )
         if self.model.backend == "unsloth" and self.model.trust_remote_code:
-            logger.warning(
-                "trust_remote_code is ignored when using the Unsloth backend."
-            )
+            logger.warning("trust_remote_code is ignored when using the Unsloth backend.")
         # Trainer type validation
         valid_trainers = {"sft", "orpo", "dpo", "simpo", "kto", "grpo"}
         if self.training.trainer_type not in valid_trainers:
@@ -179,10 +198,12 @@ class ForgeConfig(BaseModel):
                     "Unsloth backend does not support multi-GPU distributed training. "
                     "Switch to backend: 'transformers' for DeepSpeed/FSDP."
                 )
-            if (self.distributed.strategy == "deepspeed"
-                    and self.distributed.deepspeed_config
-                    and "zero3" in str(self.distributed.deepspeed_config)
-                    and self.model.load_in_4bit):
+            if (
+                self.distributed.strategy == "deepspeed"
+                and self.distributed.deepspeed_config
+                and "zero3" in str(self.distributed.deepspeed_config)
+                and self.model.load_in_4bit
+            ):
                 logger.warning(
                     "QLoRA (4-bit) with DeepSpeed ZeRO-3 has known compatibility issues. "
                     "Consider using ZeRO-2 or disabling 4-bit quantization for stability."
@@ -192,6 +213,7 @@ class ForgeConfig(BaseModel):
 
 class ConfigError(Exception):
     """Raised when configuration validation fails."""
+
     pass
 
 
@@ -200,7 +222,7 @@ def load_config(config_path: str) -> ForgeConfig:
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
-    with open(config_path, 'r') as f:
+    with open(config_path, "r") as f:
         try:
             yaml_data = yaml.safe_load(f)
         except yaml.YAMLError as e:

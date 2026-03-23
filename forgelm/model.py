@@ -7,6 +7,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 logger = logging.getLogger("forgelm.model")
 
+
 def _resolve_bnb_compute_dtype(dtype_str: str):
     if not dtype_str or dtype_str == "auto":
         return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
@@ -18,6 +19,7 @@ def _resolve_bnb_compute_dtype(dtype_str: str):
     if normalized in ("fp32", "float32"):
         return torch.float32
     raise ValueError(f"Unsupported bnb_4bit_compute_dtype: {dtype_str!r}")
+
 
 def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
     """Loads the base model, tokenizer, and configures LoRA."""
@@ -40,7 +42,7 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
         model, tokenizer = FastLanguageModel.from_pretrained(
             model_name=config.model.name_or_path,
             max_seq_length=config.model.max_length,
-            dtype=None, # Auto detection
+            dtype=None,  # Auto detection
             load_in_4bit=config.model.load_in_4bit,
         )
 
@@ -89,10 +91,7 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
         )
         model_kwargs["quantization_config"] = bnb_config
 
-    model = AutoModelForCausalLM.from_pretrained(
-        config.model.name_or_path,
-        **model_kwargs
-    )
+    model = AutoModelForCausalLM.from_pretrained(config.model.name_or_path, **model_kwargs)
 
     if torch.cuda.is_available() and config.model.load_in_4bit:
         if hasattr(model, "enable_input_require_grads"):
@@ -112,8 +111,7 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
         if moe_cfg.quantize_experts:
             logger.info("Expert quantization enabled for VRAM savings.")
 
-    logger.info("Setting up PEFT configuration (method=%s, DoRA=%s, rsLoRA=%s)...",
-                peft_method, use_dora, use_rslora)
+    logger.info("Setting up PEFT configuration (method=%s, DoRA=%s, rsLoRA=%s)...", peft_method, use_dora, use_rslora)
 
     lora_kwargs = dict(
         r=config.lora.r,

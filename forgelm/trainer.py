@@ -16,6 +16,7 @@ logger = logging.getLogger("forgelm.trainer")
 
 class ForgeTrainer:
     """Orchestrates the training process for ForgeLM using TRL SFTTrainer."""
+
     def __init__(self, model: Any, tokenizer: Any, config: Any, dataset: Dict[str, Any]):
         self.model = model
         self.tokenizer = tokenizer
@@ -169,16 +170,19 @@ class ForgeTrainer:
 
         elif tt == "orpo":
             from trl import ORPOConfig
+
             kwargs["beta"] = self.config.training.orpo_beta
             return ORPOConfig(**kwargs)
 
         elif tt == "dpo":
             from trl import DPOConfig
+
             kwargs["beta"] = self.config.training.dpo_beta
             return DPOConfig(**kwargs)
 
         elif tt == "simpo":
             from trl import CPOConfig
+
             # SimPO is implemented via CPOTrainer with loss_type="simpo" in TRL
             kwargs["beta"] = self.config.training.simpo_beta
             kwargs["cpo_alpha"] = 0.0  # pure SimPO (no NLL term)
@@ -188,11 +192,13 @@ class ForgeTrainer:
 
         elif tt == "kto":
             from trl import KTOConfig
+
             kwargs["beta"] = self.config.training.kto_beta
             return KTOConfig(**kwargs)
 
         elif tt == "grpo":
             from trl import GRPOConfig
+
             # GRPO generates responses during training — needs generation params
             kwargs["num_generations"] = self.config.training.grpo_num_generations
             kwargs["max_new_tokens"] = self.config.training.grpo_max_new_tokens
@@ -215,7 +221,7 @@ class ForgeTrainer:
             logger.warning("Skipping evaluation checks — no validation data available.")
             return True
 
-        final_loss = metrics.get('eval_loss')
+        final_loss = metrics.get("eval_loss")
         baseline_loss = self.config.evaluation.baseline_loss
         max_loss = self.config.evaluation.max_acceptable_loss
 
@@ -250,7 +256,9 @@ class ForgeTrainer:
             improvement = ((baseline_loss - final_loss) / baseline_loss) * 100
             logger.info(
                 "Evaluation passed: eval_loss=%.4f (%.1f%% improvement over baseline %.4f)",
-                final_loss, improvement, baseline_loss
+                final_loss,
+                improvement,
+                baseline_loss,
             )
         else:
             logger.info("Evaluation passed: eval_loss=%.4f", final_loss)
@@ -266,14 +274,10 @@ class ForgeTrainer:
                 logger.info("Reverted artifacts deleted successfully.")
             except OSError as e:
                 logger.error(
-                    "Failed to delete reverted artifacts at %s: %s. "
-                    "Manual cleanup may be required.", final_path, e
+                    "Failed to delete reverted artifacts at %s: %s. Manual cleanup may be required.", final_path, e
                 )
 
-        self.notifier.notify_failure(
-            run_name=self.run_name,
-            reason=f"{reason} Adapters discarded."
-        )
+        self.notifier.notify_failure(run_name=self.run_name, reason=f"{reason} Adapters discarded.")
 
     def train(self, resume_from_checkpoint: Optional[str] = None) -> TrainResult:
         """Starts the main training loop. Returns TrainResult with status and metrics."""
@@ -298,22 +302,27 @@ class ForgeTrainer:
         elif tt == "orpo":
             logger.info("Initializing TRL ORPOTrainer (ORPO preference alignment)...")
             from trl import ORPOTrainer
+
             self.trainer = ORPOTrainer(**trainer_kwargs)
         elif tt == "dpo":
             logger.info("Initializing TRL DPOTrainer (DPO preference alignment)...")
             from trl import DPOTrainer
+
             self.trainer = DPOTrainer(**trainer_kwargs)
         elif tt == "simpo":
             logger.info("Initializing TRL CPOTrainer (SimPO preference alignment)...")
             from trl import CPOTrainer
+
             self.trainer = CPOTrainer(**trainer_kwargs)
         elif tt == "kto":
             logger.info("Initializing TRL KTOTrainer (binary feedback alignment)...")
             from trl import KTOTrainer
+
             self.trainer = KTOTrainer(**trainer_kwargs)
         elif tt == "grpo":
             logger.info("Initializing TRL GRPOTrainer (reasoning RL)...")
             from trl import GRPOTrainer
+
             # GRPO doesn't use eval_dataset the same way — remove callbacks that depend on eval
             trainer_kwargs.pop("eval_dataset", None)
             trainer_kwargs["callbacks"] = []
@@ -338,8 +347,7 @@ class ForgeTrainer:
                                 baseline_metrics = self.trainer.evaluate()
                         except Exception as e:
                             logger.warning(
-                                "Failed to disable adapters for baseline eval, "
-                                "evaluating with adapters instead: %s", e
+                                "Failed to disable adapters for baseline eval, evaluating with adapters instead: %s", e
                             )
                             baseline_metrics = self.trainer.evaluate()
                     else:
@@ -454,9 +462,7 @@ class ForgeTrainer:
             try:
                 self.trainer.model.save_pretrained(final_path)
             except Exception as e:
-                logger.warning(
-                    "Direct model save failed, falling back to trainer.save_model: %s", e
-                )
+                logger.warning("Direct model save failed, falling back to trainer.save_model: %s", e)
                 self.trainer.save_model(final_path)
             self.tokenizer.save_pretrained(final_path)
             return
@@ -468,9 +474,7 @@ class ForgeTrainer:
             merged = model_to_save.merge_and_unload()
             merged.save_pretrained(final_path, safe_serialization=True)
         except Exception as e:
-            logger.warning(
-                "Adapter merge failed, saving model state as-is: %s", e
-            )
+            logger.warning("Adapter merge failed, saving model state as-is: %s", e)
             self.trainer.save_model(final_path)
         self.tokenizer.save_pretrained(final_path)
 
@@ -490,7 +494,8 @@ class ForgeTrainer:
         except ImportError as e:
             logger.error(
                 "Benchmark evaluation requested but lm-eval is not installed: %s. "
-                "Install with: pip install forgelm[eval]", e
+                "Install with: pip install forgelm[eval]",
+                e,
             )
             return None
 
@@ -512,6 +517,7 @@ class ForgeTrainer:
         """Generate a HuggingFace-compatible model card."""
         try:
             from .model_card import generate_model_card
+
             generate_model_card(
                 config=self.config,
                 metrics=metrics,
@@ -595,6 +601,7 @@ class ForgeTrainer:
         """Export compliance artifacts if evaluation config is present."""
         try:
             from .compliance import export_compliance_artifacts, generate_training_manifest
+
             manifest = generate_training_manifest(
                 config=self.config,
                 metrics=metrics,

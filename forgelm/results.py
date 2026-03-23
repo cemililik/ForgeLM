@@ -1,4 +1,5 @@
 """Training result dataclass — importable without heavy ML dependencies."""
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -6,6 +7,7 @@ from typing import Any, Dict, Optional
 @dataclass
 class TrainResult:
     """Result of a ForgeLM training run."""
+
     success: bool
     metrics: Dict[str, float] = field(default_factory=dict)
     final_model_path: Optional[str] = None

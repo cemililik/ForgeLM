@@ -1,4 +1,5 @@
 """Unit tests for Phase 5 alignment trainer support (DPO, SimPO, KTO, GRPO)."""
+
 import pytest
 import yaml
 
@@ -17,6 +18,7 @@ def _minimal_config(**overrides):
 
 
 # --- TrainingConfig trainer_type ---
+
 
 class TestTrainerTypeConfig:
     def test_default_is_sft(self):
@@ -62,13 +64,16 @@ class TestTrainerTypeConfig:
 
 # --- Full config with alignment ---
 
+
 class TestAlignmentFullConfig:
     def test_dpo_config_from_yaml(self, tmp_path):
-        data = _minimal_config(training={
-            "trainer_type": "dpo",
-            "dpo_beta": 0.15,
-            "learning_rate": 5e-6,
-        })
+        data = _minimal_config(
+            training={
+                "trainer_type": "dpo",
+                "dpo_beta": 0.15,
+                "learning_rate": 5e-6,
+            }
+        )
         cfg_path = str(tmp_path / "config.yaml")
         with open(cfg_path, "w") as f:
             yaml.dump(data, f)
@@ -77,10 +82,12 @@ class TestAlignmentFullConfig:
         assert cfg.training.dpo_beta == 0.15
 
     def test_simpo_config_from_yaml(self, tmp_path):
-        data = _minimal_config(training={
-            "trainer_type": "simpo",
-            "simpo_gamma": 0.8,
-        })
+        data = _minimal_config(
+            training={
+                "trainer_type": "simpo",
+                "simpo_gamma": 0.8,
+            }
+        )
         cfg_path = str(tmp_path / "config.yaml")
         with open(cfg_path, "w") as f:
             yaml.dump(data, f)
@@ -89,11 +96,13 @@ class TestAlignmentFullConfig:
         assert cfg.training.simpo_gamma == 0.8
 
     def test_grpo_config_from_yaml(self, tmp_path):
-        data = _minimal_config(training={
-            "trainer_type": "grpo",
-            "grpo_num_generations": 6,
-            "grpo_max_new_tokens": 256,
-        })
+        data = _minimal_config(
+            training={
+                "trainer_type": "grpo",
+                "grpo_num_generations": 6,
+                "grpo_max_new_tokens": 256,
+            }
+        )
         cfg_path = str(tmp_path / "config.yaml")
         with open(cfg_path, "w") as f:
             yaml.dump(data, f)
@@ -104,33 +113,38 @@ class TestAlignmentFullConfig:
 
 # --- Dry-run with alignment trainers ---
 
+
 class TestDryRunAlignment:
     def test_dry_run_shows_trainer_type(self, capsys):
         from forgelm.cli import _run_dry_run
+
         cfg = ForgeConfig(**_minimal_config(training={"trainer_type": "dpo"}))
         _run_dry_run(cfg, "json")
         import json
+
         result = json.loads(capsys.readouterr().out)
         assert result["status"] == "valid"
 
     def test_dry_run_grpo(self, capsys):
         from forgelm.cli import _run_dry_run
+
         cfg = ForgeConfig(**_minimal_config(training={"trainer_type": "grpo"}))
         _run_dry_run(cfg, "json")
         import json
+
         result = json.loads(capsys.readouterr().out)
         assert result["status"] == "valid"
 
 
 # --- Config template ---
 
+
 class TestConfigTemplateAlignment:
     def test_config_template_still_valid(self):
         """Ensure config_template.yaml still parses after alignment changes."""
         import os
-        template_path = os.path.join(
-            os.path.dirname(__file__), "..", "config_template.yaml"
-        )
+
+        template_path = os.path.join(os.path.dirname(__file__), "..", "config_template.yaml")
         if os.path.exists(template_path):
             cfg = load_config(template_path)
             assert cfg.training.trainer_type == "sft"

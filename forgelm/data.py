@@ -7,17 +7,20 @@ from transformers import PreTrainedTokenizer
 
 logger = logging.getLogger("forgelm.data")
 
+
 def clean_string(text: str, do_clean: bool) -> str:
     """Removes extra whitespace if configured."""
     if do_clean and isinstance(text, str):
         return " ".join(text.split())
     return str(text) if text else ""
 
+
 def _load_single_dataset(path: str):
     """Load a single dataset from a local file or HF Hub."""
     if os.path.isfile(path):
-        ext = path.split('.')[-1]
-        if ext == "jsonl": ext = "json"
+        ext = path.split(".")[-1]
+        if ext == "jsonl":
+            ext = "json"
         return load_dataset(ext, data_files=path)
     return load_dataset(path)
 
@@ -59,7 +62,8 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
             if mix_ratio:
                 logger.warning(
                     "mix_ratio length (%d) doesn't match dataset count (%d). Using uniform mixing.",
-                    len(mix_ratio), len(all_train)
+                    len(mix_ratio),
+                    len(all_train),
                 )
 
         merged_train = concatenate_datasets(all_train)
@@ -75,10 +79,7 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
     elif "validation" not in dataset:
         logger.info("No validation split found. Slicing 10%% off training data for validation.")
         split_dataset = dataset["train"].train_test_split(test_size=0.1, seed=42)
-        dataset = DatasetDict({
-            "train": split_dataset["train"],
-            "validation": split_dataset["test"]
-        })
+        dataset = DatasetDict({"train": split_dataset["train"], "validation": split_dataset["test"]})
 
     def process_batch(examples):
         # Handle modern conversational format (messages column)
@@ -86,7 +87,9 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
             texts = []
             for msg_list in examples["messages"]:
                 try:
-                    formatted_text = tokenizer.apply_chat_template(msg_list, tokenize=False, add_generation_prompt=False)
+                    formatted_text = tokenizer.apply_chat_template(
+                        msg_list, tokenize=False, add_generation_prompt=False
+                    )
                 except Exception as e:
                     logger.warning("Chat template failed for messages format, using fallback: %s", e)
                     formatted_text = ""
@@ -120,7 +123,9 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
                 logger.warning("Chat template failed for model, using fallback formatting: %s", e)
                 sys_part = f"[SYSTEM]\n{messages[0]['content']}\n" if sys_text else ""
                 user_idx = 1 if sys_text else 0
-                formatted_text = sys_part + f"[USER]\n{messages[user_idx]['content']}\n[ASSISTANT]\n{messages[-1]['content']}"
+                formatted_text = (
+                    sys_part + f"[USER]\n{messages[user_idx]['content']}\n[ASSISTANT]\n{messages[-1]['content']}"
+                )
                 if config.data.add_eos:
                     formatted_text += tokenizer.eos_token
 
@@ -153,8 +158,7 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
     # GRPO requires prompt column (generates responses during training)
     if trainer_type == "grpo" and not has_prompt_only and "prompt" not in sample_columns:
         raise KeyError(
-            "GRPO trainer requires a dataset with a 'prompt' column. "
-            f"Found columns: {', '.join(sample_columns)}"
+            f"GRPO trainer requires a dataset with a 'prompt' column. Found columns: {', '.join(sample_columns)}"
         )
 
     # Preference / alignment datasets are passed through with minimal processing
@@ -201,7 +205,7 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
             batched=True,
             remove_columns=current_dataset.column_names,
             num_proc=4 if os.cpu_count() and os.cpu_count() > 4 else 1,
-            desc=f"Formatting {split} split"
+            desc=f"Formatting {split} split",
         )
 
     return processed

@@ -1,4 +1,5 @@
 """Unit tests for forgelm.trainer module (non-GPU tests only)."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -105,64 +106,46 @@ class TestEvaluationChecks:
 
     def test_max_loss_exceeded(self):
         trainer = self._make_trainer(max_loss=2.0)
-        result = trainer.execute_evaluation_checks(
-            "/tmp/nonexistent", {"eval_loss": 3.0}
-        )
+        result = trainer.execute_evaluation_checks("/tmp/nonexistent", {"eval_loss": 3.0})
         assert result is False
 
     def test_max_loss_within_bounds(self):
         trainer = self._make_trainer(max_loss=2.0)
-        result = trainer.execute_evaluation_checks(
-            "/tmp/nonexistent", {"eval_loss": 1.5}
-        )
+        result = trainer.execute_evaluation_checks("/tmp/nonexistent", {"eval_loss": 1.5})
         assert result is True
 
     def test_baseline_regression(self):
         trainer = self._make_trainer(baseline_loss=1.0)
-        result = trainer.execute_evaluation_checks(
-            "/tmp/nonexistent", {"eval_loss": 1.5}
-        )
+        result = trainer.execute_evaluation_checks("/tmp/nonexistent", {"eval_loss": 1.5})
         assert result is False
 
     def test_baseline_improvement(self):
         trainer = self._make_trainer(baseline_loss=2.0)
-        result = trainer.execute_evaluation_checks(
-            "/tmp/nonexistent", {"eval_loss": 1.5}
-        )
+        result = trainer.execute_evaluation_checks("/tmp/nonexistent", {"eval_loss": 1.5})
         assert result is True
 
     def test_nan_eval_loss(self):
         trainer = self._make_trainer(max_loss=2.0)
-        result = trainer.execute_evaluation_checks(
-            "/tmp/nonexistent", {"eval_loss": float("nan")}
-        )
+        result = trainer.execute_evaluation_checks("/tmp/nonexistent", {"eval_loss": float("nan")})
         assert result is False
 
     def test_inf_eval_loss(self):
         trainer = self._make_trainer(max_loss=2.0)
-        result = trainer.execute_evaluation_checks(
-            "/tmp/nonexistent", {"eval_loss": float("inf")}
-        )
+        result = trainer.execute_evaluation_checks("/tmp/nonexistent", {"eval_loss": float("inf")})
         assert result is False
 
     def test_missing_eval_loss(self):
         trainer = self._make_trainer(max_loss=2.0)
-        result = trainer.execute_evaluation_checks(
-            "/tmp/nonexistent", {"train_loss": 0.5}
-        )
+        result = trainer.execute_evaluation_checks("/tmp/nonexistent", {"train_loss": 0.5})
         assert result is True  # Skip check when no eval_loss
 
     def test_no_validation_data(self):
         trainer = self._make_trainer(max_loss=2.0)
         trainer.dataset = {"train": []}  # No validation
-        result = trainer.execute_evaluation_checks(
-            "/tmp/nonexistent", {"eval_loss": 5.0}
-        )
+        result = trainer.execute_evaluation_checks("/tmp/nonexistent", {"eval_loss": 5.0})
         assert result is True  # Skip when no validation
 
     def test_auto_revert_disabled(self):
         trainer = self._make_trainer(auto_revert=False, max_loss=0.1)
-        result = trainer.execute_evaluation_checks(
-            "/tmp/nonexistent", {"eval_loss": 5.0}
-        )
+        result = trainer.execute_evaluation_checks("/tmp/nonexistent", {"eval_loss": 5.0})
         assert result is True  # auto_revert=False means always pass

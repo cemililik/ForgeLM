@@ -1,4 +1,5 @@
 """Unit tests for Phase 7: MoE, multimodal, merging, advanced PEFT."""
+
 import json
 import os
 
@@ -28,6 +29,7 @@ def _minimal_config(**overrides):
 
 # --- MoE Config ---
 
+
 class TestMoeConfig:
     def test_defaults(self):
         m = MoeConfig()
@@ -39,9 +41,7 @@ class TestMoeConfig:
         assert m.quantize_experts is True
 
     def test_in_model_config(self):
-        cfg = ForgeConfig(**_minimal_config(
-            model={"name_or_path": "org/moe-model", "moe": {"quantize_experts": True}}
-        ))
+        cfg = ForgeConfig(**_minimal_config(model={"name_or_path": "org/moe-model", "moe": {"quantize_experts": True}}))
         assert cfg.model.moe.quantize_experts is True
 
     def test_model_config_without_moe(self):
@@ -50,6 +50,7 @@ class TestMoeConfig:
 
 
 # --- Multimodal Config ---
+
 
 class TestMultimodalConfig:
     def test_defaults(self):
@@ -64,6 +65,7 @@ class TestMultimodalConfig:
 
 
 # --- Merge Config ---
+
 
 class TestMergeConfig:
     def test_defaults(self):
@@ -85,9 +87,9 @@ class TestMergeConfig:
         assert m.method == "slerp"
 
     def test_in_forge_config(self):
-        cfg = ForgeConfig(**_minimal_config(
-            merge={"enabled": True, "method": "linear", "models": [{"path": "a", "weight": 1.0}]}
-        ))
+        cfg = ForgeConfig(
+            **_minimal_config(merge={"enabled": True, "method": "linear", "models": [{"path": "a", "weight": 1.0}]})
+        )
         assert cfg.merge.enabled is True
         assert cfg.merge.method == "linear"
 
@@ -104,6 +106,7 @@ class TestMergeResult:
 
 
 # --- Advanced PEFT ---
+
 
 class TestAdvancedPeft:
     def test_default_method(self):
@@ -149,12 +152,15 @@ class TestAdvancedPeft:
 
 # --- YAML parsing ---
 
+
 class TestPhase7YamlParsing:
     def test_moe_yaml(self, tmp_path):
-        data = _minimal_config(model={
-            "name_or_path": "Qwen/Qwen3-30B-A3B",
-            "moe": {"quantize_experts": True, "experts_to_train": "0,1"},
-        })
+        data = _minimal_config(
+            model={
+                "name_or_path": "Qwen/Qwen3-30B-A3B",
+                "moe": {"quantize_experts": True, "experts_to_train": "0,1"},
+            }
+        )
         cfg_path = str(tmp_path / "config.yaml")
         with open(cfg_path, "w") as f:
             yaml.dump(data, f)
@@ -162,12 +168,14 @@ class TestPhase7YamlParsing:
         assert cfg.model.moe.quantize_experts is True
 
     def test_merge_yaml(self, tmp_path):
-        data = _minimal_config(merge={
-            "enabled": True,
-            "method": "dare",
-            "models": [{"path": "a", "weight": 0.6}, {"path": "b", "weight": 0.4}],
-            "output_dir": "/tmp/merged",
-        })
+        data = _minimal_config(
+            merge={
+                "enabled": True,
+                "method": "dare",
+                "models": [{"path": "a", "weight": 0.6}, {"path": "b", "weight": 0.4}],
+                "output_dir": "/tmp/merged",
+            }
+        )
         cfg_path = str(tmp_path / "config.yaml")
         with open(cfg_path, "w") as f:
             yaml.dump(data, f)
@@ -183,6 +191,7 @@ class TestPhase7YamlParsing:
 
 
 # --- Notebooks exist ---
+
 
 class TestNotebooks:
     def test_quickstart_notebook_exists(self):

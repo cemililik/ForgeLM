@@ -1,4 +1,5 @@
 """Unit tests for forgelm.cli module."""
+
 import json
 import os
 from unittest.mock import patch

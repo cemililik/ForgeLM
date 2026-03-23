@@ -15,6 +15,7 @@ _HF_TOKEN_PATHS = [
     os.path.expanduser("~/.huggingface/token"),
 ]
 
+
 def setup_authentication(token: str = None) -> None:
     """Configures Hugging Face authentication."""
     hf_token = token or os.getenv("HUGGINGFACE_TOKEN")
@@ -23,7 +24,7 @@ def setup_authentication(token: str = None) -> None:
         # Fallback to local token store if nothing provided
         for token_path in _HF_TOKEN_PATHS:
             try:
-                with open(token_path, 'r') as f:
+                with open(token_path, "r") as f:
                     hf_token = f.read().strip()
                 if hf_token:
                     break
@@ -36,6 +37,7 @@ def setup_authentication(token: str = None) -> None:
 
     logger.info("Authenticating with Hugging Face...")
     login(token=hf_token)
+
 
 def manage_checkpoints(checkpoint_dir: str, action: str = "keep") -> None:
     """Handles logic for deleting or compressing checkpoints post-training.

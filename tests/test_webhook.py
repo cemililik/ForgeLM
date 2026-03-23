@@ -1,4 +1,5 @@
 """Unit tests for forgelm.webhook module."""
+
 import json
 import os
 from unittest.mock import patch
@@ -82,15 +83,19 @@ class TestWebhookNotifier:
 
         mock_post.assert_called_once()
         call_kwargs = mock_post.call_args
-        assert call_kwargs.kwargs.get("url") == "https://env.example.com/hook" or \
-               call_kwargs[0][0] == "https://env.example.com/hook"
+        assert (
+            call_kwargs.kwargs.get("url") == "https://env.example.com/hook"
+            or call_kwargs[0][0] == "https://env.example.com/hook"
+        )
 
     @patch("forgelm.webhook.requests.post")
     def test_notify_on_start_disabled(self, mock_post):
-        config = _make_config({
-            "url": "https://example.com/hook",
-            "notify_on_start": False,
-        })
+        config = _make_config(
+            {
+                "url": "https://example.com/hook",
+                "notify_on_start": False,
+            }
+        )
         notifier = WebhookNotifier(config)
         notifier.notify_start(run_name="test")
         mock_post.assert_not_called()
@@ -98,6 +103,7 @@ class TestWebhookNotifier:
     @patch("forgelm.webhook.requests.post")
     def test_timeout_handled_gracefully(self, mock_post):
         import requests as req
+
         mock_post.side_effect = req.exceptions.Timeout("timed out")
         config = _make_config({"url": "https://example.com/hook"})
         notifier = WebhookNotifier(config)
@@ -107,6 +113,7 @@ class TestWebhookNotifier:
     @patch("forgelm.webhook.requests.post")
     def test_connection_error_handled_gracefully(self, mock_post):
         import requests as req
+
         mock_post.side_effect = req.exceptions.ConnectionError("refused")
         config = _make_config({"url": "https://example.com/hook"})
         notifier = WebhookNotifier(config)

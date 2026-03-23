@@ -1,4 +1,5 @@
 """Unit tests for Phase 6: safety, judge, compliance, and resource tracking."""
+
 import json
 import os
 
@@ -21,6 +22,7 @@ def _minimal_config(**overrides):
 
 
 # --- Config models ---
+
 
 class TestSafetyConfig:
     def test_defaults(self):
@@ -48,26 +50,38 @@ class TestJudgeConfig:
 
 class TestEvaluationWithSafetyJudge:
     def test_eval_config_with_safety(self):
-        cfg = ForgeConfig(**_minimal_config(evaluation={
-            "auto_revert": True,
-            "safety": {"enabled": True, "test_prompts": "prompts.jsonl"},
-        }))
+        cfg = ForgeConfig(
+            **_minimal_config(
+                evaluation={
+                    "auto_revert": True,
+                    "safety": {"enabled": True, "test_prompts": "prompts.jsonl"},
+                }
+            )
+        )
         assert cfg.evaluation.safety.enabled is True
 
     def test_eval_config_with_judge(self):
-        cfg = ForgeConfig(**_minimal_config(evaluation={
-            "llm_judge": {"enabled": True, "min_score": 7.0},
-        }))
+        cfg = ForgeConfig(
+            **_minimal_config(
+                evaluation={
+                    "llm_judge": {"enabled": True, "min_score": 7.0},
+                }
+            )
+        )
         assert cfg.evaluation.llm_judge.min_score == 7.0
 
     def test_eval_config_with_all(self):
-        cfg = ForgeConfig(**_minimal_config(evaluation={
-            "auto_revert": True,
-            "max_acceptable_loss": 2.0,
-            "benchmark": {"enabled": True, "tasks": ["arc_easy"]},
-            "safety": {"enabled": True},
-            "llm_judge": {"enabled": True},
-        }))
+        cfg = ForgeConfig(
+            **_minimal_config(
+                evaluation={
+                    "auto_revert": True,
+                    "max_acceptable_loss": 2.0,
+                    "benchmark": {"enabled": True, "tasks": ["arc_easy"]},
+                    "safety": {"enabled": True},
+                    "llm_judge": {"enabled": True},
+                }
+            )
+        )
         assert cfg.evaluation.benchmark.enabled
         assert cfg.evaluation.safety.enabled
         assert cfg.evaluation.llm_judge.enabled
@@ -75,14 +89,16 @@ class TestEvaluationWithSafetyJudge:
 
 # --- Result dataclasses ---
 
+
 class TestSafetyResult:
     def test_passed(self):
         r = SafetyResult(safe_ratio=0.95, total_count=100, unsafe_count=5, passed=True)
         assert r.passed is True
 
     def test_failed(self):
-        r = SafetyResult(safe_ratio=0.80, total_count=100, unsafe_count=20, passed=False,
-                         failure_reason="Too many unsafe")
+        r = SafetyResult(
+            safe_ratio=0.80, total_count=100, unsafe_count=20, passed=False, failure_reason="Too many unsafe"
+        )
         assert r.passed is False
 
 
@@ -108,6 +124,7 @@ class TestTrainResultPhase6:
 
 
 # --- Compliance ---
+
 
 class TestDatasetFingerprint:
     def test_local_file(self, tmp_path):
@@ -145,6 +162,7 @@ class TestTrainingManifest:
 class TestComplianceExport:
     def test_export_creates_files(self, tmp_path):
         from forgelm.compliance import export_compliance_artifacts
+
         cfg = ForgeConfig(**_minimal_config())
         manifest = generate_training_manifest(cfg, metrics={"eval_loss": 0.5})
         output_dir = str(tmp_path / "compliance")

@@ -7,8 +7,10 @@ import requests
 
 logger = logging.getLogger("forgelm.webhook")
 
+
 class WebhookNotifier:
     """Handles sending training status updates to configured webhook endpoints."""
+
     def __init__(self, config):
         self.config = config.webhook
 
@@ -49,8 +51,8 @@ class WebhookNotifier:
             requests.post(
                 url,
                 data=json.dumps(payload),
-                headers={'Content-Type': 'application/json'},
-                timeout=getattr(self.config, "timeout", 5)
+                headers={"Content-Type": "application/json"},
+                timeout=getattr(self.config, "timeout", 5),
             )
         except requests.exceptions.Timeout:
             logger.warning("Webhook request timed out for event '%s' (url=%s).", event, url)

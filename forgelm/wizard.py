@@ -3,6 +3,7 @@
 Generates a valid config.yaml through step-by-step prompts.
 No external dependencies required — uses stdlib input().
 """
+
 import logging
 import sys
 
@@ -69,6 +70,7 @@ def _detect_hardware() -> dict:
     info = {"gpu_available": False, "gpu_name": None, "vram_gb": None, "cuda_version": None}
     try:
         import torch
+
         if torch.cuda.is_available():
             info["gpu_available"] = True
             info["gpu_name"] = torch.cuda.get_device_name(0)

@@ -16,11 +16,13 @@ EXIT_CONFIG_ERROR = 1
 EXIT_TRAINING_ERROR = 2
 EXIT_EVAL_FAILURE = 3
 
+
 def _get_version() -> str:
     try:
         return pkg_version("forgelm")
     except PackageNotFoundError:
         return "0.1.0-dev"
+
 
 def _setup_logging(log_level: str, json_format: bool = False) -> None:
     """Configure structured logging for the entire forgelm package."""
@@ -36,27 +38,16 @@ def _setup_logging(log_level: str, json_format: bool = False) -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="ForgeLM: Language Model Fine-Tuning Toolkit")
+    parser.add_argument("--config", type=str, help="Path to the YAML configuration file.")
     parser.add_argument(
-        "--config",
-        type=str,
-        help="Path to the YAML configuration file."
+        "--wizard", action="store_true", help="Launch interactive configuration wizard to generate a config.yaml."
     )
+    parser.add_argument("--version", action="version", version=f"ForgeLM {_get_version()}")
     parser.add_argument(
-        "--wizard",
-        action="store_true",
-        help="Launch interactive configuration wizard to generate a config.yaml."
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"ForgeLM {_get_version()}"
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Validate configuration and check model/dataset access without training."
+        "--dry-run", action="store_true", help="Validate configuration and check model/dataset access without training."
     )
     parser.add_argument(
         "--resume",
@@ -64,40 +55,39 @@ def parse_args():
         nargs="?",
         const="auto",
         default=None,
-        help="Resume training from a checkpoint. Use --resume for auto-detection or --resume /path/to/checkpoint."
+        help="Resume training from a checkpoint. Use --resume for auto-detection or --resume /path/to/checkpoint.",
     )
     parser.add_argument(
         "--offline",
         action="store_true",
-        help="Air-gapped mode: disable all HF Hub network calls. Models and datasets must be available locally."
+        help="Air-gapped mode: disable all HF Hub network calls. Models and datasets must be available locally.",
     )
     parser.add_argument(
         "--benchmark-only",
         type=str,
         default=None,
         metavar="MODEL_PATH",
-        help="Run benchmark evaluation on an existing model without training. Requires evaluation.benchmark config."
+        help="Run benchmark evaluation on an existing model without training. Requires evaluation.benchmark config.",
     )
     parser.add_argument(
-        "--merge",
-        action="store_true",
-        help="Run model merging from the merge section of your config. No training."
+        "--merge", action="store_true", help="Run model merging from the merge section of your config. No training."
     )
     parser.add_argument(
         "--output-format",
         type=str,
         default="text",
         choices=["text", "json"],
-        help="Output format for results (default: text). JSON mode outputs machine-readable results to stdout."
+        help="Output format for results (default: text). JSON mode outputs machine-readable results to stdout.",
     )
     parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Set logging verbosity (default: INFO)."
+        help="Set logging verbosity (default: INFO).",
     )
     return parser.parse_args()
+
 
 def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
     """Validate config, model access, and dataset access without loading heavy dependencies."""
@@ -135,6 +125,7 @@ def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
         logger.warning("trust_remote_code is ENABLED — review model source before production use.")
 
     logger.info("=== DRY RUN COMPLETE — config is valid ===")
+
 
 def _run_benchmark_only(config: ForgeConfig, model_path: str, output_format: str) -> None:
     """Run benchmark evaluation on an existing model without training."""
@@ -201,6 +192,7 @@ def _run_merge(config: ForgeConfig, output_format: str) -> None:
         sys.exit(EXIT_CONFIG_ERROR)
 
     from .merging import merge_peft_adapters
+
     result = merge_peft_adapters(
         base_model_path=config.model.name_or_path,
         adapters=config.merge.models,
@@ -210,17 +202,26 @@ def _run_merge(config: ForgeConfig, output_format: str) -> None:
     )
 
     if output_format == "json":
-        print(json.dumps({
-            "success": result.success,
-            "method": result.method,
-            "num_models": result.num_models,
-            "output_dir": result.output_dir,
-            "error": result.error,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "success": result.success,
+                    "method": result.method,
+                    "num_models": result.num_models,
+                    "output_dir": result.output_dir,
+                    "error": result.error,
+                },
+                indent=2,
+            )
+        )
     else:
         if result.success:
-            logger.info("Model merge completed: %d models merged with '%s' → %s",
-                        result.num_models, result.method, result.output_dir)
+            logger.info(
+                "Model merge completed: %d models merged with '%s' → %s",
+                result.num_models,
+                result.method,
+                result.output_dir,
+            )
         else:
             logger.error("Model merge failed: %s", result.error)
 
@@ -253,6 +254,7 @@ def _resolve_resume_checkpoint(checkpoint_dir: str, resume_arg: str) -> str:
     latest = os.path.join(checkpoint_dir, checkpoint_dirs[-1])
     logger.info("Auto-detected checkpoint for resume: %s", latest)
     return latest
+
 
 def _output_result(result, output_format: str) -> None:
     """Output training result in the requested format."""
@@ -294,12 +296,14 @@ def _output_result(result, output_format: str) -> None:
                 logger.info("  %s: %.4f", task, score)
             logger.info("  Average: %.4f", result.benchmark_average)
 
+
 def main():
     args = parse_args()
 
     # --wizard mode: generate config interactively
     if args.wizard:
         from .wizard import run_wizard
+
         config_path = run_wizard()
         if config_path:
             # User chose to start training immediately — update args
@@ -384,9 +388,7 @@ def main():
         # 6. Resolve checkpoint resume
         resume_checkpoint = None
         if args.resume:
-            resume_checkpoint = _resolve_resume_checkpoint(
-                config.training.output_dir, args.resume
-            )
+            resume_checkpoint = _resolve_resume_checkpoint(config.training.output_dir, args.resume)
 
         # 7. Training
         trainer = ForgeTrainer(model=model, tokenizer=tokenizer, config=config, dataset=dataset)
@@ -412,6 +414,7 @@ def main():
         else:
             logger.exception("Training pipeline failed.")
         sys.exit(EXIT_TRAINING_ERROR)
+
 
 if __name__ == "__main__":
     main()

@@ -1,4 +1,5 @@
 """Unit tests for forgelm.benchmark module."""
+
 import json
 import os
 from unittest.mock import MagicMock, patch
@@ -141,6 +142,7 @@ class TestRunBenchmark:
                 mock_eval_module.simple_evaluate.return_value = mock_results
                 # Need to also patch the import check
                 import forgelm.benchmark as bm
+
                 original_check = bm._check_lm_eval_available
                 bm._check_lm_eval_available = lambda: None
 

@@ -3,6 +3,7 @@
 Merge multiple LoRA adapters or fine-tuned models using various strategies.
 Provides config-driven merging as a post-training step or standalone CLI command.
 """
+
 import logging
 import os
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ logger = logging.getLogger("forgelm.merging")
 @dataclass
 class MergeResult:
     """Result of a model merge operation."""
+
     success: bool
     output_dir: str = ""
     method: str = ""
@@ -127,6 +129,7 @@ def _advanced_merge(base_model, adapters, method):
     # Try mergekit first
     try:
         import mergekit  # noqa: F401
+
         logger.info("mergekit detected — using native %s merge.", method)
         return _mergekit_merge(base_model, adapters, method)
     except ImportError:
@@ -134,8 +137,7 @@ def _advanced_merge(base_model, adapters, method):
 
     # Fallback to linear merge with warning
     logger.warning(
-        "%s merge requires mergekit (pip install mergekit). "
-        "Falling back to linear interpolation.", method.upper()
+        "%s merge requires mergekit (pip install mergekit). Falling back to linear interpolation.", method.upper()
     )
     return _linear_merge(base_model, adapters)
 
@@ -173,10 +175,9 @@ def _slerp_merge(base_model, adapters):
                 merged_state[key] = ((1 - t) * v0 + t * v1).to(state_a[key].dtype)
             else:
                 so = torch.sin(omega)
-                merged_state[key] = (
-                    (torch.sin((1 - t) * omega) / so) * v0 +
-                    (torch.sin(t * omega) / so) * v1
-                ).to(state_a[key].dtype)
+                merged_state[key] = ((torch.sin((1 - t) * omega) / so) * v0 + (torch.sin(t * omega) / so) * v1).to(
+                    state_a[key].dtype
+                )
         else:
             merged_state[key] = state_a[key]
 

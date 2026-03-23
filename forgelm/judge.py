@@ -3,6 +3,7 @@
 Uses a strong LLM (API-based or local) to score fine-tuned model outputs
 on quality, helpfulness, and instruction-following.
 """
+
 import json
 import logging
 import os
@@ -28,6 +29,7 @@ Respond with ONLY a JSON object: {{"score": <1-10>, "reason": "<brief explanatio
 @dataclass
 class JudgeResult:
     """Result of an LLM-as-Judge evaluation."""
+
     average_score: float = 0.0
     scores: List[float] = field(default_factory=list)
     passed: bool = True
@@ -96,7 +98,7 @@ def _call_local_judge(prompt: str, model: Any, tokenizer: Any) -> Dict[str, Any]
         inputs = {k: v.to(model.device) for k, v in inputs.items()}
         with torch.no_grad():
             outputs = model.generate(**inputs, max_new_tokens=200, do_sample=False)
-        response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+        response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
         return _parse_judge_json(response)
     except Exception as e:
         logger.warning("Local judge evaluation failed: %s", e)
@@ -165,6 +167,7 @@ def run_judge_evaluation(
     if not is_api_judge:
         try:
             from transformers import AutoModelForCausalLM, AutoTokenizer
+
             logger.info("Loading local judge model: %s", judge_model)
             local_judge_tokenizer = AutoTokenizer.from_pretrained(judge_model)
             local_judge_model = AutoModelForCausalLM.from_pretrained(judge_model, device_map="auto")
@@ -179,7 +182,7 @@ def run_judge_evaluation(
             inputs = {k: v.to(model.device) for k, v in inputs.items()}
             with __import__("torch").no_grad():
                 outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
-            response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+            response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
         except Exception as e:
             logger.warning("Failed to generate response: %s", e)
             response = ""
@@ -193,12 +196,14 @@ def run_judge_evaluation(
 
         score = float(result.get("score", 0))
         scores.append(score)
-        details.append({
-            "prompt": prompt[:200],
-            "response": response[:200],
-            "score": score,
-            "reason": result.get("reason", ""),
-        })
+        details.append(
+            {
+                "prompt": prompt[:200],
+                "response": response[:200],
+                "score": score,
+                "reason": result.get("reason", ""),
+            }
+        )
 
     avg_score = sum(scores) / len(scores) if scores else 0.0
     logger.info("LLM-as-Judge average score: %.2f / 10.0", avg_score)
@@ -214,13 +219,17 @@ def run_judge_evaluation(
         os.makedirs(output_dir, exist_ok=True)
         results_path = os.path.join(output_dir, "judge_results.json")
         with open(results_path, "w") as f:
-            json.dump({
-                "average_score": avg_score,
-                "min_score": min_score,
-                "passed": passed,
-                "num_prompts": len(eval_prompts),
-                "details": details,
-            }, f, indent=2)
+            json.dump(
+                {
+                    "average_score": avg_score,
+                    "min_score": min_score,
+                    "passed": passed,
+                    "num_prompts": len(eval_prompts),
+                    "details": details,
+                },
+                f,
+                indent=2,
+            )
         logger.info("Judge results saved to %s", results_path)
 
     return JudgeResult(

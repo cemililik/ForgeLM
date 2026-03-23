@@ -1,4 +1,5 @@
 """Unit tests for forgelm.config module."""
+
 import os
 
 import pytest
@@ -15,6 +16,7 @@ from forgelm.config import (
 )
 
 # --- Helper ---
+
 
 def _write_yaml(data: dict, path: str) -> str:
     with open(path, "w") as f:
@@ -33,6 +35,7 @@ def _minimal_config() -> dict:
 
 
 # --- ModelConfig ---
+
 
 class TestModelConfig:
     def test_defaults(self):
@@ -54,6 +57,7 @@ class TestModelConfig:
 
 
 # --- LoraConfigModel ---
+
 
 class TestLoraConfig:
     def test_defaults(self):
@@ -77,6 +81,7 @@ class TestLoraConfig:
 
 # --- TrainingConfig ---
 
+
 class TestTrainingConfig:
     def test_defaults(self):
         t = TrainingConfig()
@@ -93,6 +98,7 @@ class TestTrainingConfig:
 
 # --- EvaluationConfig ---
 
+
 class TestEvaluationConfig:
     def test_defaults(self):
         e = EvaluationConfig()
@@ -107,6 +113,7 @@ class TestEvaluationConfig:
 
 
 # --- WebhookConfig ---
+
 
 class TestWebhookConfig:
     def test_defaults(self):
@@ -123,6 +130,7 @@ class TestWebhookConfig:
 
 
 # --- ForgeConfig (full config) ---
+
 
 class TestForgeConfig:
     def test_minimal_config(self):
@@ -157,6 +165,7 @@ class TestForgeConfig:
 
 # --- load_config ---
 
+
 class TestLoadConfig:
     def test_valid_file(self, tmp_path):
         cfg_path = str(tmp_path / "config.yaml")
@@ -171,6 +180,7 @@ class TestLoadConfig:
 
     def test_invalid_yaml_raises(self, tmp_path):
         from forgelm.config import ConfigError
+
         cfg_path = str(tmp_path / "bad.yaml")
         with open(cfg_path, "w") as f:
             f.write(": : invalid yaml [[[")
@@ -179,9 +189,7 @@ class TestLoadConfig:
 
     def test_config_template_parses(self):
         """Ensure the shipped config_template.yaml is always valid."""
-        template_path = os.path.join(
-            os.path.dirname(__file__), "..", "config_template.yaml"
-        )
+        template_path = os.path.join(os.path.dirname(__file__), "..", "config_template.yaml")
         if os.path.exists(template_path):
             cfg = load_config(template_path)
             assert cfg.model.name_or_path

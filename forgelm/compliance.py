@@ -3,6 +3,7 @@
 Generates machine-readable audit trails, training manifests, and
 compliance reports for regulated industries.
 """
+
 import hashlib
 import json
 import logging
@@ -93,8 +94,7 @@ def generate_training_manifest(
     extra_datasets = getattr(config.data, "extra_datasets", None)
     if extra_datasets:
         manifest["data_provenance"]["extra_datasets"] = [
-            {"path": p, "fingerprint": compute_dataset_fingerprint(p)}
-            for p in extra_datasets
+            {"path": p, "fingerprint": compute_dataset_fingerprint(p)} for p in extra_datasets
         ]
 
     # Add resource usage
@@ -189,6 +189,7 @@ def _describe_adapter_method(config: Any) -> str:
 def _get_version() -> str:
     try:
         from forgelm import __version__
+
         return __version__
     except ImportError:
         return "unknown"
