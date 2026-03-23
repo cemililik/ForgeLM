@@ -1,0 +1,90 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out the sections below to help us fix it faster.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear description of what the bug is.
+      placeholder: When I run `forgelm --config job.yaml`, the training crashes with...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal steps to reproduce the behavior.
+      value: |
+        1. Create config with: `...`
+        2. Run: `forgelm --config ...`
+        3. See error: `...`
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration (YAML)
+      description: Your ForgeLM config (remove any tokens/secrets).
+      render: yaml
+      placeholder: |
+        model:
+          name_or_path: "..."
+          backend: "transformers"
+        training:
+          trainer_type: "sft"
+          ...
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error Output
+      description: Full error message or traceback.
+      render: shell
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of ForgeLM is affected?
+      options:
+        - Training (SFT/DPO/SimPO/KTO/ORPO/GRPO)
+        - Data loading / preprocessing
+        - Model loading / LoRA setup
+        - Evaluation (benchmark / safety / judge)
+        - CLI (--dry-run, --wizard, --merge, etc.)
+        - Docker / deployment
+        - Configuration / validation
+        - Webhook notifications
+        - Distributed training (DeepSpeed/FSDP)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: System details.
+      value: |
+        - ForgeLM version: (run `forgelm --version`)
+        - Python version:
+        - OS:
+        - GPU:
+        - CUDA version:
+        - Backend: transformers / unsloth
+    validations:
+      required: true

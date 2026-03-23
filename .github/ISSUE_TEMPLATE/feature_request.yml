@@ -1,0 +1,66 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! Please describe what you'd like and why.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this solve? What are you trying to do that you can't?
+      placeholder: I'm trying to fine-tune a model with X but ForgeLM doesn't support...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How would you like this to work? Include example YAML config if applicable.
+      placeholder: |
+        Add a new config option:
+        ```yaml
+        training:
+          new_feature: true
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Other solutions you've considered or workarounds you're using.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - New trainer / alignment method
+        - New model architecture support
+        - Evaluation / benchmarking
+        - Safety / compliance
+        - CLI / UX improvement
+        - Performance / optimization
+        - Documentation
+        - Docker / deployment
+        - Integration (W&B, MLflow, etc.)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: willingness
+    attributes:
+      label: Would you be willing to contribute this?
+      options:
+        - "Yes, I'd like to submit a PR"
+        - "I can help with testing"
+        - "No, just suggesting"
+    validations:
+      required: true
