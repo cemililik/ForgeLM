@@ -69,6 +69,7 @@ webhook:
 - **`max_length`**: (Integer) Maximum context length for the tokenizer.
 - **`load_in_4bit`**: (Boolean) Enables QLoRA 4-bit (NF4) quantization to drastically reduce memory usage. Default is `true`.
 - **`backend`**: (String) Engine used for training. `'transformers'` is standard. Change to `'unsloth'` for 2x-5x faster training speeds (requires the unsloth library).
+- **`trust_remote_code`**: (Boolean) Allows execution of custom code from model repositories. Default is `false` for security. Only enable for models that explicitly require it (e.g., some custom architectures). **Warning:** Enabling this in production or air-gapped environments is a security risk.
 
 ### `lora`
 Defines Parameter-Efficient Fine-Tuning strategies.

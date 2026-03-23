@@ -5,9 +5,11 @@ Keep imports lightweight so `python -m forgelm.cli --help` and config parsing wo
 without requiring heavy ML dependencies (torch/transformers).
 """
 
-from .config import load_config, ForgeConfig
+from .config import load_config, ForgeConfig, ConfigError
 
-__all__ = ["load_config", "ForgeConfig", "prepare_dataset", "get_model_and_tokenizer", "ForgeTrainer", "setup_authentication", "manage_checkpoints"]
+__version__ = "0.1.0"
+
+__all__ = ["load_config", "ForgeConfig", "ConfigError", "prepare_dataset", "get_model_and_tokenizer", "ForgeTrainer", "setup_authentication", "manage_checkpoints"]
 
 
 def __getattr__(name: str):

@@ -1,13 +1,16 @@
 import requests
 import json
+import logging
 import os
 from typing import Optional, Dict
+
+logger = logging.getLogger("forgelm.webhook")
 
 class WebhookNotifier:
     """Handles sending training status updates to configured webhook endpoints."""
     def __init__(self, config):
         self.config = config.webhook
-        
+
     def _send(
         self,
         *,
@@ -40,7 +43,7 @@ class WebhookNotifier:
             # Slack-compatible formatting (receivers can ignore)
             "attachments": [{"title": title, "text": text, "color": color}],
         }
-        
+
         try:
             requests.post(
                 url,
@@ -48,8 +51,12 @@ class WebhookNotifier:
                 headers={'Content-Type': 'application/json'},
                 timeout=5
             )
-        except Exception as e:
-            print(f"Failed to send webhook notification: {e}")
+        except requests.exceptions.Timeout:
+            logger.warning("Webhook request timed out for event '%s' (url=%s).", event, url)
+        except requests.exceptions.ConnectionError:
+            logger.warning("Webhook connection failed for event '%s' (url=%s).", event, url)
+        except Exception:
+            logger.exception("Unexpected error sending webhook notification for event '%s'.", event)
 
     def notify_start(self, run_name: str) -> None:
         if self.config and self.config.notify_on_start:

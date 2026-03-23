@@ -1,13 +1,17 @@
 import yaml
+import logging
 import os
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Dict, Any
+
+logger = logging.getLogger("forgelm.config")
 
 class ModelConfig(BaseModel):
     name_or_path: str
     max_length: int = 2048
     load_in_4bit: bool = True
     backend: str = "transformers"  # Can also be "unsloth"
+    trust_remote_code: bool = False  # Security: disabled by default for enterprise safety
     # Optional advanced bitsandbytes knobs (Transformers backend)
     bnb_4bit_use_double_quant: bool = True
     bnb_4bit_quant_type: str = "nf4"  # typically "nf4"
@@ -67,14 +71,43 @@ class ForgeConfig(BaseModel):
     evaluation: Optional[EvaluationConfig] = None
     webhook: Optional[WebhookConfig] = None
 
+    @model_validator(mode="after")
+    def _validate_consistency(self):
+        # Warn about potential config issues
+        if self.evaluation and self.evaluation.auto_revert and self.training.merge_adapters:
+            logger.warning(
+                "auto_revert=True with merge_adapters=True: if evaluation fails, "
+                "the merged full model will be deleted. Consider using adapter-only saves."
+            )
+        if self.model.backend == "unsloth" and self.model.trust_remote_code:
+            logger.warning(
+                "trust_remote_code is ignored when using the Unsloth backend."
+            )
+        return self
+
+
+class ConfigError(Exception):
+    """Raised when configuration validation fails."""
+    pass
+
+
 def load_config(config_path: str) -> ForgeConfig:
     """Loads and validates a YAML configuration file."""
     if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Configuration file not found at {config_path}")
-        
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+
     with open(config_path, 'r') as f:
-        yaml_data = yaml.safe_load(f)
-        
-    # Pydantic handles validation and defaults automatically
-    config = ForgeConfig(**yaml_data)
+        try:
+            yaml_data = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ConfigError(f"Invalid YAML syntax in {config_path}: {e}") from e
+
+    if not isinstance(yaml_data, dict):
+        raise ConfigError(f"Configuration file must contain a YAML mapping, got {type(yaml_data).__name__}")
+
+    try:
+        config = ForgeConfig(**yaml_data)
+    except Exception as e:
+        raise ConfigError(f"Configuration validation failed: {e}") from e
+
     return config

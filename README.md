@@ -15,6 +15,8 @@ For detailed guides on how to use ForgeLM, please see our dedicated documentatio
 2. [Configuration Guide](docs/configuration.md) ([Türkçe](docs/configuration-tr.md))
 3. [Usage & Execution](docs/usage.md) ([Türkçe](docs/usage-tr.md))
 4. [Data Preparation Format](docs/data_preparation.md) ([Türkçe](docs/data_preparation-tr.md))
+5. [Product Strategy](docs/product_strategy.md) ([Türkçe](docs/product_strategy-tr.md))
+6. [Roadmap](docs/roadmap.md) ([Türkçe](docs/roadmap-tr.md))
 
 ## Installation
 

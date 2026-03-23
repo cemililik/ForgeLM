@@ -69,6 +69,7 @@ webhook:
 - **`max_length`**: (Tamsayı) Tokenizer için maksimum bağlam uzunluğu (context length).
 - **`load_in_4bit`**: (Boolean) Bellek kullanımını büyük ölçüde azaltmak için QLoRA 4-bit (NF4) kuantizasyonunu etkinleştirir. Standart değer `true`.
 - **`backend`**: (String) Eğitim için kullanılacak motor. Standart olan `'transformers'` ayarıdır. Eğitim hızını 2 ile 5 kat arası artırmak için `'unsloth'` olarak değiştirilebilir (unsloth kütüphanesini sisteminize kurmayı gerektirir).
+- **`trust_remote_code`**: (Boolean) Model depolarından özel kodun çalıştırılmasına izin verir. Güvenlik nedeniyle varsayılan değer `false`'dur. Yalnızca bunu açıkça gerektiren modeller için etkinleştirin (örn., bazı özel mimariler). **Uyarı:** Bunu üretim veya izole (air-gapped) ortamlarda etkinleştirmek güvenlik riskidir.
 
 ### `lora`
 Parametre-Verimli İnce Ayar (Parameter-Efficient Fine-Tuning - PEFT) stratejilerini tanımlar.

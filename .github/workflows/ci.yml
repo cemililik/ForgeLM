@@ -25,15 +25,34 @@ jobs:
 
       - name: Smoke checks
         run: |
-          python -m forgelm.cli --help
+          forgelm --version
+          forgelm --config config_template.yaml --dry-run
           python -c "from forgelm.config import load_config; load_config('config_template.yaml'); print('config ok')"
 
       - name: Ruff
         run: |
           ruff --version
-          # Keep CI strict but low-noise: catch syntax/undefined-name class issues.
+          # Catch syntax errors, undefined names, and unused imports.
           ruff check . --select F,E9
 
-      - name: Pytest
+      - name: Pytest with coverage
         run: |
-          pytest -q
+          pytest -q --tb=short --cov=forgelm --cov-report=term-missing --cov-report=xml:coverage.xml
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+      - name: Config template validation
+        run: |
+          python -c "
+          from forgelm.config import load_config
+          cfg = load_config('config_template.yaml')
+          assert cfg.model.name_or_path, 'model.name_or_path is empty'
+          assert cfg.model.trust_remote_code is False, 'trust_remote_code should default to False'
+          assert cfg.data.dataset_name_or_path, 'data.dataset_name_or_path is empty'
+          print('Config template validation passed.')
+          "

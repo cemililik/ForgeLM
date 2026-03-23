@@ -1,7 +1,10 @@
+import logging
 import torch
 from typing import Tuple, Any
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+
+logger = logging.getLogger("forgelm.model")
 
 def _resolve_bnb_compute_dtype(dtype_str: str):
     if not dtype_str or dtype_str == "auto":
@@ -17,7 +20,14 @@ def _resolve_bnb_compute_dtype(dtype_str: str):
 
 def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
     """Loads the base model, tokenizer, and configures LoRA."""
-    print(f"Loading Base Model: {config.model.name_or_path} with backend: {config.model.backend}")
+    logger.info("Loading Base Model: %s with backend: %s", config.model.name_or_path, config.model.backend)
+
+    trust_remote_code = getattr(config.model, "trust_remote_code", False)
+    if trust_remote_code:
+        logger.warning(
+            "trust_remote_code is ENABLED. This allows execution of arbitrary code "
+            "from the model repository. Only use this with models you trust."
+        )
 
     # --- UNSLOTH BACKEND ---
     if config.model.backend.lower() == "unsloth":
@@ -25,15 +35,15 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
             from unsloth import FastLanguageModel
         except ImportError:
             raise ImportError("Unsloth backend selected but 'unsloth' is not installed. Please install it.")
-            
+
         model, tokenizer = FastLanguageModel.from_pretrained(
             model_name=config.model.name_or_path,
             max_seq_length=config.model.max_length,
             dtype=None, # Auto detection
             load_in_4bit=config.model.load_in_4bit,
         )
-        
-        print(f"Setting up Unsloth LoRA configuration (DoRA={config.lora.use_dora})...")
+
+        logger.info("Setting up Unsloth LoRA configuration (DoRA=%s)...", config.lora.use_dora)
         model = FastLanguageModel.get_peft_model(
             model,
             r=config.lora.r,
@@ -45,21 +55,22 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
             use_rslora=False,
             use_dora=config.lora.use_dora,
         )
-        
+
         return model, tokenizer
 
     # --- TRANSFORMERS BACKEND ---
-    tokenizer = AutoTokenizer.from_pretrained(config.model.name_or_path, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(config.model.name_or_path, trust_remote_code=trust_remote_code)
     if tokenizer.pad_token is None:
+        logger.info("Tokenizer has no pad_token, using eos_token as pad_token.")
         tokenizer.pad_token = tokenizer.eos_token
 
     model_kwargs = {
         "device_map": "auto",
-        "trust_remote_code": True,
+        "trust_remote_code": trust_remote_code,
     }
-    
+
     if torch.cuda.is_available() and config.model.load_in_4bit:
-        print("Using 4-bit QLoRA quantization...")
+        logger.info("Using 4-bit QLoRA quantization...")
         compute_dtype = _resolve_bnb_compute_dtype(getattr(config.model, "bnb_4bit_compute_dtype", "auto"))
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -73,13 +84,13 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
         config.model.name_or_path,
         **model_kwargs
     )
-    
+
     if torch.cuda.is_available() and config.model.load_in_4bit:
         if hasattr(model, "enable_input_require_grads"):
             model.enable_input_require_grads()
         model = prepare_model_for_kbit_training(model)
-        
-    print(f"Setting up Transformers LoRA configuration (DoRA={config.lora.use_dora})...")
+
+    logger.info("Setting up Transformers LoRA configuration (DoRA=%s)...", config.lora.use_dora)
     lora_config = LoraConfig(
         r=config.lora.r,
         lora_alpha=config.lora.alpha,
@@ -89,8 +100,8 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
         target_modules=config.lora.target_modules,
         use_dora=config.lora.use_dora
     )
-    
+
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
-    
+
     return model, tokenizer

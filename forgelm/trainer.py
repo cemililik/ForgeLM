@@ -1,3 +1,4 @@
+import logging
 import torch
 import os
 import shutil
@@ -5,6 +6,8 @@ from trl import SFTTrainer, SFTConfig
 from transformers import TrainingArguments, DefaultDataCollator, EarlyStoppingCallback
 from typing import Any, Dict
 from .webhook import WebhookNotifier
+
+logger = logging.getLogger("forgelm.trainer")
 
 class ForgeTrainer:
     """Orchestrates the training process for ForgeLM using TRL SFTTrainer."""
@@ -16,9 +19,9 @@ class ForgeTrainer:
         self.checkpoint_dir = self.config.training.output_dir
         self.notifier = WebhookNotifier(config)
         self.run_name = config.model.name_or_path.split("/")[-1] + "_finetune"
-        
+
         os.makedirs(self.checkpoint_dir, exist_ok=True)
-        
+
     def _get_training_args(self) -> SFTConfig:
         return SFTConfig(
             output_dir=self.checkpoint_dir,
@@ -47,12 +50,12 @@ class ForgeTrainer:
             packing=bool(getattr(self.config.training, "packing", False)),
             dataset_text_field="text" # SFTConfig needs this
         )
-        
+
     def execute_evaluation_checks(self, final_path: str, metrics: Dict[str, float]) -> bool:
         """Evaluates final loss against constraints. Returns True if acceptable, False if reverted."""
         if not self.config.evaluation or not self.config.evaluation.auto_revert:
             return True
-            
+
         final_loss = metrics.get('eval_loss', float('inf'))
         baseline_loss = self.config.evaluation.baseline_loss
         max_loss = self.config.evaluation.max_acceptable_loss
@@ -68,26 +71,26 @@ class ForgeTrainer:
 
         if failed_reasons:
             reason = " ".join(failed_reasons)
-            print(f"❌ EVALUATION FAILED: {reason}")
-            print("Auto-revert enabled. Deleting generated adapters...")
+            logger.error("EVALUATION FAILED: %s", reason)
+            logger.warning("Auto-revert enabled. Deleting generated adapters at %s...", final_path)
             if os.path.exists(final_path):
                 shutil.rmtree(final_path)
-            
+
             self.notifier.notify_failure(
-                run_name=self.run_name, 
+                run_name=self.run_name,
                 reason=f"{reason} Adapters discarded."
             )
             return False
         return True
-        
+
     def train(self) -> bool:
         """Starts the main training loop. Returns True if successful and valid."""
-        print("Initializing TRL SFTTrainer...")
+        logger.info("Initializing TRL SFTTrainer...")
         self.notifier.notify_start(run_name=self.run_name)
-        
+
         training_args = self._get_training_args()
         callbacks = [EarlyStoppingCallback(early_stopping_patience=3)]
-        
+
         self.trainer = SFTTrainer(
             model=self.model,
             processing_class=self.tokenizer,
@@ -96,7 +99,7 @@ class ForgeTrainer:
             eval_dataset=self.dataset.get("validation", None),
             callbacks=callbacks
         )
-        
+
         try:
             metrics: Dict[str, float] = {}
 
@@ -104,7 +107,7 @@ class ForgeTrainer:
             # This enables Phase 2 "never overwrite a better model" behavior.
             if self.dataset.get("validation") and self.config.evaluation and self.config.evaluation.auto_revert:
                 if self.config.evaluation.baseline_loss is None:
-                    print("Measuring baseline eval_loss (pre-training)...")
+                    logger.info("Measuring baseline eval_loss (pre-training)...")
                     model_obj = self.trainer.model
                     baseline_metrics = None
                     # PEFT models often support disabling adapters for true base-model eval.
@@ -112,7 +115,11 @@ class ForgeTrainer:
                         try:
                             with model_obj.disable_adapter():
                                 baseline_metrics = self.trainer.evaluate()
-                        except Exception:
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to disable adapters for baseline eval, "
+                                "evaluating with adapters instead: %s", e
+                            )
                             baseline_metrics = self.trainer.evaluate()
                     else:
                         baseline_metrics = self.trainer.evaluate()
@@ -121,20 +128,20 @@ class ForgeTrainer:
                         self.config.evaluation.baseline_loss = float(baseline_loss)
                         metrics["baseline_eval_loss"] = float(baseline_loss)
 
-            print("Starting training...")
+            logger.info("Starting training...")
             train_result = self.trainer.train()
-            
+
             metrics.update(train_result.metrics)
             if self.dataset.get("validation"):
                 eval_metrics = self.trainer.evaluate()
                 metrics.update(eval_metrics)
-            
+
             final_path = os.path.join(
                 self.checkpoint_dir,
                 getattr(self.config.training, "final_model_dir", "final_model"),
             )
             self.save_final_model(final_path)
-            
+
             # Autonomous Evaluation Check
             is_valid = self.execute_evaluation_checks(final_path, metrics)
             if is_valid:
@@ -142,11 +149,12 @@ class ForgeTrainer:
                 return True
             else:
                 return False
-                
+
         except Exception as e:
+            logger.exception("Training pipeline failed.")
             self.notifier.notify_failure(run_name=self.run_name, reason=str(e))
-            raise e
-        
+            raise
+
     def save_final_model(self, final_path: str) -> None:
         """Saves final artifacts (adapter-only by default)."""
         os.makedirs(final_path, exist_ok=True)
@@ -154,22 +162,26 @@ class ForgeTrainer:
 
         # Prefer adapter-only save for PEFT models. This keeps artifacts small and makes revert safe.
         if not merge_adapters:
-            print(f"Saving final adapters to {final_path}...")
+            logger.info("Saving final adapters to %s...", final_path)
             try:
                 self.trainer.model.save_pretrained(final_path)
-            except Exception:
-                # Fallback to trainer save_model behavior if model wrapper differs.
+            except Exception as e:
+                logger.warning(
+                    "Direct model save failed, falling back to trainer.save_model: %s", e
+                )
                 self.trainer.save_model(final_path)
             self.tokenizer.save_pretrained(final_path)
             return
 
         # Optional: merge adapters into base weights and save a full model.
-        print(f"Merging adapters and saving full model to {final_path}...")
+        logger.info("Merging adapters and saving full model to %s...", final_path)
         model_to_save = self.trainer.model
         try:
             merged = model_to_save.merge_and_unload()
             merged.save_pretrained(final_path, safe_serialization=True)
-        except Exception:
-            # If merge isn't supported, save best-effort model state.
+        except Exception as e:
+            logger.warning(
+                "Adapter merge failed, saving model state as-is: %s", e
+            )
             self.trainer.save_model(final_path)
         self.tokenizer.save_pretrained(final_path)
