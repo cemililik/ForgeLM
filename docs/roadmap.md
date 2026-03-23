@@ -22,6 +22,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Phase 5.5: Technical Debt Resolution | **Complete** | 7/7 |
 | Phase 6: Enterprise Trust & Compliance | **Complete** | 5/5 |
 | Phase 7: Next-Gen Model Support | **Complete** | 5/5 |
+| Phase 8: EU AI Act Deep Compliance | **Planned** | 0/10 |
 
 ---
 
@@ -205,13 +206,205 @@ training:
 
 ---
 
+## Phase 8: EU AI Act Deep Compliance
+**Goal:** Transform ForgeLM from "generates some compliance artifacts" to "the most EU AI Act-ready fine-tuning tool in the ecosystem." Cover Articles 9-17 and Annex IV systematically. No competitor addresses this — this is ForgeLM's strongest differentiator.
+**Estimated Effort:** High (ongoing until August 2026 deadline and beyond)
+**Priority:** Critical — enforcement deadline August 2, 2026
+
+> **Legal context:** Under the EU AI Act (Regulation 2024/1689), fine-tuning a GPAI model where training compute exceeds 1/3 of the original model's FLOPs makes you the **new GPAI provider**. Even below that, deploying in a high-risk use case (Annex III) triggers Articles 9-17 obligations. ForgeLM should make compliance achievable, not just possible.
+
+### Current Coverage Assessment
+
+```mermaid
+graph LR
+    subgraph Covered["Partially Covered ✅"]
+        A11["Art. 11: Technical Docs<br/>compliance_report.json<br/>model card"]
+        A15["Art. 15: Accuracy/Safety<br/>benchmarks, safety eval<br/>auto-revert"]
+        A10p["Art. 10: Data (partial)<br/>SHA-256 fingerprint<br/>clean_text, shuffle"]
+    end
+
+    subgraph Gaps["Major Gaps ❌"]
+        A9["Art. 9: Risk Management<br/>no risk assessment framework"]
+        A10g["Art. 10: Data Governance<br/>no quality/bias metrics"]
+        A12["Art. 12: Record-Keeping<br/>no structured audit log"]
+        A13["Art. 13: Transparency<br/>no deployer instructions"]
+        A14["Art. 14: Human Oversight<br/>no approval gate"]
+        A17["Art. 17: QMS<br/>no organizational framework"]
+    end
+
+    style Covered fill:#22c55e10,stroke:#22c55e
+    style Gaps fill:#ef444410,stroke:#ef4444
+```
+
+### Tasks (ordered by impact × implementability):
+
+#### Tier 1: High Impact, Implementable Now (Pre-August 2026)
+
+1. [ ] **Annex IV Technical Documentation Package (Art. 11)**
+   Extend `compliance.py` to generate a complete Annex IV-compliant document. Add config fields for metadata that the code cannot infer:
+   ```yaml
+   compliance:
+     provider_name: "Acme Corp"
+     provider_contact: "ai-team@acme.com"
+     system_name: "Customer Support Assistant v2"
+     intended_purpose: "Automated customer support for insurance claims"
+     known_limitations: "Not suitable for medical or legal advice"
+     system_version: "2.1.0"
+     risk_classification: "high-risk"  # "high-risk", "limited-risk", "minimal-risk"
+   ```
+   Auto-generate: `annex_iv_technical_documentation.md` combining this metadata + training params + data provenance + evaluation results + safety scores. This is the single most impactful compliance artifact.
+
+2. [ ] **Structured Audit Event Log (Art. 12)**
+   Replace scattered Python logging with a machine-readable JSON event log. Every decision point in the pipeline emits a structured event:
+   ```json
+   {"timestamp": "2026-03-24T10:30:00Z", "run_id": "fg-abc123", "event": "training.started", "operator": "user@acme.com", "config_hash": "sha256:..."}
+   {"timestamp": "2026-03-24T11:45:00Z", "run_id": "fg-abc123", "event": "evaluation.safety.failed", "safe_ratio": 0.82, "threshold": 0.95, "action": "auto_revert"}
+   {"timestamp": "2026-03-24T11:45:01Z", "run_id": "fg-abc123", "event": "model.reverted", "reason": "safety_regression", "artifacts_deleted": true}
+   ```
+   Append-only `audit_log.jsonl` in output directory. Each run gets a unique `run_id` (UUID). Optionally record `operator` from env var or config.
+
+3. [ ] **Risk Assessment Declaration (Art. 9)**
+   Add an optional `risk_assessment` config section that documents foreseeable risks **before** training begins. This is not automated analysis — it's a structured form that organizations fill in:
+   ```yaml
+   risk_assessment:
+     intended_use: "Customer support chatbot for insurance industry"
+     foreseeable_misuse:
+       - "Users may ask for medical/legal advice"
+       - "Model may generate incorrect policy details"
+     risk_category: "high-risk"  # triggers additional compliance requirements
+     mitigation_measures:
+       - "Safety classifier blocks harmful outputs"
+       - "Human review required for policy-related responses"
+     vulnerable_groups_considered: true
+   ```
+   Output as `risk_assessment.json` in compliance artifacts. When `risk_category: "high-risk"`, enforce that safety evaluation and benchmark are enabled (fail config validation if not).
+
+4. [ ] **Human Approval Gate (Art. 14)**
+   Add `require_human_approval: true` to evaluation config. When enabled, after all automated checks pass, the pipeline:
+   - Saves model to a staging directory (not final)
+   - Outputs evaluation summary to stdout/JSON
+   - Exits with code `4` (new: "awaiting approval")
+   - A second command `forgelm --approve <run_id>` moves the model to final directory
+   ```yaml
+   evaluation:
+     require_human_approval: true
+   ```
+   This creates a documented human-in-the-loop decision point for audit trails.
+
+5. [ ] **Data Quality & Governance Report (Art. 10)**
+   After dataset loading, generate a data governance report with:
+   - Sample count per split (train/validation/test)
+   - Column schema and types
+   - Text length distribution (min, max, mean, p50, p95)
+   - Language detection (top languages)
+   - Duplicate detection rate
+   - Null/empty field rate
+   - Data source and collection method (from config)
+   Output as `data_governance_report.json` in compliance artifacts.
+   ```yaml
+   data:
+     governance:
+       collection_method: "Manual curation by domain experts"
+       annotation_process: "Two annotators per sample, adjudication by senior"
+       known_biases: "Dataset skewed toward English-speaking customers"
+   ```
+
+#### Tier 2: Important, Moderate Effort
+
+6. [ ] **Model Integrity Verification (Art. 15)**
+   After saving the final model, compute SHA-256 checksums of all output artifacts (adapter weights, tokenizer, config). Save as `model_integrity.json`:
+   ```json
+   {
+     "artifacts": [
+       {"file": "adapter_model.safetensors", "sha256": "abc123...", "size_bytes": 52428800},
+       {"file": "tokenizer.json", "sha256": "def456...", "size_bytes": 1024}
+     ],
+     "signed_at": "2026-03-24T12:00:00Z"
+   }
+   ```
+   Enables tamper detection: deployers can verify model hasn't been modified after training.
+
+7. [ ] **Deployer Instructions Document (Art. 13)**
+   Auto-generate `deployer_instructions.md` alongside model card, targeted at non-ML personnel who deploy the model:
+   - What the model does and doesn't do (from `intended_purpose` + `known_limitations`)
+   - Required hardware/software for inference
+   - Human oversight requirements
+   - Known failure modes and when not to trust the output
+   - How to report incidents
+   - Performance metrics and accuracy declarations
+
+8. [ ] **Evidence Bundle Export (Art. 11 + 17)**
+   New CLI command to package all compliance artifacts into a single auditor-ready archive:
+   ```bash
+   forgelm --config job.yaml --export-bundle ./audit_bundle.zip
+   ```
+   Includes: annex_iv_technical_documentation.md, compliance_report.json, data_provenance.json, data_governance_report.json, risk_assessment.json, model_integrity.json, deployer_instructions.md, audit_log.jsonl, model_card.md, safety_results.json, benchmark_results.json.
+
+#### Tier 3: Organizational / Long-term
+
+9. [ ] **QMS Template Library (Art. 17)**
+   Create `docs/qms/` with Standard Operating Procedure (SOP) templates:
+   - `sop_model_training.md` — training approval workflow
+   - `sop_data_management.md` — data collection, annotation, quality assurance
+   - `sop_incident_response.md` — handling model failures in production
+   - `sop_change_management.md` — versioning, review, rollback procedures
+   - `roles_responsibilities.md` — AI Officer, Data Steward, ML Engineer roles
+   These are organizational documents, not code — but ForgeLM providing templates makes adoption dramatically easier.
+
+10. [ ] **Post-Market Monitoring Hooks (Art. 12 + 17)**
+    Add config for runtime monitoring integration. After deployment, the fine-tuned model's behavior should feed back into the compliance system:
+    ```yaml
+    monitoring:
+      enabled: true
+      endpoint: "https://monitoring.acme.com/api/incidents"
+      metrics_export: "prometheus"  # or "datadog", "custom_webhook"
+      alert_on_drift: true
+    ```
+    This is a config scaffold + webhook hook — actual monitoring is deployed separately. ForgeLM generates the integration config and documents it in the compliance artifacts.
+
+### Requirements:
+- Tier 1 tasks (#1-5) should be completed before August 2, 2026
+- All compliance features must be optional — non-EU users shouldn't be burdened
+- Every artifact must be exportable via `--compliance-export` without GPU
+- Config fields for organizational metadata (provider, purpose, risks) should have sensible validation but not block training if omitted
+- QMS templates (task #9) are documentation only — no code changes needed
+
+### EU AI Act Timeline Alignment:
+
+```mermaid
+timeline
+    title ForgeLM EU AI Act Compliance Timeline
+    section NOW → May 2026
+        Phase 8 Tier 1 : Annex IV docs
+                       : Audit event log
+                       : Risk assessment
+                       : Human approval gate
+                       : Data governance
+    section June → July 2026
+        Phase 8 Tier 2 : Model integrity
+                       : Deployer instructions
+                       : Evidence bundle
+                       : Marketing push
+    section August 2, 2026
+        EU AI Act Enforcement : High-risk obligations active
+                              : ForgeLM positioned as
+                              : "compliance-ready fine-tuning"
+    section Post-Enforcement
+        Phase 8 Tier 3 : QMS templates
+                       : Post-market monitoring
+                       : Case studies
+                       : Enterprise adoption
+```
+
+---
+
 ## Risk Matrix
 
 ### High Severity
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|------------|------------|
 | **Dependency Breaking Changes** (TRL, PEFT, Unsloth) | Training pipeline breaks without warning | High | Version pinning with upper bounds, CI nightly builds against latest deps, compatibility matrix |
-| **EU AI Act Non-Compliance** (August 2026 deadline) | Enterprise customers cannot adopt ForgeLM for high-risk AI | Medium | Phase 6 compliance export prioritized before deadline |
+| **EU AI Act Non-Compliance** (August 2026 deadline) | Enterprise customers cannot adopt ForgeLM for high-risk AI | High | Phase 8 deep compliance: Annex IV docs, audit log, risk assessment, human gate, data governance |
 | **Safety Degradation from Fine-Tuning** | Fine-tuned models lose alignment, enterprise liability | High | Phase 6 safety evaluation pipeline, auto-revert on safety regression |
 | **Alignment Method Lock-In** | ForgeLM supports only ORPO while market demands DPO/GRPO | High | Phase 5 is top priority — critical market expectation |
 
@@ -276,3 +469,4 @@ training:
 | 2026-03-23 | Phase 6 (Safety & Compliance) chosen as primary differentiator | No competitor integrates safety evaluation or EU AI Act compliance. August 2026 deadline creates urgency |
 | 2026-03-23 | Phase 7 (MoE/VLM/Merging) scoped as ongoing | Model landscape shifting to MoE and multimodal; must support but not at expense of Phase 5-6 |
 | 2026-03-23 | Leverage TRL trainers for alignment methods | TRL already implements DPO, KTO, GRPO — ForgeLM wraps with config, evaluation, and pipeline integration rather than reimplementing |
+| 2026-03-24 | Phase 8 (EU AI Act Deep Compliance) added with 10 tasks | Gap analysis against Articles 9-17 + Annex IV revealed 6 major gaps. Tier 1 (5 tasks) must complete before August 2, 2026 enforcement. This is ForgeLM's strongest differentiator — no competitor addresses EU AI Act systematically |

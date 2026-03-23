@@ -18,9 +18,11 @@ Bu yol haritası, [2026 İyileştirme Önerisi](2026_upgrade_proposal-tr.md), ka
 | Faz 2.5: Güvenilirlik ve Olgunluk | **Tamamlandı** | 8/8 |
 | Faz 3: Kurumsal Entegrasyon | **Tamamlandı** | 6/6 |
 | Faz 4: Ekosistem Büyümesi | **Tamamlandı** | 5/5 |
-| Faz 5: Hizalama ve Post-Training Stack | **Planlandı** | 0/5 |
-| Faz 6: Kurumsal Güven ve Uyumluluk | **Planlandı** | 0/5 |
-| Faz 7: Yeni Nesil Model Desteği | **Planlandı** | 0/5 |
+| Faz 5: Hizalama ve Post-Training Stack | **Tamamlandı** | 5/5 |
+| Faz 5.5: Teknik Borç Çözümü | **Tamamlandı** | 7/7 |
+| Faz 6: Kurumsal Güven ve Uyumluluk | **Tamamlandı** | 5/5 |
+| Faz 7: Yeni Nesil Model Desteği | **Tamamlandı** | 5/5 |
+| Faz 8: EU AI Act Derin Uyumluluk | **Planlandı** | 0/10 |
 
 ---
 
