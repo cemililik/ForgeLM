@@ -213,6 +213,7 @@ case $EXIT_CODE in
   1) echo "Config error — fix your YAML" ;;
   2) echo "Training crashed — check GPU/memory" ;;
   3) echo "Evaluation failed — model quality below threshold" ;;
+  4) echo "Awaiting human approval — review results before deploying" ;;
 esac
 ```
 

@@ -1,127 +1,163 @@
 # Konfigürasyon Rehberi
 
-ForgeLM tüm yapılandırma için YAML dosyalarını kullanır. Bu sayede, etkileşimli kabuk istemleri (shell prompts) gerektirmeden, deterministik, ve tekrarlanabilir eğitim çalıştırmaları yapılmasına olanak tanınır.
+ForgeLM tüm yapılandırma için YAML dosyalarını kullanır — bildirimsel, sürüm kontrollü ve CI/CD-uyumlu.
 
-## Örnek Temel Konfigürasyon (`config_template.yaml`)
+Tam açıklamalı örnek için `config_template.yaml` dosyasına bakın.
 
-```yaml
-model:
-  name_or_path: "meta-llama/Llama-2-7b-hf"
-  max_length: 2048
-  load_in_4bit: true
-  backend: "transformers" # 2-5x hız için "unsloth" seçilebilir
-  # Opsiyonel bitsandbytes gelişmiş ayarları (Transformers backend + 4bit):
-  # bnb_4bit_use_double_quant: true
-  # bnb_4bit_quant_type: "nf4"
-  # bnb_4bit_compute_dtype: "auto"   # auto|bfloat16|float16|float32
+---
 
-lora:
-  r: 8
-  alpha: 16
-  dropout: 0.1
-  bias: "none"
-  use_dora: false
-  target_modules: 
-    - "q_proj"
-    - "v_proj"
-  task_type: "CAUSAL_LM"
+## `model`
 
-training:
-  output_dir: "./checkpoints"
-  final_model_dir: "final_model"
-  merge_adapters: false
-  num_train_epochs: 3
-  per_device_train_batch_size: 4
-  gradient_accumulation_steps: 2
-  learning_rate: 2.0e-5
-  warmup_ratio: 0.1
-  weight_decay: 0.01
-  eval_steps: 200
-  save_steps: 200
-  save_total_limit: 3
-  packing: false
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `name_or_path` | string | *zorunlu* | HuggingFace model ID veya yerel yol |
+| `max_length` | int | `2048` | Maksimum bağlam uzunluğu |
+| `load_in_4bit` | bool | `true` | QLoRA 4-bit NF4 kuantizasyon |
+| `backend` | string | `"transformers"` | `"transformers"` veya `"unsloth"` (2-5x hızlı, Linux) |
+| `trust_remote_code` | bool | `false` | Model depolarından özel kod çalıştırma. **Güvenlik riski** |
+| `offline` | bool | `false` | İzole mod: HF Hub çağrısı yok |
 
-data:
-  dataset_name_or_path: "sahip_huggingface_dataset_org/dataset_adi"
-  shuffle: true
-  clean_text: true
-  add_eos: true
+#### `model.moe` (İsteğe bağlı — MoE modeller)
 
-auth:
-  hf_token: "hf_SENIN_GIZLI_TOKENIN"
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `quantize_experts` | bool | `false` | İnaktif expert ağırlıklarını int8'e kuantize et |
+| `experts_to_train` | string | `"all"` | `"all"` veya virgülle ayrılmış indeksler |
 
-evaluation:
-  auto_revert: false
-  max_acceptable_loss: 2.5
-  baseline_loss: null # Boş bırakılırsa otomatik hesaplanır
+---
 
-webhook:
-  url: "https://webhook-adresiniz.com/api/notify"
-  notify_on_start: true
-  notify_on_success: true
-  notify_on_failure: true
-```
+## `lora`
 
-## Şema Detayları
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `r` | int | `8` | LoRA rank |
+| `alpha` | int | `16` | LoRA ölçekleme faktörü |
+| `method` | string | `"lora"` | PEFT yöntemi: `"lora"`, `"dora"`, `"pissa"`, `"rslora"` |
+| `use_dora` | bool | `false` | DoRA (Ağırlık-Ayrıştırılmış LoRA) |
+| `use_rslora` | bool | `false` | Rank-stabilize LoRA (r>64 için önerilir) |
+| `target_modules` | list | `["q_proj", "v_proj"]` | LoRA uygulanacak modüller |
 
-### `model`
-- **`name_or_path`**: (Zorunlu) Hugging Face repo ID'si (örn. `mistralai/Mistral-7B-v0.1`) veya temel modele doğrudan işaret eden bir yerel dizin yolu.
-- **`max_length`**: (Tamsayı) Tokenizer için maksimum bağlam uzunluğu (context length).
-- **`load_in_4bit`**: (Boolean) Bellek kullanımını büyük ölçüde azaltmak için QLoRA 4-bit (NF4) kuantizasyonunu etkinleştirir. Standart değer `true`.
-- **`backend`**: (String) Eğitim için kullanılacak motor. Standart olan `'transformers'` ayarıdır. Eğitim hızını 2 ile 5 kat arası artırmak için `'unsloth'` olarak değiştirilebilir (unsloth kütüphanesini sisteminize kurmayı gerektirir).
-- **`trust_remote_code`**: (Boolean) Model depolarından özel kodun çalıştırılmasına izin verir. Güvenlik nedeniyle varsayılan değer `false`'dur. Yalnızca bunu açıkça gerektiren modeller için etkinleştirin (örn., bazı özel mimariler). **Uyarı:** Bunu üretim veya izole (air-gapped) ortamlarda etkinleştirmek güvenlik riskidir.
+---
 
-### `lora`
-Parametre-Verimli İnce Ayar (Parameter-Efficient Fine-Tuning - PEFT) stratejilerini tanımlar.
-- **`r`**: LoRA dikkat boyutu (rank). Daha yüksek sayı = daha fazla parametre manipülasyonu.
-- **`alpha`**: LoRA ölçeklendirmesi (scaling) için alpha parametresi.
-- **`dropout`**: LoRA katmanları için dropout olasılığı.
-- **`bias`**: LoRA için bias türü. `'none'`, `'all'` veya `'lora_only'` değerlerini alabilir.
-- **`use_dora`**: (Boolean) Ağırlık Ayrıştırılmış (Weight-Decomposed - DoRA) yapıyı kullanmayı açar, ağırlıkların yönünü ve büyüklüğünü ayırarak aynı parametre sayısıyla LoRA'dan daha iyi performans sağlar. Standart olarak `false`.
-- **`target_modules`**: LoRA'nın uygulanacağı model modüllerinin listesi. Genellikle `["q_proj", "k_proj", "v_proj", "o_proj"]` şeklindedir.
+## `training`
 
-### `training`
-Hiperparametreleri tanımlar.
-- **`output_dir`**: Eğitim sırasında checkpoint'lerin (ağırlıkların) kaydedileceği dizin.
-- **`final_model_dir`**: `output_dir` altında nihai artefact'ların yazılacağı alt dizin (varsayılan: `final_model`).
-- **`merge_adapters`**: `false` (varsayılan) iken sadece adaptör (LoRA) kaydeder. `true` iken adaptörleri merge edip tam modeli kaydetmeyi dener.
-- **`learning_rate`**: AdamW optimize edici (optimizer) için başlangıç öğrenme oranı (learning rate).
-- **`per_device_train_batch_size`**: Her GPU çekirdeği/cihazı başına batch boyutu.
-- **`gradient_accumulation_steps`**: Geriye dönük/güncelleme adımından önce bilgi biriktirilecek güncelleme adımı sayısı.
-- **`packing`**: TRL `SFTTrainer` içinde sequence packing'i açar (ileri seviye; veri formatından emin değilsen `false` bırak).
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `trainer_type` | string | `"sft"` | `"sft"`, `"dpo"`, `"simpo"`, `"kto"`, `"orpo"`, `"grpo"` |
+| `num_train_epochs` | int | `3` | Eğitim epoch sayısı |
+| `per_device_train_batch_size` | int | `4` | GPU başına batch boyutu |
+| `learning_rate` | float | `2e-5` | Öğrenme oranı |
+| `report_to` | string | `"tensorboard"` | `"tensorboard"`, `"wandb"`, `"mlflow"`, `"none"` |
 
-### `data`
-- **`dataset_name_or_path`**: Hugging face depo kimliği (örn. `timdettmers/openassistant-guanaco`) veya bir JSON/CSV dosyasının yerel yolu.
-- **`clean_text`**: Gereksiz tekrarlanan boşlukları temizler.
-- **`add_eos`**: Veri seti etiketlerine bir Dizi Sonu (End-Of-Sequence - EOS) belirteci ekler.
+#### Hizalama Parametreleri
 
-### `auth` (Opsiyonel)
-- **`hf_token`**: Özel veya erişime kapalı olan (gated - Llama-2/3 gibi) modellere erişim sağlamak için Hugging Face erişim token'ın. Üretim ortamında (production), tokenı yapılandırma dosyasında barındırmak yerine `HUGGINGFACE_TOKEN` çevre değişkenini (environment variable) kullanmak genellikle daha güvenlidir ve o yüzden atlanması tavsiye edilir.
+| Alan | Tip | Varsayılan | Kullanan |
+|------|-----|-----------|---------|
+| `dpo_beta` | float | `0.1` | DPO sıcaklık |
+| `simpo_gamma` | float | `0.5` | SimPO marj |
+| `kto_beta` | float | `0.1` | KTO kayıp parametresi |
+| `orpo_beta` | float | `0.1` | ORPO odds ratio ağırlığı |
+| `grpo_num_generations` | int | `4` | GRPO: prompt başına yanıt |
+| `grpo_reward_model` | string | `null` | GRPO: ödül modeli yolu |
 
-### `evaluation` (Opsiyonel)
-Eğitim sonrası otomatik kalite kontrolleri için yapılandırma.
-- **`auto_revert`**: (Boolean) `true` ise, nihai kayıp (loss) `max_acceptable_loss` değerini aşarsa checkpoint'leri siler. Varsayılan `false`.
-- **`max_acceptable_loss`**: (Float) Değerlendirme kaybına dayalı olarak eğitim çalıştırmasının başarısız sayılması için eşik değer.
-- **`baseline_loss`**: (Float) Opsiyonel temel (baseline) değer. Belirtilmezse, ForgeLM eğitime başlamadan önce validasyon setinden otomatik olarak hesaplar.
+---
 
-### `webhook` (Opsiyonel)
-ForgeLM, eğitim ilerlemesini takip etmek için harici bir servise JSON verisi gönderebilir.
-- **`url`**: Hedef URL (POST isteği).
-- **`url_env`**: Alternatif olarak, URL'yi içeren çevre değişkeninin adını belirtin.
-- **`notify_on_start`**: (Boolean) Eğitim başladığında bildirim gönder.
-- **`notify_on_success`**: (Boolean) Başarıyla tamamlandığında bildirim gönder.
-- **`notify_on_failure`**: (Boolean) Hat durumunda bildirim gönder.
+## `data`
 
-#### Webhook Veri Formatı
-ForgeLM aşağıdaki yapıya sahip bir JSON gövdesi gönderir:
-```json
-{
-  "status": "started | success | failure",
-  "run_name": "model-adi_finetune",
-  "message": "Adım açıklaması...",
-  "metrics": {
-    "loss": 1.25,
-    "epoch": 3.0
-  }
-}
-```
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `dataset_name_or_path` | string | *zorunlu* | HF veri seti ID veya yerel JSONL |
+| `extra_datasets` | list | `null` | Karıştırılacak ek veri setleri |
+| `mix_ratio` | list | `null` | Veri seti başına ağırlık |
+
+#### `data.governance` (İsteğe bağlı — EU AI Act Madde 10)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `collection_method` | string | `""` | Veri toplama yöntemi |
+| `annotation_process` | string | `""` | Etiketleme süreci |
+| `known_biases` | string | `""` | Bilinen önyargılar |
+| `personal_data_included` | bool | `false` | Kişisel veri içeriyor |
+| `dpia_completed` | bool | `false` | Veri Koruma Etki Değerlendirmesi |
+
+---
+
+## `evaluation` (İsteğe bağlı)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `auto_revert` | bool | `false` | Değerlendirme başarısız olursa modeli sil |
+| `max_acceptable_loss` | float | `null` | eval_loss üst sınırı |
+| `require_human_approval` | bool | `false` | İnsan incelemesi için duraklat (çıkış kodu 4) |
+
+#### `evaluation.safety` (İsteğe bağlı)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `enabled` | bool | `false` | Güvenlik sınıflandırıcı değerlendirmesi |
+| `classifier` | string | `"meta-llama/Llama-Guard-3-8B"` | Güvenlik sınıflandırıcı modeli |
+| `test_prompts` | string | `"safety_prompts.jsonl"` | Adversarial test prompt dosyası. Yerleşik: `configs/safety_prompts/` |
+| `max_safety_regression` | float | `0.05` | Maksimum güvensiz oran (binary kapı) |
+| `scoring` | string | `"binary"` | Puanlama modu: `"binary"` veya `"confidence_weighted"` |
+| `min_safety_score` | float | `null` | Ağırlıklı skor eşiği (confidence_weighted için) |
+| `min_classifier_confidence` | float | `0.7` | Düşük güven uyarı eşiği |
+| `track_categories` | bool | `false` | Llama Guard S1-S14 zarar kategorilerini ayrıştır |
+| `severity_thresholds` | dict | `null` | Ciddiyet bazlı sınırlar: `{"critical": 0, "high": 0.01}` |
+
+#### `evaluation.benchmark` (İsteğe bağlı)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `enabled` | bool | `false` | lm-eval-harness benchmark'ları |
+| `tasks` | list | `[]` | Görev isimleri (ör. `["arc_easy", "hellaswag"]`) |
+| `min_score` | float | `null` | Minimum ortalama doğruluk |
+
+#### `evaluation.llm_judge` (İsteğe bağlı)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `enabled` | bool | `false` | LLM-Hakim puanlama |
+| `judge_model` | string | `"gpt-4o"` | Hakim modeli (API veya yerel) |
+| `min_score` | float | `5.0` | Minimum ortalama puan (1-10) |
+
+---
+
+## `compliance` (İsteğe bağlı — EU AI Act Madde 11 + Annex IV)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `provider_name` | string | `""` | Kuruluş adı |
+| `intended_purpose` | string | `""` | Modelin amacı |
+| `risk_classification` | string | `"minimal-risk"` | `"high-risk"`, `"limited-risk"`, `"minimal-risk"` |
+
+## `risk_assessment` (İsteğe bağlı — EU AI Act Madde 9)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `intended_use` | string | `""` | Kullanım amacı |
+| `foreseeable_misuse` | list | `[]` | Öngörülen kötüye kullanım senaryoları |
+| `risk_category` | string | `"minimal-risk"` | Risk sınıflandırması |
+| `mitigation_measures` | list | `[]` | Risk azaltma önlemleri |
+
+## `monitoring` (İsteğe bağlı — EU AI Act Madde 12+17)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `enabled` | bool | `false` | İzleme hook'larını etkinleştir |
+| `metrics_export` | string | `"none"` | `"none"`, `"prometheus"`, `"datadog"` |
+| `alert_on_drift` | bool | `true` | Model sapmasında uyar |
+
+## `distributed` (İsteğe bağlı)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `strategy` | string | `null` | `"deepspeed"` veya `"fsdp"` |
+| `deepspeed_config` | string | `null` | Ön ayar: `"zero2"`, `"zero3"`, `"zero3_offload"` |
+
+## `webhook` (İsteğe bağlı)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `url` | string | `null` | Webhook URL |
+| `url_env` | string | `null` | URL'yi içeren ortam değişkeni |
+| `timeout` | int | `5` | HTTP istek zaman aşımı (saniye) |

@@ -120,6 +120,26 @@ jobs:
                   print(f'{nb_file}: OK ({len(nb[\"cells\"])} cells)')
           "
 
+      - name: Safety prompts validation
+        run: |
+          python -c "
+          import json, os
+          prompts_dir = 'configs/safety_prompts'
+          assert os.path.isdir(prompts_dir), 'Missing configs/safety_prompts/'
+          total = 0
+          for f in os.listdir(prompts_dir):
+              if f.endswith('.jsonl'):
+                  path = os.path.join(prompts_dir, f)
+                  with open(path) as fh:
+                      for i, line in enumerate(fh):
+                          data = json.loads(line)
+                          assert 'prompt' in data, f'{f} line {i+1}: missing prompt key'
+                          total += 1
+                  print(f'{f}: OK')
+          assert total >= 40, f'Expected 40+ safety prompts, found {total}'
+          print(f'Total safety prompts: {total}')
+          "
+
       - name: License check
         run: |
           test -f LICENSE || (echo "LICENSE file missing" && exit 1)
