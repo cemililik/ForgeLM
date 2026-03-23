@@ -15,8 +15,19 @@
 - **Model Card Generation**: Automatic HF-compatible model cards with training config, metrics, and benchmarks.
 - **W&B / MLflow / TensorBoard**: Flexible experiment tracking via `report_to` config parameter.
 
-## Documentation
-For detailed guides on how to use ForgeLM, please see our dedicated documentations:
+## Guides
+
+| Guide | Description |
+|-------|-------------|
+| [Quick Start](docs/guides/quickstart.md) | First fine-tuned model in 5 minutes |
+| [Alignment (DPO/SimPO/KTO/GRPO)](docs/guides/alignment.md) | Complete post-training stack |
+| [CI/CD Pipeline Integration](docs/guides/cicd_pipeline.md) | GitHub Actions, GitLab CI, Docker |
+| [Enterprise Deployment](docs/guides/enterprise_deployment.md) | Docker, air-gapped, multi-GPU |
+| [Safety & Compliance](docs/guides/safety_compliance.md) | EU AI Act, safety evaluation |
+| [Troubleshooting & FAQ](docs/guides/troubleshooting.md) | Common issues and solutions |
+
+## Reference Documentation
+
 1. [Architecture Overview](docs/architecture.md) ([Türkçe](docs/architecture-tr.md))
 2. [Configuration Guide](docs/configuration.md) ([Türkçe](docs/configuration-tr.md))
 3. [Usage & Execution](docs/usage.md) ([Türkçe](docs/usage-tr.md))
