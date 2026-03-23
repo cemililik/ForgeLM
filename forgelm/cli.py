@@ -15,6 +15,7 @@ EXIT_SUCCESS = 0
 EXIT_CONFIG_ERROR = 1
 EXIT_TRAINING_ERROR = 2
 EXIT_EVAL_FAILURE = 3
+EXIT_AWAITING_APPROVAL = 4
 
 
 def _get_version() -> str:
@@ -435,6 +436,9 @@ def main():
 
         # 9. Output result
         _output_result(result, args.output_format)
+        # Human approval gate: exit code 4 if awaiting approval
+        if result.success and config.evaluation and getattr(config.evaluation, "require_human_approval", False):
+            sys.exit(EXIT_AWAITING_APPROVAL)
         sys.exit(EXIT_SUCCESS if result.success else EXIT_EVAL_FAILURE)
 
     except ImportError as e:

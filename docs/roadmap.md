@@ -22,7 +22,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Phase 5.5: Technical Debt Resolution | **Complete** | 7/7 |
 | Phase 6: Enterprise Trust & Compliance | **Complete** | 5/5 |
 | Phase 7: Next-Gen Model Support | **Complete** | 5/5 |
-| Phase 8: EU AI Act Deep Compliance | **Planned** | 0/10 |
+| Phase 8: EU AI Act Deep Compliance | **In Progress** | 8/10 |
 
 ---
 
@@ -240,7 +240,7 @@ graph LR
 
 #### Tier 1: High Impact, Implementable Now (Pre-August 2026)
 
-1. [ ] **Annex IV Technical Documentation Package (Art. 11)**
+1. [x] **Annex IV Technical Documentation Package (Art. 11)**
    Extend `compliance.py` to generate a complete Annex IV-compliant document. Add config fields for metadata that the code cannot infer:
    ```yaml
    compliance:
@@ -254,7 +254,7 @@ graph LR
    ```
    Auto-generate: `annex_iv_technical_documentation.md` combining this metadata + training params + data provenance + evaluation results + safety scores. This is the single most impactful compliance artifact.
 
-2. [ ] **Structured Audit Event Log (Art. 12)**
+2. [x] **Structured Audit Event Log (Art. 12)**
    Replace scattered Python logging with a machine-readable JSON event log. Every decision point in the pipeline emits a structured event:
    ```json
    {"timestamp": "2026-03-24T10:30:00Z", "run_id": "fg-abc123", "event": "training.started", "operator": "user@acme.com", "config_hash": "sha256:..."}
@@ -263,7 +263,7 @@ graph LR
    ```
    Append-only `audit_log.jsonl` in output directory. Each run gets a unique `run_id` (UUID). Optionally record `operator` from env var or config.
 
-3. [ ] **Risk Assessment Declaration (Art. 9)**
+3. [x] **Risk Assessment Declaration (Art. 9)**
    Add an optional `risk_assessment` config section that documents foreseeable risks **before** training begins. This is not automated analysis — it's a structured form that organizations fill in:
    ```yaml
    risk_assessment:
@@ -279,7 +279,7 @@ graph LR
    ```
    Output as `risk_assessment.json` in compliance artifacts. When `risk_category: "high-risk"`, enforce that safety evaluation and benchmark are enabled (fail config validation if not).
 
-4. [ ] **Human Approval Gate (Art. 14)**
+4. [x] **Human Approval Gate (Art. 14)**
    Add `require_human_approval: true` to evaluation config. When enabled, after all automated checks pass, the pipeline:
    - Saves model to a staging directory (not final)
    - Outputs evaluation summary to stdout/JSON
@@ -291,7 +291,7 @@ graph LR
    ```
    This creates a documented human-in-the-loop decision point for audit trails.
 
-5. [ ] **Data Quality & Governance Report (Art. 10)**
+5. [x] **Data Quality & Governance Report (Art. 10)**
    After dataset loading, generate a data governance report with:
    - Sample count per split (train/validation/test)
    - Column schema and types
@@ -311,7 +311,7 @@ graph LR
 
 #### Tier 2: Important, Moderate Effort
 
-6. [ ] **Model Integrity Verification (Art. 15)**
+6. [x] **Model Integrity Verification (Art. 15)**
    After saving the final model, compute SHA-256 checksums of all output artifacts (adapter weights, tokenizer, config). Save as `model_integrity.json`:
    ```json
    {
@@ -324,7 +324,7 @@ graph LR
    ```
    Enables tamper detection: deployers can verify model hasn't been modified after training.
 
-7. [ ] **Deployer Instructions Document (Art. 13)**
+7. [x] **Deployer Instructions Document (Art. 13)**
    Auto-generate `deployer_instructions.md` alongside model card, targeted at non-ML personnel who deploy the model:
    - What the model does and doesn't do (from `intended_purpose` + `known_limitations`)
    - Required hardware/software for inference
@@ -333,7 +333,7 @@ graph LR
    - How to report incidents
    - Performance metrics and accuracy declarations
 
-8. [ ] **Evidence Bundle Export (Art. 11 + 17)**
+8. [x] **Evidence Bundle Export (Art. 11 + 17)**
    New CLI command to package all compliance artifacts into a single auditor-ready archive:
    ```bash
    forgelm --config job.yaml --export-bundle ./audit_bundle.zip

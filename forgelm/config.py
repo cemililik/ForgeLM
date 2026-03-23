@@ -104,6 +104,16 @@ class DistributedConfig(BaseModel):
     fsdp_state_dict_type: str = "FULL_STATE_DICT"  # "FULL_STATE_DICT" or "SHARDED_STATE_DICT"
 
 
+class DataGovernanceConfig(BaseModel):
+    """Art. 10: Data governance metadata."""
+
+    collection_method: str = ""
+    annotation_process: str = ""
+    known_biases: str = ""
+    personal_data_included: bool = False
+    dpia_completed: bool = False  # Data Protection Impact Assessment
+
+
 class DataConfig(BaseModel):
     dataset_name_or_path: str
     extra_datasets: Optional[List[str]] = None  # additional datasets to mix in
@@ -111,6 +121,7 @@ class DataConfig(BaseModel):
     shuffle: bool = True
     clean_text: bool = True
     add_eos: bool = True
+    governance: Optional[DataGovernanceConfig] = None  # Art. 10: data governance metadata
 
 
 class BenchmarkConfig(BaseModel):
@@ -151,6 +162,29 @@ class EvaluationConfig(BaseModel):
     benchmark: Optional[BenchmarkConfig] = None  # post-training benchmark via lm-eval-harness
     safety: Optional[SafetyConfig] = None  # post-training safety evaluation
     llm_judge: Optional[JudgeConfig] = None  # LLM-as-Judge scoring
+    require_human_approval: bool = False  # Art. 14: pause pipeline for human review before final save
+
+
+class RiskAssessmentConfig(BaseModel):
+    """Art. 9: Risk management — declare risks before training."""
+
+    intended_use: str = ""
+    foreseeable_misuse: List[str] = []
+    risk_category: str = "minimal-risk"  # "high-risk", "limited-risk", "minimal-risk"
+    mitigation_measures: List[str] = []
+    vulnerable_groups_considered: bool = False
+
+
+class ComplianceMetadataConfig(BaseModel):
+    """Art. 11 + Annex IV: Provider and system metadata for technical documentation."""
+
+    provider_name: str = ""
+    provider_contact: str = ""
+    system_name: str = ""
+    intended_purpose: str = ""
+    known_limitations: str = ""
+    system_version: str = ""
+    risk_classification: str = "minimal-risk"  # "high-risk", "limited-risk", "minimal-risk"
 
 
 class WebhookConfig(BaseModel):
@@ -176,6 +210,8 @@ class ForgeConfig(BaseModel):
     webhook: Optional[WebhookConfig] = None
     distributed: Optional[DistributedConfig] = None
     merge: Optional[MergeConfig] = None
+    compliance: Optional[ComplianceMetadataConfig] = None
+    risk_assessment: Optional[RiskAssessmentConfig] = None
 
     @model_validator(mode="after")
     def _validate_consistency(self):
@@ -187,6 +223,21 @@ class ForgeConfig(BaseModel):
             )
         if self.model.backend == "unsloth" and self.model.trust_remote_code:
             logger.warning("trust_remote_code is ignored when using the Unsloth backend.")
+        # High-risk compliance enforcement
+        is_high_risk = (self.risk_assessment and self.risk_assessment.risk_category == "high-risk") or (
+            self.compliance and self.compliance.risk_classification == "high-risk"
+        )
+        if is_high_risk:
+            if not self.evaluation or not self.evaluation.auto_revert:
+                logger.warning(
+                    "High-risk AI classification requires evaluation.auto_revert: true "
+                    "for EU AI Act compliance. Safety gates should be enabled."
+                )
+            if not self.evaluation or not self.evaluation.safety or not self.evaluation.safety.enabled:
+                logger.warning(
+                    "High-risk AI classification: safety evaluation is strongly recommended. "
+                    "Set evaluation.safety.enabled: true."
+                )
         # Trainer type validation
         valid_trainers = {"sft", "orpo", "dpo", "simpo", "kto", "grpo"}
         if self.training.trainer_type not in valid_trainers:

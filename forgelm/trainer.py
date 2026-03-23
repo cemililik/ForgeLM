@@ -28,6 +28,14 @@ class ForgeTrainer:
 
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
+        # Art. 12: Structured audit log
+        from .compliance import AuditLogger
+
+        self.audit = AuditLogger(self.checkpoint_dir)
+        self.audit.log_event(
+            "pipeline.initialized", model=config.model.name_or_path, trainer_type=config.training.trainer_type
+        )
+
         # Validate evaluation config early
         self._validate_evaluation_config()
 
@@ -349,6 +357,7 @@ class ForgeTrainer:
 
         try:
             metrics: Dict[str, float] = {}
+            self.audit.log_event("training.started")
 
             # Baseline evaluation (base model, without adapters).
             # This enables Phase 2 "never overwrite a better model" behavior.
@@ -457,14 +466,31 @@ class ForgeTrainer:
             # Generate model card
             self._generate_model_card(final_path, metrics, train_result)
 
-            # Generate compliance artifacts
+            # Model integrity verification (Art. 15)
+            self._generate_model_integrity(final_path)
+
+            # Deployer instructions (Art. 13)
+            self._generate_deployer_instructions(final_path, metrics)
+
+            # Generate compliance artifacts (Art. 11 + Annex IV)
             self._export_compliance_if_needed(final_path, metrics, train_result)
 
+            # Human approval gate (Art. 14)
+            if self.config.evaluation and self.config.evaluation.require_human_approval:
+                self.audit.log_event("human_approval.required", model_path=final_path)
+                logger.info("Human approval required. Model saved to staging: %s", final_path)
+                logger.info("Review evaluation results and run: forgelm --approve %s", self.audit.run_id)
+                train_result.success = True
+                # Exit code 4 handled by CLI
+                return train_result
+
+            self.audit.log_event("pipeline.completed", success=True, metrics_summary=dict(list(metrics.items())[:5]))
             self.notifier.notify_success(run_name=self.run_name, metrics=metrics)
             return train_result
 
         except Exception as e:
             logger.exception("Training pipeline failed.")
+            self.audit.log_event("pipeline.failed", error=str(e))
             self.notifier.notify_failure(run_name=self.run_name, reason=str(e))
             raise
 
@@ -628,3 +654,28 @@ class ForgeTrainer:
             export_compliance_artifacts(manifest, self.config, compliance_dir)
         except Exception as e:
             logger.warning("Failed to export compliance artifacts: %s", e)
+
+    def _generate_model_integrity(self, final_path: str) -> None:
+        """Art. 15: Generate SHA-256 checksums for all output artifacts."""
+        try:
+            from .compliance import generate_model_integrity
+
+            integrity = generate_model_integrity(final_path)
+            integrity_path = os.path.join(final_path, "model_integrity.json")
+            import json
+
+            with open(integrity_path, "w") as f:
+                json.dump(integrity, f, indent=2)
+            self.audit.log_event("model.integrity_verified", artifacts=len(integrity.get("artifacts", [])))
+            logger.info("Model integrity checksums saved to %s", integrity_path)
+        except Exception as e:
+            logger.warning("Failed to generate model integrity: %s", e)
+
+    def _generate_deployer_instructions(self, final_path: str, metrics: Dict[str, float]) -> None:
+        """Art. 13: Generate deployer instructions document."""
+        try:
+            from .compliance import generate_deployer_instructions
+
+            generate_deployer_instructions(self.config, metrics, final_path)
+        except Exception as e:
+            logger.warning("Failed to generate deployer instructions: %s", e)
