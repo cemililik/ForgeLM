@@ -7,7 +7,7 @@ from forgelm.config import ForgeConfig, SafetyConfig, JudgeConfig, EvaluationCon
 from forgelm.safety import SafetyResult
 from forgelm.judge import JudgeResult
 from forgelm.compliance import compute_dataset_fingerprint, generate_training_manifest
-from forgelm.trainer import TrainResult
+from forgelm.results import TrainResult
 
 
 def _minimal_config(**overrides):

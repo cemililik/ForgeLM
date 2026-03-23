@@ -24,7 +24,7 @@ def __getattr__(name: str):
         from .trainer import ForgeTrainer as v
         return v
     if name == "TrainResult":
-        from .trainer import TrainResult as v
+        from .results import TrainResult as v
         return v
     if name == "run_benchmark":
         from .benchmark import run_benchmark as v

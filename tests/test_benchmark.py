@@ -100,6 +100,13 @@ class TestBenchmarkInConfig:
         assert cfg.evaluation.benchmark is None
 
 
+lm_eval_available = True
+try:
+    import lm_eval  # noqa: F401
+except ImportError:
+    lm_eval_available = False
+
+
 class TestRunBenchmark:
     def test_empty_tasks_returns_passed(self):
         result = run_benchmark(
@@ -110,6 +117,7 @@ class TestRunBenchmark:
         assert result.passed is True
         assert result.scores == {}
 
+    @pytest.mark.skipif(not lm_eval_available, reason="lm_eval not installed")
     @patch("forgelm.benchmark._check_lm_eval_available")
     @patch("forgelm.benchmark.lm_eval", create=True)
     @patch("forgelm.benchmark.HFLM", create=True)
@@ -192,7 +200,7 @@ class TestRunBenchmark:
 
 class TestTrainResultWithBenchmark:
     def test_train_result_benchmark_fields(self):
-        from forgelm.trainer import TrainResult
+        from forgelm.results import TrainResult
 
         result = TrainResult(
             success=True,
@@ -206,7 +214,7 @@ class TestTrainResultWithBenchmark:
         assert result.benchmark_passed is True
 
     def test_train_result_no_benchmark(self):
-        from forgelm.trainer import TrainResult
+        from forgelm.results import TrainResult
 
         result = TrainResult(success=True)
         assert result.benchmark_scores is None

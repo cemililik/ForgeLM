@@ -5,7 +5,14 @@ import pytest
 import shutil
 from unittest.mock import MagicMock, patch
 
-from forgelm.trainer import TrainResult
+from forgelm.results import TrainResult
+
+# ForgeTrainer requires torch — skip evaluation tests if not available
+torch_available = True
+try:
+    import torch
+except ImportError:
+    torch_available = False
 
 
 class TestTrainResult:
@@ -45,6 +52,7 @@ class TestTrainResult:
         assert result.metrics == {}
 
 
+@pytest.mark.skipif(not torch_available, reason="torch not installed")
 class TestEvaluationChecks:
     """Test execute_evaluation_checks via a minimal ForgeTrainer mock."""
 

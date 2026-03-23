@@ -57,14 +57,14 @@ def run_benchmark(
     Returns:
         BenchmarkResult with per-task scores and pass/fail status.
     """
+    if not tasks:
+        logger.warning("No benchmark tasks specified. Skipping benchmark.")
+        return BenchmarkResult(passed=True)
+
     _check_lm_eval_available()
 
     import lm_eval
     from lm_eval.models.huggingface import HFLM
-
-    if not tasks:
-        logger.warning("No benchmark tasks specified. Skipping benchmark.")
-        return BenchmarkResult(passed=True)
 
     logger.info("Starting benchmark evaluation with tasks: %s", tasks)
 
