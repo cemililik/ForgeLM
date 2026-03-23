@@ -23,6 +23,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Phase 6: Enterprise Trust & Compliance | **Complete** | 5/5 |
 | Phase 7: Next-Gen Model Support | **Complete** | 5/5 |
 | Phase 8: EU AI Act Deep Compliance | **Complete** | 10/10 |
+| Phase 9: Advanced Safety & Evaluation Intelligence | **Planned** | 0/8 |
 
 ---
 
@@ -398,6 +399,239 @@ timeline
 
 ---
 
+## Phase 9: Advanced Safety & Evaluation Intelligence
+**Goal:** Evolve safety evaluation from binary pass/fail to nuanced, confidence-aware, category-specific scoring. Make ForgeLM's safety pipeline the most sophisticated in the open-source ecosystem.
+**Estimated Effort:** High (ongoing)
+**Priority:** High — directly requested by community, strengthens core differentiator
+
+> **Context:** Current safety evaluation is binary classification (safe/unsafe per response → ratio). This works as a pipeline gate but lacks the depth needed for production safety engineering: no confidence scores, no harm category breakdown, no severity levels, no trend analysis across training runs. Phase 9 addresses these gaps.
+
+### Current Safety Scoring Architecture
+
+```mermaid
+graph LR
+    A[Fine-tuned<br/>Model] -->|generate| B[Responses]
+    B -->|classify| C[Llama Guard]
+    C --> D{safe / unsafe}
+    D -->|count| E[unsafe_ratio]
+    E -->|compare| F{> threshold?}
+    F -->|yes| G[❌ REVERT]
+    F -->|no| H[✅ PASS]
+```
+
+**Limitation:** Binary only. No "how unsafe" or "what kind of unsafe."
+
+### Target Safety Scoring Architecture (Phase 9)
+
+```mermaid
+graph LR
+    A[Fine-tuned<br/>Model] -->|generate| B[Responses]
+    B -->|classify| C[Safety Classifier]
+    C --> D[Per-response:<br/>category + confidence + severity]
+    D --> E[Aggregated Report:<br/>category distribution<br/>confidence histogram<br/>severity breakdown]
+    E --> F{Policy Engine:<br/>per-category thresholds<br/>weighted scoring<br/>trend comparison}
+    F -->|fail| G[❌ REVERT + detailed reason]
+    F -->|pass| H[✅ PASS + safety scorecard]
+```
+
+### Tasks:
+
+#### Tier 1: Confidence-Weighted Scoring
+
+1. [ ] **Confidence Score Extraction**
+   Extract classification confidence from the safety classifier output. Instead of binary safe/unsafe, capture the probability:
+   ```json
+   {
+     "prompt": "How do I hack...",
+     "response": "I can't help with that...",
+     "label": "safe",
+     "confidence": 0.97,
+     "safe": true
+   }
+   ```
+   Current `pipeline("text-classification")` already returns confidence via `result[0]["score"]` — we just don't capture it. Low effort, high impact.
+
+2. [ ] **Confidence-Weighted Safety Score**
+   Replace simple ratio with a weighted score that accounts for classifier certainty:
+   ```
+   safety_score = mean(confidence * is_safe) for all responses
+   ```
+   A response classified as "safe" with 51% confidence is very different from 99% confidence. The weighted score captures this nuance.
+   ```yaml
+   evaluation:
+     safety:
+       scoring: "confidence_weighted"  # "binary" (default), "confidence_weighted"
+       min_safety_score: 0.85          # weighted score threshold (0.0-1.0)
+   ```
+
+3. [ ] **Low-Confidence Alert**
+   Flag responses where classifier confidence is below a threshold (e.g., 0.7) regardless of the label. These are "uncertain" classifications that need human review:
+   ```json
+   {
+     "low_confidence_count": 8,
+     "low_confidence_responses": [
+       {"prompt": "...", "response": "...", "label": "safe", "confidence": 0.52}
+     ]
+   }
+   ```
+   ```yaml
+   evaluation:
+     safety:
+       min_classifier_confidence: 0.7  # flag responses below this
+   ```
+
+#### Tier 2: Multi-Category Classification
+
+4. [ ] **Harm Category Breakdown**
+   Instead of just "unsafe", categorize the type of harm. Llama Guard 3 already outputs categories (S1-S14). Parse and track them:
+   ```json
+   {
+     "category_distribution": {
+       "S1_violent_crimes": 0,
+       "S2_non_violent_crimes": 1,
+       "S3_sex_related_crimes": 0,
+       "S5_defamation": 2,
+       "S7_privacy": 1,
+       "S14_elections": 0
+     },
+     "total_unsafe": 4,
+     "most_common_category": "S5_defamation"
+   }
+   ```
+   ```yaml
+   evaluation:
+     safety:
+       track_categories: true
+       category_thresholds:          # per-category limits
+         S1_violent_crimes: 0        # zero tolerance
+         S5_defamation: 0.02         # 2% max
+         S7_privacy: 0.01            # 1% max
+   ```
+
+5. [ ] **Severity Levels**
+   Not all unsafe responses are equally dangerous. Add severity classification:
+   - **Critical**: Direct harm instructions, illegal content → zero tolerance
+   - **High**: Biased, discriminatory, or misleading content → very low threshold
+   - **Medium**: Mildly inappropriate, off-topic → configurable threshold
+   - **Low**: Edge cases, debatable safety → logged but not blocking
+   ```yaml
+   evaluation:
+     safety:
+       severity_thresholds:
+         critical: 0       # zero tolerance
+         high: 0.01        # 1% max
+         medium: 0.05      # 5% max
+         low: 0.10          # 10% max (logged only)
+   ```
+
+#### Tier 3: Comparative & Trend Analysis
+
+6. [ ] **Before/After Safety Comparison**
+   Run safety evaluation on the base model (pre-training) AND the fine-tuned model using the same prompt set. Generate a comparison report:
+   ```json
+   {
+     "base_model_safety_score": 0.98,
+     "finetuned_model_safety_score": 0.94,
+     "regression": -0.04,
+     "new_unsafe_prompts": [
+       {"prompt": "...", "base_label": "safe", "finetuned_label": "unsafe"}
+     ],
+     "newly_safe_prompts": [
+       {"prompt": "...", "base_label": "unsafe", "finetuned_label": "safe"}
+     ]
+   }
+   ```
+   This directly answers "did fine-tuning make the model less safe, and where?"
+
+7. [ ] **Cross-Run Trend Tracking**
+   When multiple training runs are performed (hyperparameter tuning, data iterations), track safety scores across runs:
+   ```json
+   {
+     "run_history": [
+       {"run_id": "fg-abc123", "safety_score": 0.95, "date": "2026-03-20"},
+       {"run_id": "fg-def456", "safety_score": 0.92, "date": "2026-03-22"},
+       {"run_id": "fg-ghi789", "safety_score": 0.97, "date": "2026-03-24"}
+     ],
+     "trend": "improving"
+   }
+   ```
+   Helps teams understand if their data/config changes are improving or degrading safety over time.
+
+#### Tier 4: Safety Prompt Engineering
+
+8. [ ] **Built-in Adversarial Prompt Library**
+   Ship a curated set of adversarial test prompts covering common harm categories:
+   ```
+   configs/safety_prompts/
+   ├── general_safety.jsonl       # 50 prompts — generic adversarial
+   ├── bias_discrimination.jsonl  # 30 prompts — gender, race, religion
+   ├── harmful_instructions.jsonl # 30 prompts — violence, illegal activity
+   ├── privacy_pii.jsonl          # 20 prompts — personal data extraction
+   ├── misinformation.jsonl       # 20 prompts — fake news, medical advice
+   └── jailbreak_attempts.jsonl   # 30 prompts — role-play, DAN, bypass attempts
+   ```
+   Users can use these as-is or combine with their domain-specific prompts:
+   ```yaml
+   evaluation:
+     safety:
+       test_prompts: "configs/safety_prompts/general_safety.jsonl"
+       # or combine multiple:
+       # test_prompts:
+       #   - "configs/safety_prompts/general_safety.jsonl"
+       #   - "configs/safety_prompts/jailbreak_attempts.jsonl"
+       #   - "my_domain_prompts.jsonl"
+   ```
+
+### Requirements:
+- Tier 1 (#1-3) can be implemented with minimal changes to `safety.py` — mostly extracting data already available
+- Tier 2 (#4-5) requires Llama Guard 3 category parsing and new config fields
+- Tier 3 (#6-7) requires run-to-run state management (safety score history)
+- Tier 4 (#8) is a content/curation effort — no code changes to core pipeline
+- All features must be backward-compatible: existing `scoring: "binary"` must remain the default
+- Safety results format must be extended without breaking existing `safety_results.json` consumers
+
+### Safety Scoring Evolution
+
+```mermaid
+graph TD
+    subgraph Current["Phase 6 — Current"]
+        C1["Binary: safe/unsafe"]
+        C2["Simple ratio"]
+        C3["Single threshold"]
+    end
+
+    subgraph Phase9T1["Phase 9 Tier 1"]
+        T1["Confidence scores"]
+        T2["Weighted safety score"]
+        T3["Low-confidence alerts"]
+    end
+
+    subgraph Phase9T2["Phase 9 Tier 2"]
+        T4["Harm categories<br/>(S1-S14)"]
+        T5["Severity levels<br/>(critical→low)"]
+    end
+
+    subgraph Phase9T3["Phase 9 Tier 3"]
+        T6["Before/after<br/>comparison"]
+        T7["Cross-run<br/>trend tracking"]
+    end
+
+    subgraph Phase9T4["Phase 9 Tier 4"]
+        T8["Built-in adversarial<br/>prompt library"]
+    end
+
+    Current --> Phase9T1 --> Phase9T2 --> Phase9T3
+    Phase9T1 --> Phase9T4
+
+    style Current fill:#22c55e10,stroke:#22c55e
+    style Phase9T1 fill:#3b82f610,stroke:#3b82f6
+    style Phase9T2 fill:#8b5cf610,stroke:#8b5cf6
+    style Phase9T3 fill:#f59e0b10,stroke:#f59e0b
+    style Phase9T4 fill:#ef444410,stroke:#ef4444
+```
+
+---
+
 ## Risk Matrix
 
 ### High Severity
@@ -470,3 +704,4 @@ timeline
 | 2026-03-23 | Phase 7 (MoE/VLM/Merging) scoped as ongoing | Model landscape shifting to MoE and multimodal; must support but not at expense of Phase 5-6 |
 | 2026-03-23 | Leverage TRL trainers for alignment methods | TRL already implements DPO, KTO, GRPO — ForgeLM wraps with config, evaluation, and pipeline integration rather than reimplementing |
 | 2026-03-24 | Phase 8 (EU AI Act Deep Compliance) added with 10 tasks | Gap analysis against Articles 9-17 + Annex IV revealed 6 major gaps. Tier 1 (5 tasks) must complete before August 2, 2026 enforcement. This is ForgeLM's strongest differentiator — no competitor addresses EU AI Act systematically |
+| 2026-03-24 | Phase 9 (Advanced Safety Scoring) added with 8 tasks | Community feedback: binary safe/unsafe classification insufficient for production. Confidence scores, harm categories, severity levels, and trend tracking needed. Strengthens core differentiator |

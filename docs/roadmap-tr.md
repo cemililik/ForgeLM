@@ -22,7 +22,8 @@ Bu yol haritası, [2026 İyileştirme Önerisi](2026_upgrade_proposal-tr.md), ka
 | Faz 5.5: Teknik Borç Çözümü | **Tamamlandı** | 7/7 |
 | Faz 6: Kurumsal Güven ve Uyumluluk | **Tamamlandı** | 5/5 |
 | Faz 7: Yeni Nesil Model Desteği | **Tamamlandı** | 5/5 |
-| Faz 8: EU AI Act Derin Uyumluluk | **Planlandı** | 0/10 |
+| Faz 8: EU AI Act Derin Uyumluluk | **Tamamlandı** | 10/10 |
+| Faz 9: Gelişmiş Güvenlik Değerlendirme | **Planlandı** | 0/8 |
 
 ---
 
