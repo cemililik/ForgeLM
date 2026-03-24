@@ -1,5 +1,6 @@
 # Internal strategy & marketing docs (not public)
 docs/marketing/
+docs/code_reviews/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
