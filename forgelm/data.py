@@ -106,7 +106,13 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
     def process_batch(examples):
         # Handle pre-formatted text column (e.g., openassistant-guanaco)
         if "text" in examples and "User" not in examples and "messages" not in examples:
-            return {"text": examples["text"]}
+            texts = []
+            for t in examples["text"]:
+                t = clean_string(t, config.data.clean_text)
+                if config.data.add_eos and t and not t.endswith(tokenizer.eos_token):
+                    t += tokenizer.eos_token
+                texts.append(t)
+            return {"text": texts}
 
         # Handle modern conversational format (messages column)
         if "messages" in examples:
