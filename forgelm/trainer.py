@@ -96,7 +96,7 @@ class ForgeTrainer:
             optim="adamw_torch_fused" if torch.cuda.is_available() else "adamw_torch",
             bf16=torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
             fp16=torch.cuda.is_available() and not torch.cuda.is_bf16_supported(),
-            use_cpu=not torch.cuda.is_available(),
+            no_cuda=not torch.cuda.is_available(),
             report_to=getattr(self.config.training, "report_to", "tensorboard"),
             run_name=getattr(self.config.training, "run_name", None) or self.run_name,
         )
@@ -183,7 +183,7 @@ class ForgeTrainer:
         if tt == "sft":
             kwargs["packing"] = bool(getattr(self.config.training, "packing", False))
             kwargs["dataset_text_field"] = "text"
-            kwargs["max_length"] = self.config.model.max_length
+            kwargs["max_seq_length"] = self.config.model.max_length
             return SFTConfig(**kwargs)
 
         elif tt == "orpo":
