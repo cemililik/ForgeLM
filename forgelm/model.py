@@ -157,33 +157,37 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
 
 
 def _apply_moe_expert_quantization(model, num_experts: int) -> None:
-    """Quantize inactive MoE expert parameters to int8 for VRAM savings.
+    """Reduce MoE expert memory by freezing and converting to half precision.
 
-    Scans model for expert modules and converts non-trainable expert
-    parameters to int8, reducing memory footprint significantly for
-    MoE models like Qwen3, Mixtral, and DeepSeek.
+    Converts frozen expert weights to float16/bfloat16 for VRAM savings.
+    Note: True int8 quantization requires bitsandbytes Linear8bitLt —
+    raw dtype casting to int8 destroys weight values and is NOT used here.
     """
-    quantized_count = 0
-    for name, module in model.named_modules():
-        # MoE expert layers typically follow patterns like:
-        # model.layers.N.mlp.experts.M or model.layers.N.block_sparse_moe.experts.M
-        if "expert" in name.lower() and hasattr(module, "weight"):
-            if module.weight.requires_grad is False:
-                try:
-                    module.weight.data = module.weight.data.to(torch.int8)
-                    quantized_count += 1
-                except Exception as e:
-                    logger.debug("Could not quantize %s: %s", name, e)
+    optimized_count = 0
+    target_dtype = torch.float16
+    if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+        target_dtype = torch.bfloat16
 
-    if quantized_count > 0:
+    for name, module in model.named_modules():
+        if "expert" in name.lower() and hasattr(module, "weight"):
+            if not module.weight.requires_grad:
+                try:
+                    if module.weight.dtype != target_dtype:
+                        module.weight.data = module.weight.data.to(target_dtype)
+                        optimized_count += 1
+                except Exception as e:
+                    logger.debug("Could not optimize %s: %s", name, e)
+
+    if optimized_count > 0:
         logger.info(
-            "MoE expert quantization: %d expert weight tensors quantized to int8.",
-            quantized_count,
+            "MoE expert optimization: %d expert weight tensors converted to %s for VRAM savings.",
+            optimized_count,
+            target_dtype,
         )
     else:
         logger.info(
-            "MoE expert quantization: no frozen expert weights found to quantize. "
-            "Quantization applies after LoRA freezes non-target parameters."
+            "MoE expert optimization: no frozen expert weights found. "
+            "Optimization applies after LoRA freezes non-target parameters."
         )
 
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import json
 import logging
@@ -265,7 +267,7 @@ def _run_compliance_export(config: ForgeConfig, output_dir: str, output_format: 
             logger.info("  %s", f)
 
 
-def _resolve_resume_checkpoint(checkpoint_dir: str, resume_arg: str) -> str:
+def _resolve_resume_checkpoint(checkpoint_dir: str, resume_arg: str) -> str | None:
     """Resolve the checkpoint path for --resume."""
     if resume_arg != "auto":
         if not os.path.isdir(resume_arg):
@@ -338,7 +340,8 @@ def _output_result(result, output_format: str) -> None:
             logger.info("Benchmark Results:")
             for task, score in result.benchmark_scores.items():
                 logger.info("  %s: %.4f", task, score)
-            logger.info("  Average: %.4f", result.benchmark_average)
+            if result.benchmark_average is not None:
+                logger.info("  Average: %.4f", result.benchmark_average)
 
 
 def main():

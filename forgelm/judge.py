@@ -175,12 +175,14 @@ def run_judge_evaluation(
             logger.error("Failed to load local judge model: %s", e)
             return JudgeResult(passed=False, failure_reason=f"Judge model load failed: {e}")
 
+    import torch as _torch
+
     for prompt in eval_prompts:
         # Generate response from fine-tuned model
         try:
             inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
             inputs = {k: v.to(model.device) for k, v in inputs.items()}
-            with __import__("torch").no_grad():
+            with _torch.no_grad():
                 outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
             response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
         except Exception as e:

@@ -218,6 +218,16 @@ class WebhookConfig(BaseModel):
 class AuthConfig(BaseModel):
     hf_token: Optional[str] = None
 
+    def __repr__(self) -> str:
+        return "AuthConfig(hf_token='***')" if self.hf_token else "AuthConfig(hf_token=None)"
+
+    def model_dump(self, **kwargs):
+        """Override to always exclude token from serialization."""
+        data = super().model_dump(**kwargs)
+        if "hf_token" in data and data["hf_token"]:
+            data["hf_token"] = "***REDACTED***"
+        return data
+
 
 class ForgeConfig(BaseModel):
     model: ModelConfig

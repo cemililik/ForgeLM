@@ -94,8 +94,8 @@ class ForgeTrainer:
             greater_is_better=False,
             gradient_checkpointing=True,
             optim="adamw_torch_fused" if torch.cuda.is_available() else "adamw_torch",
-            fp16=False,
-            bf16=False,
+            bf16=torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
+            fp16=torch.cuda.is_available() and not torch.cuda.is_bf16_supported(),
             no_cuda=not torch.cuda.is_available(),
             report_to=getattr(self.config.training, "report_to", "tensorboard"),
             run_name=getattr(self.config.training, "run_name", None) or self.run_name,
@@ -300,7 +300,9 @@ class ForgeTrainer:
     def train(self, resume_from_checkpoint: Optional[str] = None) -> TrainResult:
         """Starts the main training loop. Returns TrainResult with status and metrics."""
         self.notifier.notify_start(run_name=self.run_name)
-        callbacks = [EarlyStoppingCallback(early_stopping_patience=3)]
+        callbacks = []
+        if self.dataset.get("validation"):
+            callbacks.append(EarlyStoppingCallback(early_stopping_patience=3))
 
         tt = self._trainer_type
         training_args = self._get_training_args_for_type()
@@ -508,7 +510,11 @@ class ForgeTrainer:
             if self.config.evaluation and self.config.evaluation.require_human_approval:
                 self.audit.log_event("human_approval.required", model_path=final_path)
                 logger.info("Human approval required. Model saved to staging: %s", final_path)
-                logger.info("Review evaluation results and run: forgelm --approve %s", self.audit.run_id)
+                logger.info(
+                    "Review results in %s/compliance/ and redeploy when ready. Run ID: %s",
+                    self.checkpoint_dir,
+                    self.audit.run_id,
+                )
                 train_result.success = True
                 # Exit code 4 handled by CLI
                 return train_result

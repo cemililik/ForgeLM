@@ -88,7 +88,7 @@ def run_wizard() -> str:
     print("=" * 60)
 
     # Step 1: Hardware Detection
-    print("\n[1/6] Hardware Detection")
+    print("\n[1/7] Hardware Detection")
     hw = _detect_hardware()
     if hw["gpu_available"]:
         print(f"  GPU detected: {hw['gpu_name']} ({hw['vram_gb']} GB VRAM, CUDA {hw['cuda_version']})")
@@ -105,7 +105,7 @@ def run_wizard() -> str:
             print("  Recommended backend: transformers (Unsloth requires Linux)")
 
     # Step 2: Model Selection
-    print("\n[2/6] Model Selection")
+    print("\n[2/7] Model Selection")
     print("  Popular models:")
     for i, m in enumerate(POPULAR_MODELS, 1):
         print(f"    {i}) {m}")
@@ -124,7 +124,7 @@ def run_wizard() -> str:
     print(f"  Selected: {model_name}")
 
     # Step 3: Strategy Selection
-    print("\n[3/6] Fine-Tuning Strategy")
+    print("\n[3/7] Fine-Tuning Strategy")
     strategies = [
         "QLoRA (4-bit quantization — recommended, lowest memory)",
         "LoRA (full precision — more memory, slightly better quality)",

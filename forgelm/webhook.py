@@ -36,12 +36,18 @@ class WebhookNotifier:
         if not url:
             return
 
+        if url.startswith("http://"):
+            logger.warning("Webhook URL uses HTTP (not HTTPS). Data will be sent unencrypted.")
+
+        # Sanitize metrics — only include numeric values
+        safe_metrics = {k: v for k, v in (metrics or {}).items() if isinstance(v, (int, float))}
+
         # Generic webhook payload (works for most HTTP receivers)
         payload = {
             "event": event,
             "run_name": run_name,
             "status": status,
-            "metrics": metrics or {},
+            "metrics": safe_metrics,
             "reason": reason,
             # Slack-compatible formatting (receivers can ignore)
             "attachments": [{"title": title, "text": text, "color": color}],
@@ -74,7 +80,7 @@ class WebhookNotifier:
 
     def notify_success(self, run_name: str, metrics: Dict[str, float]) -> None:
         if self.config and self.config.notify_on_success:
-            metrics_str = "\n".join([f"• {k}: {v:.4f}" for k, v in metrics.items()])
+            metrics_str = "\n".join([f"• {k}: {v:.4f}" for k, v in metrics.items() if isinstance(v, (int, float))])
             self._send(
                 event="training.success",
                 run_name=run_name,

@@ -136,8 +136,8 @@ def generate_model_card(
     # Determine method
     method = "QLoRA (4-bit)" if config.model.load_in_4bit else "LoRA"
     trainer_type = getattr(config.training, "trainer_type", "sft")
-    if trainer_type == "orpo":
-        method += " + ORPO"
+    if trainer_type != "sft":
+        method += f" + {trainer_type.upper()}"
     if config.lora.use_dora:
         method += " + DoRA"
 
@@ -147,8 +147,8 @@ def generate_model_card(
         extra_tags.append("- dora")
     if config.model.load_in_4bit:
         extra_tags.append("- qlora")
-    if trainer_type == "orpo":
-        extra_tags.append("- orpo")
+    if trainer_type != "sft":
+        extra_tags.append(f"- {trainer_type}")
     if safety_cfg and safety_cfg.enabled:
         extra_tags.append("- safety-evaluated")
     extra_tags_str = "\n".join(extra_tags)

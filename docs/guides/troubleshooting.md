@@ -269,7 +269,7 @@ docker run --gpus all --shm-size=16g ...
 | `1` | Config error | Fix your YAML |
 | `2` | Training error | Check GPU, memory, dependencies |
 | `3` | Evaluation failure | Model quality below threshold — adjust thresholds or improve data |
-| `4` | Awaiting approval | Human review required — run `forgelm --approve <run_id>` after review |
+| `4` | Awaiting approval | Human review required — review results in `checkpoints/compliance/` and redeploy when ready |
 
 ---
 

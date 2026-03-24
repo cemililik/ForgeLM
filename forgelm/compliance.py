@@ -119,9 +119,10 @@ def generate_model_integrity(final_path: str) -> Dict[str, Any]:
     if not os.path.isdir(final_path):
         return integrity
 
-    for filename in sorted(os.listdir(final_path)):
-        filepath = os.path.join(final_path, filename)
-        if os.path.isfile(filepath):
+    for root, _dirs, files in os.walk(final_path):
+        for filename in sorted(files):
+            filepath = os.path.join(root, filename)
+            rel_path = os.path.relpath(filepath, final_path)
             sha256 = hashlib.sha256()
             size = 0
             with open(filepath, "rb") as f:
@@ -130,7 +131,7 @@ def generate_model_integrity(final_path: str) -> Dict[str, Any]:
                     size += len(chunk)
             integrity["artifacts"].append(
                 {
-                    "file": filename,
+                    "file": rel_path,
                     "sha256": sha256.hexdigest(),
                     "size_bytes": size,
                 }

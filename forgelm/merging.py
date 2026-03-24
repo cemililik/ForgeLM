@@ -154,9 +154,15 @@ def _slerp_merge(base_model, adapters):
     logger.info("Performing SLERP merge between 2 adapters...")
     t = adapters[1].get("weight", 0.5)  # interpolation factor
 
+    # Save base state to restore between adapter loads
+    base_state = {k: v.clone() for k, v in base_model.state_dict().items()}
+
     model_a = PeftModel.from_pretrained(base_model, adapters[0]["path"])
     state_a = model_a.merge_and_unload().state_dict()
     del model_a
+
+    # Restore base model before loading second adapter
+    base_model.load_state_dict(base_state, strict=True)
 
     model_b = PeftModel.from_pretrained(base_model, adapters[1]["path"])
     state_b = model_b.merge_and_unload().state_dict()
@@ -278,6 +284,9 @@ def _ties_merge_tensor(deltas, weights, trim_fraction=0.2):
 def _dare_merge_tensor(deltas, weights, drop_rate=0.3):
     """DARE merge for a single tensor: random drop + rescale."""
     import torch
+
+    if drop_rate >= 1.0:
+        return torch.zeros_like(deltas[0])
 
     result = torch.zeros_like(deltas[0])
     for delta, w in zip(deltas, weights):

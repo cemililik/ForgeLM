@@ -22,6 +22,8 @@ def _detect_dataset_format(columns: list) -> dict:
         c in columns for c in ("Assistant", "output", "response")
     ):
         return {"description": "instruction-tuning format (User/Assistant)", "suggested_trainer": "sft"}
+    if "text" in columns:
+        return {"description": "pre-formatted text column", "suggested_trainer": "sft"}
     return {"description": f"unknown format ({', '.join(columns[:5])})", "suggested_trainer": "sft"}
 
 

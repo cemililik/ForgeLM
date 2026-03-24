@@ -285,7 +285,7 @@ graph LR
    - Saves model to a staging directory (not final)
    - Outputs evaluation summary to stdout/JSON
    - Exits with code `4` (new: "awaiting approval")
-   - A second command `forgelm --approve <run_id>` moves the model to final directory
+   - Review results in `checkpoints/compliance/` and redeploy when ready
    ```yaml
    evaluation:
      require_human_approval: true

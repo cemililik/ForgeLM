@@ -49,7 +49,7 @@ Automated by ForgeLM:
 
 Manual:
 - [ ] ML Lead reviews evaluation results
-- [ ] If `require_human_approval: true`, ML Lead runs `forgelm --approve <run_id>`
+- [ ] If `require_human_approval: true`, ML Lead reviews `checkpoints/compliance/` and approves deployment
 - [ ] Spot-check model outputs on 10+ representative prompts
 
 ### 4.4 Deployment Approval

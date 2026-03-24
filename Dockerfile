@@ -72,8 +72,8 @@ FROM deps AS runtime
 # Copy full source
 COPY . .
 
-# Re-install with full source
-RUN python3 -m pip install --no-cache-dir -e .
+# Install with full source (non-editable for production)
+RUN python3 -m pip install --no-cache-dir .
 
 # Default working directory for user configs/data
 WORKDIR /workspace
