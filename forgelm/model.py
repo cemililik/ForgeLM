@@ -86,10 +86,16 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
     model_kwargs = {
         "trust_remote_code": trust_remote_code,
     }
-    if not is_distributed:
+    if is_distributed:
+        logger.info("Distributed training detected — skipping device_map.")
+    elif config.model.load_in_4bit:
+        # 4-bit quantization needs device_map for layer placement
         model_kwargs["device_map"] = "auto"
-    else:
-        logger.info("Distributed training detected — skipping device_map='auto'.")
+    elif torch.cuda.is_available():
+        # Single GPU: place entire model on GPU without device_map
+        # device_map="auto" can split model across CPU/GPU causing grad issues
+        model_kwargs["device_map"] = {"": 0}
+    # CPU: no device_map needed
 
     if torch.cuda.is_available() and config.model.load_in_4bit:
         logger.info("Using 4-bit QLoRA quantization...")
