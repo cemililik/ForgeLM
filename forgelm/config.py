@@ -64,6 +64,7 @@ class TrainingConfig(BaseModel):
     final_model_dir: str = "final_model"
     merge_adapters: bool = False
     trainer_type: str = "sft"  # "sft", "orpo", "dpo", "simpo", "kto", "grpo"
+    max_steps: int = -1  # -1 = use num_train_epochs; positive value overrides epochs
     num_train_epochs: int = 3
     per_device_train_batch_size: int = 4
     gradient_accumulation_steps: int = 2

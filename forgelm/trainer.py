@@ -77,6 +77,7 @@ class ForgeTrainer:
         """Return training arguments common to both SFT and ORPO."""
         kwargs = dict(
             output_dir=self.checkpoint_dir,
+            max_steps=self.config.training.max_steps,
             num_train_epochs=self.config.training.num_train_epochs,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
             gradient_accumulation_steps=self.config.training.gradient_accumulation_steps,
