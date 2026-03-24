@@ -104,9 +104,11 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
 
     model = AutoModelForCausalLM.from_pretrained(config.model.name_or_path, **model_kwargs)
 
+    # enable_input_require_grads is needed for gradient checkpointing with LoRA
+    if hasattr(model, "enable_input_require_grads"):
+        model.enable_input_require_grads()
+
     if torch.cuda.is_available() and config.model.load_in_4bit:
-        if hasattr(model, "enable_input_require_grads"):
-            model.enable_input_require_grads()
         model = prepare_model_for_kbit_training(model)
 
     # Resolve PEFT method

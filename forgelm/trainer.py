@@ -92,7 +92,7 @@ class ForgeTrainer:
             load_best_model_at_end=True,
             metric_for_best_model="eval_loss",
             greater_is_better=False,
-            gradient_checkpointing=True,
+            gradient_checkpointing=torch.cuda.is_available(),
             optim="adamw_torch_fused" if torch.cuda.is_available() else "adamw_torch",
             bf16=torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
             fp16=torch.cuda.is_available() and not torch.cuda.is_bf16_supported(),
