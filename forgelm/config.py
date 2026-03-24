@@ -1,9 +1,9 @@
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 logger = logging.getLogger("forgelm.config")
 
@@ -43,7 +43,7 @@ class ModelConfig(BaseModel):
     multimodal: Optional[MultimodalConfig] = None  # VLM fine-tuning settings
     # Optional advanced bitsandbytes knobs (Transformers backend)
     bnb_4bit_use_double_quant: bool = True
-    bnb_4bit_quant_type: str = "nf4"  # typically "nf4"
+    bnb_4bit_quant_type: Literal["nf4", "fp4"] = "nf4"
     bnb_4bit_compute_dtype: str = "auto"  # "auto" | "bfloat16" | "float16" | "float32"
 
 
@@ -74,6 +74,7 @@ class TrainingConfig(BaseModel):
     save_steps: int = 200
     save_total_limit: int = 3
     packing: bool = False
+    early_stopping_patience: int = 3
     # --- Alignment trainer parameters ---
     orpo_beta: float = 0.1  # ORPO odds ratio weight
     dpo_beta: float = 0.1  # DPO temperature parameter
@@ -86,7 +87,7 @@ class TrainingConfig(BaseModel):
         None  # GRPO: HF model path for reward scoring (None = use default verifiable rewards)
     )
     # --- Tracking ---
-    report_to: str = "tensorboard"  # "tensorboard", "wandb", "mlflow", or "none"
+    report_to: Literal["tensorboard", "wandb", "mlflow", "none"] = "tensorboard"
     run_name: Optional[str] = None  # W&B/MLflow run name; auto-generated if None
 
 
@@ -230,6 +231,8 @@ class AuthConfig(BaseModel):
 
 
 class ForgeConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     model: ModelConfig
     lora: LoraConfigModel
     training: TrainingConfig

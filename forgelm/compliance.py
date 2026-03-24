@@ -32,19 +32,27 @@ class AuditLogger:
         os.makedirs(output_dir, exist_ok=True)
         self.log_path = os.path.join(output_dir, "audit_log.jsonl")
         self.operator = os.getenv("FORGELM_OPERATOR", os.getenv("USER", "unknown"))
+        self._prev_hash = "genesis"  # Hash chain seed for tamper-evidence
 
     def log_event(self, event: str, **details) -> None:
-        """Append a structured event to the audit log."""
+        """Append a tamper-evident structured event to the audit log.
+
+        Each entry includes the SHA-256 hash of the previous entry,
+        creating a hash chain that detects modifications or deletions.
+        """
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "run_id": self.run_id,
             "operator": self.operator,
             "event": event,
+            "prev_hash": self._prev_hash,
             **details,
         }
         try:
+            entry_json = json.dumps(entry, default=str)
+            self._prev_hash = hashlib.sha256(entry_json.encode()).hexdigest()
             with open(self.log_path, "a") as f:
-                f.write(json.dumps(entry, default=str) + "\n")
+                f.write(entry_json + "\n")
         except Exception as e:
             logger.warning("Failed to write audit log entry: %s", e)
 

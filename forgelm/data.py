@@ -29,6 +29,9 @@ def _detect_dataset_format(columns: list) -> dict:
 
 def clean_string(text: str, do_clean: bool) -> str:
     """Removes extra whitespace if configured."""
+    if text is None:
+        logger.warning("None value encountered in dataset column during text cleaning.")
+        return ""
     if do_clean and isinstance(text, str):
         return " ".join(text.split())
     return str(text) if text else ""
@@ -260,7 +263,7 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
             process_batch,
             batched=True,
             remove_columns=current_dataset.column_names,
-            num_proc=4 if os.cpu_count() and os.cpu_count() > 4 else 1,
+            num_proc=min(os.cpu_count() or 1, 8),
             desc=f"Formatting {split} split",
         )
 

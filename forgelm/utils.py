@@ -53,8 +53,14 @@ def manage_checkpoints(checkpoint_dir: str, action: str = "keep") -> None:
     if action == "keep":
         logger.debug("Keeping checkpoints in %s (no cleanup).", checkpoint_dir)
     elif action == "delete":
-        shutil.rmtree(checkpoint_dir, ignore_errors=True)
-        logger.info("Checkpoints in %s deleted.", checkpoint_dir)
+        # Only remove checkpoint-* subdirectories, not the entire output dir
+        deleted = 0
+        for entry in os.listdir(checkpoint_dir):
+            entry_path = os.path.join(checkpoint_dir, entry)
+            if os.path.isdir(entry_path) and entry.startswith("checkpoint-"):
+                shutil.rmtree(entry_path, ignore_errors=True)
+                deleted += 1
+        logger.info("Deleted %d checkpoint directories in %s.", deleted, checkpoint_dir)
     elif action == "compress":
         # Use UUID suffix to prevent archive name collisions
         archive_name = f"checkpoints_{int(time.time())}_{uuid.uuid4().hex[:6]}.tar.gz"

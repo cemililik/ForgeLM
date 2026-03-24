@@ -426,24 +426,24 @@ def main():
         from .trainer import ForgeTrainer
         from .utils import manage_checkpoints, setup_authentication
 
-        # 5. Setup HF Authentication (skipped in offline mode)
+        # 7. Setup HF Authentication (skipped in offline mode)
         if not config.model.offline:
             setup_authentication(config.auth.hf_token if config.auth else None)
         else:
             logger.info("Skipping HF authentication (offline mode).")
 
-        # 6. Model & Tokenizer
+        # 8. Model & Tokenizer
         model, tokenizer = get_model_and_tokenizer(config)
 
-        # 5. Data Preprocessing
+        # 9. Data Preprocessing
         dataset = prepare_dataset(config, tokenizer)
 
-        # 6. Resolve checkpoint resume
+        # 10. Resolve checkpoint resume
         resume_checkpoint = None
         if args.resume:
             resume_checkpoint = _resolve_resume_checkpoint(config.training.output_dir, args.resume)
 
-        # 7. Training
+        # 11. Training
         trainer = ForgeTrainer(model=model, tokenizer=tokenizer, config=config, dataset=dataset)
         result = trainer.train(resume_from_checkpoint=resume_checkpoint)
 

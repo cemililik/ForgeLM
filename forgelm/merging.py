@@ -123,23 +123,9 @@ def _linear_merge(base_model, adapters):
 
 
 def _advanced_merge(base_model, adapters, method):
-    """TIES or DARE merge — requires mergekit or manual implementation."""
-    logger.info("Using %s merge strategy.", method.upper())
-
-    # Try mergekit first
-    try:
-        import mergekit  # noqa: F401
-
-        logger.info("mergekit detected — using native %s merge.", method)
-        return _mergekit_merge(base_model, adapters, method)
-    except ImportError:
-        pass
-
-    # Fallback to linear merge with warning
-    logger.warning(
-        "%s merge requires mergekit (pip install mergekit). Falling back to linear interpolation.", method.upper()
-    )
-    return _linear_merge(base_model, adapters)
+    """TIES or DARE merge using native PyTorch implementation."""
+    logger.info("Using %s merge strategy (native implementation).", method.upper())
+    return _ties_dare_merge(base_model, adapters, method)
 
 
 def _slerp_merge(base_model, adapters):
@@ -191,7 +177,7 @@ def _slerp_merge(base_model, adapters):
     return base_model
 
 
-def _mergekit_merge(base_model, adapters, method):
+def _ties_dare_merge(base_model, adapters, method):
     """Merge using TIES or DARE algorithm directly on state dicts.
 
     TIES (TIES-Merging): Trim, Elect Sign, and Merge

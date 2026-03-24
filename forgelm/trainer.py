@@ -96,10 +96,9 @@ class ForgeTrainer:
             optim="adamw_torch_fused" if torch.cuda.is_available() else "adamw_torch",
             bf16=torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
             fp16=torch.cuda.is_available() and not torch.cuda.is_bf16_supported(),
-            no_cuda=not torch.cuda.is_available(),
+            use_cpu=not torch.cuda.is_available(),
             report_to=getattr(self.config.training, "report_to", "tensorboard"),
             run_name=getattr(self.config.training, "run_name", None) or self.run_name,
-            max_length=self.config.model.max_length,
         )
 
         # Inject distributed training configuration
@@ -184,6 +183,7 @@ class ForgeTrainer:
         if tt == "sft":
             kwargs["packing"] = bool(getattr(self.config.training, "packing", False))
             kwargs["dataset_text_field"] = "text"
+            kwargs["max_length"] = self.config.model.max_length
             return SFTConfig(**kwargs)
 
         elif tt == "orpo":
@@ -302,7 +302,8 @@ class ForgeTrainer:
         self.notifier.notify_start(run_name=self.run_name)
         callbacks = []
         if self.dataset.get("validation"):
-            callbacks.append(EarlyStoppingCallback(early_stopping_patience=3))
+            patience = getattr(self.config.training, "early_stopping_patience", 3)
+            callbacks.append(EarlyStoppingCallback(early_stopping_patience=patience))
 
         tt = self._trainer_type
         training_args = self._get_training_args_for_type()
