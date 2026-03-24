@@ -104,6 +104,10 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
         dataset = DatasetDict({"train": split_dataset["train"], "validation": split_dataset["test"]})
 
     def process_batch(examples):
+        # Handle pre-formatted text column (e.g., openassistant-guanaco)
+        if "text" in examples and "User" not in examples and "messages" not in examples:
+            return {"text": examples["text"]}
+
         # Handle modern conversational format (messages column)
         if "messages" in examples:
             texts = []
@@ -123,12 +127,21 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
             return {"text": texts}
 
         has_system = "System" in examples
-        sys_texts = examples["System"] if has_system else [""] * len(examples.get("User", examples.get("text", [])))
+        sys_texts = (
+            examples["System"] if has_system else [""] * len(examples.get("User", examples.get("instruction", [])))
+        )
         user_texts = examples.get("User", examples.get("instruction", []))
         asst_texts = examples.get("Assistant", examples.get("output", examples.get("response", [])))
 
         if not user_texts or not asst_texts:
-            raise KeyError("Dataset must contain 'User'/'instruction' and 'Assistant'/'output' columns.")
+            _fmt = _detect_dataset_format(list(examples.keys()))
+            raise KeyError(
+                f"Dataset must contain 'User'/'instruction' and 'Assistant'/'output' columns, "
+                f"or a pre-formatted 'text' column. "
+                f"Found: {list(examples.keys())}. "
+                f"Detected format: {_fmt['description']}. "
+                f"Suggested trainer: {_fmt['suggested_trainer']}"
+            )
 
         texts = []
         for sys_text, user_text, asst_text in zip(sys_texts, user_texts, asst_texts):
