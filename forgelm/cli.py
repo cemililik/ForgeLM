@@ -447,11 +447,11 @@ def main():
         trainer = ForgeTrainer(model=model, tokenizer=tokenizer, config=config, dataset=dataset)
         result = trainer.train(resume_from_checkpoint=resume_checkpoint)
 
-        # 8. Checkpoint cleanup/compression
+        # 12. Checkpoint cleanup/compression
         logger.info("Cleaning up intermediate checkpoints...")
         manage_checkpoints(config.training.output_dir, action="keep")
 
-        # 9. Output result
+        # 13. Output result
         _output_result(result, args.output_format)
         # Human approval gate: exit code 4 if awaiting approval
         if result.success and config.evaluation and getattr(config.evaluation, "require_human_approval", False):

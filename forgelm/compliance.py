@@ -173,6 +173,19 @@ def compute_dataset_fingerprint(dataset_path: str) -> Dict[str, Any]:
     else:
         fingerprint["source"] = "huggingface_hub"
         fingerprint["dataset_id"] = dataset_path
+        # Attempt to capture dataset version/revision from HF Hub
+        try:
+            from datasets import load_dataset_builder
+
+            builder = load_dataset_builder(dataset_path)
+            if builder.info.version:
+                fingerprint["version"] = str(builder.info.version)
+            if builder.info.description:
+                fingerprint["description"] = builder.info.description[:200]
+            if builder.info.download_size:
+                fingerprint["download_size_bytes"] = builder.info.download_size
+        except Exception:
+            pass  # Hub metadata is best-effort, not critical
 
     return fingerprint
 
