@@ -5,11 +5,30 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "forgelm"
 version = "0.2.0"
-description = "ForgeLM: Config-driven LLM fine-tuning toolkit with LoRA/QLoRA and TRL SFTTrainer."
+description = "Config-driven LLM fine-tuning with safety evaluation, EU AI Act compliance, and 6 alignment methods."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "ForgeLM Contributors" }]
+keywords = [
+  "llm", "fine-tuning", "lora", "qlora", "dpo", "rlhf",
+  "transformers", "peft", "trl", "safety", "eu-ai-act",
+  "deepspeed", "alignment", "machine-learning",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Typing :: Typed",
+]
 
 dependencies = [
   "torch>=2.0.0,<3.0.0",
@@ -57,6 +76,13 @@ dev = [
   "pytest-cov>=5.0.0",
   "ruff>=0.4.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/cemililik/ForgeLM"
+Documentation = "https://github.com/cemililik/ForgeLM/tree/main/docs/guides"
+Repository = "https://github.com/cemililik/ForgeLM"
+Issues = "https://github.com/cemililik/ForgeLM/issues"
+Changelog = "https://github.com/cemililik/ForgeLM/blob/main/CHANGELOG.md"
 
 [project.scripts]
 forgelm = "forgelm.cli:main"
