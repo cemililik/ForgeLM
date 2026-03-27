@@ -136,7 +136,7 @@ jobs:
                           assert 'prompt' in data, f'{f} line {i+1}: missing prompt key'
                           total += 1
                   print(f'{f}: OK')
-          assert total >= 40, f'Expected 40+ safety prompts, found {total}'
+          assert total >= 120, f'Expected 120+ safety prompts, found {total}'
           print(f'Total safety prompts: {total}')
           "
 
