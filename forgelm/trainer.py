@@ -446,12 +446,13 @@ class ForgeTrainer:
                     train_result.reverted = True
                     return train_result
 
-            # Resource tracking
+            # Resource tracking + cost estimation
             train_result.resource_usage = self._collect_resource_usage()
             if train_result.resource_usage:
                 for k, v in train_result.resource_usage.items():
                     if isinstance(v, (int, float)):
                         metrics[f"resource/{k}"] = v
+                train_result.estimated_cost_usd = train_result.resource_usage.get("estimated_cost_usd")
 
             # Post-training safety evaluation
             safety_result = self._run_safety_if_configured(final_path)
@@ -610,21 +611,74 @@ class ForgeTrainer:
         except Exception as e:
             logger.warning("Failed to generate model card: %s", e)
 
+    # Known GPU on-demand pricing ($/hour, approximate mid-2026 cloud averages)
+    _GPU_PRICING = {
+        # Consumer / Colab
+        "Tesla T4": 0.35,
+        "Tesla P100": 0.45,
+        "Tesla V100": 1.00,
+        "Tesla K80": 0.20,
+        # Data center
+        "NVIDIA A10G": 0.75,
+        "NVIDIA A100-SXM4-40GB": 1.50,
+        "NVIDIA A100-SXM4-80GB": 2.00,
+        "NVIDIA A100 80GB PCIe": 2.00,
+        "NVIDIA H100 80GB HBM3": 3.50,
+        "NVIDIA H100 SXM5 80GB": 3.95,
+        "NVIDIA H200": 4.50,
+        "NVIDIA L4": 0.50,
+        "NVIDIA L40S": 1.20,
+        "NVIDIA B200": 5.00,
+        # RTX (self-hosted, estimated electricity + amortization)
+        "NVIDIA GeForce RTX 3090": 0.15,
+        "NVIDIA GeForce RTX 4090": 0.20,
+    }
+
     def _collect_resource_usage(self) -> Optional[Dict[str, Any]]:
-        """Collect GPU resource usage metrics."""
+        """Collect GPU resource usage metrics and estimate training cost."""
         usage = {}
         try:
             if torch.cuda.is_available():
-                usage["gpu_model"] = torch.cuda.get_device_name(0)
+                gpu_name = torch.cuda.get_device_name(0)
+                usage["gpu_model"] = gpu_name
                 usage["peak_vram_gb"] = round(torch.cuda.max_memory_allocated(0) / (1024**3), 2)
                 usage["gpu_count"] = torch.cuda.device_count()
-            # Training duration is in metrics from HF Trainer
+            # Training duration from HF Trainer
             log_history = getattr(self.trainer.state, "log_history", None)
             train_runtime = log_history[-1].get("train_runtime") if log_history else None
             if train_runtime:
                 usage["training_duration_seconds"] = round(train_runtime, 1)
-                gpu_hours = (train_runtime / 3600) * usage.get("gpu_count", 1)
+                gpu_count = usage.get("gpu_count", 1)
+                gpu_hours = (train_runtime / 3600) * gpu_count
                 usage["gpu_hours"] = round(gpu_hours, 3)
+
+                # Cost estimation
+                cost_per_hour = getattr(self.config.training, "gpu_cost_per_hour", None)
+                if cost_per_hour is None:
+                    gpu_name = usage.get("gpu_model", "")
+                    cost_per_hour = self._GPU_PRICING.get(gpu_name)
+                    if cost_per_hour:
+                        usage["cost_source"] = "auto_detected"
+                    else:
+                        # Try partial match (GPU names vary across drivers)
+                        for known_gpu, price in self._GPU_PRICING.items():
+                            if known_gpu.lower() in gpu_name.lower() or gpu_name.lower() in known_gpu.lower():
+                                cost_per_hour = price
+                                usage["cost_source"] = "fuzzy_match"
+                                break
+                else:
+                    usage["cost_source"] = "user_config"
+
+                if cost_per_hour is not None:
+                    usage["gpu_cost_per_hour_usd"] = cost_per_hour
+                    estimated_cost = gpu_hours * cost_per_hour
+                    usage["estimated_cost_usd"] = round(estimated_cost, 4)
+                    logger.info(
+                        "Estimated training cost: $%.4f (%.3f GPU-hours × $%.2f/hr)",
+                        estimated_cost,
+                        gpu_hours,
+                        cost_per_hour,
+                    )
         except Exception as e:
             logger.warning("Failed to collect resource usage: %s", e)
         return usage if usage else None

@@ -311,6 +311,8 @@ def _output_result(result, output_format: str) -> None:
             }
         if result.resource_usage:
             output["resource_usage"] = result.resource_usage
+        if result.estimated_cost_usd is not None:
+            output["estimated_cost_usd"] = result.estimated_cost_usd
         if result.safety_passed is not None:
             output["safety"] = {
                 "passed": result.safety_passed,
@@ -334,6 +336,15 @@ def _output_result(result, output_format: str) -> None:
                 logger.error("ForgeLM Pipeline failed autonomous evaluation. Model was reverted.")
             else:
                 logger.error("ForgeLM Pipeline failed.")
+
+        # Print cost estimation in text mode
+        if result.estimated_cost_usd is not None:
+            logger.info("Estimated training cost: $%.4f", result.estimated_cost_usd)
+            if result.resource_usage:
+                gpu_hours = result.resource_usage.get("gpu_hours")
+                cost_source = result.resource_usage.get("cost_source", "unknown")
+                if gpu_hours:
+                    logger.info("  GPU-hours: %.3f (pricing: %s)", gpu_hours, cost_source)
 
         # Print benchmark results in text mode
         if result.benchmark_scores:

@@ -49,6 +49,7 @@ training:
   # grpo_reward_model: "org/reward-model"  # GRPO: reward model for scoring
   # report_to: "tensorboard"  # "tensorboard", "wandb", "mlflow", or "none"
   # run_name: "my_experiment"  # W&B/MLflow run name; auto-generated if omitted
+  # gpu_cost_per_hour: 3.50    # $/hour for GPU; omit to auto-detect from known GPUs
 
 data:
   dataset_name_or_path: "your_dataset_here"

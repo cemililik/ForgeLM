@@ -26,3 +26,5 @@ class TrainResult:
     # Judge evaluation
     judge_score: Optional[float] = None
     judge_details: Optional[List[Dict[str, Any]]] = None
+    # Cost estimation
+    estimated_cost_usd: Optional[float] = None

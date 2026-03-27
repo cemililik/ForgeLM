@@ -90,6 +90,8 @@ class TrainingConfig(BaseModel):
     # --- Tracking ---
     report_to: Literal["tensorboard", "wandb", "mlflow", "none"] = "tensorboard"
     run_name: Optional[str] = None  # W&B/MLflow run name; auto-generated if None
+    # --- Cost estimation ---
+    gpu_cost_per_hour: Optional[float] = None  # $/hour for GPU; None = auto-detect from known GPUs
 
 
 class DistributedConfig(BaseModel):
