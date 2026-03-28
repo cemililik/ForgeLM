@@ -53,7 +53,17 @@ pip install forgelm[eval]
      load_in_4bit: true
    ```
 
-2. **Reduce batch size**:
+2. **Enable automatic OOM recovery** (ForgeLM retries with progressively smaller batch sizes):
+   ```yaml
+   training:
+     per_device_train_batch_size: 8
+     gradient_accumulation_steps: 2
+     oom_recovery: true              # auto-halve batch on OOM
+     oom_recovery_min_batch_size: 1  # stop at batch_size=1
+   ```
+   Effective batch size is preserved across retries. Each attempt is logged to the audit trail.
+
+3. **Reduce batch size manually**:
    ```yaml
    training:
      per_device_train_batch_size: 1

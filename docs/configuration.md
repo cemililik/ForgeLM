@@ -74,6 +74,30 @@ See `config_template.yaml` for a complete annotated example.
 | `report_to` | string | `"tensorboard"` | `"tensorboard"`, `"wandb"`, `"mlflow"`, `"none"` |
 | `run_name` | string | `null` | W&B/MLflow run name (auto-generated if null) |
 
+#### OOM Recovery
+
+Automatically halves `per_device_train_batch_size` and doubles `gradient_accumulation_steps`
+on CUDA out-of-memory errors, preserving the effective batch size. Retries until the minimum
+batch size is reached.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `oom_recovery` | bool | `false` | Retry training with smaller batch size on CUDA OOM |
+| `oom_recovery_min_batch_size` | int | `1` | Stop retrying when batch size reaches this value |
+
+**Example:**
+
+```yaml
+training:
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 2
+  oom_recovery: true
+  oom_recovery_min_batch_size: 1  # try down to batch_size=1 before failing
+```
+
+Effective batch size (`per_device_train_batch_size × gradient_accumulation_steps`) is preserved
+across retries. Each retry attempt is logged to the audit trail.
+
 #### GaLore (Optimizer-Level Memory Optimization)
 
 | Field | Type | Default | Description |

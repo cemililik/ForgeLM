@@ -103,6 +103,11 @@ data:
 #   galore_proj_type: "std"              # "std", "reverse_std", "right", "left", "full"
 #   galore_target_modules: null          # null = auto [".*.attn.*", ".*.mlp.*"]
 
+# OOM Recovery — auto-reduce batch size on CUDA out-of-memory errors
+# training:
+#   oom_recovery: true              # enable automatic OOM recovery (default: false)
+#   oom_recovery_min_batch_size: 1  # minimum batch size before giving up (default: 1)
+
 # MoE-specific settings (for Mixture of Experts models like Qwen3, Mixtral)
 # model:
 #   moe:

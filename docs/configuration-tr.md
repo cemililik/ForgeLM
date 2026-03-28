@@ -49,6 +49,27 @@ Tam açıklamalı örnek için `config_template.yaml` dosyasına bakın.
 | `learning_rate` | float | `2e-5` | Öğrenme oranı |
 | `report_to` | string | `"tensorboard"` | `"tensorboard"`, `"wandb"`, `"mlflow"`, `"none"` |
 
+#### OOM Recovery (Bellek Hatası Kurtarma)
+
+CUDA bellek yetersizliği (out-of-memory) hatalarında `per_device_train_batch_size` değerini
+otomatik olarak yarıya indirir, `gradient_accumulation_steps` değerini ikiye katlar ve
+training'i yeniden dener. Efektif batch boyutu korunur.
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `oom_recovery` | bool | `false` | CUDA OOM hatalarında batch boyutunu küçülterek yeniden dene |
+| `oom_recovery_min_batch_size` | int | `1` | Bu batch boyutuna ulaşınca denemeyi durdur |
+
+**Örnek:**
+
+```yaml
+training:
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 2
+  oom_recovery: true
+  oom_recovery_min_batch_size: 1
+```
+
 #### GaLore (Optimizer Seviyesinde Bellek Optimizasyonu)
 
 | Alan | Tip | Varsayılan | Açıklama |
