@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -33,29 +33,17 @@ jobs:
           name: dist
           path: dist/
 
-  publish-pypi:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/forgelm
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-
+  # TestPyPI: triggered by pre-release tags (e.g., v0.3.0-rc1, v0.3.0-beta)
+  # or releases created from test/development branches
   publish-testpypi:
     needs: build
     runs-on: ubuntu-latest
+    if: github.event.release.prerelease == true
     environment:
       name: testpypi
       url: https://test.pypi.org/p/forgelm
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: dist
           path: dist/
@@ -64,3 +52,20 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+
+  # PyPI: triggered by stable releases (non-prerelease) from main
+  publish-pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event.release.prerelease == false
+    environment:
+      name: pypi
+      url: https://pypi.org/p/forgelm
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
