@@ -64,16 +64,16 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install \
-            "torch==2.0.0" \
-            "transformers==4.38.0" \
-            "peft==0.9.0" \
-            "datasets==2.17.0" \
-            "accelerate==0.27.0" \
+            "torch==2.1.0" \
+            "transformers==4.42.0" \
+            "peft==0.11.0" \
+            "datasets==2.19.0" \
+            "accelerate==0.34.0" \
             "trl==0.12.0" \
             "pydantic==2.0.0" \
             "pyyaml==6.0.1" \
             "tensorboard==2.15.0" \
-            "huggingface_hub==0.20.0" \
+            "huggingface_hub==0.23.0" \
             "requests==2.31.0"
           pip install pytest pytest-cov
 
