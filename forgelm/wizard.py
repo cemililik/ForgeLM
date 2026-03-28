@@ -201,6 +201,11 @@ def run_wizard() -> str:
         use_neftune = True
         neftune_alpha = float(_prompt("NEFTune noise alpha", "5.0"))
 
+    use_oom_recovery = _prompt_yes_no(
+        "Enable OOM recovery? (auto-halves batch size on CUDA out-of-memory, then retries)",
+        default=False,
+    )
+
     # Step 7: GaLore parameters (if selected)
     galore_config = {}
     if use_galore:
@@ -259,6 +264,7 @@ def run_wizard() -> str:
             **galore_config,
             **({"neftune_noise_alpha": neftune_alpha} if use_neftune else {}),
             **({"rope_scaling": rope_scaling} if rope_scaling else {}),
+            **({"oom_recovery": True, "oom_recovery_min_batch_size": 1} if use_oom_recovery else {}),
         },
         "data": {
             "dataset_name_or_path": dataset_path,
