@@ -331,14 +331,8 @@ class ForgeTrainer:
 
         self.notifier.notify_failure(run_name=self.run_name, reason=f"{reason} Adapters discarded.")
 
-    def train(self, resume_from_checkpoint: Optional[str] = None) -> TrainResult:
-        """Starts the main training loop. Returns TrainResult with status and metrics."""
-        self.notifier.notify_start(run_name=self.run_name)
-        callbacks = []
-        if self.dataset.get("validation"):
-            patience = getattr(self.config.training, "early_stopping_patience", 3)
-            callbacks.append(EarlyStoppingCallback(early_stopping_patience=patience))
-
+    def _build_trainer(self, callbacks: list) -> None:
+        """Build (or rebuild) self.trainer from current config. Called on first build and after OOM retry."""
         tt = self._trainer_type
         training_args = self._get_training_args_for_type()
 
@@ -392,6 +386,76 @@ class ForgeTrainer:
         else:
             raise ValueError(f"Unknown trainer_type: {tt}")
 
+    def _run_with_oom_recovery(self, resume_from_checkpoint: Optional[str]) -> Any:
+        """Run self.trainer.train() with optional OOM recovery.
+
+        On CUDA OOM, halves per_device_train_batch_size and doubles
+        gradient_accumulation_steps (preserving effective batch size), clears
+        the CUDA cache, rebuilds the trainer, and retries — until
+        oom_recovery_min_batch_size is reached.
+        """
+        import gc
+
+        import torch
+
+        cfg = self.config.training
+        oom_recovery = getattr(cfg, "oom_recovery", False)
+        min_bs = getattr(cfg, "oom_recovery_min_batch_size", 1)
+        callbacks: list = self.trainer.callback_handler.callbacks if hasattr(self.trainer, "callback_handler") else []
+
+        while True:
+            try:
+                return self.trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+            except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
+                is_oom = "out of memory" in str(e).lower()
+                if not oom_recovery or not is_oom:
+                    raise
+
+                current_bs = cfg.per_device_train_batch_size
+                if current_bs <= min_bs:
+                    logger.error(
+                        "CUDA OOM with batch_size=%d (already at minimum %d). Cannot recover.",
+                        current_bs,
+                        min_bs,
+                    )
+                    raise
+
+                new_bs = max(current_bs // 2, min_bs)
+                factor = current_bs // new_bs
+                new_grad_accum = cfg.gradient_accumulation_steps * factor
+                logger.warning(
+                    "CUDA OOM detected. Retrying with batch_size=%d (was %d), "
+                    "gradient_accumulation_steps=%d (was %d). Effective batch size preserved.",
+                    new_bs,
+                    current_bs,
+                    new_grad_accum,
+                    cfg.gradient_accumulation_steps,
+                )
+                self.audit.log_event(
+                    "training.oom_recovery",
+                    old_batch_size=current_bs,
+                    new_batch_size=new_bs,
+                    new_grad_accum=new_grad_accum,
+                )
+
+                cfg.per_device_train_batch_size = new_bs
+                cfg.gradient_accumulation_steps = new_grad_accum
+
+                gc.collect()
+                torch.cuda.empty_cache()
+
+                self._build_trainer(callbacks)
+
+    def train(self, resume_from_checkpoint: Optional[str] = None) -> TrainResult:
+        """Starts the main training loop. Returns TrainResult with status and metrics."""
+        self.notifier.notify_start(run_name=self.run_name)
+        callbacks = []
+        if self.dataset.get("validation"):
+            patience = getattr(self.config.training, "early_stopping_patience", 3)
+            callbacks.append(EarlyStoppingCallback(early_stopping_patience=patience))
+
+        self._build_trainer(callbacks)
+
         try:
             metrics: Dict[str, float] = {}
             self.audit.log_event("training.started")
@@ -427,7 +491,7 @@ class ForgeTrainer:
                         )
 
             logger.info("Starting training...")
-            hf_train_result = self.trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+            hf_train_result = self._run_with_oom_recovery(resume_from_checkpoint)
 
             metrics.update(hf_train_result.metrics)
             if self.dataset.get("validation"):

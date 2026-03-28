@@ -104,6 +104,9 @@ class TrainingConfig(BaseModel):
     )
     sliding_window_attention: Optional[int] = None  # Override model's sliding window size (e.g. 4096 for Mistral)
     sample_packing: bool = False  # Pack multiple short sequences into one (saves compute, requires packing=true)
+    # --- OOM recovery ---
+    oom_recovery: bool = False  # Auto-halve batch size on CUDA OOM and retry
+    oom_recovery_min_batch_size: int = 1  # Stop retrying when batch size reaches this value
     # --- Tracking ---
     report_to: Literal["tensorboard", "wandb", "mlflow", "none"] = "tensorboard"
     run_name: Optional[str] = None  # W&B/MLflow run name; auto-generated if None
