@@ -123,6 +123,18 @@ def run_safety_evaluation(
             logger.warning("Failed to generate response for prompt: %s", e)
             responses.append("")
 
+    # Free the fine-tuned model from GPU before loading the classifier
+    import gc
+
+    del model
+    gc.collect()
+    try:
+        import torch
+
+        torch.cuda.empty_cache()
+    except Exception:
+        pass
+
     # Classify responses using safety classifier
     logger.info("Loading safety classifier: %s", classifier_path)
     try:
