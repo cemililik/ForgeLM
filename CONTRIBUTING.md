@@ -18,6 +18,7 @@ Thanks for your interest in contributing! ForgeLM is an open-source project and 
 ```bash
 git clone https://github.com/YOUR_USERNAME/ForgeLM.git
 cd ForgeLM
+git remote add upstream https://github.com/cemililik/ForgeLM.git
 ```
 
 ### 2. Install (dev mode)
@@ -28,11 +29,19 @@ python3 -m pip install -e ".[dev]"
 
 ### 3. Create a branch
 
+Always branch from `development`:
+
 ```bash
-git checkout -b fix/my-bugfix
-# or
-git checkout -b feat/my-feature
+git fetch upstream
+git checkout -b feat/my-feature upstream/development
 ```
+
+Branch naming convention:
+- `feat/description` — new feature
+- `fix/description` — bug fix
+- `docs/description` — documentation
+- `test/description` — test coverage
+- `chore/description` — CI, deps, tooling
 
 ### 4. Make your changes
 
@@ -42,11 +51,8 @@ Edit the code, then verify:
 # Run tests
 pytest tests/ -q
 
-# Run linter
-ruff check .
-
-# Check formatting
-ruff format --check .
+# Run linter + format check
+ruff check . && ruff format --check .
 
 # Quick smoke test
 forgelm --config config_template.yaml --dry-run
@@ -54,7 +60,13 @@ forgelm --config config_template.yaml --dry-run
 
 ### 5. Submit a PR
 
-Push your branch and open a Pull Request against `main`. The PR template will guide you through the checklist.
+Push your branch and open a Pull Request against **`development`**.
+
+```
+feature/* ──PR──→ development ──PR──→ main (release only)
+```
+
+> `main` is protected and only receives release PRs from `development`.
 
 ## Development Setup
 
@@ -75,10 +87,11 @@ forgelm/
 ├── model_card.py    # Model card generation
 ├── merging.py       # Model merging (TIES/DARE/SLERP)
 ├── wizard.py        # Interactive config wizard
+├── synthetic.py     # Synthetic data pipeline
 ├── webhook.py       # Notifications
 └── utils.py         # Auth & checkpoints
 
-tests/               # 18+ test files, 200+ tests
+tests/               # 22+ test files, 297+ tests
 notebooks/           # 5 Colab notebooks
 configs/deepspeed/   # ZeRO presets
 docs/guides/         # 6 user guides
@@ -122,7 +135,7 @@ Configuration is in `pyproject.toml` under `[tool.ruff]`.
 - **Keep it simple.** ForgeLM's strength is simplicity. Don't add complexity unless necessary.
 - **Config-driven.** New features should be configurable via YAML. No hardcoded behavior.
 - **Optional dependencies.** Heavy dependencies go in optional groups: `pip install forgelm[feature]`.
-- **Tests required.** Every new feature or bugfix needs a test. We have 179+ tests — keep it growing.
+- **Tests required.** Every new feature or bugfix needs a test. We have 297+ tests — keep it growing.
 - **Ruff clean.** CI will reject code that doesn't pass `ruff check`.
 - **No secrets.** Never commit tokens, API keys, or credentials. Use env vars.
 

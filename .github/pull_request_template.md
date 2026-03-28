@@ -1,3 +1,5 @@
+> **Target branch:** Please open PRs against `development`. Only release PRs target `main`.
+
 ## Summary
 
 <!-- What does this PR do? One sentence. -->
