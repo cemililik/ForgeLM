@@ -23,7 +23,7 @@ Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgra
 | Phase 6: Enterprise Trust & Compliance | **Complete** | 5/5 |
 | Phase 7: Next-Gen Model Support | **Complete** | 5/5 |
 | Phase 8: EU AI Act Deep Compliance | **Complete** | 10/10 |
-| Phase 9: Advanced Safety & Evaluation Intelligence | **Complete** | 7/8 |
+| Phase 9: Advanced Safety & Evaluation Intelligence | **Complete** | 8/8 |
 
 ---
 
@@ -559,7 +559,7 @@ graph LR
 
 #### Tier 4: Safety Prompt Engineering
 
-8. [ ] **Built-in Adversarial Prompt Library**
+8. [x] **Built-in Adversarial Prompt Library**
    Ship a curated set of adversarial test prompts covering common harm categories:
    ```
    configs/safety_prompts/
@@ -629,6 +629,22 @@ graph TD
     style Phase9T3 fill:#f59e0b10,stroke:#f59e0b
     style Phase9T4 fill:#ef444410,stroke:#ef4444
 ```
+
+---
+
+## v0.3.0 Release
+
+**Status:** Complete
+**Release Date:** March 2026
+
+### Features:
+1. [x] **GaLore**: Optimizer-level memory optimization — full-parameter training via gradient low-rank projection as an alternative to LoRA. Config fields: `galore_enabled`, `galore_optim`, `galore_rank`, `galore_update_proj_gap`, `galore_scale`, `galore_proj_type`, `galore_target_modules`.
+2. [x] **Long-Context Training**: RoPE scaling, NEFTune noise injection, sliding window attention, and sample packing for extended context windows. Config fields: `rope_scaling`, `neftune_noise_alpha`, `sliding_window_attention`, `sample_packing`.
+3. [x] **Synthetic Data Pipeline**: Teacher-to-student distillation via `--generate-data` CLI flag. New `SyntheticDataGenerator` class in `forgelm/synthetic.py`. Configurable teacher model, backend, seed prompts, and output format.
+4. [x] **PyPI Publishing**: `pip install forgelm` now works. Automated publishing via `publish.yml` GitHub Actions workflow.
+5. [x] **GPU Cost Estimation**: Auto-detection for 18 GPU models with per-run cost tracking. Included in JSON output, webhook notifications, and model cards.
+6. [x] **Nightly CI**: `.github/workflows/nightly.yml` for compatibility testing against latest dependency versions.
+7. [x] **Expanded Adversarial Prompts**: 6 category files, 140 prompts (up from 50) covering general safety, bias/discrimination, harmful instructions, privacy/PII, misinformation, and jailbreak attempts.
 
 ---
 

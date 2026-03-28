@@ -49,6 +49,33 @@ Tam açıklamalı örnek için `config_template.yaml` dosyasına bakın.
 | `learning_rate` | float | `2e-5` | Öğrenme oranı |
 | `report_to` | string | `"tensorboard"` | `"tensorboard"`, `"wandb"`, `"mlflow"`, `"none"` |
 
+#### GaLore (Optimizer Seviyesinde Bellek Optimizasyonu)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `galore_enabled` | bool | `false` | GaLore gradient düşük rank projeksiyonunu etkinleştir |
+| `galore_optim` | string | `"galore_adamw_8bit"` | GaLore optimizer: `"galore_adamw"`, `"galore_adamw_8bit"`, `"galore_adafactor"` |
+| `galore_rank` | int | `128` | Gradient projeksiyonu için rank |
+| `galore_update_proj_gap` | int | `200` | Projeksiyon güncellemeleri arası adım sayısı |
+| `galore_scale` | float | `0.25` | GaLore ölçekleme faktörü |
+| `galore_proj_type` | string | `"std"` | Projeksiyon tipi: `"std"`, `"reverse_std"`, `"right"`, `"left"`, `"full"` |
+| `galore_target_modules` | list | `["q_proj", "k_proj", "v_proj", "o_proj"]` | GaLore uygulanacak modüller |
+
+#### Uzun Bağlam Eğitimi
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `rope_scaling` | string | `null` | RoPE ölçekleme yöntemi: `"linear"`, `"dynamic"` |
+| `neftune_noise_alpha` | float | `null` | NEFTune gürültü enjeksiyonu alpha değeri (ör. `5.0`) |
+| `sliding_window_attention` | int | `null` | Kayan pencere dikkat boyutu (token) |
+| `sample_packing` | bool | `false` | Kısa örnekleri tam uzunluklu dizilere paketle |
+
+#### GPU Maliyet Tahmini
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `gpu_cost_per_hour` | float | `null` | Özel GPU maliyet oranı (USD/saat). null ise GPU modelinden otomatik algılanır |
+
 #### Hizalama Parametreleri
 
 | Alan | Tip | Varsayılan | Kullanan |
@@ -153,6 +180,29 @@ Tam açıklamalı örnek için `config_template.yaml` dosyasına bakın.
 |------|-----|-----------|----------|
 | `strategy` | string | `null` | `"deepspeed"` veya `"fsdp"` |
 | `deepspeed_config` | string | `null` | Ön ayar: `"zero2"`, `"zero3"`, `"zero3_offload"` |
+
+## `synthetic` (İsteğe bağlı — Sentetik Veri Üretimi)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `enabled` | bool | `false` | Sentetik veri üretimini etkinleştir |
+| `teacher_model` | string | `null` | Distillasyon için öğretmen model (HF ID veya yerel yol) |
+| `teacher_backend` | string | `"api"` | Öğretmen backend: `"api"` (OpenAI uyumlu) veya `"local"` |
+| `teacher_api_key_env` | string | `null` | Öğretmen API anahtarı için ortam değişkeni |
+| `teacher_api_base` | string | `null` | Öğretmen için özel API base URL |
+| `seed_file` | string | `null` | Tohum prompt dosyası yolu (JSONL) |
+| `output_file` | string | `"synthetic_data.jsonl"` | Üretilen veriler için çıktı dosyası |
+| `num_samples` | int | `100` | Üretilecek örnek sayısı |
+| `max_tokens` | int | `512` | Üretilen yanıt başına maksimum token |
+| `temperature` | float | `0.7` | Üretim için örnekleme sıcaklığı |
+| `top_p` | float | `0.9` | Top-p (nucleus) örnekleme |
+| `system_prompt` | string | `null` | Öğretmen model için sistem promptu |
+| `output_format` | string | `"sft"` | Çıktı formatı: `"sft"`, `"dpo"`, `"conversation"` |
+| `batch_size` | int | `10` | API çağrıları için batch boyutu |
+| `retry_attempts` | int | `3` | API hatası durumunda yeniden deneme sayısı |
+| `timeout` | int | `60` | API istek zaman aşımı (saniye) |
+
+---
 
 ## `webhook` (İsteğe bağlı)
 

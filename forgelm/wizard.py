@@ -88,7 +88,7 @@ def run_wizard() -> str:
     print("=" * 60)
 
     # Step 1: Hardware Detection
-    print("\n[1/7] Hardware Detection")
+    print("\n[1/8] Hardware Detection")
     hw = _detect_hardware()
     if hw["gpu_available"]:
         print(f"  GPU detected: {hw['gpu_name']} ({hw['vram_gb']} GB VRAM, CUDA {hw['cuda_version']})")
@@ -105,7 +105,7 @@ def run_wizard() -> str:
             print("  Recommended backend: transformers (Unsloth requires Linux)")
 
     # Step 2: Model Selection
-    print("\n[2/7] Model Selection")
+    print("\n[2/8] Model Selection")
     print("  Popular models:")
     for i, m in enumerate(POPULAR_MODELS, 1):
         print(f"    {i}) {m}")
@@ -124,16 +124,18 @@ def run_wizard() -> str:
     print(f"  Selected: {model_name}")
 
     # Step 3: Strategy Selection
-    print("\n[3/7] Fine-Tuning Strategy")
+    print("\n[3/8] Fine-Tuning Strategy")
     strategies = [
         "QLoRA (4-bit quantization — recommended, lowest memory)",
         "LoRA (full precision — more memory, slightly better quality)",
         "QLoRA + DoRA (4-bit + weight decomposition — best quality, more compute)",
+        "GaLore (full-parameter training via gradient projection — no adapters, lowest peak VRAM)",
     ]
     strategy = _prompt_choice("Choose your fine-tuning strategy:", strategies, default=1)
 
     load_in_4bit = "QLoRA" in strategy
     use_dora = "DoRA" in strategy
+    use_galore = "GaLore" in strategy
 
     # LoRA parameters
     target_preset = _prompt_choice(
@@ -148,7 +150,7 @@ def run_wizard() -> str:
     lora_alpha = int(_prompt("LoRA alpha", str(lora_r * 2)))
 
     # Step 4: Training Objective
-    print("\n[4/7] Training Objective")
+    print("\n[4/8] Training Objective")
     objectives = [
         "SFT — Supervised Fine-Tuning (standard instruction tuning)",
         "DPO — Direct Preference Optimization (chosen/rejected pairs)",
@@ -172,18 +174,55 @@ def run_wizard() -> str:
     print(f"  Dataset format: {dataset_format_hint.get(trainer_type, 'Standard format')}")
 
     # Step 5: Dataset
-    print("\n[5/7] Dataset")
+    print("\n[5/8] Dataset")
     dataset_path = _prompt("HuggingFace dataset name or local file path")
 
     # Step 6: Training Parameters
-    print("\n[6/7] Training Parameters")
+    print("\n[6/8] Training Parameters")
     epochs = int(_prompt("Number of epochs", str(DEFAULT_EPOCHS)))
     batch_size = int(_prompt("Batch size per device", str(DEFAULT_BATCH_SIZE)))
     max_length = int(_prompt("Max sequence length", str(DEFAULT_MAX_LENGTH)))
     output_dir = _prompt("Output directory", "./checkpoints")
 
-    # Step 7: Build config
-    print("\n[7/7] Output")
+    # Long-context options (only if max_length > 4096)
+    use_neftune = False
+    neftune_alpha = None
+    rope_scaling = None
+    if max_length > 4096:
+        print(f"\n  Long context detected ({max_length} tokens).")
+        if _prompt_yes_no("Enable RoPE scaling for extended context?", default=True):
+            rope_type = _prompt_choice(
+                "RoPE scaling type:",
+                ["linear (simple, proven)", "dynamic (adaptive)", "yarn (best quality, newer)"],
+                default=1,
+            )
+            rope_scaling = {"type": rope_type.split(" ")[0], "factor": max_length / 4096}
+    if _prompt_yes_no("Enable NEFTune noise injection (improves training quality)?", default=False):
+        use_neftune = True
+        neftune_alpha = float(_prompt("NEFTune noise alpha", "5.0"))
+
+    # Step 7: GaLore parameters (if selected)
+    galore_config = {}
+    if use_galore:
+        print("\n[7/8] GaLore Configuration")
+        galore_rank = int(_prompt("GaLore rank (lower = less memory)", "128"))
+        galore_optim = _prompt_choice(
+            "GaLore optimizer:",
+            ["galore_adamw (standard)", "galore_adamw_8bit (less memory)", "galore_adafactor (experimental)"],
+            default=1,
+        )
+        galore_config = {
+            "galore_enabled": True,
+            "galore_optim": galore_optim.split(" ")[0],
+            "galore_rank": galore_rank,
+            "galore_update_proj_gap": 200,
+            "galore_scale": 0.25,
+        }
+    else:
+        print("\n[7/8] Advanced Options")
+
+    # Step 8: Build config
+    print("\n[8/8] Output")
 
     config = {
         "model": {
@@ -217,6 +256,9 @@ def run_wizard() -> str:
             "save_steps": 200,
             "save_total_limit": 3,
             "packing": False,
+            **galore_config,
+            **({"neftune_noise_alpha": neftune_alpha} if use_neftune else {}),
+            **({"rope_scaling": rope_scaling} if rope_scaling else {}),
         },
         "data": {
             "dataset_name_or_path": dataset_path,
@@ -297,7 +339,10 @@ def run_wizard() -> str:
     print("=" * 60)
     print(f"  Model:    {model_name}")
     print(f"  Backend:  {suggested_backend}")
-    print(f"  Strategy: {'QLoRA' if load_in_4bit else 'LoRA'}{' + DoRA' if use_dora else ''}")
+    strategy_str = "GaLore" if use_galore else ("QLoRA" if load_in_4bit else "LoRA")
+    if use_dora:
+        strategy_str += " + DoRA"
+    print(f"  Strategy: {strategy_str}")
     print(f"  Trainer:  {trainer_type.upper()}")
     print(f"  LoRA:     r={lora_r}, alpha={lora_alpha}")
     print(f"  Dataset:  {dataset_path}")

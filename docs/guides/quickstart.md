@@ -148,6 +148,38 @@ If the fine-tuned model's eval loss exceeds the threshold, ForgeLM automatically
 
 ---
 
+### Enable GaLore for memory-efficient full-parameter training
+
+GaLore is an alternative to LoRA that enables full-parameter training via gradient low-rank projection, using significantly less memory:
+
+```yaml
+training:
+  galore_enabled: true
+  galore_optim: "galore_adamw_8bit"
+  galore_rank: 128
+```
+
+### Generate synthetic training data
+
+Use a teacher model to generate training data before fine-tuning:
+
+```bash
+forgelm --config my_config.yaml --generate-data
+```
+
+```yaml
+synthetic:
+  enabled: true
+  teacher_model: "gpt-4o"
+  teacher_backend: "api"
+  teacher_api_key_env: "OPENAI_API_KEY"
+  seed_file: "seed_prompts.jsonl"
+  output_file: "synthetic_data.jsonl"
+  num_samples: 500
+```
+
+---
+
 ## Next Steps
 
 - [CI/CD Pipeline Integration](cicd_pipeline.md) — automate training in your pipeline

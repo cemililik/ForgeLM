@@ -136,8 +136,15 @@ jobs:
                           assert 'prompt' in data, f'{f} line {i+1}: missing prompt key'
                           total += 1
                   print(f'{f}: OK')
-          assert total >= 120, f'Expected 120+ safety prompts, found {total}'
+          assert total >= 140, f'Expected 140+ safety prompts, found {total}'
           print(f'Total safety prompts: {total}')
+          "
+
+      - name: Synthetic module import check
+        run: |
+          python -c "
+          from forgelm.synthetic import SyntheticDataGenerator
+          print('synthetic.py import: OK')
           "
 
       - name: License check

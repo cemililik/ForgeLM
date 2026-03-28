@@ -20,6 +20,7 @@ forgelm --config job.yaml
     │   ├── compliance.py   → EU AI Act audit artifacts
     │   └── webhook.py      → Slack/Teams notifications
     ├── merging.py      → TIES/DARE/SLERP model merge (--merge)
+    ├── synthetic.py    → Synthetic data generation (--generate-data)
     └── wizard.py       → Interactive config generator (--wizard)
 ```
 
@@ -27,7 +28,7 @@ forgelm --config job.yaml
 
 ```
 ForgeLM/
-├── forgelm/                # Core Python Package (16 modules)
+├── forgelm/                # Core Python Package (17 modules)
 │   ├── __init__.py         # Lazy imports for fast CLI startup
 │   ├── cli.py              # CLI with 13 flags and 6 modes
 │   ├── config.py           # 19 Pydantic config models
@@ -41,6 +42,7 @@ ForgeLM/
 │   ├── compliance.py       # EU AI Act compliance + audit log + provenance
 │   ├── model_card.py       # HF-compatible model card generation
 │   ├── merging.py          # Model merging (TIES/DARE/SLERP/linear)
+│   ├── synthetic.py        # Synthetic data generation (teacher→student)
 │   ├── wizard.py           # Interactive configuration wizard
 │   ├── webhook.py          # Webhook notifications
 │   └── utils.py            # Authentication + checkpoint management
@@ -71,7 +73,7 @@ Interfaces with HuggingFace `datasets` library. Auto-detects dataset format (SFT
 Loads models via HuggingFace Transformers or Unsloth backend. Configures QLoRA (4-bit NF4), PEFT adapters (LoRA, DoRA, PiSSA, rsLoRA), and MoE expert quantization/selection. Distributed-aware: skips `device_map="auto"` when DeepSpeed/FSDP is active. Multimodal-aware: loads `AutoProcessor` instead of `AutoTokenizer` for VLM models.
 
 ### `trainer.py`
-Wraps TRL's trainers (SFTTrainer, DPOTrainer, KTOTrainer, ORPOTrainer, CPOTrainer/SimPO, GRPOTrainer) with ForgeLM's pipeline: baseline evaluation → training → post-training evaluation chain (loss → benchmark → safety → LLM-judge) → model save → model card → compliance artifacts → webhook notification. Includes auto-revert, human approval gate, audit logging, and resource tracking.
+Wraps TRL's trainers (SFTTrainer, DPOTrainer, KTOTrainer, ORPOTrainer, CPOTrainer/SimPO, GRPOTrainer) with ForgeLM's pipeline: baseline evaluation → training → post-training evaluation chain (loss → benchmark → safety → LLM-judge) → model save → model card → compliance artifacts → webhook notification. Supports GaLore optimizer-level memory optimization (gradient low-rank projection for full-parameter training) and long-context features (RoPE scaling, NEFTune noise injection, sliding window attention, sample packing). Includes auto-revert, human approval gate, audit logging, and resource tracking.
 
 ### `results.py`
 Lightweight `TrainResult` dataclass — importable without torch/transformers. Carries success status, metrics, benchmark scores, resource usage, safety pass/fail, and judge scores.
@@ -100,6 +102,9 @@ Generates HuggingFace-compatible README.md with YAML front matter, training para
 
 ### `merging.py`
 Model merging with 4 strategies: linear interpolation, TIES-Merging (trim + sign election + merge), DARE (random drop + rescale), and SLERP (spherical interpolation for 2 models). Operates on state dicts — no mergekit dependency required.
+
+### `synthetic.py`
+Synthetic data generation via teacher-to-student distillation. The `SyntheticDataGenerator` class takes a teacher model (API-based or local), generates training samples from seed prompts, and outputs formatted JSONL datasets. Triggered via `--generate-data` CLI flag or `synthetic` config section. Supports configurable teacher backends, output formats, and generation parameters.
 
 ### `wizard.py`
 Interactive CLI wizard for generating valid YAML configs. Detects GPU hardware, suggests backend, offers model presets, guides through LoRA strategy and training objective selection (6 trainer types with format hints), and optionally starts training immediately.

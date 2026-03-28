@@ -472,12 +472,19 @@ def export_evidence_bundle(output_dir: str, bundle_path: str) -> str:
 
 def _describe_adapter_method(config: Any) -> str:
     parts = []
+    method = getattr(config.lora, "method", "lora")
     if config.model.load_in_4bit:
         parts.append("QLoRA (4-bit NF4)")
+    elif method == "pissa":
+        parts.append("PiSSA")
+    elif method == "rslora":
+        parts.append("rsLoRA")
     else:
         parts.append("LoRA")
-    if config.lora.use_dora:
+    if config.lora.use_dora or method == "dora":
         parts.append("DoRA")
+    if getattr(config.training, "galore_enabled", False):
+        parts.append(f"GaLore ({config.training.galore_optim})")
     parts.append(f"r={config.lora.r}")
     return " + ".join(parts)
 

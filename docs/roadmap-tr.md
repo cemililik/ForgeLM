@@ -110,6 +110,22 @@ training:
 
 ---
 
+## v0.3.0 Sürümü
+
+**Durum:** Tamamlandı
+**Yayın Tarihi:** Mart 2026
+
+### Özellikler:
+1. [x] **GaLore**: Optimizer seviyesinde bellek optimizasyonu — LoRA'ya alternatif olarak gradient düşük rank projeksiyonu ile tam parametre eğitimi. Config alanları: `galore_enabled`, `galore_optim`, `galore_rank`, `galore_update_proj_gap`, `galore_scale`, `galore_proj_type`, `galore_target_modules`.
+2. [x] **Uzun Bağlam Eğitimi**: Genişletilmiş bağlam pencereleri için RoPE ölçekleme, NEFTune gürültü enjeksiyonu, kayan pencere dikkat ve örnek paketleme. Config alanları: `rope_scaling`, `neftune_noise_alpha`, `sliding_window_attention`, `sample_packing`.
+3. [x] **Sentetik Veri Pipeline'ı**: `--generate-data` CLI flag'i ile öğretmen-öğrenci distillasyonu. `forgelm/synthetic.py` içinde yeni `SyntheticDataGenerator` sınıfı. Yapılandırılabilir öğretmen model, backend, tohum promptlar ve çıktı formatı.
+4. [x] **PyPI Yayını**: `pip install forgelm` artık çalışıyor. `publish.yml` GitHub Actions iş akışı ile otomatik yayınlama.
+5. [x] **GPU Maliyet Tahmini**: 18 GPU modeli için otomatik algılama ile çalışma başına maliyet takibi. JSON çıktı, webhook bildirimleri ve model kartlarına dahil.
+6. [x] **Gece CI'ı**: En güncel bağımlılık sürümlerine karşı uyumluluk testi için `.github/workflows/nightly.yml`.
+7. [x] **Genişletilmiş Adversarial Promptlar**: 6 kategori dosyası, 140 prompt (50'den artırıldı) — genel güvenlik, önyargı/ayrımcılık, zararlı talimatlar, gizlilik/kişisel veri, yanlış bilgi ve jailbreak denemeleri.
+
+---
+
 ## Risk Matrisi
 
 ### Yüksek Ciddiyet

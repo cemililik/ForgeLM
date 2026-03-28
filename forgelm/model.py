@@ -99,16 +99,32 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
 
     if torch.cuda.is_available() and config.model.load_in_4bit:
         logger.info("Using 4-bit QLoRA quantization...")
-        compute_dtype = _resolve_bnb_compute_dtype(getattr(config.model, "bnb_4bit_compute_dtype", "auto"))
+        compute_dtype = _resolve_bnb_compute_dtype(config.model.bnb_4bit_compute_dtype)
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
-            bnb_4bit_use_double_quant=bool(getattr(config.model, "bnb_4bit_use_double_quant", True)),
-            bnb_4bit_quant_type=str(getattr(config.model, "bnb_4bit_quant_type", "nf4")),
+            bnb_4bit_use_double_quant=config.model.bnb_4bit_use_double_quant,
+            bnb_4bit_quant_type=config.model.bnb_4bit_quant_type,
             bnb_4bit_compute_dtype=compute_dtype,
         )
         model_kwargs["quantization_config"] = bnb_config
 
+    # Apply RoPE scaling for extended context length
+    rope_scaling = config.training.rope_scaling
+    if rope_scaling:
+        logger.info("RoPE scaling enabled: %s", rope_scaling)
+        model_kwargs["rope_scaling"] = rope_scaling
+
+    # Apply sliding window attention override
+    sliding_window = config.training.sliding_window_attention
+    if sliding_window:
+        logger.info("Sliding window attention override: %d tokens", sliding_window)
+        model_kwargs["sliding_window"] = sliding_window
+
     model = AutoModelForCausalLM.from_pretrained(config.model.name_or_path, **model_kwargs)
+
+    # Sync pad_token_id to model config to suppress generation warnings
+    if tokenizer.pad_token_id is not None and model.config.pad_token_id is None:
+        model.config.pad_token_id = tokenizer.pad_token_id
 
     # enable_input_require_grads is needed for gradient checkpointing with LoRA
     if hasattr(model, "enable_input_require_grads"):

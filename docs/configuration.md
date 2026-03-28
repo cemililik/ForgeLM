@@ -74,6 +74,33 @@ See `config_template.yaml` for a complete annotated example.
 | `report_to` | string | `"tensorboard"` | `"tensorboard"`, `"wandb"`, `"mlflow"`, `"none"` |
 | `run_name` | string | `null` | W&B/MLflow run name (auto-generated if null) |
 
+#### GaLore (Optimizer-Level Memory Optimization)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `galore_enabled` | bool | `false` | Enable GaLore gradient low-rank projection |
+| `galore_optim` | string | `"galore_adamw_8bit"` | GaLore optimizer: `"galore_adamw"`, `"galore_adamw_8bit"`, `"galore_adafactor"` |
+| `galore_rank` | int | `128` | Rank for gradient projection |
+| `galore_update_proj_gap` | int | `200` | Steps between projection updates |
+| `galore_scale` | float | `0.25` | GaLore scaling factor |
+| `galore_proj_type` | string | `"std"` | Projection type: `"std"`, `"reverse_std"`, `"right"`, `"left"`, `"full"` |
+| `galore_target_modules` | list | `["q_proj", "k_proj", "v_proj", "o_proj"]` | Modules to apply GaLore |
+
+#### Long-Context Training
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `rope_scaling` | string | `null` | RoPE scaling method: `"linear"`, `"dynamic"` |
+| `neftune_noise_alpha` | float | `null` | NEFTune noise injection alpha (e.g., `5.0`) |
+| `sliding_window_attention` | int | `null` | Sliding window attention size in tokens |
+| `sample_packing` | bool | `false` | Pack multiple short samples into full-length sequences |
+
+#### GPU Cost Estimation
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `gpu_cost_per_hour` | float | `null` | Custom GPU cost rate (USD/hour). Auto-detected from GPU model if null |
+
 #### Alignment Parameters
 
 | Field | Type | Default | Used By |
@@ -230,6 +257,29 @@ See `config_template.yaml` for a complete annotated example.
 | `metrics_export` | string | `"none"` | `"none"`, `"prometheus"`, `"datadog"`, `"custom_webhook"` |
 | `alert_on_drift` | bool | `true` | Alert on model drift |
 | `check_interval_hours` | int | `24` | Monitoring check interval |
+
+---
+
+## `synthetic` (Optional — Synthetic Data Generation)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable synthetic data generation |
+| `teacher_model` | string | `null` | Teacher model for distillation (HF ID or local path) |
+| `teacher_backend` | string | `"api"` | Teacher backend: `"api"` (OpenAI-compatible) or `"local"` |
+| `teacher_api_key_env` | string | `null` | Env var name for teacher API key |
+| `teacher_api_base` | string | `null` | Custom API base URL for teacher |
+| `seed_file` | string | `null` | Path to seed prompts file (JSONL) |
+| `output_file` | string | `"synthetic_data.jsonl"` | Output file for generated data |
+| `num_samples` | int | `100` | Number of samples to generate |
+| `max_tokens` | int | `512` | Max tokens per generated response |
+| `temperature` | float | `0.7` | Sampling temperature for generation |
+| `top_p` | float | `0.9` | Top-p (nucleus) sampling |
+| `system_prompt` | string | `null` | System prompt for the teacher model |
+| `output_format` | string | `"sft"` | Output format: `"sft"`, `"dpo"`, `"conversation"` |
+| `batch_size` | int | `10` | Batch size for API calls |
+| `retry_attempts` | int | `3` | Number of retries on API failure |
+| `timeout` | int | `60` | API request timeout (seconds) |
 
 ---
 

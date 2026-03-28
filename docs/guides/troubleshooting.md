@@ -117,6 +117,64 @@ If persists, disable mixed precision by ensuring `bf16: false` and `fp16: false`
      deepspeed_config: "zero2"
    ```
 
+### GaLore + Multi-GPU / Layerwise Incompatibility
+
+GaLore's layerwise optimizer variant (`galore_adamw_layerwise`) is **not compatible** with multi-GPU training (DeepSpeed/FSDP). Use the standard GaLore optimizer instead:
+
+```yaml
+training:
+  galore_enabled: true
+  galore_optim: "galore_adamw_8bit"  # NOT "galore_adamw_layerwise"
+
+# Do NOT combine layerwise GaLore with distributed training:
+# distributed:
+#   strategy: "deepspeed"  # will fail with layerwise GaLore
+```
+
+If you need both multi-GPU and GaLore, use `galore_adamw` or `galore_adamw_8bit`.
+
+### Long-Context Training VRAM Issues
+
+Long-context training (large `sliding_window_attention` or RoPE scaling) significantly increases VRAM usage. To mitigate:
+
+1. **Reduce sliding window size**:
+   ```yaml
+   training:
+     sliding_window_attention: 2048  # down from 4096
+   ```
+
+2. **Enable gradient checkpointing** (reduces VRAM at cost of speed):
+   ```yaml
+   training:
+     gradient_checkpointing: true
+   ```
+
+3. **Use sample packing** to reduce padding waste:
+   ```yaml
+   training:
+     sample_packing: true
+   ```
+
+4. **Combine with GaLore** for additional memory savings:
+   ```yaml
+   training:
+     galore_enabled: true
+     galore_rank: 64  # lower rank = less memory
+   ```
+
+### Synthetic Data API Timeout
+
+If the teacher model API times out during `--generate-data`:
+
+```yaml
+synthetic:
+  timeout: 120       # increase from default 60 seconds
+  retry_attempts: 5  # increase retries (default: 3)
+  batch_size: 5      # reduce batch size for slower APIs
+```
+
+For local teacher models, ensure sufficient GPU memory is available. Consider using a smaller teacher model or reducing `max_tokens`.
+
 ### `ValueError: Unknown trainer_type`
 
 Valid trainer types: `sft`, `orpo`, `dpo`, `simpo`, `kto`, `grpo`

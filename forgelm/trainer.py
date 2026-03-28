@@ -102,12 +102,45 @@ class ForgeTrainer:
             run_name=getattr(self.config.training, "run_name", None) or self.run_name,
         )
 
+        # Inject long-context optimizations
+        self._apply_long_context_config(kwargs)
+
+        # Inject GaLore optimizer configuration
+        if self.config.training.galore_enabled:
+            self._apply_galore_config(kwargs)
+
         # Inject distributed training configuration
         dist_cfg = self.config.distributed
         if dist_cfg and dist_cfg.strategy:
             self._apply_distributed_config(kwargs, dist_cfg)
 
         return kwargs
+
+    def _apply_long_context_config(self, kwargs: dict) -> None:
+        """Apply long-context training optimizations."""
+        tc = self.config.training
+        if tc.neftune_noise_alpha is not None:
+            kwargs["neftune_noise_alpha"] = tc.neftune_noise_alpha
+            logger.info("NEFTune enabled: noise_alpha=%.1f", tc.neftune_noise_alpha)
+
+    def _apply_galore_config(self, kwargs: dict) -> None:
+        """Apply GaLore optimizer-level memory optimization to training kwargs."""
+        tc = self.config.training
+        kwargs["optim"] = tc.galore_optim
+        kwargs["optim_target_modules"] = tc.galore_target_modules or [r".*.attn.*", r".*.mlp.*"]
+        kwargs["optim_args"] = (
+            f"rank={tc.galore_rank}, "
+            f"update_proj_gap={tc.galore_update_proj_gap}, "
+            f"scale={tc.galore_scale}, "
+            f"proj_type={tc.galore_proj_type}"
+        )
+        logger.info(
+            "GaLore enabled: optim=%s, rank=%d, update_proj_gap=%d, scale=%.2f",
+            tc.galore_optim,
+            tc.galore_rank,
+            tc.galore_update_proj_gap,
+            tc.galore_scale,
+        )
 
     def _apply_distributed_config(self, kwargs: dict, dist_cfg) -> None:
         """Apply DeepSpeed or FSDP configuration to training kwargs."""
@@ -644,8 +677,11 @@ class ForgeTrainer:
                 usage["peak_vram_gb"] = round(torch.cuda.max_memory_allocated(0) / (1024**3), 2)
                 usage["gpu_count"] = torch.cuda.device_count()
             # Training duration from HF Trainer
-            log_history = getattr(self.trainer.state, "log_history", None)
-            train_runtime = log_history[-1].get("train_runtime") if log_history else None
+            log_history = getattr(self.trainer.state, "log_history", None) or []
+            train_runtime = next(
+                (e.get("train_runtime") for e in reversed(log_history) if "train_runtime" in e),
+                None,
+            )
             if train_runtime:
                 usage["training_duration_seconds"] = round(train_runtime, 1)
                 gpu_count = usage.get("gpu_count", 1)

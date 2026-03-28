@@ -61,9 +61,11 @@ class WebhookNotifier:
                 timeout=getattr(self.config, "timeout", 5),
             )
         except requests.exceptions.Timeout:
-            logger.warning("Webhook request timed out for event '%s' (url=%s).", event, url)
+            masked = url[:30] + "..." if len(url) > 30 else url
+            logger.warning("Webhook request timed out for event '%s' (url=%s).", event, masked)
         except requests.exceptions.ConnectionError:
-            logger.warning("Webhook connection failed for event '%s' (url=%s).", event, url)
+            masked = url[:30] + "..." if len(url) > 30 else url
+            logger.warning("Webhook connection failed for event '%s' (url=%s).", event, masked)
         except Exception:
             logger.exception("Unexpected error sending webhook notification for event '%s'.", event)
 

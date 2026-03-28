@@ -24,7 +24,9 @@ def _get_version() -> str:
     try:
         return pkg_version("forgelm")
     except PackageNotFoundError:
-        return "0.1.0-dev"
+        from forgelm import __version__
+
+        return __version__
 
 
 def _setup_logging(log_level: str, json_format: bool = False) -> None:
@@ -83,6 +85,11 @@ def parse_args():
         help="Output format for results (default: text). JSON mode outputs machine-readable results to stdout.",
     )
     parser.add_argument(
+        "--generate-data",
+        action="store_true",
+        help="Generate synthetic training data using teacher model. No training.",
+    )
+    parser.add_argument(
         "--compliance-export",
         type=str,
         default=None,
@@ -122,6 +129,11 @@ def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
         "output_dir": os.path.join(config.training.output_dir, config.training.final_model_dir),
         "offline": config.model.offline,
         "distributed": config.distributed.strategy if config.distributed else None,
+        "rope_scaling": config.training.rope_scaling,
+        "neftune_noise_alpha": config.training.neftune_noise_alpha,
+        "galore_enabled": config.training.galore_enabled,
+        "galore_optim": config.training.galore_optim if config.training.galore_enabled else None,
+        "galore_rank": config.training.galore_rank if config.training.galore_enabled else None,
         "auto_revert": bool(config.evaluation and config.evaluation.auto_revert),
         "safety_enabled": bool(config.evaluation and config.evaluation.safety and config.evaluation.safety.enabled),
         "safety_scoring": config.evaluation.safety.scoring
@@ -248,6 +260,46 @@ def _run_merge(config: ForgeConfig, output_format: str) -> None:
             logger.error("Model merge failed: %s", result.error)
 
     if not result.success:
+        sys.exit(EXIT_TRAINING_ERROR)
+
+
+def _run_generate_data(config: ForgeConfig, output_format: str) -> None:
+    """Generate synthetic training data using teacher model."""
+    from .synthetic import SyntheticDataGenerator
+
+    if not config.synthetic or not config.synthetic.enabled:
+        logger.error("Synthetic data generation not configured. Add 'synthetic' section to config.")
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    generator = SyntheticDataGenerator(config)
+    result = generator.generate()
+
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "success": result.successful > 0,
+                    "total_prompts": result.total_prompts,
+                    "successful": result.successful,
+                    "failed": result.failed,
+                    "success_rate": round(result.success_rate, 4),
+                    "output_file": result.output_file,
+                    "duration_seconds": round(result.duration_seconds, 2),
+                    "errors": result.errors[:10],
+                },
+                indent=2,
+            )
+        )
+    else:
+        logger.info(
+            "Synthetic data generation: %d/%d successful (%.1f%%) → %s",
+            result.successful,
+            result.total_prompts,
+            result.success_rate * 100,
+            result.output_file,
+        )
+
+    if result.successful == 0:
         sys.exit(EXIT_TRAINING_ERROR)
 
 
@@ -425,7 +477,12 @@ def main():
         _run_merge(config, args.output_format)
         sys.exit(EXIT_SUCCESS)
 
-    # 6. Compliance export mode: generate audit artifacts from config
+    # 6. Synthetic data generation mode
+    if args.generate_data:
+        _run_generate_data(config, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+
+    # 7. Compliance export mode: generate audit artifacts from config
     if args.compliance_export:
         _run_compliance_export(config, args.compliance_export, args.output_format)
         sys.exit(EXIT_SUCCESS)

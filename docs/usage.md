@@ -77,6 +77,15 @@ forgelm --config my_config.yaml --resume ./checkpoints/checkpoint-500
 forgelm --config my_config.yaml --offline
 ```
 
+### Synthetic Data Generation
+
+```bash
+# Generate synthetic training data via teacher model distillation
+forgelm --config my_config.yaml --generate-data
+```
+
+This uses the `synthetic` config section to generate training data from a teacher model before training begins. See the [Configuration Guide](configuration.md) for all synthetic data options.
+
 ### Evaluation & Merging
 
 ```bash
@@ -137,6 +146,52 @@ ForgeLM logs to stderr with structured format:
 
 ```bash
 tensorboard --logdir=./checkpoints/runs/
+```
+
+### GaLore (Memory-Efficient Full-Parameter Training)
+
+GaLore provides optimizer-level memory optimization as an alternative to LoRA, enabling full-parameter training via gradient low-rank projection:
+
+```yaml
+training:
+  galore_enabled: true
+  galore_optim: "galore_adamw_8bit"
+  galore_rank: 128
+  galore_update_proj_gap: 200
+  galore_scale: 0.25
+  galore_proj_type: "std"
+  galore_target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+```
+
+### Long-Context Training
+
+Enable extended context window support with RoPE scaling, NEFTune noise injection, sliding window attention, and sample packing:
+
+```yaml
+training:
+  rope_scaling: "linear"              # "linear" or "dynamic"
+  neftune_noise_alpha: 5.0            # NEFTune noise for better generalization
+  sliding_window_attention: 4096      # Sliding window size (tokens)
+  sample_packing: true                # Pack short samples into full-length sequences
+```
+
+### GPU Cost Estimation
+
+ForgeLM auto-detects your GPU model (18 GPU models supported) and tracks estimated cost per training run. Output is included in JSON results, webhook notifications, and model cards:
+
+```
+GPU Cost Estimate:
+  GPU Model: NVIDIA A100 80GB
+  GPU Hours: 2.4
+  Estimated Cost: $7.20 USD
+  Peak VRAM: 22.1 GB
+```
+
+To set a custom cost rate:
+
+```yaml
+training:
+  gpu_cost_per_hour: 3.00  # USD per GPU-hour
 ```
 
 ### W&B

@@ -77,7 +77,7 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
                 sampled = []
                 for ds, ratio in zip(all_train, normalized):
                     n_samples = min(int(max_dataset_size * ratio), len(ds))
-                    sampled.append(ds.select(range(n_samples)))
+                    sampled.append(ds.shuffle(seed=42).select(range(n_samples)))
                 all_train = sampled
                 logger.info("Applied mix ratios: %s", mix_ratio)
         else:
@@ -109,7 +109,7 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
             texts = []
             for t in examples["text"]:
                 t = clean_string(t, config.data.clean_text)
-                if config.data.add_eos and t and not t.endswith(tokenizer.eos_token):
+                if config.data.add_eos and t and tokenizer.eos_token and not t.endswith(tokenizer.eos_token):
                     t += tokenizer.eos_token
                 texts.append(t)
             return {"text": texts}

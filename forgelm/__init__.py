@@ -7,7 +7,7 @@ without requiring heavy ML dependencies (torch/transformers).
 
 from .config import ConfigError, ForgeConfig, load_config
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "load_config",
@@ -21,6 +21,7 @@ __all__ = [
     "manage_checkpoints",
     "run_benchmark",
     "BenchmarkResult",
+    "SyntheticDataGenerator",
 ]
 
 
@@ -56,6 +57,10 @@ def __getattr__(name: str):
         return v
     if name == "manage_checkpoints":
         from .utils import manage_checkpoints as v
+
+        return v
+    if name == "SyntheticDataGenerator":
+        from .synthetic import SyntheticDataGenerator as v
 
         return v
     raise AttributeError(name)

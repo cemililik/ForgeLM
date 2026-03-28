@@ -2,6 +2,59 @@
 
 All notable changes to ForgeLM are documented here.
 
+## [0.3.0] — 2026-03-28
+
+### Added
+
+**GaLore Optimizer Integration**
+- Full-parameter training via gradient low-rank projection — alternative to LoRA
+- 6 optimizer variants: `galore_adamw`, `galore_adamw_8bit`, `galore_adafactor`, + layerwise versions
+- Configurable rank, update_proj_gap, scale, proj_type, target_modules
+- Validation: layerwise + multi-GPU incompatibility detection, LoRA co-existence warning
+
+**Long-Context Optimizations**
+- RoPE scaling support: linear, dynamic, YaRN, LongRoPE with configurable factor
+- NEFTune noise injection (`neftune_noise_alpha`) for improved training quality
+- Sliding window attention override for Mistral-family models
+- Sample packing for efficient short-sequence training
+
+**Synthetic Data Pipeline**
+- Teacher→student distillation with `--generate-data` CLI command
+- Three teacher backends: API (OpenAI-compatible), local (HuggingFace model), file (pre-generated)
+- Configurable system prompt, temperature, max_new_tokens, rate limiting
+- Four output formats: messages (chat), instruction, chatml, prompt_response
+- Seed prompts from JSONL file or inline config
+
+**GPU Cost Estimation**
+- Auto-detection for 18 GPU models (T4, A100, H100, RTX 4090, etc.)
+- Per-run cost calculation based on training duration and GPU type
+- Manual override via `training.gpu_cost_per_hour`
+
+**CI/CD & Publishing**
+- PyPI publishing workflow (`.github/workflows/publish.yml`) — `pip install forgelm`
+- Nightly compatibility testing (`.github/workflows/nightly.yml`)
+- Expanded adversarial prompt library: 140 prompts across 6 categories (was 50/3)
+
+**Wizard Enhancements**
+- GaLore strategy option with rank and optimizer selection
+- Long-context auto-detection (max_length > 4096) with RoPE scaling prompt
+- NEFTune noise injection option
+
+### Fixed
+- SFTConfig `max_length` → `max_seq_length` for TRL compatibility
+- `device_map={"":0}` for single GPU without 4-bit (prevents model splitting)
+- Gradient checkpointing disabled on CPU (requires CUDA)
+- Pre-formatted `text` column datasets now properly handled
+- Chat template applied during inference in notebooks
+
+### Changed
+- Version bump: 0.2.0 → 0.3.0
+- All notebooks use SmolLM2-135M for faster Colab testing (was 1.7B)
+- Notebooks include base vs fine-tuned model comparison
+- 297 tests (up from 242), 0 lint errors
+
+---
+
 ## [0.2.0] — 2026-03-26
 
 Major release: ForgeLM goes from a basic SFT fine-tuning tool to a full-stack LLM training platform with alignment, distributed training, safety evaluation, and EU AI Act compliance.

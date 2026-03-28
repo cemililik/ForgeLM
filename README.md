@@ -12,9 +12,13 @@
 - **6 Trainer Types**: SFT, DPO, SimPO, KTO, ORPO, GRPO — the complete alignment stack
 - **Unsloth & Transformers**: 2-5x faster training with `unsloth` backend, or standard `transformers`
 - **4-Bit QLoRA & DoRA**: NF4 quantization with LoRA, DoRA, PiSSA, and rsLoRA support
+- **GaLore**: Optimizer-level memory optimization — full-parameter training via gradient low-rank projection (alternative to LoRA)
+- **Long-Context Training**: RoPE scaling, NEFTune noise injection, sliding window attention, sample packing
 - **Multi-Dataset Training**: Mix multiple datasets with configurable ratios
+- **Synthetic Data Pipeline**: Teacher-to-student distillation with `--generate-data` CLI flag
 - **DeepSpeed & FSDP**: Multi-GPU distributed training with ZeRO-2/3 presets
 - **MoE Support**: Fine-tune Mixture of Experts models (Qwen3, Mixtral, DeepSeek)
+- **GPU Cost Estimation**: Auto-detection for 18 GPU models with per-run cost tracking
 
 ### Evaluation & Safety
 - **Automated Benchmarking**: Post-training evaluation via `lm-evaluation-harness`
@@ -92,6 +96,10 @@ See the [Quick Start Guide](docs/guides/quickstart.md) for a complete walkthroug
 ## Installation
 
 ```bash
+# From PyPI
+pip install forgelm
+
+# Or from source
 git clone https://github.com/cemililik/ForgeLM.git
 cd ForgeLM
 pip install -e .
@@ -157,7 +165,7 @@ forgelm/
 ├── config.py        # Pydantic config (15 models: training, evaluation, distributed...)
 ├── data.py          # Dataset loading (SFT, DPO, KTO, GRPO formats + multi-dataset)
 ├── model.py         # Model loading (transformers, unsloth, MoE, PEFT)
-├── trainer.py       # Training orchestration (6 trainer types via TRL)
+├── trainer.py       # Training orchestration (6 trainer types via TRL, GaLore, long-context)
 ├── results.py       # TrainResult dataclass
 ├── benchmark.py     # lm-evaluation-harness integration
 ├── safety.py        # Post-training safety evaluation (Llama Guard)
@@ -165,6 +173,7 @@ forgelm/
 ├── compliance.py    # EU AI Act compliance export & data provenance
 ├── model_card.py    # Auto-generated HF model cards
 ├── merging.py       # Model merging (TIES, DARE, SLERP, linear)
+├── synthetic.py     # Synthetic data generation (teacher→student distillation)
 ├── wizard.py        # Interactive configuration wizard
 ├── webhook.py       # Slack/Teams webhook notifications
 └── utils.py         # Authentication & checkpoint management

@@ -60,6 +60,15 @@ forgelm --config my_config.yaml --resume ./checkpoints/checkpoint-500
 forgelm --config my_config.yaml --offline              # İzole mod (HF Hub yok)
 ```
 
+### Sentetik Veri Üretimi
+
+```bash
+# Öğretmen model distillasyonu ile sentetik eğitim verisi üret
+forgelm --config my_config.yaml --generate-data
+```
+
+Bu komut, eğitim başlamadan önce bir öğretmen modelden eğitim verisi üretmek için `synthetic` config bölümünü kullanır. Tüm sentetik veri seçenekleri için [Konfigürasyon Rehberi](configuration-tr.md)'ne bakın.
+
 ### Değerlendirme, Birleştirme ve Uyumluluk
 
 ```bash
@@ -99,6 +108,52 @@ checkpoints/
 │   ├── safety_results.json          # Güvenlik sonuçları (kategori, ciddiyet)
 │   └── safety_trend.jsonl           # Çalışmalar arası trend
 └── benchmark/                       # Benchmark sonuçları
+```
+
+## GaLore (Bellek Verimli Tam Parametre Eğitimi)
+
+GaLore, LoRA'ya alternatif olarak optimizer seviyesinde bellek optimizasyonu sağlar ve gradient düşük rank projeksiyonu ile tam parametre eğitimine olanak tanır:
+
+```yaml
+training:
+  galore_enabled: true
+  galore_optim: "galore_adamw_8bit"
+  galore_rank: 128
+  galore_update_proj_gap: 200
+  galore_scale: 0.25
+  galore_proj_type: "std"
+  galore_target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+```
+
+## Uzun Bağlam Eğitimi
+
+RoPE ölçekleme, NEFTune gürültü enjeksiyonu, kayan pencere dikkat ve örnek paketleme ile genişletilmiş bağlam penceresi desteğini etkinleştirin:
+
+```yaml
+training:
+  rope_scaling: "linear"              # "linear" veya "dynamic"
+  neftune_noise_alpha: 5.0            # Daha iyi genelleme için NEFTune gürültüsü
+  sliding_window_attention: 4096      # Kayan pencere boyutu (token)
+  sample_packing: true                # Kısa örnekleri tam uzunluklu dizilere paketle
+```
+
+## GPU Maliyet Tahmini
+
+ForgeLM GPU modelinizi otomatik algılar (18 GPU modeli desteklenir) ve eğitim çalışması başına tahmini maliyeti takip eder. Çıktı JSON sonuçlarına, webhook bildirimlerine ve model kartlarına dahil edilir:
+
+```
+GPU Maliyet Tahmini:
+  GPU Modeli: NVIDIA A100 80GB
+  GPU Saati: 2.4
+  Tahmini Maliyet: $7.20 USD
+  Tepe VRAM: 22.1 GB
+```
+
+Özel maliyet oranı belirlemek için:
+
+```yaml
+training:
+  gpu_cost_per_hour: 3.00  # GPU-saat başına USD
 ```
 
 ## Docker

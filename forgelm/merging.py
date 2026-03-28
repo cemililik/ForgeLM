@@ -138,7 +138,9 @@ def _slerp_merge(base_model, adapters):
     from peft import PeftModel
 
     logger.info("Performing SLERP merge between 2 adapters...")
-    t = adapters[1].get("weight", 0.5)  # interpolation factor
+    w1 = adapters[0].get("weight", 1.0)
+    w2 = adapters[1].get("weight", 1.0)
+    t = w2 / (w1 + w2) if (w1 + w2) > 0 else 0.5  # normalize to [0,1] interpolation factor
 
     # Save base state to restore between adapter loads
     base_state = {k: v.clone() for k, v in base_model.state_dict().items()}

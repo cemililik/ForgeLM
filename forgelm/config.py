@@ -52,7 +52,7 @@ class LoraConfigModel(BaseModel):
     alpha: int = 16
     dropout: float = 0.1
     bias: str = "none"
-    method: str = "lora"  # "lora", "dora", "pissa", "rslora"
+    method: Literal["lora", "dora", "pissa", "rslora"] = "lora"
     use_dora: bool = False  # kept for backward compat; method="dora" also works
     use_rslora: bool = False  # rank-stabilized LoRA for high ranks (r>64)
     target_modules: List[str] = ["q_proj", "v_proj"]
@@ -87,6 +87,23 @@ class TrainingConfig(BaseModel):
     grpo_reward_model: Optional[str] = (
         None  # GRPO: HF model path for reward scoring (None = use default verifiable rewards)
     )
+    # --- GaLore (optimizer-level memory optimization, alternative to LoRA) ---
+    galore_enabled: bool = False
+    galore_optim: str = "galore_adamw"  # galore_adamw, galore_adamw_8bit, galore_adafactor, + _layerwise variants
+    galore_rank: int = 128  # Low-rank subspace dimension for gradient projection
+    galore_update_proj_gap: int = 200  # Steps between SVD re-computations
+    galore_scale: float = 0.25  # Gradient scaling factor (analogous to LoRA alpha)
+    galore_proj_type: str = "std"  # "std", "reverse_std", "right", "left", "full"
+    galore_target_modules: Optional[List[str]] = None  # Regex list; None = auto [r".*.attn.*", r".*.mlp.*"]
+    # --- Long-context optimizations ---
+    rope_scaling: Optional[Dict[str, Any]] = (
+        None  # RoPE scaling config: {"type": "linear"|"dynamic"|"yarn"|"longrope", "factor": 4.0}
+    )
+    neftune_noise_alpha: Optional[float] = (
+        None  # NEFTune: add noise to embeddings (5.0 is a common value, improves quality)
+    )
+    sliding_window_attention: Optional[int] = None  # Override model's sliding window size (e.g. 4096 for Mistral)
+    sample_packing: bool = False  # Pack multiple short sequences into one (saves compute, requires packing=true)
     # --- Tracking ---
     report_to: Literal["tensorboard", "wandb", "mlflow", "none"] = "tensorboard"
     run_name: Optional[str] = None  # W&B/MLflow run name; auto-generated if None
@@ -210,6 +227,33 @@ class ComplianceMetadataConfig(BaseModel):
     risk_classification: str = "minimal-risk"  # "high-risk", "limited-risk", "minimal-risk"
 
 
+class SyntheticConfig(BaseModel):
+    """Synthetic data generation via teacher→student distillation."""
+
+    enabled: bool = False
+    teacher_model: str = ""  # HF model path or API model name (e.g., "gpt-4", "meta-llama/Llama-3-70B")
+    teacher_backend: Literal["api", "local", "file"] = "api"
+    api_base: str = ""  # API endpoint (e.g., "https://api.openai.com/v1")
+    api_key: Optional[str] = None  # API key (prefer api_key_env for security)
+    api_key_env: Optional[str] = None  # Env var name for API key (e.g., "OPENAI_API_KEY")
+    api_delay: float = 0.5  # Seconds between API calls (rate limiting)
+    api_timeout: int = 60  # API call timeout in seconds
+    seed_file: str = ""  # Path to seed prompts file (JSONL or plain text, one per line)
+    seed_prompts: List[str] = []  # Inline seed prompts (alternative to seed_file)
+    system_prompt: str = ""  # System prompt for teacher model
+    max_new_tokens: int = 1024  # Max tokens per teacher response
+    temperature: float = 0.7  # Generation temperature
+    output_file: str = "synthetic_data.jsonl"  # Output JSONL file path
+    output_format: Literal["messages", "instruction", "chatml", "prompt_response"] = "messages"
+
+    def model_dump(self, **kwargs):
+        """Redact api_key from serialized output."""
+        d = super().model_dump(**kwargs)
+        if d.get("api_key"):
+            d["api_key"] = "***REDACTED***"
+        return d
+
+
 class WebhookConfig(BaseModel):
     url: Optional[str] = None
     url_env: Optional[str] = None
@@ -248,6 +292,7 @@ class ForgeConfig(BaseModel):
     compliance: Optional[ComplianceMetadataConfig] = None
     risk_assessment: Optional[RiskAssessmentConfig] = None
     monitoring: Optional[MonitoringConfig] = None
+    synthetic: Optional[SyntheticConfig] = None
 
     @model_validator(mode="after")
     def _validate_consistency(self):
@@ -291,6 +336,31 @@ class ForgeConfig(BaseModel):
                 f"Invalid trainer_type: '{self.training.trainer_type}'. "
                 f"Must be one of: {', '.join(sorted(valid_trainers))}"
             )
+        # GaLore validations
+        if self.training.galore_enabled:
+            valid_galore_optims = {
+                "galore_adamw",
+                "galore_adamw_8bit",
+                "galore_adafactor",
+                "galore_adamw_layerwise",
+                "galore_adamw_8bit_layerwise",
+                "galore_adafactor_layerwise",
+            }
+            if self.training.galore_optim not in valid_galore_optims:
+                raise ValueError(
+                    f"Invalid galore_optim: '{self.training.galore_optim}'. "
+                    f"Must be one of: {', '.join(sorted(valid_galore_optims))}"
+                )
+            if self.lora and self.lora.r > 0:
+                logger.info(
+                    "GaLore enabled with LoRA adapters. GaLore optimizes gradient memory while "
+                    "LoRA constrains trainable parameters. This combination is valid."
+                )
+            if "layerwise" in self.training.galore_optim and self.distributed and self.distributed.strategy:
+                raise ValueError(
+                    "GaLore layerwise optimizers do not support multi-GPU (DDP). "
+                    "Use a non-layerwise variant (e.g., galore_adamw) or disable distributed training."
+                )
         # Distributed training validations
         if self.distributed and self.distributed.strategy:
             if self.model.backend == "unsloth":
