@@ -29,19 +29,12 @@ python3 -m pip install -e ".[dev]"
 
 ### 3. Create a branch
 
-Always branch from `development`:
-
 ```bash
 git fetch upstream
-git checkout -b feat/my-feature upstream/development
+git checkout -b feat/my-feature upstream/main
 ```
 
-Branch naming convention:
-- `feat/description` — new feature
-- `fix/description` — bug fix
-- `docs/description` — documentation
-- `test/description` — test coverage
-- `chore/description` — CI, deps, tooling
+Branch naming: `feat/`, `fix/`, `docs/`, `test/`, `chore/` + short description.
 
 ### 4. Make your changes
 
@@ -60,13 +53,7 @@ forgelm --config config_template.yaml --dry-run
 
 ### 5. Submit a PR
 
-Push your branch and open a Pull Request against **`development`**.
-
-```
-feature/* ──PR──→ development ──PR──→ main (release only)
-```
-
-> `main` is protected and only receives release PRs from `development`.
+Push your branch and open a Pull Request against `main`.
 
 ## Development Setup
 

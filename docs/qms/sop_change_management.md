@@ -19,14 +19,14 @@ Define the procedure for managing changes to fine-tuned models, training configu
 
 ### 3.1 Propose
 
-1. Create a branch from `development`: `git checkout -b change/description development`
+1. Create a branch: `git checkout -b change/description`
 2. Modify the training config (YAML)
 3. Document the change rationale in the PR description
 4. Run dry-run: `forgelm --config new_config.yaml --dry-run`
 
 ### 3.2 Review
 
-1. Open a Pull Request against `development` (release PRs go to `main`)
+1. Open a Pull Request against `main`
 2. PR must include:
    - [ ] Config diff showing what changed
    - [ ] Rationale for the change
