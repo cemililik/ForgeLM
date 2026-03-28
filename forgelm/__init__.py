@@ -7,7 +7,7 @@ without requiring heavy ML dependencies (torch/transformers).
 
 from .config import ConfigError, ForgeConfig, load_config
 
-__version__ = "0.3.0"
+__version__ = "0.3.1rc1"
 
 __all__ = [
     "load_config",
