@@ -5,6 +5,9 @@ on:
     - cron: "0 3 * * *"  # 03:00 UTC daily
   workflow_dispatch:  # Manual trigger
 
+permissions:
+  issues: write  # Required for creating failure notification issues
+
 jobs:
   test-latest-deps:
     name: Test with latest dependencies
@@ -63,18 +66,14 @@ jobs:
       - name: Install minimum dependency versions
         run: |
           pip install --upgrade pip
+          # Install TRL first (most restrictive), let pip resolve transitive deps
           pip install \
             "torch==2.1.0" \
-            "transformers==4.42.0" \
-            "peft==0.11.0" \
-            "datasets==2.19.0" \
-            "accelerate==0.34.0" \
             "trl==0.12.0" \
+            "peft==0.11.0" \
             "pydantic==2.0.0" \
             "pyyaml==6.0.1" \
-            "tensorboard==2.15.0" \
-            "huggingface_hub==0.23.2" \
-            "requests==2.31.0"
+            "tensorboard==2.15.0"
           pip install pytest pytest-cov
 
       - name: Install ForgeLM
@@ -90,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Create issue on failure
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const title = `Nightly CI failure — ${new Date().toISOString().split('T')[0]}`;
