@@ -117,7 +117,6 @@ Odağı korumak adına, ForgeLM şunlardan kaçınır:
 | [Kullanım Rehberi](usage-tr.md) | Eğitim nasıl çalıştırılır |
 | [Veri Hazırlama](data_preparation-tr.md) | Veri seti format gereksinimleri |
 | [Yol Haritası](roadmap-tr.md) | Faz bazlı yürütme planı |
-| [2026 İyileştirme Önerisi](2026_upgrade_proposal-tr.md) | SOTA teknik benimseme gerekçesi |
 | [Ürün Stratejisi](product_strategy-tr.md) | Pazar konumu ve stratejik yön (bu belge) |
 | [Blackwell Tasarımı](design_blackwell_optimized.md) | GB10 optimizasyon tasarımı |
 | [Sihirbaz Modu Tasarımı](design_wizard_mode.md) | Etkileşimli yapılandırma sihirbazı tasarımı |

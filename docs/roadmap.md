@@ -1,6 +1,6 @@
 # ForgeLM Enterprise Roadmap (2026+)
 
-Based on the strategic vision outlined in the [2026 Upgrade Proposal](2026_upgrade_proposal.md), the comprehensive product analysis (March 2026), and competitive landscape research against Axolotl, LLaMA-Factory, Unsloth, TRL, and torchtune, this roadmap details the execution phases for ForgeLM's evolution into the standard **config-driven, enterprise-grade LLM fine-tuning platform**.
+Based on the comprehensive product analysis (March 2026) and competitive landscape research against Axolotl, LLaMA-Factory, Unsloth, TRL, and torchtune, this roadmap details the execution phases for ForgeLM's evolution into the standard **config-driven, enterprise-grade LLM fine-tuning platform**.
 
 > **Guiding Principles:**
 > 1. Reliability before features.

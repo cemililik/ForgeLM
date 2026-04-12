@@ -117,7 +117,6 @@ To maintain focus, ForgeLM explicitly avoids:
 | [Usage Guide](usage.md) | How to run training |
 | [Data Preparation](data_preparation.md) | Dataset format requirements |
 | [Roadmap](roadmap.md) | Phase-based execution plan |
-| [2026 Upgrade Proposal](2026_upgrade_proposal.md) | SOTA technique adoption rationale |
 | [Product Strategy](product_strategy.md) | Market position and strategic direction (this document) |
 | [Blackwell Design](design_blackwell_optimized.md) | GB10 optimization design |
 | [Wizard Mode Design](design_wizard_mode.md) | Interactive configuration wizard design |

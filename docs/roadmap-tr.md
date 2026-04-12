@@ -1,6 +1,6 @@
 # ForgeLM Kurumsal Yol Haritası (2026+)
 
-Bu yol haritası, [2026 İyileştirme Önerisi](2026_upgrade_proposal-tr.md), kapsamlı ürün analizi (Mart 2026) ve Axolotl, LLaMA-Factory, Unsloth, TRL ve torchtune'a karşı rekabet araştırmasına dayanarak, ForgeLM'in standart **config-tabanlı, kurumsal düzeyde LLM ince ayar platformuna** dönüşmesi için yürütme fazlarını detaylandırır.
+Bu yol haritası, kapsamlı ürün analizi (Mart 2026) ve Axolotl, LLaMA-Factory, Unsloth, TRL ve torchtune'a karşı rekabet araştırmasına dayanarak, ForgeLM'in standart **config-tabanlı, kurumsal düzeyde LLM ince ayar platformuna** dönüşmesi için yürütme fazlarını detaylandırır.
 
 > **Yol Gösterici İlkeler:**
 > 1. Özelliklerden önce güvenilirlik.

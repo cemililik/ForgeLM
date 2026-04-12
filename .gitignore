@@ -1,6 +1,6 @@
-# Internal strategy & marketing docs (not public)
+# Internal strategy, marketing, and analysis docs (not public)
 docs/marketing/
-docs/code_reviews/
+docs/analysis/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -58,6 +58,4 @@ logs/
 
 # Jupyter Notebook
 .ipynb_checkpoints
-docs/2026_upgrade_proposal-tr.md
-docs/2026_upgrade_proposal.md
 .coverage
