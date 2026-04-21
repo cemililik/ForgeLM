@@ -1,0 +1,188 @@
+# Logging & Observability Standard
+
+> **Scope:** Anything that writes to stderr/stdout, appends to a file, or sends over the network.
+> **Enforced by:** Code review + tests under `tests/test_compliance.py`, `tests/test_webhook.py`.
+
+## Logger setup
+
+From [`forgelm/cli.py`](../../forgelm/cli.py):
+
+```python
+def _setup_logging(log_level: str, json_format: bool = False) -> None:
+    numeric_level = getattr(logging, log_level.upper(), logging.INFO)
+    if json_format:
+        numeric_level = logging.WARNING
+    logging.basicConfig(
+        level=numeric_level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+```
+
+**Rules:**
+
+1. **One logger per module.** At the top:
+
+   ```python
+   import logging
+   logger = logging.getLogger("forgelm.compliance")  # match module path
+   ```
+
+2. **Never use `print()` in library code.** Only `cli.py` may print (and only for JSON output on stdout).
+
+3. **`--output-format json` downgrades to WARNING.** When a pipeline is reading JSON on stdout, human-friendly INFO spam on stderr drowns the signal. Keep stderr quiet in JSON mode.
+
+4. **Log levels:**
+
+   | Level | When |
+   |---|---|
+   | `DEBUG` | Step-level details a developer would want while investigating |
+   | `INFO` | Normal progress: "Loading model X", "Epoch 3/10 complete" |
+   | `WARNING` | Recoverable problems: webhook failed, optional feature skipped |
+   | `ERROR` | User-visible failure before exiting: config error, training crash |
+   | `CRITICAL` | Reserved. Don't use — if it's that bad, raise. |
+
+## Logging + raising
+
+When raising an exception that will cause a non-zero exit, log at `ERROR` right before. From `cli.py`:
+
+```python
+except ValidationError as e:
+    logger.error("Configuration error:\n%s", e)
+    sys.exit(EXIT_CONFIG_ERROR)
+```
+
+When raising inside a library module, **don't** log — let the caller decide. Double-logging is noise.
+
+## Structured JSON output
+
+Machine-readable output goes to stdout as a single JSON object (or one JSON object per line for streaming). The format:
+
+```json
+{
+  "status": "success" | "error" | "reverted" | "awaiting_approval",
+  "exit_code": 0,
+  "run_id": "fg-abc123",
+  "config_hash": "sha256:...",
+  "metrics": {...},
+  "resource_usage": {
+    "gpu_hours": 2.4,
+    "peak_vram_gb": 22.1,
+    "training_duration_seconds": 8640,
+    "gpu_model": "NVIDIA A100 80GB",
+    "estimated_cost_usd": 7.20
+  },
+  "artifacts": {...}
+}
+```
+
+**Rules:**
+
+1. JSON goes to **stdout** only. Logs go to **stderr**. Never mix.
+2. Every JSON run output includes `run_id` and `config_hash` (reproducibility).
+3. If the run errored, include `error_type` and `message` — see [error-handling.md](error-handling.md).
+
+## Audit log (EU AI Act Article 12)
+
+From [`forgelm/compliance.py`](../../forgelm/compliance.py):
+
+```python
+class AuditLogger:
+    """Append-only JSON Lines audit log for EU AI Act Art. 12 record-keeping."""
+    def log_event(self, event: str, **details) -> None:
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "run_id": self.run_id,
+            "operator": self.operator,
+            "event": event,
+            "prev_hash": self._prev_hash,
+        }
+```
+
+**Rules:**
+
+1. **Append-only.** Never rewrite or delete entries. If something is wrong, write a compensating entry with `event: "correction"`.
+2. **Hash chain.** Every entry includes `prev_hash`, forming a tamper-evident chain. Don't break it.
+3. **UTC timestamps in ISO 8601.** Wall-clock time with timezone is audit-garbage.
+4. **Events are verbs in past tense:** `training.started`, `evaluation.safety.failed`, `model.reverted`. Not `StartTraining`, not `Training Started`.
+5. **Operator is required.** Either from env (`FORGELM_OPERATOR`), config, or fall back to the OS username. Never "unknown".
+
+**Audit events MUST be emitted for:**
+
+- Training start, success, failure, auto-revert
+- Config validation pass/fail
+- Safety/benchmark/judge gate decisions (pass or fail, with scores)
+- Human approval gate triggered (exit code 4)
+- Compliance export invoked
+
+## Webhook notifications
+
+From [`forgelm/webhook.py`](../../forgelm/webhook.py):
+
+```python
+class WebhookNotifier:
+    def _send(self, *, event: str, run_name: str, status: str, ...):
+        payload = {
+            "event": event,
+            "run_name": run_name,
+            "status": status,
+            "metrics": safe_metrics,
+        }
+```
+
+**Rules:**
+
+1. **Webhooks never abort training.** A 500 from Slack is a warning, not a failure. Wrap the POST in `try/except requests.RequestException` and log at `WARNING`.
+2. **Timeout every request** (`timeout=10` minimum, `timeout=30` maximum).
+3. **Sanitize payload.** Never send API keys, full config contents, or sensitive data paths. Whitelist fields going into `payload`.
+4. **Lifecycle events:** `training.started`, `training.succeeded`, `training.failed`, `training.reverted`, `approval.required`. Same vocabulary as audit log.
+5. **Retry:** Up to 3 times with exponential backoff. After that, audit-log the failure and move on.
+
+## Third-party tracking (W&B / MLflow / TensorBoard)
+
+Routed through `trainer_args.report_to`. Rules:
+
+1. Optional — must degrade gracefully if the tracker isn't installed or configured.
+2. Opt-in via config (`tracking.wandb.enabled: true`), never by default.
+3. Credentials from environment variables only, never from YAML.
+4. Same metric names across trackers. Don't emit `eval/loss` to W&B and `eval_loss` to TensorBoard.
+
+## Secrets
+
+**Never log secrets.** Specifically:
+
+- `HF_TOKEN`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, any `*_TOKEN` or `*_KEY` env var
+- Webhook URLs (they're bearer tokens)
+- Connection strings in config
+- User prompts or generated content in production mode (PII risk)
+
+Safe pattern: log the *presence* of a secret, not its value.
+
+```python
+if os.environ.get("HF_TOKEN"):
+    logger.info("HF_TOKEN detected, authenticated mode enabled")
+else:
+    logger.info("No HF_TOKEN set, using public models only")
+```
+
+## Performance logging
+
+Resource metrics go in the JSON output and the model card, not scattered through INFO logs:
+
+- `gpu_hours`, `peak_vram_gb`, `training_duration_seconds`
+- `gpu_model`, `estimated_cost_usd`
+- `tokens_per_second` (if measurable)
+
+These come from `forgelm/utils.py` helpers + `torch.cuda.max_memory_allocated()` + time sampling. Don't reinvent the collection path.
+
+## Quick checklist
+
+Before your PR:
+
+- [ ] Every module has a logger named `forgelm.<module>`.
+- [ ] No `print()` outside `cli.py` JSON-output blocks.
+- [ ] Every `sys.exit(!=0)` is preceded by `logger.error(...)`.
+- [ ] JSON output fields match the schema above, validated by a test.
+- [ ] Audit events fire for every decision gate you added.
+- [ ] Webhook failures are wrapped in try/except and logged at WARNING.
+- [ ] No secrets printed or logged.

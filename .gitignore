@@ -59,3 +59,4 @@ logs/
 # Jupyter Notebook
 .ipynb_checkpoints
 .coverage
+.DS_Store

@@ -141,7 +141,7 @@ distributed:
 torchrun --nproc_per_node=4 -m forgelm.cli --config job.yaml
 ```
 
-See the [Distributed Training Guide](../distributed_training.md) for detailed ZeRO stage comparison and multi-node setup.
+See the [Distributed Training Guide](../reference/distributed_training.md) for detailed ZeRO stage comparison and multi-node setup.
 
 ---
 

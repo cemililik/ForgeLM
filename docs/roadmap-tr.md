@@ -1,190 +1,78 @@
-# ForgeLM Kurumsal Yol Haritası (2026+)
+# ForgeLM Yol Haritası
 
-Bu yol haritası, kapsamlı ürün analizi (Mart 2026) ve Axolotl, LLaMA-Factory, Unsloth, TRL ve torchtune'a karşı rekabet araştırmasına dayanarak, ForgeLM'in standart **config-tabanlı, kurumsal düzeyde LLM ince ayar platformuna** dönüşmesi için yürütme fazlarını detaylandırır.
+> **Configuration-driven, kurumsal-grade LLM ince ayar platformu** — üç ilke üzerine kurulu: özelliklerden önce güvenilirlik, özellik sayısı yerine kurumsal farklılaşma, her yetenek config-driven ve test edilebilir.
 
-> **Yol Gösterici İlkeler:**
-> 1. Özelliklerden önce güvenilirlik.
-> 2. Özellik eşitliği yerine kurumsal farklılaşma.
-> 3. Her yeni yetenek config-tabanlı, test edilebilir ve isteğe bağlı olmalı.
+## Bir bakışta durum
 
----
+| Tür | Faz | Durum |
+|-----|-----|-------|
+| ✅ Tamam | [Faz 1-9](roadmap/completed-phases.md) | SOTA iyileştirmeleri, değerlendirme, güvenilirlik, kurumsal entegrasyon, ekosistem, hizalama stack'i, güvenlik, EU AI Act uyumluluğu (Madde 9-17 + Ek IV), gelişmiş güvenlik zekası |
+| 📋 Planlandı | [Faz 10 — Post-Training Tamamlama](roadmap/phase-10-post-training.md) | `forgelm/inference.py`, `chat`, `export` (GGUF), `fit-check`, `deploy` |
+| 📋 Planlandı | [Faz 11 — Doküman Yutma ve Veri Denetimi](roadmap/phase-11-data-ingestion.md) | PDF/DOCX/EPUB → JSONL, PII tespiti, yakın-duplicate denetimi |
+| 📋 Planlandı | [Faz 12 — Quickstart Katmanı ve Onboarding](roadmap/phase-12-quickstart.md) | `forgelm quickstart <template>`, 5 template, örnek veri setleri |
+| 📋 Planlandı | [Faz 13 — Pro CLI ve Gözlemlenebilirlik Dashboard](roadmap/phase-13-pro-cli.md) | Lisans korumalı dashboard, HPO, zamanlanmış görevler, takım config store |
 
-## Güncel Durum Özeti
+**Güncel durum:** 11 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9) tamamlandı. 4 faz (10-13) planlandı. Hedef `v0.4.0`: Faz 10. Hedef `v0.5.0`: Faz 11 + 12.
 
-| Faz | Durum | Tamamlanma |
-|-----|-------|------------|
-| Faz 1: SOTA İyileştirmeleri | **Tamamlandı** | 6/6 |
-| Faz 2: Değerlendirme ve Doğrulama | **Tamamlandı** | 5/5 |
-| Faz 2.5: Güvenilirlik ve Olgunluk | **Tamamlandı** | 8/8 |
-| Faz 3: Kurumsal Entegrasyon | **Tamamlandı** | 6/6 |
-| Faz 4: Ekosistem Büyümesi | **Tamamlandı** | 5/5 |
-| Faz 5: Hizalama ve Post-Training Stack | **Tamamlandı** | 5/5 |
-| Faz 5.5: Teknik Borç Çözümü | **Tamamlandı** | 7/7 |
-| Faz 6: Kurumsal Güven ve Uyumluluk | **Tamamlandı** | 5/5 |
-| Faz 7: Yeni Nesil Model Desteği | **Tamamlandı** | 5/5 |
-| Faz 8: EU AI Act Derin Uyumluluk | **Tamamlandı** | 10/10 |
-| Faz 9: Gelişmiş Güvenlik Değerlendirme | **Planlandı** | 0/8 |
+## Planlanan işlerin özeti
 
----
+```mermaid
+graph LR
+    P10[Faz 10<br/>Post-Training<br/>Completion] --> P11[Faz 11<br/>Veri<br/>Yutma]
+    P10 --> P12[Faz 12<br/>Quickstart<br/>Katmanı]
+    P11 --> P12
+    P12 --> P13[Faz 13<br/>Pro CLI<br/>+ Dashboard]
 
-## Faz 1–4: Tamamlandı ✅
+    P10 -.-> V1[v0.4.0]
+    P11 -.-> V2[v0.5.0]
+    P12 -.-> V2
+    P13 -.-> V3[v0.6.0-pro]
 
-<details>
-<summary>Tamamlanan fazları genişletmek için tıklayın</summary>
-
-### Faz 1: Temel SOTA İyileştirmeleri ✅ (6/6)
-4-Bit QLoRA & DoRA, TRL SFTTrainer, Chat Templates, Unsloth Backend, Blackwell Optimizasyonu, Ön Doğrulama.
-
-### Faz 2: Otonom Değerlendirme ve Doğrulama ✅ (5/5)
-Otomatik Kıyaslama (lm-eval-harness), Model Geri Alma, Webhook Entegrasyonu, Sihirbaz Modu, Çalışma Zamanı Testleri.
-
-### Faz 2.5: Güvenilirlik ve Üretime Hazırlık ✅ (8/8)
-Yapılandırılmış Loglama, Sessiz Hata Giderme, Test Kapsamı, Bağımlılık Sabitleme, Güvenlik, CLI Olgunluğu, Hata Teşhisleri, CI/CD.
-
-### Faz 3: Kurumsal Entegrasyon ✅ (6/6)
-Sihirbaz Modu, Kıyaslama, Docker/Compose, JSON Çıktı, Offline/Air-Gapped, Checkpoint Resume.
-
-### Faz 4: Ekosistem Büyümesi ✅ (5/5)
-ORPO Trainer, W&B/MLflow/TensorBoard, Çoklu Veri Seti, Model Kartı Üretimi, DeepSpeed/FSDP.
-
-</details>
-
----
-
-## Faz 5: Hizalama ve Post-Training Stack
-**Hedef:** Tam modern post-training pipeline'ını sağlamak: SFT → Tercih Optimizasyonu → Akıl Yürütme RL. Rakiplere karşı en kritik açık — tüm büyük araçlar (Axolotl, TRL, Unsloth, LLaMA-Factory) DPO ve GRPO destekliyor.
-**Tahmini Efor:** Yüksek (2-3 ay)
-**Öncelik:** Kritik — pazar beklentisi
-
-> **Bağlam:** 2026 post-training ortamı modüler bir stack'e oturdu: önce SFT, sonra tercih hizalaması (DPO/SimPO/KTO), isteğe bağlı olarak akıl yürütme RL (GRPO/DAPO). Tek başına ORPO yetersiz — kurumsal kullanıcılar tam menüye ihtiyaç duyuyor. Araştırma (arxiv 2603.19335) algoritma sıralamalarının ölçeğe bağlı olduğunu gösteriyor, bu yüzden kullanıcılar seçebilmeli.
-
-### Görevler:
-1. [ ] **DPO Trainer:** Direct Preference Optimization — temel tercih yöntemi. `trainer_type: "dpo"`. `chosen`/`rejected` veri formatı gerektirir.
-2. [ ] **SimPO Trainer:** Simple Preference Optimization — referans model gerektirmez, DPO'dan daha düşük bellek. 7B ölçeğinde DPO'ya göre AlpacaEval 2'de +6.4 puan. `trainer_type: "simpo"`.
-3. [ ] **KTO Trainer:** Kahneman-Tversky Optimization — eşleştirilmiş tercihler yerine ikili beğenme/beğenmeme geri bildirimi kullanır. Üretim veri toplama için daha pratik. `trainer_type: "kto"`.
-4. [ ] **GRPO Trainer:** Group Relative Policy Optimization — DeepSeek-R1'in arkasındaki yöntem. Eğitim sırasında yanıt üreten ve puanlayan çevrimiçi RL. Akıl yürütme/matematik/kod ince ayarı için kritik. `trainer_type: "grpo"`.
-5. [ ] **Hizalama Stratejisi Otomatik Seçimi:** Veri seti formatına göre (eşleştirilmiş tercihler vs ikili geri bildirim vs doğrulanabilir ödüller) uygun trainer'ı otomatik önerme veya seçme. `--wizard` ve `--dry-run`'da gösterilir.
-
-### Config Örneği:
-```yaml
-training:
-  trainer_type: "dpo"  # "sft", "orpo", "dpo", "simpo", "kto", "grpo"
-  dpo_beta: 0.1
-  grpo_num_generations: 4
+    style P10 fill:#002244,stroke:#00aaff
+    style P11 fill:#002244,stroke:#00aaff
+    style P12 fill:#002244,stroke:#00aaff
+    style P13 fill:#442200,stroke:#ffaa00
 ```
 
----
+## Yol gösterici ilkeler
 
-## Faz 6: Kurumsal Güven ve Uyumluluk
-**Hedef:** ForgeLM'i en güvenli, en denetlenebilir ince ayar aracı yapmak — hiçbir rakibin sunmadığı benzersiz bir farklılaştırıcı. Hedef: EU AI Act uyumluluğu (Ağustos 2026 tam yürürlük) ve düzenlemeye tabi sektörlerin benimsemesi.
-**Tahmini Efor:** Yüksek (2-3 ay)
-**Öncelik:** Yüksek — farklılaştırıcı, hiçbir rakip bunu iyi yapmıyor
+1. **Özelliklerden önce güvenilirlik.** Her yeni yetenek testler, dokümantasyon ve CI kapsamıyla birlikte yayınlanır.
+2. **Özellik sayısı yerine kurumsal farklılaşma.** ForgeLM'in avantajı safety + compliance, feature count değil. Unsloth (hız), LLaMA-Factory (GUI), Axolotl (sequence parallelism) alanlarında rekabet etme.
+3. **Config-driven, test edilebilir, opsiyonel.** Her yeni yetenek bir YAML flag'i. Global state yok, sihir yok, zorunlu entegrasyon yok.
+4. **Hype kriterleri yerine kill kriterleri.** Her fazın ölçülebilir çeyreklik geçit kriteri var. Geçit kaçırılırsa: yeniden düşün, daha fazla itme.
 
-> **Bağlam:** İnce ayar, hizalanmış modellerin güvenliğini kanıtlanmış şekilde bozuyor — zararsız verilerle bile (birden fazla makale, Microsoft Şubat 2026). EU AI Act yüksek riskli AI sistemleri için makinece okunabilir denetim izleri, risk sınıflandırması ve sürekli izleme gerektiriyor. Bugün hiçbir ince ayar aracı bunu eğitim döngüsünde ele almıyor. ForgeLM bu alanı sahiplenebilir.
+## Dokümantasyon haritası
 
-### Görevler:
-1. [ ] **Post-Training Güvenlik Değerlendirmesi:** Eğitim sonrası model çıktılarında güvenlik sınıflandırıcıları (Llama Guard, ShieldGemma) çalıştırma. İnce ayar öncesi/sonrası güvenlik puanlarını karşılaştırma. Eşik aşılırsa otomatik geri alma.
-2. [ ] **LLM-Hakim Değerlendirme Pipeline'ı:** Güçlü bir LLM (GPT-4, Claude, yerel hakim model) kullanarak ince ayarlı model çıktılarını kalite, faydalılık ve talimat takibi açısından puanlama. İnsan değerlendirmesinden 500x-5000x ucuz.
-3. [ ] **GPU Maliyet ve Kaynak Takibi:** Çalışma başına metrikler: GPU-saat, peak VRAM, toplam eğitim süresi, tahmini bulut maliyeti. JSON çıktısı, webhook ve model kartına dahil.
-4. [ ] **EU AI Act Uyumluluk Dışa Aktarımı:** Model kartının yanında makinece okunabilir uyumluluk belgesi üretme. İçerir: eğitim verisi kaynağı, model soy ağacı, değerlendirme sonuçları, risk sınıflandırması, zaman damgalı denetim izi.
-5. [ ] **Eğitim Verisi Kaynak Takibi:** Veri seti parmak izleri (hash, boyut, şema, kaynak URL), uygulanan ön işleme adımları, bölüm başına örnek sayıları. Model kartı ve uyumluluk dışa aktarımında saklanır.
+```
+docs/
+├── roadmap.md                                  # İngilizce özet index
+├── roadmap-tr.md                               # Bu dosya — Türkçe mirror
+└── roadmap/
+    ├── completed-phases.md                     # Faz 1-9 arşivi (detaylı, İngilizce)
+    ├── phase-10-post-training.md               # Aktif planlama
+    ├── phase-11-data-ingestion.md              # Aktif planlama
+    ├── phase-12-quickstart.md                  # Aktif planlama
+    ├── phase-13-pro-cli.md                     # Aktif planlama (gated)
+    ├── releases.md                             # v0.3.0 → v0.6.0 sürüm notları
+    └── risks-and-decisions.md                  # Risk matrisi, fırsatlar, rekabet analizi, karar günlüğü
+```
 
----
+## Bu roadmap nasıl güncellenir?
 
-## Faz 7: Yeni Nesil Model Desteği
-**Hedef:** 2026 ortası ve sonrasını tanımlayan model mimarileri ve eğitim paradigmalarını desteklemek: MoE, multimodal, uzun bağlam ve model birleştirme.
-**Tahmini Efor:** Çok Yüksek (3-6 ay, süregelen)
-**Öncelik:** Yüksek — pazar uyumu
+- **Haftalık** — Aktif fazın görevlerine karşı ilerleme kontrolü.
+- **Aylık** — Scope değişirse karar günlüğü güncellenir (`roadmap/risks-and-decisions.md`).
+- **Çeyreklik** — Tam gözden geçirme: tamamlanan fazları kapat, planlananları önceliklendir, rekabet analizini güncelle. Kill criteria dürüst değerlendirilir.
+- **Yıllık** — Tamamlanan fazları `completed-phases.md`'ye arşivle, eskimiş planlama dosyalarını emekliye ayır.
 
-> **Bağlam:** Model ortamı değişti. Qwen3, Mixtral ve DeepSeek-V3 hep MoE mimarileri. Görsel-dil modelleri (Qwen2.5-VL, Llama-3.2-Vision) artık ana akım. Bağlam pencereleri 128K token'ı aşıyor. Model birleştirme (TIES, DARE) standart bir post-training iş akışı. ForgeLM'in ilgili kalması için bunları desteklemesi gerekiyor.
+## İlgili dokümanlar
 
-### Görevler:
-1. [ ] **MoE (Mixture of Experts) İnce Ayarı:** MoE modellerinin (Qwen3-30B-A3B, Mixtral, DeepSeek) LoRA/QLoRA ince ayarı. VRAM azaltma için uzman-farkında kuantizasyon. MoE mimarisini otomatik algılama.
-2. [ ] **Multimodal VLM İnce Ayarı:** Görsel-dil modeli ince ayar desteği (Qwen2.5-VL, Llama-3.2-Vision). Otomatik işlemci yönetimi ile görsel+metin veri seti formatı.
-3. [ ] **Model Birleştirme Entegrasyonu:** mergekit entegrasyonu ile eğitim sonrası model birleştirme. TIES-Merging, DARE, SLERP veya doğrusal interpolasyon ile birden fazla LoRA adaptörü veya ince ayarlı modeli birleştirme.
-4. [ ] **Gelişmiş PEFT Yöntemleri:** LoRA/DoRA ötesinde yeni parametre-verimli yöntemler:
-   - **PiSSA:** Principal component başlatma — daha hızlı yakınsama
-   - **rsLoRA:** Yüksek rank'larda (r>64) önerilen
-   - **GaLore:** Gradient düşük rank projeksiyonu — bellek verimli tam parametre benzeri eğitim
-5. [ ] **Notebook ve Colab Şablonları:** Yaygın kullanım senaryoları için hazır Jupyter notebook'ları: müşteri destek botu, kod asistanı, alan-spesifik S&C, çok dilli ince ayar. Tek tıkla Colab başlatma.
-
----
-
-## v0.3.0 Sürümü
-
-**Durum:** Tamamlandı
-**Yayın Tarihi:** Mart 2026
-
-### Özellikler:
-1. [x] **GaLore**: Optimizer seviyesinde bellek optimizasyonu — LoRA'ya alternatif olarak gradient düşük rank projeksiyonu ile tam parametre eğitimi. Config alanları: `galore_enabled`, `galore_optim`, `galore_rank`, `galore_update_proj_gap`, `galore_scale`, `galore_proj_type`, `galore_target_modules`.
-2. [x] **Uzun Bağlam Eğitimi**: Genişletilmiş bağlam pencereleri için RoPE ölçekleme, NEFTune gürültü enjeksiyonu, kayan pencere dikkat ve örnek paketleme. Config alanları: `rope_scaling`, `neftune_noise_alpha`, `sliding_window_attention`, `sample_packing`.
-3. [x] **Sentetik Veri Pipeline'ı**: `--generate-data` CLI flag'i ile öğretmen-öğrenci distillasyonu. `forgelm/synthetic.py` içinde yeni `SyntheticDataGenerator` sınıfı. Yapılandırılabilir öğretmen model, backend, tohum promptlar ve çıktı formatı.
-4. [x] **PyPI Yayını**: `pip install forgelm` artık çalışıyor. `publish.yml` GitHub Actions iş akışı ile otomatik yayınlama.
-5. [x] **GPU Maliyet Tahmini**: 18 GPU modeli için otomatik algılama ile çalışma başına maliyet takibi. JSON çıktı, webhook bildirimleri ve model kartlarına dahil.
-6. [x] **Gece CI'ı**: En güncel bağımlılık sürümlerine karşı uyumluluk testi için `.github/workflows/nightly.yml`.
-7. [x] **Genişletilmiş Adversarial Promptlar**: 6 kategori dosyası, 140 prompt (50'den artırıldı) — genel güvenlik, önyargı/ayrımcılık, zararlı talimatlar, gizlilik/kişisel veri, yanlış bilgi ve jailbreak denemeleri.
+- [Ürün Stratejisi](product_strategy-tr.md) — Pazar konumu, hedef kullanıcılar, stratejik kararlar
+- [Mimari](reference/architecture-tr.md) — Sistem tasarımı referansı
+- [Konfigürasyon Rehberi](reference/configuration-tr.md) — Tüm fazlar için YAML referansı
+- [Kullanım Rehberi](reference/usage-tr.md) — ForgeLM nasıl çalıştırılır
+- **Sadece iç kullanım:** `docs/marketing/` içindeki pazarlama + strateji planlaması (gitignored)
 
 ---
 
-## Risk Matrisi
-
-### Yüksek Ciddiyet
-| Risk | Etki | Olasılık | Azaltma Stratejisi |
-|------|------|----------|---------------------|
-| **Bağımlılık Kırıcı Değişiklikleri** (TRL, PEFT, Unsloth) | Eğitim pipeline'ı uyarısız bozulur | Yüksek | Sürüm sabitleme, gece CI yapıları, uyumluluk matrisi |
-| **EU AI Act Uyumsuzluğu** (Ağustos 2026 son tarih) | Kurumsal müşteriler yüksek riskli AI için ForgeLM'i benimseyemez | Orta | Faz 6 uyumluluk dışa aktarımı son tarihten önce |
-| **İnce Ayardan Güvenlik Bozulması** | İnce ayarlı modeller hizalamayı kaybeder, kurumsal sorumluluk | Yüksek | Faz 6 güvenlik değerlendirme pipeline'ı, güvenlik gerilemesinde otomatik geri alma |
-| **Hizalama Yöntemi Kilitlenmesi** | ForgeLM yalnızca ORPO desteklerken pazar DPO/GRPO talep eder | Yüksek | Faz 5 en yüksek öncelik |
-
-### Orta Ciddiyet
-| Risk | Etki | Olasılık | Azaltma Stratejisi |
-|------|------|----------|---------------------|
-| **MoE/VLM Mimari Kayması** | ForgeLM baskın model mimarilerini eğitemez | Orta | Faz 7; PEFT kütüphanesi MoE desteğini izle |
-| **Kapsam Kayması** | Bakım yükü kapasiteyi aşar, çekirdek kalite düşer | Orta | Sıkı faz kapılama, TRL'nin mevcut trainer'larını kullan |
-| **Ekosistem Metalaşması** | Rakip araçlar benzer kurumsal özellikler ekler | Orta | Güvenlik + uyumluluk farklılaşmasına odaklan |
-
----
-
-## Fırsat Analizi
-
-### Anlık Fırsatlar
-1. **Hizalama Stack (Faz 5)** — DPO+GRPO desteği en kritik rekabet açığını kapatır.
-2. **Güvenlik-Özellik (Faz 6)** — Hiçbir rakip güvenlik değerlendirmesini eğitim pipeline'ına entegre etmiyor. "LLM ince ayarının en güvenli yolu" konumlandırması.
-
-### Orta Vadeli Fırsatlar
-3. **EU AI Act Uyumluluğu** — Ağustos 2026 son tarihi acil talep yaratır. Uyumluluk belgeleri üreten tek araç olmak güçlü bir kurumsal satış argümanı.
-4. **Maliyet Şeffaflığı** — Çalışma başına GPU maliyet takibi, kurumsal bütçe planlamasını mümkün kılar.
-
-### Uzun Vadeli Fırsatlar
-5. **Yönetilen ForgeLM Servisi** — SaaS: veri + config yükle → eğitilmiş model + uyumluluk belgeleri al.
-6. **Sentetik Veri Pipeline'ı** — Config-tabanlı öğretmen model distillasyonu.
-7. **Eğitim Pazaryeri** — Topluluk katkılı config şablonları.
-
----
-
-## Rekabet Konumlandırması (Güncel — Mart 2026)
-
-| Rakip | Yıldız | ForgeLM Avantajı | ForgeLM Açığı |
-|-------|--------|-------------------|---------------|
-| **LLaMA-Factory** | ~55-68K | CI/CD-native, güvenlik eval, uyumluluk | Web UI, 100+ model, GaLore/PiSSA, VLM |
-| **Unsloth** | ~54-56K | Kurumsal özellikler, çoklu trainer, güvenlik | Hız (2-5x), Studio GUI, MoE optimizasyonu |
-| **TRL** | ~17.6K | Tam pipeline (sadece trainer değil), Docker, değerlendirme | GRPO, resmi HF entegrasyonu |
-| **Axolotl** | ~11.4K | Daha basit config, Docker, güvenlik eval | GRPO, GDPO, sequence parallelism |
-| **torchtune** | Meta destekli | Config-tabanlı kurumsal odak | Knowledge distillation, QAT, PyTorch-native |
-
-**ForgeLM'in gelişen niş'i:** Config-tabanlı, CI/CD-uyumlu, **güvenlik-bilinçli**, kurumsal LLM ince ayarı. Güvenlik + uyumluluk açısı mevcut en güçlü farklılaştırıcıdır.
-
----
-
-## Karar Günlüğü
-
-| Tarih | Karar | Gerekçe |
-|-------|-------|---------|
-| 2026-03-23 | Yeni özelliklerden önce Faz 2.5 (Güvenilirlik) eklendi | Ürün analizi kritik boşluklar ortaya koydu |
-| 2026-03-23 | Doğrudan bulut API entegrasyonu öncelik düşürüldü | Sürdürülemez bakım yükü, 3. parti bağımlılık riski |
-| 2026-03-23 | Docker tabanlı dağıtım stratejisi benimsendi | Taşınabilir, kullanıcı kontrollü altyapı |
-| 2026-03-23 | `trust_remote_code` kurumsal engelleyici olarak işaretlendi | Düzenlemeye tabi sektörlerle uyumsuz güvenlik riski |
-| 2026-03-23 | Faz 5 (Hizalama Stack) Kritik olarak önceliklendirildi | Rekabet analizi: DPO/GRPO pazar beklentisi, tek başına ORPO yetersiz |
-| 2026-03-23 | Faz 6 (Güvenlik ve Uyumluluk) birincil farklılaştırıcı seçildi | Hiçbir rakip güvenlik eval veya EU AI Act uyumluluğu entegre etmiyor. Ağustos 2026 son tarihi |
-| 2026-03-23 | Faz 7 (MoE/VLM/Birleştirme) süregelen olarak kapsamlandı | Model ortamı MoE ve multimodal'a kayıyor; desteklemeli ama Faz 5-6 pahasına değil |
-| 2026-03-23 | Hizalama yöntemleri için TRL trainer'ları kullanılacak | TRL zaten DPO, KTO, GRPO implementasyonlarını sunuyor — ForgeLM yeniden implement etmek yerine config, değerlendirme ve pipeline entegrasyonu ile sarar |
+**Tek tek faz detayları için:** Yukarıdaki durum tablosundaki linkleri takip edin.
+**Büyük resim için:** [Ürün Stratejisi](product_strategy-tr.md) → bir faz seç → o fazın detay dosyasını oku.

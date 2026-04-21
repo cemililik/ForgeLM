@@ -112,13 +112,13 @@ To maintain focus, ForgeLM explicitly avoids:
 | Document | Purpose |
 |----------|---------|
 | [README.md](../README.md) | Project overview and quick start |
-| [Architecture](architecture.md) | System design and component details |
-| [Configuration Guide](configuration.md) | YAML parameter reference |
-| [Usage Guide](usage.md) | How to run training |
-| [Data Preparation](data_preparation.md) | Dataset format requirements |
+| [Architecture](reference/architecture.md) | System design and component details |
+| [Configuration Guide](reference/configuration.md) | YAML parameter reference |
+| [Usage Guide](reference/usage.md) | How to run training |
+| [Data Preparation](reference/data_preparation.md) | Dataset format requirements |
 | [Roadmap](roadmap.md) | Phase-based execution plan |
 | [Product Strategy](product_strategy.md) | Market position and strategic direction (this document) |
-| [Blackwell Design](design_blackwell_optimized.md) | GB10 optimization design |
-| [Wizard Mode Design](design_wizard_mode.md) | Interactive configuration wizard design |
+| [Blackwell Design](design/blackwell_optimized.md) | GB10 optimization design |
+| [Wizard Mode Design](design/wizard_mode.md) | Interactive configuration wizard design |
 
 All documents are available in Turkish (`*-tr.md`).

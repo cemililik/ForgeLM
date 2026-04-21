@@ -1,0 +1,220 @@
+---
+name: cut-release
+description: Use this skill when preparing a ForgeLM release. Walks through version bump, changelog finalization, tag, publish, and post-release sync per docs/standards/release.md. Triggered by requests like "cut v0.4.0", "release ForgeLM", "prepare the next version".
+---
+
+# Skill: Cut a ForgeLM Release
+
+Follows [docs/standards/release.md](../../../docs/standards/release.md). This is a maintainer-scope ritual — only invoke when explicitly releasing.
+
+## When to use
+
+- User says "release vX.Y.Z" or "cut a release"
+- Phase completion warrants a version bump
+- A critical fix needs a patch release
+
+Do **not** use for:
+- Routine PR merges (those go to `[Unreleased]` in CHANGELOG; release happens separately)
+- Documentation-only changes (no version bump)
+
+## First: decide if we should release
+
+Checklist before even starting:
+
+- [ ] Is there meaningful new content since last release? If only internal refactors, skip and defer.
+- [ ] Is `main` CI green? If not, fix first.
+- [ ] Is it Tuesday through Thursday? Never release on Friday (weekend support pain).
+- [ ] Do we have at least one rc tested if this is a minor release?
+
+If any is "no," propose waiting rather than pushing ahead.
+
+## Decide the version
+
+From [release.md](../../../docs/standards/release.md):
+
+| Change type | Bump |
+|---|---|
+| Breaking (removed flag, renamed YAML field, changed exit code) | MAJOR |
+| New feature (new trainer, new CLI subcommand, new config field) | MINOR |
+| Bug fixes, docs, internal refactor | PATCH |
+
+Current version in [`pyproject.toml`](../../../pyproject.toml) line 7. Single source of truth.
+
+## Pre-release checklist
+
+Run before tagging:
+
+### 1. Sync main
+
+```bash
+git checkout main
+git pull
+git status  # must be clean
+```
+
+### 2. Finalize CHANGELOG
+
+Open [`CHANGELOG.md`](../../../CHANGELOG.md). Move items from `[Unreleased]` to a new version section:
+
+```markdown
+## [Unreleased]
+
+## [0.4.0] — 2026-07-15
+
+### Added
+- **Inference module** (`forgelm.inference`) — ...
+
+### Changed
+- ...
+
+### Fixed
+- ...
+
+### Breaking
+- `forgelm generate` removed; use `forgelm chat` instead.
+```
+
+Rules:
+- Date is today, ISO format.
+- Only categories: Added / Changed / Deprecated / Removed / Fixed / Security / Breaking.
+- Every entry is user-facing — dev-only refactors don't belong here.
+
+### 3. Bump version
+
+Edit [`pyproject.toml`](../../../pyproject.toml) line 7:
+
+```toml
+version = "0.4.0"    # was "0.3.1rc1" or "0.4.0rc1"
+```
+
+If pre-release → release: drop `rcN` suffix. If new rc: `0.4.0rc1` → `0.4.0rc2`.
+
+### 4. Docs alignment
+
+- [ ] If a new CLI flag was added: [`docs/reference/usage.md`](../../../docs/reference/usage.md) + `-tr.md` reflect it
+- [ ] If a new config field was added: [`docs/reference/configuration.md`](../../../docs/reference/configuration.md) + `-tr.md` reflect it
+- [ ] If a new guide was written: [`docs/guides/`](../../../docs/guides/) has it
+- [ ] [`config_template.yaml`](../../../config_template.yaml) exercises all new fields (CI dry-run uses it)
+- [ ] [`README.md`](../../../README.md) feature list still accurate
+
+### 5. Local verification
+
+```bash
+ruff check . && ruff format --check .
+pytest tests/ -v
+pytest --cov=forgelm --cov-fail-under=25
+forgelm --config config_template.yaml --dry-run
+
+# Fresh install smoke:
+python -m pip install -e .
+forgelm --version   # should print the new version
+```
+
+All four must pass.
+
+### 6. Commit + tag
+
+```bash
+git add -A
+git commit -m "chore: release v0.4.0"
+git tag -s v0.4.0 -m "v0.4.0 — Post-Training Completion"
+git push origin main v0.4.0
+```
+
+GPG-signed tag (`-s`) is required for trusted PyPI publishing.
+
+## Automated publish
+
+[`publish.yml`](../../../.github/workflows/publish.yml) runs on tag push matching `v*`:
+
+1. Build wheel + sdist
+2. Verify with twine
+3. Publish to PyPI (OIDC trusted publishing)
+4. Create GitHub Release with changelog excerpt
+
+**Wait ~5-10 minutes**, then verify:
+
+```bash
+pip install forgelm==0.4.0 --force-reinstall
+forgelm --version
+```
+
+If the install fails or returns the wrong version, investigate the workflow run. Common issues: tag mismatch with pyproject, build artifact missing, PyPI trust not configured.
+
+## Post-release
+
+### 1. Announce
+
+Template in [docs/marketing/05_content_strategy.md](../../../docs/marketing/05_content_strategy.md) under "New Release":
+
+```
+📦 ForgeLM v0.4.0 released!
+
+Highlights:
+- Inference module + chat CLI
+- GGUF export
+- VRAM fit advisor
+
+Full changelog: https://github.com/cemililik/ForgeLM/blob/main/CHANGELOG.md
+Upgrade: pip install --upgrade forgelm
+```
+
+Post to (ordered by priority):
+- Discord `#announcements`
+- Twitter/X
+- LinkedIn
+- (Optional) Dev.to blog post for major features
+
+### 2. Reset to next pre-release
+
+```bash
+# Edit pyproject.toml: version = "0.4.1rc1"
+# Edit CHANGELOG.md: add new ## [Unreleased] at top
+git commit -m "chore: bump to 0.4.1rc1 (next dev cycle)"
+git push
+```
+
+### 3. Update marketing roadmap metrics
+
+[`docs/marketing/marketing_strategy_roadmap.md`](../../../docs/marketing/marketing_strategy_roadmap.md) — metrics row for the release month.
+
+### 4. Close the phase (if applicable)
+
+If this release completes a phase, update [`docs/roadmap.md`](../../../docs/roadmap.md):
+- Move phase from "Planned" row to archived
+- Append detail to [`docs/roadmap/completed-phases.md`](../../../docs/roadmap/completed-phases.md)
+- Update [`docs/roadmap/releases.md`](../../../docs/roadmap/releases.md)
+
+## Hotfix release variant
+
+If a critical bug is found post-release:
+
+```bash
+git checkout -b hotfix/0.4.1 v0.4.0
+# fix + test
+# update CHANGELOG with [0.4.1] section
+# bump pyproject.toml to 0.4.1
+git commit -m "fix: <bug>"
+git push origin hotfix/0.4.1
+
+# Create PR to main, review, merge
+# Then tag from main HEAD:
+git checkout main && git pull
+git tag -s v0.4.1 -m "v0.4.1 — hotfix for <bug>"
+git push origin v0.4.1
+```
+
+Follow up in announcements with "⚠️ Security/Stability fix — please upgrade" if warranted.
+
+## Pitfalls
+
+- **Releasing with `[Unreleased]` items that don't belong.** Before bumping, read every line in `[Unreleased]` and decide: does this ship? If not, move to a later section or remove.
+- **Tagging before pushing commit.** The tag references a commit — if you tag locally and forget to push the commit, CI builds the wrong code.
+- **Force-pushing a tag.** Tags are immutable from a user's perspective. If you need to correct a tag, delete locally + remote, push new — but PyPI publishes are one-way. If you've already published, the only fix is a new version.
+- **Skipping the rc phase on breaking releases.** At least one rc should be tested for minor versions that add substantial features. Patch releases can skip rc.
+- **Not updating `[Unreleased]` after release.** Next PR author will wonder where to add their entry.
+
+## Related skills
+
+- `review-pr` — for the PRs that feed the release
+- `sync-bilingual-docs` — for doc alignment in step 4

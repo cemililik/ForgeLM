@@ -132,7 +132,7 @@ If you add a new config field:
 
 1. Add the field to the Pydantic model in `config.py`
 2. Add it to `config_template.yaml` (commented with example)
-3. Update the [Configuration Guide](docs/configuration.md) if it's user-facing
+3. Update the [Configuration Guide](docs/reference/configuration.md) if it's user-facing
 4. Add a test in `tests/test_config.py`
 
 ### Adding a New Trainer Type

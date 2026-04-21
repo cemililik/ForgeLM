@@ -112,13 +112,13 @@ Odağı korumak adına, ForgeLM şunlardan kaçınır:
 | Belge | Amaç |
 |-------|------|
 | [README.md](../README.md) | Proje genel bakışı ve hızlı başlangıç |
-| [Mimari](architecture-tr.md) | Sistem tasarımı ve bileşen detayları |
-| [Yapılandırma Rehberi](configuration-tr.md) | YAML parametre referansı |
-| [Kullanım Rehberi](usage-tr.md) | Eğitim nasıl çalıştırılır |
-| [Veri Hazırlama](data_preparation-tr.md) | Veri seti format gereksinimleri |
+| [Mimari](reference/architecture-tr.md) | Sistem tasarımı ve bileşen detayları |
+| [Yapılandırma Rehberi](reference/configuration-tr.md) | YAML parametre referansı |
+| [Kullanım Rehberi](reference/usage-tr.md) | Eğitim nasıl çalıştırılır |
+| [Veri Hazırlama](reference/data_preparation-tr.md) | Veri seti format gereksinimleri |
 | [Yol Haritası](roadmap-tr.md) | Faz bazlı yürütme planı |
 | [Ürün Stratejisi](product_strategy-tr.md) | Pazar konumu ve stratejik yön (bu belge) |
-| [Blackwell Tasarımı](design_blackwell_optimized.md) | GB10 optimizasyon tasarımı |
-| [Sihirbaz Modu Tasarımı](design_wizard_mode.md) | Etkileşimli yapılandırma sihirbazı tasarımı |
+| [Blackwell Tasarımı](design/blackwell_optimized.md) | GB10 optimizasyon tasarımı |
+| [Sihirbaz Modu Tasarımı](design/wizard_mode.md) | Etkileşimli yapılandırma sihirbazı tasarımı |
 
 Tüm belgeler İngilizce (`*.md`) ve Türkçe (`*-tr.md`) olarak mevcuttur.

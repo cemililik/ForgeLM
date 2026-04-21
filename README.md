@@ -71,15 +71,15 @@ See the [Quick Start Guide](docs/guides/quickstart.md) for a complete walkthroug
 | [CI/CD Pipeline Integration](docs/guides/cicd_pipeline.md) | GitHub Actions, GitLab CI, Docker |
 | [Enterprise Deployment](docs/guides/enterprise_deployment.md) | Docker, air-gapped, multi-GPU |
 | [Safety & Compliance](docs/guides/safety_compliance.md) | EU AI Act, safety evaluation |
-| [Distributed Training](docs/distributed_training.md) | DeepSpeed ZeRO, FSDP, multi-node |
+| [Distributed Training](docs/reference/distributed_training.md) | DeepSpeed ZeRO, FSDP, multi-node |
 | [Troubleshooting & FAQ](docs/guides/troubleshooting.md) | Common issues and solutions |
 
 ## Reference Documentation
 
-1. [Architecture Overview](docs/architecture.md) ([Türkçe](docs/architecture-tr.md))
-2. [Configuration Guide](docs/configuration.md) ([Türkçe](docs/configuration-tr.md))
-3. [Usage & Execution](docs/usage.md) ([Türkçe](docs/usage-tr.md))
-4. [Data Preparation Format](docs/data_preparation.md) ([Türkçe](docs/data_preparation-tr.md))
+1. [Architecture Overview](docs/reference/architecture.md) ([Türkçe](docs/reference/architecture-tr.md))
+2. [Configuration Guide](docs/reference/configuration.md) ([Türkçe](docs/reference/configuration-tr.md))
+3. [Usage & Execution](docs/reference/usage.md) ([Türkçe](docs/reference/usage-tr.md))
+4. [Data Preparation Format](docs/reference/data_preparation.md) ([Türkçe](docs/reference/data_preparation-tr.md))
 5. [Product Strategy](docs/product_strategy.md) ([Türkçe](docs/product_strategy-tr.md))
 6. [Roadmap](docs/roadmap.md) ([Türkçe](docs/roadmap-tr.md))
 

@@ -52,9 +52,9 @@ Gaps, residual risks and operational considerations
   - Add runtime safety telemetry and incident reporting hooks (webhooks/metrics) to track deployed model behavior and feed into QMS corrective actions.
 
 Firms' opportunities
-- Rekabet avantajı: mevcut teknik destekleri (auto‑revert + SHA‑256) öne çıkarıp “EU AI Act–ready” paketler sunmak.
-- Ürünleşme: compliance export + audit‑bundle, GitHub Actions workflow ve “audit checklist” şablonları.
-- Kurumsal eklentiler: QMS entegrasyonu, imzalı/ zaman damgalı provenance, RBAC ve yönetim paneli ekleme.
+- Competitive advantage: highlight existing technical controls (auto‑revert + SHA‑256) and market as “EU AI Act–ready” packages.
+- Productization: compliance export + audit‑bundle, GitHub Actions workflows, and audit checklist templates.
+- Enterprise add‑ons: QMS integration, signed/timestamped provenance, RBAC, and admin dashboard.
 
 Recommended additions (prioritized)
 1. Compliance summary document (this file) + `docs/qms/` skeleton with SOP templates and roles (low effort).
