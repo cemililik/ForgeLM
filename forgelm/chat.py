@@ -72,6 +72,13 @@ class ChatSession:
         self._input = input_fn or input
         self._output = output_fn or self._default_output
 
+        if self.enable_safety:
+            logger.warning(
+                "Safety annotation enabled (--safety) but full Llama Guard eval is not supported "
+                "in interactive chat mode — it would require loading a second model per turn. "
+                "Use post-training safety evaluation (forgelm train) instead."
+            )
+
     # ------------------------------------------------------------------
     # Output helpers
     # ------------------------------------------------------------------
@@ -220,11 +227,8 @@ class ChatSession:
 
         messages = self._build_messages(user_input)
 
-        # Print "Assistant: " prefix
-        if _HAS_RICH:
-            _console.print("[bold green]Assistant:[/bold green] ", end="")
-        else:
-            print("Assistant: ", end="", flush=True)
+        prefix = "[bold green]Assistant:[/bold green] " if _HAS_RICH else "Assistant: "
+        self._print_inline(prefix)
 
         response = ""
         if self.stream:
@@ -237,12 +241,12 @@ class ChatSession:
                     temperature=self.temperature,
                     max_new_tokens=self.max_new_tokens,
                 ):
-                    print(token, end="", flush=True)
+                    self._print_inline(token)
                     response += token
             except Exception as e:
                 self._print(f"\n[Generation error: {e}]")
                 return
-            print()  # trailing newline
+            self._print("")  # trailing newline
         else:
             try:
                 response = generate(
@@ -262,18 +266,6 @@ class ChatSession:
         self.history.append({"role": "user", "content": user_input})
         self.history.append({"role": "assistant", "content": response})
 
-        # Optional safety hint (non-blocking; does not interrupt the REPL)
-        if self.enable_safety and response:
-            self._safety_hint(user_input, response)
-
-    def _safety_hint(self, prompt: str, response: str) -> None:
-        """Print a lightweight safety annotation using the existing safety module."""
-        logger.warning(
-            "Safety annotation enabled (--safety) but full Llama Guard eval is not supported "
-            "in interactive chat mode — it would require loading a second model per turn. "
-            "Use post-training safety evaluation (forgelm train) instead."
-        )
-
     # ------------------------------------------------------------------
     # Welcome screen
     # ------------------------------------------------------------------
@@ -292,10 +284,10 @@ class ChatSession:
         lines.append("─" * 56)
 
         if _HAS_RICH:
-            _console.print(Panel("\n".join(lines), title="[bold]ForgeLM[/bold]", border_style="blue"))
+            self._print(Panel("\n".join(lines), title="[bold]ForgeLM[/bold]", border_style="blue"))
         else:
             for line in lines:
-                print(line)
+                self._print(line)
 
 
 # ---------------------------------------------------------------------------

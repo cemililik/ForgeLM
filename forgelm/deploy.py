@@ -123,7 +123,6 @@ def _tgi_compose(
 ) -> str:
     """Generate a docker-compose.yaml for HuggingFace Text Generation Inference."""
     compose = {
-        "version": "3.8",
         "services": {
             "tgi": {
                 "image": "ghcr.io/huggingface/text-generation-inference:latest",

@@ -364,7 +364,10 @@ class TestFormatFitCheck:
             hypothetical=True,
         )
         text = format_fit_check(result)
-        assert "not detected" in text or "hypothetical" in text or "UNKNOWN" in text
+        # Verdict token must appear in the rendered output
+        assert "UNKNOWN" in text
+        # AND the hypothetical/no-GPU note must explicitly be present
+        assert "not detected" in text or "hypothetical" in text
 
 
 # ---------------------------------------------------------------------------

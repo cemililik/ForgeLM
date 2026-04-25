@@ -183,16 +183,12 @@ class TestGenerateDeployConfig:
             parsed = json.load(f)
         assert "model" in parsed
 
-    def test_default_filename_used_when_output_none(self, tmp_path):
-        original_cwd = os.getcwd()
-        os.chdir(tmp_path)
-        try:
-            result = generate_deploy_config("./model", "ollama")
-            assert result.success is True
-            assert result.output_path == "Modelfile"
-            assert os.path.isfile("Modelfile")
-        finally:
-            os.chdir(original_cwd)
+    def test_default_filename_used_when_output_none(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        result = generate_deploy_config("./model", "ollama")
+        assert result.success is True
+        assert result.output_path == "Modelfile"
+        assert os.path.isfile("Modelfile")
 
     def test_unsupported_target_returns_failure(self):
         result = generate_deploy_config("/model", "nonexistent_runtime")

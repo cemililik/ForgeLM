@@ -252,8 +252,10 @@ def estimate_vram(config: Any) -> FitCheckResult:
     base_gb = _base_model_gb(num_params, quant)
 
     target_module_count = len(lora.target_modules)
-    adapter_gb = _lora_adapter_gb(arch, lora.r, target_module_count)
-    trainable_params = int(adapter_gb * (1024**3) / 4)  # fp32 param count
+    # Compute adapter parameter count directly (avoids float round-trip via GB)
+    adapter_params = 2 * lora.r * arch["hidden_size"] * target_module_count * arch["num_hidden_layers"]
+    adapter_gb = adapter_params * 4 / (1024**3)  # fp32
+    trainable_params = adapter_params
 
     optimizer_type = getattr(t, "galore_optim", "adamw") if getattr(t, "galore_enabled", False) else "adamw"
     optim_gb = _optimizer_state_gb(trainable_params, optimizer_type)
@@ -286,7 +288,7 @@ def estimate_vram(config: Any) -> FitCheckResult:
     hypothetical = False
     try:
         if torch.cuda.is_available():
-            free_bytes, total_bytes = torch.cuda.mem_get_info()
+            free_bytes, _ = torch.cuda.mem_get_info()
             available_gb = free_bytes / (1024**3)
         else:
             hypothetical = True
@@ -357,7 +359,7 @@ def _build_recommendations(
                 "trades ~20 % compute for significantly lower activation memory."
             )
 
-        if quant not in ("4bit",) and not m.load_in_4bit:
+        if not m.load_in_4bit:
             recs.append("Enable load_in_4bit: true for QLoRA; reduces base model weight memory by ~75 %.")
 
         if not getattr(t, "galore_enabled", False):

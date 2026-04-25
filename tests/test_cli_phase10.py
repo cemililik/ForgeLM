@@ -272,21 +272,21 @@ class TestExportCLI:
 class TestChatCLI:
     def test_chat_does_not_require_config(self):
         """Running forgelm chat without --config must not exit with CONFIG_ERROR."""
-        mock_run_chat = MagicMock(side_effect=KeyboardInterrupt)
-
-        with patch("forgelm.cli._run_chat_cmd", side_effect=mock_run_chat):
+        with patch("forgelm.cli._run_chat_cmd", side_effect=KeyboardInterrupt):
             with patch("sys.argv", ["forgelm", "chat", "./model"]):
                 with pytest.raises(SystemExit) as exc_info:
                     main()
         # Should be SUCCESS (KeyboardInterrupt handled gracefully in _run_chat_cmd)
         assert exc_info.value.code != EXIT_CONFIG_ERROR
 
-    def test_chat_subcommand_registered(self):
-        """forgelm chat --help must succeed and show model_path."""
+    def test_chat_subcommand_registered(self, capsys):
+        """forgelm chat --help must succeed and document model_path."""
         with patch("sys.argv", ["forgelm", "chat", "--help"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
         assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "model_path" in captured.out
 
 
 # ---------------------------------------------------------------------------

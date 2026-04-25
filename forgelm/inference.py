@@ -49,9 +49,15 @@ def load_model(
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     if backend.lower() == "unsloth":
-        if not load_in_4bit:
-            logger.warning("Unsloth backend always loads in 4-bit NF4; load_in_4bit=False is ignored.")
-        return _load_unsloth(path, adapter, trust_remote_code)
+        if load_in_4bit and load_in_8bit:
+            logger.warning("Both load_in_4bit and load_in_8bit are set; preferring 4-bit for Unsloth backend.")
+        return _load_unsloth(
+            path,
+            adapter,
+            trust_remote_code,
+            load_in_4bit=load_in_4bit,
+            load_in_8bit=load_in_8bit,
+        )
 
     logger.info("Loading model for inference: %s", path)
 
@@ -96,6 +102,9 @@ def _load_unsloth(
     path: str,
     adapter: Optional[str],
     trust_remote_code: bool,
+    *,
+    load_in_4bit: bool = False,
+    load_in_8bit: bool = False,
 ) -> Tuple[Any, Any]:
     """Load model via the Unsloth backend for faster inference."""
     try:
@@ -105,10 +114,15 @@ def _load_unsloth(
             "Unsloth backend requested but 'unsloth' is not installed.  Install with: pip install unsloth"
         ) from e
 
+    # Default to 4-bit when neither flag is set (Unsloth's primary mode)
+    if not load_in_4bit and not load_in_8bit:
+        load_in_4bit = True
+
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=path,
         dtype=None,
-        load_in_4bit=True,
+        load_in_4bit=load_in_4bit,
+        load_in_8bit=load_in_8bit,
         trust_remote_code=trust_remote_code,
     )
     FastLanguageModel.for_inference(model)

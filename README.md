@@ -197,7 +197,7 @@ forgelm/
 
 configs/deepspeed/   # ZeRO-2, ZeRO-3, ZeRO-3+Offload presets
 notebooks/           # Colab-ready Jupyter notebooks
-tests/               # 145+ unit tests across 11 test files
+tests/               # 427+ unit tests across 30 test files
 docs/guides/         # Quickstart, alignment, CI/CD, enterprise, safety guides
 ```
 
