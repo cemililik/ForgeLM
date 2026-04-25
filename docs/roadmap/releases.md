@@ -20,15 +20,47 @@
 
 ---
 
-## v0.4.0 — "Post-Training Completion" (Planlandı)
+## v0.3.1rc1 — "Security & Config Hardening" (2026-04-25)
 
-Odak: [Phase 10](phase-10-post-training.md). Inference, chat, GGUF export, VRAM fit-check, deployment config generation.
+**Status:** Released (release candidate)
+
+### Changes:
+- **Security**: Webhook URLs excluded from HuggingFace Hub model cards — prevent credential leaks
+- **Security**: User-supplied strings sanitized before Markdown template embedding (content injection prevention)
+- **Config robustness**: All 19 Pydantic sub-models now enforce `extra="forbid"` — YAML typos are errors, not silent bugs
+- **Config robustness**: Deprecated `lora.use_dora` / `lora.use_rslora` booleans now auto-normalize to `lora.method: "dora"/"rslora"` with deprecation warnings
+- **Compliance**: Audit log hash chain now restores continuity across process restarts — cross-run tamper evidence
+- **Compliance**: Compliance manifests correctly report pre-OOM-recovery batch size
+- **GRPO**: Reward model path now correctly wrapped as callable (was passing string, causing TypeError)
+- **Safety**: Safety classifier now receives full `[INST] prompt [/INST] response` conversation context (was response-only)
+- **Data**: Extension-less files now raise clear ValueError instead of silently loading wrong format
+- **Merging**: TIES tie-breaking fixed (zero-vote no longer zeros parameters); DARE now deterministic with seed=42
+- **Config validators**: New — mix_ratio negative/all-zero, float32+4bit warning, high LoRA rank warning, eval_steps>save_steps warning
+- **Tests**: 25 new regression tests; coverage threshold raised from 25% to 40%
 
 ---
 
-## v0.5.0 — "Quickstart Layer" (Planlandı)
+## v0.4.0 — "Post-Training Completion" (Planlandı)
 
-Odak: [Phase 11](phase-11-data-ingestion.md) + [Phase 12](phase-12-quickstart.md). Document ingestion + data audit + quickstart templates.
+Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inference, chat, GGUF export, VRAM fit-check, deployment config generation. All five Phase 10 tasks (inference.py, chat.py, export, fit-check, deploy) complete before tagging v0.4.0.
+
+---
+
+## v0.4.5 — "Quickstart Layer" (Planlandı)
+
+Focus: [Phase 10.5](phase-12-quickstart.md) (Quickstart). Pre-built templates, sample datasets, `forgelm quickstart <template>` command. Direct community growth driver. Unblocked by Phase 10 tasks 1 + 2 (inference.py and chat.py) only; can begin development in parallel with Phase 10 tasks 3-5.
+
+---
+
+## v0.5.0 — "Data Ingestion" (Planlandı)
+
+Odak: [Phase 11](phase-11-data-ingestion.md). Document ingestion pipeline: PDF/DOCX/EPUB → JSONL, PII detection, near-duplicate audit. Builds on Quickstart foundation.
+
+---
+
+## v0.5.1 — "Pipeline Chains" (Planlandı)
+
+Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. No hard blockers; starts after Phase 10 lands.
 
 ---
 

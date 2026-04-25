@@ -3,7 +3,7 @@ import os
 from typing import Any, Dict, List, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 logger = logging.getLogger("forgelm.config")
 
@@ -11,12 +11,16 @@ logger = logging.getLogger("forgelm.config")
 class MoeConfig(BaseModel):
     """MoE-specific fine-tuning configuration."""
 
+    model_config = ConfigDict(extra="forbid")
+
     quantize_experts: bool = False  # quantize inactive experts for VRAM savings
     experts_to_train: str = "all"  # "all" or comma-separated expert indices
 
 
 class MultimodalConfig(BaseModel):
     """VLM multimodal fine-tuning configuration."""
+
+    model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
     image_column: str = "image"  # column name for image paths/URLs
@@ -26,6 +30,8 @@ class MultimodalConfig(BaseModel):
 class MergeConfig(BaseModel):
     """Post-training model merging configuration."""
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = False
     method: str = "ties"  # "ties", "dare", "slerp", "linear"
     models: List[Dict[str, Any]] = []  # list of {path, weight} dicts
@@ -33,6 +39,8 @@ class MergeConfig(BaseModel):
 
 
 class ModelConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name_or_path: str
     max_length: int = 2048
     load_in_4bit: bool = True
@@ -46,8 +54,23 @@ class ModelConfig(BaseModel):
     bnb_4bit_quant_type: Literal["nf4", "fp4"] = "nf4"
     bnb_4bit_compute_dtype: str = "auto"  # "auto" | "bfloat16" | "float16" | "float32"
 
+    @model_validator(mode="after")
+    def _warn_float32_qlora(self):
+        if (
+            self.load_in_4bit
+            and isinstance(self.bnb_4bit_compute_dtype, str)
+            and self.bnb_4bit_compute_dtype.lower() in ("fp32", "float32")
+        ):
+            logger.warning(
+                "bnb_4bit_compute_dtype='float32' with load_in_4bit=True negates most VRAM savings. "
+                "Consider 'bfloat16' or 'auto'."
+            )
+        return self
+
 
 class LoraConfigModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     r: int = 8
     alpha: int = 16
     dropout: float = 0.1
@@ -58,8 +81,25 @@ class LoraConfigModel(BaseModel):
     target_modules: List[str] = ["q_proj", "v_proj"]
     task_type: str = "CAUSAL_LM"
 
+    @model_validator(mode="after")
+    def _normalize_peft_method(self):
+        if self.use_dora and self.method == "lora":
+            logger.warning(
+                "lora.use_dora=True is deprecated. Use method='dora' instead. Automatically setting method='dora'."
+            )
+            object.__setattr__(self, "method", "dora")
+        if self.use_rslora and self.method == "lora":
+            logger.warning(
+                "lora.use_rslora=True is deprecated. Use method='rslora' instead. "
+                "Automatically setting method='rslora'."
+            )
+            object.__setattr__(self, "method", "rslora")
+        return self
+
 
 class TrainingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     output_dir: str = "./checkpoints"
     final_model_dir: str = "final_model"
     merge_adapters: bool = False
@@ -117,6 +157,8 @@ class TrainingConfig(BaseModel):
 class DistributedConfig(BaseModel):
     """Configuration for multi-GPU distributed training via DeepSpeed or FSDP."""
 
+    model_config = ConfigDict(extra="forbid")
+
     strategy: Optional[str] = None  # "deepspeed" or "fsdp"; None = single-GPU
     # --- DeepSpeed ---
     deepspeed_config: Optional[str] = None  # path to DS JSON or preset name: "zero2", "zero3", "zero3_offload"
@@ -131,6 +173,8 @@ class DistributedConfig(BaseModel):
 class DataGovernanceConfig(BaseModel):
     """Art. 10: Data governance metadata."""
 
+    model_config = ConfigDict(extra="forbid")
+
     collection_method: str = ""
     annotation_process: str = ""
     known_biases: str = ""
@@ -139,6 +183,8 @@ class DataGovernanceConfig(BaseModel):
 
 
 class DataConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     dataset_name_or_path: str
     extra_datasets: Optional[List[str]] = None  # additional datasets to mix in
     mix_ratio: Optional[List[float]] = None  # weight per dataset (primary + extras); uniform if None
@@ -147,9 +193,21 @@ class DataConfig(BaseModel):
     add_eos: bool = True
     governance: Optional[DataGovernanceConfig] = None  # Art. 10: data governance metadata
 
+    @field_validator("mix_ratio")
+    @classmethod
+    def _validate_mix_ratio(cls, v):
+        if v is not None:
+            if any(r < 0 for r in v):
+                raise ValueError("mix_ratio values must be non-negative.")
+            if all(r == 0 for r in v):
+                raise ValueError("mix_ratio values cannot all be zero.")
+        return v
+
 
 class BenchmarkConfig(BaseModel):
     """Configuration for post-training benchmark evaluation via lm-evaluation-harness."""
+
+    model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
     tasks: List[str] = []  # e.g. ["arc_easy", "hellaswag", "mmlu"]
@@ -162,6 +220,8 @@ class BenchmarkConfig(BaseModel):
 
 class SafetyConfig(BaseModel):
     """Post-training safety evaluation configuration."""
+
+    model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
     classifier: str = "meta-llama/Llama-Guard-3-8B"  # safety classifier model
@@ -180,14 +240,19 @@ class SafetyConfig(BaseModel):
 class JudgeConfig(BaseModel):
     """LLM-as-Judge evaluation configuration."""
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = False
     judge_model: str = "gpt-4o"  # API model name or local model path
     judge_api_key_env: Optional[str] = None  # env var name for API key; None = local judge
+    judge_api_base: Optional[str] = None
     eval_dataset: str = "eval_prompts.jsonl"  # evaluation prompts file
     min_score: float = 5.0  # minimum average score (1-10 scale)
 
 
 class EvaluationConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     auto_revert: bool = False
     max_acceptable_loss: Optional[float] = None
     baseline_loss: Optional[float] = None  # if not provided, computed automatically (when validation exists)
@@ -200,6 +265,8 @@ class EvaluationConfig(BaseModel):
 class RiskAssessmentConfig(BaseModel):
     """Art. 9: Risk management — declare risks before training."""
 
+    model_config = ConfigDict(extra="forbid")
+
     intended_use: str = ""
     foreseeable_misuse: List[str] = []
     risk_category: str = "minimal-risk"  # "high-risk", "limited-risk", "minimal-risk"
@@ -209,6 +276,8 @@ class RiskAssessmentConfig(BaseModel):
 
 class MonitoringConfig(BaseModel):
     """Art. 12+17: Post-market monitoring hooks."""
+
+    model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
     endpoint: str = ""  # monitoring system webhook URL
@@ -221,6 +290,8 @@ class MonitoringConfig(BaseModel):
 class ComplianceMetadataConfig(BaseModel):
     """Art. 11 + Annex IV: Provider and system metadata for technical documentation."""
 
+    model_config = ConfigDict(extra="forbid")
+
     provider_name: str = ""
     provider_contact: str = ""
     system_name: str = ""
@@ -232,6 +303,8 @@ class ComplianceMetadataConfig(BaseModel):
 
 class SyntheticConfig(BaseModel):
     """Synthetic data generation via teacher→student distillation."""
+
+    model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
     teacher_model: str = ""  # HF model path or API model name (e.g., "gpt-4", "meta-llama/Llama-3-70B")
@@ -249,6 +322,15 @@ class SyntheticConfig(BaseModel):
     output_file: str = "synthetic_data.jsonl"  # Output JSONL file path
     output_format: Literal["messages", "instruction", "chatml", "prompt_response"] = "messages"
 
+    @model_validator(mode="after")
+    def _warn_direct_api_key(self):
+        if self.api_key and not self.api_key_env:
+            logger.warning(
+                "synthetic.api_key is set directly in config. "
+                "Prefer api_key_env to avoid accidentally committing secrets to version control."
+            )
+        return self
+
     def model_dump(self, **kwargs):
         """Redact api_key from serialized output."""
         d = super().model_dump(**kwargs)
@@ -258,6 +340,8 @@ class SyntheticConfig(BaseModel):
 
 
 class WebhookConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     url: Optional[str] = None
     url_env: Optional[str] = None
     notify_on_start: bool = True
@@ -267,6 +351,8 @@ class WebhookConfig(BaseModel):
 
 
 class AuthConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     hf_token: Optional[str] = None
 
     def __repr__(self) -> str:
@@ -306,7 +392,35 @@ class ForgeConfig(BaseModel):
                 "the merged full model will be deleted. Consider using adapter-only saves."
             )
         if self.model.backend == "unsloth" and self.model.trust_remote_code:
-            logger.warning("trust_remote_code is ignored when using the Unsloth backend.")
+            logger.warning(
+                "trust_remote_code=True with Unsloth backend: Unsloth internally calls "
+                "HuggingFace Transformers which MAY still execute remote code. "
+                "Verify the Unsloth version's behavior before production use."
+            )
+        if self.training.merge_adapters and self.training.trainer_type != "sft":
+            logger.warning(
+                "merge_adapters=True with trainer_type='%s' may produce unexpected results. "
+                "Adapter merging is designed for SFT workflows.",
+                self.training.trainer_type,
+            )
+        if self.lora.r > 64 and not getattr(self.lora, "use_rslora", False) and self.lora.method not in ("rslora",):
+            logger.warning(
+                "LoRA rank r=%d is high. Consider method='rslora' for training stability.",
+                self.lora.r,
+            )
+        if (
+            self.training.eval_steps
+            and self.training.save_steps
+            and self.training.eval_steps > self.training.save_steps
+            and self.evaluation
+            and getattr(self.evaluation, "auto_revert", False)
+        ):
+            logger.warning(
+                "eval_steps (%d) > save_steps (%d): load_best_model_at_end may not work correctly. "
+                "Set eval_steps <= save_steps.",
+                self.training.eval_steps,
+                self.training.save_steps,
+            )
         # High-risk compliance enforcement
         is_high_risk = (self.risk_assessment and self.risk_assessment.risk_category == "high-risk") or (
             self.compliance and self.compliance.risk_classification == "high-risk"
@@ -356,8 +470,11 @@ class ForgeConfig(BaseModel):
                 )
             if self.lora and self.lora.r > 0:
                 logger.info(
-                    "GaLore enabled with LoRA adapters. GaLore optimizes gradient memory while "
-                    "LoRA constrains trainable parameters. This combination is valid."
+                    "GaLore (gradient rank=%d) enabled alongside LoRA (adapter rank=%d). "
+                    "GaLore reduces gradient memory via low-rank projection; "
+                    "LoRA constrains trainable parameters. Both are active simultaneously.",
+                    self.training.galore_rank,
+                    self.lora.r,
                 )
             if "layerwise" in self.training.galore_optim and self.distributed and self.distributed.strategy:
                 raise ValueError(
@@ -395,7 +512,7 @@ def load_config(config_path: str) -> ForgeConfig:
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
-    with open(config_path, "r") as f:
+    with open(config_path, "r", encoding="utf-8") as f:
         try:
             yaml_data = yaml.safe_load(f)
         except yaml.YAMLError as e:

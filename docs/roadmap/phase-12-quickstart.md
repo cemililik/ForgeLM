@@ -4,7 +4,9 @@
 
 **Goal:** Make "my first fine-tune" a 10-minute experience. One command, one model in the end, zero YAML writing. Without sacrificing the CI/CD-native core — quickstart generates a YAML the user can later customize.
 **Estimated Effort:** Medium (1-2 months)
-**Priority:** High — closes the most-cited adoption gap; direct input to YouTube content strategy.
+**Priority:** Critical — community flywheel; directly drives EU AI Act enterprise pipeline
+
+> **Phase ordering rationale:** Moved from Phase 12 to Phase 10.5. Quickstart is the primary community growth driver; stars → enterprise leads → compliance sales. EU AI Act enforcement (August 2, 2026) creates a closing window. This phase must ship before Data Ingestion (Phase 11).
 
 > **Context:** Strategic decision documented in the [enterprise-vs-simple paradox analysis](../marketing/strategy/01-paradoks-enterprise-vs-sade.md): ForgeLM adds a "Layer 0" entry point without changing its CI/CD-native identity. The same YAML schema, the same trainer, the same outputs — just wrapped in pre-built templates and opinionated defaults. Depends on Phase 10 (`chat`) for end-of-training sanity loop.
 
@@ -43,7 +45,7 @@
 - Quickstart must not introduce a "quickstart vs real training" bifurcation — same underlying code paths, same YAML schema.
 
 ### Delivery:
-- Target release: `v0.5.0` ("Quickstart Layer")
-- Blocks on Phase 10 tasks 1 + 2 (`inference.py`, `chat.py`).
+- Target release: `v0.4.5` ("Quickstart Layer")
+- Blocks on Phase 10 tasks 1 + 2 (`inference.py` and `chat.py`). Phase 10 tasks 3-5 (export, fit-check, deploy) can develop in parallel.
 
 ---

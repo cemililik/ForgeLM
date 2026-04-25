@@ -1,5 +1,6 @@
 """Unit tests for data.py edge cases (multimodal, mix_ratio zero weight)."""
 
+import pytest
 import yaml
 
 from forgelm.config import ForgeConfig
@@ -50,18 +51,18 @@ class TestMultimodalConfig:
 
 
 class TestMixRatioEdgeCases:
-    def test_zero_weight_config(self):
-        """mix_ratio with all zeros should be accepted by config."""
-        cfg = ForgeConfig(
-            **_minimal_config(
-                data={
-                    "dataset_name_or_path": "org/dataset",
-                    "extra_datasets": ["org/extra"],
-                    "mix_ratio": [0.0, 0.0],
-                }
+    def test_zero_weight_config_raises(self):
+        """mix_ratio with all zeros must be rejected — meaningless sampling weights."""
+        with pytest.raises(Exception, match="mix_ratio values cannot all be zero"):
+            ForgeConfig(
+                **_minimal_config(
+                    data={
+                        "dataset_name_or_path": "org/dataset",
+                        "extra_datasets": ["org/extra"],
+                        "mix_ratio": [0.0, 0.0],
+                    }
+                )
             )
-        )
-        assert cfg.data.mix_ratio == [0.0, 0.0]
 
     def test_single_dataset_no_extra(self):
         cfg = ForgeConfig(**_minimal_config(data={"dataset_name_or_path": "org/dataset"}))

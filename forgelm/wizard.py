@@ -65,6 +65,19 @@ def _prompt_yes_no(question: str, default: bool = True) -> bool:
     return answer in ("y", "yes")
 
 
+def _prompt_int(question: str, default: int, min_val: int = 1, max_val: int = 65536) -> int:
+    """Prompt for an integer, re-asking until valid."""
+    while True:
+        raw = _prompt(question, str(default))
+        try:
+            val = int(raw)
+            if min_val <= val <= max_val:
+                return val
+            print(f"    Value must be between {min_val} and {max_val}.")
+        except ValueError:
+            print("    Please enter a valid integer.")
+
+
 def _detect_hardware() -> dict:
     """Detect GPU hardware if available."""
     info = {"gpu_available": False, "gpu_name": None, "vram_gb": None, "cuda_version": None}
@@ -146,8 +159,8 @@ def run_wizard() -> str:
     preset_key = target_preset.split(" ")[0]
     target_modules = TARGET_MODULE_PRESETS.get(preset_key, TARGET_MODULE_PRESETS["standard"])
 
-    lora_r = int(_prompt("LoRA rank (r)", str(DEFAULT_LORA_R)))
-    lora_alpha = int(_prompt("LoRA alpha", str(lora_r * 2)))
+    lora_r = _prompt_int("LoRA rank (r)", DEFAULT_LORA_R, min_val=1, max_val=512)
+    lora_alpha = _prompt_int("LoRA alpha", lora_r * 2, min_val=1, max_val=1024)
 
     # Step 4: Training Objective
     print("\n[4/8] Training Objective")
@@ -179,9 +192,9 @@ def run_wizard() -> str:
 
     # Step 6: Training Parameters
     print("\n[6/8] Training Parameters")
-    epochs = int(_prompt("Number of epochs", str(DEFAULT_EPOCHS)))
-    batch_size = int(_prompt("Batch size per device", str(DEFAULT_BATCH_SIZE)))
-    max_length = int(_prompt("Max sequence length", str(DEFAULT_MAX_LENGTH)))
+    epochs = _prompt_int("Number of epochs", DEFAULT_EPOCHS, min_val=1, max_val=1000)
+    batch_size = _prompt_int("Batch size per device", DEFAULT_BATCH_SIZE, min_val=1, max_val=512)
+    max_length = _prompt_int("Max sequence length", DEFAULT_MAX_LENGTH, min_val=64, max_val=131072)
     output_dir = _prompt("Output directory", "./checkpoints")
 
     # Long-context options (only if max_length > 4096)
@@ -196,7 +209,14 @@ def run_wizard() -> str:
                 ["linear (simple, proven)", "dynamic (adaptive)", "yarn (best quality, newer)"],
                 default=1,
             )
-            rope_scaling = {"type": rope_type.split(" ")[0], "factor": max_length / 4096}
+            base_context = 4096
+            rope_factor = max_length / base_context
+            print(
+                f"  Note: RoPE factor {rope_factor:.1f}x computed assuming base context of "
+                f"{base_context} tokens. Adjust manually if your model has a different "
+                f"original context length (e.g., Llama 3.1 = 131072, Mistral v0.3 = 32768)."
+            )
+            rope_scaling = {"type": rope_type.split(" ")[0], "factor": rope_factor}
     if _prompt_yes_no("Enable NEFTune noise injection (improves training quality)?", default=False):
         use_neftune = True
         neftune_alpha = float(_prompt("NEFTune noise alpha", "5.0"))
@@ -210,7 +230,7 @@ def run_wizard() -> str:
     galore_config = {}
     if use_galore:
         print("\n[7/8] GaLore Configuration")
-        galore_rank = int(_prompt("GaLore rank (lower = less memory)", "128"))
+        galore_rank = _prompt_int("GaLore rank (lower = less memory)", 128, min_val=1, max_val=4096)
         galore_optim = _prompt_choice(
             "GaLore optimizer:",
             ["galore_adamw (standard)", "galore_adamw_8bit (less memory)", "galore_adafactor (experimental)"],

@@ -40,11 +40,93 @@ def clean_string(text: str, do_clean: bool) -> str:
 def _load_single_dataset(path: str):
     """Load a single dataset from a local file or HF Hub."""
     if os.path.isfile(path):
-        ext = path.split(".")[-1]
+        _, ext_with_dot = os.path.splitext(path)
+        ext = ext_with_dot.lstrip(".").lower()
+        if not ext:
+            raise ValueError(
+                f"Cannot determine file format for '{path}': no file extension found. "
+                "Rename the file with a supported extension: .json, .jsonl, .csv, or .parquet."
+            )
         if ext == "jsonl":
             ext = "json"
         return load_dataset(ext, data_files=path)
     return load_dataset(path)
+
+
+def _make_batch_processor(clean_text: bool, add_eos: bool, eos_token: str):
+    """
+    Returns a multiprocessing-safe batch processor.
+    Uses primitives only — avoids pickle issues with closures over complex objects.
+    """
+
+    def process_batch(examples):
+        # Handle pre-formatted text column (e.g., openassistant-guanaco)
+        if "text" in examples and "User" not in examples and "messages" not in examples:
+            texts = []
+            for t in examples["text"]:
+                t = clean_string(t, clean_text)
+                if add_eos and t and eos_token and not t.endswith(eos_token):
+                    t += eos_token
+                texts.append(t)
+            return {"text": texts}
+
+        # Handle modern conversational format (messages column)
+        if "messages" in examples:
+            texts = []
+            for msg_list in examples["messages"]:
+                try:
+                    # apply_chat_template is not available here (no tokenizer reference);
+                    # use fallback formatting — callers that need chat templates should
+                    # pass a tokenizer-aware processor instead.
+                    formatted_text = ""
+                    for m in msg_list:
+                        formatted_text += f"[{m['role'].upper()}]\n{m['content']}\n"
+                    if add_eos and eos_token:
+                        formatted_text += eos_token
+                except Exception:
+                    formatted_text = ""
+                texts.append(formatted_text)
+            return {"text": texts}
+
+        has_system = "System" in examples
+        sys_texts = (
+            examples["System"] if has_system else [""] * len(examples.get("User", examples.get("instruction", [])))
+        )
+        user_texts = examples.get("User", examples.get("instruction", []))
+        asst_texts = examples.get("Assistant", examples.get("output", examples.get("response", [])))
+
+        if not user_texts or not asst_texts:
+            _fmt = _detect_dataset_format(list(examples.keys()))
+            raise KeyError(
+                f"Dataset must contain 'User'/'instruction' and 'Assistant'/'output' columns, "
+                f"or a pre-formatted 'text' column. "
+                f"Found: {list(examples.keys())}. "
+                f"Detected format: {_fmt['description']}. "
+                f"Suggested trainer: {_fmt['suggested_trainer']}"
+            )
+
+        texts = []
+        for sys_text, user_text, asst_text in zip(sys_texts, user_texts, asst_texts):
+            messages = []
+            if sys_text:
+                messages.append({"role": "system", "content": clean_string(sys_text, clean_text)})
+            messages.append({"role": "user", "content": clean_string(user_text, clean_text)})
+            messages.append({"role": "assistant", "content": clean_string(asst_text, clean_text)})
+
+            # Fallback formatting (no tokenizer in this primitive closure)
+            sys_part = f"[SYSTEM]\n{messages[0]['content']}\n" if sys_text else ""
+            user_idx = 1 if sys_text else 0
+            formatted_text = (
+                sys_part + f"[USER]\n{messages[user_idx]['content']}\n[ASSISTANT]\n{messages[-1]['content']}"
+            )
+            if add_eos and eos_token:
+                formatted_text += eos_token
+
+            texts.append(formatted_text)
+
+        return {"text": texts}
+
+    return process_batch
 
 
 def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, Any]:
@@ -99,80 +181,22 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
     if "validation" not in dataset and "test" in dataset:
         dataset["validation"] = dataset["test"]
     elif "validation" not in dataset:
-        logger.info("No validation split found. Slicing 10%% off training data for validation.")
-        split_dataset = dataset["train"].train_test_split(test_size=0.1, seed=42)
+        dataset_size = len(dataset["train"])
+        test_size = min(0.1, 2000 / max(dataset_size, 1))
+        test_size = max(test_size, 0.01)
+        logger.info(
+            "No validation split found. Auto-splitting: %.1f%% (%d samples) for validation.",
+            test_size * 100,
+            int(dataset_size * test_size),
+        )
+        split_dataset = dataset["train"].train_test_split(test_size=test_size, seed=42)
         dataset = DatasetDict({"train": split_dataset["train"], "validation": split_dataset["test"]})
 
-    def process_batch(examples):
-        # Handle pre-formatted text column (e.g., openassistant-guanaco)
-        if "text" in examples and "User" not in examples and "messages" not in examples:
-            texts = []
-            for t in examples["text"]:
-                t = clean_string(t, config.data.clean_text)
-                if config.data.add_eos and t and tokenizer.eos_token and not t.endswith(tokenizer.eos_token):
-                    t += tokenizer.eos_token
-                texts.append(t)
-            return {"text": texts}
-
-        # Handle modern conversational format (messages column)
-        if "messages" in examples:
-            texts = []
-            for msg_list in examples["messages"]:
-                try:
-                    formatted_text = tokenizer.apply_chat_template(
-                        msg_list, tokenize=False, add_generation_prompt=False
-                    )
-                except Exception as e:
-                    logger.warning("Chat template failed for messages format, using fallback: %s", e)
-                    formatted_text = ""
-                    for m in msg_list:
-                        formatted_text += f"[{m['role'].upper()}]\n{m['content']}\n"
-                    if config.data.add_eos:
-                        formatted_text += tokenizer.eos_token
-                texts.append(formatted_text)
-            return {"text": texts}
-
-        has_system = "System" in examples
-        sys_texts = (
-            examples["System"] if has_system else [""] * len(examples.get("User", examples.get("instruction", [])))
-        )
-        user_texts = examples.get("User", examples.get("instruction", []))
-        asst_texts = examples.get("Assistant", examples.get("output", examples.get("response", [])))
-
-        if not user_texts or not asst_texts:
-            _fmt = _detect_dataset_format(list(examples.keys()))
-            raise KeyError(
-                f"Dataset must contain 'User'/'instruction' and 'Assistant'/'output' columns, "
-                f"or a pre-formatted 'text' column. "
-                f"Found: {list(examples.keys())}. "
-                f"Detected format: {_fmt['description']}. "
-                f"Suggested trainer: {_fmt['suggested_trainer']}"
-            )
-
-        texts = []
-        for sys_text, user_text, asst_text in zip(sys_texts, user_texts, asst_texts):
-            messages = []
-            if sys_text:
-                messages.append({"role": "system", "content": clean_string(sys_text, config.data.clean_text)})
-            messages.append({"role": "user", "content": clean_string(user_text, config.data.clean_text)})
-            messages.append({"role": "assistant", "content": clean_string(asst_text, config.data.clean_text)})
-
-            # Use tokenizer's chat template
-            try:
-                formatted_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-            except Exception as e:
-                logger.warning("Chat template failed for model, using fallback formatting: %s", e)
-                sys_part = f"[SYSTEM]\n{messages[0]['content']}\n" if sys_text else ""
-                user_idx = 1 if sys_text else 0
-                formatted_text = (
-                    sys_part + f"[USER]\n{messages[user_idx]['content']}\n[ASSISTANT]\n{messages[-1]['content']}"
-                )
-                if config.data.add_eos:
-                    formatted_text += tokenizer.eos_token
-
-            texts.append(formatted_text)
-
-        return {"text": texts}
+    processor = _make_batch_processor(
+        clean_text=config.data.clean_text,
+        add_eos=config.data.add_eos,
+        eos_token=tokenizer.eos_token or "",
+    )
 
     # Detect dataset format and trainer type
     trainer_type = getattr(config.training, "trainer_type", "sft")
@@ -279,7 +303,7 @@ def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, An
             current_dataset = current_dataset.shuffle(seed=42)
 
         processed[split] = current_dataset.map(
-            process_batch,
+            processor,
             batched=True,
             remove_columns=current_dataset.column_names,
             num_proc=min(os.cpu_count() or 1, 8),

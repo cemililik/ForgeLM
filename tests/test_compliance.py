@@ -3,7 +3,11 @@
 import json
 import os
 
-from forgelm.compliance import compute_dataset_fingerprint, generate_training_manifest
+from forgelm.compliance import (
+    _sanitize_md,
+    compute_dataset_fingerprint,
+    generate_training_manifest,
+)
 from forgelm.config import ForgeConfig, JudgeConfig, SafetyConfig
 from forgelm.judge import JudgeResult
 from forgelm.results import TrainResult
@@ -173,3 +177,80 @@ class TestComplianceExport:
         with open(files[0]) as f:
             data = json.load(f)
         assert "model_lineage" in data
+
+
+# --- AuditLogger hash chain ---
+
+
+class TestAuditLoggerHashChain:
+    def test_restores_hash_chain_on_second_instance(self, tmp_path):
+        """A second AuditLogger pointing at the same directory must continue
+        the hash chain from the last entry, not reset to 'genesis'."""
+        from forgelm.compliance import AuditLogger
+
+        log1 = AuditLogger(str(tmp_path))
+        log1.log_event("test.event", key="value")
+        hash_after_first_event = log1._prev_hash
+
+        log2 = AuditLogger(str(tmp_path))
+        # Must NOT reset to "genesis" — should read from the existing file
+        assert log2._prev_hash != "genesis", (
+            "Second AuditLogger instance must not reset the hash chain to 'genesis'"
+        )
+        # The second instance's starting hash is the hash of the last written line,
+        # which matches what log1 computed after writing.
+        assert log2._prev_hash == hash_after_first_event
+
+    def test_genesis_hash_on_fresh_dir(self, tmp_path):
+        """First-ever AuditLogger on a fresh directory starts at 'genesis'."""
+        from forgelm.compliance import AuditLogger
+
+        log = AuditLogger(str(tmp_path / "newdir"))
+        assert log._prev_hash == "genesis"
+
+    def test_hash_advances_after_each_event(self, tmp_path):
+        """Each new log event must advance _prev_hash to a new value."""
+        from forgelm.compliance import AuditLogger
+
+        log = AuditLogger(str(tmp_path))
+        h0 = log._prev_hash
+        log.log_event("event.one")
+        h1 = log._prev_hash
+        log.log_event("event.two")
+        h2 = log._prev_hash
+
+        assert h0 != h1
+        assert h1 != h2
+
+
+# --- _sanitize_md ---
+
+
+class TestSanitizeMd:
+    def test_escapes_pipe(self):
+        result = _sanitize_md("hello | world")
+        assert "\\|" in result
+
+    def test_strips_newlines(self):
+        result = _sanitize_md("line1\nline2")
+        assert "\n" not in result
+
+    def test_strips_carriage_returns(self):
+        result = _sanitize_md("line1\r\nline2")
+        assert "\r" not in result
+
+    def test_empty_string_returns_not_specified(self):
+        result = _sanitize_md("")
+        assert result == "Not specified"
+
+    def test_none_returns_not_specified(self):
+        result = _sanitize_md(None)
+        assert result == "Not specified"
+
+    def test_normal_text_unchanged(self):
+        result = _sanitize_md("Hello world")
+        assert result == "Hello world"
+
+    def test_multiple_pipes_all_escaped(self):
+        result = _sanitize_md("a | b | c")
+        assert result.count("\\|") == 2

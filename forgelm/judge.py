@@ -115,6 +115,7 @@ def run_judge_evaluation(
     min_score: float = 5.0,
     max_new_tokens: int = 512,
     output_dir: Optional[str] = None,
+    api_base: Optional[str] = None,
 ) -> JudgeResult:
     """Evaluate fine-tuned model outputs using an LLM judge.
 
@@ -140,7 +141,7 @@ def run_judge_evaluation(
 
     # Load eval prompts
     eval_prompts = []
-    with open(eval_dataset_path, "r") as f:
+    with open(eval_dataset_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:
@@ -192,11 +193,18 @@ def run_judge_evaluation(
         # Score with judge
         judge_prompt = rubric.format(prompt=prompt[:500], response=response[:1000])
         if is_api_judge:
-            result = _call_api_judge(judge_prompt, judge_api_key, judge_model)
+            result = _call_api_judge(judge_prompt, judge_api_key, judge_model, api_base=api_base)
         else:
             result = _call_local_judge(judge_prompt, local_judge_model, local_judge_tokenizer)
 
-        score = float(result.get("score", 0))
+        raw_score = float(result.get("score", 0))
+        score = max(1.0, min(10.0, raw_score))
+        if raw_score != score:
+            logger.warning(
+                "Judge returned out-of-range score %.1f (expected 1-10), clipped to %.1f",
+                raw_score,
+                score,
+            )
         scores.append(score)
         details.append(
             {
@@ -220,7 +228,7 @@ def run_judge_evaluation(
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
         results_path = os.path.join(output_dir, "judge_results.json")
-        with open(results_path, "w") as f:
+        with open(results_path, "w", encoding="utf-8") as f:
             json.dump(
                 {
                     "average_score": avg_score,

@@ -127,9 +127,10 @@ class TestAdvancedPeft:
         assert lora.method == "dora"
 
     def test_backward_compat_use_dora(self):
+        # use_dora=True now auto-normalizes method to "dora" with a deprecation warning
         lora = LoraConfigModel(use_dora=True)
         assert lora.use_dora is True
-        assert lora.method == "lora"  # method stays default, use_dora is separate
+        assert lora.method == "dora"
 
     def test_full_config_pissa(self, tmp_path):
         data = _minimal_config(lora={"method": "pissa", "r": 32})

@@ -75,6 +75,9 @@ class ForgeTrainer:
 
     def _get_common_training_kwargs(self) -> dict:
         """Return training arguments common to both SFT and ORPO."""
+        _train_size = len(self.dataset.get("train", [])) if self.dataset else 0
+        logging_steps = max(1, min(50, _train_size // 100)) if _train_size > 0 else 50
+
         kwargs = dict(
             output_dir=self.checkpoint_dir,
             max_steps=self.config.training.max_steps,
@@ -86,7 +89,7 @@ class ForgeTrainer:
             weight_decay=self.config.training.weight_decay,
             eval_steps=self.config.training.eval_steps,
             save_steps=self.config.training.save_steps,
-            logging_steps=50,
+            logging_steps=logging_steps,
             eval_strategy="steps",
             save_strategy="steps",
             save_total_limit=self.config.training.save_total_limit,
@@ -374,13 +377,34 @@ class ForgeTrainer:
 
             # GRPO doesn't use eval_dataset the same way — remove callbacks that depend on eval
             trainer_kwargs.pop("eval_dataset", None)
+            if callbacks:
+                logger.info(
+                    "GRPO trainer: removing %d callback(s) (EarlyStopping, eval callbacks). "
+                    "GRPO uses generation-based rewards, not validation loss.",
+                    len(callbacks),
+                )
             trainer_kwargs["callbacks"] = []
 
             # Load reward model if configured
             reward_model_path = getattr(self.config.training, "grpo_reward_model", None)
             if reward_model_path:
                 logger.info("Loading GRPO reward model: %s", reward_model_path)
-                trainer_kwargs["reward_funcs"] = reward_model_path
+                from transformers import AutoModelForSequenceClassification
+                from transformers import AutoTokenizer as _AutoTok
+
+                _rw_tok = _AutoTok.from_pretrained(reward_model_path)
+                _rw_model = AutoModelForSequenceClassification.from_pretrained(reward_model_path, device_map="auto")
+
+                def _reward_fn(completions, **kwargs):
+                    import torch as _t
+
+                    inputs = _rw_tok(completions, return_tensors="pt", truncation=True, padding=True, max_length=512)
+                    inputs = {k: v.to(_rw_model.device) for k, v in inputs.items()}
+                    with _t.no_grad():
+                        logits = _rw_model(**inputs).logits
+                    return logits[:, 0].tolist()
+
+                trainer_kwargs["reward_funcs"] = [_reward_fn]
 
             self.trainer = GRPOTrainer(**trainer_kwargs)
         else:
@@ -448,6 +472,10 @@ class ForgeTrainer:
 
     def train(self, resume_from_checkpoint: Optional[str] = None) -> TrainResult:
         """Starts the main training loop. Returns TrainResult with status and metrics."""
+        # Store originals so compliance manifest reflects pre-OOM values
+        self._original_batch_size = self.config.training.per_device_train_batch_size
+        self._original_grad_accum = self.config.training.gradient_accumulation_steps
+
         self.notifier.notify_start(run_name=self.run_name)
         callbacks = []
         if self.dataset.get("validation"):
@@ -619,7 +647,7 @@ class ForgeTrainer:
                 # Exit code 4 handled by CLI
                 return train_result
 
-            self.audit.log_event("pipeline.completed", success=True, metrics_summary=dict(list(metrics.items())[:5]))
+            self.audit.log_event("pipeline.completed", success=True, metrics_summary=metrics)
             self.notifier.notify_success(run_name=self.run_name, metrics=metrics)
             return train_result
 
@@ -836,6 +864,7 @@ class ForgeTrainer:
             judge_api_key=api_key,
             min_score=judge_cfg.min_score,
             output_dir=output_dir,
+            api_base=getattr(judge_cfg, "judge_api_base", None),
         )
 
     def _export_compliance_if_needed(self, final_path: str, metrics: Dict[str, float], result: TrainResult) -> None:
@@ -860,6 +889,11 @@ class ForgeTrainer:
             if result.benchmark_scores is not None:
                 benchmark_dict = {"scores": result.benchmark_scores, "average": result.benchmark_average}
 
+            # Temporarily restore original batch size for compliance manifest accuracy
+            _saved_bs = self.config.training.per_device_train_batch_size
+            _saved_ga = self.config.training.gradient_accumulation_steps
+            self.config.training.per_device_train_batch_size = getattr(self, "_original_batch_size", _saved_bs)
+            self.config.training.gradient_accumulation_steps = getattr(self, "_original_grad_accum", _saved_ga)
             manifest = generate_training_manifest(
                 config=self.config,
                 metrics=metrics,
@@ -868,6 +902,8 @@ class ForgeTrainer:
                 judge_result=judge_dict,
                 benchmark_result=benchmark_dict,
             )
+            self.config.training.per_device_train_batch_size = _saved_bs
+            self.config.training.gradient_accumulation_steps = _saved_ga
             compliance_dir = os.path.join(self.checkpoint_dir, "compliance")
             export_compliance_artifacts(manifest, self.config, compliance_dir)
             self.audit.log_event("compliance.artifacts_exported", directory=compliance_dir)

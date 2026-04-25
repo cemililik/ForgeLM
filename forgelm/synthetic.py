@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("forgelm.synthetic")
 
 
 @dataclass

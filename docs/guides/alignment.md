@@ -164,7 +164,8 @@ training:
   trainer_type: "grpo"
   grpo_num_generations: 4    # Generate 4 responses per prompt
   grpo_max_new_tokens: 512   # Max response length
-  grpo_reward_model: null    # Custom reward model (HF path or local). null = use TRL defaults
+  grpo_reward_model: null    # HF path to a sequence classification model used as reward.
+                            # ForgeLM wraps it as a callable automatically. null = TRL defaults.
   learning_rate: 1.0e-6      # Very low LR for RL stability
   num_train_epochs: 1
 
@@ -213,6 +214,8 @@ forgelm --config configs/stage2_dpo.yaml
 # Stage 3: GRPO (uses the DPO model as base)
 forgelm --config configs/stage3_grpo.yaml
 ```
+
+> **Coming in v0.5.1 (Phase 14):** A `pipeline:` config key will define multi-stage training chains in a single YAML file, eliminating manual config juggling between stages.
 
 ---
 

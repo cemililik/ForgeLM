@@ -36,7 +36,14 @@ def setup_authentication(token: str = None) -> None:
             return
 
     logger.info("Authenticating with Hugging Face...")
-    login(token=hf_token)
+    try:
+        login(token=hf_token)
+        logger.info("Hugging Face authentication successful.")
+    except Exception as e:
+        logger.warning(
+            "Hugging Face authentication failed: %s. Private models and gated datasets may not be accessible.",
+            e,
+        )
 
 
 def manage_checkpoints(checkpoint_dir: str, action: str = "keep") -> None:

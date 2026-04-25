@@ -6,6 +6,7 @@ Article 13 (Transparency/Deployer Instructions), Article 14 (Human Oversight),
 Article 15 (Model Integrity).
 """
 
+import concurrent.futures
 import hashlib
 import json
 import logging
@@ -13,6 +14,7 @@ import os
 import uuid
 import zipfile
 from datetime import datetime, timezone
+from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("forgelm.compliance")
@@ -32,7 +34,27 @@ class AuditLogger:
         os.makedirs(output_dir, exist_ok=True)
         self.log_path = os.path.join(output_dir, "audit_log.jsonl")
         self.operator = os.getenv("FORGELM_OPERATOR", os.getenv("USER", "unknown"))
-        self._prev_hash = "genesis"  # Hash chain seed for tamper-evidence
+        self._prev_hash = self._load_last_hash()
+
+    def _load_last_hash(self) -> str:
+        """Read the last line hash from an existing log file to restore chain continuity."""
+        if not os.path.isfile(self.log_path):
+            return "genesis"
+        try:
+            with open(self.log_path, "rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                if size == 0:
+                    return "genesis"
+                f.seek(max(0, size - 4096))
+                tail = f.read()
+                lines = [ln for ln in tail.decode("utf-8", errors="replace").splitlines() if ln.strip()]
+                if lines:
+                    last_line = lines[-1].encode("utf-8")
+                    return hashlib.sha256(last_line).hexdigest()
+        except Exception as e:
+            logger.debug("Could not restore audit hash chain: %s", e)
+        return "genesis"
 
     def log_event(self, event: str, **details) -> None:
         """Append a tamper-evident structured event to the audit log.
@@ -116,6 +138,16 @@ def generate_data_governance_report(config: Any, dataset: Dict[str, Any]) -> Dic
 # ---------------------------------------------------------------------------
 
 
+def _hash_file(filepath: str, rel_path: str) -> dict:
+    sha256 = hashlib.sha256()
+    size = 0
+    with open(filepath, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            sha256.update(chunk)
+            size += len(chunk)
+    return {"file": rel_path, "sha256": sha256.hexdigest(), "size_bytes": size}
+
+
 def generate_model_integrity(final_path: str) -> Dict[str, Any]:
     """Compute SHA-256 checksums of all output model artifacts."""
     integrity = {
@@ -127,23 +159,18 @@ def generate_model_integrity(final_path: str) -> Dict[str, Any]:
     if not os.path.isdir(final_path):
         return integrity
 
+    file_pairs = []
     for root, _dirs, files in os.walk(final_path):
         for filename in sorted(files):
             filepath = os.path.join(root, filename)
             rel_path = os.path.relpath(filepath, final_path)
-            sha256 = hashlib.sha256()
-            size = 0
-            with open(filepath, "rb") as f:
-                for chunk in iter(lambda: f.read(8192), b""):
-                    sha256.update(chunk)
-                    size += len(chunk)
-            integrity["artifacts"].append(
-                {
-                    "file": rel_path,
-                    "sha256": sha256.hexdigest(),
-                    "size_bytes": size,
-                }
-            )
+            file_pairs.append((filepath, rel_path))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        futures = [ex.submit(_hash_file, fp, rp) for fp, rp in file_pairs]
+        integrity["artifacts"] = [f.result() for f in concurrent.futures.as_completed(futures)]
+
+    integrity["artifacts"].sort(key=lambda x: x["file"])
 
     return integrity
 
@@ -153,6 +180,7 @@ def generate_model_integrity(final_path: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+@lru_cache(maxsize=32)
 def compute_dataset_fingerprint(dataset_path: str) -> Dict[str, Any]:
     """Compute a fingerprint for a dataset file or directory."""
     fingerprint = {
@@ -184,8 +212,8 @@ def compute_dataset_fingerprint(dataset_path: str) -> Dict[str, Any]:
                 fingerprint["description"] = builder.info.description[:200]
             if builder.info.download_size:
                 fingerprint["download_size_bytes"] = builder.info.download_size
-        except Exception:
-            pass  # Hub metadata is best-effort, not critical
+        except Exception as e:
+            logger.debug("HF Hub metadata fetch skipped for '%s': %s", dataset_path, e)
 
     return fingerprint
 
@@ -296,14 +324,23 @@ def generate_training_manifest(
 # ---------------------------------------------------------------------------
 
 
+def _sanitize_md(text: str) -> str:
+    """Escape user-controlled text before embedding in Markdown to prevent injection."""
+    if not text:
+        return "Not specified"
+    text = text.replace("\n", " ").replace("\r", " ")
+    text = text.replace("|", "\\|")
+    return text.strip()
+
+
 def generate_deployer_instructions(config: Any, metrics: Dict[str, float], final_path: str) -> str:
     """Generate deployer instructions document per EU AI Act Article 13."""
     comp_cfg = getattr(config, "compliance", None)
     risk_cfg = getattr(config, "risk_assessment", None)
 
-    provider = comp_cfg.provider_name if comp_cfg else "Not specified"
-    purpose = comp_cfg.intended_purpose if comp_cfg else "Not specified"
-    limitations = comp_cfg.known_limitations if comp_cfg else "Not specified"
+    provider = _sanitize_md(comp_cfg.provider_name if comp_cfg else "")
+    purpose = _sanitize_md(comp_cfg.intended_purpose if comp_cfg else "")
+    limitations = _sanitize_md(comp_cfg.known_limitations if comp_cfg else "")
     system_name = comp_cfg.system_name if comp_cfg else config.model.name_or_path.split("/")[-1]
 
     content = f"""# Deployer Instructions — {system_name}

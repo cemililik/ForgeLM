@@ -84,6 +84,19 @@ After training, your adapter is saved to:
 └── README.md  (auto-generated model card)
 ```
 
+## 5.5 Check GPU Memory Before Training
+
+Before starting a long run, estimate if your config fits in GPU memory:
+
+```bash
+forgelm --config my_config.yaml --fit-check
+# → Coming in v0.4.0: GPU: RTX 3060 12GB; Estimated peak: 10.8 GB; Verdict: ✅ FITS
+```
+
+> **Note:** `--fit-check` is planned for v0.4.0.
+
+For now, reduce `max_length` and `per_device_train_batch_size` if you hit OOM. The [Troubleshooting guide](troubleshooting.md) has detailed OOM solutions.
+
 ## 6. Use Your Model
 
 ```python
@@ -97,6 +110,21 @@ tokenizer = AutoTokenizer.from_pretrained("./checkpoints/final_model")
 inputs = tokenizer("What is ForgeLM?", return_tensors="pt")
 output = model.generate(**inputs, max_new_tokens=200)
 print(tokenizer.decode(output[0], skip_special_tokens=True))
+```
+
+### Using Your Model (After v0.4.0)
+
+Starting with v0.4.0, you can interact with your trained model directly:
+
+```bash
+# Chat with your fine-tuned model
+forgelm chat ./checkpoints/final_model
+
+# Export to GGUF (for Ollama, LM Studio)
+forgelm export ./checkpoints/final_model --format gguf --quant q4_k_m --output model.gguf
+
+# Generate deployment configs
+forgelm deploy ./checkpoints/final_model --target ollama --output ./Modelfile
 ```
 
 ---
@@ -118,7 +146,8 @@ model:
 
 ```yaml
 lora:
-  use_dora: true
+  method: "dora"  # DoRA adapter (better quality than standard LoRA at same rank)
+  # Note: lora.use_dora is deprecated; use method: "dora" instead
 ```
 
 ### Add webhook notifications (Slack/Teams)
@@ -134,6 +163,16 @@ webhook:
 ```bash
 export FORGELM_WEBHOOK_URL="https://hooks.slack.com/services/T.../B.../xxx"
 forgelm --config my_config.yaml
+```
+
+### Enable OOM recovery (automatic batch size reduction)
+
+```yaml
+training:
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 2
+  oom_recovery: true
+  oom_recovery_min_batch_size: 1
 ```
 
 ### Auto-revert bad models

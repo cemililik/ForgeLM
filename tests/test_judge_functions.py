@@ -2,7 +2,16 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from forgelm.judge import JudgeResult, _parse_judge_json
+
+# run_judge_evaluation requires torch to generate responses
+torch_available = True
+try:
+    import torch  # noqa: F401
+except ImportError:
+    torch_available = False
 
 
 class TestParseJudgeJson:
@@ -92,3 +101,135 @@ class TestJudgeResult:
         assert r.passed is True
         assert r.scores == []
         assert r.details == []
+
+
+@pytest.mark.skipif(not torch_available, reason="torch not installed")
+class TestJudgeScoreClipping:
+    @patch("requests.post")
+    def test_score_above_10_clipped_to_10(self, mock_post, caplog):
+        """Scores above 10 must be clamped to 10.0 with a warning."""
+        import logging
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": '{"score": 15, "reason": "Excellent"}'}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        from forgelm.judge import _call_api_judge
+
+        with caplog.at_level(logging.WARNING, logger="forgelm.judge"):
+            result = _call_api_judge("test prompt", "fake-key", "gpt-4o")
+
+        # The raw parse returns 15; clipping happens in run_judge_evaluation.
+        # _call_api_judge returns the raw parsed value.
+        assert result["score"] == 15
+
+    @patch("requests.post")
+    def test_score_clipped_in_run_judge_evaluation(self, mock_post, tmp_path, caplog):
+        """run_judge_evaluation must clip out-of-range scores and emit a warning."""
+        import logging
+
+        import torch
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": '{"score": 15, "reason": "Way too good"}'}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        # Minimal eval dataset
+        eval_file = tmp_path / "eval.jsonl"
+        eval_file.write_text('{"prompt": "Hello?"}\n')
+
+        mock_model = MagicMock()
+        mock_model.device = "cpu"
+        fake_output = torch.zeros((1, 5), dtype=torch.long)
+        mock_model.generate.return_value = fake_output
+
+        mock_tokenizer = MagicMock()
+        mock_tokenizer.return_value = {
+            "input_ids": torch.zeros((1, 3), dtype=torch.long),
+            "attention_mask": torch.ones((1, 3), dtype=torch.long),
+        }
+        mock_tokenizer.decode.return_value = "A fine answer."
+
+        from forgelm.judge import run_judge_evaluation
+
+        with caplog.at_level(logging.WARNING, logger="forgelm.judge"):
+            result = run_judge_evaluation(
+                model=mock_model,
+                tokenizer=mock_tokenizer,
+                eval_dataset_path=str(eval_file),
+                judge_model="gpt-4o",
+                judge_api_key="fake-key",
+                min_score=5.0,
+            )
+
+        # Score must be clipped to 10.0
+        assert result.scores[0] == 10.0
+        assert result.average_score == 10.0
+        # Warning must be emitted
+        assert any("clipped" in r.message or "out-of-range" in r.message for r in caplog.records)
+
+    @patch("requests.post")
+    def test_score_below_1_clipped_to_1(self, mock_post, tmp_path):
+        """Scores below 1 must be clamped to 1.0."""
+        import torch
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": '{"score": -5, "reason": "Terrible"}'}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        eval_file = tmp_path / "eval.jsonl"
+        eval_file.write_text('{"prompt": "Hello?"}\n')
+
+        mock_model = MagicMock()
+        mock_model.device = "cpu"
+        mock_model.generate.return_value = torch.zeros((1, 5), dtype=torch.long)
+
+        mock_tokenizer = MagicMock()
+        mock_tokenizer.return_value = {
+            "input_ids": torch.zeros((1, 3), dtype=torch.long),
+            "attention_mask": torch.ones((1, 3), dtype=torch.long),
+        }
+        mock_tokenizer.decode.return_value = "Bad."
+
+        from forgelm.judge import run_judge_evaluation
+
+        result = run_judge_evaluation(
+            model=mock_model,
+            tokenizer=mock_tokenizer,
+            eval_dataset_path=str(eval_file),
+            judge_model="gpt-4o",
+            judge_api_key="fake-key",
+            min_score=1.0,
+        )
+        assert result.scores[0] == 1.0
+
+
+class TestJudgeApiBasePassthrough:
+    @patch("requests.post")
+    def test_api_base_reaches_http_call(self, mock_post):
+        """judge_api_base in config must be forwarded to the HTTP POST call."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": '{"score": 7, "reason": "OK"}'}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        from forgelm.judge import _call_api_judge
+
+        custom_base = "https://custom.llm.api/v1/chat/completions"
+        _call_api_judge("prompt", "key", "model", api_base=custom_base)
+
+        call_args = mock_post.call_args
+        actual_url = call_args[0][0] if call_args[0] else call_args.kwargs.get("url") or call_args[1].get("url")
+        # The URL passed to requests.post should match the custom api_base
+        assert actual_url == custom_base

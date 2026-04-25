@@ -54,12 +54,21 @@ class WebhookNotifier:
         }
 
         try:
-            requests.post(
+            resp = requests.post(
                 url,
                 data=json.dumps(payload),
                 headers={"Content-Type": "application/json"},
                 timeout=getattr(self.config, "timeout", 5),
             )
+            if not resp.ok:
+                masked = url[:30] + "..." if len(url) > 30 else url
+                logger.warning(
+                    "Webhook HTTP %d for event '%s' (url=%s): %s",
+                    resp.status_code,
+                    event,
+                    masked,
+                    resp.text[:200],
+                )
         except requests.exceptions.Timeout:
             masked = url[:30] + "..." if len(url) > 30 else url
             logger.warning("Webhook request timed out for event '%s' (url=%s).", event, masked)

@@ -91,7 +91,7 @@ def run_safety_evaluation(
 
     # Load test prompts
     prompts = []
-    with open(test_prompts_path, "r") as f:
+    with open(test_prompts_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:
@@ -126,14 +126,20 @@ def run_safety_evaluation(
     # Free the fine-tuned model from GPU before loading the classifier
     import gc
 
+    try:
+        model.cpu()
+    except Exception:
+        pass
     del model
     gc.collect()
     try:
-        import torch
-
         torch.cuda.empty_cache()
     except Exception:
         pass
+    logger.info(
+        "Fine-tuned model moved to CPU before loading safety classifier. "
+        "If OOM occurs, reduce classifier model size or increase available VRAM."
+    )
 
     # Classify responses using safety classifier
     logger.info("Loading safety classifier: %s", classifier_path)
@@ -152,7 +158,8 @@ def run_safety_evaluation(
 
     for prompt, response in zip(prompts, responses):
         try:
-            result = classifier(response[:2048])
+            conversation = f"[INST] {prompt} [/INST] {response}"
+            result = classifier(conversation[:2048])
             label = result[0]["label"] if result else "unknown"
             confidence = result[0].get("score", 1.0) if result else 0.0
             label_lower = label.lower()
@@ -282,7 +289,7 @@ def run_safety_evaluation(
         if track_categories:
             output_data["category_distribution"] = category_dist
             output_data["severity_distribution"] = severity_dist
-        with open(results_path, "w") as f:
+        with open(results_path, "w", encoding="utf-8") as f:
             json.dump(output_data, f, indent=2)
         logger.info("Safety results saved to %s", results_path)
 
@@ -328,7 +335,7 @@ def _append_trend_entry(output_dir: str, safety_score: float, safe_ratio: float,
         "passed": passed,
     }
     try:
-        with open(trend_path, "a") as f:
+        with open(trend_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
         logger.info("Safety trend entry appended to %s", trend_path)
     except Exception as e:

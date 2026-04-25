@@ -154,7 +154,7 @@ def generate_model_card(
     extra_tags_str = "\n".join(extra_tags)
 
     # Serialize config to YAML (excluding sensitive fields)
-    config_dict = config.model_dump(exclude={"auth"})
+    config_dict = config.model_dump(exclude={"auth", "webhook", "monitoring"})
     config_yaml = yaml.dump(config_dict, default_flow_style=False, sort_keys=False)
 
     card = MODEL_CARD_TEMPLATE.format(

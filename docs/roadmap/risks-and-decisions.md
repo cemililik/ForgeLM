@@ -11,6 +11,8 @@
 | **EU AI Act Non-Compliance** (August 2026 deadline) | Enterprise customers cannot adopt ForgeLM for high-risk AI | High | Phase 8 deep compliance: Annex IV docs, audit log, risk assessment, human gate, data governance |
 | **Safety Degradation from Fine-Tuning** | Fine-tuned models lose alignment, enterprise liability | High | Phase 6 safety evaluation pipeline, auto-revert on safety regression |
 | **Alignment Method Lock-In** | ForgeLM supports only ORPO while market demands DPO/GRPO | High | Phase 5 is top priority — critical market expectation |
+| **Compliance window closing** (Aug 2, 2026) | Enterprise leads not converted before competitors add compliance features | High | Enterprise outreach Day 1; Turkey market as first pilot; deep compliance features (Audit API, managed cloud) as moat |
+| **Community flywheel not started** | 0 stars → 0 enterprise credibility → missed EU AI Act window | High | Phase 10.5 Quickstart prioritized; YouTube Academy; Show HN + Reddit launch |
 
 ### Medium Severity
 | Risk | Impact | Likelihood | Mitigation |
@@ -81,3 +83,8 @@
 | 2026-03-23 | Leverage TRL trainers for alignment methods | TRL already implements DPO, KTO, GRPO — ForgeLM wraps with config, evaluation, and pipeline integration rather than reimplementing |
 | 2026-03-24 | Phase 8 (EU AI Act Deep Compliance) added with 10 tasks | Gap analysis against Articles 9-17 + Annex IV revealed 6 major gaps. Tier 1 (5 tasks) must complete before August 2, 2026 enforcement. This is ForgeLM's strongest differentiator — no competitor addresses EU AI Act systematically |
 | 2026-03-24 | Phase 9 (Advanced Safety Scoring) added with 8 tasks | Community feedback: binary safe/unsafe classification insufficient for production. Confidence scores, harm categories, severity levels, and trend tracking needed. Strengthens core differentiator |
+| 2026-04-25 | Phase ordering revised: Quickstart (formerly Phase 12) moved to Phase 10.5, before Data Ingestion | Community flywheel: Quickstart drives stars → enterprise leads → EU AI Act compliance sales. Delay = missed EU AI Act window. |
+| 2026-04-25 | Phase 14 (Multi-Stage Pipeline) added to roadmap | Enterprises need SFT → DPO → GRPO chained training as first-class feature; currently requires manual config juggling |
+| 2026-04-25 | Enterprise outreach moved to Day 1 (previously Week 7-12) | EU AI Act enforcement in 99 days; enterprise sales cycle is 3-6 months; starting at Week 7 means missing the window |
+| 2026-04-25 | v0.3.1rc1 security + config hardening release | Comprehensive code review revealed webhook URL leakage, audit log chain gap, GRPO callable bug, TIES merging error — all fixed |
+| 2026-04-25 | Turkey/BDDK/KVKK market added as priority enterprise target | First-mover in Turkish compliance market; BDDK AI guidelines publishing in 2026; no competitors; path to first enterprise case study |

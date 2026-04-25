@@ -1,124 +1,192 @@
 # ForgeLM Product Strategy
 
-> **Last Updated:** 2026-03-23
-> **Purpose:** Define ForgeLM's market position, target users, and strategic direction.
+> Last Updated: 2026-04-25
+> Purpose: Define ForgeLM's market position, differentiation, target users, and strategic direction.
 
 ---
 
 ## Mission Statement
 
-ForgeLM makes enterprise LLM fine-tuning **simple, repeatable, and secure** through a config-driven, CI/CD-native approach that runs anywhere — cloud, on-premise, or air-gapped.
+ForgeLM makes LLM fine-tuning **safe, auditable, and repeatable** — config-driven, CI/CD-native, runs anywhere.
+
+---
+
+## The Three Pillars
+
+### 1. Safety-First
+
+Fine-tuning can degrade a model's safety properties — silently. ForgeLM treats safety evaluation as a first-class pipeline stage, not an optional add-on.
+
+- **Llama Guard 3** safety evaluation runs inside the training pipeline (not post-hoc)
+- **3-layer safety gate**: binary pass/fail + confidence-weighted score + per-category severity analysis covering 14 harm categories (S1-S14)
+- **Auto-revert**: if safety regression is detected against baseline, training output is automatically rejected before artifacts are written
+- **Cross-run trend tracking**: safety scores are logged per-run and trended over time to catch gradual drift
+- **`auto_revert_on_safety_failure`** is a first-class config field — teams can enforce safety gates in CI without any custom scripting
+
+### 2. Compliance-Native
+
+As of August 2, 2026, EU AI Act applies to high-risk AI systems. ForgeLM is the only open-source fine-tuning tool that generates compliance evidence bundles automatically as a byproduct of a normal training run.
+
+- **EU AI Act Articles 9-17 + Annex IV** — each article maps to a structured output artifact:
+  - Art. 9 Risk Assessment → `risk_assessment.json`
+  - Art. 10 Data Governance → `data_governance_report.json`
+  - Art. 11 Technical Documentation → `annex_iv_technical_documentation.md`
+  - Art. 12 Record-Keeping → `audit_log.jsonl`
+  - Art. 13 Transparency → `deployer_instructions.md`
+  - Art. 14 Human Oversight → `require_human_approval: true` + exit code 4
+  - Art. 15 Accuracy & Robustness → `model_integrity.json` + safety evaluation results
+- **Tamper-evident audit log**: SHA-256 hash chain — each entry includes the hash of the previous entry; deletion or modification is detectable
+- **Human approval gate**: exit code 4 signals "awaiting human approval" to CI/CD orchestrators — no custom pipeline logic needed
+
+### 3. Config-Driven CI/CD
+
+ForgeLM's core architectural identity: a YAML file fully describes a training run. No Python code required. No environment variable hunting. No notebook state.
+
+- **Single YAML in, fine-tuned model + compliance artifacts out** — deterministic and version-controllable
+- **Meaningful exit codes** for pipeline orchestration: 0 (success), 1 (training failure), 2 (evaluation failure), 3 (safety failure), 4 (awaiting human approval)
+- **`--dry-run`** validates the full pipeline — config, data, model loading — without allocating a GPU
+- **Structured JSON output** on all evaluation and compliance steps — parseable by any downstream system
+- **Docker-native**: official multi-stage images for GPU and CPU; offline/air-gapped mode supported
+- **Git-friendly**: YAML configs diff cleanly; compliance artifacts are plain JSON/Markdown
 
 ---
 
 ## Target Users
 
-### Primary: MLOps / Data Engineers
-- Build automated training pipelines (`git push → train → evaluate → deploy`)
-- Need deterministic, YAML-driven workflows — not Jupyter Notebooks
-- Operate in CI/CD environments (GitHub Actions, GitLab CI, Jenkins)
-- Require silent, headless execution with structured output
+### Primary: MLOps / Platform Engineers
 
-### Secondary: AI/ML Engineers at Regulated Industries
-- Banks, healthcare, defense — cannot send data to external APIs
-- Need on-premise / air-gapped execution with full audit trails
-- Require security-conscious defaults (`trust_remote_code: false`)
-- Value open-source transparency and reproducibility
+**Profile:** Build and maintain automated training pipelines; operate in GitOps/CI environments; need headless, deterministic execution.
 
-### Tertiary: Independent Researchers & Developers
-- Want to fine-tune models without deep infrastructure knowledge
-- Need sensible defaults and quick-start guides
-- Benefit from wizard mode and example configurations
+**Why ForgeLM:** Meaningful exit codes map directly to pipeline branch logic. `--dry-run` validates config before queuing a GPU job. Structured JSON output integrates with observability platforms. Webhook notifications (Slack/Teams) hook into existing incident workflows.
 
----
+**Representative workflow:** `git push → GitHub Actions triggers → forgelm --config job.yaml → exit code → deploy or alert`
 
-## Core Value Proposition
+### Secondary: ML Engineers at Regulated Industries
 
-**"YAML in, fine-tuned model out."**
+**Profile:** Banking, healthcare, defense, government. Cannot send proprietary data to external APIs. Face EU AI Act (EU), KVKK/BDDK (Turkey), HIPAA (US), or equivalent regulations. Require on-premise or air-gapped execution with full audit trails.
 
-ForgeLM differentiates from competitors through three pillars:
+**Why ForgeLM:** The only fine-tuning tool that produces a complete EU AI Act compliance evidence bundle automatically. On-premise Docker deployment. `trust_remote_code: false` by default. Human approval gate (exit code 4) fits into existing governance workflows. Audit log with SHA-256 hash chain satisfies record-keeping requirements.
 
-### 1. Config-Driven (Declarative Training)
-- Entire training runs defined in a single YAML file
-- No Python code required from end users
-- Deterministic, reproducible, version-controllable
-- Natural fit for CI/CD pipelines and GitOps workflows
+### Tertiary: Independent Researchers and Developers
 
-### 2. Enterprise-Ready
-- Webhook notifications for training lifecycle events
-- Automated quality gates (evaluation, auto-revert)
-- Meaningful exit codes for pipeline orchestration
-- Structured logging for observability platforms
+**Profile:** Want to fine-tune models without deep infrastructure knowledge; experimenting with SFT/DPO/GRPO; need sensible defaults.
 
-### 3. Run Anywhere
-- Standard Transformers backend as universal fallback
-- Unsloth backend for high-performance environments
-- Docker images for portable deployment
-- Air-gapped mode for regulated industries
+**Why ForgeLM:** Wizard mode (`forgelm wizard`) guides configuration interactively. Quickstart templates (Phase 10.5) will provide working configs for the most common fine-tuning scenarios. The config-driven approach means runs are reproducible and shareable. 6 trainer methods (SFT/DPO/SimPO/KTO/ORPO/GRPO) in one tool.
 
 ---
 
-## What ForgeLM is NOT
+## What ForgeLM Is NOT
 
-To maintain focus, ForgeLM explicitly avoids:
+Explicitly out of scope — now and long-term:
 
-- **A GUI/Web application.** Config files are the interface. Users wanting GUIs should use LLaMA-Factory or AutoTrain.
-- **A cloud infrastructure provider.** ForgeLM trains models — it does not manage cloud instances. Users bring their own compute.
-- **A model serving platform.** ForgeLM outputs trained adapters/models. Deployment is handled by vLLM, TGI, or similar tools.
-- **A general ML training framework.** ForgeLM is specifically for LLM fine-tuning with LoRA/QLoRA, not computer vision or classical ML.
+- **A GUI or web application.** Config files are the interface. Users who want a web UI should use LLaMA-Factory or AutoTrain. ForgeLM's Pro CLI will add a dashboard for paying users, but the core tool is headless.
+- **A cloud infrastructure provider.** ForgeLM trains models — it does not provision, manage, or bill for compute. Users bring their own GPU (on-premise, RunPod, Lambda Labs, AWS, etc.).
+- **A model serving or inference platform.** ForgeLM outputs trained adapters and compliance artifacts. Deployment is the user's responsibility; hand off to vLLM, Ollama, TGI, or llama.cpp.
+- **A general ML framework.** LLM fine-tuning only. Not computer vision, not classical ML, not pretraining from scratch.
+- **A custom inference engine.** No custom CUDA kernels, no custom quantization implementations. ForgeLM delegates to bitsandbytes/AWQ/GPTQ/HQQ and existing runtimes.
+
+---
+
+## Competitive Position
+
+| Dimension | ForgeLM | LLaMA-Factory | Unsloth | Axolotl |
+|---|---|---|---|---|
+| Safety eval (integrated) | ✅ Llama Guard S1-S14 | ❌ | ❌ | ❌ |
+| EU AI Act compliance | ✅ Art. 9-17 + Annex IV | ❌ | ❌ | ❌ |
+| CI/CD-native exit codes | ✅ 0/1/2/3/4 | Partial | ❌ | Partial |
+| Web UI | ❌ (by design) | ✅ | ✅ Studio | ❌ |
+| Speed optimization | Standard | Standard | ✅ 2-5x | Standard |
+| Config-driven YAML | ✅ Full | Partial | ❌ | ✅ |
+| Multi-GPU | ✅ DeepSpeed/FSDP | ✅ | ❌ | ✅ |
+| Trainer methods | ✅ 6 (SFT/DPO/SimPO/KTO/ORPO/GRPO) | ✅ Many | Partial | Partial |
+| Auto-revert on regression | ✅ | ❌ | ❌ | ❌ |
+| Tamper-evident audit log | ✅ SHA-256 chain | ❌ | ❌ | ❌ |
+
+**Net position:** ForgeLM is behind on raw speed (Unsloth) and model variety/GUI (LLaMA-Factory). These are deliberate tradeoffs. The safety + compliance axis is where ForgeLM is categorically ahead — not incrementally better, but the only tool doing it systematically.
 
 ---
 
 ## Strategic Decisions
 
-### Docker over Direct Cloud API
-**Decision:** Provide official Docker images instead of integrating directly with RunPod/Lambda Labs APIs.
-**Rationale:** Direct cloud integration creates unsustainable maintenance burden, introduces 3rd-party API dependency risk, and expands scope beyond core competency. Docker images are portable, user-controlled, and work with any cloud provider or on-premise infrastructure.
+### 1. Safety and Compliance as Primary Differentiator
 
-### Reliability over Features
-**Decision:** Phase 2.5 (reliability hardening) inserted before new feature development.
-**Rationale:** Silent failures, insufficient test coverage, and print-based logging are production blockers. New features built on unreliable foundations create compounding technical debt.
+**Decision date:** 2026-03-23
 
-### Modular Dependencies
-**Decision:** All non-core features are optional (`pip install forgelm[unsloth]`, `forgelm[eval]`, etc.).
-**Rationale:** Core installation must remain lightweight. Users should only install what they need. This prevents dependency conflicts and reduces attack surface.
+Safety evaluation and compliance artifact generation are not optional features — they are the core value proposition for the target market. ForgeLM does not compete on speed or model variety; it competes on trustworthiness and auditability.
+
+**Implication:** Every new major feature is evaluated against whether it strengthens or dilutes this position. Features that add speed without improving safety/compliance are lower priority than features that deepen compliance coverage.
+
+### 2. Config-Driven Always — No Web UI in Core
+
+**Decision type:** Permanent architectural choice
+
+The config-driven identity is what makes ForgeLM CI/CD-native, Git-friendly, and reproducible. A web UI would require state management, auth, and multi-user session logic that is incompatible with the headless, pipeline-first model. Pro CLI will add a dashboard for paying users; the OSS core stays headless.
+
+### 3. Optional Dependencies as Extras
+
+Heavy dependencies live under `[project.optional-dependencies]` in `pyproject.toml`: `qlora`, `unsloth`, `eval`, `tracking`, `distributed`, `merging`. Each raises `ImportError` with an explicit install hint when missing — no silent `None` fallbacks.
+
+**Rationale:** Core installation must remain installable in seconds. Dependency conflicts are the #1 onboarding blocker for ML tools. Optional extras allow users to install exactly what they need.
+
+### 4. Reliability Before Features
+
+Phase 2.5 (reliability hardening) was inserted before new feature development — and this pattern repeats. Every new major capability ships with tests, documentation, and CI coverage before merge. "I'll add tests later" = the PR is not ready.
+
+**Implication:** ForgeLM ships fewer features per quarter than competitors, but each feature is production-reliable. This is the right tradeoff for the regulated-industry target market.
+
+### 5. EU AI Act Compliance as the Time-Sensitive Moat
+
+EU AI Act full enforcement begins August 2, 2026. No other open-source fine-tuning tool generates compliance evidence bundles. This window — between now and when competitors add compliance features — is the primary enterprise sales opportunity.
+
+**Implication:** Enterprise outreach must begin immediately, not after Phase 10+ is complete. The compliance moat is real but temporary; competitors will respond within 6-12 months of enforcement.
 
 ---
 
 ## Success Metrics
 
-### Short-Term (6 months)
-- Zero silent failures in production pipelines
-- >80% test coverage on core modules
-- `--dry-run` validates full pipeline without GPU
-- Docker image available and documented
+### Short-Term (by October 2026 — 6 months)
 
-### Medium-Term (12 months)
-- 3+ enterprise teams using ForgeLM in production CI/CD pipelines
-- Full `lm-evaluation-harness` integration
-- Air-gapped mode validated in isolated environments
-- Published CI/CD integration guides for top 3 platforms
+- EU AI Act enforcement (August 2) drives first qualified enterprise inquiries
+- v0.4.0 (Post-Training Completion — inference handoff, chat, export) shipped
+- v0.4.5 (Quickstart Layer — templates, wizard improvements) shipped
+- 1,000+ GitHub stars
+- First enterprise pilot contract signed (banking, healthcare, or government sector)
+- YouTube Academy launched with 5+ videos
 
-### Long-Term (24 months)
-- Recognized as the standard open-source tool for config-driven LLM fine-tuning
-- Community-contributed config templates for common use cases
-- ORPO/preference learning support
-- Distributed training (DeepSpeed/FSDP) available
+### Medium-Term (by April 2027 — 12 months)
+
+- 5,000+ GitHub stars
+- 3+ enterprise support contracts (Silver/Gold/Platinum tier)
+- $50,000–$150,000 ARR
+- ForgeLM Cloud MVP in private beta
+- Pro CLI alpha available to paying users
+- 3-5 active external contributors
+
+### Long-Term (by April 2028 — 24 months)
+
+- Recognized as the standard open-source tool for **safe, compliant LLM fine-tuning**
+- 15,000+ GitHub stars
+- $500,000+ ARR
+- Multi-region ForgeLM Cloud in general availability
+- 50+ community quickstart templates
+- Potential acquisition interest from enterprise compliance platforms (OneTrust, ServiceNow AI Control Tower, SAS)
 
 ---
 
 ## Documentation Map
 
 | Document | Purpose |
-|----------|---------|
+|---|---|
 | [README.md](../README.md) | Project overview and quick start |
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | Contributor guide |
+| [Roadmap](roadmap.md) | Phase-based execution plan |
+| [Product Strategy](product_strategy.md) | Market position and strategic direction (this document) |
 | [Architecture](reference/architecture.md) | System design and component details |
 | [Configuration Guide](reference/configuration.md) | YAML parameter reference |
 | [Usage Guide](reference/usage.md) | How to run training |
 | [Data Preparation](reference/data_preparation.md) | Dataset format requirements |
-| [Roadmap](roadmap.md) | Phase-based execution plan |
-| [Product Strategy](product_strategy.md) | Market position and strategic direction (this document) |
-| [Blackwell Design](design/blackwell_optimized.md) | GB10 optimization design |
+| [Standards Index](standards/README.md) | Engineering standards and conventions |
 | [Wizard Mode Design](design/wizard_mode.md) | Interactive configuration wizard design |
+| [Blackwell Design](design/blackwell_optimized.md) | GB10/Blackwell optimization design |
 
 All documents are available in Turkish (`*-tr.md`).

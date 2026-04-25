@@ -151,7 +151,7 @@ See the [Distributed Training Guide](../reference/distributed_training.md) for d
 |---------|------------------|-----|
 | `trust_remote_code` | `false` | Prevents arbitrary code execution from model repos |
 | `auth.hf_token` | Use `HUGGINGFACE_TOKEN` env var | Don't hardcode tokens in YAML |
-| `webhook.url` | Use `url_env` with env var | Don't hardcode webhook URLs |
+| `webhook.url` | Always use `url_env` with environment variable | Webhook tokens excluded from model cards (v0.3.1rc1+), but avoid direct URLs for credential hygiene |
 | `offline` | `true` for air-gapped | Prevents any network calls |
 
 ---
@@ -209,6 +209,28 @@ checkpoints/compliance/
 
 These are generated automatically — no additional configuration needed.
 
+### Full Evidence Bundle
+
+The complete compliance artifact set (generated automatically):
+
+```
+checkpoints/compliance/
+├── compliance_report.json
+├── training_manifest.yaml
+├── data_provenance.json
+├── risk_assessment.json
+├── data_governance_report.json
+├── annex_iv_technical_documentation.md
+├── deployer_instructions.md
+├── model_integrity.json
+└── audit_log.jsonl          # Tamper-evident hash chain, continuous across restarts
+```
+
+Export compliance artifacts without re-training:
+```bash
+forgelm --config job.yaml --compliance-export ./audit/
+```
+
 ---
 
 ## Production Config Template
@@ -224,8 +246,7 @@ lora:
   r: 16
   alpha: 32
   dropout: 0.05
-  method: "lora"
-  use_dora: true
+  method: "dora"
   target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
 training:

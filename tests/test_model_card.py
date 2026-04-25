@@ -102,3 +102,21 @@ class TestGenerateModelCard:
             final_path=final_path,
         )
         assert os.path.isfile(card_path)
+
+    def test_webhook_url_excluded_from_model_card(self, tmp_path):
+        """Webhook URLs must not appear in the generated model card YAML config block."""
+        from forgelm.model_card import generate_model_card
+
+        secret_url = "https://hooks.slack.com/services/SECRET_TOKEN/MORE_SECRET"
+        config = ForgeConfig(
+            **_minimal_config(webhook={"url": secret_url})
+        )
+        final_path = str(tmp_path / "model")
+        card_path = generate_model_card(
+            config=config,
+            metrics={"eval_loss": 0.5},
+            final_path=final_path,
+        )
+        content = open(card_path).read()
+        assert secret_url not in content, "Webhook URL must not appear in model card"
+        assert "SECRET_TOKEN" not in content

@@ -200,6 +200,17 @@ ForgeLM sends structured payloads:
 }
 ```
 
+```json
+// Exit code 4 — awaiting human approval
+{
+  "event": "training.awaiting_approval",
+  "run_name": "Llama-3.1-8B-Instruct_finetune",
+  "status": "awaiting_approval",
+  "message": "All automated checks passed. Human review required before deployment.",
+  "compliance_artifacts": "./checkpoints/compliance/"
+}
+```
+
 ---
 
 ## Exit Code Handling
@@ -262,3 +273,5 @@ print(f"GPU Hours: {data.get('resource_usage', {}).get('gpu_hours')}")
 6. **Use `--resume`**: Long training jobs on preemptible instances should auto-resume
 7. **Check exit codes**: Different codes mean different things — handle them
 8. **Store compliance artifacts**: `checkpoints/compliance/` contains audit trails
+9. **Expect config errors to fail fast**: Since v0.3.1rc1, unknown YAML fields raise `ConfigError` immediately — this catches typos in CI before GPU allocation
+10. **Compliance artifacts in version control**: Consider committing `checkpoints/compliance/` alongside model cards for full regulatory audit trails

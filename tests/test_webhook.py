@@ -2,7 +2,7 @@
 
 import json
 import os
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from forgelm.config import ForgeConfig
 from forgelm.webhook import WebhookNotifier
@@ -131,3 +131,41 @@ class TestWebhookNotifier:
         assert "attachments" in payload
         assert len(payload["attachments"]) == 1
         assert "title" in payload["attachments"][0]
+
+    @patch("forgelm.webhook.requests.post")
+    def test_http_5xx_logs_warning(self, mock_post, caplog):
+        """Non-2xx HTTP responses must emit a WARNING and not raise."""
+        import logging
+
+        mock_response = MagicMock()
+        mock_response.ok = False
+        mock_response.status_code = 503
+        mock_response.text = "Service Unavailable"
+        mock_post.return_value = mock_response
+
+        config = _make_config({"url": "https://example.com/hook"})
+        notifier = WebhookNotifier(config)
+
+        with caplog.at_level(logging.WARNING, logger="forgelm.webhook"):
+            notifier.notify_start(run_name="test_run")
+
+        assert any("503" in r.message or "HTTP" in r.message for r in caplog.records)
+
+    @patch("forgelm.webhook.requests.post")
+    def test_http_4xx_logs_warning(self, mock_post, caplog):
+        """HTTP 4xx response must emit a WARNING log and not raise."""
+        import logging
+
+        mock_response = MagicMock()
+        mock_response.ok = False
+        mock_response.status_code = 404
+        mock_response.text = "Not Found"
+        mock_post.return_value = mock_response
+
+        config = _make_config({"url": "https://example.com/hook"})
+        notifier = WebhookNotifier(config)
+
+        with caplog.at_level(logging.WARNING, logger="forgelm.webhook"):
+            notifier.notify_failure(run_name="test_run", reason="OOM")
+
+        assert any("404" in r.message or "HTTP" in r.message for r in caplog.records)

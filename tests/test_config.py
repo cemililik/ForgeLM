@@ -1,11 +1,13 @@
 """Unit tests for forgelm.config module."""
 
+import logging
 import os
 
 import pytest
 import yaml
 
 from forgelm.config import (
+    ConfigError,
     EvaluationConfig,
     ForgeConfig,
     LoraConfigModel,
@@ -202,12 +204,99 @@ class TestLoadConfig:
         cfg = load_config(cfg_path)
         assert cfg.model.trust_remote_code is True
 
-    def test_extra_fields_ignored_or_error(self, tmp_path):
-        """Extra unknown keys should not cause silent corruption."""
+    def test_extra_fields_raise_error(self, tmp_path):
+        """Unknown keys in any sub-model must raise ConfigError (extra='forbid')."""
         data = _minimal_config()
         data["model"]["unknown_field_xyz"] = 42
         cfg_path = str(tmp_path / "config.yaml")
         _write_yaml(data, cfg_path)
-        # Pydantic v2 ignores extra fields by default — config should still load
-        cfg = load_config(cfg_path)
-        assert cfg.model.name_or_path == "some-org/some-model"
+        with pytest.raises(ConfigError, match="Extra inputs are not permitted"):
+            load_config(cfg_path)
+
+    def test_extra_fields_forbidden_in_training(self, tmp_path):
+        """Extra fields in training sub-model must raise ConfigError."""
+        data = _minimal_config()
+        data["training"]["nonexistent_training_param"] = 999
+        cfg_path = str(tmp_path / "config.yaml")
+        _write_yaml(data, cfg_path)
+        with pytest.raises(ConfigError, match="Extra inputs are not permitted"):
+            load_config(cfg_path)
+
+    def test_extra_fields_forbidden_in_lora(self, tmp_path):
+        """Extra fields in lora sub-model must raise ConfigError."""
+        data = _minimal_config()
+        data["lora"]["typo_lora_param"] = True
+        cfg_path = str(tmp_path / "config.yaml")
+        _write_yaml(data, cfg_path)
+        with pytest.raises(ConfigError, match="Extra inputs are not permitted"):
+            load_config(cfg_path)
+
+    def test_extra_fields_forbidden_in_data(self, tmp_path):
+        """Extra fields in data sub-model must raise ConfigError."""
+        data = _minimal_config()
+        data["data"]["unknown_data_option"] = "bad"
+        cfg_path = str(tmp_path / "config.yaml")
+        _write_yaml(data, cfg_path)
+        with pytest.raises(ConfigError, match="Extra inputs are not permitted"):
+            load_config(cfg_path)
+
+
+# --- DataConfig validators ---
+
+
+class TestDataConfigValidators:
+    def test_mix_ratio_negative_raises(self):
+        from forgelm.config import DataConfig
+
+        with pytest.raises(Exception, match="non-negative"):
+            DataConfig(dataset_name_or_path="org/d", mix_ratio=[-0.5, 1.0])
+
+    def test_mix_ratio_all_zero_raises(self):
+        from forgelm.config import DataConfig
+
+        with pytest.raises(Exception, match="cannot all be zero"):
+            DataConfig(dataset_name_or_path="org/d", mix_ratio=[0.0, 0.0])
+
+    def test_mix_ratio_valid_passes(self):
+        from forgelm.config import DataConfig
+
+        d = DataConfig(dataset_name_or_path="org/d", mix_ratio=[0.7, 0.3])
+        assert d.mix_ratio == [0.7, 0.3]
+
+    def test_mix_ratio_none_passes(self):
+        from forgelm.config import DataConfig
+
+        d = DataConfig(dataset_name_or_path="org/d")
+        assert d.mix_ratio is None
+
+
+# --- LoraConfigModel deprecation normalisation ---
+
+
+class TestLoraDeprecation:
+    def test_use_rslora_deprecated_normalizes_method(self):
+        """use_rslora=True must auto-set method='rslora'."""
+        lora = LoraConfigModel(use_rslora=True)
+        assert lora.method == "rslora"
+
+    def test_use_dora_deprecated_normalizes_method(self):
+        """use_dora=True must auto-set method='dora'."""
+        lora = LoraConfigModel(use_dora=True)
+        assert lora.method == "dora"
+
+
+# --- ModelConfig float32+4bit warning ---
+
+
+class TestModelConfigWarnings:
+    def test_float32_qlora_warning(self, caplog):
+        """bnb_4bit_compute_dtype='float32' with load_in_4bit=True must emit a WARNING."""
+        with caplog.at_level(logging.WARNING, logger="forgelm.config"):
+            ModelConfig(name_or_path="org/m", load_in_4bit=True, bnb_4bit_compute_dtype="float32")
+        assert any("negates most VRAM savings" in r.message for r in caplog.records)
+
+    def test_bfloat16_no_warning(self, caplog):
+        """bfloat16 compute dtype must NOT trigger the float32 warning."""
+        with caplog.at_level(logging.WARNING, logger="forgelm.config"):
+            ModelConfig(name_or_path="org/m", load_in_4bit=True, bnb_4bit_compute_dtype="bfloat16")
+        assert not any("negates most VRAM savings" in r.message for r in caplog.records)

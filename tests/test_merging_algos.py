@@ -76,3 +76,40 @@ class TestDareMergeTensor:
         d1 = torch.tensor([5.0, 10.0])
         result = _dare_merge_tensor([d1], [1.0], drop_rate=0.0)
         assert torch.allclose(result, d1)
+
+    def test_dare_deterministic(self):
+        """Same seed must produce identical results across two calls."""
+        d = [torch.randn(100), torch.randn(100)]
+        w = [0.5, 0.5]
+        r1 = _dare_merge_tensor(d, w, drop_rate=0.3, seed=42)
+        r2 = _dare_merge_tensor(d, w, drop_rate=0.3, seed=42)
+        assert torch.allclose(r1, r2), "DARE should be deterministic with the same seed"
+
+    def test_dare_different_seeds_differ(self):
+        """Different seeds should (with overwhelming probability) produce different results."""
+        d = [torch.randn(200)]
+        w = [1.0]
+        r1 = _dare_merge_tensor(d, w, drop_rate=0.5, seed=1)
+        r2 = _dare_merge_tensor(d, w, drop_rate=0.5, seed=99)
+        # It's astronomically unlikely that two independent masks are identical for 200 elements
+        assert not torch.allclose(r1, r2), "Different seeds should produce different results"
+
+
+class TestTiesZeroVote:
+    def test_zero_vote_does_not_zero_params(self):
+        """Zero votes (exactly cancelling deltas) should resolve to +1, not zero parameters."""
+        # Two deltas that exactly cancel: one +1, one -1 at every position → zero votes
+        d1 = torch.tensor([1.0, -1.0, 2.0])
+        d2 = torch.tensor([-1.0, 1.0, -2.0])
+        result = _ties_merge_tensor([d1, d2], weights=[0.5, 0.5], trim_fraction=0.0)
+        # With zero-vote fix (ties go to +1), the result should not be all zeros
+        assert not torch.all(result == 0), "Zero-vote tie should not zero all parameters"
+
+    def test_zero_vote_resolves_to_positive(self):
+        """When sign votes cancel exactly, elected sign must be +1."""
+        # Single element: one +1 and one -1 → sum=0 → elected sign should be +1
+        d1 = torch.tensor([3.0])
+        d2 = torch.tensor([-3.0])
+        result = _ties_merge_tensor([d1, d2], weights=[0.5, 0.5], trim_fraction=0.0)
+        # elected_sign=+1, so the value with sign matching +1 is d1[0]=3.0, weighted by 0.5
+        assert result[0] >= 0, "Zero-vote should resolve to positive sign (+1)"

@@ -2,6 +2,9 @@
 
 import json
 import os
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from forgelm.config import SafetyConfig
 from forgelm.safety import (
@@ -11,6 +14,13 @@ from forgelm.safety import (
     _append_trend_entry,
     _extract_category,
 )
+
+# run_safety_evaluation requires torch — skip those tests if not available
+torch_available = True
+try:
+    import torch  # noqa: F401
+except ImportError:
+    torch_available = False
 
 
 class TestSafetyConfigPhase9:
@@ -181,3 +191,59 @@ class TestBuiltInPromptLibrary:
                     for i, line in enumerate(f):
                         data = json.loads(line)
                         assert "prompt" in data, f"{filename} line {i + 1}: missing 'prompt' key"
+
+
+@pytest.mark.skipif(not torch_available, reason="torch not installed")
+class TestClassifierConversationFormat:
+    def test_classifier_receives_inst_formatted_text(self, tmp_path):
+        """Safety classifier must receive '[INST] prompt [/INST] response' formatted text."""
+        import forgelm.safety as safety_mod
+
+        captured_texts = []
+
+        def mock_classifier(text, **kwargs):
+            captured_texts.append(text)
+            return [{"label": "safe", "score": 0.99}]
+
+        # Write a simple test prompts file
+        prompts_file = tmp_path / "prompts.jsonl"
+        prompts_file.write_text('{"prompt": "What is 2+2?"}\n')
+
+        # Mock pipeline to return our mock_classifier
+        def mock_pipeline(task, model, **kwargs):
+            return mock_classifier
+
+        # Mock the model to produce a response
+        mock_model = MagicMock()
+        mock_model.device = "cpu"
+        import torch
+
+        fake_output = torch.zeros((1, 5), dtype=torch.long)
+        mock_model.generate.return_value = fake_output
+
+        mock_tokenizer = MagicMock()
+        mock_tokenizer.return_value = {
+            "input_ids": torch.zeros((1, 3), dtype=torch.long),
+            "attention_mask": torch.ones((1, 3), dtype=torch.long),
+        }
+        mock_tokenizer.decode.return_value = "4"
+
+        with (
+            patch("forgelm.safety.pipeline", side_effect=mock_pipeline),
+            patch("torch.cuda.empty_cache"),
+        ):
+            result = safety_mod.run_safety_evaluation(
+                model=mock_model,
+                tokenizer=mock_tokenizer,
+                classifier_path="mock/classifier",
+                test_prompts_path=str(prompts_file),
+                max_safety_regression=0.5,
+                output_dir=str(tmp_path / "safety_out"),
+            )
+
+        # The classifier must have been called with the conversation format
+        assert len(captured_texts) >= 1
+        text_seen = captured_texts[0]
+        assert "[INST]" in text_seen, "Classifier input must include [INST] marker"
+        assert "[/INST]" in text_seen, "Classifier input must include [/INST] marker"
+        assert "What is 2+2?" in text_seen, "Classifier input must include the original prompt"

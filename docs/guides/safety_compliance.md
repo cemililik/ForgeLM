@@ -18,6 +18,8 @@ ForgeLM addresses this by running safety evaluation **inside the training pipeli
 
 ## Post-Training Safety Evaluation
 
+> **v0.3.1rc1 improvement:** The safety classifier now evaluates the full conversation — both the adversarial prompt and the model's response — using the Llama Guard 3 format: `[INST] {prompt} [/INST] {response}`. Previous versions only evaluated the response, which could miss context-dependent unsafe outputs.
+
 ### How It Works
 
 1. ForgeLM generates responses from adversarial test prompts using your fine-tuned model
@@ -200,8 +202,10 @@ evaluation:
     enabled: true
     judge_model: "gpt-4o"
     judge_api_key_env: "OPENAI_API_KEY"
+    judge_api_base: "https://api.openai.com/v1"  # Optional: custom OpenAI-compatible endpoint
     eval_dataset: "eval_prompts.jsonl"
     min_score: 7.0  # out of 10
+    # judge_api_base accepts any OpenAI-compatible endpoint (e.g., Azure OpenAI, local vLLM, Ollama)
 ```
 
 #### Local Judge Model
@@ -247,14 +251,36 @@ The EU AI Act becomes fully enforceable for high-risk AI systems in **August 202
 
 ### Compliance Artifacts
 
-ForgeLM automatically generates these after every training run:
+ForgeLM automatically generates a complete evidence bundle after every training run:
 
 ```
 checkpoints/compliance/
-├── compliance_report.json    # Full structured audit trail
-├── training_manifest.yaml    # Human-readable training summary
-└── data_provenance.json      # Dataset fingerprints and lineage
+├── compliance_report.json            # Article 11 + Annex IV: full structured audit trail
+├── training_manifest.yaml           # Human-readable training summary
+├── data_provenance.json             # Article 10: dataset fingerprints and lineage
+├── risk_assessment.json             # Article 9: risk classification
+├── data_governance_report.json      # Article 10: data quality and governance
+├── annex_iv_technical_documentation.md  # Annex IV: complete technical docs
+├── deployer_instructions.md         # Article 13: transparency for deployers
+├── model_integrity.json             # Article 15: SHA-256 artifact hashes
+└── audit_log.jsonl                  # Article 12: tamper-evident append-only log
 ```
+
+Each file maps to a specific EU AI Act requirement.
+
+### Audit Log Integrity
+
+ForgeLM's audit log (`audit_log.jsonl`) uses a SHA-256 hash chain for tamper evidence:
+- Each entry includes the hash of the previous entry
+- Any modification to historical entries breaks the chain
+- **Cross-run continuity (v0.3.1rc1+):** The chain continues across process restarts — a second training run continues from where the first left off, providing a continuous tamper-evident record across all runs in a directory
+
+```json
+{"event": "pipeline.started", "timestamp": "...", "prev_hash": "genesis", "hash": "a1b2c3..."}
+{"event": "training.completed", "timestamp": "...", "prev_hash": "a1b2c3...", "hash": "d4e5f6..."}
+```
+
+Verify integrity by checking that each entry's hash matches the SHA-256 of the previous line.
 
 ### compliance_report.json
 
@@ -422,3 +448,27 @@ forgelm --config job.yaml --compliance-export ./audit/
 ```
 
 This produces all audit artifacts from the config alone — no GPU needed.
+
+---
+
+## Security Best Practices
+
+### Webhook URL Protection (v0.3.1rc1+)
+
+Webhook URLs (which may contain tokens) are automatically **excluded** from model cards before uploading to HuggingFace Hub. This prevents credential leakage when models are published publicly.
+
+```yaml
+# Safe: use url_env — the URL is never written to the model card
+webhook:
+  url_env: "FORGELM_WEBHOOK_URL"  # secure
+
+# Avoid: direct URL may be excluded from model card but avoid for credential hygiene
+webhook:
+  url: "https://hooks.slack.com/services/T.../B.../token"  # never commit to git
+```
+
+### Config Security
+
+- Never commit `auth.hf_token` directly — use `HUGGINGFACE_TOKEN` environment variable
+- Never commit API keys in `synthetic.api_key` — use `api_key_env` instead
+- Use `trust_remote_code: false` (default) unless you've reviewed the model code

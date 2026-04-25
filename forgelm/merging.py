@@ -256,9 +256,13 @@ def _ties_merge_tensor(deltas, weights, trim_fraction=0.2):
         threshold = torch.quantile(flat.float(), trim_fraction)
         stacked[i][stacked[i].abs() < threshold] = 0.0
 
-    # Step 2: Elect sign — majority vote
+    # Step 2: Elect sign — majority vote (ties resolve to +1)
     sign_votes = torch.sign(stacked).sum(dim=0)
-    elected_sign = torch.sign(sign_votes)
+    elected_sign = torch.where(
+        sign_votes >= 0,
+        torch.ones_like(sign_votes),
+        torch.full_like(sign_votes, -1.0),
+    )
 
     # Step 3: Merge — weighted average of values that agree with elected sign
     result = torch.zeros_like(deltas[0])
@@ -269,17 +273,22 @@ def _ties_merge_tensor(deltas, weights, trim_fraction=0.2):
     return result
 
 
-def _dare_merge_tensor(deltas, weights, drop_rate=0.3):
+def _dare_merge_tensor(deltas, weights, drop_rate=0.3, seed: int = 42):
     """DARE merge for a single tensor: random drop + rescale."""
     import torch
 
     if drop_rate >= 1.0:
         return torch.zeros_like(deltas[0])
 
+    generator = torch.Generator()
+    generator.manual_seed(seed)
     result = torch.zeros_like(deltas[0])
     for delta, w in zip(deltas, weights):
         # Random binary mask (keep with probability 1-drop_rate)
-        mask = torch.bernoulli(torch.full_like(delta, 1.0 - drop_rate))
+        mask = torch.bernoulli(
+            torch.full_like(delta, 1.0 - drop_rate),
+            generator=generator,
+        )
         # Rescale to preserve expected magnitude
         rescaled = delta * mask / (1.0 - drop_rate)
         result += rescaled * w

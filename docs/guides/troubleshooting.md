@@ -227,11 +227,54 @@ training -> learning_rate
 
 Fix the YAML value to match the expected type.
 
-### Unknown Fields in Config
+### Unknown Fields in Config (v0.3.1rc1+)
 
-Extra/unknown fields in YAML are silently ignored (Pydantic v2 default). This means typos like `lerning_rate` won't cause an error — they'll just be ignored with the default value used instead.
+ForgeLM now **rejects unknown fields** in YAML configs — all sub-models enforce strict validation (`extra="forbid"`). Typos or unsupported fields raise a clear error:
 
-**Tip:** Always use `--dry-run` to verify resolved values.
+```
+ConfigError: Configuration validation failed: 1 validation error for ForgeConfig
+training.lerning_rate
+  Extra inputs are not permitted [type=extra_forbidden, input_value=2e-5]
+```
+
+This is intentional: silent typos (like `lerning_rate` instead of `learning_rate`) previously caused training to run with wrong defaults. Now they fail fast with a clear message.
+
+**To fix:** Check the error message for the exact field path (e.g., `training.lerning_rate`) and correct the field name.
+
+**To see all valid fields:** Run `forgelm --config job.yaml --dry-run` which lists all resolved parameter values.
+
+### Deprecated LoRA Method Syntax
+
+The boolean flags `lora.use_dora` and `lora.use_rslora` are deprecated. Use `lora.method` instead:
+
+```yaml
+# New (recommended)
+lora:
+  method: "dora"      # or "rslora", "pissa", "lora"
+
+# Deprecated (still works, emits warning, auto-normalizes)
+lora:
+  use_dora: true      # deprecated — auto-sets method: "dora"
+  use_rslora: true    # deprecated — auto-sets method: "rslora"
+```
+
+### `mix_ratio` Validation Error
+
+```
+ConfigError: mix_ratio values must be non-negative
+ConfigError: mix_ratio values cannot all be zero
+```
+
+`mix_ratio` controls the sampling ratio for multi-dataset training. It must have non-negative values and cannot be all zeros:
+
+```yaml
+data:
+  dataset_name_or_path: "org/primary-dataset"
+  extra_datasets: ["org/secondary-dataset"]
+  mix_ratio: [0.7, 0.3]  # 70% primary, 30% secondary
+  # mix_ratio: [-0.5, 1.0]  # negative values not allowed
+  # mix_ratio: [0.0, 0.0]   # all zeros not allowed
+```
 
 ---
 
