@@ -98,10 +98,12 @@ def _format_user_assistant_row(
 def _process_user_assistant_format(examples: dict, clean_text: bool, add_eos: bool, eos_token: str) -> dict:
     """Legacy User/Assistant or instruction/output column layout."""
     has_system = "System" in examples
-    user_texts = examples.get("User", examples.get("instruction", []))
-    asst_texts = examples.get("Assistant", examples.get("output", examples.get("response", [])))
+    has_user = "User" in examples or "instruction" in examples
+    has_assistant = "Assistant" in examples or "output" in examples or "response" in examples
 
-    if not user_texts or not asst_texts:
+    # Distinguish "wrong schema" (raise) from "empty batch" (return empty list).
+    # Truthiness on the column list would conflate the two.
+    if not has_user or not has_assistant:
         fmt = _detect_dataset_format(list(examples.keys()))
         raise KeyError(
             f"Dataset must contain 'User'/'instruction' and 'Assistant'/'output' columns, "
@@ -111,6 +113,8 @@ def _process_user_assistant_format(examples: dict, clean_text: bool, add_eos: bo
             f"Suggested trainer: {fmt['suggested_trainer']}"
         )
 
+    user_texts = examples.get("User", examples.get("instruction", []))
+    asst_texts = examples.get("Assistant", examples.get("output", examples.get("response", [])))
     sys_texts = examples["System"] if has_system else [""] * len(user_texts)
     texts = [
         _format_user_assistant_row(s, u, a, clean_text, add_eos, eos_token)
@@ -234,11 +238,16 @@ def _validate_trainer_columns(
 
 
 def _shuffle_and_passthrough(dataset, shuffle: bool) -> Dict[str, Any]:
-    """Return splits as-is (optionally shuffled) — for trainers that need raw columns."""
+    """Return splits as-is — for trainers that need raw columns.
+
+    Only the ``train`` split is shuffled when ``shuffle=True``; validation
+    and test splits are preserved in their original order so evaluation is
+    reproducible across runs and metrics line up sample-by-sample.
+    """
     out: Dict[str, Any] = {}
     for split in dataset:
         current = dataset[split]
-        if shuffle:
+        if shuffle and split == "train":
             current = current.shuffle(seed=42)
         out[split] = current
     return out
@@ -280,12 +289,16 @@ def _passthrough_multimodal(config: Any, dataset, sample_columns: list) -> Optio
 
 
 def _format_sft_dataset(dataset, processor, shuffle: bool) -> Dict[str, Any]:
-    """Apply the SFT chat-template formatter across all splits."""
+    """Apply the SFT chat-template formatter across all splits.
+
+    Only the ``train`` split is shuffled — keeping validation/test order
+    stable preserves reproducible eval metrics across runs.
+    """
     logger.info("Formatting dataset with Chat Templates...")
     processed: Dict[str, Any] = {}
     for split in dataset:
         current = dataset[split]
-        if shuffle:
+        if shuffle and split == "train":
             current = current.shuffle(seed=42)
         processed[split] = current.map(
             processor,

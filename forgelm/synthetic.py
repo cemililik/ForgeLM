@@ -71,6 +71,11 @@ class SyntheticDataGenerator:
         if not response:
             result.failed += 1
             result.errors.append(f"Prompt {idx}: empty response")
+            logger.warning(
+                "Empty response from teacher for prompt %d: %.80s",
+                idx,
+                prompt,
+            )
             return None
 
         result.successful += 1
@@ -120,11 +125,13 @@ class SyntheticDataGenerator:
         start_time = time.time()
         generated: List[dict] = []
 
+        last_idx = len(prompts) - 1
         for i, prompt in enumerate(prompts):
             entry = self._generate_one(prompt, i, result)
             if entry is not None:
                 generated.append(entry)
-            if rate_limit:
+            # Skip the trailing sleep — there's no next request to throttle
+            if rate_limit and i < last_idx:
                 time.sleep(self.synth_cfg.api_delay)
 
         result.duration_seconds = time.time() - start_time
@@ -253,21 +260,54 @@ class SyntheticDataGenerator:
         self._teacher = (model, tokenizer)
 
     def _load_file_responses(self) -> dict:
-        """Read the pre-generated prompt→response map from seed_file (one-shot)."""
+        """Read the pre-generated prompt→response map from seed_file (one-shot).
+
+        Loud about failures: logs a warning when seed_file is unset or missing
+        (which silently produces empty responses for every prompt) and
+        debug-logs each malformed line with line number so users can fix the
+        underlying file.
+        """
         responses: dict = {}
         seed_file = self.synth_cfg.seed_file
-        if not seed_file or not os.path.isfile(seed_file):
+        if not seed_file:
+            logger.warning("teacher_backend='file' but synthetic.seed_file is unset; all responses will be empty.")
             return responses
+        if not os.path.isfile(seed_file):
+            logger.warning(
+                "teacher_backend='file' but synthetic.seed_file does not exist: %s — all responses will be empty.",
+                seed_file,
+            )
+            return responses
+        malformed = 0
         with open(seed_file, encoding="utf-8") as f:
-            for line in f:
+            for lineno, line in enumerate(f, start=1):
                 try:
                     data = json.loads(line)
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    malformed += 1
+                    logger.debug(
+                        "Skipping malformed JSON in %s line %d: %s — %s",
+                        seed_file,
+                        lineno,
+                        e,
+                        line[:120].rstrip(),
+                    )
                     continue
                 p = data.get("prompt", "")
                 r = data.get("response") or data.get("completion") or data.get("output", "")
                 if p and r:
                     responses[p] = r
+        if malformed:
+            logger.warning(
+                "Skipped %d malformed line(s) while loading %s; enable DEBUG logging for line-by-line detail.",
+                malformed,
+                seed_file,
+            )
+        if not responses:
+            logger.warning(
+                "synthetic.seed_file %s loaded zero usable prompt→response pairs; all teacher calls will return empty.",
+                seed_file,
+            )
         return responses
 
     def _call_file_teacher(self, prompt: str) -> str:

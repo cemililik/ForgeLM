@@ -30,14 +30,16 @@ class TestParseJudgeJson:
         result = _parse_judge_json(text)
         assert result["score"] == 6
 
-    def test_invalid_json_returns_zero(self):
+    def test_invalid_json_returns_none_sentinel(self):
+        # score=None signals a parse failure so the caller can drop the
+        # sample from the average instead of clipping it up to 1.0.
         result = _parse_judge_json("This is not JSON at all")
-        assert result["score"] == 0
+        assert result["score"] is None
         assert "Invalid JSON" in result["reason"]
 
     def test_empty_string(self):
         result = _parse_judge_json("")
-        assert result["score"] == 0
+        assert result["score"] is None
 
     def test_whitespace_padding(self):
         result = _parse_judge_json('  \n  {"score": 9, "reason": "Great"}  \n  ')
@@ -77,7 +79,8 @@ class TestCallApiJudge:
         from forgelm.judge import _call_api_judge
 
         result = _call_api_judge("test prompt", "fake-key")
-        assert result["score"] == 0
+        # Transport failures use the same None sentinel as parse failures.
+        assert result["score"] is None
         assert "API error" in result["reason"]
 
     @patch("requests.post")

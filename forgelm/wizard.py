@@ -5,6 +5,7 @@ No external dependencies required — uses stdlib input().
 """
 
 import logging
+import os
 import sys
 from typing import Optional
 
@@ -192,7 +193,7 @@ def _collect_compliance_config() -> Optional[dict]:
 
 
 def _save_config_to_file(config: dict, requested_filename: str) -> str:
-    """Write *config* as YAML; falls back to ``my_config.yaml`` on OSError."""
+    """Write *config* as YAML; falls back to a unique filename on OSError."""
     try:
         with open(requested_filename, "w") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
@@ -200,11 +201,22 @@ def _save_config_to_file(config: dict, requested_filename: str) -> str:
         return requested_filename
     except OSError as e:
         print(f"\n  Error: Could not save config to {requested_filename}: {e}")
-        fallback = "my_config.yaml"
+
+    # Pick a fallback that's guaranteed different from the path that just failed
+    # (a hardcoded "my_config.yaml" would just re-raise the same OSError when
+    # the original request was already that filename).
+    from datetime import datetime as _dt
+
+    base = os.path.splitext(os.path.basename(requested_filename))[0] or "my_config"
+    fallback = os.path.join(os.path.expanduser("~"), f"{base}_{_dt.now().strftime('%Y%m%d_%H%M%S')}.yaml")
+    try:
         with open(fallback, "w") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
         print(f"  Saved to fallback location: {fallback}")
         return fallback
+    except OSError as e:
+        print(f"  Fallback save also failed ({fallback}): {e}")
+        raise
 
 
 def _print_wizard_summary(

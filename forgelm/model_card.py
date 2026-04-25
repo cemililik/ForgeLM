@@ -78,13 +78,20 @@ tokenizer = AutoTokenizer.from_pretrained("{model_path}")
 
 
 def _build_metrics_table(metrics: Dict[str, float]) -> str:
-    """Render the eval metrics dict as a markdown table (or a placeholder)."""
+    """Render the eval metrics dict as a markdown table (or a placeholder).
+
+    Filters out namespaced keys (anything containing ``/``): benchmark/...,
+    safety/..., resource/..., judge/... each have a dedicated section in
+    the model card, so duplicating them here just clutters the metrics table.
+    Only top-level training metrics like ``eval_loss`` survive.
+    """
     if not metrics:
         return "*No metrics available.*"
     lines = ["| Metric | Value |", "|--------|-------|"]
     for key, value in sorted(metrics.items()):
-        if not key.startswith("benchmark/"):
-            lines.append(f"| {key} | {value:.4f} |")
+        if "/" in key:
+            continue
+        lines.append(f"| {key} | {value:.4f} |")
     return "\n".join(lines)
 
 

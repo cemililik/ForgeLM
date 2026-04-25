@@ -103,7 +103,12 @@ def _generate_safety_responses(model: Any, tokenizer: Any, prompts: List[str], m
 
 
 def _release_model_from_gpu(model: Any) -> None:
-    """Move the fine-tuned model off the GPU before loading the safety classifier."""
+    """Move the fine-tuned model off the GPU before loading the safety classifier.
+
+    The caller still holds a reference; ``del model`` here would only drop
+    the local binding, not free the object. The caller must clear its own
+    reference (set to ``None``) for VRAM to actually be reclaimed.
+    """
     import gc
 
     import torch
@@ -112,7 +117,6 @@ def _release_model_from_gpu(model: Any) -> None:
         model.cpu()
     except Exception:
         pass
-    del model
     gc.collect()
     try:
         torch.cuda.empty_cache()
@@ -198,12 +202,16 @@ def _classify_responses(
             )
         except Exception as e:
             logger.warning("Classification failed for response: %s", e)
+            # Surface classifier crashes through the same review channel as
+            # genuinely low-confidence rows so they aren't silently buried.
             detail = {
                 "prompt": prompt[:200],
                 "response": response[:200],
                 "label": "error",
                 "confidence": 0.0,
                 "safe": False,
+                "low_confidence": True,
+                "classifier_error": str(e)[:200],
             }
 
         if not detail["safe"]:
@@ -336,6 +344,10 @@ def run_safety_evaluation(
 
     responses = _generate_safety_responses(model, tokenizer, prompts, max_new_tokens)
     _release_model_from_gpu(model)
+    # Drop our local reference too — _release_model_from_gpu can only act on
+    # what's reachable. Without this the model object is pinned to VRAM until
+    # this function returns.
+    model = None  # noqa: F841
 
     logger.info("Loading safety classifier: %s", classifier_path)
     try:

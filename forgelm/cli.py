@@ -44,6 +44,31 @@ def _setup_logging(log_level: str, json_format: bool = False) -> None:
     )
 
 
+def _add_common_subparser_flags(p: argparse.ArgumentParser, *, include_output_format: bool) -> None:
+    """Register the shared --quiet / --log-level / --output-format flags.
+
+    Uses ``default=argparse.SUPPRESS`` so an explicit flag at the main-parser
+    level (before the subcommand) is not clobbered when the subparser fills
+    in its own defaults.
+    """
+    if include_output_format:
+        p.add_argument(
+            "--output-format",
+            type=str,
+            default=argparse.SUPPRESS,
+            choices=["text", "json"],
+            help="Output format: text (default) or json.",
+        )
+    p.add_argument("-q", "--quiet", action="store_true", default=argparse.SUPPRESS, help="Suppress INFO logs.")
+    p.add_argument(
+        "--log-level",
+        type=str,
+        default=argparse.SUPPRESS,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Set logging verbosity (default: INFO).",
+    )
+
+
 def _add_chat_subcommand(subparsers) -> None:
     p = subparsers.add_parser(
         "chat",
@@ -70,15 +95,8 @@ def _add_chat_subcommand(subparsers) -> None:
         choices=["transformers", "unsloth"],
         help="Model backend (default: transformers).",
     )
-    # SUPPRESS prevents these from overriding flags already set on the main parser
-    p.add_argument("-q", "--quiet", action="store_true", default=argparse.SUPPRESS, help="Suppress INFO logs.")
-    p.add_argument(
-        "--log-level",
-        type=str,
-        default=argparse.SUPPRESS,
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Set logging verbosity (default: INFO).",
-    )
+    # chat is interactive; --output-format doesn't apply.
+    _add_common_subparser_flags(p, include_output_format=False)
 
 
 def _add_export_subcommand(subparsers) -> None:
@@ -112,22 +130,7 @@ def _add_export_subcommand(subparsers) -> None:
         action="store_true",
         help="Skip updating model_integrity.json with the exported artifact.",
     )
-    # SUPPRESS prevents these from overriding flags already set on the main parser
-    p.add_argument(
-        "--output-format",
-        type=str,
-        default=argparse.SUPPRESS,
-        choices=["text", "json"],
-        help="Output format: text (default) or json.",
-    )
-    p.add_argument("-q", "--quiet", action="store_true", default=argparse.SUPPRESS, help="Suppress INFO logs.")
-    p.add_argument(
-        "--log-level",
-        type=str,
-        default=argparse.SUPPRESS,
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Set logging verbosity (default: INFO).",
-    )
+    _add_common_subparser_flags(p, include_output_format=True)
 
 
 def _add_deploy_subcommand(subparsers) -> None:
@@ -164,22 +167,7 @@ def _add_deploy_subcommand(subparsers) -> None:
         default="aws",
         help="Cloud vendor for HF Endpoints config (default: aws).",
     )
-    # SUPPRESS prevents these from overriding flags already set on the main parser
-    p.add_argument(
-        "--output-format",
-        type=str,
-        default=argparse.SUPPRESS,
-        choices=["text", "json"],
-        help="Output format: text (default) or json.",
-    )
-    p.add_argument("-q", "--quiet", action="store_true", default=argparse.SUPPRESS, help="Suppress INFO logs.")
-    p.add_argument(
-        "--log-level",
-        type=str,
-        default=argparse.SUPPRESS,
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Set logging verbosity (default: INFO).",
-    )
+    _add_common_subparser_flags(p, include_output_format=True)
 
 
 def parse_args():
@@ -810,6 +798,24 @@ def _maybe_run_no_train_mode(config, args) -> None:
         sys.exit(EXIT_SUCCESS)
 
 
+def _report_training_error(
+    json_output: bool, payload: dict, log_msg: str, exit_code: int, *, with_traceback: bool = False
+) -> None:
+    """Emit a training-pipeline error and exit with *exit_code*.
+
+    Centralizes the "JSON to stdout vs human log message" split. Pass
+    ``with_traceback=True`` for unexpected exceptions where the stack trace
+    is more useful than a one-line message.
+    """
+    if json_output:
+        print(json.dumps(payload))
+    elif with_traceback:
+        logger.exception(log_msg)
+    else:
+        logger.error(log_msg)
+    sys.exit(exit_code)
+
+
 def _run_training_pipeline(config, args, json_output: bool) -> None:
     """Run the full training pipeline (model load → data → trainer.train → cleanup)."""
     try:
@@ -843,17 +849,20 @@ def _run_training_pipeline(config, args, json_output: bool) -> None:
         sys.exit(EXIT_SUCCESS if result.success else EXIT_EVAL_FAILURE)
 
     except ImportError as e:
-        if json_output:
-            print(json.dumps({"success": False, "error": f"Missing dependency: {e}"}))
-        else:
-            logger.error("Missing dependency: %s. Check your installation.", e)
-        sys.exit(EXIT_TRAINING_ERROR)
+        _report_training_error(
+            json_output,
+            payload={"success": False, "error": f"Missing dependency: {e}"},
+            log_msg=f"Missing dependency: {e}. Check your installation.",
+            exit_code=EXIT_TRAINING_ERROR,
+        )
     except Exception as e:
-        if json_output:
-            print(json.dumps({"success": False, "error": str(e)}))
-        else:
-            logger.exception("Training pipeline failed.")
-        sys.exit(EXIT_TRAINING_ERROR)
+        _report_training_error(
+            json_output,
+            payload={"success": False, "error": str(e)},
+            log_msg="Training pipeline failed.",
+            exit_code=EXIT_TRAINING_ERROR,
+            with_traceback=True,
+        )
 
 
 def main():

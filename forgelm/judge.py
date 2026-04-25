@@ -57,7 +57,9 @@ def _parse_judge_json(text: str) -> Dict[str, Any]:
             except json.JSONDecodeError:
                 continue
     logger.warning("Could not parse judge response as JSON: %s", text[:200])
-    return {"score": 0, "reason": f"Invalid JSON response: {text[:200]}"}
+    # Use score=None as the failure sentinel — score=0 used to be clipped up
+    # to 1.0 by _clip_judge_score and silently lowered the average.
+    return {"score": None, "reason": f"Invalid JSON response: {text[:200]}"}
 
 
 def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: str = None) -> Dict[str, Any]:
@@ -83,10 +85,10 @@ def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: 
         return _parse_judge_json(content)
     except json.JSONDecodeError as e:
         logger.warning("API judge returned invalid JSON: %s", e)
-        return {"score": 0, "reason": f"Invalid JSON from API: {e}"}
+        return {"score": None, "reason": f"Invalid JSON from API: {e}"}
     except Exception as e:
         logger.warning("API judge call failed: %s", e)
-        return {"score": 0, "reason": f"API error: {e}"}
+        return {"score": None, "reason": f"API error: {e}"}
 
 
 def _call_local_judge(prompt: str, model: Any, tokenizer: Any) -> Dict[str, Any]:
@@ -102,7 +104,7 @@ def _call_local_judge(prompt: str, model: Any, tokenizer: Any) -> Dict[str, Any]
         return _parse_judge_json(response)
     except Exception as e:
         logger.warning("Local judge evaluation failed: %s", e)
-        return {"score": 0, "reason": f"Local judge error: {e}"}
+        return {"score": None, "reason": f"Local judge error: {e}"}
 
 
 def _load_eval_prompts(path: str) -> List[str]:
@@ -146,8 +148,14 @@ def _generate_response(model: Any, tokenizer: Any, prompt: str, max_new_tokens: 
         return ""
 
 
-def _clip_judge_score(raw_score: float) -> float:
-    """Clip the judge's raw 1-10 score and warn if it was out of range."""
+def _clip_judge_score(raw_score: Optional[float]) -> Optional[float]:
+    """Clip the judge's raw 1-10 score; pass through None for parse/transport failures.
+
+    None preserves the failure signal so the caller can skip the sample in the
+    average (rather than counting it as a 1.0 floor and pulling the score down).
+    """
+    if raw_score is None:
+        return None
     score = max(1.0, min(10.0, raw_score))
     if raw_score != score:
         logger.warning(
@@ -234,8 +242,9 @@ def run_judge_evaluation(
             logger.error("Failed to load local judge model: %s", e)
             return JudgeResult(passed=False, failure_reason=f"Judge model load failed: {e}")
 
-    scores: List[float] = []
+    scores: List[Optional[float]] = []
     details: List[Dict[str, Any]] = []
+    failure_count = 0
 
     for prompt in eval_prompts:
         response = _generate_response(model, tokenizer, prompt, max_new_tokens)
@@ -245,7 +254,10 @@ def run_judge_evaluation(
         else:
             result = _call_local_judge(judge_prompt, local_judge_model, local_judge_tokenizer)
 
-        score = _clip_judge_score(float(result.get("score", 0)))
+        raw_score = result.get("score")
+        score = _clip_judge_score(float(raw_score) if raw_score is not None else None)
+        if score is None:
+            failure_count += 1
         scores.append(score)
         details.append(
             {
@@ -253,11 +265,19 @@ def run_judge_evaluation(
                 "response": response[:200],
                 "score": score,
                 "reason": result.get("reason", ""),
+                "judge_failed": score is None,
             }
         )
 
-    avg_score = sum(scores) / len(scores) if scores else 0.0
-    logger.info("LLM-as-Judge average score: %.2f / 10.0", avg_score)
+    valid_scores = [s for s in scores if s is not None]
+    avg_score = sum(valid_scores) / len(valid_scores) if valid_scores else 0.0
+    logger.info(
+        "LLM-as-Judge average score: %.2f / 10.0 (%d/%d valid; %d judge failures)",
+        avg_score,
+        len(valid_scores),
+        len(eval_prompts),
+        failure_count,
+    )
 
     passed = avg_score >= min_score
     failure_reason = None

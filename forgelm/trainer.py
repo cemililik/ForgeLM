@@ -513,7 +513,12 @@ class ForgeTrainer:
         metrics: Dict[str, float],
         final_path: str,
     ) -> bool:
-        """Attach benchmark output to *train_result*, returning True to continue."""
+        """Attach benchmark output to *train_result*, returning True to continue.
+
+        Mirrors the safety/judge gating: revert + halt only when the user opted
+        into auto_revert. Without that flag, benchmark failures are recorded
+        but do not destroy the saved model.
+        """
         if benchmark_result is None:
             return True
         train_result.benchmark_scores = benchmark_result.scores
@@ -531,6 +536,9 @@ class ForgeTrainer:
         if benchmark_result.passed:
             return True
         reason = benchmark_result.failure_reason or "Benchmark score below threshold."
+        if not (self.config.evaluation and self.config.evaluation.auto_revert):
+            # Failure recorded on train_result; pipeline continues to safety/judge stages.
+            return True
         self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="benchmark", detail=reason)
         self._revert_model(final_path, reason)
         train_result.success = False
@@ -834,9 +842,13 @@ class ForgeTrainer:
             usage["cost_source"] = "auto_detected"
             return exact
 
-        # Fuzzy match — GPU names vary across drivers/CUDA versions
-        for known_gpu, price in self._GPU_PRICING.items():
-            if known_gpu.lower() in gpu_name.lower() or gpu_name.lower() in known_gpu.lower():
+        # Fuzzy match — iterate longest known names first so e.g. "NVIDIA H100"
+        # is preferred over "NVIDIA H1" when both are substrings of the GPU name.
+        gpu_lower = gpu_name.lower()
+        sorted_pricing = sorted(self._GPU_PRICING.items(), key=lambda kv: len(kv[0]), reverse=True)
+        for known_gpu, price in sorted_pricing:
+            known_lower = known_gpu.lower()
+            if known_lower in gpu_lower or gpu_lower in known_lower:
                 usage["cost_source"] = "fuzzy_match"
                 return price
         return None
