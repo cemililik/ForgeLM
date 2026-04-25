@@ -4,6 +4,8 @@ import json
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from forgelm.config import ForgeConfig
 from forgelm.webhook import WebhookNotifier
 
@@ -60,7 +62,7 @@ class TestWebhookNotifier:
         call_kwargs = mock_post.call_args
         payload = json.loads(call_kwargs.kwargs.get("data") or call_kwargs[1]["data"])
         assert payload["event"] == "training.success"
-        assert payload["metrics"]["eval_loss"] == 1.25
+        assert payload["metrics"]["eval_loss"] == pytest.approx(1.25)
 
     @patch("forgelm.webhook.requests.post")
     def test_notify_failure_with_reason(self, mock_post):

@@ -44,14 +44,14 @@ class TestGaloreConfig:
         assert config.training.galore_enabled is True
         assert config.training.galore_rank == 64
         assert config.training.galore_update_proj_gap == 100
-        assert config.training.galore_scale == 0.10
+        assert config.training.galore_scale == pytest.approx(0.10)
 
     def test_galore_defaults(self):
         config = _config(training={"galore_enabled": True})
         assert config.training.galore_optim == "galore_adamw"
         assert config.training.galore_rank == 128
         assert config.training.galore_update_proj_gap == 200
-        assert config.training.galore_scale == 0.25
+        assert config.training.galore_scale == pytest.approx(0.25)
         assert config.training.galore_proj_type == "std"
         assert config.training.galore_target_modules is None
 
@@ -137,7 +137,7 @@ training:
         assert config.training.galore_optim == "galore_adamw_8bit"
         assert config.training.galore_rank == 64
         assert config.training.galore_update_proj_gap == 100
-        assert config.training.galore_scale == 0.10
+        assert config.training.galore_scale == pytest.approx(0.10)
 
     def test_config_template_still_valid(self):
         config = load_config("config_template.yaml")

@@ -13,6 +13,10 @@ from .webhook import WebhookNotifier
 
 logger = logging.getLogger("forgelm.trainer")
 
+# Audit event names — kept as constants so the audit-log schema stays grep-able
+# and downstream consumers don't break on a typo.
+_EVT_REVERT_TRIGGERED = "eval.revert_triggered"
+
 
 class ForgeTrainer:
     """Orchestrates the training process for ForgeLM using TRL SFTTrainer."""
@@ -78,32 +82,32 @@ class ForgeTrainer:
         _train_size = len(self.dataset.get("train", [])) if self.dataset else 0
         logging_steps = max(1, min(50, _train_size // 100)) if _train_size > 0 else 50
 
-        kwargs = dict(
-            output_dir=self.checkpoint_dir,
-            max_steps=self.config.training.max_steps,
-            num_train_epochs=self.config.training.num_train_epochs,
-            per_device_train_batch_size=self.config.training.per_device_train_batch_size,
-            gradient_accumulation_steps=self.config.training.gradient_accumulation_steps,
-            learning_rate=self.config.training.learning_rate,
-            warmup_ratio=self.config.training.warmup_ratio,
-            weight_decay=self.config.training.weight_decay,
-            eval_steps=self.config.training.eval_steps,
-            save_steps=self.config.training.save_steps,
-            logging_steps=logging_steps,
-            eval_strategy="steps",
-            save_strategy="steps",
-            save_total_limit=self.config.training.save_total_limit,
-            load_best_model_at_end=True,
-            metric_for_best_model="eval_loss",
-            greater_is_better=False,
-            gradient_checkpointing=torch.cuda.is_available(),
-            optim="adamw_torch_fused" if torch.cuda.is_available() else "adamw_torch",
-            bf16=torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
-            fp16=torch.cuda.is_available() and not torch.cuda.is_bf16_supported(),
-            use_cpu=not torch.cuda.is_available(),
-            report_to=getattr(self.config.training, "report_to", "tensorboard"),
-            run_name=getattr(self.config.training, "run_name", None) or self.run_name,
-        )
+        kwargs = {
+            "output_dir": self.checkpoint_dir,
+            "max_steps": self.config.training.max_steps,
+            "num_train_epochs": self.config.training.num_train_epochs,
+            "per_device_train_batch_size": self.config.training.per_device_train_batch_size,
+            "gradient_accumulation_steps": self.config.training.gradient_accumulation_steps,
+            "learning_rate": self.config.training.learning_rate,
+            "warmup_ratio": self.config.training.warmup_ratio,
+            "weight_decay": self.config.training.weight_decay,
+            "eval_steps": self.config.training.eval_steps,
+            "save_steps": self.config.training.save_steps,
+            "logging_steps": logging_steps,
+            "eval_strategy": "steps",
+            "save_strategy": "steps",
+            "save_total_limit": self.config.training.save_total_limit,
+            "load_best_model_at_end": True,
+            "metric_for_best_model": "eval_loss",
+            "greater_is_better": False,
+            "gradient_checkpointing": torch.cuda.is_available(),
+            "optim": "adamw_torch_fused" if torch.cuda.is_available() else "adamw_torch",
+            "bf16": torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
+            "fp16": torch.cuda.is_available() and not torch.cuda.is_bf16_supported(),
+            "use_cpu": not torch.cuda.is_available(),
+            "report_to": getattr(self.config.training, "report_to", "tensorboard"),
+            "run_name": getattr(self.config.training, "run_name", None) or self.run_name,
+        }
 
         # Inject long-context optimizations
         self._apply_long_context_config(kwargs)
@@ -339,14 +343,14 @@ class ForgeTrainer:
         tt = self._trainer_type
         training_args = self._get_training_args_for_type()
 
-        trainer_kwargs = dict(
-            model=self.model,
-            processing_class=self.tokenizer,
-            args=training_args,
-            train_dataset=self.dataset["train"],
-            eval_dataset=self.dataset.get("validation", None),
-            callbacks=callbacks,
-        )
+        trainer_kwargs = {
+            "model": self.model,
+            "processing_class": self.tokenizer,
+            "args": training_args,
+            "train_dataset": self.dataset["train"],
+            "eval_dataset": self.dataset.get("validation", None),
+            "callbacks": callbacks,
+        }
 
         if tt == "sft":
             logger.info("Initializing TRL SFTTrainer...")
@@ -538,7 +542,7 @@ class ForgeTrainer:
                 return TrainResult(success=False, metrics=metrics, reverted=True)
 
             # Post-training benchmark evaluation (lm-eval-harness)
-            benchmark_result = self._run_benchmark_if_configured(final_path, metrics)
+            benchmark_result = self._run_benchmark_if_configured()
 
             train_result = TrainResult(
                 success=True,
@@ -565,7 +569,7 @@ class ForgeTrainer:
 
                 if not benchmark_result.passed:
                     reason = benchmark_result.failure_reason or "Benchmark score below threshold."
-                    self.audit.log_event("eval.revert_triggered", reason="benchmark", detail=reason)
+                    self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="benchmark", detail=reason)
                     self._revert_model(final_path, reason)
                     train_result.success = False
                     train_result.reverted = True
@@ -580,7 +584,7 @@ class ForgeTrainer:
                 train_result.estimated_cost_usd = train_result.resource_usage.get("estimated_cost_usd")
 
             # Post-training safety evaluation
-            safety_result = self._run_safety_if_configured(final_path)
+            safety_result = self._run_safety_if_configured()
             if safety_result is not None:
                 train_result.safety_passed = safety_result.passed
                 train_result.safety_score = safety_result.safety_score
@@ -598,14 +602,14 @@ class ForgeTrainer:
                     categories=safety_result.category_distribution,
                 )
                 if not safety_result.passed and self.config.evaluation and self.config.evaluation.auto_revert:
-                    self.audit.log_event("eval.revert_triggered", reason="safety", detail=safety_result.failure_reason)
+                    self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="safety", detail=safety_result.failure_reason)
                     self._revert_model(final_path, safety_result.failure_reason or "Safety check failed.")
                     train_result.success = False
                     train_result.reverted = True
                     return train_result
 
             # LLM-as-Judge evaluation
-            judge_result = self._run_judge_if_configured(final_path)
+            judge_result = self._run_judge_if_configured()
             if judge_result is not None:
                 train_result.judge_score = judge_result.average_score
                 train_result.judge_details = judge_result.details
@@ -616,7 +620,7 @@ class ForgeTrainer:
                     average_score=judge_result.average_score,
                 )
                 if not judge_result.passed and self.config.evaluation and self.config.evaluation.auto_revert:
-                    self.audit.log_event("eval.revert_triggered", reason="judge", detail=judge_result.failure_reason)
+                    self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="judge", detail=judge_result.failure_reason)
                     self._revert_model(final_path, judge_result.failure_reason or "Judge score below threshold.")
                     train_result.success = False
                     train_result.reverted = True
@@ -632,7 +636,7 @@ class ForgeTrainer:
             self._generate_deployer_instructions(final_path, metrics)
 
             # Generate compliance artifacts (Art. 11 + Annex IV)
-            self._export_compliance_if_needed(final_path, metrics, train_result)
+            self._export_compliance_if_needed(metrics, train_result)
 
             # Human approval gate (Art. 14)
             if self.config.evaluation and self.config.evaluation.require_human_approval:
@@ -684,7 +688,7 @@ class ForgeTrainer:
             self.trainer.save_model(final_path)
         self.tokenizer.save_pretrained(final_path)
 
-    def _run_benchmark_if_configured(self, final_path: str, metrics: Dict[str, float]):
+    def _run_benchmark_if_configured(self):
         """Run post-training benchmarks if configured. Returns BenchmarkResult or None."""
         eval_cfg = self.config.evaluation
         if not eval_cfg or not eval_cfg.benchmark or not eval_cfg.benchmark.enabled:
@@ -811,7 +815,7 @@ class ForgeTrainer:
             logger.warning("Failed to collect resource usage: %s", e)
         return usage if usage else None
 
-    def _run_safety_if_configured(self, final_path: str):
+    def _run_safety_if_configured(self):
         """Run safety evaluation if configured. Returns SafetyResult or None."""
         eval_cfg = self.config.evaluation
         if not eval_cfg or not eval_cfg.safety or not eval_cfg.safety.enabled:
@@ -840,7 +844,7 @@ class ForgeTrainer:
             severity_thresholds=getattr(safety_cfg, "severity_thresholds", None),
         )
 
-    def _run_judge_if_configured(self, final_path: str):
+    def _run_judge_if_configured(self):
         """Run LLM-as-Judge evaluation if configured. Returns JudgeResult or None."""
         eval_cfg = self.config.evaluation
         if not eval_cfg or not eval_cfg.llm_judge or not eval_cfg.llm_judge.enabled:
@@ -867,7 +871,7 @@ class ForgeTrainer:
             api_base=getattr(judge_cfg, "judge_api_base", None),
         )
 
-    def _export_compliance_if_needed(self, final_path: str, metrics: Dict[str, float], result: TrainResult) -> None:
+    def _export_compliance_if_needed(self, metrics: Dict[str, float], result: TrainResult) -> None:
         """Export compliance artifacts if evaluation config is present."""
         try:
             from .compliance import export_compliance_artifacts, generate_training_manifest
@@ -905,7 +909,7 @@ class ForgeTrainer:
             self.config.training.per_device_train_batch_size = _saved_bs
             self.config.training.gradient_accumulation_steps = _saved_ga
             compliance_dir = os.path.join(self.checkpoint_dir, "compliance")
-            export_compliance_artifacts(manifest, self.config, compliance_dir)
+            export_compliance_artifacts(manifest, compliance_dir)
             self.audit.log_event("compliance.artifacts_exported", directory=compliance_dir)
         except Exception as e:
             logger.warning("Failed to export compliance artifacts: %s", e)

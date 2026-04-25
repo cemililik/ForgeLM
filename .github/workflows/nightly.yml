@@ -5,8 +5,9 @@ on:
     - cron: "0 3 * * *"  # 03:00 UTC daily
   workflow_dispatch:  # Manual trigger
 
+# Default to read-only at workflow level; jobs that need write declare it explicitly.
 permissions:
-  issues: write  # Required for creating failure notification issues
+  contents: read
 
 jobs:
   test-latest-deps:
@@ -87,6 +88,8 @@ jobs:
     needs: [test-latest-deps, test-min-deps]
     if: failure()
     runs-on: ubuntu-latest
+    permissions:
+      issues: write  # Required for creating failure notification issues
     steps:
       - name: Create issue on failure
         uses: actions/github-script@v8

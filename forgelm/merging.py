@@ -116,7 +116,7 @@ def _linear_merge(base_model, adapters):
 
         del adapter_model, merged_adapter
 
-    missing, unexpected = base_model.load_state_dict(merged_state, strict=False)
+    _, unexpected = base_model.load_state_dict(merged_state, strict=False)
     if unexpected:
         logger.warning("Merge produced %d unexpected keys (ignored).", len(unexpected))
     return base_model
@@ -162,7 +162,9 @@ def _slerp_merge(base_model, adapters):
             v0 = state_a[key].float()
             v1 = state_b[key].float()
             # Simplified SLERP for parameter tensors
-            dot = torch.sum(v0 * v1) / (torch.norm(v0) * torch.norm(v1) + 1e-8)
+            # vector_norm flattens the parameter tensor and returns a scalar
+            # magnitude — the right semantics for SLERP, regardless of tensor rank.
+            dot = torch.sum(v0 * v1) / (torch.linalg.vector_norm(v0) * torch.linalg.vector_norm(v1) + 1e-8)
             dot = torch.clamp(dot, -1.0, 1.0)
             omega = torch.acos(dot)
             if omega.abs() < 1e-6:
@@ -253,7 +255,9 @@ def _ties_merge_tensor(deltas, weights, trim_fraction=0.2):
         flat = stacked[i].abs().flatten()
         if flat.numel() == 0:
             continue
-        threshold = torch.quantile(flat.float(), trim_fraction)
+        # flat is already 1-D from .flatten(); dim=None computes the quantile
+        # across all elements (which is what we want for the global cutoff).
+        threshold = torch.quantile(flat.float(), trim_fraction, dim=None)
         stacked[i][stacked[i].abs() < threshold] = 0.0
 
     # Step 2: Elect sign — majority vote (ties resolve to +1)

@@ -28,7 +28,7 @@ class TestSafetyConfigPhase9:
         s = SafetyConfig(enabled=True)
         assert s.scoring == "binary"
         assert s.min_safety_score is None
-        assert s.min_classifier_confidence == 0.7
+        assert s.min_classifier_confidence == pytest.approx(0.7)
         assert s.track_categories is False
         assert s.severity_thresholds is None
 
@@ -40,7 +40,7 @@ class TestSafetyConfigPhase9:
             min_classifier_confidence=0.6,
         )
         assert s.scoring == "confidence_weighted"
-        assert s.min_safety_score == 0.85
+        assert s.min_safety_score == pytest.approx(0.85)
 
     def test_category_tracking_config(self):
         s = SafetyConfig(
@@ -88,7 +88,7 @@ class TestSafetyResultPhase9:
             category_distribution={"violent_crimes": 1, "hate": 2},
             severity_distribution={"critical": 1, "high": 2},
         )
-        assert r.safety_score == 0.92
+        assert r.safety_score == pytest.approx(0.92)
         assert r.low_confidence_count == 3
         assert r.category_distribution["hate"] == 2
         assert r.severity_distribution["critical"] == 1
@@ -138,7 +138,7 @@ class TestTrendTracking:
         assert os.path.isfile(trend_path)
         with open(trend_path) as f:
             entry = json.loads(f.readline())
-        assert entry["safety_score"] == 0.95
+        assert entry["safety_score"] == pytest.approx(0.95)
         assert entry["passed"] is True
 
     def test_append_multiple(self, tmp_path):
@@ -149,7 +149,7 @@ class TestTrendTracking:
         with open(trend_path) as f:
             entries = [json.loads(line) for line in f]
         assert len(entries) == 3
-        assert entries[0]["safety_score"] == 0.95
+        assert entries[0]["safety_score"] == pytest.approx(0.95)
         assert entries[2]["passed"] is False
 
     def test_trend_has_timestamps(self, tmp_path):

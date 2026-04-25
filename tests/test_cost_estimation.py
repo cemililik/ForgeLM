@@ -14,11 +14,11 @@ class TestCostConfig:
 
     def test_custom_cost(self):
         tc = TrainingConfig(gpu_cost_per_hour=3.50)
-        assert tc.gpu_cost_per_hour == 3.50
+        assert tc.gpu_cost_per_hour == pytest.approx(3.50)
 
     def test_in_full_config(self):
         cfg = ForgeConfig(**minimal_config(training={"gpu_cost_per_hour": 2.00}))
-        assert cfg.training.gpu_cost_per_hour == 2.00
+        assert cfg.training.gpu_cost_per_hour == pytest.approx(2.00)
 
     def test_config_template_still_parses(self):
         from forgelm.config import load_config
@@ -34,7 +34,7 @@ class TestTrainResultCost:
 
     def test_with_cost(self):
         r = TrainResult(success=True, estimated_cost_usd=0.1234)
-        assert r.estimated_cost_usd == 0.1234
+        assert r.estimated_cost_usd == pytest.approx(0.1234)
 
 
 class TestGpuPricing:
@@ -92,8 +92,8 @@ class TestCostInJsonOutput:
             sys.stdout = old_stdout
 
         output = json.loads(captured.getvalue())
-        assert output["estimated_cost_usd"] == 0.5678
-        assert output["resource_usage"]["gpu_hours"] == 0.162
+        assert output["estimated_cost_usd"] == pytest.approx(0.5678)
+        assert output["resource_usage"]["gpu_hours"] == pytest.approx(0.162)
 
     def test_json_output_omits_cost_when_none(self):
         import io

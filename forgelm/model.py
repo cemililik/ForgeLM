@@ -145,7 +145,7 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
         logger.info("MoE model detected: %d experts", num_experts)
 
         if moe_cfg.quantize_experts:
-            _apply_moe_expert_quantization(model, num_experts)
+            _apply_moe_expert_quantization(model)
 
         if moe_cfg.experts_to_train != "all":
             _freeze_unselected_experts(model, moe_cfg.experts_to_train, num_experts)
@@ -157,16 +157,16 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
         use_rslora,
     )
 
-    lora_kwargs = dict(
-        r=config.lora.r,
-        lora_alpha=config.lora.alpha,
-        lora_dropout=config.lora.dropout,
-        bias=config.lora.bias,
-        task_type=config.lora.task_type,
-        target_modules=config.lora.target_modules,
-        use_dora=use_dora,
-        use_rslora=use_rslora,
-    )
+    lora_kwargs = {
+        "r": config.lora.r,
+        "lora_alpha": config.lora.alpha,
+        "lora_dropout": config.lora.dropout,
+        "bias": config.lora.bias,
+        "task_type": config.lora.task_type,
+        "target_modules": config.lora.target_modules,
+        "use_dora": use_dora,
+        "use_rslora": use_rslora,
+    }
 
     # PiSSA initialization
     if peft_method == "pissa":
@@ -180,7 +180,7 @@ def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
     return model, tokenizer
 
 
-def _apply_moe_expert_quantization(model, num_experts: int) -> None:
+def _apply_moe_expert_quantization(model) -> None:
     """Reduce MoE expert memory by freezing and converting to half precision.
 
     Converts frozen expert weights to float16/bfloat16 for VRAM savings.

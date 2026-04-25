@@ -473,7 +473,7 @@ def _run_compliance_export(config: ForgeConfig, output_dir: str, output_format: 
 
     logger.info("Generating compliance artifacts to %s...", output_dir)
     manifest = generate_training_manifest(config=config, metrics={})
-    files = export_compliance_artifacts(manifest, config, output_dir)
+    files = export_compliance_artifacts(manifest, output_dir)
 
     if output_format == "json":
         print(json.dumps({"success": True, "files": files, "output_dir": output_dir}, indent=2))

@@ -6,6 +6,7 @@ No external dependencies required — uses stdlib input().
 
 import logging
 import sys
+from typing import Optional
 
 import yaml
 
@@ -33,6 +34,9 @@ TARGET_MODULE_PRESETS = {
     "extended": ["q_proj", "k_proj", "v_proj", "o_proj"],
     "full": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
 }
+
+# Common dataset-format hints for preference-based trainers (DPO/SimPO/ORPO)
+_PREFERENCE_COLUMNS_HINT = "Columns: prompt, chosen, rejected"
 
 
 def _prompt(question: str, default: str = "") -> str:
@@ -94,8 +98,13 @@ def _detect_hardware() -> dict:
     return info
 
 
-def run_wizard() -> str:
-    """Run the interactive configuration wizard. Returns the path to the generated config file."""
+def run_wizard() -> Optional[str]:
+    """Run the interactive configuration wizard.
+
+    Returns the path to the generated config file when the user opts to start
+    training immediately, or ``None`` when the user defers — callers must
+    handle both cases.
+    """
     print("\n" + "=" * 60)
     print("  ForgeLM Configuration Wizard")
     print("=" * 60)
@@ -178,9 +187,9 @@ def run_wizard() -> str:
     # Dataset format guidance
     dataset_format_hint = {
         "sft": "Columns: System (opt), User/instruction, Assistant/output — or 'messages' list",
-        "dpo": "Columns: prompt, chosen, rejected",
-        "simpo": "Columns: prompt, chosen, rejected",
-        "orpo": "Columns: prompt, chosen, rejected",
+        "dpo": _PREFERENCE_COLUMNS_HINT,
+        "simpo": _PREFERENCE_COLUMNS_HINT,
+        "orpo": _PREFERENCE_COLUMNS_HINT,
         "kto": "Columns: prompt, completion, label (boolean: true=good, false=bad)",
         "grpo": "Columns: prompt (model generates responses during training)",
     }
@@ -365,7 +374,12 @@ def run_wizard() -> str:
     print("=" * 60)
     print(f"  Model:    {model_name}")
     print(f"  Backend:  {suggested_backend}")
-    strategy_str = "GaLore" if use_galore else ("QLoRA" if load_in_4bit else "LoRA")
+    if use_galore:
+        strategy_str = "GaLore"
+    elif load_in_4bit:
+        strategy_str = "QLoRA"
+    else:
+        strategy_str = "LoRA"
     if use_dora:
         strategy_str += " + DoRA"
     print(f"  Strategy: {strategy_str}")

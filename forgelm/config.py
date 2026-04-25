@@ -159,7 +159,7 @@ class DistributedConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    strategy: Optional[str] = None  # "deepspeed" or "fsdp"; None = single-GPU
+    strategy: Optional[str] = None  # values: deepspeed, fsdp, or None for single-GPU
     # --- DeepSpeed ---
     deepspeed_config: Optional[str] = None  # path to DS JSON or preset name: "zero2", "zero3", "zero3_offload"
     # --- FSDP ---

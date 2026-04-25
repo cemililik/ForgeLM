@@ -14,7 +14,7 @@ class TestBenchmarkResult:
     def test_default_values(self):
         r = BenchmarkResult()
         assert r.scores == {}
-        assert r.average_score == 0.0
+        assert r.average_score == pytest.approx(0.0)
         assert r.passed is True
         assert r.failure_reason is None
         assert r.raw_results is None
@@ -25,8 +25,8 @@ class TestBenchmarkResult:
             average_score=0.60,
             passed=True,
         )
-        assert r.scores["arc_easy"] == 0.65
-        assert r.average_score == 0.60
+        assert r.scores["arc_easy"] == pytest.approx(0.65)
+        assert r.average_score == pytest.approx(0.60)
 
     def test_failed_result(self):
         r = BenchmarkResult(
@@ -65,7 +65,7 @@ class TestBenchmarkConfig:
         )
         assert b.enabled is True
         assert len(b.tasks) == 2
-        assert b.min_score == 0.4
+        assert b.min_score == pytest.approx(0.4)
 
 
 class TestBenchmarkInConfig:
@@ -88,7 +88,7 @@ class TestBenchmarkInConfig:
         assert cfg.evaluation.benchmark is not None
         assert cfg.evaluation.benchmark.enabled is True
         assert cfg.evaluation.benchmark.tasks == ["arc_easy"]
-        assert cfg.evaluation.benchmark.min_score == 0.5
+        assert cfg.evaluation.benchmark.min_score == pytest.approx(0.5)
 
     def test_evaluation_without_benchmark(self):
         data = {
@@ -155,8 +155,8 @@ class TestRunBenchmark:
                 finally:
                     bm._check_lm_eval_available = original_check
 
-        assert result.scores.get("arc_easy") == 0.65
-        assert result.scores.get("hellaswag") == 0.55
+        assert result.scores.get("arc_easy") == pytest.approx(0.65)
+        assert result.scores.get("hellaswag") == pytest.approx(0.55)
         assert abs(result.average_score - 0.60) < 0.01
         assert result.passed is True
 
@@ -197,7 +197,7 @@ class TestRunBenchmark:
         assert os.path.exists(results_path)
         with open(results_path) as f:
             saved = json.load(f)
-        assert saved["scores"]["arc_easy"] == 0.65
+        assert saved["scores"]["arc_easy"] == pytest.approx(0.65)
         assert saved["passed"] is True
 
 
@@ -212,8 +212,8 @@ class TestTrainResultWithBenchmark:
             benchmark_average=0.60,
             benchmark_passed=True,
         )
-        assert result.benchmark_scores["arc_easy"] == 0.65
-        assert result.benchmark_average == 0.60
+        assert result.benchmark_scores["arc_easy"] == pytest.approx(0.65)
+        assert result.benchmark_average == pytest.approx(0.60)
         assert result.benchmark_passed is True
 
     def test_train_result_no_benchmark(self):

@@ -97,7 +97,7 @@ class TestCallApiJudge:
 class TestJudgeResult:
     def test_defaults(self):
         r = JudgeResult()
-        assert r.average_score == 0.0
+        assert r.average_score == pytest.approx(0.0)
         assert r.passed is True
         assert r.scores == []
         assert r.details == []
@@ -169,8 +169,8 @@ class TestJudgeScoreClipping:
             )
 
         # Score must be clipped to 10.0
-        assert result.scores[0] == 10.0
-        assert result.average_score == 10.0
+        assert result.scores[0] == pytest.approx(10.0)
+        assert result.average_score == pytest.approx(10.0)
         # Warning must be emitted
         assert any("clipped" in r.message or "out-of-range" in r.message for r in caplog.records)
 
@@ -208,7 +208,7 @@ class TestJudgeScoreClipping:
             judge_api_key="fake-key",
             min_score=1.0,
         )
-        assert result.scores[0] == 1.0
+        assert result.scores[0] == pytest.approx(1.0)
 
 
 class TestJudgeApiBasePassthrough:

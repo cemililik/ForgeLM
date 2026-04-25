@@ -214,13 +214,13 @@ def generate(
     text = _build_prompt(tokenizer, messages)
     input_ids = tokenizer(text, return_tensors="pt").input_ids.to(model.device)
 
-    gen_kwargs: Dict[str, Any] = dict(
-        input_ids=input_ids,
-        max_new_tokens=max_new_tokens,
-        do_sample=do_sample,
-        pad_token_id=tokenizer.pad_token_id,
-        eos_token_id=tokenizer.eos_token_id,
-    )
+    gen_kwargs: Dict[str, Any] = {
+        "input_ids": input_ids,
+        "max_new_tokens": max_new_tokens,
+        "do_sample": do_sample,
+        "pad_token_id": tokenizer.pad_token_id,
+        "eos_token_id": tokenizer.eos_token_id,
+    }
     if do_sample:
         gen_kwargs.update(temperature=temperature, top_k=top_k, top_p=top_p)
     gen_kwargs["repetition_penalty"] = repetition_penalty
@@ -270,14 +270,14 @@ def generate_stream(
         timeout=60.0,
     )
 
-    gen_kwargs: Dict[str, Any] = dict(
-        input_ids=input_ids,
-        max_new_tokens=max_new_tokens,
-        do_sample=do_sample,
-        pad_token_id=tokenizer.pad_token_id,
-        eos_token_id=tokenizer.eos_token_id,
-        streamer=streamer,
-    )
+    gen_kwargs: Dict[str, Any] = {
+        "input_ids": input_ids,
+        "max_new_tokens": max_new_tokens,
+        "do_sample": do_sample,
+        "pad_token_id": tokenizer.pad_token_id,
+        "eos_token_id": tokenizer.eos_token_id,
+        "streamer": streamer,
+    }
     if do_sample:
         gen_kwargs.update(temperature=temperature, top_k=top_k, top_p=top_p)
     gen_kwargs["repetition_penalty"] = repetition_penalty
