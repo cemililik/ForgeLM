@@ -157,7 +157,7 @@ class TestRunBenchmark:
 
         assert result.scores.get("arc_easy") == pytest.approx(0.65)
         assert result.scores.get("hellaswag") == pytest.approx(0.55)
-        assert abs(result.average_score - 0.60) < 0.01
+        assert result.average_score == pytest.approx(0.60, abs=0.01)
         assert result.passed is True
 
     def test_min_score_failure(self):

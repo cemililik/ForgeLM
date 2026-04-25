@@ -116,7 +116,15 @@ def _linear_merge(base_model, adapters):
 
         del adapter_model, merged_adapter
 
-    _, unexpected = base_model.load_state_dict(merged_state, strict=False)
+    missing, unexpected = base_model.load_state_dict(merged_state, strict=False)
+    # Both directions of mismatch are useful when diagnosing a bad merge:
+    # - missing  → adapter didn't supply weights the base model expects
+    # - unexpected → adapter supplied weights the base model has no slot for
+    if missing:
+        logger.warning(
+            "Merge left %d base-model parameters without adapter coverage (using base values).",
+            len(missing),
+        )
     if unexpected:
         logger.warning("Merge produced %d unexpected keys (ignored).", len(unexpected))
     return base_model

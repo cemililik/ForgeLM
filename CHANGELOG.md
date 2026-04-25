@@ -40,7 +40,7 @@ All notable changes to ForgeLM are documented here.
   - **K-quant note**: `q2_k`/`q3_k_m`/`q4_k_m`/`q5_k_m` require a two-step flow.
     `forgelm export ... --quant q4_k_m model.gguf` produces an intermediate
     `model.f16.gguf`; run `llama-quantize model.f16.gguf model.gguf Q4_K_M`
-    afterwards to obtain the K-quant. The `ExportResult.quant` field reflects
+    afterward to obtain the K-quant. The `ExportResult.quant` field reflects
     what was actually written (so `model_integrity.json` SHA-256 stays honest)
   - Adapter merge: loads base + PEFT, saves merged fp16 weights before conversion
   - `_sha256_file` — chunked 64 KB reads for large models
@@ -79,9 +79,16 @@ All notable changes to ForgeLM are documented here.
 - **`forgelm/cli.py`** — added subparser architecture with `chat`, `export`, `deploy` subcommands; added `--fit-check` flag; `KeyboardInterrupt` caught in chat dispatch for graceful exit
 - **`forgelm/wizard.py`** — (no changes needed; Phase 10 features are all CLI-driven, not wizard-driven)
 
+### Breaking
+
+- **`forgelm.compliance.export_compliance_artifacts`** signature changed from
+  `(manifest, config, output_dir)` to `(manifest, output_dir)`. The `config`
+  argument was unused (the manifest already contains all derived values).
+  External callers must drop the second positional argument.
+
 ---
 
-## [0.3.1rc1] — 2026-04-25 (included in v0.4.0 branch)
+## [0.3.1rc1] — 2026-03-28 (included in v0.4.0 branch)
 
 ### Added
 - **Engineering standards** (`docs/standards/`) — 9 standard documents: coding, architecture, error-handling, logging-observability, testing, documentation, localization, code-review, release.

@@ -347,7 +347,7 @@ class TestRunFitCheckHelper:
         captured = capsys.readouterr()
         result = json.loads(captured.out)
         assert result["verdict"] == "OOM"
-        assert result["estimated_gb"] == 35.0
+        assert result["estimated_gb"] == pytest.approx(35.0)
         assert result["recommendations"] == ["Reduce batch size"]
 
 

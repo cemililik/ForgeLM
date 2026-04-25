@@ -99,8 +99,11 @@ def _load_arch_params(model_name_or_path: str, trust_remote_code: bool = False) 
     import re
 
     for fragment, h in _MODEL_SIZE_HINTS.items():
-        # \b ensures we match "13b" only as a whole token, not as a suffix of larger numbers
-        if re.search(rf"(?<!\d){re.escape(fragment)}(?![0-9a-z])", name_lower):
+        # The lookbehind blocks both digits and "." so fragments like "7b"
+        # don't match inside fractional sizes like "1.7b" (Llama-3.2-1B,
+        # Phi-3.5-mini, etc). The lookahead blocks letters/digits so "7b"
+        # also doesn't match the start of "70b".
+        if re.search(rf"(?<![\d.]){re.escape(fragment)}(?![0-9a-z])", name_lower):
             hint = h
             break
 
@@ -323,7 +326,6 @@ def estimate_vram(config: Any) -> FitCheckResult:
         config=config,
         total_gb=total_gb,
         available_gb=available_gb,
-        quant=quant,
         grad_ckpt=grad_ckpt,
     )
 
@@ -341,7 +343,6 @@ def _build_recommendations(
     config: Any,
     total_gb: float,
     available_gb: Optional[float],
-    quant: str,
     grad_ckpt: bool,
 ) -> List[str]:
     """Return an ordered list of recommendations to reduce VRAM usage."""
