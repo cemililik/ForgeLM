@@ -171,7 +171,7 @@ class TestComplianceManifestUsesOriginalBatchSize:
             patch("forgelm.compliance.generate_training_manifest", side_effect=capture_manifest),
             patch("forgelm.compliance.export_compliance_artifacts"),
         ):
-            trainer._export_compliance_if_needed(str(tmp_path / "model"), metrics, result)
+            trainer._export_compliance_if_needed(metrics, result)
 
         assert len(captured_manifests) == 1
         # Must see the ORIGINAL batch size, not the OOM-halved value
@@ -205,7 +205,7 @@ class TestComplianceManifestUsesOriginalBatchSize:
             ),
             patch("forgelm.compliance.export_compliance_artifacts"),
         ):
-            trainer._export_compliance_if_needed(str(tmp_path / "model"), {}, result)
+            trainer._export_compliance_if_needed({}, result)
 
         # After the call, config must reflect the OOM-mutated values again
         assert config.training.per_device_train_batch_size == 4
