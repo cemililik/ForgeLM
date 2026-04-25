@@ -26,6 +26,12 @@
 - **LLM-as-Judge**: API-based (OpenAI) or local model scoring for quality assessment
 - **Auto-Revert**: Automatically discard models that fail loss, benchmark, or safety thresholds
 
+### Post-Training (v0.4.0)
+- **Interactive Chat**: `forgelm chat ./model` — streaming REPL with `/reset`, `/save`, `/temperature`, `/system` commands; optional Llama Guard safety routing
+- **GGUF Export**: `forgelm export ./model --quant q4_k_m` — wraps `llama-cpp-python` converter; 6 quant levels; SHA-256 appended to integrity manifest
+- **Deployment Configs**: `forgelm deploy ./model --target ollama|vllm|tgi|hf-endpoints` — generates ready-to-use config files; does not start the server
+- **VRAM Fit Check**: `forgelm --config my.yaml --fit-check` — pre-flight memory estimator; `FITS / TIGHT / OOM / UNKNOWN` verdict with recommendations
+
 ### Enterprise & MLOps
 - **Config-Driven**: Declarative YAML — built for CI/CD pipelines, not notebooks
 - **EU AI Act Compliance**: Auto-generated audit trails, data provenance (SHA-256), training manifests
@@ -44,18 +50,24 @@
 ```bash
 # Install
 pip install -e .
+pip install -e ".[export]"   # GGUF export (optional, non-Windows)
 
 # Generate config interactively
 forgelm --wizard
 
-# Or copy template and edit
-cp config_template.yaml my_config.yaml
-
 # Validate without training
 forgelm --config my_config.yaml --dry-run
 
+# Check VRAM before a long run
+forgelm --config my_config.yaml --fit-check
+
 # Train
 forgelm --config my_config.yaml
+
+# After training: chat, export, deploy
+forgelm chat ./checkpoints/final_model
+forgelm export ./checkpoints/final_model --output model.gguf --quant q4_k_m
+forgelm deploy ./checkpoints/final_model --target ollama --output ./Modelfile
 ```
 
 See the [Quick Start Guide](docs/guides/quickstart.md) for a complete walkthrough.

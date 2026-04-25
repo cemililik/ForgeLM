@@ -44,8 +44,104 @@ def _setup_logging(log_level: str, json_format: bool = False) -> None:
     )
 
 
+def _add_chat_subcommand(subparsers) -> None:
+    p = subparsers.add_parser(
+        "chat",
+        help="Interactive chat REPL with a fine-tuned model.",
+        description=(
+            "Load a fine-tuned model and start an interactive terminal session.  "
+            "Supports streaming output, slash commands (/reset, /save, /temperature, "
+            "/system, /exit), and optional per-response safety annotations."
+        ),
+    )
+    p.add_argument("model_path", help="Path to a saved HuggingFace model directory or HF Hub ID.")
+    p.add_argument("--adapter", type=str, default=None, help="PEFT adapter directory to merge before chat.")
+    p.add_argument("--system", type=str, default=None, metavar="PROMPT", help="Initial system prompt.")
+    p.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature (default: 0.7).")
+    p.add_argument("--max-new-tokens", type=int, default=512, help="Max tokens per response (default: 512).")
+    p.add_argument("--safety", action="store_true", help="Enable per-response safety annotations.")
+    p.add_argument("--no-stream", action="store_true", help="Disable streaming output.")
+    p.add_argument("--load-in-4bit", action="store_true", help="Load model in 4-bit NF4 quantisation.")
+    p.add_argument("--load-in-8bit", action="store_true", help="Load model in 8-bit quantisation.")
+    p.add_argument("--trust-remote-code", action="store_true", help="Allow execution of model-bundled code.")
+    p.add_argument(
+        "--backend", type=str, default="transformers", choices=["transformers", "unsloth"],
+        help="Model backend (default: transformers).",
+    )
+
+
+def _add_export_subcommand(subparsers) -> None:
+    p = subparsers.add_parser(
+        "export",
+        help="Export a fine-tuned model to GGUF format.",
+        description=(
+            "Convert a HuggingFace model to GGUF for use with Ollama, llama.cpp, "
+            "and compatible runtimes.  Requires: pip install 'forgelm[export]'"
+        ),
+    )
+    p.add_argument("model_path", help="Path to a saved HuggingFace model directory.")
+    p.add_argument("--output", type=str, required=True, metavar="FILE", help="Output .gguf file path.")
+    p.add_argument(
+        "--format", type=str, default="gguf", choices=["gguf"], help="Export format (default: gguf).",
+    )
+    p.add_argument(
+        "--quant", type=str, default="q4_k_m",
+        choices=["q2_k", "q3_k_m", "q4_k_m", "q5_k_m", "q8_0", "f16"],
+        help="Quantisation type (default: q4_k_m).",
+    )
+    p.add_argument("--adapter", type=str, default=None, help="PEFT adapter directory to merge before export.")
+    p.add_argument(
+        "--no-integrity-update", action="store_true",
+        help="Skip updating model_integrity.json with the exported artifact.",
+    )
+
+
+def _add_deploy_subcommand(subparsers) -> None:
+    p = subparsers.add_parser(
+        "deploy",
+        help="Generate a deployment configuration for a serving runtime.",
+        description=(
+            "Produce a ready-to-use config file for Ollama, vLLM, TGI, or "
+            "HuggingFace Inference Endpoints.  Does not start a server."
+        ),
+    )
+    p.add_argument("model_path", help="Path to a saved HuggingFace model directory or HF Hub ID.")
+    p.add_argument(
+        "--target", type=str, required=True,
+        choices=["ollama", "vllm", "tgi", "hf-endpoints"],
+        help="Target serving runtime.",
+    )
+    p.add_argument("--output", type=str, default=None, metavar="FILE", help="Output file path (default: auto).")
+    p.add_argument("--system", type=str, default=None, metavar="PROMPT", help="System prompt (Ollama only).")
+    p.add_argument("--max-length", type=int, default=4096, help="Context window length (default: 4096).")
+    p.add_argument(
+        "--gpu-memory-utilization", type=float, default=0.90,
+        help="vLLM GPU memory utilisation fraction (default: 0.90).",
+    )
+    p.add_argument("--port", type=int, default=8080, help="Host port for TGI container (default: 8080).")
+    p.add_argument("--trust-remote-code", action="store_true", help="Set trust_remote_code in vLLM config.")
+
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="ForgeLM: Language Model Fine-Tuning Toolkit")
+    parser = argparse.ArgumentParser(
+        description="ForgeLM: Language Model Fine-Tuning Toolkit",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Subcommands:\n"
+            "  forgelm chat MODEL_PATH    Interactive chat REPL\n"
+            "  forgelm export MODEL_PATH  Export model to GGUF\n"
+            "  forgelm deploy MODEL_PATH  Generate serving config\n"
+            "\nRun 'forgelm <subcommand> --help' for subcommand details."
+        ),
+    )
+
+    # --- Subcommand router (dest=command; None when not given → training mode) ---
+    subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
+    _add_chat_subcommand(subparsers)
+    _add_export_subcommand(subparsers)
+    _add_deploy_subcommand(subparsers)
+
+    # --- Top-level flags (training / config-driven mode) ---
     parser.add_argument("--config", type=str, help="Path to the YAML configuration file.")
     parser.add_argument(
         "--wizard", action="store_true", help="Launch interactive configuration wizard to generate a config.yaml."
@@ -53,6 +149,14 @@ def parse_args():
     parser.add_argument("--version", action="version", version=f"ForgeLM {_get_version()}")
     parser.add_argument(
         "--dry-run", action="store_true", help="Validate configuration and check model/dataset access without training."
+    )
+    parser.add_argument(
+        "--fit-check",
+        action="store_true",
+        help=(
+            "Estimate peak training VRAM from the config without loading the model.  "
+            "Requires --config.  Prints a FITS / TIGHT / OOM verdict with a breakdown."
+        ),
     )
     parser.add_argument(
         "--resume",
@@ -407,8 +511,156 @@ def _output_result(result, output_format: str) -> None:
                 logger.info("  Average: %.4f", result.benchmark_average)
 
 
+def _run_fit_check(config: ForgeConfig, output_format: str) -> None:
+    """Estimate peak training VRAM from config without loading the model."""
+    from .fit_check import estimate_vram, format_fit_check
+
+    result = estimate_vram(config)
+
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "verdict": result.verdict,
+                    "estimated_gb": result.estimated_gb,
+                    "available_gb": result.available_gb,
+                    "hypothetical": result.hypothetical,
+                    "breakdown": result.breakdown,
+                    "recommendations": result.recommendations,
+                },
+                indent=2,
+            )
+        )
+        return
+
+    print(format_fit_check(result))
+
+
+def _run_chat_cmd(args) -> None:
+    """Dispatch the ``forgelm chat`` subcommand."""
+    try:
+        from .chat import run_chat
+
+        run_chat(
+            model_path=args.model_path,
+            adapter=args.adapter,
+            system_prompt=args.system,
+            temperature=args.temperature,
+            max_new_tokens=args.max_new_tokens,
+            enable_safety=args.safety,
+            stream=not args.no_stream,
+            load_in_4bit=args.load_in_4bit,
+            load_in_8bit=args.load_in_8bit,
+            trust_remote_code=args.trust_remote_code,
+            backend=args.backend,
+        )
+    except ImportError as e:
+        logger.error("Missing dependency for chat: %s", e)
+        sys.exit(EXIT_TRAINING_ERROR)
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logger.exception("Chat session failed: %s", e)
+        sys.exit(EXIT_TRAINING_ERROR)
+
+
+def _run_export_cmd(args, output_format: str) -> None:
+    """Dispatch the ``forgelm export`` subcommand."""
+    from .export import export_model
+
+    result = export_model(
+        model_path=args.model_path,
+        output_path=args.output,
+        format=args.format,
+        quant=args.quant,
+        adapter=args.adapter,
+        update_integrity=not args.no_integrity_update,
+    )
+
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "success": result.success,
+                    "output_path": result.output_path,
+                    "format": result.format,
+                    "quant": result.quant,
+                    "sha256": result.sha256,
+                    "size_bytes": result.size_bytes,
+                    "error": result.error,
+                },
+                indent=2,
+            )
+        )
+    else:
+        if result.success:
+            logger.info("Export complete: %s (quant=%s, sha256=%s…)", result.output_path, result.quant, (result.sha256 or "")[:12])
+        else:
+            logger.error("Export failed: %s", result.error)
+
+    if not result.success:
+        sys.exit(EXIT_TRAINING_ERROR)
+
+
+def _run_deploy_cmd(args, output_format: str) -> None:
+    """Dispatch the ``forgelm deploy`` subcommand."""
+    from .deploy import generate_deploy_config
+
+    result = generate_deploy_config(
+        model_path=args.model_path,
+        target=args.target,
+        output_path=args.output,
+        system_prompt=args.system,
+        max_length=args.max_length,
+        trust_remote_code=args.trust_remote_code,
+        gpu_memory_utilization=args.gpu_memory_utilization,
+        port=args.port,
+    )
+
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "success": result.success,
+                    "target": result.target,
+                    "output_path": result.output_path,
+                    "error": result.error,
+                },
+                indent=2,
+            )
+        )
+    else:
+        if result.success:
+            logger.info("Deploy config written: %s (target=%s)", result.output_path, result.target)
+        else:
+            logger.error("Deploy config generation failed: %s", result.error)
+
+    if not result.success:
+        sys.exit(EXIT_TRAINING_ERROR)
+
+
 def main():
     args = parse_args()
+
+    # --- Phase 10 subcommand dispatch (no --config required) ---
+    command = getattr(args, "command", None)
+    if command is not None:
+        json_output = getattr(args, "output_format", "text") == "json"
+        log_level = "WARNING" if getattr(args, "quiet", False) else getattr(args, "log_level", "INFO")
+        _setup_logging(log_level, json_format=json_output)
+
+        if command == "chat":
+            try:
+                _run_chat_cmd(args)
+            except KeyboardInterrupt:
+                pass
+            sys.exit(EXIT_SUCCESS)
+        elif command == "export":
+            _run_export_cmd(args, getattr(args, "output_format", "text"))
+            sys.exit(EXIT_SUCCESS)
+        elif command == "deploy":
+            _run_deploy_cmd(args, getattr(args, "output_format", "text"))
+            sys.exit(EXIT_SUCCESS)
 
     # --wizard mode: generate config interactively
     if args.wizard:
@@ -465,6 +717,11 @@ def main():
     # 3. Dry-run mode: validate and exit
     if args.dry_run:
         _run_dry_run(config, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+
+    # 3b. Fit-check mode: VRAM estimation and exit
+    if args.fit_check:
+        _run_fit_check(config, args.output_format)
         sys.exit(EXIT_SUCCESS)
 
     # 4. Benchmark-only mode: evaluate an existing model without training

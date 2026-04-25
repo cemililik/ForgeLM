@@ -1,0 +1,235 @@
+"""Unit tests for forgelm.deploy module."""
+from __future__ import annotations
+
+import json
+import os
+
+import pytest
+import yaml
+
+from forgelm.deploy import (
+    SUPPORTED_TARGETS,
+    DeployResult,
+    generate_deploy_config,
+    _ollama_modelfile,
+    _vllm_config,
+    _tgi_compose,
+    _hf_endpoints_json,
+)
+
+
+# ---------------------------------------------------------------------------
+# Constant / structure tests
+# ---------------------------------------------------------------------------
+
+
+class TestConstants:
+    def test_supported_targets(self):
+        assert "ollama" in SUPPORTED_TARGETS
+        assert "vllm" in SUPPORTED_TARGETS
+        assert "tgi" in SUPPORTED_TARGETS
+        assert "hf-endpoints" in SUPPORTED_TARGETS
+
+    def test_deploy_result_dataclass(self):
+        r = DeployResult(success=True, target="ollama", output_path="/tmp/Modelfile")
+        assert r.success is True
+        assert r.error is None
+
+
+# ---------------------------------------------------------------------------
+# Per-target generator tests (no file I/O)
+# ---------------------------------------------------------------------------
+
+
+class TestOllamaModelfile:
+    def test_contains_from_directive(self):
+        content = _ollama_modelfile("/path/to/model", None, 4096, 0.7, 50, 0.9)
+        assert "FROM /path/to/model" in content
+
+    def test_contains_parameters(self):
+        content = _ollama_modelfile("/path/to/model", None, 4096, 0.7, 50, 0.9)
+        assert "PARAMETER temperature 0.7" in content
+        assert "PARAMETER top_k 50" in content
+        assert "PARAMETER top_p 0.9" in content
+        assert "PARAMETER num_ctx 4096" in content
+
+    def test_system_prompt_included(self):
+        content = _ollama_modelfile("/model", "Be helpful.", 2048, 0.8, 40, 0.95)
+        assert "SYSTEM" in content
+        assert "Be helpful." in content
+
+    def test_system_prompt_with_quotes_escaped(self):
+        content = _ollama_modelfile("/model", 'Say "hello"', 2048, 0.7, 50, 0.9)
+        assert '\\"hello\\"' in content
+
+    def test_no_system_when_none(self):
+        content = _ollama_modelfile("/model", None, 2048, 0.7, 50, 0.9)
+        assert "SYSTEM" not in content
+
+    def test_newline_terminated(self):
+        content = _ollama_modelfile("/model", None, 2048, 0.7, 50, 0.9)
+        assert content.endswith("\n")
+
+
+class TestVllmConfig:
+    def test_is_valid_yaml(self):
+        content = _vllm_config("/model", 4096, False, 0.9, "bfloat16")
+        # Should parse without error (comment lines may be at end)
+        parsed = yaml.safe_load(content.split("\n# ")[0])
+        assert isinstance(parsed, dict)
+
+    def test_contains_model_field(self):
+        content = _vllm_config("/model", 4096, False, 0.9, "bfloat16")
+        assert "model: /model" in content
+
+    def test_gpu_memory_utilization_present(self):
+        content = _vllm_config("/model", 4096, False, 0.85, "bfloat16")
+        assert "0.85" in content
+
+    def test_trust_remote_code(self):
+        content = _vllm_config("/model", 4096, True, 0.9, "bfloat16")
+        assert "true" in content.lower()
+
+
+class TestTgiCompose:
+    def test_is_valid_yaml(self):
+        content = _tgi_compose("/model", 2048, 4096, 8080)
+        # Skip header comment lines
+        body = "\n".join(l for l in content.splitlines() if not l.startswith("#"))
+        parsed = yaml.safe_load(body)
+        assert isinstance(parsed, dict)
+        assert "services" in parsed
+
+    def test_contains_model_path(self):
+        content = _tgi_compose("/my/model", 2048, 4096, 8080)
+        assert "/my/model" in content
+
+    def test_port_appears_in_config(self):
+        content = _tgi_compose("/model", 2048, 4096, 9090)
+        assert "9090" in content
+
+    def test_max_tokens_in_command(self):
+        content = _tgi_compose("/model", 1024, 2048, 8080)
+        assert "max-input-length 1024" in content
+        assert "max-total-tokens 2048" in content
+
+
+class TestHfEndpointsJson:
+    def test_is_valid_json(self):
+        content = _hf_endpoints_json("/model", "text-generation", "x2", "nvidia-a10g", "us-east-1", "pytorch")
+        parsed = json.loads(content)
+        assert isinstance(parsed, dict)
+
+    def test_model_repository(self):
+        content = _hf_endpoints_json("/my/model", "text-generation", "x2", "nvidia-a10g", "us-east-1", "pytorch")
+        parsed = json.loads(content)
+        assert parsed["model"]["repository"] == "/my/model"
+
+    def test_framework_present(self):
+        content = _hf_endpoints_json("/model", "text-generation", "x2", "nvidia-a10g", "us-east-1", "pytorch")
+        parsed = json.loads(content)
+        assert parsed["model"]["framework"] == "pytorch"
+
+    def test_region_in_cloud(self):
+        content = _hf_endpoints_json("/model", "text-generation", "x2", "nvidia-a10g", "eu-west-1", "pytorch")
+        parsed = json.loads(content)
+        assert parsed["cloud"]["region"] == "eu-west-1"
+
+
+# ---------------------------------------------------------------------------
+# generate_deploy_config integration tests (with file I/O)
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateDeployConfig:
+    def test_ollama_writes_file(self, tmp_path):
+        out = str(tmp_path / "Modelfile")
+        result = generate_deploy_config("/model", "ollama", out)
+
+        assert result.success is True
+        assert result.target == "ollama"
+        assert result.output_path == out
+        assert os.path.isfile(out)
+
+    def test_ollama_file_content_valid(self, tmp_path):
+        out = str(tmp_path / "Modelfile")
+        generate_deploy_config("/model", "ollama", out, system_prompt="Be brief.")
+
+        with open(out) as f:
+            content = f.read()
+        assert "FROM /model" in content
+        assert "Be brief." in content
+
+    def test_vllm_writes_file(self, tmp_path):
+        out = str(tmp_path / "vllm.yaml")
+        result = generate_deploy_config("/model", "vllm", out)
+
+        assert result.success is True
+        assert os.path.isfile(out)
+
+    def test_tgi_writes_file(self, tmp_path):
+        out = str(tmp_path / "docker-compose.yaml")
+        result = generate_deploy_config("/model", "tgi", out, port=8080)
+
+        assert result.success is True
+        assert os.path.isfile(out)
+
+    def test_hf_endpoints_writes_file(self, tmp_path):
+        out = str(tmp_path / "endpoint.json")
+        result = generate_deploy_config("/model", "hf-endpoints", out)
+
+        assert result.success is True
+        assert os.path.isfile(out)
+        with open(out) as f:
+            parsed = json.load(f)
+        assert "model" in parsed
+
+    def test_default_filename_used_when_output_none(self, tmp_path):
+        original_cwd = os.getcwd()
+        os.chdir(tmp_path)
+        try:
+            result = generate_deploy_config("./model", "ollama")
+            assert result.success is True
+            assert result.output_path == "Modelfile"
+            assert os.path.isfile("Modelfile")
+        finally:
+            os.chdir(original_cwd)
+
+    def test_unsupported_target_returns_failure(self):
+        result = generate_deploy_config("/model", "nonexistent_runtime")
+        assert result.success is False
+        assert "nonexistent_runtime" in result.error
+
+    def test_result_contains_content(self, tmp_path):
+        out = str(tmp_path / "Modelfile")
+        result = generate_deploy_config("/model", "ollama", out)
+
+        assert result.content is not None
+        assert "FROM /model" in result.content
+
+    def test_target_case_insensitive(self, tmp_path):
+        out = str(tmp_path / "Modelfile")
+        result = generate_deploy_config("/model", "Ollama", out)
+        assert result.success is True
+
+    def test_vllm_trust_remote_code_propagated(self, tmp_path):
+        out = str(tmp_path / "vllm.yaml")
+        generate_deploy_config("/model", "vllm", out, trust_remote_code=True)
+
+        with open(out) as f:
+            content = f.read()
+        assert "true" in content.lower()
+
+    def test_json_roundtrip_for_hf_endpoints(self, tmp_path):
+        out = str(tmp_path / "ep.json")
+        generate_deploy_config(
+            "./model",
+            "hf-endpoints",
+            out,
+            instance_type="nvidia-a100",
+            region="eu-west-3",
+        )
+        with open(out) as f:
+            parsed = json.load(f)
+        assert parsed["compute"]["instanceType"] == "nvidia-a100"
+        assert parsed["cloud"]["region"] == "eu-west-3"

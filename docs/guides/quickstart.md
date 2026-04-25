@@ -90,12 +90,14 @@ Before starting a long run, estimate if your config fits in GPU memory:
 
 ```bash
 forgelm --config my_config.yaml --fit-check
-# → Coming in v0.4.0: GPU: RTX 3060 12GB; Estimated peak: 10.8 GB; Verdict: ✅ FITS
+# GPU: RTX 3060 12GB — Estimated peak: 10.8 GB — Verdict: FITS
+# Or: Verdict: TIGHT — Enable gradient checkpointing and reduce batch size
+# Or: Verdict: UNKNOWN — No GPU detected (hypothetical estimate)
 ```
 
-> **Note:** `--fit-check` is planned for v0.4.0.
+Output includes a breakdown (base weights, LoRA adapter, optimizer state, activations) and ordered recommendations when memory is tight. Use `--output-format json` for CI/CD integration.
 
-For now, reduce `max_length` and `per_device_train_batch_size` if you hit OOM. The [Troubleshooting guide](troubleshooting.md) has detailed OOM solutions.
+If you hit OOM during training, the [Troubleshooting guide](troubleshooting.md) has detailed solutions.
 
 ## 6. Use Your Model
 
@@ -112,19 +114,21 @@ output = model.generate(**inputs, max_new_tokens=200)
 print(tokenizer.decode(output[0], skip_special_tokens=True))
 ```
 
-### Using Your Model (After v0.4.0)
+### Using Your Model (v0.4.0+)
 
-Starting with v0.4.0, you can interact with your trained model directly:
+Interact with and deploy your trained model directly:
 
 ```bash
-# Chat with your fine-tuned model
+# Chat with your fine-tuned model (streaming by default)
 forgelm chat ./checkpoints/final_model
 
-# Export to GGUF (for Ollama, LM Studio)
-forgelm export ./checkpoints/final_model --format gguf --quant q4_k_m --output model.gguf
+# Export to GGUF (for Ollama, LM Studio, llama.cpp)
+# Requires: pip install forgelm[export]
+forgelm export ./checkpoints/final_model --output model.gguf --quant q4_k_m
 
-# Generate deployment configs
+# Generate deployment configs (no server is started)
 forgelm deploy ./checkpoints/final_model --target ollama --output ./Modelfile
+forgelm deploy ./checkpoints/final_model --target vllm --output ./vllm_config.yaml
 ```
 
 ---
