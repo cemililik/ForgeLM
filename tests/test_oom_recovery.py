@@ -145,7 +145,6 @@ class TestComplianceManifestUsesOriginalBatchSize:
         """After OOM mutates config.training.per_device_train_batch_size,
         _export_compliance_if_needed must temporarily restore the original values
         so the manifest captures what the user actually configured."""
-        from forgelm.compliance import generate_training_manifest
         from forgelm.results import TrainResult
 
         config = _make_forge_config(batch_size=16, grad_accum=2, output_dir=str(tmp_path))

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime
 from typing import Any, List, Optional
 
@@ -26,7 +25,6 @@ logger = logging.getLogger("forgelm.chat")
 try:
     from rich.console import Console
     from rich.panel import Panel
-    from rich.text import Text
 
     _HAS_RICH = True
     _console = Console()

@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Minimal stubs for heavy dependencies
 # ---------------------------------------------------------------------------
@@ -267,7 +266,6 @@ class TestLogitStats:
 class TestAdaptiveSample:
     def _make_logits(self, values):
         torch_stub, _Tensor, _ = _make_torch_stub()
-        import math
 
         # Build a proper stub that supports topk, sort, cumsum, multinomial
         logit = _Tensor(values)
@@ -437,7 +435,6 @@ class TestLoadModel:
 
 class TestGenerate:
     def test_returns_decoded_response(self):
-        import importlib
 
         mock_model = MagicMock()
         mock_tokenizer = MagicMock()

@@ -4,19 +4,17 @@ from __future__ import annotations
 import json
 import os
 
-import pytest
 import yaml
 
 from forgelm.deploy import (
     SUPPORTED_TARGETS,
     DeployResult,
-    generate_deploy_config,
-    _ollama_modelfile,
-    _vllm_config,
-    _tgi_compose,
     _hf_endpoints_json,
+    _ollama_modelfile,
+    _tgi_compose,
+    _vllm_config,
+    generate_deploy_config,
 )
-
 
 # ---------------------------------------------------------------------------
 # Constant / structure tests

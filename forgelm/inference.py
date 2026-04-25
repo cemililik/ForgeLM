@@ -8,7 +8,6 @@ lazily so that --help and config parsing remain lightweight.
 from __future__ import annotations
 
 import logging
-import math
 from threading import Thread
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 

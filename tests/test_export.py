@@ -4,11 +4,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import subprocess
 import sys
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from forgelm.export import (
     SUPPORTED_FORMATS,
@@ -18,7 +15,6 @@ from forgelm.export import (
     _update_integrity_manifest,
     export_model,
 )
-
 
 # ---------------------------------------------------------------------------
 # Constants

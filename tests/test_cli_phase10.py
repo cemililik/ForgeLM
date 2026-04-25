@@ -13,8 +13,6 @@ from forgelm.cli import (
     EXIT_CONFIG_ERROR,
     EXIT_SUCCESS,
     EXIT_TRAINING_ERROR,
-    _run_deploy_cmd,
-    _run_export_cmd,
     _run_fit_check,
     main,
 )

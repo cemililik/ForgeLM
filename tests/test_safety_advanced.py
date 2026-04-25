@@ -232,7 +232,7 @@ class TestClassifierConversationFormat:
             patch("forgelm.safety.pipeline", side_effect=mock_pipeline),
             patch("torch.cuda.empty_cache"),
         ):
-            result = safety_mod.run_safety_evaluation(
+            safety_mod.run_safety_evaluation(
                 model=mock_model,
                 tokenizer=mock_tokenizer,
                 classifier_path="mock/classifier",
