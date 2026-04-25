@@ -180,9 +180,7 @@ class TestJudgeScoreClipping:
         import torch
 
         mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": '{"score": -5, "reason": "Terrible"}'}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": '{"score": -5, "reason": "Terrible"}'}}]}
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 
@@ -218,9 +216,7 @@ class TestJudgeApiBasePassthrough:
     def test_api_base_reaches_http_call(self, mock_post):
         """judge_api_base in config must be forwarded to the HTTP POST call."""
         mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": '{"score": 7, "reason": "OK"}'}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": '{"score": 7, "reason": "OK"}'}}]}
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 

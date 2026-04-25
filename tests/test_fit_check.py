@@ -1,4 +1,5 @@
 """Unit tests for forgelm.fit_check module."""
+
 from __future__ import annotations
 
 import sys
@@ -27,7 +28,7 @@ def _make_torch_no_cuda():
     return t
 
 
-def _make_torch_with_cuda(total_bytes=12 * 1024 ** 3):
+def _make_torch_with_cuda(total_bytes=12 * 1024**3):
     t = MagicMock()
     t.cuda.is_available.return_value = True
     free = int(total_bytes * 0.9)
@@ -60,12 +61,20 @@ class TestEstimateParamCount:
         from forgelm.fit_check import _estimate_param_count
 
         arch_small = {
-            "hidden_size": 2048, "num_hidden_layers": 16, "intermediate_size": 5504,
-            "vocab_size": 32000, "num_attention_heads": 16, "num_key_value_heads": 16,
+            "hidden_size": 2048,
+            "num_hidden_layers": 16,
+            "intermediate_size": 5504,
+            "vocab_size": 32000,
+            "num_attention_heads": 16,
+            "num_key_value_heads": 16,
         }
         arch_large = {
-            "hidden_size": 8192, "num_hidden_layers": 80, "intermediate_size": 28672,
-            "vocab_size": 32000, "num_attention_heads": 64, "num_key_value_heads": 8,
+            "hidden_size": 8192,
+            "num_hidden_layers": 80,
+            "intermediate_size": 28672,
+            "vocab_size": 32000,
+            "num_attention_heads": 64,
+            "num_key_value_heads": 8,
         }
         assert _estimate_param_count(arch_small) < _estimate_param_count(arch_large)
 
@@ -92,7 +101,7 @@ class TestBaseModelGb:
         from forgelm.fit_check import _base_model_gb
 
         # 2 GiB = 2 × 1024³ bytes = exactly 1_073_741_824 params × 2 bytes (fp16)
-        params = 2 * 1024 ** 3 // 2  # = 1_073_741_824
+        params = 2 * 1024**3 // 2  # = 1_073_741_824
         result = _base_model_gb(params, "fp16")
         assert abs(result - 2.0) < 0.001
 
@@ -102,9 +111,9 @@ class TestOptimizerStateGb:
         from forgelm.fit_check import _optimizer_state_gb
 
         # Exact: 100 × 1024² params × 8 bytes = 100 × 8 MiB = 800 MiB = 0.78125 GiB
-        params = 100 * 1024 ** 2  # exactly 100 MiB / 1 byte = 104_857_600 params
+        params = 100 * 1024**2  # exactly 100 MiB / 1 byte = 104_857_600 params
         result = _optimizer_state_gb(params, "adamw")
-        expected = params * 8 / (1024 ** 3)
+        expected = params * 8 / (1024**3)
         assert abs(result - expected) < 0.001
 
     def test_8bit_adam_lower(self):
@@ -119,9 +128,12 @@ class TestActivationGb:
         from forgelm.fit_check import _activation_gb
 
         arch = {
-            "hidden_size": 4096, "num_hidden_layers": 32,
-            "intermediate_size": 11008, "vocab_size": 32000,
-            "num_attention_heads": 32, "num_key_value_heads": 32,
+            "hidden_size": 4096,
+            "num_hidden_layers": 32,
+            "intermediate_size": 11008,
+            "vocab_size": 32000,
+            "num_attention_heads": 32,
+            "num_key_value_heads": 32,
         }
         without = _activation_gb(arch, batch_size=4, seq_len=2048, gradient_checkpointing=False)
         with_gc = _activation_gb(arch, batch_size=4, seq_len=2048, gradient_checkpointing=True)
@@ -131,9 +143,12 @@ class TestActivationGb:
         from forgelm.fit_check import _activation_gb
 
         arch = {
-            "hidden_size": 4096, "num_hidden_layers": 32,
-            "intermediate_size": 11008, "vocab_size": 32000,
-            "num_attention_heads": 32, "num_key_value_heads": 32,
+            "hidden_size": 4096,
+            "num_hidden_layers": 32,
+            "intermediate_size": 11008,
+            "vocab_size": 32000,
+            "num_attention_heads": 32,
+            "num_key_value_heads": 32,
         }
         small = _activation_gb(arch, batch_size=1, seq_len=512, gradient_checkpointing=False)
         large = _activation_gb(arch, batch_size=8, seq_len=2048, gradient_checkpointing=False)
@@ -175,8 +190,12 @@ class TestEstimateVramNoCuda:
         torch_stub = _make_torch_no_cuda()
         auto_config_stub = MagicMock()
         auto_config_stub.from_pretrained.return_value = MagicMock(
-            hidden_size=2048, num_hidden_layers=16, intermediate_size=5504,
-            vocab_size=32000, num_attention_heads=16, num_key_value_heads=16,
+            hidden_size=2048,
+            num_hidden_layers=16,
+            intermediate_size=5504,
+            vocab_size=32000,
+            num_attention_heads=16,
+            num_key_value_heads=16,
         )
         transformers_stub = MagicMock()
         transformers_stub.AutoConfig = auto_config_stub
@@ -196,12 +215,16 @@ class TestEstimateVramNoCuda:
 class TestEstimateVramWithCuda:
     def test_fits_on_large_gpu(self):
         # 80 GB A100 — a 7B model in 4-bit should FITS easily
-        torch_stub = _make_torch_with_cuda(total_bytes=80 * 1024 ** 3)
+        torch_stub = _make_torch_with_cuda(total_bytes=80 * 1024**3)
 
         auto_config_stub = MagicMock()
         auto_config_stub.from_pretrained.return_value = MagicMock(
-            hidden_size=4096, num_hidden_layers=32, intermediate_size=11008,
-            vocab_size=32000, num_attention_heads=32, num_key_value_heads=32,
+            hidden_size=4096,
+            num_hidden_layers=32,
+            intermediate_size=11008,
+            vocab_size=32000,
+            num_attention_heads=32,
+            num_key_value_heads=32,
         )
         transformers_stub = MagicMock()
         transformers_stub.AutoConfig = auto_config_stub
@@ -213,17 +236,22 @@ class TestEstimateVramWithCuda:
             result = estimate_vram(cfg)
 
         assert result.verdict == "FITS"
-        assert result.available_gb == pytest.approx(80.0, abs=0.1)
+        # available_gb uses free_bytes (90% of 80 GiB in the mock = 72 GiB)
+        assert result.available_gb == pytest.approx(72.0, abs=0.1)
 
     def test_oom_on_tiny_gpu(self):
         # 4 GB GPU — a large model should OOM
-        torch_stub = _make_torch_with_cuda(total_bytes=4 * 1024 ** 3)
+        torch_stub = _make_torch_with_cuda(total_bytes=4 * 1024**3)
 
         auto_config_stub = MagicMock()
         # Simulate a 70B-class model architecture
         auto_config_stub.from_pretrained.return_value = MagicMock(
-            hidden_size=8192, num_hidden_layers=80, intermediate_size=28672,
-            vocab_size=32000, num_attention_heads=64, num_key_value_heads=8,
+            hidden_size=8192,
+            num_hidden_layers=80,
+            intermediate_size=28672,
+            vocab_size=32000,
+            num_attention_heads=64,
+            num_key_value_heads=8,
         )
         transformers_stub = MagicMock()
         transformers_stub.AutoConfig = auto_config_stub
@@ -240,12 +268,16 @@ class TestEstimateVramWithCuda:
 class TestEstimateVramRecommendations:
     def test_recommendations_provided_when_tight(self):
         # 8 GB GPU — 7B model bf16 is tight/OOM
-        torch_stub = _make_torch_with_cuda(total_bytes=8 * 1024 ** 3)
+        torch_stub = _make_torch_with_cuda(total_bytes=8 * 1024**3)
 
         auto_config_stub = MagicMock()
         auto_config_stub.from_pretrained.return_value = MagicMock(
-            hidden_size=4096, num_hidden_layers=32, intermediate_size=11008,
-            vocab_size=32000, num_attention_heads=32, num_key_value_heads=32,
+            hidden_size=4096,
+            num_hidden_layers=32,
+            intermediate_size=11008,
+            vocab_size=32000,
+            num_attention_heads=32,
+            num_key_value_heads=32,
         )
         transformers_stub = MagicMock()
         transformers_stub.AutoConfig = auto_config_stub
@@ -263,12 +295,16 @@ class TestEstimateVramRecommendations:
 
     def test_no_recommendations_when_fits_comfortably(self):
         # 80 GB GPU, 4-bit quantized — should FITS with no recs
-        torch_stub = _make_torch_with_cuda(total_bytes=80 * 1024 ** 3)
+        torch_stub = _make_torch_with_cuda(total_bytes=80 * 1024**3)
 
         auto_config_stub = MagicMock()
         auto_config_stub.from_pretrained.return_value = MagicMock(
-            hidden_size=4096, num_hidden_layers=32, intermediate_size=11008,
-            vocab_size=32000, num_attention_heads=32, num_key_value_heads=32,
+            hidden_size=4096,
+            num_hidden_layers=32,
+            intermediate_size=11008,
+            vocab_size=32000,
+            num_attention_heads=32,
+            num_key_value_heads=32,
         )
         transformers_stub = MagicMock()
         transformers_stub.AutoConfig = auto_config_stub

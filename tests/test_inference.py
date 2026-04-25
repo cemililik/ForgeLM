@@ -3,6 +3,7 @@
 All torch/transformers/peft calls are mocked so the test suite runs without
 a GPU or the ML dependencies installed.
 """
+
 from __future__ import annotations
 
 import sys
@@ -36,6 +37,7 @@ def _make_torch_stub():
 
         def log(self):
             import math
+
             return _Tensor([math.log(x + 1e-10) for x in self._data])
 
         def sum(self):
@@ -73,8 +75,9 @@ def _make_torch_stub():
         def __gt__(self, threshold):
             if isinstance(threshold, _Tensor):
                 t = threshold._data[0] if len(threshold._data) == 1 else threshold._data
-                return _Tensor([1 if x > (t if not isinstance(t, list) else t[i]) else 0
-                                 for i, x in enumerate(self._data)])
+                return _Tensor(
+                    [1 if x > (t if not isinstance(t, list) else t[i]) else 0 for i, x in enumerate(self._data)]
+                )
             return _Tensor([1 if x > threshold else 0 for x in self._data])
 
         def __lt__(self, other):
@@ -117,11 +120,13 @@ def _make_torch_stub():
     class _Scalar:
         def __init__(self, v):
             self._v = v
+
         def item(self):
             return self._v
 
     def softmax(tensor, dim=-1):
         import math
+
         data = tensor._data if hasattr(tensor, "_data") else [0.1, 0.9]
         exp_vals = [math.exp(x) for x in data]
         s = sum(exp_vals)
@@ -129,6 +134,7 @@ def _make_torch_stub():
 
     def log(tensor):
         import math
+
         data = tensor._data if hasattr(tensor, "_data") else [0.1, 0.9]
         return _Tensor([math.log(max(x, 1e-10)) for x in data])
 
@@ -178,9 +184,7 @@ class TestBuildPrompt:
         messages = [{"role": "user", "content": "Hi"}]
         result = _build_prompt(tokenizer, messages)
         assert result == "<formatted>"
-        tokenizer.apply_chat_template.assert_called_once_with(
-            messages, tokenize=False, add_generation_prompt=True
-        )
+        tokenizer.apply_chat_template.assert_called_once_with(messages, tokenize=False, add_generation_prompt=True)
 
 
 class TestToMessages:
@@ -323,6 +327,7 @@ class TestAdaptiveSample:
         class _LocalScalar:
             def __init__(self, v):
                 self._v = v
+
             def item(self):
                 return self._v
 
@@ -459,9 +464,7 @@ class TestGenerate:
         mock_tokenizer.eos_token_id = 1
 
         torch_stub = MagicMock()
-        torch_stub.inference_mode.return_value = MagicMock(
-            __enter__=lambda s: None, __exit__=lambda *a: None
-        )
+        torch_stub.inference_mode.return_value = MagicMock(__enter__=lambda s: None, __exit__=lambda *a: None)
 
         with patch.dict(sys.modules, {"torch": torch_stub}):
             from forgelm.inference import generate

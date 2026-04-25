@@ -1,4 +1,5 @@
 """Tests for Phase 10 CLI additions: chat/export/deploy subcommands and --fit-check."""
+
 from __future__ import annotations
 
 import json
@@ -46,8 +47,12 @@ class TestFitCheckFlag:
 
         transformers_stub = MagicMock()
         transformers_stub.AutoConfig.from_pretrained.return_value = MagicMock(
-            hidden_size=4096, num_hidden_layers=32, intermediate_size=11008,
-            vocab_size=32000, num_attention_heads=32, num_key_value_heads=32,
+            hidden_size=4096,
+            num_hidden_layers=32,
+            intermediate_size=11008,
+            vocab_size=32000,
+            num_attention_heads=32,
+            num_key_value_heads=32,
         )
 
         with patch("sys.argv", ["forgelm", "--config", cfg_path, "--fit-check"]):
@@ -69,8 +74,12 @@ class TestFitCheckFlag:
 
         transformers_stub = MagicMock()
         transformers_stub.AutoConfig.from_pretrained.return_value = MagicMock(
-            hidden_size=4096, num_hidden_layers=32, intermediate_size=11008,
-            vocab_size=32000, num_attention_heads=32, num_key_value_heads=32,
+            hidden_size=4096,
+            num_hidden_layers=32,
+            intermediate_size=11008,
+            vocab_size=32000,
+            num_attention_heads=32,
+            num_key_value_heads=32,
         )
 
         with patch("sys.argv", ["forgelm", "--config", cfg_path, "--fit-check", "--output-format", "json"]):
@@ -136,7 +145,10 @@ class TestDeployCLI:
 
     def test_deploy_json_output(self, tmp_path, capsys):
         out = str(tmp_path / "Modelfile")
-        with patch("sys.argv", ["forgelm", "--output-format", "json", "deploy", "./model", "--target", "ollama", "--output", out]):
+        with patch(
+            "sys.argv",
+            ["forgelm", "--output-format", "json", "deploy", "./model", "--target", "ollama", "--output", out],
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 main()
         assert exc_info.value.code == EXIT_SUCCESS
@@ -148,11 +160,20 @@ class TestDeployCLI:
 
     def test_deploy_with_system_prompt(self, tmp_path):
         out = str(tmp_path / "Modelfile")
-        with patch("sys.argv", [
-            "forgelm", "deploy", "./model",
-            "--target", "ollama", "--output", out,
-            "--system", "You are helpful.",
-        ]):
+        with patch(
+            "sys.argv",
+            [
+                "forgelm",
+                "deploy",
+                "./model",
+                "--target",
+                "ollama",
+                "--output",
+                out,
+                "--system",
+                "You are helpful.",
+            ],
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 main()
         assert exc_info.value.code == EXIT_SUCCESS
@@ -187,10 +208,18 @@ class TestExportCLI:
     def test_export_json_on_failure(self, tmp_path, capsys):
         out = str(tmp_path / "model.gguf")
         with patch.dict(sys.modules, {"llama_cpp": None}):
-            with patch("sys.argv", [
-                "forgelm", "--output-format", "json",
-                "export", "./model", "--output", out,
-            ]):
+            with patch(
+                "sys.argv",
+                [
+                    "forgelm",
+                    "--output-format",
+                    "json",
+                    "export",
+                    "./model",
+                    "--output",
+                    out,
+                ],
+            ):
                 with pytest.raises(SystemExit) as exc_info:
                     main()
 

@@ -14,6 +14,7 @@ Usage (programmatic):
 Usage (CLI):
     forgelm export ./outputs/final_model --format gguf --quant q4_k_m --output model.gguf
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -29,15 +30,23 @@ logger = logging.getLogger("forgelm.export")
 SUPPORTED_FORMATS = frozenset({"gguf"})
 SUPPORTED_QUANTS = frozenset({"q2_k", "q3_k_m", "q4_k_m", "q5_k_m", "q8_0", "f16"})
 
-# llama.cpp quantisation type strings used by convert_hf_to_gguf.py
+# Quant types supported directly by convert_hf_to_gguf.py via --outtype.
+# K-quants (q2_k, q3_k_m, q4_k_m, q5_k_m) require a two-step process:
+# 1. HF → f16 GGUF via convert_hf_to_gguf.py  (done here)
+# 2. f16 → k-quant via `llama-quantize`        (not automated; user must run manually)
+# When a K-quant is requested, we produce f16 and emit a warning.
 _OUTTYPE_MAP = {
     "f16": "f16",
-    "q2_k": "q2_k",
-    "q3_k_m": "q3_k_m",
-    "q4_k_m": "q4_k_m",
-    "q5_k_m": "q5_k_m",
     "q8_0": "q8_0",
+    # K-quants: convert_hf_to_gguf.py only supports f16/q8_0 directly; K-quants need llama-quantize
+    "q2_k": "f16",
+    "q3_k_m": "f16",
+    "q4_k_m": "f16",
+    "q5_k_m": "f16",
 }
+
+# K-quants that need a manual second quantization step
+_K_QUANTS = frozenset({"q2_k", "q3_k_m", "q4_k_m", "q5_k_m"})
 
 
 @dataclass
@@ -61,20 +70,27 @@ class ExportResult:
 def _find_converter_script() -> str:
     """Locate llama-cpp-python's HF → GGUF conversion script.
 
+    Checks the ``FORGELM_GGUF_CONVERTER`` environment variable first, allowing
+    users to pin a specific converter script (useful when the bundled version is
+    outdated or when using a standalone llama.cpp build).
+
     Raises:
         ImportError: When llama-cpp-python is not installed.
-        FileNotFoundError: When the conversion script cannot be found inside
-            the package.  Upgrade to llama-cpp-python >= 0.2.90.
+        FileNotFoundError: When the conversion script cannot be found.
     """
+    env_override = os.environ.get("FORGELM_GGUF_CONVERTER")
+    if env_override:
+        if os.path.isfile(env_override):
+            logger.debug("Using GGUF converter from FORGELM_GGUF_CONVERTER: %s", env_override)
+            return env_override
+        raise FileNotFoundError(f"FORGELM_GGUF_CONVERTER is set to '{env_override}' but the file does not exist.")
+
     try:
-        import llama_cpp  # noqa: F401
+        import llama_cpp
     except ImportError as e:
         raise ImportError(
-            "llama-cpp-python is required for GGUF export.  "
-            "Install the export extra: pip install 'forgelm[export]'"
+            "llama-cpp-python is required for GGUF export.  Install the export extra: pip install 'forgelm[export]'"
         ) from e
-
-    import llama_cpp
 
     pkg_root = os.path.dirname(os.path.abspath(llama_cpp.__file__))
 
@@ -92,7 +108,8 @@ def _find_converter_script() -> str:
 
     raise FileNotFoundError(
         "convert_hf_to_gguf.py not found inside the llama-cpp-python installation.  "
-        "Upgrade to llama-cpp-python >= 0.2.90: pip install 'llama-cpp-python>=0.2.90'"
+        "Try: pip install 'llama-cpp-python>=0.2.90'  "
+        "Or set FORGELM_GGUF_CONVERTER=/path/to/convert_hf_to_gguf.py to use a custom script."
     )
 
 
@@ -217,10 +234,7 @@ def export_model(
         return ExportResult(
             success=False,
             quant=quant,
-            error=(
-                f"Unsupported quantisation '{quant}'. "
-                f"Supported: {', '.join(sorted(SUPPORTED_QUANTS))}"
-            ),
+            error=(f"Unsupported quantisation '{quant}'. Supported: {', '.join(sorted(SUPPORTED_QUANTS))}"),
         )
 
     try:
@@ -244,6 +258,18 @@ def export_model(
                 error=f"Adapter merge failed: {e}",
             )
 
+    # K-quants need a separate llama-quantize step; convert to f16 here
+    if quant in _K_QUANTS:
+        logger.warning(
+            "K-quant '%s' is not supported directly by convert_hf_to_gguf.py. "
+            "Producing an f16 GGUF instead. To get a %s GGUF, run "
+            "`llama-quantize <output.gguf> <output-%s.gguf> %s` afterwards.",
+            quant,
+            quant,
+            quant,
+            quant.upper(),
+        )
+
     # Build converter command
     outtype = _OUTTYPE_MAP[quant]
     cmd: List[str] = [
@@ -266,6 +292,7 @@ def export_model(
             capture_output=True,
             text=True,
             check=False,
+            timeout=3600,
         )
         if proc.returncode != 0:
             error_detail = proc.stderr.strip() or proc.stdout.strip() or "unknown error"
@@ -276,8 +303,21 @@ def export_model(
                 quant=quant,
                 error=f"Converter exited with code {proc.returncode}: {error_detail[:500]}",
             )
+    except subprocess.TimeoutExpired:
+        return ExportResult(
+            success=False,
+            format=format,
+            quant=quant,
+            error="GGUF conversion timed out after 3600 seconds.",
+        )
     except Exception as e:
         return ExportResult(success=False, format=format, quant=quant, error=str(e))
+    finally:
+        if merged_dir and os.path.isdir(merged_dir):
+            import shutil
+
+            shutil.rmtree(merged_dir, ignore_errors=True)
+            logger.debug("Cleaned up temporary merged directory: %s", merged_dir)
 
     if not os.path.isfile(output_path):
         return ExportResult(
@@ -303,7 +343,7 @@ def export_model(
     logger.info(
         "GGUF export complete: %s (%.1f GB, quant=%s, sha256=%s…)",
         output_path,
-        size_bytes / (1024 ** 3),
+        size_bytes / (1024**3),
         quant,
         digest[:12],
     )

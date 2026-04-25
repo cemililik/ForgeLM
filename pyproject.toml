@@ -71,7 +71,9 @@ merging = [
   "mergekit>=0.0.5",
 ]
 
-# Phase 10: GGUF export via llama-cpp-python's bundled conversion script.
+# Phase 10: GGUF export via llama-cpp-python's bundled convert_hf_to_gguf.py.
+# Produces f16 and q8_0 GGUF directly. K-quants (q4_k_m etc.) require a
+# separate llama-quantize step; see docs/guides/export.md for the full flow.
 # Linux and macOS only; Windows builds are available but less reliable.
 export = [
   "llama-cpp-python>=0.2.90; sys_platform != 'win32'",

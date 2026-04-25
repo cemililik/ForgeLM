@@ -1,4 +1,5 @@
 """Unit tests for forgelm.deploy module."""
+
 from __future__ import annotations
 
 import json

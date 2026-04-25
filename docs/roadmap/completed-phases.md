@@ -1,6 +1,6 @@
 # Completed Phases — Archive
 
-> **Note:** Historical archive of ForgeLM's Phase 1-9 completed work. Kept for reference and onboarding. For active planning, see [../roadmap.md](../roadmap.md).
+> **Note:** Historical archive of ForgeLM's Phase 1-10 completed work. Kept for reference and onboarding. For active planning, see [../roadmap.md](../roadmap.md).
 
 ## Summary table
 

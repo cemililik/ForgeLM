@@ -66,9 +66,7 @@ class TestOriginalBatchSizeStoredOnTrain:
         trainer.notifier = MagicMock()
         trainer.audit = MagicMock()
         trainer._build_trainer = MagicMock()
-        trainer._run_with_oom_recovery = MagicMock(
-            return_value=MagicMock(metrics={"train_loss": 0.5})
-        )
+        trainer._run_with_oom_recovery = MagicMock(return_value=MagicMock(metrics={"train_loss": 0.5}))
         trainer.save_final_model = MagicMock()
         trainer.execute_evaluation_checks = MagicMock(return_value=True)
         trainer._run_benchmark_if_configured = MagicMock(return_value=None)
@@ -92,9 +90,7 @@ class TestOriginalBatchSizeStoredOnTrain:
         trainer.notifier = MagicMock()
         trainer.audit = MagicMock()
         trainer._build_trainer = MagicMock()
-        trainer._run_with_oom_recovery = MagicMock(
-            return_value=MagicMock(metrics={"train_loss": 0.5})
-        )
+        trainer._run_with_oom_recovery = MagicMock(return_value=MagicMock(metrics={"train_loss": 0.5}))
         trainer.save_final_model = MagicMock()
         trainer.execute_evaluation_checks = MagicMock(return_value=True)
         trainer._run_benchmark_if_configured = MagicMock(return_value=None)
@@ -119,9 +115,7 @@ class TestOriginalBatchSizeStoredOnTrain:
         trainer.notifier = MagicMock()
         trainer.audit = MagicMock()
         trainer._build_trainer = MagicMock()
-        trainer._run_with_oom_recovery = MagicMock(
-            return_value=MagicMock(metrics={"train_loss": 0.5})
-        )
+        trainer._run_with_oom_recovery = MagicMock(return_value=MagicMock(metrics={"train_loss": 0.5}))
         trainer.save_final_model = MagicMock()
         trainer.execute_evaluation_checks = MagicMock(return_value=True)
         trainer._run_benchmark_if_configured = MagicMock(return_value=None)
@@ -155,8 +149,8 @@ class TestComplianceManifestUsesOriginalBatchSize:
         trainer._original_grad_accum = 2
 
         # Simulate OOM having mutated config values
-        config.training.per_device_train_batch_size = 4   # halved twice
-        config.training.gradient_accumulation_steps = 8   # doubled twice
+        config.training.per_device_train_batch_size = 4  # halved twice
+        config.training.gradient_accumulation_steps = 8  # doubled twice
 
         result = TrainResult(success=True)
         metrics = {"eval_loss": 0.5}
@@ -166,8 +160,12 @@ class TestComplianceManifestUsesOriginalBatchSize:
         def capture_manifest(config, **kwargs):
             # Record the batch_size that generate_training_manifest sees
             captured_manifests.append(config.training.per_device_train_batch_size)
-            return {"model_lineage": {}, "training_parameters": {}, "data_provenance": {},
-                    "evaluation_results": {"metrics": {}}}
+            return {
+                "model_lineage": {},
+                "training_parameters": {},
+                "data_provenance": {},
+                "evaluation_results": {"metrics": {}},
+            }
 
         with (
             patch("forgelm.compliance.generate_training_manifest", side_effect=capture_manifest),
@@ -196,10 +194,15 @@ class TestComplianceManifestUsesOriginalBatchSize:
         result = TrainResult(success=True)
 
         with (
-            patch("forgelm.compliance.generate_training_manifest", return_value={
-                "model_lineage": {}, "training_parameters": {}, "data_provenance": {},
-                "evaluation_results": {"metrics": {}},
-            }),
+            patch(
+                "forgelm.compliance.generate_training_manifest",
+                return_value={
+                    "model_lineage": {},
+                    "training_parameters": {},
+                    "data_provenance": {},
+                    "evaluation_results": {"metrics": {}},
+                },
+            ),
             patch("forgelm.compliance.export_compliance_artifacts"),
         ):
             trainer._export_compliance_if_needed(str(tmp_path / "model"), {}, result)

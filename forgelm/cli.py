@@ -65,8 +65,20 @@ def _add_chat_subcommand(subparsers) -> None:
     p.add_argument("--load-in-8bit", action="store_true", help="Load model in 8-bit quantisation.")
     p.add_argument("--trust-remote-code", action="store_true", help="Allow execution of model-bundled code.")
     p.add_argument(
-        "--backend", type=str, default="transformers", choices=["transformers", "unsloth"],
+        "--backend",
+        type=str,
+        default="transformers",
+        choices=["transformers", "unsloth"],
         help="Model backend (default: transformers).",
+    )
+    # SUPPRESS prevents these from overriding flags already set on the main parser
+    p.add_argument("-q", "--quiet", action="store_true", default=argparse.SUPPRESS, help="Suppress INFO logs.")
+    p.add_argument(
+        "--log-level",
+        type=str,
+        default=argparse.SUPPRESS,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Set logging verbosity (default: INFO).",
     )
 
 
@@ -82,17 +94,40 @@ def _add_export_subcommand(subparsers) -> None:
     p.add_argument("model_path", help="Path to a saved HuggingFace model directory.")
     p.add_argument("--output", type=str, required=True, metavar="FILE", help="Output .gguf file path.")
     p.add_argument(
-        "--format", type=str, default="gguf", choices=["gguf"], help="Export format (default: gguf).",
+        "--format",
+        type=str,
+        default="gguf",
+        choices=["gguf"],
+        help="Export format (default: gguf).",
     )
     p.add_argument(
-        "--quant", type=str, default="q4_k_m",
+        "--quant",
+        type=str,
+        default="q4_k_m",
         choices=["q2_k", "q3_k_m", "q4_k_m", "q5_k_m", "q8_0", "f16"],
         help="Quantisation type (default: q4_k_m).",
     )
     p.add_argument("--adapter", type=str, default=None, help="PEFT adapter directory to merge before export.")
     p.add_argument(
-        "--no-integrity-update", action="store_true",
+        "--no-integrity-update",
+        action="store_true",
         help="Skip updating model_integrity.json with the exported artifact.",
+    )
+    # SUPPRESS prevents these from overriding flags already set on the main parser
+    p.add_argument(
+        "--output-format",
+        type=str,
+        default=argparse.SUPPRESS,
+        choices=["text", "json"],
+        help="Output format: text (default) or json.",
+    )
+    p.add_argument("-q", "--quiet", action="store_true", default=argparse.SUPPRESS, help="Suppress INFO logs.")
+    p.add_argument(
+        "--log-level",
+        type=str,
+        default=argparse.SUPPRESS,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Set logging verbosity (default: INFO).",
     )
 
 
@@ -107,7 +142,9 @@ def _add_deploy_subcommand(subparsers) -> None:
     )
     p.add_argument("model_path", help="Path to a saved HuggingFace model directory or HF Hub ID.")
     p.add_argument(
-        "--target", type=str, required=True,
+        "--target",
+        type=str,
+        required=True,
         choices=["ollama", "vllm", "tgi", "hf-endpoints"],
         help="Target serving runtime.",
     )
@@ -115,11 +152,35 @@ def _add_deploy_subcommand(subparsers) -> None:
     p.add_argument("--system", type=str, default=None, metavar="PROMPT", help="System prompt (Ollama only).")
     p.add_argument("--max-length", type=int, default=4096, help="Context window length (default: 4096).")
     p.add_argument(
-        "--gpu-memory-utilization", type=float, default=0.90,
+        "--gpu-memory-utilization",
+        type=float,
+        default=0.90,
         help="vLLM GPU memory utilisation fraction (default: 0.90).",
     )
     p.add_argument("--port", type=int, default=8080, help="Host port for TGI container (default: 8080).")
     p.add_argument("--trust-remote-code", action="store_true", help="Set trust_remote_code in vLLM config.")
+    p.add_argument(
+        "--vendor",
+        type=str,
+        default="aws",
+        help="Cloud vendor for HF Endpoints config (default: aws).",
+    )
+    # SUPPRESS prevents these from overriding flags already set on the main parser
+    p.add_argument(
+        "--output-format",
+        type=str,
+        default=argparse.SUPPRESS,
+        choices=["text", "json"],
+        help="Output format: text (default) or json.",
+    )
+    p.add_argument("-q", "--quiet", action="store_true", default=argparse.SUPPRESS, help="Suppress INFO logs.")
+    p.add_argument(
+        "--log-level",
+        type=str,
+        default=argparse.SUPPRESS,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Set logging verbosity (default: INFO).",
+    )
 
 
 def parse_args():
@@ -557,8 +618,6 @@ def _run_chat_cmd(args) -> None:
     except ImportError as e:
         logger.error("Missing dependency for chat: %s", e)
         sys.exit(EXIT_TRAINING_ERROR)
-    except KeyboardInterrupt:
-        pass
     except Exception as e:
         logger.exception("Chat session failed: %s", e)
         sys.exit(EXIT_TRAINING_ERROR)
@@ -594,7 +653,12 @@ def _run_export_cmd(args, output_format: str) -> None:
         )
     else:
         if result.success:
-            logger.info("Export complete: %s (quant=%s, sha256=%s…)", result.output_path, result.quant, (result.sha256 or "")[:12])
+            logger.info(
+                "Export complete: %s (quant=%s, sha256=%s…)",
+                result.output_path,
+                result.quant,
+                (result.sha256 or "")[:12],
+            )
         else:
             logger.error("Export failed: %s", result.error)
 
@@ -615,6 +679,7 @@ def _run_deploy_cmd(args, output_format: str) -> None:
         trust_remote_code=args.trust_remote_code,
         gpu_memory_utilization=args.gpu_memory_utilization,
         port=args.port,
+        vendor=getattr(args, "vendor", "aws"),
     )
 
     if output_format == "json":

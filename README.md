@@ -174,10 +174,15 @@ forgelm --version                            # Show version
 ```
 forgelm/
 ├── cli.py           # CLI with 10+ modes (train, dry-run, merge, benchmark, wizard...)
-├── config.py        # Pydantic config (15 models: training, evaluation, distributed...)
+├── config.py        # Pydantic config (19 models: training, evaluation, distributed...)
 ├── data.py          # Dataset loading (SFT, DPO, KTO, GRPO formats + multi-dataset)
 ├── model.py         # Model loading (transformers, unsloth, MoE, PEFT)
 ├── trainer.py       # Training orchestration (6 trainer types via TRL, GaLore, long-context)
+├── inference.py     # Shared inference primitives (load, generate, stream, adaptive sampling)
+├── chat.py          # Interactive terminal REPL with streaming and slash commands
+├── export.py        # GGUF export via llama-cpp-python
+├── fit_check.py     # Pre-flight VRAM estimator (FITS / TIGHT / OOM / UNKNOWN)
+├── deploy.py        # Deployment config generator (Ollama, vLLM, TGI, HF Endpoints)
 ├── results.py       # TrainResult dataclass
 ├── benchmark.py     # lm-evaluation-harness integration
 ├── safety.py        # Post-training safety evaluation (Llama Guard)

@@ -1,4 +1,5 @@
 """Unit tests for forgelm.export module."""
+
 from __future__ import annotations
 
 import hashlib
@@ -117,7 +118,7 @@ class TestExportModel:
         """Return a mock that simulates successful subprocess conversion."""
         output_path = str(tmp_path / "model.gguf")
 
-        def fake_run(cmd, capture_output, text, check):
+        def fake_run(cmd, **kwargs):
             # Write the fake output file as if the converter ran
             with open(output_path, "wb") as f:
                 f.write(content)
@@ -261,5 +262,7 @@ class TestExportModel:
             with patch.dict(sys.modules, {"llama_cpp": llama_cpp_stub}):
                 with patch("subprocess.run", side_effect=fake_run):
                     result = export_model(str(tmp_path), output_gguf, quant=quant, update_integrity=False)
-            # Should not fail on quant validation
-            assert result.error is None or "not found" not in result.error or result.success
+            # Quant validation must not reject any SUPPORTED_QUANTS entry
+            assert "Unsupported quantisation" not in (result.error or ""), (
+                f"Export failed quant validation for {quant}: {result.error}"
+            )

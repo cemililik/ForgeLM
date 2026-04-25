@@ -5,6 +5,7 @@ Provides a unified load/generate interface with streaming support, logit statist
 and adaptive sampling.  Heavy dependencies (torch, transformers, peft) are imported
 lazily so that --help and config parsing remain lightweight.
 """
+
 from __future__ import annotations
 
 import logging
@@ -48,6 +49,8 @@ def load_model(
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     if backend.lower() == "unsloth":
+        if not load_in_4bit:
+            logger.warning("Unsloth backend always loads in 4-bit NF4; load_in_4bit=False is ignored.")
         return _load_unsloth(path, adapter, trust_remote_code)
 
     logger.info("Loading model for inference: %s", path)
@@ -71,7 +74,9 @@ def load_model(
                 bnb_4bit_quant_type="nf4",
             )
         elif load_in_8bit:
-            model_kwargs["load_in_8bit"] = True
+            from transformers import BitsAndBytesConfig
+
+            model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
 
     model = AutoModelForCausalLM.from_pretrained(path, **model_kwargs)
     model.eval()
@@ -97,8 +102,7 @@ def _load_unsloth(
         from unsloth import FastLanguageModel
     except ImportError as e:
         raise ImportError(
-            "Unsloth backend requested but 'unsloth' is not installed.  "
-            "Install with: pip install unsloth"
+            "Unsloth backend requested but 'unsloth' is not installed.  Install with: pip install unsloth"
         ) from e
 
     model, tokenizer = FastLanguageModel.from_pretrained(
@@ -110,10 +114,10 @@ def _load_unsloth(
     FastLanguageModel.for_inference(model)
 
     if adapter:
-        logger.warning(
-            "Unsloth backend: separate adapter loading is not supported.  "
-            "Merge the adapter into the base model before inference, or use "
-            "backend='transformers'."
+        raise ValueError(
+            "Unsloth backend does not support loading a separate adapter at inference time. "
+            "Merge the adapter into the base model before inference "
+            "(forgelm export --adapter ...), or use backend='transformers'."
         )
     return model, tokenizer
 
@@ -253,13 +257,23 @@ def generate_stream(
         gen_kwargs.update(temperature=temperature, top_k=top_k, top_p=top_p)
     gen_kwargs["repetition_penalty"] = repetition_penalty
 
-    thread = Thread(target=model.generate, kwargs=gen_kwargs, daemon=True)
+    _exc: List[BaseException] = []
+
+    def _gen_thread() -> None:
+        try:
+            model.generate(**gen_kwargs)
+        except Exception as e:
+            _exc.append(e)
+
+    thread = Thread(target=_gen_thread, daemon=True)
     thread.start()
 
     for token_text in streamer:
         yield token_text
 
     thread.join()
+    if _exc:
+        raise _exc[0]
 
 
 # ---------------------------------------------------------------------------

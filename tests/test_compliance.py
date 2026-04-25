@@ -194,9 +194,7 @@ class TestAuditLoggerHashChain:
 
         log2 = AuditLogger(str(tmp_path))
         # Must NOT reset to "genesis" — should read from the existing file
-        assert log2._prev_hash != "genesis", (
-            "Second AuditLogger instance must not reset the hash chain to 'genesis'"
-        )
+        assert log2._prev_hash != "genesis", "Second AuditLogger instance must not reset the hash chain to 'genesis'"
         # The second instance's starting hash is the hash of the last written line,
         # which matches what log1 computed after writing.
         assert log2._prev_hash == hash_after_first_event

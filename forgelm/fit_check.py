@@ -13,6 +13,7 @@ Usage (programmatic):
 Usage (CLI):
     forgelm --config my.yaml --fit-check
 """
+
 from __future__ import annotations
 
 import logging
@@ -161,7 +162,7 @@ def _estimate_param_count(arch: Dict[str, Any]) -> int:
 def _base_model_gb(num_params: int, quant: str) -> float:
     """Model weight memory in GB."""
     bpp = _BYTES_PER_PARAM.get(quant, 2.0)
-    return num_params * bpp / (1024 ** 3)
+    return num_params * bpp / (1024**3)
 
 
 def _lora_adapter_gb(arch: Dict[str, Any], lora_r: int, target_module_count: int) -> float:
@@ -169,7 +170,7 @@ def _lora_adapter_gb(arch: Dict[str, Any], lora_r: int, target_module_count: int
     h = arch["hidden_size"]
     # Each target module: A (h×r) + B (r×h); two matrices per layer × num_layers
     adapter_params = 2 * lora_r * h * target_module_count * arch["num_hidden_layers"]
-    return adapter_params * 4 / (1024 ** 3)  # fp32
+    return adapter_params * 4 / (1024**3)  # fp32
 
 
 def _optimizer_state_gb(trainable_params: int, optimizer: str) -> float:
@@ -186,7 +187,7 @@ def _optimizer_state_gb(trainable_params: int, optimizer: str) -> float:
         bpp = 4.0
     else:
         bpp = 8.0  # AdamW default
-    return trainable_params * bpp / (1024 ** 3)
+    return trainable_params * bpp / (1024**3)
 
 
 def _activation_gb(
@@ -204,7 +205,7 @@ def _activation_gb(
     n_layers = arch["num_hidden_layers"]
     # Activation per layer: q,k,v,attn_scores,attn_probs,ffn_intermediate
     bytes_per_token_per_layer = h * 2 * 6  # 6 activation tensors, fp16
-    raw_gb = batch_size * seq_len * bytes_per_token_per_layer * n_layers / (1024 ** 3)
+    raw_gb = batch_size * seq_len * bytes_per_token_per_layer * n_layers / (1024**3)
 
     if gradient_checkpointing:
         # Recompute activations during backward; only store ~sqrt(n) checkpoints
@@ -252,7 +253,7 @@ def estimate_vram(config: Any) -> FitCheckResult:
 
     target_module_count = len(lora.target_modules)
     adapter_gb = _lora_adapter_gb(arch, lora.r, target_module_count)
-    trainable_params = int(adapter_gb * (1024 ** 3) / 4)  # fp32 param count
+    trainable_params = int(adapter_gb * (1024**3) / 4)  # fp32 param count
 
     optimizer_type = getattr(t, "galore_optim", "adamw") if getattr(t, "galore_enabled", False) else "adamw"
     optim_gb = _optimizer_state_gb(trainable_params, optimizer_type)
@@ -265,7 +266,7 @@ def estimate_vram(config: Any) -> FitCheckResult:
     if getattr(t, "galore_enabled", False):
         galore_rank = getattr(t, "galore_rank", 64)
         h = arch["hidden_size"]
-        galore_gb = num_params * (galore_rank / h) * 4 / (1024 ** 3)
+        galore_gb = num_params * (galore_rank / h) * 4 / (1024**3)
 
     total_gb = base_gb + adapter_gb + optim_gb + act_gb + galore_gb
 
@@ -286,7 +287,7 @@ def estimate_vram(config: Any) -> FitCheckResult:
     try:
         if torch.cuda.is_available():
             free_bytes, total_bytes = torch.cuda.mem_get_info()
-            available_gb = total_bytes / (1024 ** 3)
+            available_gb = free_bytes / (1024**3)
         else:
             hypothetical = True
     except Exception as e:
@@ -306,7 +307,6 @@ def estimate_vram(config: Any) -> FitCheckResult:
     # --- recommendations (ordered by impact) ---
     recommendations = _build_recommendations(
         config=config,
-        arch=arch,
         total_gb=total_gb,
         available_gb=available_gb,
         quant=quant,
@@ -325,7 +325,6 @@ def estimate_vram(config: Any) -> FitCheckResult:
 
 def _build_recommendations(
     config: Any,
-    arch: Dict[str, Any],
     total_gb: float,
     available_gb: Optional[float],
     quant: str,
@@ -359,9 +358,7 @@ def _build_recommendations(
             )
 
         if quant not in ("4bit",) and not m.load_in_4bit:
-            recs.append(
-                "Enable load_in_4bit: true for QLoRA; reduces base model weight memory by ~75 %."
-            )
+            recs.append("Enable load_in_4bit: true for QLoRA; reduces base model weight memory by ~75 %.")
 
         if not getattr(t, "galore_enabled", False):
             recs.append(
@@ -371,8 +368,7 @@ def _build_recommendations(
 
         if config.lora.r > 16:
             recs.append(
-                f"Lower LoRA rank from r={config.lora.r} to 8–16; adapter memory and "
-                "optimizer state scale with r."
+                f"Lower LoRA rank from r={config.lora.r} to 8–16; adapter memory and optimizer state scale with r."
             )
 
     return recs

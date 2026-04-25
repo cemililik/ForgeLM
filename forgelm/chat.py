@@ -13,6 +13,7 @@ Usage (CLI):
     forgelm chat ./outputs/final_model
     forgelm chat ./outputs/final_model --adapter ./outputs/adapter --safety
 """
+
 from __future__ import annotations
 
 import json
@@ -185,16 +186,18 @@ class ChatSession:
 
     def _cmd_help(self, _: str) -> bool:
         self._print(
-            "\n".join([
-                "",
-                "  /reset              Clear conversation history",
-                "  /save [file]        Save history to JSONL file",
-                "  /temperature N      Set sampling temperature (0.0 < N ≤ 2.0)",
-                "  /system [prompt]    Set or view system prompt",
-                "  /exit, /quit        End the chat session",
-                "  /help, /?           Show this help",
-                "",
-            ])
+            "\n".join(
+                [
+                    "",
+                    "  /reset              Clear conversation history",
+                    "  /save [file]        Save history to JSONL file",
+                    "  /temperature N      Set sampling temperature (0.0 < N ≤ 2.0)",
+                    "  /system [prompt]    Set or view system prompt",
+                    "  /exit, /quit        End the chat session",
+                    "  /help, /?           Show this help",
+                    "",
+                ]
+            )
         )
         return True
 
@@ -207,7 +210,7 @@ class ChatSession:
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
         # Trim history to avoid context overflow (keep last N pairs)
-        trimmed = self.history[-(2 * _MAX_HISTORY_PAIRS):]
+        trimmed = self.history[-(2 * _MAX_HISTORY_PAIRS) :]
         messages.extend(trimmed)
         messages.append({"role": "user", "content": user_input})
         return messages
@@ -265,14 +268,11 @@ class ChatSession:
 
     def _safety_hint(self, prompt: str, response: str) -> None:
         """Print a lightweight safety annotation using the existing safety module."""
-        try:
-            from .safety import _HARM_CATEGORIES  # noqa: F401 — just check it imports
-
-            # Full Llama Guard eval requires loading a second model; that's expensive
-            # in interactive chat.  We emit a note so the user knows safety is wired.
-            logger.debug("Safety routing enabled; full eval requires --safety-model flag.")
-        except Exception:
-            pass
+        logger.warning(
+            "Safety annotation enabled (--safety) but full Llama Guard eval is not supported "
+            "in interactive chat mode — it would require loading a second model per turn. "
+            "Use post-training safety evaluation (forgelm train) instead."
+        )
 
     # ------------------------------------------------------------------
     # Welcome screen
