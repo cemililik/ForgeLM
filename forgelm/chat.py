@@ -11,7 +11,7 @@ Usage (programmatic):
 
 Usage (CLI):
     forgelm chat ./outputs/final_model
-    forgelm chat ./outputs/final_model --adapter ./outputs/adapter --safety
+    forgelm chat ./outputs/final_model --adapter ./outputs/adapter
 """
 
 from __future__ import annotations
@@ -56,7 +56,6 @@ class ChatSession:
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_new_tokens: int = 512,
-        enable_safety: bool = False,
         stream: bool = True,
         input_fn=None,
         output_fn=None,
@@ -66,18 +65,10 @@ class ChatSession:
         self.system_prompt = system_prompt
         self.temperature = temperature
         self.max_new_tokens = max_new_tokens
-        self.enable_safety = enable_safety
         self.stream = stream
         self.history: List[dict] = []
         self._input = input_fn or input
         self._output = output_fn or self._default_output
-
-        if self.enable_safety:
-            logger.warning(
-                "Safety annotation enabled (--safety) but full Llama Guard eval is not supported "
-                "in interactive chat mode — it would require loading a second model per turn. "
-                "Use post-training safety evaluation (forgelm train) instead."
-            )
 
     # ------------------------------------------------------------------
     # Output helpers
@@ -86,6 +77,13 @@ class ChatSession:
     def _default_output(self, text: str, end: str = "\n", flush: bool = False) -> None:
         if _HAS_RICH:
             _console.print(text, end=end)
+            if flush:
+                # rich Console buffers on small writes; force a real flush so
+                # token-by-token streaming doesn't appear frozen.
+                try:
+                    _console.file.flush()
+                except Exception:
+                    pass
         else:
             print(text, end=end, flush=flush)
 
@@ -94,6 +92,21 @@ class ChatSession:
 
     def _print_inline(self, text: str) -> None:
         self._output(text, end="", flush=True)
+
+    def _print_inline_raw(self, text: str) -> None:
+        """Inline output that must be treated as plain text, not rich markup.
+
+        Used for streaming model tokens — training data routinely contains
+        bracketed strings (`[red]ALERT[/red]`, `[/]`, `[link=...]`) that rich
+        would interpret as markup, scrambling the rendered output and creating
+        a low-grade prompt-injection vector.
+        """
+        if _HAS_RICH:
+            from rich.markup import escape as _rich_escape
+
+            self._output(_rich_escape(text), end="", flush=True)
+        else:
+            self._output(text, end="", flush=True)
 
     # ------------------------------------------------------------------
     # Session lifecycle
@@ -164,9 +177,20 @@ class ChatSession:
             path = f"chat_history_{ts}.jsonl"
         try:
             with open(path, "w", encoding="utf-8") as f:
+                # Persist the system prompt as the first message so the saved
+                # transcript is replayable as-is (reproducibility requirement).
+                if self.system_prompt:
+                    f.write(
+                        json.dumps(
+                            {"role": "system", "content": self.system_prompt},
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
                 for msg in self.history:
                     f.write(json.dumps(msg, ensure_ascii=False) + "\n")
-            self._print(f"[History saved → {path} ({len(self.history)} messages)]")
+            total = len(self.history) + (1 if self.system_prompt else 0)
+            self._print(f"[History saved → {path} ({total} messages)]")
         except OSError as e:
             self._print(f"[Save failed: {e}]")
         return True
@@ -241,7 +265,7 @@ class ChatSession:
                     temperature=self.temperature,
                     max_new_tokens=self.max_new_tokens,
                 ):
-                    self._print_inline(token)
+                    self._print_inline_raw(token)
                     response += token
             except Exception as e:
                 self._print(f"\n[Generation error: {e}]")
@@ -260,7 +284,13 @@ class ChatSession:
             except Exception as e:
                 self._print(f"[Generation error: {e}]")
                 return
-            self._print(response)
+            # Non-streaming path: full response is also untrusted model output
+            if _HAS_RICH:
+                from rich.markup import escape as _rich_escape
+
+                self._print(_rich_escape(response))
+            else:
+                self._print(response)
 
         # Append to history
         self.history.append({"role": "user", "content": user_input})
@@ -273,9 +303,7 @@ class ChatSession:
     def _print_welcome(self) -> None:
         lines = [
             "ForgeLM Chat  —  type your message and press Enter",
-            f"Streaming : {'on' if self.stream else 'off'}  |  "
-            f"Safety : {'on' if self.enable_safety else 'off'}  |  "
-            f"Temperature : {self.temperature}",
+            f"Streaming : {'on' if self.stream else 'off'}  |  Temperature : {self.temperature}",
         ]
         if self.system_prompt:
             excerpt = self.system_prompt[:70] + "…" if len(self.system_prompt) > 70 else self.system_prompt
@@ -302,7 +330,6 @@ def run_chat(
     system_prompt: Optional[str] = None,
     temperature: float = 0.7,
     max_new_tokens: int = 512,
-    enable_safety: bool = False,
     stream: bool = True,
     load_in_4bit: bool = False,
     load_in_8bit: bool = False,
@@ -319,7 +346,6 @@ def run_chat(
         system_prompt: System-role message prepended to every conversation.
         temperature: Initial sampling temperature (changeable with /temperature).
         max_new_tokens: Maximum tokens to generate per response.
-        enable_safety: Print safety annotations after each response.
         stream: Stream tokens as they are produced (default True).
         load_in_4bit: 4-bit NF4 quantisation via bitsandbytes.
         load_in_8bit: 8-bit quantisation via bitsandbytes.
@@ -344,7 +370,6 @@ def run_chat(
         system_prompt=system_prompt,
         temperature=temperature,
         max_new_tokens=max_new_tokens,
-        enable_safety=enable_safety,
         stream=stream,
     )
     session.run()

@@ -142,8 +142,10 @@ class TestHfEndpointsJson:
 
 class TestGenerateDeployConfig:
     def test_ollama_writes_file(self, tmp_path):
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
         out = str(tmp_path / "Modelfile")
-        result = generate_deploy_config("/model", "ollama", out)
+        result = generate_deploy_config(str(model_dir), "ollama", out)
 
         assert result.success is True
         assert result.target == "ollama"
@@ -151,30 +153,36 @@ class TestGenerateDeployConfig:
         assert os.path.isfile(out)
 
     def test_ollama_file_content_valid(self, tmp_path):
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
         out = str(tmp_path / "Modelfile")
-        generate_deploy_config("/model", "ollama", out, system_prompt="Be brief.")
+        generate_deploy_config(str(model_dir), "ollama", out, system_prompt="Be brief.")
 
         with open(out) as f:
             content = f.read()
-        assert "FROM /model" in content
+        assert f"FROM {model_dir}" in content
         assert "Be brief." in content
 
     def test_vllm_writes_file(self, tmp_path):
         out = str(tmp_path / "vllm.yaml")
+        # vllm accepts HF Hub IDs; no local-path requirement
         result = generate_deploy_config("/model", "vllm", out)
 
         assert result.success is True
         assert os.path.isfile(out)
 
     def test_tgi_writes_file(self, tmp_path):
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
         out = str(tmp_path / "docker-compose.yaml")
-        result = generate_deploy_config("/model", "tgi", out, port=8080)
+        result = generate_deploy_config(str(model_dir), "tgi", out, port=8080)
 
         assert result.success is True
         assert os.path.isfile(out)
 
     def test_hf_endpoints_writes_file(self, tmp_path):
         out = str(tmp_path / "endpoint.json")
+        # hf-endpoints expects HF Hub repository IDs; no local-path requirement
         result = generate_deploy_config("/model", "hf-endpoints", out)
 
         assert result.success is True
@@ -185,6 +193,7 @@ class TestGenerateDeployConfig:
 
     def test_default_filename_used_when_output_none(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
+        (tmp_path / "model").mkdir()
         result = generate_deploy_config("./model", "ollama")
         assert result.success is True
         assert result.output_path == "Modelfile"
@@ -195,16 +204,34 @@ class TestGenerateDeployConfig:
         assert result.success is False
         assert "nonexistent_runtime" in result.error
 
-    def test_result_contains_content(self, tmp_path):
+    def test_tgi_rejects_non_local_path(self, tmp_path):
+        out = str(tmp_path / "docker-compose.yaml")
+        # An HF Hub ID like "meta-llama/Llama-3-8B" must not silently produce
+        # a config that tries to mount a non-existent volume at deploy time.
+        result = generate_deploy_config("meta-llama/Llama-3-8B", "tgi", out)
+        assert result.success is False
+        assert "local model directory" in result.error.lower()
+
+    def test_ollama_rejects_non_local_path(self, tmp_path):
         out = str(tmp_path / "Modelfile")
-        result = generate_deploy_config("/model", "ollama", out)
+        result = generate_deploy_config("nonexistent/model-id", "ollama", out)
+        assert result.success is False
+        assert "local model directory" in result.error.lower()
+
+    def test_result_contains_content(self, tmp_path):
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
+        out = str(tmp_path / "Modelfile")
+        result = generate_deploy_config(str(model_dir), "ollama", out)
 
         assert result.content is not None
-        assert "FROM /model" in result.content
+        assert f"FROM {model_dir}" in result.content
 
     def test_target_case_insensitive(self, tmp_path):
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
         out = str(tmp_path / "Modelfile")
-        result = generate_deploy_config("/model", "Ollama", out)
+        result = generate_deploy_config(str(model_dir), "Ollama", out)
         assert result.success is True
 
     def test_vllm_trust_remote_code_propagated(self, tmp_path):

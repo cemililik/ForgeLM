@@ -37,6 +37,11 @@ All notable changes to ForgeLM are documented here.
   - `export_model(model_path, output_path, *, format, quant, adapter, update_integrity, extra_args)` → `ExportResult`
   - Wraps `llama-cpp-python`'s `convert_hf_to_gguf.py` — no reimplementation of conversion logic
   - Supported quantizations: `q2_k`, `q3_k_m`, `q4_k_m`, `q5_k_m`, `q8_0`, `f16`
+  - **K-quant note**: `q2_k`/`q3_k_m`/`q4_k_m`/`q5_k_m` require a two-step flow.
+    `forgelm export ... --quant q4_k_m model.gguf` produces an intermediate
+    `model.f16.gguf`; run `llama-quantize model.f16.gguf model.gguf Q4_K_M`
+    afterwards to obtain the K-quant. The `ExportResult.quant` field reflects
+    what was actually written (so `model_integrity.json` SHA-256 stays honest)
   - Adapter merge: loads base + PEFT, saves merged fp16 weights before conversion
   - `_sha256_file` — chunked 64 KB reads for large models
   - `_update_integrity_manifest` — appends export artifact (path, quant, sha256, size_bytes) to `model_integrity.json`

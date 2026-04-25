@@ -240,6 +240,20 @@ def generate_deploy_config(
             error=f"Unsupported target '{target}'. Choose from: {', '.join(sorted(SUPPORTED_TARGETS))}",
         )
 
+    # tgi mounts model_path as a docker volume; ollama Modelfile FROM expects
+    # either a local directory or an Ollama-registry name. An HF Hub ID like
+    # "meta-llama/Llama-3-8B" silently produces a broken config the user only
+    # discovers at `docker compose up` / `ollama create` time.
+    if target in {"tgi", "ollama"} and not os.path.isdir(model_path):
+        return DeployResult(
+            success=False,
+            target=target,
+            error=(
+                f"target='{target}' requires a local model directory but '{model_path}' is not a directory. "
+                "Pass the path to a fine-tuned/merged model on disk (HF Hub IDs are not supported for this target)."
+            ),
+        )
+
     if output_path is None:
         output_path = _DEFAULT_FILENAMES[target]
 

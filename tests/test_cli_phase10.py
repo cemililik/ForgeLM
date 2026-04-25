@@ -108,8 +108,10 @@ class TestFitCheckFlag:
 
 class TestDeployCLI:
     def test_deploy_ollama_exits_success(self, tmp_path):
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
         out = str(tmp_path / "Modelfile")
-        with patch("sys.argv", ["forgelm", "deploy", "./model", "--target", "ollama", "--output", out]):
+        with patch("sys.argv", ["forgelm", "deploy", str(model_dir), "--target", "ollama", "--output", out]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
         assert exc_info.value.code == EXIT_SUCCESS
@@ -117,20 +119,24 @@ class TestDeployCLI:
 
     def test_deploy_vllm_exits_success(self, tmp_path):
         out = str(tmp_path / "vllm.yaml")
+        # vllm accepts HF Hub IDs; no local-path validation
         with patch("sys.argv", ["forgelm", "deploy", "./model", "--target", "vllm", "--output", out]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
         assert exc_info.value.code == EXIT_SUCCESS
 
     def test_deploy_tgi_exits_success(self, tmp_path):
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
         out = str(tmp_path / "docker-compose.yaml")
-        with patch("sys.argv", ["forgelm", "deploy", "./model", "--target", "tgi", "--output", out]):
+        with patch("sys.argv", ["forgelm", "deploy", str(model_dir), "--target", "tgi", "--output", out]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
         assert exc_info.value.code == EXIT_SUCCESS
 
     def test_deploy_hf_endpoints_exits_success(self, tmp_path):
         out = str(tmp_path / "endpoint.json")
+        # hf-endpoints expects HF Hub repo IDs; no local-path validation
         with patch("sys.argv", ["forgelm", "deploy", "./model", "--target", "hf-endpoints", "--output", out]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
@@ -144,10 +150,12 @@ class TestDeployCLI:
         assert exc_info.value.code == EXIT_TRAINING_ERROR
 
     def test_deploy_json_output(self, tmp_path, capsys):
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
         out = str(tmp_path / "Modelfile")
         with patch(
             "sys.argv",
-            ["forgelm", "--output-format", "json", "deploy", "./model", "--target", "ollama", "--output", out],
+            ["forgelm", "--output-format", "json", "deploy", str(model_dir), "--target", "ollama", "--output", out],
         ):
             with pytest.raises(SystemExit) as exc_info:
                 main()
@@ -159,13 +167,15 @@ class TestDeployCLI:
         assert result["target"] == "ollama"
 
     def test_deploy_with_system_prompt(self, tmp_path):
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
         out = str(tmp_path / "Modelfile")
         with patch(
             "sys.argv",
             [
                 "forgelm",
                 "deploy",
-                "./model",
+                str(model_dir),
                 "--target",
                 "ollama",
                 "--output",
@@ -183,8 +193,10 @@ class TestDeployCLI:
 
     def test_deploy_does_not_require_config(self, tmp_path):
         """forgelm deploy must work without --config."""
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
         out = str(tmp_path / "Modelfile")
-        with patch("sys.argv", ["forgelm", "deploy", "./model", "--target", "ollama", "--output", out]):
+        with patch("sys.argv", ["forgelm", "deploy", str(model_dir), "--target", "ollama", "--output", out]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
         # Must exit with success, not CONFIG_ERROR
@@ -248,7 +260,8 @@ class TestExportCLI:
         open(os.path.join(pkg_dir, "convert_hf_to_gguf.py"), "w").close()
 
         def fake_run(cmd, **kwargs):
-            with open(out, "wb") as f:
+            actual = cmd[cmd.index("--outfile") + 1] if "--outfile" in cmd else out
+            with open(actual, "wb") as f:
                 f.write(b"gguf data")
             m = MagicMock()
             m.returncode = 0
@@ -257,7 +270,10 @@ class TestExportCLI:
 
         with patch.dict(sys.modules, {"llama_cpp": llama_cpp_stub}):
             with patch("subprocess.run", side_effect=fake_run):
-                with patch("sys.argv", ["forgelm", "export", str(tmp_path), "--output", out]):
+                with patch(
+                    "sys.argv",
+                    ["forgelm", "export", str(tmp_path), "--output", out, "--quant", "q8_0"],
+                ):
                     with pytest.raises(SystemExit) as exc_info:
                         main()
 

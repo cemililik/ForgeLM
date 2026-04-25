@@ -121,14 +121,17 @@ def _find_converter_script() -> str:
 def _merge_adapter(model_path: str, adapter_path: str, merged_dir: str) -> None:
     """Merge a PEFT LoRA adapter into the base model and save to *merged_dir*.
 
-    The merged weights are in fp16 HuggingFace format, ready for GGUF conversion.
+    Forces ``torch_dtype=float16`` for the merge: GGUF f16 conversion will cast
+    to fp16 anyway, and bf16 math on CPU silently falls back to fp32 (much
+    slower for large models).
     """
+    import torch
     from peft import PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     logger.info("Merging adapter %s into base model %s ...", adapter_path, model_path)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype="auto", device_map="cpu")
+    model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16, device_map="cpu")
     model = PeftModel.from_pretrained(model, adapter_path)
     model = model.merge_and_unload()
 
@@ -259,25 +262,37 @@ def export_model(
             )
 
     # K-quants need a separate llama-quantize step; convert to f16 here
+    # and route the output to a `.f16` filename so the manifest never claims
+    # a SHA-256 that doesn't match the requested quant.
+    requested_quant = quant
+    actual_quant = quant
+    actual_output_path = output_path
     if quant in _K_QUANTS:
+        actual_quant = "f16"
+        if output_path.endswith(".gguf"):
+            actual_output_path = output_path[: -len(".gguf")] + ".f16.gguf"
+        else:
+            actual_output_path = output_path + ".f16.gguf"
         logger.warning(
             "K-quant '%s' is not supported directly by convert_hf_to_gguf.py. "
-            "Producing an f16 GGUF instead. To get a %s GGUF, run "
-            "`llama-quantize <output.gguf> <output-%s.gguf> %s` afterwards.",
-            quant,
-            quant,
-            quant,
-            quant.upper(),
+            "Producing an intermediate f16 GGUF at %s instead. "
+            "To get a %s GGUF, run `llama-quantize %s %s %s` afterwards.",
+            requested_quant,
+            actual_output_path,
+            requested_quant,
+            actual_output_path,
+            output_path,
+            requested_quant.upper(),
         )
 
     # Build converter command
-    outtype = _OUTTYPE_MAP[quant]
+    outtype = _OUTTYPE_MAP[requested_quant]
     cmd: List[str] = [
         sys.executable,
         converter,
         source_path,
         "--outfile",
-        output_path,
+        actual_output_path,
         "--outtype",
         outtype,
     ]
@@ -295,23 +310,30 @@ def export_model(
             timeout=3600,
         )
         if proc.returncode != 0:
-            error_detail = proc.stderr.strip() or proc.stdout.strip() or "unknown error"
-            logger.error("GGUF conversion failed (exit %d): %s", proc.returncode, error_detail)
+            full_stderr = proc.stderr or ""
+            full_stdout = proc.stdout or ""
+            # Log the full output so debug context isn't lost on truncation
+            if full_stderr.strip():
+                logger.error("GGUF converter stderr:\n%s", full_stderr)
+            if full_stdout.strip():
+                logger.error("GGUF converter stdout:\n%s", full_stdout)
+            error_detail = full_stderr.strip() or full_stdout.strip() or "unknown error"
+            logger.error("GGUF conversion failed (exit %d)", proc.returncode)
             return ExportResult(
                 success=False,
                 format=format,
-                quant=quant,
+                quant=actual_quant,
                 error=f"Converter exited with code {proc.returncode}: {error_detail[:500]}",
             )
     except subprocess.TimeoutExpired:
         return ExportResult(
             success=False,
             format=format,
-            quant=quant,
+            quant=actual_quant,
             error="GGUF conversion timed out after 3600 seconds.",
         )
     except Exception as e:
-        return ExportResult(success=False, format=format, quant=quant, error=str(e))
+        return ExportResult(success=False, format=format, quant=actual_quant, error=str(e))
     finally:
         if merged_dir and os.path.isdir(merged_dir):
             import shutil
@@ -319,32 +341,32 @@ def export_model(
             shutil.rmtree(merged_dir, ignore_errors=True)
             logger.debug("Cleaned up temporary merged directory: %s", merged_dir)
 
-    if not os.path.isfile(output_path):
+    if not os.path.isfile(actual_output_path):
         return ExportResult(
             success=False,
             format=format,
-            quant=quant,
-            error=f"Conversion appeared to succeed but output file not found: {output_path}",
+            quant=actual_quant,
+            error=f"Conversion appeared to succeed but output file not found: {actual_output_path}",
         )
 
-    # Compute artifact stats
-    digest = _sha256_file(output_path)
-    size_bytes = os.path.getsize(output_path)
+    # Compute artifact stats — reflect the file actually written, not the requested quant
+    digest = _sha256_file(actual_output_path)
+    size_bytes = os.path.getsize(actual_output_path)
 
     result = ExportResult(
         success=True,
-        output_path=output_path,
+        output_path=actual_output_path,
         format=format,
-        quant=quant,
+        quant=actual_quant,
         sha256=digest,
         size_bytes=size_bytes,
     )
 
     logger.info(
         "GGUF export complete: %s (%.1f GB, quant=%s, sha256=%s…)",
-        output_path,
+        actual_output_path,
         size_bytes / (1024**3),
-        quant,
+        actual_quant,
         digest[:12],
     )
 

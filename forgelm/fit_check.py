@@ -91,11 +91,16 @@ def _load_arch_params(model_name_or_path: str, trust_remote_code: bool = False) 
     except Exception as e:
         logger.debug("Could not load AutoConfig for %s: %s — using size hint fallback.", model_name_or_path, e)
 
-    # Fill in missing values using size-hint lookup on the model name
+    # Fill in missing values using size-hint lookup on the model name.
+    # Match against word-bounded tokens so "3b" inside "llama-13b" doesn't
+    # spuriously pick up the 3B architecture profile.
     name_lower = str(model_name_or_path).lower()
     hint: Optional[Tuple[int, int, int]] = None
+    import re
+
     for fragment, h in _MODEL_SIZE_HINTS.items():
-        if fragment in name_lower:
+        # \b ensures we match "13b" only as a whole token, not as a suffix of larger numbers
+        if re.search(rf"(?<!\d){re.escape(fragment)}(?![0-9a-z])", name_lower):
             hint = h
             break
 
@@ -281,6 +286,13 @@ def estimate_vram(config: Any) -> FitCheckResult:
         "total_estimated_gb": round(total_gb, 2),
         "quant_scheme": quant,
         "estimated_param_count_b": round(num_params / 1e9, 2),
+        # Estimation, not measurement.  FlashAttention/SDPA can drop activation
+        # memory by 30–50 %; MoE expert counts can multiply it 2–3×; sliding-
+        # window attention shifts the curve.  Treat the verdict as advisory.
+        "estimation_caveat": (
+            "heuristic estimate, ±30% typical; FlashAttention/SDPA, MoE expert "
+            "count, and attention type are not modeled"
+        ),
     }
 
     # --- available VRAM ---

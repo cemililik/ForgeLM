@@ -59,7 +59,6 @@ def _add_chat_subcommand(subparsers) -> None:
     p.add_argument("--system", type=str, default=None, metavar="PROMPT", help="Initial system prompt.")
     p.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature (default: 0.7).")
     p.add_argument("--max-new-tokens", type=int, default=512, help="Max tokens per response (default: 512).")
-    p.add_argument("--safety", action="store_true", help="Enable per-response safety annotations.")
     p.add_argument("--no-stream", action="store_true", help="Disable streaming output.")
     p.add_argument("--load-in-4bit", action="store_true", help="Load model in 4-bit NF4 quantisation.")
     p.add_argument("--load-in-8bit", action="store_true", help="Load model in 8-bit quantisation.")
@@ -608,7 +607,6 @@ def _run_chat_cmd(args) -> None:
             system_prompt=args.system,
             temperature=args.temperature,
             max_new_tokens=args.max_new_tokens,
-            enable_safety=args.safety,
             stream=not args.no_stream,
             load_in_4bit=args.load_in_4bit,
             load_in_8bit=args.load_in_8bit,
@@ -715,6 +713,9 @@ def main():
         _setup_logging(log_level, json_format=json_output)
 
         if command == "chat":
+            # _run_chat_cmd's REPL catches KeyboardInterrupt internally for the
+            # input prompt; this outer guard covers Ctrl-C during model load /
+            # welcome banner render, before the REPL loop has started.
             try:
                 _run_chat_cmd(args)
             except KeyboardInterrupt:

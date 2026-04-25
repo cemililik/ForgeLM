@@ -119,8 +119,10 @@ class TestExportModel:
         output_path = str(tmp_path / "model.gguf")
 
         def fake_run(cmd, **kwargs):
-            # Write the fake output file as if the converter ran
-            with open(output_path, "wb") as f:
+            # Write to whatever path the converter was invoked with so K-quant
+            # rerouting (output.gguf → output.f16.gguf) is handled transparently.
+            actual = cmd[cmd.index("--outfile") + 1] if "--outfile" in cmd else output_path
+            with open(actual, "wb") as f:
                 f.write(content)
             result = MagicMock()
             result.returncode = 0
@@ -163,7 +165,7 @@ class TestExportModel:
                 result = export_model(
                     str(tmp_path / "model"),
                     output_path,
-                    quant="q4_k_m",
+                    quant="q8_0",
                     update_integrity=False,
                 )
 
@@ -171,7 +173,31 @@ class TestExportModel:
         assert result.sha256 is not None
         assert len(result.sha256) == 64  # SHA-256 hex digest
         assert result.size_bytes > 0
-        assert result.quant == "q4_k_m"
+        assert result.quant == "q8_0"
+
+    def test_kquant_produces_f16_intermediate(self, tmp_path):
+        """K-quant requests must yield result.quant='f16' and a .f16.gguf path
+        so the integrity manifest never claims a SHA-256 it can't back."""
+        output_path, fake_run = self._mock_successful_conversion(tmp_path)
+        llama_cpp_stub = MagicMock()
+        os.makedirs(str(tmp_path / "llama_cpp"), exist_ok=True)
+        llama_cpp_stub.__file__ = str(tmp_path / "llama_cpp" / "__init__.py")
+        open(str(tmp_path / "llama_cpp" / "convert_hf_to_gguf.py"), "w").close()
+
+        with patch.dict(sys.modules, {"llama_cpp": llama_cpp_stub}):
+            with patch("subprocess.run", side_effect=fake_run):
+                result = export_model(
+                    str(tmp_path / "model"),
+                    output_path,
+                    quant="q4_k_m",
+                    update_integrity=False,
+                )
+
+        assert result.success is True
+        # Actual file written must reflect f16, not q4_k_m
+        assert result.quant == "f16"
+        assert result.output_path.endswith(".f16.gguf")
+        assert os.path.isfile(result.output_path)
 
     def test_converter_exit_nonzero_returns_failure(self, tmp_path):
         llama_cpp_stub = MagicMock()
@@ -222,7 +248,8 @@ class TestExportModel:
         open(os.path.join(pkg_dir, "convert_hf_to_gguf.py"), "w").close()
 
         def fake_run(cmd, **kwargs):
-            with open(output_path, "wb") as f:
+            actual = cmd[cmd.index("--outfile") + 1] if "--outfile" in cmd else output_path
+            with open(actual, "wb") as f:
                 f.write(b"gguf data")
             m = MagicMock()
             m.returncode = 0
@@ -231,7 +258,7 @@ class TestExportModel:
 
         with patch.dict(sys.modules, {"llama_cpp": llama_cpp_stub}):
             with patch("subprocess.run", side_effect=fake_run):
-                result = export_model(model_dir, output_path, update_integrity=True)
+                result = export_model(model_dir, output_path, quant="q8_0", update_integrity=True)
 
         assert result.success is True
         with open(integrity_path) as f:
@@ -249,7 +276,8 @@ class TestExportModel:
         output_gguf = str(tmp_path / "model.gguf")
 
         def fake_run(cmd, **kwargs):
-            with open(output_gguf, "wb") as f:
+            actual = cmd[cmd.index("--outfile") + 1] if "--outfile" in cmd else output_gguf
+            with open(actual, "wb") as f:
                 f.write(b"data")
             m = MagicMock()
             m.returncode = 0

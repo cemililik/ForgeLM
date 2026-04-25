@@ -156,6 +156,10 @@ def _build_prompt(
     parts: List[str] = []
     for msg in messages:
         parts.append(f"{msg['role']}: {msg['content']}")
+    # Mimic add_generation_prompt=True: signal the model to continue as assistant
+    # rather than echoing the user role.  Without this, raw base models tend to
+    # produce a "user: ..." continuation instead of a response.
+    parts.append("assistant: ")
     return "\n".join(parts)
 
 
@@ -257,7 +261,14 @@ def generate_stream(
     text = _build_prompt(tokenizer, messages)
     input_ids = tokenizer(text, return_tensors="pt").input_ids.to(model.device)
 
-    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+    # timeout prevents an indefinite block when model.generate() raises before
+    # the streamer's queue is populated (OOM, dtype mismatch, invalid input ids).
+    streamer = TextIteratorStreamer(
+        tokenizer,
+        skip_prompt=True,
+        skip_special_tokens=True,
+        timeout=60.0,
+    )
 
     gen_kwargs: Dict[str, Any] = dict(
         input_ids=input_ids,
@@ -282,8 +293,20 @@ def generate_stream(
     thread = Thread(target=_gen_thread, daemon=True)
     thread.start()
 
-    for token_text in streamer:
-        yield token_text
+    from queue import Empty as _QueueEmpty
+
+    try:
+        for token_text in streamer:
+            yield token_text
+    except _QueueEmpty as timeout_err:
+        # Streamer timed out waiting for the next token.  If the worker thread
+        # captured an exception, surface that; otherwise raise a TimeoutError
+        # so callers can distinguish "stuck" from a normal end of generation.
+        if _exc:
+            raise _exc[0] from timeout_err
+        raise TimeoutError(
+            "generate_stream timed out waiting for the next token from model.generate()."
+        ) from timeout_err
 
     thread.join()
     if _exc:
