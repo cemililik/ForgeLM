@@ -29,8 +29,8 @@ class TestConstants:
         assert "tgi" in SUPPORTED_TARGETS
         assert "hf-endpoints" in SUPPORTED_TARGETS
 
-    def test_deploy_result_dataclass(self):
-        r = DeployResult(success=True, target="ollama", output_path="/tmp/Modelfile")
+    def test_deploy_result_dataclass(self, tmp_path):
+        r = DeployResult(success=True, target="ollama", output_path=str(tmp_path / "Modelfile"))
         assert r.success is True
         assert r.error is None
 

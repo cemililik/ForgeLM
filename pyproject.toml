@@ -120,6 +120,13 @@ line-length = 120
 select = ["F", "E9", "W", "B", "I"]
 ignore = ["B008", "B905"]
 
+# Bandit static-analysis config (consumed by Codacy + standalone bandit).
+# - B101 (assert_used) is disabled for tests/ because pytest requires asserts.
+# - tests/ is excluded from the broader scan; we still scan the package itself.
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "build", "dist"]
+skips = ["B101"]
+
 [tool.coverage.run]
 source = ["forgelm"]
 omit = ["forgelm/wizard.py"]

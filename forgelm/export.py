@@ -301,8 +301,11 @@ def export_model(
 
     logger.info("Running GGUF conversion: %s", " ".join(cmd))
 
+    # Bandit B603: cmd is built from a fixed list (no shell=True), the
+    # converter path is resolved by _find_converter_script, and source/output
+    # paths come from the user's own export call — no untrusted input.
     try:
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: S603  # nosec B603
             cmd,
             capture_output=True,
             text=True,

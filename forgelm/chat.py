@@ -79,10 +79,12 @@ class ChatSession:
             _console.print(text, end=end)
             if flush:
                 # rich Console buffers on small writes; force a real flush so
-                # token-by-token streaming doesn't appear frozen.
+                # token-by-token streaming doesn't appear frozen. Narrow the
+                # catch to the actual failure modes — closed stdout (OSError)
+                # or a console without a file attribute (AttributeError).
                 try:
                     _console.file.flush()
-                except Exception:
+                except (OSError, AttributeError):
                     pass
         else:
             print(text, end=end, flush=flush)
