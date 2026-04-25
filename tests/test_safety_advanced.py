@@ -229,7 +229,7 @@ class TestClassifierConversationFormat:
         mock_tokenizer.decode.return_value = "4"
 
         with (
-            patch("forgelm.safety.pipeline", side_effect=mock_pipeline),
+            patch("transformers.pipeline", side_effect=mock_pipeline),
             patch("torch.cuda.empty_cache"),
         ):
             safety_mod.run_safety_evaluation(

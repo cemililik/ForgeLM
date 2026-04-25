@@ -163,9 +163,9 @@ class TestComplianceManifestUsesOriginalBatchSize:
 
         captured_manifests = []
 
-        def capture_manifest(cfg, **kwargs):
+        def capture_manifest(config, **kwargs):
             # Record the batch_size that generate_training_manifest sees
-            captured_manifests.append(cfg.training.per_device_train_batch_size)
+            captured_manifests.append(config.training.per_device_train_batch_size)
             return {"model_lineage": {}, "training_parameters": {}, "data_provenance": {},
                     "evaluation_results": {"metrics": {}}}
 
