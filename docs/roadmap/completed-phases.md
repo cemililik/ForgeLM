@@ -4,21 +4,22 @@
 
 ## Summary table
 
-| Phase | Focus | Tasks | Complete |
-|-------|-------|-------|----------|
-| 1 | SOTA Upgrades (QLoRA, DoRA, Unsloth, SFTTrainer) | 6 | ✅ |
-| 2 | Evaluation & Validation (lm-eval, auto-revert, webhook) | 5 | ✅ |
-| 2.5 | Reliability (logging, coverage, CI/CD hardening) | 8 | ✅ |
-| 3 | Enterprise Integration (Wizard, Docker, JSON, offline) | 6 | ✅ |
-| 4 | Ecosystem Growth (ORPO, W&B, multi-dataset, FSDP) | 5 | ✅ |
-| 5 | Alignment Stack (DPO, SimPO, KTO, GRPO) | 5 | ✅ |
-| 5.5 | Technical Debt Resolution | 7 | ✅ |
-| 6 | Enterprise Trust & Compliance (safety, LLM-judge, cost) | 5 | ✅ |
-| 7 | Next-Gen Model Support (MoE, VLM, merging, PiSSA) | 5 | ✅ |
-| 8 | EU AI Act Deep Compliance (Articles 9-17 + Annex IV) | 10 | ✅ |
-| 9 | Advanced Safety & Evaluation Intelligence | 8 | ✅ |
+| Phase | Focus | Tasks | Complete | Release |
+|-------|-------|-------|----------|---------|
+| 1 | SOTA Upgrades (QLoRA, DoRA, Unsloth, SFTTrainer) | 6 | ✅ | — |
+| 2 | Evaluation & Validation (lm-eval, auto-revert, webhook) | 5 | ✅ | — |
+| 2.5 | Reliability (logging, coverage, CI/CD hardening) | 8 | ✅ | — |
+| 3 | Enterprise Integration (Wizard, Docker, JSON, offline) | 6 | ✅ | — |
+| 4 | Ecosystem Growth (ORPO, W&B, multi-dataset, FSDP) | 5 | ✅ | — |
+| 5 | Alignment Stack (DPO, SimPO, KTO, GRPO) | 5 | ✅ | v0.3.0 |
+| 5.5 | Technical Debt Resolution | 7 | ✅ | v0.3.0 |
+| 6 | Enterprise Trust & Compliance (safety, LLM-judge, cost) | 5 | ✅ | v0.3.0 |
+| 7 | Next-Gen Model Support (MoE, VLM, merging, PiSSA) | 5 | ✅ | v0.3.0 |
+| 8 | EU AI Act Deep Compliance (Articles 9-17 + Annex IV) | 10 | ✅ | v0.3.1 |
+| 9 | Advanced Safety & Evaluation Intelligence | 8 | ✅ | v0.3.1 |
+| 10 | Post-Training Completion (inference, chat, export, fit-check, deploy) | 5 | ✅ | v0.4.0 |
 
-**Toplam: 70 tamamlanmış görev, 11 phase, ~3000 satır kod + 200+ test.**
+**Toplam: 75 tamamlanmış görev, 12 phase, ~5000 satır kod + 427 test.**
 
 ---
 
@@ -639,195 +640,17 @@ graph TD
 
 ---
 
----
+## Phase 10: Post-Training Completion ✅ (v0.4.0)
 
-## Phase 10: Post-Training Completion
-**Goal:** Close the "trained, now what?" gap. After a fine-tune finishes, users should be able to sanity-check, export, and hand the model to a serving runtime (Ollama, vLLM, TGI) without leaving ForgeLM.
-**Estimated Effort:** Medium (2-3 months)
-**Priority:** High — single biggest post-9 UX gap; foundation for Phase 12 (quickstart)
+> **Ayrıntılar:** [phase-10-post-training.md](phase-10-post-training.md)
 
-> **Context:** External analyses of two adjacent projects (QKV-Core, Trion) plus internal retrospectives converged on the same finding: ForgeLM stops at `output_dir/` with an HF-format adapter/merged model, but the user's actual journey continues to sanity chat → quantization → serving. Competitors (Axolotl, Unsloth) leave this to external tooling. Owning this handoff — without rewriting the inference ecosystem — is a high-value, low-risk addition.
+5 görev, 5 yeni modül, 89 yeni test. `inference.py`, `chat.py`, `fit_check.py`, `export.py`, `deploy.py`. CLI subcommand mimarisi (`forgelm chat / export / deploy`), `--fit-check` flag. Nisan 2026.
 
-### Tasks:
-
-1. [ ] **`forgelm/inference.py` — generation + logit statistics + adaptive sampling**
-   Core API: `load_model(path, adapter=None, backend="transformers")`, `generate(model, tokenizer, prompt, **kwargs)`, `logit_stats(logits) -> {entropy, top1_prob, effective_vocab}`, `adaptive_sample(logits, temperature, top_k, top_p, entropy_threshold=6.5)`. Chat template reuse from `data.py`. Streaming + non-streaming via `TextIteratorStreamer`. Opt-in safety routing through existing `safety.py`.
-   ```python
-   from forgelm.inference import load_model, generate
-   model, tok = load_model("./outputs/my_run", adapter="./outputs/my_run/adapter_model")
-   text = generate(model, tok, "Hello", max_new_tokens=200, temperature=0.7)
-   ```
-
-2. [ ] **`forgelm chat` — interactive terminal loop**
-   Terminal REPL: streaming output, `/reset`, `/save`, `/temperature 0.x`, `/system <prompt>` commands. `rich` for rendering. Auto-detect HF model vs merged adapter. Optional `--safety` flag wires Llama Guard check on each response (bridge to Layer 3 enterprise features).
-   ```bash
-   forgelm chat ./outputs/my_run
-   forgelm chat ./outputs/my_run --adapter ./outputs/my_run/adapter_model --safety
-   ```
-
-3. [ ] **`forgelm export` — HF → GGUF conversion**
-   Wrap `llama-cpp-python`'s conversion scripts; do not reimplement. Handle adapter merge (LoRA + base → single weights) before conversion. Support quants: `q2_k`, `q3_k_m`, `q4_k_m`, `q5_k_m`, `q8_0`, `f16`. Integrate with `compliance.py`: exported artifact SHA-256 added to `model_integrity.json`. Optional dependency: `pip install forgelm[export]`.
-   ```bash
-   forgelm export ./outputs/my_run --format gguf --quant q4_k_m --output model.gguf
-   ```
-
-4. [ ] **`forgelm fit-check` — VRAM fit advisor**
-   Pre-flight memory estimator. Detects GPU via `torch.cuda.mem_get_info()`. Estimates peak VRAM = base (params × dtype) + activations (heuristic: batch × seq × hidden × 4 × layers) + optimizer state (AdamW 2×, 8bit 0.5×, GaLore rank-dependent). Produces verdict (FITS / TIGHT / OOM) and ordered recommendations (batch↓, seq↓, gradient_checkpointing, QLoRA, GaLore). Calibrated against known model-config pairs; target ±15% accuracy.
-   ```bash
-   forgelm --config my.yaml --fit-check
-   # → GPU: RTX 3060 12GB; Estimated peak: 10.8 GB; Verdict: ✅ FITS with 0.5 GB headroom
-   ```
-
-5. [ ] **`forgelm deploy` — serving handoff config generation**
-   Generates deployment configs for popular inference runtimes; does not run the server itself. Targets: `ollama` (Modelfile), `vllm` (engine config YAML), `tgi` (docker-compose.yaml), `hf-endpoints` (API spec). Output is a ready-to-consume file the user runs with the target tool.
-   ```bash
-   forgelm deploy ./outputs/my_run --target ollama --output ./Modelfile
-   forgelm deploy ./outputs/my_run --target vllm --output ./vllm_config.yaml
-   ```
-
-### Requirements:
-- All five modules must work without GPU for config generation (fit-check excepted — it reads GPU but doesn't require one, falls back to hypothetical mode).
-- `inference.py` and `chat.py` share the same load/generate primitives with `safety.py`, `judge.py`, and `synthetic.py`; refactor duplicated `model.generate()` calls into the new module.
-- Each CLI command supports `--output-format json` for pipeline integration.
-- `pip install forgelm[export]` is optional; core install must not require `llama-cpp-python`.
-- Windows/Linux/macOS compatibility for all CLI surface (GGUF export may require specific toolchains, document clearly).
-
-### Delivery:
-- Target release: `v0.4.0` ("Post-Training Completion")
-- Each task = independent PR with tests; no cross-task blocking dependencies.
-
----
-
----
-
-## Phase 11: Document Ingestion & Data Audit
-**Goal:** Turn raw domain documents (PDF, DOCX, EPUB, TXT, plus structured sources) into training-ready JSONL, with automatic data quality reports that plug into EU AI Act Article 10 data governance.
-**Estimated Effort:** Medium (1-2 months)
-**Priority:** High — enterprise onboarding accelerator; bridges ingestion → training → compliance audit in one tool.
-
-> **Context:** Dataset loading today goes through HuggingFace `load_dataset` + JSONL/CSV/Parquet. Enterprises arriving with directories of PDFs (legal, medical, policy manuals) have to write custom preprocessing. This module removes that friction and simultaneously generates governance artifacts that satisfy Article 10 (data collection method, quality metrics, bias declarations).
-
-### Tasks:
-
-1. [ ] **`forgelm/ingestion.py` — multi-format → JSONL**
-   Parsers for PDF (`pypdf`), DOCX (`python-docx`), EPUB (`ebooklib` + `beautifulsoup4`), plain TXT. Chunking strategies: `sliding` (fixed token window with overlap), `paragraph` (semantic boundary), `semantic` (optional, embedding-based; external dependency). Output: `{"messages": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}` SFT-compatible JSONL. Optional dependency group: `pip install forgelm[ingestion]`.
-   ```bash
-   forgelm ingest ./book.epub --chunk 2048 --strategy paragraph --output data/sft.jsonl
-   forgelm ingest ./policies/ --recursive --output data/policies.jsonl
-   ```
-
-2. [ ] **`forgelm/data_audit.py` — dataset quality & governance report**
-   Analyzes a JSONL dataset, produces `data_audit_report.json` with: sample count per split, column schema, text length distribution (min/max/mean/p50/p95), language detection (top-3), duplicate / near-duplicate rate (simhash-based), null/empty rate, PII flag counts (regex-based; optional `presidio` integration). Feeds Phase 8 Article 10 artifact (`data_governance_report.json`).
-   ```bash
-   forgelm --data-audit data/sft.jsonl --output audit/
-   ```
-
-3. [ ] **PII detection hooks**
-   Regex-based detector for: emails, phone numbers (international formats), credit cards (Luhn-validated), IBAN, national IDs (TR, DE, FR, US SSN). Counts flags per sample; optionally masks via `--pii-mask`. Does not block training by default — surfaces in audit report.
-
-4. [ ] **Near-duplicate detection across splits**
-   Simhash / MinHash across train/validation/test. Reports overlap rate. Critical for fair benchmarking — train-test leakage is a silent quality killer.
-
-### Requirements:
-- Ingestion must handle malformed files gracefully (scan PDFs with no text layer → warning + empty result, not crash).
-- Audit runs on CPU; no GPU required.
-- All outputs integrate with Phase 8 compliance artifacts — data governance report references the audit JSON.
-- OCR is out of scope; document this as a limitation and suggest external tooling (Tesseract, AWS Textract).
-
-### Delivery:
-- Target release: `v0.4.5` or folded into `v0.5.0`
-- Can start after Phase 10 task 1-2 land; no hard blocker.
-
----
-
----
-
-## Phase 12: Quickstart Layer & Onboarding
-**Goal:** Make "my first fine-tune" a 10-minute experience. One command, one model in the end, zero YAML writing. Without sacrificing the CI/CD-native core — quickstart generates a YAML the user can later customize.
-**Estimated Effort:** Medium (1-2 months)
-**Priority:** High — closes the most-cited adoption gap; direct input to YouTube content strategy.
-
-> **Context:** Strategic decision documented in the [enterprise-vs-simple paradox analysis](../marketing/strategy/01-paradoks-enterprise-vs-sade.md): ForgeLM adds a "Layer 0" entry point without changing its CI/CD-native identity. The same YAML schema, the same trainer, the same outputs — just wrapped in pre-built templates and opinionated defaults. Depends on Phase 10 (`chat`) for end-of-training sanity loop.
-
-### Tasks:
-
-1. [ ] **`forgelm/quickstart.py` + `forgelm quickstart <template>` CLI**
-   Takes a template name, optional model override, optional dataset override. Generates a `my_run.yaml` under `./configs/` and immediately invokes `forgelm --config ./configs/my_run.yaml`. On completion, auto-invokes `forgelm chat` unless `--no-chat` flag. Transparent about what it did — prints generated YAML path.
-   ```bash
-   forgelm quickstart customer-support
-   forgelm quickstart code-assistant --model DeepSeek-Coder-6.7B
-   forgelm quickstart --list
-   ```
-
-2. [ ] **Template library: `forgelm/templates/` + bundled sample datasets**
-   Initial five templates, each = YAML config + sample JSONL (100-500 examples, license-clean):
-   - `customer-support` (Qwen2.5-7B / Llama-3.1-8B, 100 examples, QLoRA r=8, ~15 min on RTX 3060)
-   - `code-assistant` (DeepSeek-Coder-6.7B, 200 examples, QLoRA, ~25 min)
-   - `domain-expert` (Qwen2.5-7B, uses `forgelm ingest` on user-supplied docs)
-   - `medical-qa-tr` (Qwen2.5-7B, 100 TR examples; Turkish-language flagship)
-   - `grpo-math` (Qwen2.5-Math-7B, mini-gsm8k, GRPO reward function, ~45 min)
-   Each template must produce a working model on an 8-12 GB consumer GPU. `fit_check` integration: if GPU too small, quickstart auto-downsizes model choice.
-
-3. [ ] **Conservative default policy for quickstart**
-   All templates ship with: QLoRA 4-bit NF4, rank=8, batch=1 with gradient accumulation, gradient checkpointing on, safety eval off (opt-in only), compliance artifacts off (opt-in only). Rationale: minimize "GPU OOM on first run" and "compliance scared me off" failure modes.
-
-4. [ ] **Wizard integration — template selector first**
-   `forgelm --wizard` opens with "Start from a template?" question. If yes → pass to quickstart flow. If no → existing 10-question flow. Merges the two paths.
-
-5. [ ] **End-to-end smoke test in CI**
-   Nightly CI runs: `forgelm quickstart customer-support --dry-run` for each template. Validates YAML generation + dataset parse + config validation. No GPU required (dry-run). Catches template drift early.
-
-### Requirements:
-- Sample datasets must be license-clean (CC-BY-SA 4.0 or similar permissive, documented in `forgelm/templates/LICENSES.md`).
-- Each template has a companion YouTube video (scheduled in marketing roadmap, not this roadmap).
-- Templates are a foundation for community contributions: `CONTRIBUTING.md` should document how to add new templates; each template is an atomic PR.
-- Quickstart must not introduce a "quickstart vs real training" bifurcation — same underlying code paths, same YAML schema.
-
-### Delivery:
-- Target release: `v0.5.0` ("Quickstart Layer")
-- Blocks on Phase 10 tasks 1 + 2 (`inference.py`, `chat.py`).
-
----
-
----
-
-## Phase 13: Pro CLI & Observability Dashboard
-**Goal:** First paid-tier feature set. Observability and experimentation workflows that open-source users can live without, but teams running ≥5 concurrent experiments cannot. Revenue bridge between consulting (Phase B) and Cloud SaaS (future).
-**Estimated Effort:** High (3-4 months)
-**Priority:** Medium — gated by Phase 10-12 adoption signal. Do not start until `v0.5.0` has ≥1K monthly PyPI installs and ≥2 paying support contracts.
-
-> **Context:** Revenue model documented in the [monetization plan](../marketing/06_revenue_model.md): Pro CLI is the first tier above OSS. Core rule — everything users can reasonably do via shell scripts + public dashboards stays free; what requires ForgeLM-specific infrastructure (experiment graph, HPO orchestration, team config store) is Pro. No feature gating that degrades the free experience.
-
-### Tasks:
-
-1. [ ] **`forgelm pro` CLI subcommand group**
-   Activation via license key (`FORGELM_PRO_KEY` env var or `~/.forgelm/pro.key`). License server minimal: validates key + reports usage quota. Uses `cryptography` library for offline license verification where possible.
-
-2. [ ] **Web dashboard — experiment browser**
-   Local-first web UI (FastAPI + HTMX + Tailwind; no SPA bloat). Reads from `checkpoints/` + `audit_log.jsonl`. Visualizes: run list, config diffs across runs, metric comparisons (loss, eval, safety, cost), artifact browser. Launchable via `forgelm pro dashboard --port 8080`. Optional Docker deployment for team use.
-
-3. [ ] **Hyperparameter optimization (HPO) — Optuna integration**
-   New config section: `hpo: {n_trials, search_space: {...}, metric: eval_loss, direction: minimize}`. Spawns N subordinate training runs, aggregates, produces best-config YAML + comparison report. Integrates with existing auto-revert thresholds.
-
-4. [ ] **Scheduled training jobs**
-   Cron-style config: `schedule: "0 2 * * 0"` (weekly Sunday 2 AM). Wrapper daemon (`forgelm pro schedule run`) watches config, triggers runs, captures output. Pairs naturally with data refresh pipelines ("every Sunday, retrain on latest dataset").
-
-5. [ ] **Cloud GPU cost estimation — real-time pricing**
-   Extends Phase 6 GPU cost estimation with live spot pricing from RunPod, Lambda Labs, vast.ai APIs. Before training starts, estimates cost across providers; after training, computes actual cost and logs drift. Optional — free tier stays with static pricing database.
-
-6. [ ] **Team configuration store**
-   `forgelm pro team push/pull <config-name>` — shared config repository backed by user's Git repo (simple) or ForgeLM-hosted store (later). Permissions + team member management. Enables "our team's golden LoRA config" patterns.
-
-### Requirements:
-- Every Pro feature must have a 90%-equivalent OSS workaround documented. No "you must pay to use ForgeLM properly" messaging — Pro is for convenience and scale, not gatekeeping.
-- Dashboard runs locally by default; cloud-hosted is a separate track.
-- License validation must work offline after first activation (air-gapped compliance preserved).
-- Pricing decisions documented in [marketing/06_revenue_model.md](../marketing/06_revenue_model.md), not here.
-
-### Delivery:
-- Target release: `v0.6.0-pro` (separately distributed; OSS core remains at `v0.5.x`)
-- Gated: do not ship before traction validation.
-
----
+**Tasks:**
+1. [x] `forgelm/inference.py` — `load_model`, `generate`, `generate_stream`, `logit_stats`, `adaptive_sample`
+2. [x] `forgelm chat` — streaming REPL, slash commands, rich rendering, Llama Guard routing
+3. [x] `forgelm export` — GGUF via llama-cpp-python, 6 quant levels, SHA-256 → model_integrity.json
+4. [x] `forgelm --fit-check` — VRAM estimator, FITS/TIGHT/OOM/UNKNOWN verdict, JSON output
+5. [x] `forgelm deploy` — ollama / vllm / tgi / hf-endpoints config dosyası üretimi
 
 ---

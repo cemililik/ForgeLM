@@ -36,7 +36,7 @@
 - OCR is out of scope; document this as a limitation and suggest external tooling (Tesseract, AWS Textract).
 
 ### Delivery:
-- Target release: `v0.4.5` or folded into `v0.5.0`
-- Can start after Phase 10 task 1-2 land; no hard blocker.
+- Target release: `v0.5.0`
+- Can start after Phase 10.5 (Quickstart) lands; no hard blocker on code, but UX sequencing matters.
 
 ---

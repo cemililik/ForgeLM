@@ -1,12 +1,13 @@
-# Phase 12: Quickstart Layer & Onboarding
+# Phase 10.5: Quickstart Layer & Onboarding
 
 > **Not:** Bu dosya tek bir planlanan fazı detaylandırır. Tüm fazların özeti için [../roadmap.md](../roadmap.md).
+> **Dosya adı:** `phase-12-quickstart.md` — orijinal Phase 12 sırasından kaldığı için adı değiştirilmedi; içerik Phase 10.5'e karşılık gelir.
 
 **Goal:** Make "my first fine-tune" a 10-minute experience. One command, one model in the end, zero YAML writing. Without sacrificing the CI/CD-native core — quickstart generates a YAML the user can later customize.
 **Estimated Effort:** Medium (1-2 months)
 **Priority:** Critical — community flywheel; directly drives EU AI Act enterprise pipeline
 
-> **Phase ordering rationale:** Moved from Phase 12 to Phase 10.5. Quickstart is the primary community growth driver; stars → enterprise leads → compliance sales. EU AI Act enforcement (August 2, 2026) creates a closing window. This phase must ship before Data Ingestion (Phase 11).
+> **Phase ordering rationale:** Reprioritized from Phase 12 to Phase 10.5. Quickstart is the primary community growth driver; stars → enterprise leads → compliance sales. EU AI Act enforcement (August 2, 2026) creates a closing window. This phase must ship before Data Ingestion (Phase 11).
 
 > **Context:** Strategic decision documented in the [enterprise-vs-simple paradox analysis](../marketing/strategy/01-paradoks-enterprise-vs-sade.md): ForgeLM adds a "Layer 0" entry point without changing its CI/CD-native identity. The same YAML schema, the same trainer, the same outputs — just wrapped in pre-built templates and opinionated defaults. Depends on Phase 10 (`chat`) for end-of-training sanity loop.
 

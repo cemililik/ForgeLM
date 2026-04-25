@@ -18,11 +18,9 @@
 
 ---
 
----
-
 ## v0.3.1rc1 — "Security & Config Hardening" (2026-04-25)
 
-**Status:** Released (release candidate)
+**Status:** Folded into v0.4.0 (changes shipped as part of the v0.4.0 release; no standalone tag)
 
 ### Changes:
 - **Security**: Webhook URLs excluded from HuggingFace Hub model cards — prevent credential leaks
