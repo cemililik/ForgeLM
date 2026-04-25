@@ -14,6 +14,43 @@ class WebhookNotifier:
     def __init__(self, config):
         self.config = config.webhook
 
+    def _resolve_url(self) -> Optional[str]:
+        """Pick the webhook URL from the config, falling back to url_env."""
+        if not self.config:
+            return None
+        url = self.config.url
+        if not url and getattr(self.config, "url_env", None):
+            url = os.getenv(self.config.url_env)
+        return url or None
+
+    @staticmethod
+    def _mask(url: str) -> str:
+        return url[:30] + "..." if len(url) > 30 else url
+
+    def _post_payload(self, url: str, payload: dict, event: str) -> None:
+        """POST *payload* to *url* and log any transport / HTTP errors."""
+        try:
+            resp = requests.post(
+                url,
+                data=json.dumps(payload),
+                headers={"Content-Type": "application/json"},
+                timeout=getattr(self.config, "timeout", 5),
+            )
+            if not resp.ok:
+                logger.warning(
+                    "Webhook HTTP %d for event '%s' (url=%s): %s",
+                    resp.status_code,
+                    event,
+                    self._mask(url),
+                    resp.text[:200],
+                )
+        except requests.exceptions.Timeout:
+            logger.warning("Webhook request timed out for event '%s' (url=%s).", event, self._mask(url))
+        except requests.exceptions.ConnectionError:
+            logger.warning("Webhook connection failed for event '%s' (url=%s).", event, self._mask(url))
+        except Exception:
+            logger.exception("Unexpected error sending webhook notification for event '%s'.", event)
+
     def _send(
         self,
         *,
@@ -26,13 +63,7 @@ class WebhookNotifier:
         metrics: Optional[Dict[str, float]] = None,
         reason: Optional[str] = None,
     ) -> None:
-        if not self.config:
-            return
-
-        url = self.config.url
-        if not url and getattr(self.config, "url_env", None):
-            url = os.getenv(self.config.url_env)
-
+        url = self._resolve_url()
         if not url:
             return
 
@@ -53,30 +84,7 @@ class WebhookNotifier:
             "attachments": [{"title": title, "text": text, "color": color}],
         }
 
-        try:
-            resp = requests.post(
-                url,
-                data=json.dumps(payload),
-                headers={"Content-Type": "application/json"},
-                timeout=getattr(self.config, "timeout", 5),
-            )
-            if not resp.ok:
-                masked = url[:30] + "..." if len(url) > 30 else url
-                logger.warning(
-                    "Webhook HTTP %d for event '%s' (url=%s): %s",
-                    resp.status_code,
-                    event,
-                    masked,
-                    resp.text[:200],
-                )
-        except requests.exceptions.Timeout:
-            masked = url[:30] + "..." if len(url) > 30 else url
-            logger.warning("Webhook request timed out for event '%s' (url=%s).", event, masked)
-        except requests.exceptions.ConnectionError:
-            masked = url[:30] + "..." if len(url) > 30 else url
-            logger.warning("Webhook connection failed for event '%s' (url=%s).", event, masked)
-        except Exception:
-            logger.exception("Unexpected error sending webhook notification for event '%s'.", event)
+        self._post_payload(url, payload, event)
 
     def notify_start(self, run_name: str) -> None:
         if self.config and self.config.notify_on_start:

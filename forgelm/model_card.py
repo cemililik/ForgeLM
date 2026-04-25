@@ -77,6 +77,79 @@ tokenizer = AutoTokenizer.from_pretrained("{model_path}")
 """
 
 
+def _build_metrics_table(metrics: Dict[str, float]) -> str:
+    """Render the eval metrics dict as a markdown table (or a placeholder)."""
+    if not metrics:
+        return "*No metrics available.*"
+    lines = ["| Metric | Value |", "|--------|-------|"]
+    for key, value in sorted(metrics.items()):
+        if not key.startswith("benchmark/"):
+            lines.append(f"| {key} | {value:.4f} |")
+    return "\n".join(lines)
+
+
+def _build_benchmark_section(
+    benchmark_scores: Optional[Dict[str, float]],
+    benchmark_average: Optional[float],
+) -> str:
+    """Render the benchmark section, empty string when no benchmark was run."""
+    if not benchmark_scores:
+        return ""
+    lines = ["## Benchmark Results", "", "| Task | Score |", "|------|-------|"]
+    for task, score in sorted(benchmark_scores.items()):
+        lines.append(f"| {task} | {score:.4f} |")
+    if benchmark_average is not None:
+        lines.append(f"| **Average** | **{benchmark_average:.4f}** |")
+    return "\n".join(lines)
+
+
+def _build_safety_section(
+    safety_cfg: Any,
+    safety_score: Optional[float],
+    safety_categories: Optional[Dict[str, int]],
+) -> str:
+    """Render the safety section, empty string when safety eval was disabled."""
+    if not (safety_cfg and safety_cfg.enabled):
+        return ""
+    lines = [
+        "## Safety Evaluation",
+        "",
+        f"- **Scoring method:** {getattr(safety_cfg, 'scoring', 'binary')}",
+        f"- **Classifier:** `{safety_cfg.classifier}`",
+    ]
+    if safety_score is not None:
+        lines.append(f"- **Safety score:** {safety_score:.4f}")
+    if safety_categories:
+        lines.append("- **Harm categories detected:**")
+        for cat, count in sorted(safety_categories.items()):
+            lines.append(f"  - {cat}: {count}")
+    return "\n".join(lines)
+
+
+def _format_method(config: Any, trainer_type: str) -> str:
+    """Compose the human-readable training-method string for the card."""
+    method = "QLoRA (4-bit)" if config.model.load_in_4bit else "LoRA"
+    if trainer_type != "sft":
+        method += f" + {trainer_type.upper()}"
+    if config.lora.use_dora:
+        method += " + DoRA"
+    return method
+
+
+def _build_extra_tags(config: Any, trainer_type: str, safety_cfg: Any) -> str:
+    """Compose the YAML-frontmatter tag list."""
+    tags = []
+    if config.lora.use_dora:
+        tags.append("- dora")
+    if config.model.load_in_4bit:
+        tags.append("- qlora")
+    if trainer_type != "sft":
+        tags.append(f"- {trainer_type}")
+    if safety_cfg and safety_cfg.enabled:
+        tags.append("- safety-evaluated")
+    return "\n".join(tags)
+
+
 def generate_model_card(
     config: Any,
     metrics: Dict[str, float],
@@ -94,64 +167,15 @@ def generate_model_card(
 
     from forgelm import __version__
 
-    # Build metrics table
-    if metrics:
-        metrics_lines = ["| Metric | Value |", "|--------|-------|"]
-        for key, value in sorted(metrics.items()):
-            if not key.startswith("benchmark/"):
-                metrics_lines.append(f"| {key} | {value:.4f} |")
-        metrics_table = "\n".join(metrics_lines)
-    else:
-        metrics_table = "*No metrics available.*"
-
-    # Build benchmark section
-    benchmark_section = ""
-    if benchmark_scores:
-        lines = ["## Benchmark Results", "", "| Task | Score |", "|------|-------|"]
-        for task, score in sorted(benchmark_scores.items()):
-            lines.append(f"| {task} | {score:.4f} |")
-        if benchmark_average is not None:
-            lines.append(f"| **Average** | **{benchmark_average:.4f}** |")
-        benchmark_section = "\n".join(lines)
-
-    # Build safety section
-    safety_section = ""
     eval_cfg = getattr(config, "evaluation", None)
     safety_cfg = eval_cfg.safety if (eval_cfg and hasattr(eval_cfg, "safety") and eval_cfg.safety) else None
-    if safety_cfg and safety_cfg.enabled:
-        safety_lines = [
-            "## Safety Evaluation",
-            "",
-            f"- **Scoring method:** {getattr(safety_cfg, 'scoring', 'binary')}",
-            f"- **Classifier:** `{safety_cfg.classifier}`",
-        ]
-        if safety_score is not None:
-            safety_lines.append(f"- **Safety score:** {safety_score:.4f}")
-        if safety_categories:
-            safety_lines.append("- **Harm categories detected:**")
-            for cat, count in sorted(safety_categories.items()):
-                safety_lines.append(f"  - {cat}: {count}")
-        safety_section = "\n".join(safety_lines)
-
-    # Determine method
-    method = "QLoRA (4-bit)" if config.model.load_in_4bit else "LoRA"
     trainer_type = getattr(config.training, "trainer_type", "sft")
-    if trainer_type != "sft":
-        method += f" + {trainer_type.upper()}"
-    if config.lora.use_dora:
-        method += " + DoRA"
 
-    # Extra tags
-    extra_tags = []
-    if config.lora.use_dora:
-        extra_tags.append("- dora")
-    if config.model.load_in_4bit:
-        extra_tags.append("- qlora")
-    if trainer_type != "sft":
-        extra_tags.append(f"- {trainer_type}")
-    if safety_cfg and safety_cfg.enabled:
-        extra_tags.append("- safety-evaluated")
-    extra_tags_str = "\n".join(extra_tags)
+    metrics_table = _build_metrics_table(metrics)
+    benchmark_section = _build_benchmark_section(benchmark_scores, benchmark_average)
+    safety_section = _build_safety_section(safety_cfg, safety_score, safety_categories)
+    method = _format_method(config, trainer_type)
+    extra_tags_str = _build_extra_tags(config, trainer_type, safety_cfg)
 
     # Serialize config to YAML (excluding sensitive fields)
     config_dict = config.model_dump(exclude={"auth", "webhook", "monitoring"})

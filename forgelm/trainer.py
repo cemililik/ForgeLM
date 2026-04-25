@@ -474,6 +474,210 @@ class ForgeTrainer:
 
                 self._build_trainer(callbacks)
 
+    def _measure_baseline_loss(self, metrics: Dict[str, float]) -> None:
+        """Compute baseline eval_loss before training (used for regression gates)."""
+        eval_cfg = self.config.evaluation
+        if not (
+            self.dataset.get("validation") and eval_cfg and eval_cfg.auto_revert and eval_cfg.baseline_loss is None
+        ):
+            return
+
+        logger.info("Measuring baseline eval_loss (pre-training)...")
+        model_obj = self.trainer.model
+        baseline_metrics = None
+        if hasattr(model_obj, "disable_adapter"):
+            try:
+                with model_obj.disable_adapter():
+                    baseline_metrics = self.trainer.evaluate()
+            except Exception as e:
+                logger.warning("Failed to disable adapters for baseline eval, evaluating with adapters instead: %s", e)
+                baseline_metrics = self.trainer.evaluate()
+        else:
+            baseline_metrics = self.trainer.evaluate()
+
+        baseline_loss = baseline_metrics.get("eval_loss")
+        if baseline_loss is None:
+            logger.warning(
+                "Baseline evaluation completed but eval_loss not found in results. "
+                "Baseline regression check will be skipped."
+            )
+            return
+        eval_cfg.baseline_loss = float(baseline_loss)
+        metrics["baseline_eval_loss"] = float(baseline_loss)
+        logger.info("Baseline eval_loss computed: %.4f", baseline_loss)
+
+    def _apply_benchmark_result(
+        self,
+        benchmark_result: Any,
+        train_result: TrainResult,
+        metrics: Dict[str, float],
+        final_path: str,
+    ) -> bool:
+        """Attach benchmark output to *train_result*, returning True to continue."""
+        if benchmark_result is None:
+            return True
+        train_result.benchmark_scores = benchmark_result.scores
+        train_result.benchmark_average = benchmark_result.average_score
+        train_result.benchmark_passed = benchmark_result.passed
+        for task, score in benchmark_result.scores.items():
+            metrics[f"benchmark/{task}"] = score
+        metrics["benchmark/average"] = benchmark_result.average_score
+        self.audit.log_event(
+            "benchmark.evaluation_completed",
+            passed=benchmark_result.passed,
+            average=benchmark_result.average_score,
+            scores=benchmark_result.scores,
+        )
+        if benchmark_result.passed:
+            return True
+        reason = benchmark_result.failure_reason or "Benchmark score below threshold."
+        self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="benchmark", detail=reason)
+        self._revert_model(final_path, reason)
+        train_result.success = False
+        train_result.reverted = True
+        return False
+
+    def _apply_resource_usage(self, train_result: TrainResult, metrics: Dict[str, float]) -> None:
+        """Collect resource usage and feed it into the result + metrics dicts."""
+        train_result.resource_usage = self._collect_resource_usage()
+        if not train_result.resource_usage:
+            return
+        for k, v in train_result.resource_usage.items():
+            if isinstance(v, (int, float)):
+                metrics[f"resource/{k}"] = v
+        train_result.estimated_cost_usd = train_result.resource_usage.get("estimated_cost_usd")
+
+    def _apply_safety_result(
+        self,
+        safety_result: Any,
+        train_result: TrainResult,
+        metrics: Dict[str, float],
+        final_path: str,
+    ) -> bool:
+        """Attach safety eval output to *train_result*, returning True to continue."""
+        if safety_result is None:
+            return True
+        train_result.safety_passed = safety_result.passed
+        train_result.safety_score = safety_result.safety_score
+        train_result.safety_categories = safety_result.category_distribution
+        train_result.safety_severity = safety_result.severity_distribution
+        train_result.safety_low_confidence = safety_result.low_confidence_count
+        metrics["safety/safe_ratio"] = safety_result.safe_ratio
+        if safety_result.safety_score is not None:
+            metrics["safety/safety_score"] = safety_result.safety_score
+        self.audit.log_event(
+            "safety.evaluation_completed",
+            passed=safety_result.passed,
+            safe_ratio=safety_result.safe_ratio,
+            safety_score=safety_result.safety_score,
+            categories=safety_result.category_distribution,
+        )
+        if safety_result.passed or not (self.config.evaluation and self.config.evaluation.auto_revert):
+            return True
+        self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="safety", detail=safety_result.failure_reason)
+        self._revert_model(final_path, safety_result.failure_reason or "Safety check failed.")
+        train_result.success = False
+        train_result.reverted = True
+        return False
+
+    def _apply_judge_result(
+        self,
+        judge_result: Any,
+        train_result: TrainResult,
+        metrics: Dict[str, float],
+        final_path: str,
+    ) -> bool:
+        """Attach judge output to *train_result*, returning True to continue."""
+        if judge_result is None:
+            return True
+        train_result.judge_score = judge_result.average_score
+        train_result.judge_details = judge_result.details
+        metrics["judge/average_score"] = judge_result.average_score
+        self.audit.log_event(
+            "judge.evaluation_completed",
+            passed=judge_result.passed,
+            average_score=judge_result.average_score,
+        )
+        if judge_result.passed or not (self.config.evaluation and self.config.evaluation.auto_revert):
+            return True
+        self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="judge", detail=judge_result.failure_reason)
+        self._revert_model(final_path, judge_result.failure_reason or "Judge score below threshold.")
+        train_result.success = False
+        train_result.reverted = True
+        return False
+
+    def _finalize_artifacts(
+        self,
+        final_path: str,
+        metrics: Dict[str, float],
+        train_result: TrainResult,
+    ) -> None:
+        """Generate model card / integrity / deployer instructions / compliance bundle."""
+        self._generate_model_card(final_path, metrics, train_result)
+        self._generate_model_integrity(final_path)
+        self._generate_deployer_instructions(final_path, metrics)
+        self._export_compliance_if_needed(metrics, train_result)
+
+    def _handle_human_approval_gate(self, final_path: str, train_result: TrainResult) -> bool:
+        """Return True if the run should pause for human approval (Art. 14)."""
+        eval_cfg = self.config.evaluation
+        if not (eval_cfg and eval_cfg.require_human_approval):
+            return False
+        self.audit.log_event("human_approval.required", model_path=final_path)
+        logger.info("Human approval required. Model saved to staging: %s", final_path)
+        logger.info(
+            "Review results in %s/compliance/ and redeploy when ready. Run ID: %s",
+            self.checkpoint_dir,
+            self.audit.run_id,
+        )
+        train_result.success = True
+        return True
+
+    def _run_training_pipeline(self, resume_from_checkpoint: Optional[str]) -> TrainResult:
+        """Body of train(); split out so train() stays a thin orchestrator."""
+        metrics: Dict[str, float] = {}
+        self.audit.log_event("training.started")
+
+        self._measure_baseline_loss(metrics)
+
+        logger.info("Starting training...")
+        hf_train_result = self._run_with_oom_recovery(resume_from_checkpoint)
+        metrics.update(hf_train_result.metrics)
+
+        if self.dataset.get("validation"):
+            metrics.update(self.trainer.evaluate())
+
+        final_path = os.path.join(
+            self.checkpoint_dir,
+            getattr(self.config.training, "final_model_dir", "final_model"),
+        )
+        self.save_final_model(final_path)
+
+        if not self.execute_evaluation_checks(final_path, metrics):
+            return TrainResult(success=False, metrics=metrics, reverted=True)
+
+        train_result = TrainResult(success=True, metrics=metrics, final_model_path=final_path)
+
+        if not self._apply_benchmark_result(self._run_benchmark_if_configured(), train_result, metrics, final_path):
+            return train_result
+
+        self._apply_resource_usage(train_result, metrics)
+
+        if not self._apply_safety_result(self._run_safety_if_configured(), train_result, metrics, final_path):
+            return train_result
+
+        if not self._apply_judge_result(self._run_judge_if_configured(), train_result, metrics, final_path):
+            return train_result
+
+        self._finalize_artifacts(final_path, metrics, train_result)
+
+        if self._handle_human_approval_gate(final_path, train_result):
+            return train_result
+
+        self.audit.log_event("pipeline.completed", success=True, metrics_summary=metrics)
+        self.notifier.notify_success(run_name=self.run_name, metrics=metrics)
+        return train_result
+
     def train(self, resume_from_checkpoint: Optional[str] = None) -> TrainResult:
         """Starts the main training loop. Returns TrainResult with status and metrics."""
         # Store originals so compliance manifest reflects pre-OOM values
@@ -489,172 +693,7 @@ class ForgeTrainer:
         self._build_trainer(callbacks)
 
         try:
-            metrics: Dict[str, float] = {}
-            self.audit.log_event("training.started")
-
-            # Baseline evaluation (base model, without adapters).
-            # This enables Phase 2 "never overwrite a better model" behavior.
-            if self.dataset.get("validation") and self.config.evaluation and self.config.evaluation.auto_revert:
-                if self.config.evaluation.baseline_loss is None:
-                    logger.info("Measuring baseline eval_loss (pre-training)...")
-                    model_obj = self.trainer.model
-                    baseline_metrics = None
-                    # PEFT models often support disabling adapters for true base-model eval.
-                    if hasattr(model_obj, "disable_adapter"):
-                        try:
-                            with model_obj.disable_adapter():
-                                baseline_metrics = self.trainer.evaluate()
-                        except Exception as e:
-                            logger.warning(
-                                "Failed to disable adapters for baseline eval, evaluating with adapters instead: %s", e
-                            )
-                            baseline_metrics = self.trainer.evaluate()
-                    else:
-                        baseline_metrics = self.trainer.evaluate()
-                    baseline_loss = baseline_metrics.get("eval_loss")
-                    if baseline_loss is not None:
-                        self.config.evaluation.baseline_loss = float(baseline_loss)
-                        metrics["baseline_eval_loss"] = float(baseline_loss)
-                        logger.info("Baseline eval_loss computed: %.4f", baseline_loss)
-                    else:
-                        logger.warning(
-                            "Baseline evaluation completed but eval_loss not found in results. "
-                            "Baseline regression check will be skipped."
-                        )
-
-            logger.info("Starting training...")
-            hf_train_result = self._run_with_oom_recovery(resume_from_checkpoint)
-
-            metrics.update(hf_train_result.metrics)
-            if self.dataset.get("validation"):
-                eval_metrics = self.trainer.evaluate()
-                metrics.update(eval_metrics)
-
-            final_path = os.path.join(
-                self.checkpoint_dir,
-                getattr(self.config.training, "final_model_dir", "final_model"),
-            )
-            self.save_final_model(final_path)
-
-            # Autonomous Evaluation Check (loss-based)
-            is_valid = self.execute_evaluation_checks(final_path, metrics)
-            if not is_valid:
-                return TrainResult(success=False, metrics=metrics, reverted=True)
-
-            # Post-training benchmark evaluation (lm-eval-harness)
-            benchmark_result = self._run_benchmark_if_configured()
-
-            train_result = TrainResult(
-                success=True,
-                metrics=metrics,
-                final_model_path=final_path,
-            )
-
-            if benchmark_result is not None:
-                train_result.benchmark_scores = benchmark_result.scores
-                train_result.benchmark_average = benchmark_result.average_score
-                train_result.benchmark_passed = benchmark_result.passed
-
-                # Add benchmark scores to metrics for webhook
-                for task, score in benchmark_result.scores.items():
-                    metrics[f"benchmark/{task}"] = score
-                metrics["benchmark/average"] = benchmark_result.average_score
-
-                self.audit.log_event(
-                    "benchmark.evaluation_completed",
-                    passed=benchmark_result.passed,
-                    average=benchmark_result.average_score,
-                    scores=benchmark_result.scores,
-                )
-
-                if not benchmark_result.passed:
-                    reason = benchmark_result.failure_reason or "Benchmark score below threshold."
-                    self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="benchmark", detail=reason)
-                    self._revert_model(final_path, reason)
-                    train_result.success = False
-                    train_result.reverted = True
-                    return train_result
-
-            # Resource tracking + cost estimation
-            train_result.resource_usage = self._collect_resource_usage()
-            if train_result.resource_usage:
-                for k, v in train_result.resource_usage.items():
-                    if isinstance(v, (int, float)):
-                        metrics[f"resource/{k}"] = v
-                train_result.estimated_cost_usd = train_result.resource_usage.get("estimated_cost_usd")
-
-            # Post-training safety evaluation
-            safety_result = self._run_safety_if_configured()
-            if safety_result is not None:
-                train_result.safety_passed = safety_result.passed
-                train_result.safety_score = safety_result.safety_score
-                train_result.safety_categories = safety_result.category_distribution
-                train_result.safety_severity = safety_result.severity_distribution
-                train_result.safety_low_confidence = safety_result.low_confidence_count
-                metrics["safety/safe_ratio"] = safety_result.safe_ratio
-                if safety_result.safety_score is not None:
-                    metrics["safety/safety_score"] = safety_result.safety_score
-                self.audit.log_event(
-                    "safety.evaluation_completed",
-                    passed=safety_result.passed,
-                    safe_ratio=safety_result.safe_ratio,
-                    safety_score=safety_result.safety_score,
-                    categories=safety_result.category_distribution,
-                )
-                if not safety_result.passed and self.config.evaluation and self.config.evaluation.auto_revert:
-                    self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="safety", detail=safety_result.failure_reason)
-                    self._revert_model(final_path, safety_result.failure_reason or "Safety check failed.")
-                    train_result.success = False
-                    train_result.reverted = True
-                    return train_result
-
-            # LLM-as-Judge evaluation
-            judge_result = self._run_judge_if_configured()
-            if judge_result is not None:
-                train_result.judge_score = judge_result.average_score
-                train_result.judge_details = judge_result.details
-                metrics["judge/average_score"] = judge_result.average_score
-                self.audit.log_event(
-                    "judge.evaluation_completed",
-                    passed=judge_result.passed,
-                    average_score=judge_result.average_score,
-                )
-                if not judge_result.passed and self.config.evaluation and self.config.evaluation.auto_revert:
-                    self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="judge", detail=judge_result.failure_reason)
-                    self._revert_model(final_path, judge_result.failure_reason or "Judge score below threshold.")
-                    train_result.success = False
-                    train_result.reverted = True
-                    return train_result
-
-            # Generate model card
-            self._generate_model_card(final_path, metrics, train_result)
-
-            # Model integrity verification (Art. 15)
-            self._generate_model_integrity(final_path)
-
-            # Deployer instructions (Art. 13)
-            self._generate_deployer_instructions(final_path, metrics)
-
-            # Generate compliance artifacts (Art. 11 + Annex IV)
-            self._export_compliance_if_needed(metrics, train_result)
-
-            # Human approval gate (Art. 14)
-            if self.config.evaluation and self.config.evaluation.require_human_approval:
-                self.audit.log_event("human_approval.required", model_path=final_path)
-                logger.info("Human approval required. Model saved to staging: %s", final_path)
-                logger.info(
-                    "Review results in %s/compliance/ and redeploy when ready. Run ID: %s",
-                    self.checkpoint_dir,
-                    self.audit.run_id,
-                )
-                train_result.success = True
-                # Exit code 4 handled by CLI
-                return train_result
-
-            self.audit.log_event("pipeline.completed", success=True, metrics_summary=metrics)
-            self.notifier.notify_success(run_name=self.run_name, metrics=metrics)
-            return train_result
-
+            return self._run_training_pipeline(resume_from_checkpoint)
         except Exception as e:
             logger.exception("Training pipeline failed.")
             self.audit.log_event("pipeline.failed", error=str(e))
@@ -763,44 +802,58 @@ class ForgeTrainer:
         "NVIDIA GeForce RTX 4090": 0.20,
     }
 
+    def _collect_gpu_info(self, usage: Dict[str, Any]) -> None:
+        """Populate gpu_model / peak_vram_gb / gpu_count fields when CUDA is available."""
+        if not torch.cuda.is_available():
+            return
+        usage["gpu_model"] = torch.cuda.get_device_name(0)
+        usage["peak_vram_gb"] = round(torch.cuda.max_memory_allocated(0) / (1024**3), 2)
+        usage["gpu_count"] = torch.cuda.device_count()
+
+    def _train_runtime_seconds(self) -> Optional[float]:
+        """Pull train_runtime from the most recent HF Trainer log entry."""
+        log_history = getattr(self.trainer.state, "log_history", None) or []
+        return next(
+            (e.get("train_runtime") for e in reversed(log_history) if "train_runtime" in e),
+            None,
+        )
+
+    def _resolve_cost_per_hour(self, usage: Dict[str, Any]) -> Optional[float]:
+        """Resolve a $/hour rate from user config or the GPU-pricing table.
+
+        Side-effect: sets ``usage["cost_source"]`` when a rate is found.
+        """
+        cost_per_hour = getattr(self.config.training, "gpu_cost_per_hour", None)
+        if cost_per_hour is not None:
+            usage["cost_source"] = "user_config"
+            return cost_per_hour
+
+        gpu_name = usage.get("gpu_model", "")
+        exact = self._GPU_PRICING.get(gpu_name)
+        if exact is not None:
+            usage["cost_source"] = "auto_detected"
+            return exact
+
+        # Fuzzy match — GPU names vary across drivers/CUDA versions
+        for known_gpu, price in self._GPU_PRICING.items():
+            if known_gpu.lower() in gpu_name.lower() or gpu_name.lower() in known_gpu.lower():
+                usage["cost_source"] = "fuzzy_match"
+                return price
+        return None
+
     def _collect_resource_usage(self) -> Optional[Dict[str, Any]]:
         """Collect GPU resource usage metrics and estimate training cost."""
-        usage = {}
+        usage: Dict[str, Any] = {}
         try:
-            if torch.cuda.is_available():
-                gpu_name = torch.cuda.get_device_name(0)
-                usage["gpu_model"] = gpu_name
-                usage["peak_vram_gb"] = round(torch.cuda.max_memory_allocated(0) / (1024**3), 2)
-                usage["gpu_count"] = torch.cuda.device_count()
-            # Training duration from HF Trainer
-            log_history = getattr(self.trainer.state, "log_history", None) or []
-            train_runtime = next(
-                (e.get("train_runtime") for e in reversed(log_history) if "train_runtime" in e),
-                None,
-            )
+            self._collect_gpu_info(usage)
+
+            train_runtime = self._train_runtime_seconds()
             if train_runtime:
                 usage["training_duration_seconds"] = round(train_runtime, 1)
-                gpu_count = usage.get("gpu_count", 1)
-                gpu_hours = (train_runtime / 3600) * gpu_count
+                gpu_hours = (train_runtime / 3600) * usage.get("gpu_count", 1)
                 usage["gpu_hours"] = round(gpu_hours, 3)
 
-                # Cost estimation
-                cost_per_hour = getattr(self.config.training, "gpu_cost_per_hour", None)
-                if cost_per_hour is None:
-                    gpu_name = usage.get("gpu_model", "")
-                    cost_per_hour = self._GPU_PRICING.get(gpu_name)
-                    if cost_per_hour:
-                        usage["cost_source"] = "auto_detected"
-                    else:
-                        # Try partial match (GPU names vary across drivers)
-                        for known_gpu, price in self._GPU_PRICING.items():
-                            if known_gpu.lower() in gpu_name.lower() or gpu_name.lower() in known_gpu.lower():
-                                cost_per_hour = price
-                                usage["cost_source"] = "fuzzy_match"
-                                break
-                else:
-                    usage["cost_source"] = "user_config"
-
+                cost_per_hour = self._resolve_cost_per_hour(usage)
                 if cost_per_hour is not None:
                     usage["gpu_cost_per_hour_usd"] = cost_per_hour
                     estimated_cost = gpu_hours * cost_per_hour

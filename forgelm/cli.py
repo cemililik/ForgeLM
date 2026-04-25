@@ -276,8 +276,36 @@ def parse_args():
     return parser.parse_args()
 
 
-def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
-    """Validate config, model access, and dataset access without loading heavy dependencies."""
+def _galore_dry_run_fields(config: ForgeConfig) -> dict:
+    if not config.training.galore_enabled:
+        return {"galore_enabled": False, "galore_optim": None, "galore_rank": None}
+    return {
+        "galore_enabled": True,
+        "galore_optim": config.training.galore_optim,
+        "galore_rank": config.training.galore_rank,
+    }
+
+
+def _evaluation_dry_run_fields(config: ForgeConfig) -> dict:
+    eval_cfg = config.evaluation
+    safety = eval_cfg.safety if eval_cfg else None
+    return {
+        "auto_revert": bool(eval_cfg and eval_cfg.auto_revert),
+        "safety_enabled": bool(safety and safety.enabled),
+        "safety_scoring": safety.scoring if safety else None,
+    }
+
+
+def _compliance_dry_run_fields(config: ForgeConfig) -> dict:
+    comp = config.compliance
+    return {
+        "compliance_configured": bool(comp and comp.provider_name),
+        "risk_classification": comp.risk_classification if comp else None,
+    }
+
+
+def _build_dry_run_result(config: ForgeConfig) -> dict:
+    """Assemble the dry-run summary dict from the validated config."""
     result = {
         "status": "valid",
         "model": config.model.name_or_path,
@@ -295,18 +323,17 @@ def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
         "distributed": config.distributed.strategy if config.distributed else None,
         "rope_scaling": config.training.rope_scaling,
         "neftune_noise_alpha": config.training.neftune_noise_alpha,
-        "galore_enabled": config.training.galore_enabled,
-        "galore_optim": config.training.galore_optim if config.training.galore_enabled else None,
-        "galore_rank": config.training.galore_rank if config.training.galore_enabled else None,
-        "auto_revert": bool(config.evaluation and config.evaluation.auto_revert),
-        "safety_enabled": bool(config.evaluation and config.evaluation.safety and config.evaluation.safety.enabled),
-        "safety_scoring": config.evaluation.safety.scoring
-        if (config.evaluation and config.evaluation.safety)
-        else None,
-        "compliance_configured": bool(config.compliance and config.compliance.provider_name),
-        "risk_classification": config.compliance.risk_classification if config.compliance else None,
         "webhook_configured": bool(config.webhook and (config.webhook.url or config.webhook.url_env)),
     }
+    result.update(_galore_dry_run_fields(config))
+    result.update(_evaluation_dry_run_fields(config))
+    result.update(_compliance_dry_run_fields(config))
+    return result
+
+
+def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
+    """Validate config, model access, and dataset access without loading heavy dependencies."""
+    result = _build_dry_run_result(config)
 
     if output_format == "json":
         print(json.dumps(result, indent=2))
@@ -315,9 +342,8 @@ def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
     logger.info("=== DRY RUN MODE ===")
     logger.info("Configuration validated successfully.")
     for key, value in result.items():
-        if key == "status":
-            continue
-        logger.info("  %s: %s", key, value)
+        if key != "status":
+            logger.info("  %s: %s", key, value)
 
     if config.model.trust_remote_code:
         logger.warning("trust_remote_code is ENABLED — review model source before production use.")
@@ -702,77 +728,58 @@ def _run_deploy_cmd(args, output_format: str) -> None:
         sys.exit(EXIT_TRAINING_ERROR)
 
 
-def main():
-    args = parse_args()
+def _dispatch_subcommand(command: str, args) -> None:
+    """Run a Phase 10 subcommand (chat / export / deploy) and exit."""
+    if command == "chat":
+        # _run_chat_cmd's REPL catches KeyboardInterrupt internally for the
+        # input prompt; this outer guard covers Ctrl-C during model load /
+        # welcome banner render, before the REPL loop has started.
+        try:
+            _run_chat_cmd(args)
+        except KeyboardInterrupt:
+            pass
+        sys.exit(EXIT_SUCCESS)
+    elif command == "export":
+        _run_export_cmd(args, getattr(args, "output_format", "text"))
+        sys.exit(EXIT_SUCCESS)
+    elif command == "deploy":
+        _run_deploy_cmd(args, getattr(args, "output_format", "text"))
+        sys.exit(EXIT_SUCCESS)
 
-    # --- Phase 10 subcommand dispatch (no --config required) ---
-    command = getattr(args, "command", None)
-    if command is not None:
-        json_output = getattr(args, "output_format", "text") == "json"
-        log_level = "WARNING" if getattr(args, "quiet", False) else getattr(args, "log_level", "INFO")
-        _setup_logging(log_level, json_format=json_output)
 
-        if command == "chat":
-            # _run_chat_cmd's REPL catches KeyboardInterrupt internally for the
-            # input prompt; this outer guard covers Ctrl-C during model load /
-            # welcome banner render, before the REPL loop has started.
-            try:
-                _run_chat_cmd(args)
-            except KeyboardInterrupt:
-                pass
-            sys.exit(EXIT_SUCCESS)
-        elif command == "export":
-            _run_export_cmd(args, getattr(args, "output_format", "text"))
-            sys.exit(EXIT_SUCCESS)
-        elif command == "deploy":
-            _run_deploy_cmd(args, getattr(args, "output_format", "text"))
-            sys.exit(EXIT_SUCCESS)
+def _maybe_run_wizard(args) -> None:
+    """Open the interactive wizard when --wizard was passed; mutates *args*."""
+    if not args.wizard:
+        return
+    from .wizard import run_wizard
 
-    # --wizard mode: generate config interactively
-    if args.wizard:
-        from .wizard import run_wizard
+    config_path = run_wizard()
+    if config_path:
+        args.config = config_path
+    else:
+        sys.exit(EXIT_SUCCESS)
 
-        config_path = run_wizard()
-        if config_path:
-            # User chose to start training immediately — update args
-            args.config = config_path
-        else:
-            sys.exit(EXIT_SUCCESS)
 
-    # --config is required except for --version and --wizard (handled above)
-    if not args.config:
-        print("Error: --config is required. Use --help for usage.", file=sys.stderr)
-        sys.exit(EXIT_CONFIG_ERROR)
-
-    json_output = args.output_format == "json"
-    log_level = "WARNING" if args.quiet else args.log_level
-    _setup_logging(log_level, json_format=json_output)
-
-    # 1. Load and validate configuration
+def _load_config_or_exit(config_path: str, json_output: bool):
+    """Load config and translate exceptions into the right exit code."""
     try:
-        logger.info("Loading configuration from %s...", args.config)
-        config = load_config(args.config)
+        logger.info("Loading configuration from %s...", config_path)
+        return load_config(config_path)
     except FileNotFoundError as e:
-        if json_output:
-            print(json.dumps({"success": False, "error": f"Config file not found: {e}"}))
-        else:
-            logger.error("Configuration file not found: %s", e)
-        sys.exit(EXIT_CONFIG_ERROR)
+        msg = f"Config file not found: {e}"
     except ConfigError as e:
-        if json_output:
-            print(json.dumps({"success": False, "error": str(e)}))
-        else:
-            logger.error("Configuration error: %s", e)
-        sys.exit(EXIT_CONFIG_ERROR)
+        msg = str(e)
     except Exception as e:
-        if json_output:
-            print(json.dumps({"success": False, "error": f"Unexpected error: {e}"}))
-        else:
-            logger.error("Unexpected error loading configuration: %s", e)
-        sys.exit(EXIT_CONFIG_ERROR)
+        msg = f"Unexpected error: {e}"
+    if json_output:
+        print(json.dumps({"success": False, "error": msg}))
+    else:
+        logger.error("Configuration error: %s", msg)
+    sys.exit(EXIT_CONFIG_ERROR)
 
-    # 2. Apply --offline flag
-    if args.offline:
+
+def _apply_offline_flag(config, offline_arg: bool) -> None:
+    if offline_arg:
         config.model.offline = True
     if config.model.offline:
         os.environ["HF_HUB_OFFLINE"] = "1"
@@ -780,36 +787,31 @@ def main():
         os.environ["HF_DATASETS_OFFLINE"] = "1"
         logger.info("Offline mode enabled. All HF Hub network calls are disabled.")
 
-    # 3. Dry-run mode: validate and exit
+
+def _maybe_run_no_train_mode(config, args) -> None:
+    """If a non-training mode flag is set, run it and exit."""
     if args.dry_run:
         _run_dry_run(config, args.output_format)
         sys.exit(EXIT_SUCCESS)
-
-    # 3b. Fit-check mode: VRAM estimation and exit
     if args.fit_check:
         _run_fit_check(config, args.output_format)
         sys.exit(EXIT_SUCCESS)
-
-    # 4. Benchmark-only mode: evaluate an existing model without training
     if args.benchmark_only:
         _run_benchmark_only(config, args.benchmark_only, args.output_format)
         sys.exit(EXIT_SUCCESS)
-
-    # 5. Merge mode: merge models from config without training
     if args.merge:
         _run_merge(config, args.output_format)
         sys.exit(EXIT_SUCCESS)
-
-    # 6. Synthetic data generation mode
     if args.generate_data:
         _run_generate_data(config, args.output_format)
         sys.exit(EXIT_SUCCESS)
-
-    # 7. Compliance export mode: generate audit artifacts from config
     if args.compliance_export:
         _run_compliance_export(config, args.compliance_export, args.output_format)
         sys.exit(EXIT_SUCCESS)
 
+
+def _run_training_pipeline(config, args, json_output: bool) -> None:
+    """Run the full training pipeline (model load → data → trainer.train → cleanup)."""
     try:
         # Defer heavy imports so `--help`, `--version`, and `--dry-run` stay lightweight.
         from .data import prepare_dataset
@@ -817,34 +819,25 @@ def main():
         from .trainer import ForgeTrainer
         from .utils import manage_checkpoints, setup_authentication
 
-        # 7. Setup HF Authentication (skipped in offline mode)
         if not config.model.offline:
             setup_authentication(config.auth.hf_token if config.auth else None)
         else:
             logger.info("Skipping HF authentication (offline mode).")
 
-        # 8. Model & Tokenizer
         model, tokenizer = get_model_and_tokenizer(config)
-
-        # 9. Data Preprocessing
         dataset = prepare_dataset(config, tokenizer)
 
-        # 10. Resolve checkpoint resume
         resume_checkpoint = None
         if args.resume:
             resume_checkpoint = _resolve_resume_checkpoint(config.training.output_dir, args.resume)
 
-        # 11. Training
         trainer = ForgeTrainer(model=model, tokenizer=tokenizer, config=config, dataset=dataset)
         result = trainer.train(resume_from_checkpoint=resume_checkpoint)
 
-        # 12. Checkpoint cleanup/compression
         logger.info("Cleaning up intermediate checkpoints...")
         manage_checkpoints(config.training.output_dir, action="keep")
 
-        # 13. Output result
         _output_result(result, args.output_format)
-        # Human approval gate: exit code 4 if awaiting approval
         if result.success and config.evaluation and getattr(config.evaluation, "require_human_approval", False):
             sys.exit(EXIT_AWAITING_APPROVAL)
         sys.exit(EXIT_SUCCESS if result.success else EXIT_EVAL_FAILURE)
@@ -861,6 +854,33 @@ def main():
         else:
             logger.exception("Training pipeline failed.")
         sys.exit(EXIT_TRAINING_ERROR)
+
+
+def main():
+    args = parse_args()
+
+    # Phase 10 subcommand dispatch — no --config required.
+    command = getattr(args, "command", None)
+    if command is not None:
+        json_output = getattr(args, "output_format", "text") == "json"
+        log_level = "WARNING" if getattr(args, "quiet", False) else getattr(args, "log_level", "INFO")
+        _setup_logging(log_level, json_format=json_output)
+        _dispatch_subcommand(command, args)
+
+    _maybe_run_wizard(args)
+
+    if not args.config:
+        print("Error: --config is required. Use --help for usage.", file=sys.stderr)
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    json_output = args.output_format == "json"
+    log_level = "WARNING" if args.quiet else args.log_level
+    _setup_logging(log_level, json_format=json_output)
+
+    config = _load_config_or_exit(args.config, json_output)
+    _apply_offline_flag(config, args.offline)
+    _maybe_run_no_train_mode(config, args)
+    _run_training_pipeline(config, args, json_output)
 
 
 if __name__ == "__main__":

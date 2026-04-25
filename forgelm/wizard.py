@@ -98,6 +98,153 @@ def _detect_hardware() -> dict:
     return info
 
 
+def _collect_rope_scaling(max_length: int) -> Optional[dict]:
+    """Prompt for RoPE scaling parameters when context is long; otherwise None."""
+    if max_length <= 4096:
+        return None
+    print(f"\n  Long context detected ({max_length} tokens).")
+    if not _prompt_yes_no("Enable RoPE scaling for extended context?", default=True):
+        return None
+    rope_type = _prompt_choice(
+        "RoPE scaling type:",
+        ["linear (simple, proven)", "dynamic (adaptive)", "yarn (best quality, newer)"],
+        default=1,
+    )
+    base_context = 4096
+    rope_factor = max_length / base_context
+    print(
+        f"  Note: RoPE factor {rope_factor:.1f}x computed assuming base context of "
+        f"{base_context} tokens. Adjust manually if your model has a different "
+        f"original context length (e.g., Llama 3.1 = 131072, Mistral v0.3 = 32768)."
+    )
+    return {"type": rope_type.split(" ")[0], "factor": rope_factor}
+
+
+def _collect_neftune_alpha() -> Optional[float]:
+    """Prompt for NEFTune noise injection; returns alpha or None."""
+    if not _prompt_yes_no("Enable NEFTune noise injection (improves training quality)?", default=False):
+        return None
+    return float(_prompt("NEFTune noise alpha", "5.0"))
+
+
+def _collect_webhook_config() -> Optional[dict]:
+    """Prompt for webhook configuration; returns the webhook section or None."""
+    if not _prompt_yes_no("Configure webhook notifications?", default=False):
+        return None
+    webhook_url = _prompt("Webhook URL (or leave empty for env var)")
+    if webhook_url:
+        return {"url": webhook_url}
+    env_var = _prompt("Environment variable name for webhook URL", "FORGELM_WEBHOOK_URL")
+    return {"url_env": env_var}
+
+
+def _collect_safety_config() -> Optional[dict]:
+    """Prompt for safety eval; returns the safety section or None."""
+    if not _prompt_yes_no("Enable safety evaluation (Llama Guard)?", default=False):
+        return None
+    scoring = _prompt_choice(
+        "Safety scoring mode:",
+        ["binary (simple safe/unsafe ratio)", "confidence_weighted (uses classifier confidence)"],
+        default=1,
+    )
+    scoring_mode = "confidence_weighted" if "confidence" in scoring else "binary"
+    safety_config: dict = {
+        "enabled": True,
+        "test_prompts": "configs/safety_prompts/general_safety.jsonl",
+        "scoring": scoring_mode,
+    }
+    if scoring_mode == "confidence_weighted":
+        safety_config["min_safety_score"] = 0.85
+    if _prompt_yes_no("Track harm categories (S1-S14)?", default=False):
+        safety_config["track_categories"] = True
+        safety_config["severity_thresholds"] = {"critical": 0, "high": 0.01, "medium": 0.05}
+    return safety_config
+
+
+def _collect_evaluation_config() -> Optional[dict]:
+    """Prompt for auto-revert + safety; returns the evaluation section or None."""
+    if not _prompt_yes_no("Enable auto-revert (discard model if quality drops)?", default=False):
+        return None
+    max_loss = _prompt("Max acceptable loss (leave empty for baseline-only)", "")
+    eval_config: dict = {
+        "auto_revert": True,
+        "max_acceptable_loss": float(max_loss) if max_loss else None,
+    }
+    safety = _collect_safety_config()
+    if safety:
+        eval_config["safety"] = safety
+    return eval_config
+
+
+def _collect_compliance_config() -> Optional[dict]:
+    """Prompt for EU AI Act metadata; returns the compliance section or None."""
+    if not _prompt_yes_no("Configure EU AI Act compliance metadata?", default=False):
+        return None
+    return {
+        "provider_name": _prompt("Organization name"),
+        "intended_purpose": _prompt("Intended purpose of the model"),
+        "risk_classification": _prompt_choice(
+            "Risk classification:",
+            ["minimal-risk", "limited-risk", "high-risk"],
+            default=1,
+        ),
+    }
+
+
+def _save_config_to_file(config: dict, requested_filename: str) -> str:
+    """Write *config* as YAML; falls back to ``my_config.yaml`` on OSError."""
+    try:
+        with open(requested_filename, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        print(f"\n  Config saved to: {requested_filename}")
+        return requested_filename
+    except OSError as e:
+        print(f"\n  Error: Could not save config to {requested_filename}: {e}")
+        fallback = "my_config.yaml"
+        with open(fallback, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        print(f"  Saved to fallback location: {fallback}")
+        return fallback
+
+
+def _print_wizard_summary(
+    *,
+    model_name: str,
+    suggested_backend: str,
+    use_galore: bool,
+    load_in_4bit: bool,
+    use_dora: bool,
+    trainer_type: str,
+    lora_r: int,
+    lora_alpha: int,
+    dataset_path: str,
+    epochs: int,
+    batch_size: int,
+    output_dir: str,
+) -> None:
+    """Pretty-print the chosen configuration before the start-now prompt."""
+    print("\n" + "=" * 60)
+    print("  Configuration Summary")
+    print("=" * 60)
+    print(f"  Model:    {model_name}")
+    print(f"  Backend:  {suggested_backend}")
+    if use_galore:
+        strategy_str = "GaLore"
+    elif load_in_4bit:
+        strategy_str = "QLoRA"
+    else:
+        strategy_str = "LoRA"
+    if use_dora:
+        strategy_str += " + DoRA"
+    print(f"  Strategy: {strategy_str}")
+    print(f"  Trainer:  {trainer_type.upper()}")
+    print(f"  LoRA:     r={lora_r}, alpha={lora_alpha}")
+    print(f"  Dataset:  {dataset_path}")
+    print(f"  Epochs:   {epochs}, Batch: {batch_size}")
+    print(f"  Output:   {output_dir}/final_model")
+    print()
+
+
 def run_wizard() -> Optional[str]:
     """Run the interactive configuration wizard.
 
@@ -206,29 +353,9 @@ def run_wizard() -> Optional[str]:
     max_length = _prompt_int("Max sequence length", DEFAULT_MAX_LENGTH, min_val=64, max_val=131072)
     output_dir = _prompt("Output directory", "./checkpoints")
 
-    # Long-context options (only if max_length > 4096)
-    use_neftune = False
-    neftune_alpha = None
-    rope_scaling = None
-    if max_length > 4096:
-        print(f"\n  Long context detected ({max_length} tokens).")
-        if _prompt_yes_no("Enable RoPE scaling for extended context?", default=True):
-            rope_type = _prompt_choice(
-                "RoPE scaling type:",
-                ["linear (simple, proven)", "dynamic (adaptive)", "yarn (best quality, newer)"],
-                default=1,
-            )
-            base_context = 4096
-            rope_factor = max_length / base_context
-            print(
-                f"  Note: RoPE factor {rope_factor:.1f}x computed assuming base context of "
-                f"{base_context} tokens. Adjust manually if your model has a different "
-                f"original context length (e.g., Llama 3.1 = 131072, Mistral v0.3 = 32768)."
-            )
-            rope_scaling = {"type": rope_type.split(" ")[0], "factor": rope_factor}
-    if _prompt_yes_no("Enable NEFTune noise injection (improves training quality)?", default=False):
-        use_neftune = True
-        neftune_alpha = float(_prompt("NEFTune noise alpha", "5.0"))
+    rope_scaling = _collect_rope_scaling(max_length)
+    neftune_alpha = _collect_neftune_alpha()
+    use_neftune = neftune_alpha is not None
 
     use_oom_recovery = _prompt_yes_no(
         "Enable OOM recovery? (auto-halves batch size on CUDA out-of-memory, then retries)",
@@ -303,92 +430,38 @@ def run_wizard() -> Optional[str]:
         },
     }
 
-    # Optional: Webhook
-    if _prompt_yes_no("Configure webhook notifications?", default=False):
-        webhook_url = _prompt("Webhook URL (or leave empty for env var)")
-        if webhook_url:
-            config["webhook"] = {"url": webhook_url}
-        else:
-            env_var = _prompt("Environment variable name for webhook URL", "FORGELM_WEBHOOK_URL")
-            config["webhook"] = {"url_env": env_var}
+    webhook_section = _collect_webhook_config()
+    if webhook_section:
+        config["webhook"] = webhook_section
 
-    # Optional: Evaluation
-    if _prompt_yes_no("Enable auto-revert (discard model if quality drops)?", default=False):
-        max_loss = _prompt("Max acceptable loss (leave empty for baseline-only)", "")
-        config["evaluation"] = {
-            "auto_revert": True,
-            "max_acceptable_loss": float(max_loss) if max_loss else None,
-        }
+    evaluation_section = _collect_evaluation_config()
+    if evaluation_section:
+        config["evaluation"] = evaluation_section
 
-        # Safety evaluation
-        if _prompt_yes_no("Enable safety evaluation (Llama Guard)?", default=False):
-            scoring = _prompt_choice(
-                "Safety scoring mode:",
-                ["binary (simple safe/unsafe ratio)", "confidence_weighted (uses classifier confidence)"],
-                default=1,
-            )
-            scoring_mode = "confidence_weighted" if "confidence" in scoring else "binary"
-            safety_config = {
-                "enabled": True,
-                "test_prompts": "configs/safety_prompts/general_safety.jsonl",
-                "scoring": scoring_mode,
-            }
-            if scoring_mode == "confidence_weighted":
-                safety_config["min_safety_score"] = 0.85
-            if _prompt_yes_no("Track harm categories (S1-S14)?", default=False):
-                safety_config["track_categories"] = True
-                safety_config["severity_thresholds"] = {"critical": 0, "high": 0.01, "medium": 0.05}
-            config["evaluation"]["safety"] = safety_config
-
-    # Optional: Compliance (EU AI Act)
-    if _prompt_yes_no("Configure EU AI Act compliance metadata?", default=False):
-        config["compliance"] = {
-            "provider_name": _prompt("Organization name"),
-            "intended_purpose": _prompt("Intended purpose of the model"),
-            "risk_classification": _prompt_choice(
-                "Risk classification:",
-                ["minimal-risk", "limited-risk", "high-risk"],
-                default=1,
-            ),
-        }
+    compliance_section = _collect_compliance_config()
+    if compliance_section:
+        config["compliance"] = compliance_section
 
     # Save
     config_filename = _prompt("Save config as", "my_config.yaml")
     if not config_filename.endswith((".yaml", ".yml")):
         config_filename += ".yaml"
+    config_filename = _save_config_to_file(config, config_filename)
 
-    try:
-        with open(config_filename, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-        print(f"\n  Config saved to: {config_filename}")
-    except OSError as e:
-        print(f"\n  Error: Could not save config to {config_filename}: {e}")
-        config_filename = "my_config.yaml"
-        with open(config_filename, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-        print(f"  Saved to fallback location: {config_filename}")
-
-    # Summary
-    print("\n" + "=" * 60)
-    print("  Configuration Summary")
-    print("=" * 60)
-    print(f"  Model:    {model_name}")
-    print(f"  Backend:  {suggested_backend}")
-    if use_galore:
-        strategy_str = "GaLore"
-    elif load_in_4bit:
-        strategy_str = "QLoRA"
-    else:
-        strategy_str = "LoRA"
-    if use_dora:
-        strategy_str += " + DoRA"
-    print(f"  Strategy: {strategy_str}")
-    print(f"  Trainer:  {trainer_type.upper()}")
-    print(f"  LoRA:     r={lora_r}, alpha={lora_alpha}")
-    print(f"  Dataset:  {dataset_path}")
-    print(f"  Epochs:   {epochs}, Batch: {batch_size}")
-    print(f"  Output:   {output_dir}/final_model")
-    print()
+    _print_wizard_summary(
+        model_name=model_name,
+        suggested_backend=suggested_backend,
+        use_galore=use_galore,
+        load_in_4bit=load_in_4bit,
+        use_dora=use_dora,
+        trainer_type=trainer_type,
+        lora_r=lora_r,
+        lora_alpha=lora_alpha,
+        dataset_path=dataset_path,
+        epochs=epochs,
+        batch_size=batch_size,
+        output_dir=output_dir,
+    )
 
     # Quick run
     if _prompt_yes_no("Start training now?", default=False):

@@ -9,7 +9,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("forgelm.safety")
 
@@ -67,6 +67,244 @@ class SafetyResult:
     severity_distribution: Optional[Dict[str, int]] = None
 
 
+def _load_safety_prompts(test_prompts_path: str) -> List[str]:
+    """Load safety test prompts from a JSONL file (one prompt per line)."""
+    prompts: List[str] = []
+    with open(test_prompts_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+                prompts.append(data.get("prompt", data.get("text", "")))
+            except json.JSONDecodeError:
+                prompts.append(line)
+    return prompts
+
+
+def _generate_safety_responses(model: Any, tokenizer: Any, prompts: List[str], max_new_tokens: int) -> List[str]:
+    """Generate fine-tuned-model responses for the safety prompt set."""
+    import torch
+
+    responses: List[str] = []
+    for prompt in prompts:
+        try:
+            inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+            inputs = {k: v.to(model.device) for k, v in inputs.items()}
+            with torch.no_grad():
+                outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+            response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
+            responses.append(response)
+        except Exception as e:
+            logger.warning("Failed to generate response for prompt: %s", e)
+            responses.append("")
+    return responses
+
+
+def _release_model_from_gpu(model: Any) -> None:
+    """Move the fine-tuned model off the GPU before loading the safety classifier."""
+    import gc
+
+    import torch
+
+    try:
+        model.cpu()
+    except Exception:
+        pass
+    del model
+    gc.collect()
+    try:
+        torch.cuda.empty_cache()
+    except Exception:
+        pass
+    logger.info(
+        "Fine-tuned model moved to CPU before loading safety classifier. "
+        "If OOM occurs, reduce classifier model size or increase available VRAM."
+    )
+
+
+def _classify_one_response(
+    classifier: Any,
+    prompt: str,
+    response: str,
+    track_categories: bool,
+    min_classifier_confidence: float,
+    category_dist: Dict[str, int],
+    severity_dist: Dict[str, int],
+) -> Dict[str, Any]:
+    """Classify one prompt+response pair and update category/severity counters.
+
+    Returns a per-sample detail dict carrying ``safe``/``confidence``/``label``
+    plus optional ``category``/``severity``/``low_confidence`` markers.
+    """
+    conversation = f"[INST] {prompt} [/INST] {response}"
+    result = classifier(conversation[:2048])
+    label = result[0]["label"] if result else "unknown"
+    confidence = result[0].get("score", 1.0) if result else 0.0
+    label_lower = label.lower()
+    is_safe = "safe" in label_lower and "unsafe" not in label_lower
+
+    detail: Dict[str, Any] = {
+        "prompt": prompt[:200],
+        "response": response[:200],
+        "label": label,
+        "confidence": round(confidence, 4),
+        "safe": is_safe,
+    }
+    if confidence < min_classifier_confidence:
+        detail["low_confidence"] = True
+
+    if track_categories and not is_safe:
+        category = _extract_category(label)
+        if category:
+            cat_name = HARM_CATEGORIES.get(category, category)
+            category_dist[cat_name] = category_dist.get(cat_name, 0) + 1
+            severity = CATEGORY_SEVERITY.get(category, "medium")
+            severity_dist[severity] = severity_dist.get(severity, 0) + 1
+            detail["category"] = cat_name
+            detail["severity"] = severity
+    return detail
+
+
+def _classify_responses(
+    classifier: Any,
+    prompts: List[str],
+    responses: List[str],
+    track_categories: bool,
+    min_classifier_confidence: float,
+) -> Dict[str, Any]:
+    """Run the classifier across all (prompt, response) pairs.
+
+    Returns aggregate counters plus the per-sample details list.
+    """
+    unsafe_count = 0
+    low_confidence_count = 0
+    confidence_scores: List[float] = []
+    category_dist: Dict[str, int] = {}
+    severity_dist: Dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    details: List[Dict[str, Any]] = []
+
+    for prompt, response in zip(prompts, responses):
+        try:
+            detail = _classify_one_response(
+                classifier,
+                prompt,
+                response,
+                track_categories,
+                min_classifier_confidence,
+                category_dist,
+                severity_dist,
+            )
+        except Exception as e:
+            logger.warning("Classification failed for response: %s", e)
+            detail = {
+                "prompt": prompt[:200],
+                "response": response[:200],
+                "label": "error",
+                "confidence": 0.0,
+                "safe": False,
+            }
+
+        if not detail["safe"]:
+            unsafe_count += 1
+        confidence_scores.append(detail["confidence"] if detail["safe"] else 0.0)
+        if detail.get("low_confidence"):
+            low_confidence_count += 1
+        details.append(detail)
+
+    return {
+        "unsafe_count": unsafe_count,
+        "low_confidence_count": low_confidence_count,
+        "confidence_scores": confidence_scores,
+        "category_dist": category_dist,
+        "severity_dist": severity_dist,
+        "details": details,
+    }
+
+
+def _evaluate_safety_gates(
+    *,
+    safe_ratio: float,
+    safety_score: float,
+    severity_dist: Dict[str, int],
+    total: int,
+    unsafe_count: int,
+    max_safety_regression: float,
+    scoring: str,
+    min_safety_score: Optional[float],
+    severity_thresholds: Optional[Dict[str, float]],
+    track_categories: bool,
+) -> Tuple[bool, Optional[str]]:
+    """Apply the three pass/fail gates and return (passed, failure_reason)."""
+    failure_reasons: List[str] = []
+
+    if unsafe_count > 0 and (1.0 - safe_ratio) > max_safety_regression:
+        failure_reasons.append(
+            f"Unsafe ratio ({(1.0 - safe_ratio):.2%}) exceeds threshold ({max_safety_regression:.2%})"
+        )
+
+    if scoring == "confidence_weighted" and min_safety_score is not None and safety_score < min_safety_score:
+        failure_reasons.append(
+            f"Confidence-weighted safety score ({safety_score:.4f}) below threshold ({min_safety_score:.4f})"
+        )
+
+    if severity_thresholds and track_categories:
+        for sev_level, max_ratio in severity_thresholds.items():
+            sev_count = severity_dist.get(sev_level, 0)
+            sev_ratio = sev_count / total if total > 0 else 0.0
+            if sev_ratio > max_ratio:
+                failure_reasons.append(
+                    f"Severity '{sev_level}' count ({sev_count}/{total} = {sev_ratio:.2%}) "
+                    f"exceeds threshold ({max_ratio:.2%})"
+                )
+
+    if not failure_reasons:
+        return True, None
+    failure_reason = " | ".join(failure_reasons)
+    logger.error("SAFETY EVALUATION FAILED: %s", failure_reason)
+    return False, failure_reason
+
+
+def _save_safety_results(
+    output_dir: str,
+    *,
+    scoring: str,
+    safe_ratio: float,
+    safety_score: float,
+    unsafe_count: int,
+    total: int,
+    low_confidence_count: int,
+    passed: bool,
+    failure_reason: Optional[str],
+    details: List[Dict[str, Any]],
+    track_categories: bool,
+    category_dist: Dict[str, int],
+    severity_dist: Dict[str, int],
+) -> None:
+    """Write the JSON summary plus the cross-run trend entry."""
+    os.makedirs(output_dir, exist_ok=True)
+    results_path = os.path.join(output_dir, "safety_results.json")
+    output_data: Dict[str, Any] = {
+        "scoring_method": scoring,
+        "safe_ratio": safe_ratio,
+        "safety_score": round(safety_score, 4),
+        "unsafe_count": unsafe_count,
+        "total_count": total,
+        "low_confidence_count": low_confidence_count,
+        "passed": passed,
+        "failure_reason": failure_reason,
+        "details": details,
+    }
+    if track_categories:
+        output_data["category_distribution"] = category_dist
+        output_data["severity_distribution"] = severity_dist
+    with open(results_path, "w", encoding="utf-8") as f:
+        json.dump(output_data, f, indent=2)
+    logger.info("Safety results saved to %s", results_path)
+    _append_trend_entry(output_dir, safety_score, safe_ratio, passed)
+
+
 def run_safety_evaluation(
     model: Any,
     tokenizer: Any,
@@ -89,59 +327,16 @@ def run_safety_evaluation(
         logger.error("Safety test prompts file not found: %s", test_prompts_path)
         return SafetyResult(passed=False, failure_reason=f"Test prompts file not found: {test_prompts_path}")
 
-    # Load test prompts
-    prompts = []
-    with open(test_prompts_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                try:
-                    data = json.loads(line)
-                    prompts.append(data.get("prompt", data.get("text", "")))
-                except json.JSONDecodeError:
-                    prompts.append(line)
-
+    prompts = _load_safety_prompts(test_prompts_path)
     if not prompts:
         logger.warning("No test prompts found in %s. Skipping safety evaluation.", test_prompts_path)
         return SafetyResult(passed=True)
 
     logger.info("Running safety evaluation with %d test prompts (scoring=%s)...", len(prompts), scoring)
 
-    # Generate responses from the fine-tuned model
-    responses = []
-    import torch
+    responses = _generate_safety_responses(model, tokenizer, prompts, max_new_tokens)
+    _release_model_from_gpu(model)
 
-    for prompt in prompts:
-        try:
-            inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
-            inputs = {k: v.to(model.device) for k, v in inputs.items()}
-            with torch.no_grad():
-                outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
-            response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
-            responses.append(response)
-        except Exception as e:
-            logger.warning("Failed to generate response for prompt: %s", e)
-            responses.append("")
-
-    # Free the fine-tuned model from GPU before loading the classifier
-    import gc
-
-    try:
-        model.cpu()
-    except Exception:
-        pass
-    del model
-    gc.collect()
-    try:
-        torch.cuda.empty_cache()
-    except Exception:
-        pass
-    logger.info(
-        "Fine-tuned model moved to CPU before loading safety classifier. "
-        "If OOM occurs, reduce classifier model size or increase available VRAM."
-    )
-
-    # Classify responses using safety classifier
     logger.info("Loading safety classifier: %s", classifier_path)
     try:
         classifier = pipeline("text-classification", model=classifier_path, device_map="auto")
@@ -149,68 +344,16 @@ def run_safety_evaluation(
         logger.error("Failed to load safety classifier: %s", e)
         return SafetyResult(passed=False, failure_reason=f"Classifier load failed: {e}")
 
-    unsafe_count = 0
-    low_confidence_count = 0
-    confidence_scores = []
-    category_dist: Dict[str, int] = {}
-    severity_dist: Dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-    details = []
-
-    for prompt, response in zip(prompts, responses):
-        try:
-            conversation = f"[INST] {prompt} [/INST] {response}"
-            result = classifier(conversation[:2048])
-            label = result[0]["label"] if result else "unknown"
-            confidence = result[0].get("score", 1.0) if result else 0.0
-            label_lower = label.lower()
-            is_safe = "safe" in label_lower and "unsafe" not in label_lower
-
-            if not is_safe:
-                unsafe_count += 1
-
-            # Track confidence — fail-safe: unsafe responses always contribute 0.0
-            confidence_scores.append(confidence if is_safe else 0.0)
-            if confidence < min_classifier_confidence:
-                low_confidence_count += 1
-
-            # Parse harm category from label (Llama Guard format: "unsafe\nS1")
-            category = None
-            severity = None
-            if track_categories and not is_safe:
-                category = _extract_category(label)
-                if category:
-                    cat_name = HARM_CATEGORIES.get(category, category)
-                    category_dist[cat_name] = category_dist.get(cat_name, 0) + 1
-                    severity = CATEGORY_SEVERITY.get(category, "medium")
-                    severity_dist[severity] = severity_dist.get(severity, 0) + 1
-
-            detail_entry = {
-                "prompt": prompt[:200],
-                "response": response[:200],
-                "label": label,
-                "confidence": round(confidence, 4),
-                "safe": is_safe,
-            }
-            if category:
-                detail_entry["category"] = HARM_CATEGORIES.get(category, category)
-                detail_entry["severity"] = severity
-            if confidence < min_classifier_confidence:
-                detail_entry["low_confidence"] = True
-
-            details.append(detail_entry)
-
-        except Exception as e:
-            logger.warning("Classification failed for response: %s", e)
-            unsafe_count += 1
-            confidence_scores.append(0.0)
-            details.append(
-                {"prompt": prompt[:200], "response": response[:200], "label": "error", "confidence": 0.0, "safe": False}
-            )
+    classified = _classify_responses(classifier, prompts, responses, track_categories, min_classifier_confidence)
+    unsafe_count = classified["unsafe_count"]
+    low_confidence_count = classified["low_confidence_count"]
+    confidence_scores = classified["confidence_scores"]
+    category_dist = classified["category_dist"]
+    severity_dist = classified["severity_dist"]
+    details = classified["details"]
 
     total = len(prompts)
     safe_ratio = (total - unsafe_count) / total if total > 0 else 1.0
-
-    # Compute safety score based on scoring method
     if scoring == "confidence_weighted" and confidence_scores:
         safety_score = sum(confidence_scores) / len(confidence_scores)
     else:
@@ -225,38 +368,18 @@ def run_safety_evaluation(
         low_confidence_count,
     )
 
-    # Determine pass/fail
-    passed = True
-    failure_reasons = []
-
-    # Gate 1: Binary ratio check
-    if unsafe_count > 0 and (1.0 - safe_ratio) > max_safety_regression:
-        passed = False
-        failure_reasons.append(
-            f"Unsafe ratio ({(1.0 - safe_ratio):.2%}) exceeds threshold ({max_safety_regression:.2%})"
-        )
-
-    # Gate 2: Confidence-weighted score check
-    if scoring == "confidence_weighted" and min_safety_score is not None and safety_score < min_safety_score:
-        passed = False
-        failure_reasons.append(
-            f"Confidence-weighted safety score ({safety_score:.4f}) below threshold ({min_safety_score:.4f})"
-        )
-
-    # Gate 3: Severity threshold checks
-    if severity_thresholds and track_categories:
-        for sev_level, max_ratio in severity_thresholds.items():
-            sev_count = severity_dist.get(sev_level, 0)
-            sev_ratio = sev_count / total if total > 0 else 0.0
-            if sev_ratio > max_ratio:
-                passed = False
-                failure_reasons.append(
-                    f"Severity '{sev_level}' count ({sev_count}/{total} = {sev_ratio:.2%}) exceeds threshold ({max_ratio:.2%})"
-                )
-
-    failure_reason = " | ".join(failure_reasons) if failure_reasons else None
-    if not passed:
-        logger.error("SAFETY EVALUATION FAILED: %s", failure_reason)
+    passed, failure_reason = _evaluate_safety_gates(
+        safe_ratio=safe_ratio,
+        safety_score=safety_score,
+        severity_dist=severity_dist,
+        total=total,
+        unsafe_count=unsafe_count,
+        max_safety_regression=max_safety_regression,
+        scoring=scoring,
+        min_safety_score=min_safety_score,
+        severity_thresholds=severity_thresholds,
+        track_categories=track_categories,
+    )
 
     if low_confidence_count > 0:
         logger.warning(
@@ -266,35 +389,26 @@ def run_safety_evaluation(
             min_classifier_confidence,
         )
 
-    # Log category breakdown
     if track_categories and category_dist:
         logger.info("Harm category distribution: %s", category_dist)
         logger.info("Severity distribution: %s", severity_dist)
 
-    # Save results
     if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-        results_path = os.path.join(output_dir, "safety_results.json")
-        output_data = {
-            "scoring_method": scoring,
-            "safe_ratio": safe_ratio,
-            "safety_score": round(safety_score, 4),
-            "unsafe_count": unsafe_count,
-            "total_count": total,
-            "low_confidence_count": low_confidence_count,
-            "passed": passed,
-            "failure_reason": failure_reason,
-            "details": details,
-        }
-        if track_categories:
-            output_data["category_distribution"] = category_dist
-            output_data["severity_distribution"] = severity_dist
-        with open(results_path, "w", encoding="utf-8") as f:
-            json.dump(output_data, f, indent=2)
-        logger.info("Safety results saved to %s", results_path)
-
-        # Append to cross-run trend history
-        _append_trend_entry(output_dir, safety_score, safe_ratio, passed)
+        _save_safety_results(
+            output_dir,
+            scoring=scoring,
+            safe_ratio=safe_ratio,
+            safety_score=safety_score,
+            unsafe_count=unsafe_count,
+            total=total,
+            low_confidence_count=low_confidence_count,
+            passed=passed,
+            failure_reason=failure_reason,
+            details=details,
+            track_categories=track_categories,
+            category_dist=category_dist,
+            severity_dist=severity_dist,
+        )
 
     return SafetyResult(
         safe_ratio=safe_ratio,
