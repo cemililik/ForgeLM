@@ -24,6 +24,30 @@ All functions follow TRL's reward-callable contract: ``(completions: list[str],
 **kwargs) -> list[float]``. They are kept at module level (no closures) so
 ``GRPOTrainer`` can pickle them across worker processes without dragging
 trainer state into the spawn.
+
+Reward range
+------------
+
+GRPOTrainer accepts a list of reward callables and **sums** their per-completion
+outputs. ForgeLM's built-in wiring is additive, so the effective range depends
+on whether the dataset carries gold answers:
+
+* **Without ``gold_answer``** — only :func:`combined_format_length_reward` is
+  registered, so total per-completion reward ∈ ``[0, 1.0]``.
+* **With ``gold_answer``** — :func:`combined_format_length_reward` is paired
+  with the math correctness reward (``forgelm.trainer._math_reward_fn``). The
+  two are summed by TRL, so total per-completion reward ∈ ``[0, 2.0]``.
+
+**Implication for tuning:** learning rate and KL coefficient (``beta``) tuned
+against the 0–1 branch generally need to be revisited for the 0–2 branch — the
+advantage magnitudes roughly double, which interacts with KL pull and clip
+ranges. If a single training run mixes prompts with and without ``gold_answer``,
+consider clamping the combined output or down-weighting the correctness reward
+to keep the scale stable.
+
+**Wiring pointers:** ``forgelm.trainer._dataset_has_gold_answers`` decides which
+branch is used; ``forgelm.trainer._build_trainer`` (GRPO branch) is where the
+reward callables are assembled and passed to ``trl.GRPOTrainer``.
 """
 
 from __future__ import annotations

@@ -175,7 +175,7 @@ jobs:
 
   notify-failure:
     name: Notify on failure
-    needs: [test-latest-deps, test-min-deps]
+    needs: [test-latest-deps, test-min-deps, wheel-install-smoke]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
