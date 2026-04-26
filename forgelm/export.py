@@ -20,7 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import subprocess
+import subprocess  # noqa: S404  # nosec B404 — see _run_converter for the safe-usage rationale
 import sys
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
@@ -264,12 +264,14 @@ def _build_converter_command(
 def _run_converter(cmd: List[str], fmt: str, actual_quant: str) -> Optional[ExportResult]:
     """Run the converter and return an ExportResult on failure (None on success)."""
     logger.info("Running GGUF conversion: %s", " ".join(cmd))
-    # Bandit B603: cmd is a fixed list (no shell=True); converter path comes
-    # from _find_converter_script and source/output paths from the user's own
-    # call — no untrusted input.
+    # Bandit B603 / ruff S603: cmd[0] is sys.executable (absolute), cmd[1] comes
+    # from _find_converter_script (resolved against an installed package or an
+    # FORGELM_GGUF_CONVERTER env-var the user supplied), and the remaining
+    # argv entries are paths the caller already controls. No shell=True, no
+    # user-supplied executable. The suppression covers the multi-line call.
     try:
-        proc = subprocess.run(  # noqa: S603  # nosec B603
-            cmd,
+        proc = subprocess.run(  # noqa: S603, S607  # nosec B603 B607
+            cmd,  # noqa: S603  # nosec B603
             capture_output=True,
             text=True,
             check=False,
