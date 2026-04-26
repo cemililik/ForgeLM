@@ -33,11 +33,11 @@ All notable changes to ForgeLM are documented here.
   - No bifurcation: identical code paths and YAML schema downstream.
 
 - **5 bundled templates** under `forgelm/templates/`:
-  - `customer-support/` — Qwen2.5-7B-Instruct primary, SmolLM2-1.7B-Instruct fallback. SFT trainer. 60-example seed JSONL in `{"messages": [...]}` format.
-  - `code-assistant/` — Qwen2.5-Coder-7B-Instruct primary. SFT. 60-example Python/programming Q&A.
-  - `domain-expert/` — BYOD; empty data with a README explaining how to pair with `forgelm ingest` (Phase 11) or a custom JSONL.
-  - `medical-qa-tr/` — Turkish medical Q&A SFT. 40+ examples; every answer ends with "Tıbbi acil durumlarda 112'yi arayın..." (medical-disclaimer guardrail).
-  - `grpo-math/` — Qwen2.5-Math-7B-Instruct primary, Qwen2.5-Math-1.5B-Instruct fallback. GRPO trainer (`grpo_num_generations: 4`). 40 grade-school math word problems in prompt-only format.
+  - `customer-support/` — Qwen2.5-7B-Instruct primary, SmolLM2-1.7B-Instruct fallback. SFT trainer. 58-example seed JSONL in `{"messages": [...]}` format.
+  - `code-assistant/` — Qwen2.5-Coder-7B-Instruct primary, Qwen2.5-Coder-1.5B-Instruct fallback (code-tuned smaller variant, not generic SmolLM2). SFT. 59-example Python/programming Q&A.
+  - `domain-expert/` — Qwen2.5-7B-Instruct primary, SmolLM2-1.7B-Instruct fallback. BYOD; empty data with a README explaining how to pair with `forgelm ingest` (Phase 11) or a custom JSONL.
+  - `medical-qa-tr/` — Qwen2.5-7B-Instruct primary, Qwen2.5-1.5B-Instruct fallback (Turkish-capable, not English-only SmolLM2). SFT, 49 Turkish Q&A; every answer ends with "Tıbbi acil durumlarda 112'yi arayın..." (medical-disclaimer guardrail).
+  - `grpo-math/` — Qwen2.5-Math-7B-Instruct primary, Qwen2.5-Math-1.5B-Instruct fallback. GRPO trainer (`grpo_num_generations: 4`). 40 grade-school math word problems in prompt-only format, each carrying a `gold_answer` field for the built-in regex correctness reward.
 
 - **Conservative defaults** in every template config:
   - QLoRA 4-bit NF4, LoRA rank=8, `per_device_train_batch_size=1`, gradient checkpointing on, safety eval / compliance artifacts opt-in only.
@@ -47,16 +47,21 @@ All notable changes to ForgeLM are documented here.
 
 - **`pyproject.toml` `[tool.setuptools.package-data]`** — bundles `*.yaml`, `*.jsonl`, `*.md` under `forgelm.templates` into the wheel so `pip install forgelm` users get the templates without a source checkout.
 
-- **Tests** — `tests/test_quickstart.py` (40 tests, GPU-independent via `_detect_available_vram_gb` mock):
-  - Registry consistency, get-template lookups, list ordering.
-  - Every template's YAML config is parseable, has `model`/`training`/`data`/`lora` sections, and uses the placeholder dataset string the quickstart layer overwrites.
-  - Every bundled JSONL parses as JSON line by line.
-  - `auto_select_model` primary/fallback/no-gpu paths.
-  - End-to-end `run_quickstart` flow: substitution, overrides win over auto-select, dry-run hint in summary, `domain-expert` rejects without `--dataset`.
-  - CLI dispatch (`--list` text + JSON, `--dry-run` writes YAML and exits 0, missing template → CONFIG_ERROR).
-  - **Regression**: every generated YAML round-trips through `load_config()` — the strongest guard against template drift the moment a config schema changes.
+- **GRPO baseline reward** — `forgelm/grpo_rewards.py` ships a default reward bundle so prompt-only datasets don't crash inside `trl.GRPOTrainer`. When `grpo_reward_model` is unset the trainer wires `combined_format_length_reward` (0.8 × format-match + 0.2 × length-shaping); if the dataset additionally carries a `gold_answer` field (the bundled `grpo-math` seed does), `_math_reward_fn` is appended so TRL sums correctness on top of format teaching.
 
-- **CI** — `.github/workflows/nightly.yml` adds a per-template smoke test that runs `forgelm quickstart <name> --dry-run` followed by `forgelm --config <out> --dry-run` for every bundled template.
+- **Tests** — All GPU-independent via TRL/torch FSDP-aware skip-if pattern:
+  - `tests/test_quickstart.py` — registry consistency, bundled-asset shape, `auto_select_model` primary/fallback/no-gpu, end-to-end `run_quickstart`, CLI dispatch, regression test that loads every generated YAML through `load_config` (strongest guard against template drift).
+  - `tests/test_quickstart_hardening.py` — PR review hardening (path validation, model override edges, dry-run wiring).
+  - `tests/test_grpo_math_reward.py` — pure-Python unit tests for `_normalize_answer`, `_answers_match`, `_math_reward_fn`, `_dataset_has_gold_answers`.
+  - `tests/test_grpo_format_reward.py` — `format_match_reward`, `length_shaping_reward`, `combined_format_length_reward`, plus trainer integration.
+  - `tests/test_wizard_byod.py` — wizard BYOD dataset path validation (existence, directory, malformed JSONL, valid JSONL, HF Hub IDs, `~` expansion).
+  - `tests/test_cli_quickstart_wiring.py` — `--offline` propagation, separate chat inheritance, chat exit-code 0/130 handling.
+  - `tests/test_packaging.py` — wheel `package_data` smoke (catches editable-install-only template paths).
+  - `tests/test_grpo_reward.py` — extended with no-reward-model + gold-answer wiring assertions.
+
+- **CI** — `.github/workflows/nightly.yml`:
+  - Per-template quickstart smoke (4 of 5 — `domain-expert` is BYOD and covered by pytest).
+  - New `wheel-install-smoke` job: builds the wheel, installs it into a fresh venv from `/tmp` (so the source tree is off `sys.path`), and reruns `quickstart --list` + `quickstart --dry-run` to catch broken `package_data` globs that editable installs hide.
 
 ### Documentation
 

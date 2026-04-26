@@ -47,7 +47,17 @@ Bundled templates (all use QLoRA 4-bit, rank-8, batch=1 by default — safe to r
 | `medical-qa-tr` | SFT | Turkish medical Q&A with safety disclaimers |
 | `grpo-math` | GRPO | Grade-school math reasoning |
 
-ForgeLM auto-downsizes the model on small GPUs (e.g. `Qwen2.5-7B-Instruct` → `SmolLM2-1.7B-Instruct` when < 10 GB VRAM is available). Override with `--model your-org/your-model` or `--dataset path/to/your.jsonl`.
+ForgeLM auto-downsizes the model on small GPUs. Each template has its own fallback chosen for the task:
+
+| Template | Primary (≥10 GB VRAM) | Fallback (<10 GB) |
+|---|---|---|
+| `customer-support` | Qwen/Qwen2.5-7B-Instruct | HuggingFaceTB/SmolLM2-1.7B-Instruct |
+| `code-assistant` | Qwen/Qwen2.5-Coder-7B-Instruct | Qwen/Qwen2.5-Coder-1.5B-Instruct |
+| `domain-expert` | Qwen/Qwen2.5-7B-Instruct | HuggingFaceTB/SmolLM2-1.7B-Instruct |
+| `medical-qa-tr` | Qwen/Qwen2.5-7B-Instruct | Qwen/Qwen2.5-1.5B-Instruct |
+| `grpo-math` | Qwen/Qwen2.5-Math-7B-Instruct | Qwen/Qwen2.5-Math-1.5B-Instruct |
+
+Override with `--model your-org/your-model` or `--dataset path/to/your.jsonl`.
 
 See [LICENSES.md](https://github.com/cemililik/ForgeLM/blob/main/forgelm/templates/LICENSES.md) for the licenses of bundled seed datasets (CC-BY-SA 4.0, author-original).
 

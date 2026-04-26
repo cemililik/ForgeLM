@@ -15,7 +15,7 @@
 
 **PyPI'deki son sürüm:** `v0.4.0` — Post-Training Tamamlama (2026-04-26 yayınlandı). Inference primitif'leri, etkileşimli chat REPL, GGUF export, VRAM fit advisor, deployment config üretimi.
 
-**Git'te etiketli ama PyPI'de yok:** `v0.4.5` — Quickstart Katmanı (tek komutla hazır template'ler: `forgelm quickstart customer-support`). Küçük GPU'larda modeli otomatik küçültür, mevcut trainer'ın değişmeden kabul ettiği bir YAML üretir.
+**Main'e merge edildi, tag + PyPI publish bekliyor:** `v0.4.5` — Quickstart Katmanı (tek komutla hazır template'ler: `forgelm quickstart customer-support`). Küçük GPU'larda modeli otomatik küçültür, mevcut trainer'ın değişmeden kabul ettiği bir YAML üretir. PR #9 ile (2026-04-26) main'e indi; `v0.4.5` git tag ve PyPI yükleme kalan release-engineering adımları.
 
 **Güncel kilometretaşı:** `v0.5.0` — Doküman Yutma ve Veri Denetimi (Faz 11). PDF/DOCX/EPUB → JSONL, PII tespiti, yakın-duplicate denetimi.
 
@@ -61,7 +61,7 @@ docs/
     ├── completed-phases.md                     # Faz 1-10 arşivi (detaylı, İngilizce)
     ├── phase-10-post-training.md               # Tamamlandı — v0.4.0
     ├── phase-11-data-ingestion.md              # Planlandı — v0.5.0
-    ├── phase-12-quickstart.md                  # Planlandı — Faz 10.5 — v0.4.5 (etiketli, PyPI'de yok)
+    ├── phase-12-quickstart.md                  # Tamam (Faz 10.5) — main'e v0.4.5 olarak merge edildi; tag + PyPI publish bekliyor
     ├── phase-13-pro-cli.md                     # Planlandı — v0.6.0-pro (gated)
     ├── phase-14-pipeline-chains.md             # Planlandı — v0.5.1
     ├── releases.md                             # v0.3.0 → v0.6.0 sürüm notları
