@@ -68,7 +68,7 @@ graph TB
     CLI --> SYNTH
 ```
 
-Seventeen single-file modules. **No sub-packages inside `forgelm/`.** If a module grows past ~1000 lines and has cohesive subsections, split into `module_name/` package, but keep the public API at `forgelm.module_name.X` so imports don't break.
+Single-file modules — count tracks the table above (≈25 today across Phase 1-11). **No sub-packages inside `forgelm/`.** If a module grows past ~1000 lines and has cohesive subsections, split into `module_name/` package, but keep the public API at `forgelm.module_name.X` so imports don't break.
 
 ## Principles
 

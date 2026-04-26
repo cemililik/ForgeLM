@@ -96,8 +96,10 @@ _PII_PATTERNS: Dict[str, re.Pattern] = {
     "email": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
     "iban": re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"),
     # Credit cards captured first within the digit-run categories, then
-    # Luhn-validated (see _is_credit_card)
-    "credit_card": re.compile(r"\b(?:\d[ -]*?){13,19}\b"),
+    # Luhn-validated (see _is_credit_card). Greedy ``*`` instead of ``*?``:
+    # both match the same set of strings here (``\b`` end-anchor forces a
+    # full match) but the greedy form avoids unnecessary engine backtracking.
+    "credit_card": re.compile(r"\b(?:\d[ -]*){13,19}\b"),
     "us_ssn": re.compile(r"\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b"),
     "fr_ssn": re.compile(r"\b[12]\d{2}(0[1-9]|1[0-2])(2[AB]|\d{2})\d{3}\d{3}(\d{2})?\b"),
     "tr_id": re.compile(r"\b\d{11}\b"),  # TR national ID is 11 digits, see _is_tr_id
@@ -183,7 +185,12 @@ def detect_pii(text: str) -> Dict[str, int]:
     return counts
 
 
-def mask_pii(text: str, replacement: str = "[REDACTED]") -> str:
+def mask_pii(
+    text: str,
+    replacement: str = "[REDACTED]",
+    *,
+    return_counts: bool = False,
+) -> Any:
     """Return ``text`` with every detected PII span replaced by ``replacement``.
 
     Pattern precedence is the dict order in :data:`_PII_PATTERNS` — most
@@ -191,19 +198,31 @@ def mask_pii(text: str, replacement: str = "[REDACTED]") -> str:
     span that would match multiple categories is attributed to the narrower
     one. Phone is scanned LAST and is anchored to ``+CC`` or ``(area)``
     formats so bare digit runs (timestamps, IDs, dates) do not collide.
+
+    Args:
+        text: Input string. Non-string values are returned unchanged.
+        replacement: String to substitute in for each detected span.
+        return_counts: When True, return ``(masked_text, counts_dict)`` where
+            ``counts_dict[pii_type]`` is the number of spans actually replaced
+            by THIS pattern in this call. Multi-pattern overlap is reported
+            only once per span (the first / most specific pattern wins, the
+            same way mask_pii rewrites the text). Default ``False`` keeps
+            backwards compat for the 1-arg form.
     """
     if not text or not isinstance(text, str):
-        return text
+        return (text, {}) if return_counts else text
+    counts: Dict[str, int] = {}
     out = text
     for pii_type, pattern in _PII_PATTERNS.items():
 
         def _replace(match: re.Match, _t: str = pii_type) -> str:
             if _validate_match(_t, match.group(0)):
+                counts[_t] = counts.get(_t, 0) + 1
                 return replacement
             return match.group(0)
 
         out = pattern.sub(_replace, out)
-    return out
+    return (out, counts) if return_counts else out
 
 
 # ---------------------------------------------------------------------------
@@ -432,9 +451,11 @@ def _cross_split_overlap(
             if not fp_b_set:
                 continue
             shared = sum(1 for fp in fp_a if any(hamming_distance(fp, other) <= threshold for other in fp_b_set))
+            # `if not fp_a: continue` above guarantees fp_a is non-empty here,
+            # so the ternary on the leak_rate divisor is dead code — drop it.
             report["pairs"][f"{a}__{b}"] = {
-                "leaked_rows_in_{}".format(a): shared,
-                "leak_rate": round(shared / len(fp_a), 4) if fp_a else 0.0,
+                f"leaked_rows_in_{a}": shared,
+                "leak_rate": round(shared / len(fp_a), 4),
             }
     return report
 

@@ -147,7 +147,9 @@ def generate_data_governance_report(config: Any, dataset: Dict[str, Any]) -> Dic
             try:
                 with open(audit_path, "r", encoding="utf-8") as fh:
                     report["data_audit"] = json.load(fh)
-            except (json.JSONDecodeError, OSError) as exc:
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+                # Audit JSON is best-effort enrichment — corrupt UTF-8 or a
+                # malformed file must not abort governance report generation.
                 logger.warning("Could not inline data_audit_report.json (%s): %s", audit_path, exc)
 
     return report

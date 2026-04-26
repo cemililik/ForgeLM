@@ -115,11 +115,20 @@ empty DOCX) skip with a warning.
 
 **Encrypted PDFs** are caught explicitly: an empty-password decrypt is
 attempted automatically (covers owner-encrypted PDFs that are still
-readable); if that fails, a `ValueError` surfaces with a recommended
-external decrypt path (`qpdf --decrypt input.pdf out.pdf` /
-`pdftk input.pdf input_pw <password> output out.pdf`). Wiring a CLI
-password flag is intentionally avoided — keeping passwords out of shell
-history is safer.
+readable). If that fails, the per-file extractor raises `ValueError`
+internally — the batch ingestion loop catches that as "extraction
+failed", logs a warning that names the file, increments
+`files_skipped` in the result, and moves on to the next file. The
+warning text recommends decrypting externally first:
+
+```bash
+qpdf --decrypt --password=<pwd> input.pdf out.pdf
+# or
+pdftk input.pdf input_pw <pwd> output out.pdf
+```
+
+Wiring a CLI password flag is intentionally avoided — keeping passwords
+out of shell history is safer.
 
 **Binary content masquerading as text** (a `.txt` file that's actually a
 zip / image renamed) surfaces a warning when more than 1% of the file

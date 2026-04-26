@@ -120,8 +120,18 @@ def _extract_docx(path: Path) -> str:
         ) from exc
 
     doc = Document(str(path))
-    paragraphs = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
-    return "\n\n".join(paragraphs)
+    blocks: List[str] = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
+
+    # Tables — flatten cell text in row-major order so the structure isn't
+    # lost outright. Matches the "DOCX tables are flattened to plain text"
+    # behavior promised in docs/guides/ingestion.md. Empty cells skipped.
+    for table in doc.tables:
+        for row in table.rows:
+            row_cells = [cell.text.strip() for cell in row.cells if cell.text and cell.text.strip()]
+            if row_cells:
+                blocks.append(" | ".join(row_cells))
+
+    return "\n\n".join(blocks)
 
 
 def _extract_epub(path: Path) -> str:
@@ -326,10 +336,9 @@ def ingest_path(
     if pii_mask:
         # Lazy import: PII helpers live in data_audit.py; we don't want to
         # pay the audit module's import cost when masking is off.
-        from .data_audit import detect_pii, mask_pii
+        from .data_audit import mask_pii
     else:
         mask_pii = None  # type: ignore[assignment]
-        detect_pii = None  # type: ignore[assignment]
 
     files = list(_iter_input_files(src, recursive))
     if not files:
@@ -372,12 +381,13 @@ def ingest_path(
                 if not payload:
                     continue
                 if mask_pii is not None:
-                    # Count the spans we are about to redact so the operator
-                    # has compliance evidence ("X emails + Y phones removed")
-                    # without having to diff the masked output.
-                    for kind, count in detect_pii(payload).items():
+                    # Get the masked text + per-type counts in a single pass.
+                    # Counting via detect_pii beforehand would double-count
+                    # spans matched by multiple patterns; mask_pii's own
+                    # first-match-wins precedence gives the truthful count.
+                    payload, redaction_counts = mask_pii(payload, return_counts=True)
+                    for kind, count in redaction_counts.items():
                         pii_redaction_counts[kind] = pii_redaction_counts.get(kind, 0) + count
-                    payload = mask_pii(payload)
                 out_fh.write(json.dumps({"text": payload}, ensure_ascii=False) + "\n")
                 chunk_count += 1
                 total_chars += len(payload)

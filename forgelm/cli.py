@@ -1110,11 +1110,15 @@ def _run_ingest_cmd(args, output_format: str) -> None:
             logger.error("Ingest failed: %s", exc)
         sys.exit(EXIT_CONFIG_ERROR)
     except ImportError as exc:
+        # Convention across subcommands (chat/export/etc.): a missing optional
+        # extra is a *runtime* failure of the dispatched feature, not a config
+        # validation failure — exit with EXIT_TRAINING_ERROR so CI/CD retry
+        # logic treats it the same way.
         if output_format == "json":
             print(json.dumps({"success": False, "error": str(exc)}))
         else:
             logger.error("%s", exc)
-        sys.exit(EXIT_CONFIG_ERROR)
+        sys.exit(EXIT_TRAINING_ERROR)
 
     if output_format == "json":
         print(
@@ -1127,6 +1131,7 @@ def _run_ingest_cmd(args, output_format: str) -> None:
                     "files_skipped": result.files_skipped,
                     "total_chars": result.total_chars,
                     "format_counts": result.format_counts,
+                    "pii_redaction_counts": result.pii_redaction_counts,
                     "notes": result.extra_notes,
                 },
                 indent=2,
@@ -1143,7 +1148,10 @@ def _run_data_audit(audit_input: str, output_dir: Optional[str], output_format: 
     target = output_dir or "./audit"
     try:
         report = audit_dataset(audit_input, output_dir=target)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, OSError) as exc:
+        # OSError covers PermissionError / ENOSPC / IsADirectoryError that
+        # bubble up from _resolve_input or _read_jsonl_split when the target
+        # is unreachable BEFORE the per-split tolerance loop kicks in.
         if output_format == "json":
             print(json.dumps({"success": False, "error": str(exc)}))
         else:

@@ -19,9 +19,12 @@ forgelm --data-audit data/ --output ./audit/
 ```
 
 `--output` defaults to `./audit/`. The directory is created if missing;
-`data_audit_report.json` is written there. Stdout shows a human-readable
-summary; pass `--output-format json` to get the full report on stdout for
-CI/CD consumption.
+the **full** `data_audit_report.json` is always written there. Stdout shows
+a human-readable summary by default; pass `--output-format json` to get
+a **summary** JSON envelope (top-level metrics + report path + notes) on
+stdout — the full report still lives on disk under `--output`. CI/CD
+consumers should slurp the file from `report_path` rather than parsing
+the stdout summary when they need every detail.
 
 No GPU required. No network calls. CPU-only.
 
@@ -165,11 +168,10 @@ forgelm --data-audit PATH \
 
 Top-level flag (not a subcommand) — exits without touching the trainer.
 
-> **Note:** `--output-format json` mode prints a *summary* to stdout (top-level
-> metrics + report path), not the full report — multi-split audits can grow
-> to tens of KB and would otherwise drown CI logs. The full
-> `data_audit_report.json` is always written to `--output`. Read it from disk
-> if you need every detail.
+> **Note:** This matches the behavior summarised at the top of this guide:
+> `--output-format json` writes a small envelope (success flag, top-level
+> metrics, report path) to stdout. The full `data_audit_report.json` is
+> always written to `--output`. Read it from disk if you need every detail.
 
 ---
 

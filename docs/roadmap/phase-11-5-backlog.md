@@ -1,12 +1,23 @@
 # Phase 11.5 — Ingestion / Audit follow-up backlog
 
-Items deliberately scoped out of Phase 11 (`v0.5.0`). Tracked here so a
-future minor / patch release can pick them up in priority order. Each row
-is small enough to land as its own focused PR.
+**12 items** deliberately scoped out of Phase 11 (`v0.5.0`). Tracked here
+so a future minor / patch release can pick them up in priority order.
+Each row is small enough to land as its own focused PR.
 
-> **Recently landed** (struck through and removed from this list):
-> ebooklib `options={…}` deprecation fix, audit progress logging, OCR
-> handoff documentation in [`docs/guides/ingestion.md`](../guides/ingestion.md).
+> **Recently landed** (removed from the table below; in chronological order):
+>
+> 1. ebooklib `options={"ignore_ncx": True, "ignore_missing_css": True}` —
+>    silences the deprecation / NCX / CSS warnings on EPUB read.
+> 2. Audit progress logging — `_audit_split` emits per-5000-row simhash
+>    progress; `audit_dataset` logs each split's open + the near-duplicate
+>    pairing start.
+> 3. OCR handoff documentation in
+>    [`docs/guides/ingestion.md`](../guides/ingestion.md) — Tesseract
+>    (via `ocrmypdf`) and AWS Textract worked recipes, plus PII redaction
+>    after OCR.
+>
+> Original Phase 11 review surfaced 34 findings. 19 fixes applied in PR
+> #11; 3 follow-ups landed via the items above; 12 remain (this table).
 
 | # | Item | Why deferred | Effort | Impact |
 |---|---|---|---|---|

@@ -127,6 +127,8 @@ forgelm deploy ./checkpoints/final_model --target ollama --output ./Modelfile --
 forgelm --config my_config.yaml --generate-data
 ```
 
+This uses the `synthetic` config section to generate training data from a teacher model before training begins. See the [Configuration Guide](configuration.md) for all synthetic data options.
+
 ### Document Ingestion (v0.5.0+)
 
 Convert raw PDF / DOCX / EPUB / TXT / Markdown into SFT-ready JSONL. Optional dep: `pip install forgelm[ingestion]`. See [Ingestion Guide](../guides/ingestion.md).
@@ -164,8 +166,6 @@ forgelm --data-audit data/sft.jsonl --output ./audit/ --output-format json
 The audit captures: per-split sample count + length distribution, top-3 language detection, simhash near-duplicate rate, cross-split leakage (silent train-test overlap), PII flag counts (email / phone / Luhn-validated credit card / IBAN / TR-DE-FR-US national IDs).
 
 When `data_audit_report.json` is present in the trainer's `output_dir` at training time, its findings are inlined under the `data_audit` key of the EU AI Act Article 10 governance artifact automatically.
-
-This uses the `synthetic` config section to generate training data from a teacher model before training begins. See the [Configuration Guide](configuration.md) for all synthetic data options.
 
 ### Evaluation & Merging
 

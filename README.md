@@ -102,8 +102,8 @@ See the [Quick Start Guide](docs/guides/quickstart.md) for a complete walkthroug
 | Guide | Description |
 |-------|-------------|
 | [Quick Start](docs/guides/quickstart.md) | First fine-tuned model in 5 minutes |
-| [Document Ingestion](docs/guides/ingestion.md) | Raw PDF/DOCX/EPUB → SFT-ready JSONL |
-| [Dataset Audit](docs/guides/data_audit.md) | Length, language, dedup, cross-split leakage, PII |
+| [Document Ingestion](docs/guides/ingestion.md) ([Türkçe](docs/guides/ingestion-tr.md)) | Raw PDF/DOCX/EPUB → SFT-ready JSONL |
+| [Dataset Audit](docs/guides/data_audit.md) ([Türkçe](docs/guides/data_audit-tr.md)) | Length, language, dedup, cross-split leakage, PII |
 | [Alignment (DPO/SimPO/KTO/GRPO)](docs/guides/alignment.md) | Complete post-training stack |
 | [CI/CD Pipeline Integration](docs/guides/cicd_pipeline.md) | GitHub Actions, GitLab CI, Docker |
 | [Enterprise Deployment](docs/guides/enterprise_deployment.md) | Docker, air-gapped, multi-GPU |
@@ -238,7 +238,7 @@ forgelm/
 
 configs/deepspeed/   # ZeRO-2, ZeRO-3, ZeRO-3+Offload presets
 notebooks/           # Colab-ready Jupyter notebooks
-tests/               # 430 passed (+34 skipped) across 30 test files
+tests/               # pytest suite spanning every module (run with `pytest tests/`)
 docs/guides/         # Quickstart, alignment, CI/CD, enterprise, safety guides
 ```
 

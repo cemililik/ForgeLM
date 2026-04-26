@@ -74,8 +74,8 @@ class TestPiiDetection:
         assert detect_pii("hello world how are you") == {}
 
     def test_returns_empty_for_non_string(self):
-        assert detect_pii(None) == {}
-        assert detect_pii(42) == {}
+        assert detect_pii(None) == {}  # type: ignore[arg-type]
+        assert detect_pii(42) == {}  # type: ignore[arg-type]
 
     def test_pii_types_listed(self):
         # Sanity: the public tuple matches what detect_pii can emit.
@@ -110,8 +110,6 @@ class TestPiiMasking:
         # The masker may also redact long digit runs as candidate phone
         # numbers (false positives are intentional per the module docstring).
         # We assert at the helper level instead, which is unambiguous.
-        from forgelm.data_audit import _is_credit_card
-
         assert _is_credit_card("4111111111111111") is True
         assert _is_credit_card("4111111111111112") is False
 
@@ -260,10 +258,13 @@ class TestAuditDirectoryLayout:
         # cross-split leakage analysis is meaningless in that case.
         _write_jsonl(tmp_path / "alpha.jsonl", [{"text": "x"}])
         _write_jsonl(tmp_path / "beta.jsonl", [{"text": "y"}])
-        with caplog.at_level("WARNING"):
+        with caplog.at_level("WARNING", logger="forgelm.data_audit"):
             report = audit_dataset(str(tmp_path))
         assert "alpha" in report.splits and "beta" in report.splits
         assert any("pseudo-split" in n for n in report.notes)
+        # The warning must reach the logger so CI / log aggregators see it,
+        # not only the in-report notes (operators rarely cat the report file).
+        assert any("pseudo-split" in record.message for record in caplog.records)
 
     def test_cross_split_overlap_caught(self, tmp_path):
         # Identical row in train + test → leakage

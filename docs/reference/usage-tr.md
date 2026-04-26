@@ -69,6 +69,44 @@ forgelm --config my_config.yaml --generate-data
 
 Bu komut, eğitim başlamadan önce bir öğretmen modelden eğitim verisi üretmek için `synthetic` config bölümünü kullanır. Tüm sentetik veri seçenekleri için [Konfigürasyon Rehberi](configuration-tr.md)'ne bakın.
 
+### Doküman Yutma (v0.5.0+)
+
+Ham PDF / DOCX / EPUB / TXT / Markdown'ı SFT'ye uygun JSONL'a dönüştürür. Opsiyonel bağımlılık: `pip install forgelm[ingestion]`. Ayrıntılar için [Doküman Yutma Rehberi](../guides/ingestion-tr.md).
+
+```bash
+# Tek dosya
+forgelm ingest ./book.epub --output data/sft.jsonl
+
+# Recursive dizin yürüyüşü + paragraf chunking
+forgelm ingest ./policies/ --recursive --output data/policies.jsonl
+
+# Kayan pencere + örtüşme (uzun teknik dokümanlar)
+forgelm ingest ./scan.pdf --strategy sliding --chunk-size 1024 --overlap 128 \
+  --output data/scan.jsonl
+
+# Yazmadan önce PII'yi maskele
+forgelm ingest ./customer_emails/ --pii-mask --output data/anon.jsonl
+```
+
+### Veri Seti Denetimi (v0.5.0+)
+
+CPU-only kalite + governance denetimi. `data_audit_report.json` üretir. Ayrıntılar için [Denetim Rehberi](../guides/data_audit-tr.md).
+
+```bash
+# Tek split
+forgelm --data-audit data/sft.jsonl --output ./audit/
+
+# Çoklu split (train.jsonl / validation.jsonl / test.jsonl içeren dizin)
+forgelm --data-audit data/ --output ./audit/
+
+# stdout'a makine-okunabilir özet
+forgelm --data-audit data/sft.jsonl --output ./audit/ --output-format json
+```
+
+Denetim şunları yakalar: split başına örnek sayısı + uzunluk dağılımı, top-3 dil tespiti, simhash near-duplicate oranı, cross-split sızıntı (sessiz train-test örtüşmesi), PII flag sayıları (e-posta / telefon / Luhn-doğrulanmış kredi kartı / IBAN / TR-DE-FR-US ulusal kimlikleri).
+
+Trainer'ın `output_dir`'ünde `data_audit_report.json` mevcutsa, bulgular EU AI Act Madde 10 governance artifact'ında `data_audit` anahtarı altında otomatik olarak inline edilir.
+
 ### Değerlendirme, Birleştirme ve Uyumluluk
 
 ```bash

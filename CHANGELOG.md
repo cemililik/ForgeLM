@@ -102,7 +102,7 @@ All notable changes to ForgeLM are documented here.
 
 ---
 
-## [0.4.0] — 2026-04-25
+## [0.4.0] — 2026-04-26
 
 ### Added
 
