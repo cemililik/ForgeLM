@@ -345,7 +345,7 @@ def _maybe_run_quickstart_template() -> Optional[str]:
     print("\nAvailable templates:")
     names = []
     for tpl in list_templates():
-        bundled = "✔ data" if tpl.bundled_dataset else "✘ BYOD"
+        bundled = "[x] data" if tpl.bundled_dataset else "[ ] BYOD"
         names.append(tpl.name)
         print(f"  {len(names)}) {tpl.name}  —  {tpl.title}  ({bundled}, ~{tpl.estimated_minutes}min)")
     raw = _prompt("Pick a template by number or name", names[0])

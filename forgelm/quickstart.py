@@ -22,6 +22,7 @@ Usage (programmatic):
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -175,7 +176,7 @@ def auto_select_model(template: Template, available_vram_gb: Optional[float]) ->
             template.fallback_model,
             f"available VRAM {available_vram_gb:.1f} GB < {template.min_vram_for_primary_gb} GB — auto-downsized",
         )
-    return template.primary_model, f"available VRAM {available_vram_gb:.1f} GB ≥ primary requirement"
+    return template.primary_model, f"available VRAM {available_vram_gb:.1f} GB >= primary requirement"
 
 
 @dataclass
@@ -193,7 +194,13 @@ class QuickstartResult:
 
 
 def _detect_available_vram_gb() -> Optional[float]:
-    """Best-effort total VRAM lookup; returns None if no GPU or torch missing."""
+    """Best-effort total VRAM lookup; returns None if no GPU or torch missing.
+
+    On multi-GPU hosts the function reports the maximum total VRAM across all
+    visible CUDA devices. That answers the "will this template fit at all?"
+    question — the user can pin a specific GPU at training time via
+    ``CUDA_VISIBLE_DEVICES``.
+    """
     try:
         import torch  # local import — quickstart should not pull torch into --help
     except ImportError:
@@ -201,10 +208,17 @@ def _detect_available_vram_gb() -> Optional[float]:
     try:
         if not torch.cuda.is_available():
             return None
-        _, total = torch.cuda.mem_get_info()
+        count = torch.cuda.device_count()
+        if count == 0:
+            return None
+        max_total_bytes = 0
+        for i in range(count):
+            with torch.cuda.device(i):
+                _, total = torch.cuda.mem_get_info()
+                max_total_bytes = max(max_total_bytes, total)
         # Use total (capacity) rather than free (current snapshot) for the
         # "will this template fit at all" question.
-        return total / (1024**3)
+        return max_total_bytes / (1024**3)
     except Exception as exc:  # pragma: no cover — best-effort only
         logger.debug("VRAM probe failed: %s", exc)
         return None
@@ -326,6 +340,24 @@ def _build_provenance_header(
     return "\n".join(lines)
 
 
+def _append_audit_event(audit_dir: Path, event: Dict[str, Any]) -> None:
+    """Append a structured event to ``<audit_dir>/quickstart_audit.jsonl``.
+
+    Mirrors :class:`forgelm.compliance.AuditLogger`'s append-only JSONL
+    discipline without coupling to the checkpoint-dir-bound logger. A UTC
+    ISO-8601 ``timestamp`` is injected automatically. Write failures are logged
+    at ``warning`` and swallowed so audit-disk problems never block quickstart.
+    """
+    entry = {"timestamp": datetime.now(timezone.utc).isoformat(), **event}
+    try:
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        log_path = audit_dir / "quickstart_audit.jsonl"
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, default=str) + "\n")
+    except Exception as exc:
+        logger.warning("Failed to write quickstart audit event: %s", exc)
+
+
 def run_quickstart(
     template_name: str,
     *,
@@ -362,6 +394,23 @@ def run_quickstart(
 
     config_target = Path(output_path) if output_path else _default_output_path(template_name)
     config_target.parent.mkdir(parents=True, exist_ok=True)
+
+    _append_audit_event(
+        config_target.parent,
+        {
+            "event_type": "quickstart.model_selection",
+            "template": template.name,
+            "template_primary_model": template.primary_model,
+            "template_fallback_model": template.fallback_model,
+            "template_min_vram_for_primary_gb": template.min_vram_for_primary_gb,
+            "available_vram_gb": available_vram_gb,
+            "chosen_model": chosen_model,
+            "selection_reason": selection_reason,
+            "model_override_used": model_override is not None,
+            "dataset_override_used": dataset_override is not None,
+            "dry_run": dry_run,
+        },
+    )
 
     dataset_path, dataset_notes = _resolve_dataset(template, dataset_override, config_target.parent)
 
@@ -407,7 +456,7 @@ def format_template_list() -> str:
     """Render the template registry as a human-readable list."""
     lines = ["Available quickstart templates:", ""]
     for tpl in list_templates():
-        bundled = "✔ bundled data" if tpl.bundled_dataset else "✘ user-supplied data"
+        bundled = "[x] bundled data" if tpl.bundled_dataset else "[ ] user-supplied data"
         lines.append(f"  {tpl.name}")
         lines.append(f"    {tpl.title} — {tpl.description}")
         lines.append(
