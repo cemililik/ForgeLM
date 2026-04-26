@@ -1,6 +1,6 @@
 # Phase 10.5: Quickstart Layer & Onboarding
 
-> **Status:** ✅ **DONE** — merged to `main` as `v0.4.5` via PR #9 (2026-04-26); the `v0.4.5` git tag and PyPI upload are the remaining release-engineering steps. Module: [`forgelm/quickstart.py`](../../forgelm/quickstart.py); five bundled templates under [`forgelm/templates/`](../../forgelm/templates/); CLI: `forgelm quickstart <template>`; tests: [`tests/test_quickstart.py`](../../tests/test_quickstart.py); CI smoke in [nightly.yml](../../.github/workflows/nightly.yml).
+> **Status:** ✅ **DONE** — shipped as `v0.4.5` on 2026-04-26 (PyPI). Module: [`forgelm/quickstart.py`](../../forgelm/quickstart.py); five bundled templates under [`forgelm/templates/`](../../forgelm/templates/); CLI: `forgelm quickstart <template>`; tests: [`tests/test_quickstart.py`](../../tests/test_quickstart.py); CI smoke in [nightly.yml](../../.github/workflows/nightly.yml).
 
 > **Note:** This file details a single phase. For a summary of all phases, see [../roadmap.md](../roadmap.md).
 > **Filename:** `phase-12-quickstart.md` — name retained from the original Phase 12 ordering; content corresponds to Phase 10.5.
