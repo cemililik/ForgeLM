@@ -847,7 +847,11 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
 
     # Spec: invoke training automatically. Use a subprocess so each phase keeps
     # its own clean process state and Ctrl-C is honoured cleanly.
-    import subprocess
+    #
+    # Security: argv-list form (not shell=True) and sys.executable as argv[0]
+    # mean no shell is invoked — meta characters in `result.config_path` are
+    # passed verbatim to the child as a single argument, with no expansion.
+    import subprocess  # nosec B404 — argv-list usage only; see comment above
 
     train_cmd = [sys.executable, "-m", "forgelm.cli", "--config", str(result.config_path)]
     logger.info("Starting training: %s", " ".join(train_cmd))
@@ -907,7 +911,10 @@ def _dispatch_subcommand(command: str, args) -> None:
         _run_deploy_cmd(args, getattr(args, "output_format", "text"))
         sys.exit(EXIT_SUCCESS)
     elif command == "quickstart":
-        _run_quickstart_cmd(args, getattr(args, "output_format", "text"))
+        try:
+            _run_quickstart_cmd(args, getattr(args, "output_format", "text"))
+        except KeyboardInterrupt:
+            pass
         sys.exit(EXIT_SUCCESS)
 
 

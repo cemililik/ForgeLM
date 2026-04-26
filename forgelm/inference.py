@@ -253,6 +253,7 @@ def generate_stream(
     ``TextIteratorStreamer`` in a background thread so the caller's loop can
     update the UI without blocking.
     """
+    import torch
     from transformers import TextIteratorStreamer
 
     if messages is None:
@@ -286,7 +287,8 @@ def generate_stream(
 
     def _gen_thread() -> None:
         try:
-            model.generate(**gen_kwargs)
+            with torch.inference_mode():
+                model.generate(**gen_kwargs)
         except Exception as e:
             _exc.append(e)
 

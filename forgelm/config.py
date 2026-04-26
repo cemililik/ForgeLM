@@ -469,7 +469,7 @@ class ForgeConfig(BaseModel):
                 f"Invalid galore_optim: '{self.training.galore_optim}'. "
                 f"Must be one of: {', '.join(sorted(valid_galore_optims))}"
             )
-        if self.lora.r > 0:
+        if self.lora and self.lora.r > 0:
             logger.info(
                 "GaLore (gradient rank=%d) enabled alongside LoRA (adapter rank=%d). "
                 "GaLore reduces gradient memory via low-rank projection; "
