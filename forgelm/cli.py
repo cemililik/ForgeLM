@@ -863,6 +863,21 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
     log_level = getattr(args, "log_level", None)
     if log_level:
         inherited += ["--log-level", log_level]
+    # --offline lives on the main parser only; forwarding before the
+    # subcommand keyword preserves air-gap intent for the child process.
+    if getattr(args, "offline", False):
+        inherited.append("--offline")
+
+    # chat is interactive; JSON mode is dropped (it has no consumer for the
+    # REPL and would muddy the stdout stream). --quiet / --log-level / --offline
+    # still apply, so the chat list is built independently from the same args.
+    inherited_chat: list[str] = []
+    if getattr(args, "quiet", False):
+        inherited_chat.append("--quiet")
+    if log_level:
+        inherited_chat += ["--log-level", log_level]
+    if getattr(args, "offline", False):
+        inherited_chat.append("--offline")
 
     train_cmd = [sys.executable, "-m", "forgelm.cli", *inherited, "--config", str(result.config_path)]
     logger.info("Starting training: %s", " ".join(train_cmd))
@@ -886,9 +901,15 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
         )
         sys.exit(EXIT_SUCCESS)
 
-    chat_cmd = [sys.executable, "-m", "forgelm.cli", *inherited, "chat", str(final_model_dir)]
+    chat_cmd = [sys.executable, "-m", "forgelm.cli", *inherited_chat, "chat", str(final_model_dir)]
     logger.info("Launching chat REPL: %s", " ".join(chat_cmd))
-    subprocess.run(chat_cmd, check=False)  # noqa: S603  # nosec B603
+    chat_rc = subprocess.run(chat_cmd, check=False).returncode  # noqa: S603  # nosec B603
+    # 130 == SIGINT (Ctrl-C is the normal way to leave the REPL). Anything else
+    # non-zero is a crash worth surfacing, but chat exit is not the operator's
+    # training-success signal so we still exit 0 — the training run already
+    # succeeded by the time we got here.
+    if chat_rc not in (0, 130):
+        logger.warning("Chat subprocess exited with code %d", chat_rc)
     sys.exit(EXIT_SUCCESS)
 
 

@@ -4,9 +4,12 @@ Generates a valid config.yaml through step-by-step prompts.
 No external dependencies required — uses stdlib input().
 """
 
+import json
 import logging
 import os
+import re
 import sys
+from pathlib import Path
 from typing import Optional
 
 import yaml
@@ -38,6 +41,11 @@ TARGET_MODULE_PRESETS = {
 
 # Common dataset-format hints for preference-based trainers (DPO/SimPO/ORPO)
 _PREFERENCE_COLUMNS_HINT = "Columns: prompt, chosen, rejected"
+
+# HF Hub dataset IDs look like "<org>/<name>" — exactly one slash, with the
+# allowed character set used by the Hub. We accept these BYOD inputs without
+# touching the local filesystem; the trainer resolves them at runtime.
+_HF_HUB_ID_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 
 
 def _prompt(question: str, default: str = "") -> str:
@@ -356,17 +364,49 @@ def _maybe_run_quickstart_template() -> Optional[str]:
     template = TEMPLATES[chosen]
     if not template.bundled_dataset:
         print(f"  '{chosen}' is BYOD — bring your own JSONL dataset.")
-        # Re-prompt until the user provides a real path or explicitly cancels.
-        # An empty string used to silently drop into the full wizard, which
-        # surprised users who picked a BYOD template on purpose.
+        # Re-prompt until the user provides a valid path / HF Hub ID or
+        # explicitly cancels. An empty string used to silently drop into the
+        # full wizard, which surprised users who picked a BYOD template on
+        # purpose. We additionally validate the path here so typos surface
+        # immediately rather than 30 seconds into the training subprocess.
         while True:
-            dataset_path = _prompt("Path to your dataset JSONL (or 'cancel' to fall back to the full wizard)", "")
+            dataset_path = _prompt(
+                "Path to your dataset JSONL (must exist as a JSONL file) or HF Hub ID, "
+                "or 'cancel' to fall back to the full wizard",
+                "",
+            )
             if dataset_path.strip().lower() in ("cancel", "c", "q", "quit"):
                 print("  Cancelled — falling back to the full wizard.")
                 return None
-            if dataset_path:
+            if not dataset_path:
+                print("  A dataset path is required for this template. Type 'cancel' to use the full wizard instead.")
+                continue
+
+            # Accept HF Hub dataset IDs ("<org>/<name>") without filesystem checks.
+            if _HF_HUB_ID_RE.match(dataset_path) and dataset_path.count("/") == 1:
+                print(f"  Treating '{dataset_path}' as an HF Hub dataset ID (no local validation).")
                 break
-            print("  A dataset path is required for this template. Type 'cancel' to use the full wizard instead.")
+
+            resolved = Path(dataset_path).expanduser()
+            if not resolved.is_file():
+                print(f"  Path not found or not a regular file: {dataset_path}")
+                continue
+            try:
+                with open(resolved, "r", encoding="utf-8") as fh:
+                    first_line = ""
+                    for line in fh:
+                        if line.strip():
+                            first_line = line
+                            break
+                if not first_line:
+                    raise ValueError("file is empty")
+                json.loads(first_line)
+            except (OSError, ValueError) as e:
+                print(f"  File is not valid JSONL (first line failed to parse): {e}")
+                continue
+
+            dataset_path = str(resolved)
+            break
     else:
         dataset_path = ""
 
