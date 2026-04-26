@@ -13,9 +13,9 @@
 | 📋 Planned | [Phase 13 — Pro CLI & Observability Dashboard](roadmap/phase-13-pro-cli.md) | License-gated dashboard, HPO, scheduled jobs, team config store → `v0.6.0-pro` |
 | 📋 Planned | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO chained config, pipeline provenance artifacts → `v0.5.1` |
 
-**Latest release:** `v0.4.5` — Quickstart Layer (shipped 2026-04-26). One-command bundled templates: `forgelm quickstart customer-support`. Auto-downsizes models on small GPUs, generates a config that the existing trainer accepts unchanged.
+**Latest release on PyPI:** `v0.4.0` — Post-Training Completion (published 2026-04-26). Inference primitives, interactive chat REPL, GGUF export, VRAM fit advisor, and deployment config generation.
 
-**Previous:** `v0.4.0` — Post-Training Completion (2026-04-26 on PyPI). Inference primitives, interactive chat REPL, GGUF export, VRAM fit advisor, and deployment config generation.
+**Tagged but not yet on PyPI:** `v0.4.5` — Quickstart Layer (one-command bundled templates: `forgelm quickstart customer-support`). Auto-downsizes models on small GPUs, generates a config that the existing trainer accepts unchanged.
 
 **Current milestone:** `v0.5.0` — Document Ingestion & Data Audit (Phase 11). PDF/DOCX/EPUB → JSONL, PII detection, near-duplicate audit.
 
@@ -61,7 +61,7 @@ docs/
     ├── completed-phases.md                     # Phase 1-10 archive (detailed)
     ├── phase-10-post-training.md               # Completed — v0.4.0
     ├── phase-11-data-ingestion.md              # Planned — v0.5.0
-    ├── phase-12-quickstart.md                  # Planned — Phase 10.5 — v0.4.5
+    ├── phase-12-quickstart.md                  # Done (Phase 10.5) — tagged v0.4.5, not yet on PyPI
     ├── phase-13-pro-cli.md                     # Planned — v0.6.0-pro (gated)
     ├── phase-14-pipeline-chains.md             # Planned — v0.5.1
     ├── releases.md                             # v0.3.0 → v0.6.0 release notes

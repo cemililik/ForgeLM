@@ -2,8 +2,8 @@
 
 > **Status:** ✅ **DONE** — shipped in `v0.4.5` (2026-04-26). Module: [`forgelm/quickstart.py`](../../forgelm/quickstart.py); five bundled templates under [`forgelm/templates/`](../../forgelm/templates/); CLI: `forgelm quickstart <template>`; tests: [`tests/test_quickstart.py`](../../tests/test_quickstart.py); CI smoke in [nightly.yml](../../.github/workflows/nightly.yml).
 
-> **Not:** Bu dosya tek bir planlanan fazı detaylandırır. Tüm fazların özeti için [../roadmap.md](../roadmap.md).
-> **Dosya adı:** `phase-12-quickstart.md` — orijinal Phase 12 sırasından kaldığı için adı değiştirilmedi; içerik Phase 10.5'e karşılık gelir.
+> **Note:** This file details a single phase. For a summary of all phases, see [../roadmap.md](../roadmap.md).
+> **Filename:** `phase-12-quickstart.md` — name retained from the original Phase 12 ordering; content corresponds to Phase 10.5.
 
 **Goal:** Make "my first fine-tune" a 10-minute experience. One command, one model in the end, zero YAML writing. Without sacrificing the CI/CD-native core — quickstart generates a YAML the user can later customize.
 **Estimated Effort:** Medium (1-2 months) — **Actual: 1 week**
@@ -19,17 +19,17 @@
    Takes a template name, optional model override, optional dataset override. Generates a `my_run.yaml` under `./configs/` and immediately invokes `forgelm --config ./configs/my_run.yaml`. On completion, auto-invokes `forgelm chat` unless `--no-chat` flag. Transparent about what it did — prints generated YAML path.
    ```bash
    forgelm quickstart customer-support
-   forgelm quickstart code-assistant --model DeepSeek-Coder-6.7B
+   forgelm quickstart code-assistant --model Qwen/Qwen2.5-Coder-7B-Instruct
    forgelm quickstart --list
    ```
 
 2. [x] **Template library: `forgelm/templates/` + bundled sample datasets**
    Initial five templates, each = YAML config + sample JSONL (100-500 examples, license-clean):
-   - `customer-support` (Qwen2.5-7B / Llama-3.1-8B, 100 examples, QLoRA r=8, ~15 min on RTX 3060)
-   - `code-assistant` (DeepSeek-Coder-6.7B, 200 examples, QLoRA, ~25 min)
-   - `domain-expert` (Qwen2.5-7B, uses `forgelm ingest` on user-supplied docs)
-   - `medical-qa-tr` (Qwen2.5-7B, 100 TR examples; Turkish-language flagship)
-   - `grpo-math` (Qwen2.5-Math-7B, mini-gsm8k, GRPO reward function, ~45 min)
+   - `customer-support` (Qwen/Qwen2.5-7B-Instruct primary, HuggingFaceTB/SmolLM2-1.7B-Instruct fallback, 58 examples, QLoRA r=8, ~15 min on RTX 3060)
+   - `code-assistant` (Qwen/Qwen2.5-Coder-7B-Instruct primary, Qwen/Qwen2.5-Coder-1.5B-Instruct fallback, 59 examples, QLoRA, ~25 min)
+   - `domain-expert` (Qwen/Qwen2.5-7B-Instruct primary, HuggingFaceTB/SmolLM2-1.7B-Instruct fallback, BYOD — no bundled dataset)
+   - `medical-qa-tr` (Qwen/Qwen2.5-7B-Instruct primary, Qwen/Qwen2.5-1.5B-Instruct fallback, 49 TR examples; Turkish-language flagship)
+   - `grpo-math` (Qwen/Qwen2.5-Math-7B-Instruct primary, Qwen/Qwen2.5-Math-1.5B-Instruct fallback, 40 prompts with gold_answer field, GRPO with built-in format+correctness reward, ~45 min)
    Each template must produce a working model on an 8-12 GB consumer GPU. `fit_check` integration: if GPU too small, quickstart auto-downsizes model choice.
 
 3. [x] **Conservative default policy for quickstart**
