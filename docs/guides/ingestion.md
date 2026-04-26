@@ -55,10 +55,26 @@ preprocessing required.
 |---|---|---|
 | `paragraph` (default) | Prose, policy docs, articles | Greedy paragraph packer; never splits a paragraph mid-sentence. |
 | `sliding` | Long technical documents, code mixed with prose | Fixed-size character window with `--overlap` for context bleed. |
-| `semantic` | _(planned)_ | Embedding-clustered chunks; `NotImplementedError` today. |
 
-`--chunk-size` is a **soft cap**. Paragraphs longer than the cap are emitted
-on their own — better than mid-sentence splits.
+> Semantic / embedding-based chunking is reserved for a follow-up phase — it
+> raises `NotImplementedError` today and is intentionally hidden from the CLI
+> `--strategy` choice list to avoid runtime crashes.
+
+`--chunk-size` is measured in **characters, not tokens**. As a rough rule,
+`--chunk-size 2048` corresponds to ≈500–700 tokens for typical English /
+Turkish text — set the value with `model.max_length` in mind (e.g. a model
+with `max_length: 2048` tokens benefits from `--chunk-size 6000-8000` so the
+formatter has headroom for system prompt + chat template overhead).
+Paragraphs longer than the soft cap are emitted on their own — better than
+mid-sentence splits.
+
+**Sliding overlap is bounded.** `--overlap` must be both `< --chunk-size`
+*and* `≤ --chunk-size // 2` — values above that explode chunk count
+(`--overlap 199 --chunk-size 200` would emit ~one chunk per character).
+The CLI rejects pathological combinations up front.
+
+**Files are processed in lexicographic order** (sorted glob result), so a
+re-run with the same input + flags produces the same JSONL byte-for-byte.
 
 ---
 
@@ -94,8 +110,22 @@ forgelm ingest ./policies/ --recursive --output data/all_policies.jsonl
 ```
 
 Files with unsupported extensions (`.png`, `.zip`, etc.) are skipped silently.
-Files with supported extensions but no extractable text (encrypted DOCX,
-scanned PDFs) skip with a warning.
+Files with supported extensions but no extractable text (scanned PDFs,
+empty DOCX) skip with a warning.
+
+**Encrypted PDFs** are caught explicitly: an empty-password decrypt is
+attempted automatically (covers owner-encrypted PDFs that are still
+readable); if that fails, a `ValueError` surfaces with a recommended
+external decrypt path (`qpdf --decrypt input.pdf out.pdf` /
+`pdftk input.pdf input_pw <password> output out.pdf`). Wiring a CLI
+password flag is intentionally avoided — keeping passwords out of shell
+history is safer.
+
+**Binary content masquerading as text** (a `.txt` file that's actually a
+zip / image renamed) surfaces a warning when more than 1% of the file
+decodes as Unicode replacement characters. The chunks still write —
+operators decide whether to keep them — but the warning is loud enough
+to catch in CI logs.
 
 ---
 

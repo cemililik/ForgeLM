@@ -60,10 +60,18 @@ DEFAULT_NEAR_DUP_HAMMING: int = 3
 
 @dataclass
 class AuditReport:
-    """Structured audit outcome — JSON-serializable via :func:`asdict`."""
+    """Structured audit outcome — JSON-serializable via :func:`asdict`.
+
+    Both :attr:`source_path` (absolute, for traceability) and
+    :attr:`source_input` (the literal string the operator passed in) are
+    captured: absolute paths are useful for forensic correlation but
+    leak the auditor's local filesystem layout, so consumers that need
+    portability across machines should prefer :attr:`source_input`.
+    """
 
     generated_at: str
     source_path: str
+    source_input: str
     total_samples: int
     splits: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     cross_split_overlap: Dict[str, Any] = field(default_factory=dict)
@@ -77,22 +85,42 @@ class AuditReport:
 # ---------------------------------------------------------------------------
 
 
+# Pattern dict iteration order = scan / mask precedence. Keep most specific
+# patterns first so a span that could match two categories is attributed to
+# the narrower one (e.g. an SSN is also a digit run; we want it flagged as
+# us_ssn, not as phone). When the same span matches multiple patterns during
+# masking, the FIRST pattern in this dict wins and the span is replaced
+# before the next pattern sees it — that's the documented "first match wins"
+# semantics referenced in :func:`mask_pii`.
 _PII_PATTERNS: Dict[str, re.Pattern] = {
     "email": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
+    "iban": re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"),
+    # Credit cards captured first within the digit-run categories, then
+    # Luhn-validated (see _is_credit_card)
+    "credit_card": re.compile(r"\b(?:\d[ -]*?){13,19}\b"),
+    "us_ssn": re.compile(r"\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b"),
+    "fr_ssn": re.compile(r"\b[12]\d{2}(0[1-9]|1[0-2])(2[AB]|\d{2})\d{3}\d{3}(\d{2})?\b"),
+    "tr_id": re.compile(r"\b\d{11}\b"),  # TR national ID is 11 digits, see _is_tr_id
+    # German Personalausweis serial: leading letter, then 7-8 digits, then
+    # optional alphanumeric check char. Tighter than the previous
+    # ``[A-Z0-9]{9,10}`` which collided with IATA codes / UUID fragments /
+    # API-key fragments.
+    "de_id": re.compile(r"\b[A-Z]\d{7,8}[A-Z0-9]?\b"),
+    # Phone numbers — the noisiest pattern in production. Anchored to either
+    # an international prefix ('+') or a parenthesized area code so that
+    # bare digit runs (timestamps, log line numbers, ISO dates, ID codes)
+    # don't trip false positives. Use ingestion --pii-mask to redact at write
+    # time; keep audit's recall slightly lower than the other categories to
+    # avoid audit fatigue.
     "phone": re.compile(
         r"(?<!\w)"
-        r"(?:\+?\d{1,3}[\s.-]?)?"
-        r"(?:\(\d{1,4}\)[\s.-]?)?"
-        r"\d{2,4}[\s.-]?\d{2,4}[\s.-]?\d{2,4}"
+        r"(?:"
+        r"\+\d{1,3}[\s.-]?\d{2,4}[\s.-]?\d{2,4}[\s.-]?\d{0,4}"  # +CC area#-#-#
+        r"|"
+        r"\(\d{2,4}\)[\s.-]?\d{2,4}[\s.-]?\d{2,4}"  # (area) #-#
+        r")"
         r"(?!\w)"
     ),
-    # Credit cards captured first, then Luhn-validated (see _is_credit_card)
-    "credit_card": re.compile(r"\b(?:\d[ -]*?){13,19}\b"),
-    "iban": re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"),
-    "tr_id": re.compile(r"\b\d{11}\b"),  # TR national ID is 11 digits, see _is_tr_id
-    "de_id": re.compile(r"\b[A-Z0-9]{9,10}\b"),  # DE Personalausweis ID
-    "fr_ssn": re.compile(r"\b[12]\d{2}(0[1-9]|1[0-2])(2[AB]|\d{2})\d{3}\d{3}(\d{2})?\b"),
-    "us_ssn": re.compile(r"\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b"),
 }
 
 
@@ -156,7 +184,14 @@ def detect_pii(text: str) -> Dict[str, int]:
 
 
 def mask_pii(text: str, replacement: str = "[REDACTED]") -> str:
-    """Return ``text`` with every detected PII span replaced by ``replacement``."""
+    """Return ``text`` with every detected PII span replaced by ``replacement``.
+
+    Pattern precedence is the dict order in :data:`_PII_PATTERNS` — most
+    specific patterns first (email, IBAN, credit card, national IDs) so a
+    span that would match multiple categories is attributed to the narrower
+    one. Phone is scanned LAST and is anchored to ``+CC`` or ``(area)``
+    formats so bare digit runs (timestamps, IDs, dates) do not collide.
+    """
     if not text or not isinstance(text, str):
         return text
     out = text
@@ -314,10 +349,19 @@ def _audit_split(split_name: str, rows: List[Dict[str, Any]]) -> Tuple[Dict[str,
     if not rows:
         return info, [], {}
 
-    columns: List[str] = []
-    for col in rows[0].keys():
-        columns.append(col)
-    info["columns"] = columns
+    # Schema is the *union* of keys across rows — heterogeneous BYOD JSONL
+    # often has optional fields (e.g. only some rows have `gold_answer`).
+    # Reading just rows[0].keys() would silently drop those extras.
+    seen_columns: Dict[str, None] = {}  # ordered set
+    for row in rows:
+        if isinstance(row, dict):
+            for col in row.keys():
+                seen_columns.setdefault(col, None)
+    info["columns"] = list(seen_columns)
+    base_columns = set(rows[0].keys()) if isinstance(rows[0], dict) else set()
+    drift_columns = [c for c in seen_columns if c not in base_columns]
+    if drift_columns:
+        info["schema_drift_columns"] = drift_columns
 
     text_payloads: List[str] = []
     null_or_empty = 0
@@ -380,30 +424,75 @@ def _cross_split_overlap(
     return report
 
 
-def _resolve_input(source: str) -> Dict[str, Path]:
-    """Map the user-supplied path to a ``{split_name: path}`` dict.
+# Common synonyms for the canonical split names. Folded onto canonical at
+# load time so leakage analysis treats e.g. ``dev.jsonl`` and
+# ``validation.jsonl`` as the same split semantically. Alias preference is
+# intentional: a directory containing both ``validation.jsonl`` and
+# ``dev.jsonl`` should warn (loud) rather than silently merge.
+_SPLIT_ALIASES: Dict[str, str] = {
+    "train": "train",
+    "validation": "validation",
+    "valid": "validation",
+    "val": "validation",
+    "dev": "validation",
+    "test": "test",
+    "eval": "test",
+    "holdout": "test",
+}
+
+
+def _resolve_input(source: str) -> Tuple[Dict[str, Path], List[str]]:
+    """Map the user-supplied path to a ``{split_name: path}`` dict + notes.
 
     Two layouts are supported:
     * Single ``.jsonl`` file → treated as the ``train`` split.
-    * Directory with files matching ``train.jsonl`` / ``validation.jsonl`` /
-      ``test.jsonl`` (any subset is fine).
+    * Directory with files matching canonical names (``train.jsonl`` /
+      ``validation.jsonl`` / ``test.jsonl``) or common aliases (``dev`` /
+      ``val`` / ``valid`` / ``eval`` / ``holdout``).
+
+    Returns a ``(splits_dict, notes_list)`` tuple. ``notes_list`` carries
+    operator-relevant signals (alias collapse, pseudo-split fallback)
+    surfaced both in the report and in the CLI summary.
     """
     src = Path(source).expanduser().resolve()
+    notes: List[str] = []
     if src.is_file():
-        return {"train": src}
+        return {"train": src}, notes
     if src.is_dir():
-        layouts = {}
-        for name in ("train", "validation", "test"):
-            candidate = src / f"{name}.jsonl"
-            if candidate.is_file():
-                layouts[name] = candidate
+        layouts: Dict[str, Path] = {}
+        # Canonical + alias discovery.
+        for stem, canonical in _SPLIT_ALIASES.items():
+            candidate = src / f"{stem}.jsonl"
+            if not candidate.is_file():
+                continue
+            if canonical in layouts:
+                # Two files map to the same canonical split — surface this
+                # rather than silently picking one.
+                notes.append(
+                    f"both '{layouts[canonical].name}' and '{candidate.name}' map to "
+                    f"the '{canonical}' split; using the first one. Rename to disambiguate."
+                )
+                continue
+            if stem != canonical:
+                notes.append(f"'{candidate.name}' treated as the '{canonical}' split.")
+            layouts[canonical] = candidate
         if layouts:
-            return layouts
-        # Fallback: every .jsonl in the directory becomes its own pseudo-split
+            return layouts, notes
+
+        # No canonical / alias hits — last-resort fallback: every .jsonl
+        # becomes its own pseudo-split. Cross-split leakage analysis here
+        # is misleading (those files probably aren't a real train/test
+        # partition), so warn loudly.
         for jsonl in sorted(src.glob("*.jsonl")):
             layouts[jsonl.stem] = jsonl
         if layouts:
-            return layouts
+            notes.append(
+                f"no canonical split files found in '{src}'. "
+                "Each .jsonl is being audited as its own pseudo-split — "
+                "cross-split leakage analysis is meaningless without a real partition."
+            )
+            logger.warning(notes[-1])
+            return layouts, notes
     raise FileNotFoundError(
         f"Audit input not found or empty: '{src}'. "
         f"Pass a .jsonl file or a directory containing train.jsonl / validation.jsonl / test.jsonl."
@@ -435,17 +524,29 @@ def audit_dataset(
     Returns:
         :class:`AuditReport`. JSON-serialize via ``asdict(report)``.
     """
-    splits_paths = _resolve_input(source)
+    splits_paths, resolution_notes = _resolve_input(source)
 
     splits_info: Dict[str, Dict[str, Any]] = {}
     fingerprints_by_split: Dict[str, List[int]] = {}
     pii_summary: Dict[str, int] = {}
     total_samples = 0
     near_dup_pairs: Dict[str, int] = {}
-    notes: List[str] = []
+    notes: List[str] = list(resolution_notes)
 
     for split_name, path in splits_paths.items():
-        rows = _read_jsonl_split(path)
+        # Bug 31: tolerate per-split filesystem failures (permissions, EIO,
+        # truncated files mid-read). A bad split should be reported, not
+        # abort the whole audit — operators usually want a partial report
+        # over no report.
+        try:
+            rows = _read_jsonl_split(path)
+        except OSError as exc:
+            logger.warning("Could not read split '%s' (%s): %s — skipping.", split_name, path, exc)
+            splits_info[split_name] = {"error": f"read_failed: {exc}", "path": str(path)}
+            fingerprints_by_split[split_name] = []
+            notes.append(f"split '{split_name}' skipped (read failure: {exc})")
+            continue
+
         info, fingerprints, pii_split = _audit_split(split_name, rows)
         splits_info[split_name] = info
         fingerprints_by_split[split_name] = fingerprints
@@ -460,14 +561,37 @@ def audit_dataset(
 
     cross = _cross_split_overlap(fingerprints_by_split, near_dup_threshold)
 
+    # Actionable, not just informational — Bug 34.
     if not pii_summary:
         notes.append("No PII flagged. (Regex-based detector — false negatives possible.)")
     else:
-        notes.append(f"PII flags surfaced: {', '.join(pii_summary)} — review before sharing the dataset.")
+        flag_total = sum(pii_summary.values())
+        breakdown = ", ".join(f"{k}={v}" for k, v in sorted(pii_summary.items()))
+        notes.append(
+            f"PII flags surfaced ({flag_total} total: {breakdown}). "
+            "Review before publishing; mask with `forgelm ingest --pii-mask` "
+            "or use `forgelm.data_audit.mask_pii` programmatically."
+        )
+
+    cross_pairs = cross.get("pairs", {}) or {}
+    leaking = [name for name, payload in cross_pairs.items() if payload.get("leak_rate", 0) > 0]
+    if leaking:
+        notes.append(
+            f"Cross-split leakage detected in {len(leaking)} pair(s): {', '.join(leaking)}. "
+            "Re-shuffle splits before benchmarking — leaked rows poison test fidelity."
+        )
+
+    near_dup_total = sum(near_dup_pairs.values())
+    if near_dup_total > 0:
+        notes.append(
+            f"{near_dup_total} near-duplicate pair(s) found within splits. "
+            "Inspect; identical chunks waste training compute and can overweight specific phrasing."
+        )
 
     report = AuditReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
         source_path=os.fspath(Path(source).expanduser().resolve()),
+        source_input=source,
         total_samples=total_samples,
         splits=splits_info,
         cross_split_overlap=cross,

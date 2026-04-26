@@ -269,13 +269,20 @@ def _add_ingest_subcommand(subparsers) -> None:
         "--strategy",
         type=str,
         default="paragraph",
-        choices=["sliding", "paragraph", "semantic"],
-        help="Chunking strategy (default: paragraph).",
+        choices=["sliding", "paragraph"],
+        help=(
+            "Chunking strategy (default: paragraph). 'semantic' is reserved for a "
+            "follow-up phase — it raises NotImplementedError today and is hidden "
+            "from this CLI surface to avoid runtime crashes."
+        ),
     )
     p.add_argument(
         "--recursive",
         action="store_true",
-        help="When input_path is a directory, walk subdirectories too.",
+        help=(
+            "When input_path is a directory, walk subdirectories too. "
+            "Default is shallow (top-level only) — pass --recursive to include nested files."
+        ),
     )
     p.add_argument(
         "--pii-mask",
@@ -1131,7 +1138,7 @@ def _run_ingest_cmd(args, output_format: str) -> None:
 
 def _run_data_audit(audit_input: str, output_dir: Optional[str], output_format: str) -> None:
     """Phase 11 dispatch: dataset quality + governance audit."""
-    from .data_audit import asdict, audit_dataset, summarize_report
+    from .data_audit import audit_dataset, summarize_report
 
     target = output_dir or "./audit"
     try:
@@ -1144,10 +1151,23 @@ def _run_data_audit(audit_input: str, output_dir: Optional[str], output_format: 
         sys.exit(EXIT_CONFIG_ERROR)
 
     if output_format == "json":
-        payload = asdict(report)
-        payload["success"] = True
-        payload["report_path"] = str(Path(target) / "data_audit_report.json")
-        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        # Stdout summary only — full report goes to disk under --output. A
+        # multi-split audit can grow to tens of KB of JSON which would drown
+        # downstream pipeline logs. Operators that want everything via stdout
+        # can read the file path from `report_path` and slurp it.
+        summary = {
+            "success": True,
+            "report_path": str(Path(target) / "data_audit_report.json"),
+            "generated_at": report.generated_at,
+            "source_input": report.source_input,
+            "total_samples": report.total_samples,
+            "splits": {name: info.get("sample_count", 0) for name, info in report.splits.items()},
+            "pii_summary": report.pii_summary,
+            "near_duplicate_pairs_per_split": report.near_duplicate_summary.get("pairs_per_split", {}),
+            "cross_split_leakage_pairs": list((report.cross_split_overlap.get("pairs") or {}).keys()),
+            "notes": report.notes,
+        }
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
     else:
         print(summarize_report(report))
         print(f"\nReport written to: {Path(target) / 'data_audit_report.json'}")

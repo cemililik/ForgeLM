@@ -57,6 +57,7 @@ class IngestionResult:
     files_skipped: int
     total_chars: int
     format_counts: dict = field(default_factory=dict)
+    pii_redaction_counts: dict = field(default_factory=dict)
     extra_notes: List[str] = field(default_factory=list)
 
 
@@ -68,12 +69,30 @@ class IngestionResult:
 def _extract_pdf(path: Path) -> str:
     try:
         from pypdf import PdfReader
+        from pypdf.errors import DependencyError, FileNotDecryptedError
     except ImportError as exc:  # pragma: no cover — covered by extras
         raise ImportError(
             "PDF ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
         ) from exc
 
-    reader = PdfReader(str(path))
+    try:
+        reader = PdfReader(str(path))
+    except Exception as exc:
+        raise ValueError(f"Could not open PDF '{path}': {exc}") from exc
+
+    if getattr(reader, "is_encrypted", False):
+        # Try empty password — common for owner-encrypted PDFs that are still
+        # readable. If the user has a password, document the recommended path
+        # (decrypt externally with qpdf / pdftk) rather than wiring a CLI flag.
+        try:
+            reader.decrypt("")
+        except (FileNotDecryptedError, NotImplementedError, DependencyError) as exc:
+            raise ValueError(
+                f"PDF '{path}' is encrypted. Decrypt it first (qpdf --decrypt / pdftk input_pw …) and re-run ingest."
+            ) from exc
+        if getattr(reader, "is_encrypted", False):
+            raise ValueError(f"PDF '{path}' is encrypted with a non-empty password. Decrypt externally before ingest.")
+
     pages: List[str] = []
     for page in reader.pages:
         try:
@@ -127,7 +146,21 @@ def _extract_epub(path: Path) -> str:
 
 
 def _extract_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8", errors="replace")
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    # Detect binary contamination — files mis-routed through the .txt extension
+    # (e.g. unzipped binaries renamed) come back as a sea of U+FFFD replacement
+    # characters. Below 1% is normal for legacy encodings; above is suspicious.
+    if raw:
+        replacement_count = raw.count("�")
+        if replacement_count / max(len(raw), 1) > 0.01:
+            logger.warning(
+                "'%s' contains %d Unicode replacement chars (%.1f%% of file). "
+                "Likely binary content masquerading as text — verify the file is actually UTF-8.",
+                path,
+                replacement_count,
+                replacement_count * 100 / len(raw),
+            )
+    return raw
 
 
 _EXTRACTORS: dict = {
@@ -150,6 +183,15 @@ def _chunk_sliding(text: str, chunk_size: int, overlap: int) -> Iterable[str]:
         raise ValueError("chunk_size must be positive")
     if overlap < 0 or overlap >= chunk_size:
         raise ValueError("overlap must be in [0, chunk_size)")
+    # Reject pathological overlap up front: ratios above 0.5 explode chunk
+    # count (overlap=199 with chunk_size=200 yields ~one chunk per character).
+    # The safety net is preventative — without it a typo can produce a
+    # multi-million-line JSONL silently.
+    if overlap > chunk_size // 2:
+        raise ValueError(
+            f"overlap ({overlap}) must be at most chunk_size // 2 ({chunk_size // 2}) to avoid quadratic chunk count. "
+            "Reduce --overlap or increase --chunk-size."
+        )
     if not text:
         return
     step = chunk_size - overlap
@@ -277,9 +319,10 @@ def ingest_path(
     if pii_mask:
         # Lazy import: PII helpers live in data_audit.py; we don't want to
         # pay the audit module's import cost when masking is off.
-        from .data_audit import mask_pii
+        from .data_audit import detect_pii, mask_pii
     else:
         mask_pii = None  # type: ignore[assignment]
+        detect_pii = None  # type: ignore[assignment]
 
     files = list(_iter_input_files(src, recursive))
     if not files:
@@ -290,6 +333,7 @@ def ingest_path(
     files_skipped = 0
     total_chars = 0
     format_counts: dict = {}
+    pii_redaction_counts: dict = {}
     notes: List[str] = []
 
     with open(dst, "w", encoding=encoding) as out_fh:
@@ -321,6 +365,11 @@ def ingest_path(
                 if not payload:
                     continue
                 if mask_pii is not None:
+                    # Count the spans we are about to redact so the operator
+                    # has compliance evidence ("X emails + Y phones removed")
+                    # without having to diff the masked output.
+                    for kind, count in detect_pii(payload).items():
+                        pii_redaction_counts[kind] = pii_redaction_counts.get(kind, 0) + count
                     payload = mask_pii(payload)
                 out_fh.write(json.dumps({"text": payload}, ensure_ascii=False) + "\n")
                 chunk_count += 1
@@ -329,7 +378,12 @@ def ingest_path(
     if files_skipped:
         notes.append(f"skipped {files_skipped} file(s) — see warnings above")
     if pii_mask:
-        notes.append("PII masking enabled — detected spans replaced with [REDACTED]")
+        if pii_redaction_counts:
+            redacted_total = sum(pii_redaction_counts.values())
+            breakdown = ", ".join(f"{k}={v}" for k, v in sorted(pii_redaction_counts.items()))
+            notes.append(f"PII masking redacted {redacted_total} span(s): {breakdown}")
+        else:
+            notes.append("PII masking enabled — no PII detected in this corpus")
 
     logger.info(
         "ingest: source=%s output=%s files=%d chunks=%d chars=%d strategy=%s",
@@ -348,6 +402,7 @@ def ingest_path(
         files_skipped=files_skipped,
         total_chars=total_chars,
         format_counts=format_counts,
+        pii_redaction_counts=pii_redaction_counts,
         extra_notes=notes,
     )
 

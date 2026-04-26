@@ -67,6 +67,12 @@ class TestSlidingChunking:
         with pytest.raises(ValueError, match="overlap"):
             list(_chunk_sliding("abc", chunk_size=2, overlap=2))
 
+    def test_overlap_above_half_chunk_rejected(self):
+        # Pathological overlap: chunk_size=200 + overlap=199 would emit
+        # ~one chunk per character. Reject up front.
+        with pytest.raises(ValueError, match="quadratic"):
+            list(_chunk_sliding("x" * 1000, chunk_size=200, overlap=199))
+
     def test_negative_chunk_size_rejected(self):
         with pytest.raises(ValueError, match="chunk_size"):
             list(_chunk_sliding("abc", chunk_size=-1, overlap=0))
@@ -220,15 +226,11 @@ def _has(module_name: str) -> bool:
 
 @pytest.mark.skipif(not _has("pypdf"), reason="pypdf extra not installed")
 class TestPdfExtractor:
-    def test_pdf_round_trip(self, tmp_path):
-        # Build a minimal one-page PDF with pypdf for the round-trip.
+    def test_blank_pdf_yields_no_chunks(self, tmp_path):
+        # A scanned PDF with no text layer must warn + emit zero chunks
+        # rather than crash.
         from pypdf import PdfWriter
-        from pypdf.generic import NameObject, TextStringObject, create_string_object
 
-        # Note: pypdf cannot easily author a PDF with extractable text from
-        # scratch without external rendering. So we exercise the empty-text
-        # path here — a scanned PDF with no text layer should warn + emit
-        # zero chunks rather than crash.
         writer = PdfWriter()
         writer.add_blank_page(width=200, height=200)
         pdf_path = tmp_path / "blank.pdf"
@@ -237,7 +239,79 @@ class TestPdfExtractor:
         out = tmp_path / "out.jsonl"
         result = ingest_path(str(pdf_path), output_path=str(out), strategy="paragraph")
         assert result.files_processed == 0  # empty extraction → skipped
-        # The trio (NameObject, TextStringObject, create_string_object) is
-        # imported only to silence the unused-import warning under linting
-        # in case pypdf grows author-side helpers.
-        _ = (NameObject, TextStringObject, create_string_object)
+
+    def test_text_bearing_pdf_extracts_chunks(self, tmp_path):
+        # Build a real text-bearing PDF by hand — just enough valid PDF to
+        # carry a single Tj-encoded string. Avoids pulling in reportlab as a
+        # test-only heavy dep just to exercise the happy path.
+        pdf_bytes = _hand_built_pdf("Hello world from a real PDF page.")
+        pdf_path = tmp_path / "doc.pdf"
+        pdf_path.write_bytes(pdf_bytes)
+
+        out = tmp_path / "out.jsonl"
+        result = ingest_path(str(pdf_path), output_path=str(out), strategy="paragraph")
+        assert result.files_processed == 1
+        rows = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines() if line.strip()]
+        assert any("Hello world from a real PDF page" in r["text"] for r in rows)
+
+    def test_encrypted_pdf_raises_clear_error(self, tmp_path):
+        # Encrypted PDFs are caught and surfaced; the operator gets an
+        # actionable message instead of "extraction failed".
+        from pypdf import PdfWriter
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=200, height=200)
+        writer.encrypt(user_password="secret", owner_password="owner")
+        pdf_path = tmp_path / "enc.pdf"
+        with open(pdf_path, "wb") as f:
+            writer.write(f)
+
+        # With pii_mask off, the per-file extraction failure surfaces as a
+        # warning (not a crash) and the file is skipped.
+        out = tmp_path / "out.jsonl"
+        result = ingest_path(str(pdf_path), output_path=str(out), strategy="paragraph")
+        assert result.files_processed == 0
+        assert result.files_skipped >= 1
+
+
+def _hand_built_pdf(text: str) -> bytes:
+    """Minimal valid one-page PDF with a single Tj-encoded line of text.
+
+    This is a deliberately tiny, hand-crafted PDF — enough for pypdf's text
+    extractor to find a real text layer without dragging in reportlab as a
+    test-only dependency. The byte layout follows the PDF 1.4 spec just
+    closely enough to load.
+    """
+    escaped = text.replace("(", "\\(").replace(")", "\\)").replace("\\", "\\\\")
+    content_stream = f"BT /F1 12 Tf 72 720 Td ({escaped}) Tj ET".encode()
+    content_obj = (
+        b"5 0 obj\n<< /Length "
+        + str(len(content_stream)).encode()
+        + b" >>\nstream\n"
+        + content_stream
+        + b"\nendstream\nendobj\n"
+    )
+
+    objs = [
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Contents 5 0 R /Resources << /Font << /F1 4 0 R >> >> >>\nendobj\n",
+        b"4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+        content_obj,
+    ]
+
+    pdf = b"%PDF-1.4\n"
+    offsets = [0]
+    for obj in objs:
+        offsets.append(len(pdf))
+        pdf += obj
+
+    xref_offset = len(pdf)
+    pdf += b"xref\n0 6\n"
+    pdf += b"0000000000 65535 f \n"
+    for offset in offsets[1:]:
+        pdf += f"{offset:010d} 00000 n \n".encode()
+    pdf += b"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n"
+    pdf += str(xref_offset).encode() + b"\n%%EOF"
+    return pdf

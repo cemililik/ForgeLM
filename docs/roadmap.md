@@ -63,6 +63,7 @@ docs/
     ├── completed-phases.md                     # Phase 1-10 archive (detailed)
     ├── phase-10-post-training.md               # Completed — v0.4.0
     ├── phase-11-data-ingestion.md              # Done (Phase 11) — landed for v0.5.0; tag + PyPI publish pending
+    ├── phase-11-5-backlog.md                   # Phase 11.5 follow-up backlog (LSH index, streaming reader, OCR docs, …)
     ├── phase-12-quickstart.md                  # Done (Phase 10.5) — shipped as v0.4.5
     ├── phase-13-pro-cli.md                     # Planned — v0.6.0-pro (gated)
     ├── phase-14-pipeline-chains.md             # Planned — v0.5.1

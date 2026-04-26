@@ -34,8 +34,22 @@ class TestPiiDetection:
     def test_email_detected(self):
         assert detect_pii("write to alice@example.com today").get("email") == 1
 
-    def test_phone_detected(self):
-        assert detect_pii("call +90 532 123 45 67 now").get("phone", 0) >= 1
+    def test_phone_detected_with_country_prefix(self):
+        # Narrow phone regex requires + or () context; bare digit runs no
+        # longer flag (Bug 6 narrowing).
+        assert detect_pii("call +90 532 123 45 now").get("phone", 0) >= 1
+
+    def test_phone_detected_with_paren_area_code(self):
+        assert detect_pii("call (212) 555-1234 today").get("phone", 0) >= 1
+
+    def test_bare_digits_not_phone(self):
+        # 4111 1111 1111 1111 used to match phone before the narrowing —
+        # now phone requires explicit international or area-code context.
+        assert detect_pii("number 4111 1111 1111 1111").get("phone", 0) == 0
+        # ISO date should not flag
+        assert detect_pii("event on 2024-01-15 here").get("phone", 0) == 0
+        # Log line numbers should not flag
+        assert detect_pii("line 1234 in foo.py").get("phone", 0) == 0
 
     def test_credit_card_validated_via_luhn(self):
         # 4111 1111 1111 1111 is a Visa test card with valid Luhn
@@ -68,6 +82,17 @@ class TestPiiDetection:
         assert "email" in PII_TYPES
         assert "credit_card" in PII_TYPES
         assert "tr_id" in PII_TYPES
+
+    def test_de_id_does_not_match_iata_or_uuid_fragments(self):
+        # Bug 7: previous \b[A-Z0-9]{9,10}\b matched too aggressively.
+        # IATA airport codes / UUID fragments / API key fragments must
+        # NOT flag as DE Personalausweis. Narrowed pattern requires
+        # leading letter + ≥7 digits.
+        assert detect_pii("flight ABCD12345 to ISTANBUL").get("de_id", 0) == 0
+        assert detect_pii("uuid 1234ABCDE9 here").get("de_id", 0) == 0
+        # A real-shape DE Personalausweis (letter + 8 digits + check)
+        # should still flag.
+        assert detect_pii("Personalausweis L01234567X").get("de_id", 0) == 1
 
 
 class TestPiiMasking:
@@ -216,6 +241,30 @@ class TestAuditDirectoryLayout:
         assert set(report.splits) == {"train", "validation"}
         assert report.total_samples == 3
 
+    @pytest.mark.parametrize(
+        "alias,canonical", [("dev", "validation"), ("val", "validation"), ("eval", "test"), ("holdout", "test")]
+    )
+    def test_split_alias_folded_to_canonical(self, tmp_path, alias, canonical):
+        # Bug 14: dev / val / eval / holdout get treated as
+        # validation / test as appropriate so cross-split leakage works
+        # without forcing operators to rename their files.
+        _write_jsonl(tmp_path / "train.jsonl", [{"text": "A"}])
+        _write_jsonl(tmp_path / f"{alias}.jsonl", [{"text": "B"}])
+        report = audit_dataset(str(tmp_path))
+        assert canonical in report.splits
+        assert any(alias in note for note in report.notes), f"alias {alias} should be surfaced in notes"
+
+    def test_pseudo_split_fallback_warns(self, tmp_path, caplog):
+        # Bug 26: when no canonical split files exist, every .jsonl becomes
+        # its own pseudo-split BUT the operator must be warned that
+        # cross-split leakage analysis is meaningless in that case.
+        _write_jsonl(tmp_path / "alpha.jsonl", [{"text": "x"}])
+        _write_jsonl(tmp_path / "beta.jsonl", [{"text": "y"}])
+        with caplog.at_level("WARNING"):
+            report = audit_dataset(str(tmp_path))
+        assert "alpha" in report.splits and "beta" in report.splits
+        assert any("pseudo-split" in n for n in report.notes)
+
     def test_cross_split_overlap_caught(self, tmp_path):
         # Identical row in train + test → leakage
         _write_jsonl(tmp_path / "train.jsonl", [{"text": "alpha bravo charlie delta echo"}])
@@ -241,6 +290,81 @@ class TestMessagesFormat:
         report = audit_dataset(str(path))
         # Two identical chats → near_duplicate_pairs should be 1
         assert report.splits["train"]["near_duplicate_pairs"] >= 1
+
+
+class TestSchemaDrift:
+    def test_columns_use_union_of_keys(self, tmp_path):
+        # Bug 3: heterogeneous JSONL — some rows have extra fields. The
+        # column schema must be the union, with drift surfaced.
+        path = tmp_path / "het.jsonl"
+        _write_jsonl(
+            path,
+            [
+                {"text": "alpha"},
+                {"text": "beta", "gold_answer": "x"},  # drift column
+                {"text": "gamma"},
+            ],
+        )
+        report = audit_dataset(str(path))
+        cols = report.splits["train"]["columns"]
+        assert "text" in cols and "gold_answer" in cols
+        assert report.splits["train"].get("schema_drift_columns") == ["gold_answer"]
+
+
+class TestPartialFailureTolerance:
+    def test_unreadable_split_skips_with_note(self, tmp_path, monkeypatch):
+        # Bug 31: a split that cannot be read (permission/IO/etc.) must
+        # not abort the audit; report it under the split's `error` key
+        # and continue. Simulate with a monkeypatch on the reader so the
+        # test stays portable (chmod 000 doesn't survive on every CI runner).
+        from forgelm import data_audit as audit_mod
+
+        _write_jsonl(tmp_path / "train.jsonl", [{"text": "A"}, {"text": "B"}])
+        _write_jsonl(tmp_path / "validation.jsonl", [{"text": "C"}])
+
+        original_read = audit_mod._read_jsonl_split
+
+        def flaky_read(path):
+            if path.name == "validation.jsonl":
+                raise OSError("simulated permission denied")
+            return original_read(path)
+
+        monkeypatch.setattr(audit_mod, "_read_jsonl_split", flaky_read)
+
+        report = audit_dataset(str(tmp_path))
+        assert "train" in report.splits
+        assert report.splits["validation"].get("error", "").startswith("read_failed")
+        assert any("validation" in n and "skipped" in n for n in report.notes)
+        # `train` audit should be intact
+        assert report.splits["train"]["sample_count"] == 2
+
+
+class TestActionableNotes:
+    def test_pii_note_suggests_mask_command(self, tmp_path):
+        path = tmp_path / "x.jsonl"
+        _write_jsonl(path, [{"text": "ping alice@example.com"}])
+        report = audit_dataset(str(path))
+        notes_blob = " ".join(report.notes)
+        assert "pii-mask" in notes_blob.lower() or "mask_pii" in notes_blob
+
+    def test_leakage_note_appears_when_pairs_leak(self, tmp_path):
+        _write_jsonl(tmp_path / "train.jsonl", [{"text": "alpha bravo charlie delta"}])
+        _write_jsonl(tmp_path / "test.jsonl", [{"text": "alpha bravo charlie delta"}])
+        report = audit_dataset(str(tmp_path))
+        notes_blob = " ".join(report.notes)
+        assert "leakage" in notes_blob.lower() or "leak" in notes_blob.lower()
+
+
+class TestReproducibility:
+    def test_report_carries_both_source_input_and_resolved_path(self, tmp_path):
+        # Bug 27: AuditReport stores both the literal user input and the
+        # absolute resolved path. Compliance bundles can pick whichever
+        # they need without re-resolving.
+        path = tmp_path / "x.jsonl"
+        _write_jsonl(path, [{"text": "alpha"}])
+        report = audit_dataset(str(path))
+        assert report.source_input == str(path)
+        assert Path(report.source_path).is_absolute()
 
 
 class TestSummarize:

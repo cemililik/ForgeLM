@@ -88,6 +88,15 @@ Other categories surface on regex shape alone — false positives are
 intentional. Mask with `forgelm ingest --pii-mask` (or in your own
 preprocessing) before publishing the dataset.
 
+**Pattern precedence is documented.** `_PII_PATTERNS` iteration order
+governs both detection priority and mask precedence — most specific
+patterns (`email`, `iban`, `credit_card`, national IDs) are scanned
+first, then the noisier `phone` pattern. When a span could match two
+categories, the first / narrower one wins and the span is replaced
+before the next pattern sees it. Phone is intentionally anchored to
+`+CC` or `(area)` formats so bare digit runs (timestamps, log line
+numbers, ISO dates) do not flag.
+
 ### Near-duplicate detection
 
 64-bit simhash over case-folded word tokens, paired with Hamming distance
@@ -108,11 +117,17 @@ corpora need an LSH band index — out of scope for v0.5.0.
 |---|---|
 | `*.jsonl` file | Single split named `train` |
 | `dir/` containing any of `train.jsonl`, `validation.jsonl`, `test.jsonl` | Each present file becomes its own split |
-| `dir/` containing other `*.jsonl` | Each `*.jsonl` becomes a pseudo-split named after the file stem |
+| `dir/` containing common aliases (`dev`, `val`, `valid`, `eval`, `holdout`) | Folded onto canonical split names — `dev.jsonl` → `validation`, `eval.jsonl` → `test`, etc. |
+| `dir/` containing only non-canonical `*.jsonl` | Pseudo-split fallback: each `*.jsonl` becomes its own split AND a warning is emitted that cross-split leakage analysis is meaningless without a real partition |
 
 The auditor reads the first text-bearing column it finds, in this priority:
 `text` → `content` → `completion` → `prompt`. For `messages`-format chat
 data, the role-tagged content is concatenated.
+
+**Schema drift is surfaced.** Heterogeneous JSONL (rows with optional fields)
+is allowed — the column schema is the union of keys across rows; any column
+that appears after row 0 is reported under `schema_drift_columns` so
+operators can decide whether the drift is intentional.
 
 ---
 
@@ -149,6 +164,12 @@ forgelm --data-audit PATH \
 `./audit/`.
 
 Top-level flag (not a subcommand) — exits without touching the trainer.
+
+> **Note:** `--output-format json` mode prints a *summary* to stdout (top-level
+> metrics + report path), not the full report — multi-split audits can grow
+> to tens of KB and would otherwise drown CI logs. The full
+> `data_audit_report.json` is always written to `--output`. Read it from disk
+> if you need every detail.
 
 ---
 

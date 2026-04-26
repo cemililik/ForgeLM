@@ -63,6 +63,7 @@ docs/
     ├── completed-phases.md                     # Faz 1-10 arşivi (detaylı, İngilizce)
     ├── phase-10-post-training.md               # Tamamlandı — v0.4.0
     ├── phase-11-data-ingestion.md              # Tamam (Faz 11) — v0.5.0 için indi; tag + PyPI publish bekliyor
+    ├── phase-11-5-backlog.md                   # Faz 11.5 follow-up backlog (LSH index, streaming reader, OCR docs, …)
     ├── phase-12-quickstart.md                  # Tamam (Faz 10.5) — v0.4.5 olarak yayınlandı
     ├── phase-13-pro-cli.md                     # Planlandı — v0.6.0-pro (gated)
     ├── phase-14-pipeline-chains.md             # Planlandı — v0.5.1
