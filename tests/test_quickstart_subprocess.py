@@ -16,6 +16,7 @@ this module stays independent of ``tests/test_cli_quickstart_wiring.py``.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -108,7 +109,7 @@ def test_train_subprocess_uses_absolute_config_path(tmp_path: Path):
     train_argv = recorder.calls[0]
     assert "--config" in train_argv, f"--config missing from train argv: {train_argv}"
     cfg_value = train_argv[train_argv.index("--config") + 1]
-    assert cfg_value.startswith("/"), f"Expected absolute --config path, got relative: {cfg_value!r}"
+    assert os.path.isabs(cfg_value), f"Expected absolute --config path, got relative: {cfg_value!r}"
     assert cfg_value.endswith("abs-path-test.yaml"), f"Expected the configured output path, got: {cfg_value!r}"
 
 
@@ -155,5 +156,5 @@ def test_chat_subprocess_uses_absolute_model_path(tmp_path: Path):
     # The model path is the final positional argument to ``chat``.
     assert "chat" in chat_argv, f"'chat' subcommand missing: {chat_argv}"
     model_path = chat_argv[-1]
-    assert model_path.startswith("/"), f"Expected absolute chat model path, got relative: {model_path!r}"
+    assert os.path.isabs(model_path), f"Expected absolute chat model path, got relative: {model_path!r}"
     assert model_path.endswith("final_model"), f"Expected path to end with 'final_model', got: {model_path!r}"

@@ -59,6 +59,33 @@ _REWARD_STRIP_TOKENS: tuple[str, ...] = (
 )
 
 
+# Single-letter alphabetic tokens (e.g. "m" for meters) need a boundary check
+# before stripping — otherwise the bare "m" rule would shave the trailing
+# letter off normal English words like "them" or "method". Multi-char and
+# non-alpha tokens ("$", "%", "kg", "km/h") have no such ambiguity.
+_BOUNDARY_REQUIRED_TOKENS: frozenset[str] = frozenset({"m"})
+
+
+def _is_unit_suffix_safe_to_strip(out: str, unit: str) -> bool:
+    """True when ``out`` ends with ``unit`` AND the char before is a digit/space."""
+    if unit not in _BOUNDARY_REQUIRED_TOKENS:
+        return True
+    if len(out) == len(unit):
+        return True
+    prev = out[-len(unit) - 1]
+    return prev.isdigit() or prev.isspace()
+
+
+def _is_unit_prefix_safe_to_strip(out: str, unit: str) -> bool:
+    """True when ``out`` starts with ``unit`` AND the next char is a digit/space."""
+    if unit not in _BOUNDARY_REQUIRED_TOKENS:
+        return True
+    if len(out) == len(unit):
+        return True
+    nxt = out[len(unit)]
+    return nxt.isdigit() or nxt.isspace()
+
+
 def _normalize_answer(s: str) -> str:
     """Trim whitespace, sentence punctuation, and known unit suffixes / prefixes.
 
@@ -71,12 +98,14 @@ def _normalize_answer(s: str) -> str:
     out = s.strip().rstrip(".!?")
     # Strip a known unit token from either end. Repeat once: "$15 USD"-style
     # collisions don't appear in the bundled prompts but a defensive single
-    # rescan keeps things predictable.
+    # rescan keeps things predictable. Single-letter alpha tokens (only "m"
+    # today) require a digit/space boundary so "them" / "method" don't get
+    # truncated.
     for _ in range(2):
         for unit in _REWARD_STRIP_TOKENS:
-            if out.endswith(unit):
+            if out.endswith(unit) and _is_unit_suffix_safe_to_strip(out, unit):
                 out = out[: -len(unit)].rstrip()
-            if out.startswith(unit):
+            if out.startswith(unit) and _is_unit_prefix_safe_to_strip(out, unit):
                 out = out[len(unit) :].lstrip()
     return out.strip()
 
@@ -107,9 +136,19 @@ def _math_reward_fn(completions, **kwargs):
     contain an ``Answer:`` marker score 0.0 — the regex implicitly enforces
     the spec'd output format.
     """
-    golds = kwargs.get("gold_answer", [])
+    golds = kwargs.get("gold_answer")
+    # No gold_answer column passed → reward function is wired but the dataset
+    # carries no ground truth. Return zero rewards so training continues
+    # (combined_format_length_reward still drives gradient via the format
+    # signal). This branch should be unreachable in practice — the trainer
+    # only wires _math_reward_fn after _dataset_has_gold_answers returns True.
+    if golds is None:
+        return [0.0] * len(completions)
+    # Use strict=True so a wiring regression (mismatched batch sizes) raises
+    # immediately instead of silently truncating to the shorter list and
+    # masking the bug as low reward.
     rewards: list[float] = []
-    for completion, gold in zip(completions, golds, strict=False):
+    for completion, gold in zip(completions, golds, strict=True):
         match = _ANSWER_PATTERN.search(completion or "")
         if not match:
             rewards.append(0.0)

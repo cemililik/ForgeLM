@@ -35,9 +35,7 @@ def test_inherited_flags_propagates_quiet_to_both() -> None:
 def test_inherited_flags_propagates_log_level_to_both() -> None:
     args = _ns(log_level="DEBUG")
     train_flags, chat_flags = _build_quickstart_inherited_flags(args)
-    assert ["--log-level", "DEBUG"] == [flag for flag in train_flags if flag in ("--log-level", "DEBUG")]
-    assert ["--log-level", "DEBUG"] == [flag for flag in chat_flags if flag in ("--log-level", "DEBUG")]
-    # Also assert the pair appears contiguously in both lists.
+    # Assert the flag/value pair appears contiguously in both lists.
     assert "--log-level" in train_flags
     assert train_flags[train_flags.index("--log-level") + 1] == "DEBUG"
     assert "--log-level" in chat_flags

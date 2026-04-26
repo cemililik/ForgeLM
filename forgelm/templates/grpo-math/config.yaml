@@ -43,7 +43,7 @@ training:
   save_total_limit: 2
   packing: false
   grpo_num_generations: 4
-  # Renamed from grpo_max_new_tokens in v0.4.6 — both names work via Pydantic alias; new field name matches TRL's GRPOConfig.
+  # Renamed from grpo_max_new_tokens in v0.4.5 — both names work via Pydantic alias; new field name matches TRL's GRPOConfig.
   grpo_max_completion_length: 384
 
 data:

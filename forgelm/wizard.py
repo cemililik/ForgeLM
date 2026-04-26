@@ -323,7 +323,7 @@ def _collect_galore_config(use_galore: bool) -> dict:
     }
 
 
-def _resolve_byod_dataset_path(template_name: str) -> Optional[str]:
+def _resolve_byod_dataset_path() -> Optional[str]:
     """Prompt the user for a BYOD dataset path and validate it.
 
     Returns the validated path (HF Hub ID strings are returned verbatim,
@@ -419,7 +419,7 @@ def _maybe_run_quickstart_template() -> Optional[str]:
     template = TEMPLATES[chosen]
     if not template.bundled_dataset:
         print(f"  '{chosen}' is BYOD — bring your own JSONL dataset.")
-        dataset_path = _resolve_byod_dataset_path(chosen)
+        dataset_path = _resolve_byod_dataset_path()
         if dataset_path is None:
             return None
     else:

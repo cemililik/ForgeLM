@@ -829,7 +829,11 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
         sys.exit(EXIT_SUCCESS)
 
     if not args.template:
-        logger.error("forgelm quickstart: TEMPLATE is required (or pass --list to see the menu).")
+        err = "forgelm quickstart: TEMPLATE is required (or pass --list to see the menu)."
+        if output_format == "json":
+            print(json.dumps({"success": False, "error": err}))
+        else:
+            logger.error(err)
         sys.exit(EXIT_CONFIG_ERROR)
 
     try:

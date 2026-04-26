@@ -62,6 +62,22 @@ class TestNormalizeAnswer:
         # km/h must be stripped before km — otherwise "70 km/h" would leave "/h".
         assert _normalize_answer("70 km/h") == "70"
 
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            # Single-letter "m" only stripped at a digit/space boundary.
+            ("them", "them"),  # alpha-prev → don't strip
+            ("method", "method"),  # alpha-next → don't strip
+            ("5 m", "5"),  # space-prev → strip
+            ("5m", "5"),  # digit-prev → strip
+            ("m 5", "5"),  # space-next → strip prefix
+            ("m5", "5"),  # digit-next → strip prefix
+            ("metric ton", "metric ton"),  # alpha-next → don't strip
+        ],
+    )
+    def test_single_letter_m_requires_boundary(self, raw, expected):
+        assert _normalize_answer(raw) == expected
+
 
 # ---------------------------------------------------------------------------
 # _answers_match
@@ -157,6 +173,16 @@ class TestMathRewardFn:
     def test_returns_floats(self):
         rewards = _math_reward_fn(["Answer: 7"], gold_answer=["7"])
         assert all(isinstance(r, float) for r in rewards)
+
+    def test_missing_gold_answer_kwarg_returns_zeros(self):
+        """No gold_answer column → all-zero rewards (defensive; should not happen in practice)."""
+        rewards = _math_reward_fn(["Answer: 7", "Answer: 8"])
+        assert rewards == [0.0, 0.0]
+
+    def test_mismatched_lengths_raises(self):
+        """Wiring regression: completions and gold_answer must have the same length."""
+        with pytest.raises(ValueError, match="zip"):
+            _math_reward_fn(["Answer: 7", "Answer: 8"], gold_answer=["7"])
 
     def test_reward_extraction_ignores_trailing_prose(self):
         """Trailing prose after the answer must not poison the comparison.
