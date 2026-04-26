@@ -62,6 +62,14 @@ class TestRegistry:
         for name in TEMPLATES:
             assert name in rendered
 
+    def test_fallback_models_match_template_language_and_domain(self):
+        # code-assistant must fall back to a code-tuned smaller model, not a
+        # generic chat model — SmolLM2 doesn't write usable code.
+        assert TEMPLATES["code-assistant"].fallback_model == "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+        # medical-qa-tr is a Turkish-language template; the fallback must
+        # speak Turkish (SmolLM2 is mostly English).
+        assert "Qwen2.5-1.5B" in TEMPLATES["medical-qa-tr"].fallback_model
+
 
 # ---------------------------------------------------------------------------
 # Bundled assets
@@ -107,6 +115,20 @@ class TestBundledAssets:
         readme = templates_dir() / "domain-expert" / "README.md"
         assert readme.is_file()  # spec: BYOD path must be documented
 
+    def test_grpo_math_dataset_carries_gold_answers(self):
+        # Built-in regex math reward keys off `gold_answer`; without it the
+        # trainer raises ValueError. Guards against accidentally dropping the
+        # field when refreshing the seed dataset.
+        _, data_path = template_assets("grpo-math")
+        assert data_path is not None
+        with open(data_path, encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                obj = json.loads(line)
+                assert "gold_answer" in obj, "grpo-math row missing 'gold_answer'"
+                assert obj["gold_answer"], "grpo-math row has empty 'gold_answer'"
+
     def test_conservative_defaults_in_every_config(self):
         # Spec: QLoRA 4-bit, rank ≤ 8, gradient checkpointing intent, batch=1.
         for name in TEMPLATES:
@@ -136,11 +158,13 @@ class TestAutoSelectModel:
         assert model == tpl.fallback_model
         assert "auto-downsized" in reason
 
-    def test_no_gpu_returns_primary_with_explanatory_note(self):
+    def test_no_gpu_returns_fallback_with_cpu_note(self):
         tpl = get_template("grpo-math")
         model, reason = auto_select_model(tpl, available_vram_gb=None)
-        assert model == tpl.primary_model
-        assert "no-gpu-detected" in reason
+        # No-GPU path now downsizes to the fallback model — primary 7B class
+        # is unloadable on CPU/Mac.
+        assert model == tpl.fallback_model
+        assert "no GPU detected" in reason
 
 
 # ---------------------------------------------------------------------------
@@ -213,8 +237,11 @@ class TestRunQuickstart:
     def test_default_output_path_lands_under_configs(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         result = run_quickstart("customer-support", available_vram_gb=24.0)
-        assert result.config_path.parent.name == "configs"
-        assert result.config_path.name.startswith("customer-support-")
+        # New scheme: configs/<template>-<utc-ts>/config.yaml — the per-run
+        # subdirectory exists so a second quickstart cannot overwrite it.
+        assert result.config_path.parent.parent.name == "configs"
+        assert result.config_path.parent.name.startswith("customer-support-")
+        assert result.config_path.name == "config.yaml"
         assert result.config_path.is_file()
 
     def test_summary_includes_dry_run_hint(self, tmp_path):

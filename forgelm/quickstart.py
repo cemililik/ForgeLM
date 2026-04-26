@@ -23,9 +23,11 @@ Usage (programmatic):
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
+from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -73,7 +75,7 @@ TEMPLATES: Dict[str, Template] = {
         title="Code Assistant",
         description="Short code-question Q&A. SFT on a curated programming seed set.",
         primary_model="Qwen/Qwen2.5-Coder-7B-Instruct",
-        fallback_model="HuggingFaceTB/SmolLM2-1.7B-Instruct",
+        fallback_model="Qwen/Qwen2.5-Coder-1.5B-Instruct",
         trainer_type="sft",
         estimated_minutes=25,
         min_vram_for_primary_gb=10.0,
@@ -97,7 +99,7 @@ TEMPLATES: Dict[str, Template] = {
         title="Medical Q&A (Türkçe / Turkish)",
         description="Turkish medical-question SFT seed. Disclaimers baked in; not clinical advice.",
         primary_model="Qwen/Qwen2.5-7B-Instruct",
-        fallback_model="HuggingFaceTB/SmolLM2-1.7B-Instruct",
+        fallback_model="Qwen/Qwen2.5-1.5B-Instruct",
         trainer_type="sft",
         estimated_minutes=15,
         min_vram_for_primary_gb=10.0,
@@ -164,7 +166,10 @@ def auto_select_model(template: Template, available_vram_gb: Optional[float]) ->
     decision in logs / wizard summaries instead of silently downsizing.
     """
     if available_vram_gb is None:
-        return template.primary_model, "no-gpu-detected (using primary model; configure --offline if missing weights)"
+        return (
+            template.fallback_model,
+            "no GPU detected — using fallback model for CPU/Mac compatibility",
+        )
     if available_vram_gb < template.min_vram_for_primary_gb:
         return (
             template.fallback_model,
@@ -206,7 +211,12 @@ def _detect_available_vram_gb() -> Optional[float]:
 
 
 def _resolve_dataset(template: Template, dataset_override: Optional[str], scratch_dir: Path) -> Tuple[str, List[str]]:
-    """Resolve the dataset path and return (final_path, extra_notes)."""
+    """Resolve the dataset path and return (final_path, extra_notes).
+
+    The bundled seed dataset is copied into ``scratch_dir`` (a per-run
+    directory) so subsequent quickstart invocations cannot overwrite a user's
+    edits to a previous run's dataset.
+    """
     notes: List[str] = []
     if dataset_override:
         return dataset_override, notes
@@ -218,31 +228,99 @@ def _resolve_dataset(template: Template, dataset_override: Optional[str], scratc
             f"Template '{template.name}' does not bundle a dataset. "
             "Pass --dataset PATH or generate one via `forgelm ingest` (Phase 11)."
         )
-    # Copy the bundled dataset next to the generated config so users can edit
-    # it without touching the package install.
     dest = scratch_dir / f"{template.name}.jsonl"
-    if dest.resolve() != bundled.resolve():
-        scratch_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(bundled, dest)
-        notes.append(f"copied seed dataset to {dest}")
+    if dest.resolve() == bundled.resolve():
+        return str(dest), notes
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        # Refuse to overwrite a previous run's dataset — each quickstart run
+        # owns its own directory, so this should be unreachable except when a
+        # caller explicitly recycles a directory.
+        raise FileExistsError(
+            f"Refusing to overwrite existing dataset at {dest}. "
+            "Quickstart writes a fresh per-run directory; do not reuse output dirs."
+        )
+    shutil.copyfile(bundled, dest)
+    notes.append(f"copied seed dataset to {dest}")
     return str(dest), notes
 
 
 def _materialize_config(template: Template, chosen_model: str, dataset_path: str) -> Dict[str, Any]:
-    """Load the bundled YAML and patch in the runtime overrides."""
+    """Load the bundled YAML and patch in the runtime overrides.
+
+    Resilient to ``model: null`` / ``data: null`` in the source template — a
+    legal but null-valued YAML mapping would otherwise crash the
+    ``setdefault().__setitem__`` chain with ``TypeError``.
+    """
     config_path, _ = template_assets(template.name)
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f) or {}
 
-    cfg.setdefault("model", {})["name_or_path"] = chosen_model
-    cfg.setdefault("data", {})["dataset_name_or_path"] = dataset_path
+    if not isinstance(cfg, dict):
+        raise ValueError(
+            f"Template '{template.name}' config.yaml did not parse as a mapping; got {type(cfg).__name__}."
+        )
+
+    for section in ("model", "data"):
+        existing = cfg.get(section)
+        if existing is not None and not isinstance(existing, dict):
+            raise ValueError(
+                f"Template '{template.name}' config.yaml has non-mapping value for '{section}': "
+                f"{type(existing).__name__}. Expected a mapping or null."
+            )
+
+    cfg["model"] = (cfg.get("model") or {}) | {"name_or_path": chosen_model}
+    cfg["data"] = (cfg.get("data") or {}) | {"dataset_name_or_path": dataset_path}
     return cfg
 
 
+def _run_timestamp_slug() -> str:
+    """UTC timestamp with microsecond precision plus PID, for collision-free run dirs."""
+    now = datetime.now(timezone.utc)
+    return f"{now.strftime('%Y%m%dT%H%M%S')}-{now.microsecond:06d}-{os.getpid()}"
+
+
 def _default_output_path(template_name: str) -> Path:
-    """Default location for the generated YAML: ``./configs/<template>-<ts>.yaml``."""
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    return Path("configs") / f"{template_name}-{timestamp}.yaml"
+    """Default location for the generated YAML.
+
+    Returns ``./configs/<template>-<UTC-timestamp>/config.yaml``. Each call
+    yields a unique directory (microsecond precision + PID) so back-to-back
+    runs never collide and a second run cannot overwrite the first run's
+    artifacts.
+    """
+    return Path("configs") / f"{template_name}-{_run_timestamp_slug()}" / "config.yaml"
+
+
+def _forgelm_version() -> str:
+    """Best-effort lookup of the installed forgelm package version."""
+    try:
+        return importlib_metadata.version("forgelm")
+    except importlib_metadata.PackageNotFoundError:
+        return "unknown"
+
+
+def _build_provenance_header(
+    *,
+    template: Template,
+    chosen_model: str,
+    selection_reason: str,
+    generated_at: datetime,
+) -> str:
+    """Render the YAML comment block prepended to every generated config."""
+    lines = [
+        "# generated by forgelm quickstart",
+        f"# template: {template.name}",
+        f"# generated_at: {generated_at.isoformat()}",
+        f"# forgelm_version: {_forgelm_version()}",
+        f"# chosen_model: {chosen_model}",
+        f"# selection_reason: {selection_reason}",
+        "#",
+        "# This file was produced from a curated template; edit freely. Re-running",
+        "# `forgelm quickstart` writes to a NEW timestamped directory and will not",
+        "# touch this one.",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def run_quickstart(
@@ -286,7 +364,14 @@ def run_quickstart(
 
     cfg = _materialize_config(template, chosen_model, dataset_path)
 
+    header = _build_provenance_header(
+        template=template,
+        chosen_model=chosen_model,
+        selection_reason=selection_reason,
+        generated_at=datetime.now(timezone.utc),
+    )
     with open(config_target, "w", encoding="utf-8") as f:
+        f.write(header)
         yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False)
 
     logger.info(
