@@ -323,6 +323,61 @@ def _collect_galore_config(use_galore: bool) -> dict:
     }
 
 
+def _resolve_byod_dataset_path(template_name: str) -> Optional[str]:
+    """Prompt the user for a BYOD dataset path and validate it.
+
+    Returns the validated path (HF Hub ID strings are returned verbatim,
+    local paths are returned as resolved absolute paths). Returns ``None``
+    when the user types ``cancel`` / ``quit`` — that's the signal for the
+    caller to fall back to the full wizard.
+
+    The loop is resilient to typos: an empty input re-prompts, a missing
+    file re-prompts, malformed JSONL re-prompts. Surfaces validation
+    failures immediately instead of 30 seconds into the training subprocess.
+
+    HF Hub IDs (single-slash ``<org>/<name>`` strings matching
+    ``_HF_HUB_ID_RE``) bypass filesystem validation. The regex already
+    enforces a single ``/``, so no extra ``count("/") == 1`` check is needed.
+    """
+    while True:
+        dataset_path = _prompt(
+            "Path to your dataset JSONL (must exist as a JSONL file) or HF Hub ID, "
+            "or 'cancel' to fall back to the full wizard",
+            "",
+        )
+        if dataset_path.strip().lower() in ("cancel", "c", "q", "quit"):
+            print("  Cancelled — falling back to the full wizard.")
+            return None
+        if not dataset_path:
+            print("  A dataset path is required for this template. Type 'cancel' to use the full wizard instead.")
+            continue
+
+        # Accept HF Hub dataset IDs ("<org>/<name>") without filesystem checks.
+        if _HF_HUB_ID_RE.match(dataset_path):
+            print(f"  Treating '{dataset_path}' as an HF Hub dataset ID (no local validation).")
+            return dataset_path
+
+        resolved = Path(dataset_path).expanduser()
+        if not resolved.is_file():
+            print(f"  Path not found or not a regular file: {dataset_path}")
+            continue
+        try:
+            with open(resolved, "r", encoding="utf-8") as fh:
+                first_line = ""
+                for line in fh:
+                    if line.strip():
+                        first_line = line
+                        break
+            if not first_line:
+                raise ValueError("file is empty")
+            json.loads(first_line)
+        except (OSError, ValueError) as e:
+            print(f"  File is not valid JSONL (first line failed to parse): {e}")
+            continue
+
+        return str(resolved)
+
+
 def _maybe_run_quickstart_template() -> Optional[str]:
     """Offer the quickstart template path before the full 8-step wizard.
 
@@ -364,49 +419,9 @@ def _maybe_run_quickstart_template() -> Optional[str]:
     template = TEMPLATES[chosen]
     if not template.bundled_dataset:
         print(f"  '{chosen}' is BYOD — bring your own JSONL dataset.")
-        # Re-prompt until the user provides a valid path / HF Hub ID or
-        # explicitly cancels. An empty string used to silently drop into the
-        # full wizard, which surprised users who picked a BYOD template on
-        # purpose. We additionally validate the path here so typos surface
-        # immediately rather than 30 seconds into the training subprocess.
-        while True:
-            dataset_path = _prompt(
-                "Path to your dataset JSONL (must exist as a JSONL file) or HF Hub ID, "
-                "or 'cancel' to fall back to the full wizard",
-                "",
-            )
-            if dataset_path.strip().lower() in ("cancel", "c", "q", "quit"):
-                print("  Cancelled — falling back to the full wizard.")
-                return None
-            if not dataset_path:
-                print("  A dataset path is required for this template. Type 'cancel' to use the full wizard instead.")
-                continue
-
-            # Accept HF Hub dataset IDs ("<org>/<name>") without filesystem checks.
-            if _HF_HUB_ID_RE.match(dataset_path) and dataset_path.count("/") == 1:
-                print(f"  Treating '{dataset_path}' as an HF Hub dataset ID (no local validation).")
-                break
-
-            resolved = Path(dataset_path).expanduser()
-            if not resolved.is_file():
-                print(f"  Path not found or not a regular file: {dataset_path}")
-                continue
-            try:
-                with open(resolved, "r", encoding="utf-8") as fh:
-                    first_line = ""
-                    for line in fh:
-                        if line.strip():
-                            first_line = line
-                            break
-                if not first_line:
-                    raise ValueError("file is empty")
-                json.loads(first_line)
-            except (OSError, ValueError) as e:
-                print(f"  File is not valid JSONL (first line failed to parse): {e}")
-                continue
-
-            dataset_path = str(resolved)
-            break
+        dataset_path = _resolve_byod_dataset_path(chosen)
+        if dataset_path is None:
+            return None
     else:
         dataset_path = ""
 
