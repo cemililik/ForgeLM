@@ -323,6 +323,30 @@ def _collect_galore_config(use_galore: bool) -> dict:
     }
 
 
+_BYOD_CANCEL_TOKENS = ("cancel", "c", "q", "quit")
+
+
+def _validate_local_jsonl(raw_path: str) -> Optional[str]:
+    """Validate a user-supplied JSONL path; return the absolute path or None.
+
+    None signals "re-prompt" (validation failure was already printed).
+    """
+    resolved = Path(raw_path).expanduser()
+    if not resolved.is_file():
+        print(f"  Path not found or not a regular file: {raw_path}")
+        return None
+    try:
+        with open(resolved, "r", encoding="utf-8") as fh:
+            first_line = next((line for line in fh if line.strip()), "")
+        if not first_line:
+            raise ValueError("file is empty")
+        json.loads(first_line)
+    except (OSError, ValueError) as e:
+        print(f"  File is not valid JSONL (first line failed to parse): {e}")
+        return None
+    return str(resolved)
+
+
 def _resolve_byod_dataset_path() -> Optional[str]:
     """Prompt the user for a BYOD dataset path and validate it.
 
@@ -337,7 +361,7 @@ def _resolve_byod_dataset_path() -> Optional[str]:
 
     HF Hub IDs (single-slash ``<org>/<name>`` strings matching
     ``_HF_HUB_ID_RE``) bypass filesystem validation. The regex already
-    enforces a single ``/``, so no extra ``count("/") == 1`` check is needed.
+    enforces a single ``/``.
     """
     while True:
         dataset_path = _prompt(
@@ -345,7 +369,7 @@ def _resolve_byod_dataset_path() -> Optional[str]:
             "or 'cancel' to fall back to the full wizard",
             "",
         )
-        if dataset_path.strip().lower() in ("cancel", "c", "q", "quit"):
+        if dataset_path.strip().lower() in _BYOD_CANCEL_TOKENS:
             print("  Cancelled — falling back to the full wizard.")
             return None
         if not dataset_path:
@@ -357,25 +381,10 @@ def _resolve_byod_dataset_path() -> Optional[str]:
             print(f"  Treating '{dataset_path}' as an HF Hub dataset ID (no local validation).")
             return dataset_path
 
-        resolved = Path(dataset_path).expanduser()
-        if not resolved.is_file():
-            print(f"  Path not found or not a regular file: {dataset_path}")
-            continue
-        try:
-            with open(resolved, "r", encoding="utf-8") as fh:
-                first_line = ""
-                for line in fh:
-                    if line.strip():
-                        first_line = line
-                        break
-            if not first_line:
-                raise ValueError("file is empty")
-            json.loads(first_line)
-        except (OSError, ValueError) as e:
-            print(f"  File is not valid JSONL (first line failed to parse): {e}")
-            continue
-
-        return str(resolved)
+        resolved = _validate_local_jsonl(dataset_path)
+        if resolved is not None:
+            return resolved
+        # _validate_local_jsonl already printed the failure; re-prompt.
 
 
 def _maybe_run_quickstart_template() -> Optional[str]:
@@ -441,6 +450,34 @@ def _maybe_run_quickstart_template() -> Optional[str]:
     return str(result.config_path)
 
 
+def _finalize_quickstart_path(quickstart_path: str) -> Optional[str]:
+    """Ask whether to start training now with the quickstart-generated config."""
+    if _prompt_yes_no("Start training now with the generated config?", default=False):
+        print(f"\n  Running: forgelm --config {quickstart_path}")
+        return quickstart_path
+    print("\n  To start training later, run:")
+    print(f"    forgelm --config {quickstart_path}")
+    return None
+
+
+def _detect_hardware_and_backend() -> tuple:
+    """Run the wizard's hardware-detection step and pick a backend hint."""
+    print("\n[1/8] Hardware Detection")
+    hw = _detect_hardware()
+    if hw["gpu_available"]:
+        print(f"  GPU detected: {hw['gpu_name']} ({hw['vram_gb']} GB VRAM, CUDA {hw['cuda_version']})")
+    else:
+        print("  No GPU detected. Training will use CPU (very slow for real workloads).")
+
+    suggested_backend = "transformers"
+    if hw["gpu_available"] and sys.platform == "linux":
+        suggested_backend = "unsloth"
+        print("  Recommended backend: unsloth (Linux + GPU detected)")
+    elif hw["gpu_available"]:
+        print("  Recommended backend: transformers (Unsloth requires Linux)")
+    return hw, suggested_backend
+
+
 def run_wizard() -> Optional[str]:
     """Run the interactive configuration wizard.
 
@@ -450,32 +487,17 @@ def run_wizard() -> Optional[str]:
     """
     quickstart_path = _maybe_run_quickstart_template()
     if quickstart_path is not None:
-        if _prompt_yes_no("Start training now with the generated config?", default=False):
-            print(f"\n  Running: forgelm --config {quickstart_path}")
-            return quickstart_path
-        print("\n  To start training later, run:")
-        print(f"    forgelm --config {quickstart_path}")
-        return None
+        return _finalize_quickstart_path(quickstart_path)
 
     # Full 8-step flow (fallback when user declined the quickstart shortcut).
     print("\n  Falling back to the full configuration wizard.")
+    return _run_full_wizard()
 
+
+def _run_full_wizard() -> Optional[str]:
+    """8-step interactive flow producing a hand-rolled config.yaml."""
     # Step 1: Hardware Detection
-    print("\n[1/8] Hardware Detection")
-    hw = _detect_hardware()
-    if hw["gpu_available"]:
-        print(f"  GPU detected: {hw['gpu_name']} ({hw['vram_gb']} GB VRAM, CUDA {hw['cuda_version']})")
-    else:
-        print("  No GPU detected. Training will use CPU (very slow for real workloads).")
-
-    # Suggest backend
-    suggested_backend = "transformers"
-    if hw["gpu_available"]:
-        if sys.platform == "linux":
-            suggested_backend = "unsloth"
-            print("  Recommended backend: unsloth (Linux + GPU detected)")
-        else:
-            print("  Recommended backend: transformers (Unsloth requires Linux)")
+    _, suggested_backend = _detect_hardware_and_backend()
 
     # Step 2: Model Selection
     model_name = _select_model()

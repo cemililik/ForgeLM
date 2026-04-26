@@ -153,7 +153,7 @@ class TestAuditLog:
         assert REQUIRED_AUDIT_KEYS.issubset(event.keys())
         assert event["event_type"] == "quickstart.model_selection"
         assert event["template"] == "customer-support"
-        assert event["available_vram_gb"] == 24.0
+        assert event["available_vram_gb"] == pytest.approx(24.0)
         assert event["model_override_used"] is False
         assert event["dataset_override_used"] is False
         assert event["dry_run"] is False

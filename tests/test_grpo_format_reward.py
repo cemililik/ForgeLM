@@ -36,8 +36,8 @@ def test_format_reward_matches_answer_pattern():
         "I think the answer is 15",
     ]
     rewards = format_match_reward(completions)
-    assert rewards[0] == 1.0
-    assert rewards[1] == 0.0
+    assert rewards[0] == pytest.approx(1.0)
+    assert rewards[1] == pytest.approx(0.0)
 
 
 def test_format_reward_handles_units():
@@ -77,8 +77,8 @@ def test_length_shaping_caps_at_one():
     """Empty completion → 0.0; a 500-char completion saturates at 1.0."""
     completions = ["", "x" * 500]
     rewards = length_shaping_reward(completions)
-    assert rewards[0] == 0.0
-    assert rewards[1] == 1.0
+    assert rewards[0] == pytest.approx(0.0)
+    assert rewards[1] == pytest.approx(1.0)
 
 
 def test_length_shaping_linear_below_saturation():

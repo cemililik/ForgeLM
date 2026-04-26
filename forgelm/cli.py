@@ -11,7 +11,11 @@ from pathlib import Path
 
 from .config import ConfigError, ForgeConfig, load_config
 
-logger = logging.getLogger("forgelm.cli")
+# Module name used both for the package logger and as the `python -m`
+# target when forgelm respawns itself for the quickstart subprocess flow.
+_CLI_MODULE = "forgelm.cli"
+
+logger = logging.getLogger(_CLI_MODULE)
 
 # Exit codes
 EXIT_SUCCESS = 0
@@ -795,6 +799,93 @@ def _build_quickstart_inherited_flags(args) -> tuple[list[str], list[str]]:
     return train_flags, chat_flags
 
 
+def _emit_quickstart_list(output_format: str) -> None:
+    """Print the registered quickstart templates and exit (text or JSON)."""
+    from .quickstart import format_template_list, list_templates
+
+    if output_format == "json":
+        payload = [
+            {
+                "name": t.name,
+                "title": t.title,
+                "description": t.description,
+                "primary_model": t.primary_model,
+                "fallback_model": t.fallback_model,
+                "trainer_type": t.trainer_type,
+                "estimated_minutes": t.estimated_minutes,
+                "min_vram_for_primary_gb": t.min_vram_for_primary_gb,
+                "bundled_dataset": t.bundled_dataset,
+                "license_note": t.license_note,
+            }
+            for t in list_templates()
+        ]
+        print(json.dumps(payload, indent=2))
+    else:
+        print(format_template_list())
+
+
+def _emit_quickstart_result(result, output_format: str) -> None:
+    """Print the quickstart-generation summary (JSON envelope or text)."""
+    from .quickstart import summarize_result
+
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "template": result.template.name,
+                    "config_path": str(result.config_path),
+                    "model": result.chosen_model,
+                    "dataset": result.dataset_path,
+                    "selection_reason": result.selection_reason,
+                    "dry_run": result.dry_run,
+                    "notes": result.extra_notes,
+                },
+                indent=2,
+            )
+        )
+    else:
+        print(summarize_result(result))
+
+
+def _run_quickstart_train_subprocess(args, config_path: Path) -> None:
+    """Spawn `forgelm --config <generated>` as a child process; exit on non-zero."""
+    import subprocess  # nosec B404 — argv-list usage only
+
+    inherited, _ = _build_quickstart_inherited_flags(args)
+    train_cmd = [sys.executable, "-m", _CLI_MODULE, *inherited, "--config", os.path.abspath(config_path)]
+    logger.info("Starting training: %s", " ".join(train_cmd))
+    train_rc = subprocess.run(train_cmd, check=False).returncode  # noqa: S603  # nosec B603
+    if train_rc != 0:
+        logger.error("Training exited with code %d", train_rc)
+        sys.exit(train_rc)
+
+
+def _run_quickstart_chat_subprocess(args, config_path: Path) -> None:
+    """Auto-launch `forgelm chat <trained-model>` after a successful training run."""
+    import subprocess  # nosec B404 — argv-list usage only
+
+    output_dir, final_subdir = _load_quickstart_train_paths(config_path)
+    final_model_dir = Path(output_dir) / final_subdir
+    if not final_model_dir.is_dir():
+        logger.warning(
+            "Skipping auto-chat: trained model directory not found at %s. Run `forgelm chat <model_path>` manually.",
+            final_model_dir,
+        )
+        return
+
+    _, inherited_chat = _build_quickstart_inherited_flags(args)
+    chat_cmd = [sys.executable, "-m", _CLI_MODULE, *inherited_chat, "chat", os.path.abspath(final_model_dir)]
+    logger.info("Launching chat REPL: %s", " ".join(chat_cmd))
+    chat_rc = subprocess.run(chat_cmd, check=False).returncode  # noqa: S603  # nosec B603
+    # 130 == SIGINT (Ctrl-C is the normal way to leave the REPL). Anything else
+    # non-zero is a crash worth surfacing, but chat exit is not the operator's
+    # training-success signal so we still exit 0 — the training run already
+    # succeeded by the time we got here.
+    if chat_rc not in (0, 130):
+        logger.warning("Chat subprocess exited with code %d", chat_rc)
+
+
 def _run_quickstart_cmd(args, output_format: str) -> None:
     """Dispatch the ``forgelm quickstart`` subcommand.
 
@@ -802,30 +893,10 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
     ``forgelm quickstart TEMPLATE`` (generate config + auto-train + auto-chat);
     ``--dry-run`` (generate config, print next step, do not train).
     """
-    from .quickstart import format_template_list, run_quickstart, summarize_result
+    from .quickstart import run_quickstart
 
     if args.list:
-        if output_format == "json":
-            from .quickstart import list_templates as _list
-
-            payload = [
-                {
-                    "name": t.name,
-                    "title": t.title,
-                    "description": t.description,
-                    "primary_model": t.primary_model,
-                    "fallback_model": t.fallback_model,
-                    "trainer_type": t.trainer_type,
-                    "estimated_minutes": t.estimated_minutes,
-                    "min_vram_for_primary_gb": t.min_vram_for_primary_gb,
-                    "bundled_dataset": t.bundled_dataset,
-                    "license_note": t.license_note,
-                }
-                for t in _list()
-            ]
-            print(json.dumps(payload, indent=2))
-        else:
-            print(format_template_list())
+        _emit_quickstart_list(output_format)
         sys.exit(EXIT_SUCCESS)
 
     if not args.template:
@@ -851,73 +922,19 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
             logger.error("Quickstart failed: %s", e)
         sys.exit(EXIT_CONFIG_ERROR)
 
-    if output_format == "json":
-        print(
-            json.dumps(
-                {
-                    "success": True,
-                    "template": result.template.name,
-                    "config_path": str(result.config_path),
-                    "model": result.chosen_model,
-                    "dataset": result.dataset_path,
-                    "selection_reason": result.selection_reason,
-                    "dry_run": result.dry_run,
-                    "notes": result.extra_notes,
-                },
-                indent=2,
-            )
-        )
-    else:
-        print(summarize_result(result))
+    _emit_quickstart_result(result, output_format)
 
     if result.dry_run:
         sys.exit(EXIT_SUCCESS)
 
     # Spec: invoke training automatically. Use a subprocess so each phase keeps
     # its own clean process state and Ctrl-C is honoured cleanly.
-    #
-    # Security: argv-list form (not shell=True) and sys.executable as argv[0]
-    # mean no shell is invoked — meta characters in `result.config_path` are
-    # passed verbatim to the child as a single argument, with no expansion.
-    import subprocess  # nosec B404 — argv-list usage only; see comment above
-
-    # Propagate top-level CLI flags so the child process inherits the
-    # operator's logging / output preferences. --offline lives on the main
-    # parser only; forwarding before the subcommand keyword preserves
-    # air-gap intent for the child process.
-    inherited, inherited_chat = _build_quickstart_inherited_flags(args)
-
-    train_cmd = [sys.executable, "-m", "forgelm.cli", *inherited, "--config", os.path.abspath(result.config_path)]
-    logger.info("Starting training: %s", " ".join(train_cmd))
-    train_rc = subprocess.run(train_cmd, check=False).returncode  # noqa: S603  # nosec B603
-    if train_rc != 0:
-        logger.error("Training exited with code %d", train_rc)
-        sys.exit(train_rc)
+    _run_quickstart_train_subprocess(args, result.config_path)
 
     if args.no_chat:
         sys.exit(EXIT_SUCCESS)
 
-    # Auto-launch chat against the trained model. Read both output_dir and
-    # final_model_dir from the generated YAML so templates that override
-    # final_model_dir are still found.
-    output_dir, final_subdir = _load_quickstart_train_paths(result.config_path)
-    final_model_dir = Path(output_dir) / final_subdir
-    if not final_model_dir.is_dir():
-        logger.warning(
-            "Skipping auto-chat: trained model directory not found at %s. Run `forgelm chat <model_path>` manually.",
-            final_model_dir,
-        )
-        sys.exit(EXIT_SUCCESS)
-
-    chat_cmd = [sys.executable, "-m", "forgelm.cli", *inherited_chat, "chat", os.path.abspath(final_model_dir)]
-    logger.info("Launching chat REPL: %s", " ".join(chat_cmd))
-    chat_rc = subprocess.run(chat_cmd, check=False).returncode  # noqa: S603  # nosec B603
-    # 130 == SIGINT (Ctrl-C is the normal way to leave the REPL). Anything else
-    # non-zero is a crash worth surfacing, but chat exit is not the operator's
-    # training-success signal so we still exit 0 — the training run already
-    # succeeded by the time we got here.
-    if chat_rc not in (0, 130):
-        logger.warning("Chat subprocess exited with code %d", chat_rc)
+    _run_quickstart_chat_subprocess(args, result.config_path)
     sys.exit(EXIT_SUCCESS)
 
 

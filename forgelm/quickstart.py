@@ -58,13 +58,19 @@ class Template:
     license_note: str  # one-line license for the bundled dataset
 
 
+# HF Hub model IDs reused across multiple templates. Kept as constants so a
+# bump (e.g. Qwen2.5 → Qwen3) is one edit instead of N.
+_QWEN_25_7B_INSTRUCT = "Qwen/Qwen2.5-7B-Instruct"
+_SMOLLM2_17B_INSTRUCT = "HuggingFaceTB/SmolLM2-1.7B-Instruct"
+
+
 TEMPLATES: Dict[str, Template] = {
     "customer-support": Template(
         name="customer-support",
         title="Customer Support Assistant",
         description="Polite, brand-safe support replies. SFT on a tiny seed FAQ dataset.",
-        primary_model="Qwen/Qwen2.5-7B-Instruct",
-        fallback_model="HuggingFaceTB/SmolLM2-1.7B-Instruct",
+        primary_model=_QWEN_25_7B_INSTRUCT,
+        fallback_model=_SMOLLM2_17B_INSTRUCT,
         trainer_type="sft",
         estimated_minutes=15,
         min_vram_for_primary_gb=10.0,
@@ -87,8 +93,8 @@ TEMPLATES: Dict[str, Template] = {
         name="domain-expert",
         title="Domain Expert (BYOD — bring your own docs)",
         description="Empty data — pair with `forgelm ingest` (Phase 11) or a custom JSONL.",
-        primary_model="Qwen/Qwen2.5-7B-Instruct",
-        fallback_model="HuggingFaceTB/SmolLM2-1.7B-Instruct",
+        primary_model=_QWEN_25_7B_INSTRUCT,
+        fallback_model=_SMOLLM2_17B_INSTRUCT,
         trainer_type="sft",
         estimated_minutes=20,
         min_vram_for_primary_gb=10.0,
@@ -99,7 +105,7 @@ TEMPLATES: Dict[str, Template] = {
         name="medical-qa-tr",
         title="Medical Q&A (Türkçe / Turkish)",
         description="Turkish medical-question SFT seed. Disclaimers baked in; not clinical advice.",
-        primary_model="Qwen/Qwen2.5-7B-Instruct",
+        primary_model=_QWEN_25_7B_INSTRUCT,
         fallback_model="Qwen/Qwen2.5-1.5B-Instruct",
         trainer_type="sft",
         estimated_minutes=15,
