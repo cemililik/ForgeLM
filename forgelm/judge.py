@@ -245,6 +245,54 @@ def run_judge_evaluation(
             logger.error("Failed to load local judge model: %s", e)
             return JudgeResult(passed=False, failure_reason=f"Judge model load failed: {e}")
 
+    scores, details, failure_count = _score_eval_prompts(
+        model=model,
+        tokenizer=tokenizer,
+        eval_prompts=eval_prompts,
+        rubric=rubric,
+        max_new_tokens=max_new_tokens,
+        is_api_judge=is_api_judge,
+        judge_api_key=judge_api_key,
+        judge_model=judge_model,
+        api_base=api_base,
+        local_judge_model=local_judge_model,
+        local_judge_tokenizer=local_judge_tokenizer,
+    )
+
+    avg_score, passed, failure_reason = _summarize_judge_scores(
+        scores=scores,
+        failure_count=failure_count,
+        eval_prompts=eval_prompts,
+        min_score=min_score,
+    )
+
+    if output_dir:
+        _save_judge_results(output_dir, avg_score, min_score, passed, len(eval_prompts), details)
+
+    return JudgeResult(
+        average_score=avg_score,
+        scores=scores,
+        passed=passed,
+        failure_reason=failure_reason,
+        details=details,
+    )
+
+
+def _score_eval_prompts(
+    *,
+    model: Any,
+    tokenizer: Any,
+    eval_prompts: List[str],
+    rubric: str,
+    max_new_tokens: int,
+    is_api_judge: bool,
+    judge_api_key: Optional[str],
+    judge_model: str,
+    api_base: Optional[str],
+    local_judge_model: Any,
+    local_judge_tokenizer: Any,
+) -> tuple[List[Optional[float]], List[Dict[str, Any]], int]:
+    """Run each eval prompt through generation + judge, collect scores + details."""
     scores: List[Optional[float]] = []
     details: List[Dict[str, Any]] = []
     failure_count = 0
@@ -272,38 +320,40 @@ def run_judge_evaluation(
             }
         )
 
+    return scores, details, failure_count
+
+
+def _summarize_judge_scores(
+    *,
+    scores: List[Optional[float]],
+    failure_count: int,
+    eval_prompts: List[str],
+    min_score: float,
+) -> tuple[float, bool, Optional[str]]:
+    """Reduce per-prompt scores to (avg, passed, failure_reason).
+
+    No valid scores → distinct failure mode. Treating it as "low average"
+    would mislead the operator into thinking the model performed badly when
+    the judge itself never produced a usable verdict.
+    """
     valid_scores = [s for s in scores if s is not None]
 
-    # No valid scores → distinct failure mode. Treating this as "low average"
-    # would mislead the operator into thinking the model performed badly when
-    # really the judge itself never produced a usable verdict.
     if not valid_scores:
-        avg_score = 0.0
-        passed = False
         failure_reason = f"No valid judge scores (all {failure_count}/{len(eval_prompts)} parses/requests failed)."
         logger.error("JUDGE EVALUATION FAILED: %s", failure_reason)
-    else:
-        avg_score = sum(valid_scores) / len(valid_scores)
-        logger.info(
-            "LLM-as-Judge average score: %.2f / 10.0 (%d/%d valid; %d judge failures)",
-            avg_score,
-            len(valid_scores),
-            len(eval_prompts),
-            failure_count,
-        )
-        passed = avg_score >= min_score
-        failure_reason = None
-        if not passed:
-            failure_reason = f"Average judge score ({avg_score:.2f}) below minimum ({min_score:.2f})"
-            logger.error("JUDGE EVALUATION FAILED: %s", failure_reason)
+        return 0.0, False, failure_reason
 
-    if output_dir:
-        _save_judge_results(output_dir, avg_score, min_score, passed, len(eval_prompts), details)
-
-    return JudgeResult(
-        average_score=avg_score,
-        scores=scores,
-        passed=passed,
-        failure_reason=failure_reason,
-        details=details,
+    avg_score = sum(valid_scores) / len(valid_scores)
+    logger.info(
+        "LLM-as-Judge average score: %.2f / 10.0 (%d/%d valid; %d judge failures)",
+        avg_score,
+        len(valid_scores),
+        len(eval_prompts),
+        failure_count,
     )
+    if avg_score >= min_score:
+        return avg_score, True, None
+
+    failure_reason = f"Average judge score ({avg_score:.2f}) below minimum ({min_score:.2f})"
+    logger.error("JUDGE EVALUATION FAILED: %s", failure_reason)
+    return avg_score, False, failure_reason

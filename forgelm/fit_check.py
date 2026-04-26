@@ -227,6 +227,94 @@ def _activation_gb(
 # ---------------------------------------------------------------------------
 
 
+_DTYPE_TO_QUANT = {
+    "auto": "bf16",
+    "bfloat16": "bf16",
+    "bf16": "bf16",
+    "float16": "fp16",
+    "fp16": "fp16",
+    "float32": "fp32",
+    "fp32": "fp32",
+}
+
+
+def _resolve_quant_scheme(m: Any) -> str:
+    """Pick the storage dtype string used by the VRAM table.
+
+    bnb_4bit_compute_dtype only describes 4-bit math precision and is
+    irrelevant when the model isn't actually loaded in 4-bit, so the
+    branches here are ordered: 4-bit → 8-bit → declared torch_dtype →
+    bf16 fallback.
+    """
+    if m.load_in_4bit:
+        return "4bit"
+    if getattr(m, "load_in_8bit", False):
+        return "8bit"
+    torch_dtype = getattr(m, "torch_dtype", None) or getattr(getattr(m, "config", None), "torch_dtype", None)
+    if torch_dtype is None:
+        return "bf16"
+    return _DTYPE_TO_QUANT.get(str(torch_dtype).lower(), "bf16")
+
+
+def _component_breakdown(
+    *, num_params: int, arch: Dict[str, Any], t: Any, m: Any, lora: Any, quant: str, grad_ckpt: bool
+) -> Dict[str, float]:
+    """Compute the per-component VRAM contributions in GB.
+
+    Returns a dict keyed by ``base / adapter / optim / act / galore / total``.
+    GaLore is full-parameter training and is mutually exclusive with LoRA
+    accounting (would otherwise double-count).
+    """
+    base_gb = _base_model_gb(num_params, quant)
+    act_gb = _activation_gb(arch, t.per_device_train_batch_size, m.max_length, grad_ckpt)
+
+    if bool(getattr(t, "galore_enabled", False)):
+        galore_rank = getattr(t, "galore_rank", 64)
+        h = arch["hidden_size"]
+        projected_params = int(num_params * (galore_rank / h))
+        adapter_gb = 0.0
+        galore_gb = num_params * (galore_rank / h) * 4 / (1024**3)
+        optim_gb = _optimizer_state_gb(projected_params, getattr(t, "galore_optim", "adamw"))
+    else:
+        target_module_count = len(lora.target_modules)
+        adapter_params = 2 * lora.r * arch["hidden_size"] * target_module_count * arch["num_hidden_layers"]
+        adapter_gb = adapter_params * 4 / (1024**3)  # fp32
+        galore_gb = 0.0
+        optim_gb = _optimizer_state_gb(adapter_params, "adamw")
+
+    return {
+        "base": base_gb,
+        "adapter": adapter_gb,
+        "optim": optim_gb,
+        "act": act_gb,
+        "galore": galore_gb,
+        "total": base_gb + adapter_gb + optim_gb + act_gb + galore_gb,
+    }
+
+
+def _detect_available_vram_gb(torch_module: Any) -> tuple[Optional[float], bool]:
+    """Probe CUDA for free VRAM. Returns (free_gb, hypothetical_flag)."""
+    try:
+        if torch_module.cuda.is_available():
+            free_bytes, _ = torch_module.cuda.mem_get_info()
+            return free_bytes / (1024**3), False
+        return None, True
+    except Exception as e:
+        logger.debug("Could not query GPU memory: %s", e)
+        return None, True
+
+
+def _verdict_for(total_gb: float, available_gb: Optional[float], hypothetical: bool) -> str:
+    """Map (estimate, available) → FITS / TIGHT / OOM / UNKNOWN."""
+    if hypothetical or available_gb is None:
+        return "UNKNOWN"
+    if total_gb <= available_gb * _TIGHT_THRESHOLD:
+        return "FITS"
+    if total_gb <= available_gb * _OOM_THRESHOLD:
+        return "TIGHT"
+    return "OOM"
+
+
 def estimate_vram(config: Any) -> FitCheckResult:
     """Estimate peak training VRAM for a ForgeConfig.
 
@@ -243,69 +331,22 @@ def estimate_vram(config: Any) -> FitCheckResult:
     m = config.model
     lora = config.lora
 
-    # --- architecture ---
     arch = _load_arch_params(m.name_or_path, trust_remote_code=m.trust_remote_code)
     num_params = _estimate_param_count(arch)
-
-    # --- quantisation scheme ---
-    # Pick the storage dtype, not the compute dtype. bnb_4bit_compute_dtype
-    # only describes 4-bit math precision and shouldn't be read when the model
-    # isn't actually QLoRA.
-    if m.load_in_4bit:
-        quant = "4bit"
-    elif getattr(m, "load_in_8bit", False):
-        quant = "8bit"
-    else:
-        torch_dtype = getattr(m, "torch_dtype", None) or getattr(getattr(m, "config", None), "torch_dtype", None)
-        if torch_dtype is None and m.load_in_4bit:
-            torch_dtype = getattr(m, "bnb_4bit_compute_dtype", "bf16")
-        dtype_map = {
-            "auto": "bf16",
-            "bfloat16": "bf16",
-            "bf16": "bf16",
-            "float16": "fp16",
-            "fp16": "fp16",
-            "float32": "fp32",
-            "fp32": "fp32",
-        }
-        quant = dtype_map.get(str(torch_dtype).lower(), "bf16") if torch_dtype is not None else "bf16"
-
-    # --- component estimates ---
-    base_gb = _base_model_gb(num_params, quant)
-
-    galore_enabled = bool(getattr(t, "galore_enabled", False))
+    quant = _resolve_quant_scheme(m)
     grad_ckpt = getattr(t, "gradient_checkpointing", False)
-    act_gb = _activation_gb(arch, t.per_device_train_batch_size, m.max_length, grad_ckpt)
 
-    # GaLore is full-parameter training: optimizer state is sized against the
-    # *projected* rank, not against LoRA's adapter footprint. LoRA accounting
-    # is mutually exclusive — adding both would double-count.
-    if galore_enabled:
-        galore_rank = getattr(t, "galore_rank", 64)
-        h = arch["hidden_size"]
-        projected_params = int(num_params * (galore_rank / h))
-        adapter_params = 0
-        adapter_gb = 0.0
-        trainable_params = projected_params
-        galore_gb = num_params * (galore_rank / h) * 4 / (1024**3)
-        optim_gb = _optimizer_state_gb(trainable_params, getattr(t, "galore_optim", "adamw"))
-    else:
-        target_module_count = len(lora.target_modules)
-        # Integer adapter param count (avoids float round-trip via GB)
-        adapter_params = 2 * lora.r * arch["hidden_size"] * target_module_count * arch["num_hidden_layers"]
-        adapter_gb = adapter_params * 4 / (1024**3)  # fp32
-        trainable_params = adapter_params
-        galore_gb = 0.0
-        optim_gb = _optimizer_state_gb(trainable_params, "adamw")
-
-    total_gb = base_gb + adapter_gb + optim_gb + act_gb + galore_gb
+    components = _component_breakdown(
+        num_params=num_params, arch=arch, t=t, m=m, lora=lora, quant=quant, grad_ckpt=grad_ckpt
+    )
+    total_gb = components["total"]
 
     breakdown = {
-        "base_model_gb": round(base_gb, 2),
-        "lora_adapter_gb": round(adapter_gb, 2),
-        "optimizer_state_gb": round(optim_gb, 2),
-        "activations_gb": round(act_gb, 2),
-        "galore_buffers_gb": round(galore_gb, 2),
+        "base_model_gb": round(components["base"], 2),
+        "lora_adapter_gb": round(components["adapter"], 2),
+        "optimizer_state_gb": round(components["optim"], 2),
+        "activations_gb": round(components["act"], 2),
+        "galore_buffers_gb": round(components["galore"], 2),
         "total_estimated_gb": round(total_gb, 2),
         "quant_scheme": quant,
         "estimated_param_count_b": round(num_params / 1e9, 2),
@@ -318,30 +359,9 @@ def estimate_vram(config: Any) -> FitCheckResult:
         ),
     }
 
-    # --- available VRAM ---
-    available_gb: Optional[float] = None
-    hypothetical = False
-    try:
-        if torch.cuda.is_available():
-            free_bytes, _ = torch.cuda.mem_get_info()
-            available_gb = free_bytes / (1024**3)
-        else:
-            hypothetical = True
-    except Exception as e:
-        logger.debug("Could not query GPU memory: %s", e)
-        hypothetical = True
+    available_gb, hypothetical = _detect_available_vram_gb(torch)
+    verdict = _verdict_for(total_gb, available_gb, hypothetical)
 
-    # --- verdict ---
-    if hypothetical or available_gb is None:
-        verdict = "UNKNOWN"
-    elif total_gb <= available_gb * _TIGHT_THRESHOLD:
-        verdict = "FITS"
-    elif total_gb <= available_gb * _OOM_THRESHOLD:
-        verdict = "TIGHT"
-    else:
-        verdict = "OOM"
-
-    # --- recommendations (ordered by impact) ---
     recommendations = _build_recommendations(
         config=config,
         total_gb=total_gb,
