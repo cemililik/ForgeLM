@@ -4,9 +4,12 @@ Generates a valid config.yaml through step-by-step prompts.
 No external dependencies required — uses stdlib input().
 """
 
+import json
 import logging
 import os
+import re
 import sys
+from pathlib import Path
 from typing import Optional
 
 import yaml
@@ -38,6 +41,11 @@ TARGET_MODULE_PRESETS = {
 
 # Common dataset-format hints for preference-based trainers (DPO/SimPO/ORPO)
 _PREFERENCE_COLUMNS_HINT = "Columns: prompt, chosen, rejected"
+
+# HF Hub dataset IDs look like "<org>/<name>" — exactly one slash, with the
+# allowed character set used by the Hub. We accept these BYOD inputs without
+# touching the local filesystem; the trainer resolves them at runtime.
+_HF_HUB_ID_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 
 
 def _prompt(question: str, default: str = "") -> str:
@@ -315,6 +323,124 @@ def _collect_galore_config(use_galore: bool) -> dict:
     }
 
 
+def _resolve_byod_dataset_path(template_name: str) -> Optional[str]:
+    """Prompt the user for a BYOD dataset path and validate it.
+
+    Returns the validated path (HF Hub ID strings are returned verbatim,
+    local paths are returned as resolved absolute paths). Returns ``None``
+    when the user types ``cancel`` / ``quit`` — that's the signal for the
+    caller to fall back to the full wizard.
+
+    The loop is resilient to typos: an empty input re-prompts, a missing
+    file re-prompts, malformed JSONL re-prompts. Surfaces validation
+    failures immediately instead of 30 seconds into the training subprocess.
+
+    HF Hub IDs (single-slash ``<org>/<name>`` strings matching
+    ``_HF_HUB_ID_RE``) bypass filesystem validation. The regex already
+    enforces a single ``/``, so no extra ``count("/") == 1`` check is needed.
+    """
+    while True:
+        dataset_path = _prompt(
+            "Path to your dataset JSONL (must exist as a JSONL file) or HF Hub ID, "
+            "or 'cancel' to fall back to the full wizard",
+            "",
+        )
+        if dataset_path.strip().lower() in ("cancel", "c", "q", "quit"):
+            print("  Cancelled — falling back to the full wizard.")
+            return None
+        if not dataset_path:
+            print("  A dataset path is required for this template. Type 'cancel' to use the full wizard instead.")
+            continue
+
+        # Accept HF Hub dataset IDs ("<org>/<name>") without filesystem checks.
+        if _HF_HUB_ID_RE.match(dataset_path):
+            print(f"  Treating '{dataset_path}' as an HF Hub dataset ID (no local validation).")
+            return dataset_path
+
+        resolved = Path(dataset_path).expanduser()
+        if not resolved.is_file():
+            print(f"  Path not found or not a regular file: {dataset_path}")
+            continue
+        try:
+            with open(resolved, "r", encoding="utf-8") as fh:
+                first_line = ""
+                for line in fh:
+                    if line.strip():
+                        first_line = line
+                        break
+            if not first_line:
+                raise ValueError("file is empty")
+            json.loads(first_line)
+        except (OSError, ValueError) as e:
+            print(f"  File is not valid JSONL (first line failed to parse): {e}")
+            continue
+
+        return str(resolved)
+
+
+def _maybe_run_quickstart_template() -> Optional[str]:
+    """Offer the quickstart template path before the full 8-step wizard.
+
+    Returns the generated config path when the user picks a template;
+    returns ``None`` when they decline (signal to fall through to the full
+    flow).
+    """
+    from .quickstart import TEMPLATES, list_templates, run_quickstart
+
+    print("\n" + "=" * 60)
+    print("  ForgeLM Configuration Wizard")
+    print("=" * 60)
+
+    if not _prompt_yes_no(
+        "\nStart from a curated quickstart template? (recommended for first runs)",
+        default=True,
+    ):
+        return None
+
+    print("\nAvailable templates:")
+    names = []
+    for tpl in list_templates():
+        bundled = "[x] data" if tpl.bundled_dataset else "[ ] BYOD"
+        names.append(tpl.name)
+        print(f"  {len(names)}) {tpl.name}  —  {tpl.title}  ({bundled}, ~{tpl.estimated_minutes}min)")
+    raw = _prompt("Pick a template by number or name", names[0])
+
+    chosen: Optional[str] = None
+    if raw.isdigit():
+        idx = int(raw)
+        if 1 <= idx <= len(names):
+            chosen = names[idx - 1]
+    elif raw in TEMPLATES:
+        chosen = raw
+    if chosen is None:
+        print(f"  Could not interpret '{raw}'. Falling back to the full wizard.")
+        return None
+
+    template = TEMPLATES[chosen]
+    if not template.bundled_dataset:
+        print(f"  '{chosen}' is BYOD — bring your own JSONL dataset.")
+        dataset_path = _resolve_byod_dataset_path(chosen)
+        if dataset_path is None:
+            return None
+    else:
+        dataset_path = ""
+
+    try:
+        result = run_quickstart(
+            chosen,
+            dataset_override=dataset_path or None,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        print(f"  Quickstart failed: {e}. Falling back to the full wizard.")
+        return None
+
+    print(f"\n  Quickstart config generated at: {result.config_path}")
+    print(f"  Selected model: {result.chosen_model}  ({result.selection_reason})")
+    print(f"  Dataset       : {result.dataset_path}")
+    print()
+    return str(result.config_path)
+
+
 def run_wizard() -> Optional[str]:
     """Run the interactive configuration wizard.
 
@@ -322,9 +448,17 @@ def run_wizard() -> Optional[str]:
     training immediately, or ``None`` when the user defers — callers must
     handle both cases.
     """
-    print("\n" + "=" * 60)
-    print("  ForgeLM Configuration Wizard")
-    print("=" * 60)
+    quickstart_path = _maybe_run_quickstart_template()
+    if quickstart_path is not None:
+        if _prompt_yes_no("Start training now with the generated config?", default=False):
+            print(f"\n  Running: forgelm --config {quickstart_path}")
+            return quickstart_path
+        print("\n  To start training later, run:")
+        print(f"    forgelm --config {quickstart_path}")
+        return None
+
+    # Full 8-step flow (fallback when user declined the quickstart shortcut).
+    print("\n  Falling back to the full configuration wizard.")
 
     # Step 1: Hardware Detection
     print("\n[1/8] Hardware Detection")

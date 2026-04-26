@@ -54,6 +54,105 @@ jobs:
           forgelm --config config_template.yaml --dry-run
           forgelm --config config_template.yaml --dry-run --output-format json
 
+      - name: Quickstart templates smoke test
+        run: |
+          # Every bundled template must render to a valid YAML that
+          # passes pydantic validation. Catches template drift the
+          # moment a config schema changes.
+          #
+          # Note: smoke-tests 4 of 5 templates. `domain-expert` is BYOD
+          # (no bundled dataset), so `quickstart --dry-run` rejects it
+          # without `--dataset PATH`. It's covered separately by the
+          # pytest unit `test_domain_expert_intentionally_has_no_bundled_data`.
+          forgelm quickstart --list
+          for tpl in customer-support code-assistant medical-qa-tr grpo-math; do
+            echo "=== Quickstart dry-run: $tpl ==="
+            forgelm quickstart "$tpl" --dry-run --output "/tmp/qs-$tpl.yaml"
+            forgelm --config "/tmp/qs-$tpl.yaml" --dry-run
+          done
+
+  wheel-install-smoke:
+    # ------------------------------------------------------------------
+    # This is the only test that catches package_data globs being broken
+    # — editable installs always hide this. `pip install -e .` resolves
+    # forgelm/templates/* via Path(__file__).parent regardless of what
+    # setuptools would actually copy into the wheel, so a broken
+    # [tool.setuptools.package-data] entry is invisible until a real user
+    # runs `pip install forgelm` from PyPI and gets a missing-asset
+    # FileNotFoundError on `forgelm quickstart`.
+    #
+    # We split this into a dedicated job (rather than appending to
+    # test-latest-deps) because:
+    #   1. Building a wheel + spawning a fresh venv is unrelated to the
+    #      "latest deps still resolve" axis and adds ~1 minute the matrix
+    #      doesn't need to pay twice.
+    #   2. A failure here points unambiguously at packaging, not at a
+    #      transitive dep bump that broke training.
+    #   3. We deliberately install from the wheel WITHOUT --no-deps so
+    #      the install path matches what end-users hit.
+    # ------------------------------------------------------------------
+    name: Wheel install smoke test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Build wheel
+        run: |
+          set -euo pipefail
+          pip install --upgrade pip build
+          python -m build --wheel
+
+      - name: Install wheel into a fresh venv and run quickstart from /tmp
+        run: |
+          set -euo pipefail
+          # Build a clean venv so nothing from the checkout's cwd leaks in.
+          python -m venv /tmp/wheel-test
+          /tmp/wheel-test/bin/pip install --upgrade pip
+
+          # Resolve the wheel glob explicitly: there must be exactly one
+          # forgelm-*.whl, otherwise the test environment is ambiguous.
+          shopt -s nullglob
+          wheels=(dist/forgelm-*.whl)
+          if [ "${#wheels[@]}" -ne 1 ]; then
+            echo "Expected exactly one forgelm wheel in dist/; found ${#wheels[@]}: ${wheels[*]:-(none)}" >&2
+            exit 1
+          fi
+          wheel="${wheels[0]}"
+          echo "Installing: $wheel"
+          /tmp/wheel-test/bin/pip install "$wheel"
+
+          # Run from /tmp specifically so the source tree is NOT on
+          # sys.path — any template asset must come from the wheel's
+          # site-packages copy, not from the checkout.
+          cd /tmp
+
+          echo "=== forgelm quickstart --list ==="
+          /tmp/wheel-test/bin/forgelm quickstart --list | tee /tmp/qs-list.txt
+
+          # Every registered template must appear in the listing.
+          for tpl in customer-support code-assistant domain-expert medical-qa-tr grpo-math; do
+            if ! grep -q "$tpl" /tmp/qs-list.txt; then
+              echo "MISSING template '$tpl' from quickstart --list output" >&2
+              exit 1
+            fi
+          done
+
+          echo "=== forgelm quickstart customer-support --dry-run ==="
+          /tmp/wheel-test/bin/forgelm quickstart customer-support \
+            --dry-run --output /tmp/wheel-qs.yaml
+
+          if [ ! -f /tmp/wheel-qs.yaml ]; then
+            echo "Quickstart did not materialize /tmp/wheel-qs.yaml" >&2
+            exit 1
+          fi
+          echo "Wheel-install smoke test passed."
+
   test-min-deps:
     name: Test with minimum supported versions
     runs-on: ubuntu-latest
@@ -87,7 +186,7 @@ jobs:
 
   notify-failure:
     name: Notify on failure
-    needs: [test-latest-deps, test-min-deps]
+    needs: [test-latest-deps, test-min-deps, wheel-install-smoke]
     if: failure()
     runs-on: ubuntu-latest
     permissions:

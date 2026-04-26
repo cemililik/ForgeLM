@@ -1,0 +1,53 @@
+# Quickstart template: grpo-math
+# Group Relative Policy Optimization on grade-school math word problems.
+# GRPO uses a prompt-only dataset; the model generates candidate answers
+# during training and a reward function scores them.
+#
+# Reward defaulting:
+#   No grpo_reward_model is configured: forgelm uses a built-in
+#   Answer:<value> format reward + length shaping. To use a learned reward
+#   classifier, add `grpo_reward_model: <hf-model-id>` under `training:`.
+#   Example (commented out):
+#     # grpo_reward_model: "OpenAssistant/reward-model-deberta-v3-large-v2"
+---
+model:
+  name_or_path: "Qwen/Qwen2.5-Math-7B-Instruct"
+  max_length: 2048
+  load_in_4bit: true
+  backend: "transformers"
+  trust_remote_code: false
+
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.05
+  bias: "none"
+  target_modules:
+    - "q_proj"
+    - "v_proj"
+  task_type: "CAUSAL_LM"
+
+training:
+  output_dir: "./checkpoints/grpo-math"
+  final_model_dir: "final_model"
+  merge_adapters: false
+  trainer_type: "grpo"
+  num_train_epochs: 2
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 4
+  learning_rate: 5.0e-6
+  warmup_ratio: 0.1
+  weight_decay: 0.01
+  eval_steps: 50
+  save_steps: 50
+  save_total_limit: 2
+  packing: false
+  grpo_num_generations: 4
+  # Renamed from grpo_max_new_tokens in v0.4.6 — both names work via Pydantic alias; new field name matches TRL's GRPOConfig.
+  grpo_max_completion_length: 384
+
+data:
+  dataset_name_or_path: "PLACEHOLDER_QUICKSTART_FILLS_THIS_IN.jsonl"
+  shuffle: true
+  clean_text: true
+  add_eos: false

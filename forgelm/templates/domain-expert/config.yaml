@@ -1,0 +1,44 @@
+# Quickstart template: domain-expert (BYOD — bring your own data)
+#
+# This template ships *without* a bundled dataset. Pair it with one of:
+#   - --dataset /path/to/your/data.jsonl
+#   - the output of `forgelm ingest ./your-docs/` (Phase 11; ships separately)
+---
+model:
+  name_or_path: "Qwen/Qwen2.5-7B-Instruct"
+  max_length: 2048
+  load_in_4bit: true
+  backend: "transformers"
+  trust_remote_code: false
+
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.05
+  bias: "none"
+  target_modules:
+    - "q_proj"
+    - "v_proj"
+  task_type: "CAUSAL_LM"
+
+training:
+  output_dir: "./checkpoints/domain-expert"
+  final_model_dir: "final_model"
+  merge_adapters: false
+  trainer_type: "sft"
+  num_train_epochs: 3
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 2.0e-5
+  warmup_ratio: 0.1
+  weight_decay: 0.01
+  eval_steps: 50
+  save_steps: 50
+  save_total_limit: 2
+  packing: false
+
+data:
+  dataset_name_or_path: "PLACEHOLDER_QUICKSTART_FILLS_THIS_IN.jsonl"
+  shuffle: true
+  clean_text: true
+  add_eos: true

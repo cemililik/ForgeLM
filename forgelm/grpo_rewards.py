@@ -1,0 +1,121 @@
+"""Built-in GRPO reward functions used when no learned reward model is wired.
+
+These rewards exist so the bundled ``grpo-math`` quickstart (and any other
+prompt-only GRPO config that does not declare ``training.grpo_reward_model``)
+can train without crashing inside ``trl.GRPOTrainer``, which requires the
+``reward_funcs`` argument to be a callable / list of callables / HF model id.
+
+Two complementary signals are provided:
+
+* :func:`format_match_reward` — 1.0 when a completion ends with the literal
+  pattern ``Answer: <value>`` (case-insensitive, optional trailing units and
+  whitespace). 0.0 otherwise. This is what every prompt in the
+  ``grpo-math`` template asks the model to produce.
+* :func:`length_shaping_reward` — ``min(len(completion) / 200, 1.0)``. Gives
+  the model a non-zero gradient signal during the first few thousand steps
+  before format compliance kicks in; clipped at 1.0 so the model can't game
+  it by producing arbitrarily long output.
+
+The default :func:`combined_format_length_reward` is the linear combination
+``0.8 * format + 0.2 * length`` — format dominates, length keeps the gradient
+non-flat early in training.
+
+All functions follow TRL's reward-callable contract: ``(completions: list[str],
+**kwargs) -> list[float]``. They are kept at module level (no closures) so
+``GRPOTrainer`` can pickle them across worker processes without dragging
+trainer state into the spawn.
+
+Reward range
+------------
+
+GRPOTrainer accepts a list of reward callables and **sums** their per-completion
+outputs. ForgeLM's built-in wiring is additive, so the effective range depends
+on whether the dataset carries gold answers:
+
+* **Without ``gold_answer``** — only :func:`combined_format_length_reward` is
+  registered, so total per-completion reward ∈ ``[0, 1.0]``.
+* **With ``gold_answer``** — :func:`combined_format_length_reward` is paired
+  with the math correctness reward (``forgelm.trainer._math_reward_fn``). The
+  two are summed by TRL, so total per-completion reward ∈ ``[0, 2.0]``.
+
+**Implication for tuning:** learning rate and KL coefficient (``beta``) tuned
+against the 0–1 branch generally need to be revisited for the 0–2 branch — the
+advantage magnitudes roughly double, which interacts with KL pull and clip
+ranges. If a single training run mixes prompts with and without ``gold_answer``,
+consider clamping the combined output or down-weighting the correctness reward
+to keep the scale stable.
+
+**Wiring pointers:** ``forgelm.trainer._dataset_has_gold_answers`` decides which
+branch is used; ``forgelm.trainer._build_trainer`` (GRPO branch) is where the
+reward callables are assembled and passed to ``trl.GRPOTrainer``.
+"""
+
+from __future__ import annotations
+
+import re
+
+# Compiled once at import time. Matches "Answer:" (any case) followed by at
+# least one non-whitespace character, optionally followed by spaces / units /
+# punctuation, anchored to end-of-string with ``\s*\Z`` so trailing whitespace
+# (including newlines) is allowed but no further sentence content is.
+_ANSWER_PATTERN = re.compile(
+    r"answer\s*:\s*\S[^\n]*?\s*\Z",
+    re.IGNORECASE,
+)
+
+# Length above which the shaping reward saturates at 1.0. 200 chars is the
+# rough length of a single short worked solution in the grpo-math template.
+_LENGTH_SATURATION_CHARS = 200
+
+# Weights for the combined reward. Format dominates so the model converges on
+# spec-compliant output; length keeps gradient signal non-zero early on.
+_FORMAT_WEIGHT = 0.8
+_LENGTH_WEIGHT = 0.2
+
+
+def format_match_reward(completions: list[str], **kwargs) -> list[float]:
+    """Return 1.0 per completion that ends with ``Answer: <value>``.
+
+    The match is case-insensitive, allows trailing whitespace, and accepts an
+    optional unit / suffix after the value (so ``Answer: 15 km/h`` and
+    ``Answer: $40`` both score). A completion that doesn't contain the
+    ``Answer:`` token at all, or has the token but no value after it, scores
+    0.0.
+
+    ``**kwargs`` is accepted (and ignored) so this matches TRL's per-sample
+    column passthrough convention.
+    """
+    rewards: list[float] = []
+    for completion in completions:
+        if not completion:
+            rewards.append(0.0)
+            continue
+        rewards.append(1.0 if _ANSWER_PATTERN.search(completion) else 0.0)
+    return rewards
+
+
+def length_shaping_reward(completions: list[str], **kwargs) -> list[float]:
+    """Return ``min(len(c) / 200, 1.0)`` per completion, clipped to [0, 1].
+
+    Provides early-training gradient signal before the model learns the
+    ``Answer:`` pattern. Saturates at 1.0 so it can't be gamed by producing
+    an arbitrarily long completion.
+    """
+    rewards: list[float] = []
+    for completion in completions:
+        length = len(completion) if completion else 0
+        rewards.append(min(length / _LENGTH_SATURATION_CHARS, 1.0))
+    return rewards
+
+
+def combined_format_length_reward(completions: list[str], **kwargs) -> list[float]:
+    """``0.8 * format_match_reward + 0.2 * length_shaping_reward`` per item.
+
+    This is the default fallback wired into :class:`forgelm.trainer.ForgeTrainer`
+    when ``training.grpo_reward_model`` is not configured. Format dominates so
+    the model converges on the spec'd output shape; length keeps the gradient
+    non-zero during the first few thousand steps.
+    """
+    fmt = format_match_reward(completions, **kwargs)
+    length = length_shaping_reward(completions, **kwargs)
+    return [_FORMAT_WEIGHT * f + _LENGTH_WEIGHT * lensc for f, lensc in zip(fmt, length, strict=False)]

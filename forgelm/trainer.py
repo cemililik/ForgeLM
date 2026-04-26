@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+import re
 import shutil
 from typing import Any, Dict, Optional
 
@@ -16,6 +17,128 @@ logger = logging.getLogger("forgelm.trainer")
 # Audit event names — kept as constants so the audit-log schema stays grep-able
 # and downstream consumers don't break on a typo.
 _EVT_REVERT_TRIGGERED = "eval.revert_triggered"
+
+
+# ---------------------------------------------------------------------------
+# Built-in GRPO math reward — used when grpo_reward_model is not set but the
+# dataset carries a `gold_answer` field (e.g. the bundled grpo-math template).
+#
+# Kept at module level (not a class method or closure) so TRL's GRPOTrainer
+# can pickle it across worker processes without dragging the surrounding
+# trainer state into the spawn.
+# ---------------------------------------------------------------------------
+
+# Stop the captured value at the next sentence boundary so
+# "Answer: 18. Çünkü …" does NOT swallow the trailing prose into the
+# comparison string. The boundary is "[.!?] followed by whitespace OR EOL"
+# — bare "." between digits ("Answer: 1.5") is preserved because the
+# lookahead requires whitespace or end-of-string after the punctuation.
+# Internal spaces, slashes, colons, dollar signs, and decimals are all
+# kept inside the capture for `_normalize_answer` to handle downstream.
+_ANSWER_PATTERN = re.compile(r"answer\s*:\s*(.+?)(?=[.!?]\s|[.!?]$|$)", re.IGNORECASE)
+
+
+# Units / suffixes the prompts in the grpo-math template attach to numeric
+# answers — stripped before comparison so "Answer: $15" matches gold "15".
+# Order matters: longer/multi-char tokens first to avoid partial overlaps
+# (e.g. "km/h" must be matched before "km").
+_REWARD_STRIP_TOKENS: tuple[str, ...] = (
+    "km/h",
+    "m/s",
+    "mL",
+    "ml",
+    "m²",
+    "liters",
+    "hours",
+    "km",
+    "cm",
+    "kg",
+    "$",
+    "%",
+    "m",
+)
+
+
+def _normalize_answer(s: str) -> str:
+    """Trim whitespace, sentence punctuation, and known unit suffixes / prefixes.
+
+    Designed for the grpo-math template's ``Answer: <value>`` outputs;
+    leaves fractions ("2/5") and time strings ("12:15") intact for
+    string-equality fallback in :func:`_answers_match`.
+    """
+    if s is None:
+        return ""
+    out = s.strip().rstrip(".!?")
+    # Strip a known unit token from either end. Repeat once: "$15 USD"-style
+    # collisions don't appear in the bundled prompts but a defensive single
+    # rescan keeps things predictable.
+    for _ in range(2):
+        for unit in _REWARD_STRIP_TOKENS:
+            if out.endswith(unit):
+                out = out[: -len(unit)].rstrip()
+            if out.startswith(unit):
+                out = out[len(unit) :].lstrip()
+    return out.strip()
+
+
+def _answers_match(extracted: str, gold: str) -> bool:
+    """True when ``extracted`` is the same answer as ``gold``.
+
+    Tries exact string match first, then numeric match with a small float
+    tolerance — keeps non-numeric answers ("12:15", "2/5") correct without
+    forcing the prompts into a single shape.
+    """
+    if extracted == gold:
+        return True
+    try:
+        return abs(float(extracted) - float(gold)) < 1e-6
+    except ValueError:
+        return False
+
+
+def _math_reward_fn(completions, **kwargs):
+    """Built-in regex-based reward for grpo-math style prompts.
+
+    Each completion is expected to end with ``Answer: <value>``; the captured
+    value is normalized (units stripped) and compared to the dataset's
+    ``gold_answer`` field. TRL passes per-sample dataset columns as kwargs.
+
+    Returns 1.0 for an exact match, 0.0 otherwise. Generations that don't
+    contain an ``Answer:`` marker score 0.0 — the regex implicitly enforces
+    the spec'd output format.
+    """
+    golds = kwargs.get("gold_answer", [])
+    rewards: list[float] = []
+    for completion, gold in zip(completions, golds, strict=False):
+        match = _ANSWER_PATTERN.search(completion or "")
+        if not match:
+            rewards.append(0.0)
+            continue
+        extracted = _normalize_answer(match.group(1))
+        gold_norm = _normalize_answer(gold)
+        rewards.append(1.0 if _answers_match(extracted, gold_norm) else 0.0)
+    return rewards
+
+
+def _dataset_has_gold_answers(dataset: Dict[str, Any]) -> bool:
+    """Return True when the dataset's train split has a ``gold_answer`` field.
+
+    Looks at the first row only — ForgeLM's preparation pipeline already
+    enforces a homogeneous schema, so a single probe is sufficient.
+    """
+    train = dataset.get("train") if isinstance(dataset, dict) else None
+    if train is None or len(train) == 0:
+        return False
+    # Prefer dict-style row access; fall back to HuggingFace Dataset's
+    # `column_names` attribute when row access isn't supported.
+    try:
+        first = train[0]
+        if isinstance(first, dict):
+            return "gold_answer" in first and bool(first["gold_answer"])
+    except (IndexError, KeyError, TypeError):
+        pass
+    cols = getattr(train, "column_names", None)
+    return bool(cols and "gold_answer" in cols)
 
 
 class ForgeTrainer:
@@ -260,7 +383,9 @@ class ForgeTrainer:
 
             # GRPO generates responses during training — needs generation params
             kwargs["num_generations"] = self.config.training.grpo_num_generations
-            kwargs["max_new_tokens"] = self.config.training.grpo_max_new_tokens
+            # TRL >=0.12 expects `max_completion_length`; the older `max_new_tokens`
+            # raises TypeError at GRPOConfig construction.
+            kwargs["max_completion_length"] = self.config.training.grpo_max_completion_length
             # GRPO doesn't use load_best_model_at_end the same way
             kwargs.pop("load_best_model_at_end", None)
             kwargs.pop("metric_for_best_model", None)
@@ -389,10 +514,19 @@ class ForgeTrainer:
                 )
             trainer_kwargs["callbacks"] = []
 
-            # Load reward model if configured
+            # Reward selection. trl.GRPOTrainer requires `reward_funcs` to be
+            # set — we never leave it unset. TRL sums multiple reward funcs
+            # additively, so we can stack signals when both are available:
+            #   1) explicit reward model → single classifier callable. Stops
+            #      here; the user opted into a learned reward.
+            #   2) no reward model → built-in format+length shaping reward
+            #      (gradient-friendly, always teaches output structure).
+            #      If the dataset also carries a `gold_answer` field, append
+            #      the built-in correctness reward so the model learns to be
+            #      both well-formatted AND right.
             reward_model_path = getattr(self.config.training, "grpo_reward_model", None)
             if reward_model_path:
-                logger.info("Loading GRPO reward model: %s", reward_model_path)
+                logger.info("GRPO reward source: classifier model %s", reward_model_path)
                 from transformers import AutoModelForSequenceClassification
                 from transformers import AutoTokenizer as _AutoTok
 
@@ -409,6 +543,25 @@ class ForgeTrainer:
                     return logits[:, 0].tolist()
 
                 trainer_kwargs["reward_funcs"] = [_reward_fn]
+            else:
+                from .grpo_rewards import combined_format_length_reward
+
+                reward_funcs: list = [combined_format_length_reward]
+                if _dataset_has_gold_answers(self.dataset):
+                    reward_funcs.append(_math_reward_fn)
+                    logger.info(
+                        "GRPO reward source: built-in format+length shaping reward "
+                        "(weight 0.8/0.2) + correctness reward against `gold_answer` "
+                        "field (additive). No training.grpo_reward_model configured."
+                    )
+                else:
+                    logger.info(
+                        "GRPO reward source: built-in format+length shaping reward "
+                        "(weight 0.8/0.2). No training.grpo_reward_model configured "
+                        "and dataset has no `gold_answer` field — model learns output "
+                        "structure only. Add a `gold_answer` column for a correctness signal."
+                    )
+                trainer_kwargs["reward_funcs"] = reward_funcs
 
             self.trainer = GRPOTrainer(**trainer_kwargs)
         else:

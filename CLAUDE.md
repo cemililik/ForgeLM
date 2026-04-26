@@ -54,6 +54,7 @@ ForgeLM/
 │   ├── safety.py            # Llama Guard + harm categories + auto-revert
 │   ├── compliance.py        # EU AI Act Articles 9-17 + Annex IV
 │   ├── webhook.py           # Slack/Teams notifications
+│   ├── grpo_rewards.py      # Built-in GRPO format/length shaping reward fallback
 │   └── ...                  # benchmark, judge, merging, synthetic, wizard, ...
 ├── tests/                   # pytest, 26 test modules
 ├── docs/
