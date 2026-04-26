@@ -1,6 +1,6 @@
 # Phase 10.5: Quickstart Layer & Onboarding
 
-> **Status:** ✅ **DONE** — shipped in `v0.4.5` (2026-04-25). Module: [`forgelm/quickstart.py`](../../forgelm/quickstart.py); five bundled templates under [`forgelm/templates/`](../../forgelm/templates/); CLI: `forgelm quickstart <template>`; tests: [`tests/test_quickstart.py`](../../tests/test_quickstart.py); CI smoke in [nightly.yml](../../.github/workflows/nightly.yml).
+> **Status:** ✅ **DONE** — shipped in `v0.4.5` (2026-04-26). Module: [`forgelm/quickstart.py`](../../forgelm/quickstart.py); five bundled templates under [`forgelm/templates/`](../../forgelm/templates/); CLI: `forgelm quickstart <template>`; tests: [`tests/test_quickstart.py`](../../tests/test_quickstart.py); CI smoke in [nightly.yml](../../.github/workflows/nightly.yml).
 
 > **Not:** Bu dosya tek bir planlanan fazı detaylandırır. Tüm fazların özeti için [../roadmap.md](../roadmap.md).
 > **Dosya adı:** `phase-12-quickstart.md` — orijinal Phase 12 sırasından kaldığı için adı değiştirilmedi; içerik Phase 10.5'e karşılık gelir.

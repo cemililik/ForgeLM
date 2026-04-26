@@ -13,7 +13,7 @@
 | 📋 Planlandı | [Faz 13 — Pro CLI ve Gözlemlenebilirlik Dashboard](roadmap/phase-13-pro-cli.md) | Lisans korumalı dashboard, HPO, zamanlanmış görevler, takım config store → `v0.6.0-pro` |
 | 📋 Planlandı | [Faz 14 — Çok Aşamalı Pipeline Zincirleri](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO config zinciri, pipeline kaynak izleri → `v0.5.1` |
 
-**Son sürüm:** `v0.4.5` — Quickstart Layer (2026-04-25). Tek komutla hazır template'ler: `forgelm quickstart customer-support`. Küçük GPU'larda modeli otomatik küçültür, mevcut trainer'ın değişmeden kabul ettiği bir YAML üretir.
+**Son sürüm:** `v0.4.5` — Quickstart Layer (2026-04-26). Tek komutla hazır template'ler: `forgelm quickstart customer-support`. Küçük GPU'larda modeli otomatik küçültür, mevcut trainer'ın değişmeden kabul ettiği bir YAML üretir.
 
 **Güncel durum:** 13 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5) tamamlandı. 3 faz (11, 13, 14) planlandı. Hedef `v0.5.0`: Faz 11. Hedef `v0.5.1`: Faz 14.
 
@@ -21,20 +21,23 @@
 
 ```mermaid
 graph LR
-    P10[Faz 10<br/>Post-Training<br/>Completion] --> P11[Faz 11<br/>Veri<br/>Yutma]
-    P10 --> P12[Faz 12<br/>Quickstart<br/>Katmanı]
-    P11 --> P12
-    P12 --> P13[Faz 13<br/>Pro CLI<br/>+ Dashboard]
+    P10[Faz 10<br/>Post-Training<br/>Completion] --> P105[Faz 10.5<br/>Quickstart<br/>Katmanı]
+    P10 --> P11[Faz 11<br/>Veri<br/>Yutma]
+    P105 --> P11
+    P11 --> P13[Faz 13<br/>Pro CLI<br/>+ Dashboard]
+    P11 --> P14[Faz 14<br/>Pipeline<br/>Zincirleri]
 
     P10 -.-> V1[v0.4.0]
+    P105 -.-> V15[v0.4.5]
     P11 -.-> V2[v0.5.0]
-    P12 -.-> V2
+    P14 -.-> V25[v0.5.1]
     P13 -.-> V3[v0.6.0-pro]
 
-    style P10 fill:#002244,stroke:#00aaff
+    style P10 fill:#003300,stroke:#00ff88
+    style P105 fill:#003300,stroke:#00ff88
     style P11 fill:#002244,stroke:#00aaff
-    style P12 fill:#002244,stroke:#00aaff
     style P13 fill:#442200,stroke:#ffaa00
+    style P14 fill:#002244,stroke:#00aaff
 ```
 
 ## Yol gösterici ilkeler

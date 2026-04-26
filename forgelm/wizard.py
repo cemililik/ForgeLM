@@ -355,10 +355,18 @@ def _maybe_run_quickstart_template() -> Optional[str]:
 
     template = TEMPLATES[chosen]
     if not template.bundled_dataset:
-        print(f"  '{chosen}' is BYOD — bring your own JSONL dataset. Pass it now or fall back to the full wizard.")
-        dataset_path = _prompt("Path to your dataset JSONL (empty to fall back)", "")
-        if not dataset_path:
-            return None
+        print(f"  '{chosen}' is BYOD — bring your own JSONL dataset.")
+        # Re-prompt until the user provides a real path or explicitly cancels.
+        # An empty string used to silently drop into the full wizard, which
+        # surprised users who picked a BYOD template on purpose.
+        while True:
+            dataset_path = _prompt("Path to your dataset JSONL (or 'cancel' to fall back to the full wizard)", "")
+            if dataset_path.strip().lower() in ("cancel", "c", "q", "quit"):
+                print("  Cancelled — falling back to the full wizard.")
+                return None
+            if dataset_path:
+                break
+            print("  A dataset path is required for this template. Type 'cancel' to use the full wizard instead.")
     else:
         dataset_path = ""
 

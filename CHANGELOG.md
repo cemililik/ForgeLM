@@ -4,7 +4,7 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
-## [0.4.5] — 2026-04-25
+## [0.4.5] — 2026-04-26
 
 ### Added
 

@@ -59,6 +59,11 @@ jobs:
           # Every bundled template must render to a valid YAML that
           # passes pydantic validation. Catches template drift the
           # moment a config schema changes.
+          #
+          # Note: smoke-tests 4 of 5 templates. `domain-expert` is BYOD
+          # (no bundled dataset), so `quickstart --dry-run` rejects it
+          # without `--dataset PATH`. It's covered separately by the
+          # pytest unit `test_domain_expert_intentionally_has_no_bundled_data`.
           forgelm quickstart --list
           for tpl in customer-support code-assistant medical-qa-tr grpo-math; do
             echo "=== Quickstart dry-run: $tpl ==="

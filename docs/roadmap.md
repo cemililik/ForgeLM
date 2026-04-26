@@ -13,7 +13,7 @@
 | 📋 Planned | [Phase 13 — Pro CLI & Observability Dashboard](roadmap/phase-13-pro-cli.md) | License-gated dashboard, HPO, scheduled jobs, team config store → `v0.6.0-pro` |
 | 📋 Planned | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO chained config, pipeline provenance artifacts → `v0.5.1` |
 
-**Latest release:** `v0.4.5` — Quickstart Layer (shipped 2026-04-25). One-command bundled templates: `forgelm quickstart customer-support`. Auto-downsizes models on small GPUs, generates a config that the existing trainer accepts unchanged.
+**Latest release:** `v0.4.5` — Quickstart Layer (shipped 2026-04-26). One-command bundled templates: `forgelm quickstart customer-support`. Auto-downsizes models on small GPUs, generates a config that the existing trainer accepts unchanged.
 
 **Previous:** `v0.4.0` — Post-Training Completion (2026-04-26 on PyPI). Inference primitives, interactive chat REPL, GGUF export, VRAM fit advisor, and deployment config generation.
 

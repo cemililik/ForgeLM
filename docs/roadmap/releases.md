@@ -58,7 +58,7 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ---
 
-## v0.4.5 — "Quickstart Layer" (2026-04-25)
+## v0.4.5 — "Quickstart Layer" (2026-04-26)
 
 **Status:** Released. Focus: [Phase 10.5](phase-12-quickstart.md) (Quickstart). One-command bundled templates, sample datasets, opinionated defaults — primary community growth driver.
 

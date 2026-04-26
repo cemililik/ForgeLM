@@ -196,7 +196,7 @@ def _detect_available_vram_gb() -> Optional[float]:
     try:
         if not torch.cuda.is_available():
             return None
-        free, total = torch.cuda.mem_get_info()
+        _, total = torch.cuda.mem_get_info()
         # Use total (capacity) rather than free (current snapshot) for the
         # "will this template fit at all" question.
         return total / (1024**3)
@@ -315,7 +315,7 @@ def run_quickstart(
 # ---------------------------------------------------------------------------
 
 
-def format_template_list(*, color: bool = False) -> str:
+def format_template_list() -> str:
     """Render the template registry as a human-readable list."""
     lines = ["Available quickstart templates:", ""]
     for tpl in list_templates():

@@ -28,7 +28,10 @@ When contributing a new template, you must include:
 1. A `data.jsonl` (or `README.md` explaining the BYOD path) under
    `forgelm/templates/<your-template>/`.
 2. A `config.yaml` with conservative defaults (QLoRA 4-bit NF4, rank ≤ 8,
-   `gradient_checkpointing: true`, safety/compliance opt-in only).
+   safety/compliance opt-in only). Templates can rely on the trainer's
+   default for `gradient_checkpointing` (auto-enabled when CUDA is
+   available — see `forgelm/trainer.py`); only set it explicitly when you
+   need to override.
 3. A row added to the table above attributing the dataset's origin and
    license.
 4. A registry entry in `TEMPLATES` in `forgelm/quickstart.py`.

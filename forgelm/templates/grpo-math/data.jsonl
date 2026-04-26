@@ -23,7 +23,7 @@
 {"prompt":"Five workers can paint a wall in 6 hours. Assuming the same rate per worker, how many hours would 3 workers take? Show your work and end with `Answer: <number> hours`."}
 {"prompt":"What is 15% of 240? Show your work and end with `Answer: <number>`."}
 {"prompt":"A book has 320 pages. Tom has read 1/5 of it. How many pages has he read? Show your work and end with `Answer: <number>`."}
-{"prompt":"Three numbers add to 60. The first is twice the second, and the third is 5 more than the second. What is the second number? Show your work and end with `Answer: <number>`."}
+{"prompt":"Three numbers add to 65. The first is twice the second, and the third is 5 more than the second. What is the second number? Show your work and end with `Answer: <number>`."}
 {"prompt":"A rectangular field is 30 m by 18 m. What is its perimeter? Show your work and end with `Answer: <number> m`."}
 {"prompt":"A bag has 4 red and 6 blue balls. What is the probability of drawing a red ball? Show your work and end with `Answer: <fraction>`."}
 {"prompt":"Convert 3/4 to a percentage. Show your work and end with `Answer: <number>%`."}

@@ -853,7 +853,18 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
     # passed verbatim to the child as a single argument, with no expansion.
     import subprocess  # nosec B404 — argv-list usage only; see comment above
 
-    train_cmd = [sys.executable, "-m", "forgelm.cli", "--config", str(result.config_path)]
+    # Propagate top-level CLI flags so the child process inherits the
+    # operator's logging / output preferences.
+    inherited: list[str] = []
+    if getattr(args, "output_format", None) == "json":
+        inherited += ["--output-format", "json"]
+    if getattr(args, "quiet", False):
+        inherited.append("--quiet")
+    log_level = getattr(args, "log_level", None)
+    if log_level:
+        inherited += ["--log-level", log_level]
+
+    train_cmd = [sys.executable, "-m", "forgelm.cli", *inherited, "--config", str(result.config_path)]
     logger.info("Starting training: %s", " ".join(train_cmd))
     train_rc = subprocess.run(train_cmd, check=False).returncode  # noqa: S603  # nosec B603
     if train_rc != 0:
@@ -863,9 +874,11 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
     if args.no_chat:
         sys.exit(EXIT_SUCCESS)
 
-    # Auto-launch chat against the trained model. Mirror the trainer's output_dir
-    # convention from the bundled config.
-    final_model_dir = Path(_load_config_for_quickstart_chat(result.config_path)) / "final_model"
+    # Auto-launch chat against the trained model. Read both output_dir and
+    # final_model_dir from the generated YAML so templates that override
+    # final_model_dir are still found.
+    output_dir, final_subdir = _load_quickstart_train_paths(result.config_path)
+    final_model_dir = Path(output_dir) / final_subdir
     if not final_model_dir.is_dir():
         logger.warning(
             "Skipping auto-chat: trained model directory not found at %s. Run `forgelm chat <model_path>` manually.",
@@ -873,14 +886,14 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
         )
         sys.exit(EXIT_SUCCESS)
 
-    chat_cmd = [sys.executable, "-m", "forgelm.cli", "chat", str(final_model_dir)]
+    chat_cmd = [sys.executable, "-m", "forgelm.cli", *inherited, "chat", str(final_model_dir)]
     logger.info("Launching chat REPL: %s", " ".join(chat_cmd))
     subprocess.run(chat_cmd, check=False)  # noqa: S603  # nosec B603
     sys.exit(EXIT_SUCCESS)
 
 
-def _load_config_for_quickstart_chat(config_path: Path) -> str:
-    """Read the generated YAML and return the training output_dir.
+def _load_quickstart_train_paths(config_path: Path) -> tuple[str, str]:
+    """Read the generated YAML and return ``(output_dir, final_model_dir)``.
 
     Kept tiny + standalone so quickstart never has to import the heavy config
     validation pipeline just to find the trained checkpoint directory.
@@ -890,7 +903,10 @@ def _load_config_for_quickstart_chat(config_path: Path) -> str:
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f) or {}
     training = cfg.get("training", {}) or {}
-    return training.get("output_dir", "./checkpoints")
+    return (
+        training.get("output_dir", "./checkpoints"),
+        training.get("final_model_dir", "final_model"),
+    )
 
 
 def _dispatch_subcommand(command: str, args) -> None:
