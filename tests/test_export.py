@@ -133,7 +133,7 @@ class TestExportModel:
         return output_path, fake_run
 
     def test_unsupported_format_returns_failure(self, tmp_path):
-        result = export_model(str(tmp_path / "model"), str(tmp_path / "out.xyz"), format_="xyz")
+        result = export_model(str(tmp_path / "model"), str(tmp_path / "out.xyz"), output_format="xyz")
         assert result.success is False
         assert "xyz" in result.error
 

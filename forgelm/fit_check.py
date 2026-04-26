@@ -248,35 +248,55 @@ def estimate_vram(config: Any) -> FitCheckResult:
     num_params = _estimate_param_count(arch)
 
     # --- quantisation scheme ---
+    # Pick the storage dtype, not the compute dtype. bnb_4bit_compute_dtype
+    # only describes 4-bit math precision and shouldn't be read when the model
+    # isn't actually QLoRA.
     if m.load_in_4bit:
         quant = "4bit"
+    elif getattr(m, "load_in_8bit", False):
+        quant = "8bit"
     else:
-        dtype = getattr(m, "bnb_4bit_compute_dtype", "bf16")
-        quant = {"auto": "bf16", "bfloat16": "bf16", "bf16": "bf16", "float16": "fp16", "fp16": "fp16"}.get(
-            str(dtype).lower(), "bf16"
-        )
+        torch_dtype = getattr(m, "torch_dtype", None) or getattr(getattr(m, "config", None), "torch_dtype", None)
+        if torch_dtype is None and m.load_in_4bit:
+            torch_dtype = getattr(m, "bnb_4bit_compute_dtype", "bf16")
+        dtype_map = {
+            "auto": "bf16",
+            "bfloat16": "bf16",
+            "bf16": "bf16",
+            "float16": "fp16",
+            "fp16": "fp16",
+            "float32": "fp32",
+            "fp32": "fp32",
+        }
+        quant = dtype_map.get(str(torch_dtype).lower(), "bf16") if torch_dtype is not None else "bf16"
 
     # --- component estimates ---
     base_gb = _base_model_gb(num_params, quant)
 
-    target_module_count = len(lora.target_modules)
-    # Compute adapter parameter count directly (avoids float round-trip via GB)
-    adapter_params = 2 * lora.r * arch["hidden_size"] * target_module_count * arch["num_hidden_layers"]
-    adapter_gb = adapter_params * 4 / (1024**3)  # fp32
-    trainable_params = adapter_params
-
-    optimizer_type = getattr(t, "galore_optim", "adamw") if getattr(t, "galore_enabled", False) else "adamw"
-    optim_gb = _optimizer_state_gb(trainable_params, optimizer_type)
-
+    galore_enabled = bool(getattr(t, "galore_enabled", False))
     grad_ckpt = getattr(t, "gradient_checkpointing", False)
     act_gb = _activation_gb(arch, t.per_device_train_batch_size, m.max_length, grad_ckpt)
 
-    # GaLore adds gradient projection buffers (lora-rank-sized per parameter)
-    galore_gb = 0.0
-    if getattr(t, "galore_enabled", False):
+    # GaLore is full-parameter training: optimizer state is sized against the
+    # *projected* rank, not against LoRA's adapter footprint. LoRA accounting
+    # is mutually exclusive — adding both would double-count.
+    if galore_enabled:
         galore_rank = getattr(t, "galore_rank", 64)
         h = arch["hidden_size"]
+        projected_params = int(num_params * (galore_rank / h))
+        adapter_params = 0
+        adapter_gb = 0.0
+        trainable_params = projected_params
         galore_gb = num_params * (galore_rank / h) * 4 / (1024**3)
+        optim_gb = _optimizer_state_gb(trainable_params, getattr(t, "galore_optim", "adamw"))
+    else:
+        target_module_count = len(lora.target_modules)
+        # Integer adapter param count (avoids float round-trip via GB)
+        adapter_params = 2 * lora.r * arch["hidden_size"] * target_module_count * arch["num_hidden_layers"]
+        adapter_gb = adapter_params * 4 / (1024**3)  # fp32
+        trainable_params = adapter_params
+        galore_gb = 0.0
+        optim_gb = _optimizer_state_gb(trainable_params, "adamw")
 
     total_gb = base_gb + adapter_gb + optim_gb + act_gb + galore_gb
 

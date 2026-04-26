@@ -642,7 +642,7 @@ def _run_export_cmd(args, output_format: str) -> None:
     result = export_model(
         model_path=args.model_path,
         output_path=args.output,
-        format_=args.format,
+        output_format=args.format,
         quant=args.quant,
         adapter=args.adapter,
         update_integrity=not args.no_integrity_update,

@@ -318,7 +318,7 @@ def export_model(
     model_path: str,
     output_path: str,
     *,
-    format_: str = "gguf",
+    output_format: str = "gguf",
     quant: str = "q4_k_m",
     adapter: Optional[str] = None,
     update_integrity: bool = True,
@@ -332,8 +332,8 @@ def export_model(
     Args:
         model_path: Path to a saved HuggingFace model directory.
         output_path: Destination ``.gguf`` file path.
-        format_: Export format. Only ``"gguf"`` is currently supported.
-            (Trailing underscore avoids shadowing the ``format`` builtin.)
+        output_format: Export format. Only ``"gguf"`` is currently supported.
+            (Renamed from ``format=`` to avoid shadowing the ``format`` builtin.)
         quant: Quantisation type.  One of
             ``q2_k, q3_k_m, q4_k_m, q5_k_m, q8_0, f16``.
         adapter: Optional PEFT adapter directory to merge before export.
@@ -344,7 +344,7 @@ def export_model(
     Returns:
         :class:`ExportResult` with SHA-256, file size, and output path.
     """
-    fmt = format_.lower()
+    fmt = output_format.lower()
     quant = quant.lower()
 
     rejection = _validate_export_request(fmt, quant)
