@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+import re
 import shutil
 from typing import Any, Dict, Optional
 
@@ -16,6 +17,195 @@ logger = logging.getLogger("forgelm.trainer")
 # Audit event names — kept as constants so the audit-log schema stays grep-able
 # and downstream consumers don't break on a typo.
 _EVT_REVERT_TRIGGERED = "eval.revert_triggered"
+
+
+# ---------------------------------------------------------------------------
+# Built-in GRPO math reward — used when grpo_reward_model is not set but the
+# dataset carries a `gold_answer` field (e.g. the bundled grpo-math template).
+#
+# Kept at module level (not a class method or closure) so TRL's GRPOTrainer
+# can pickle it across worker processes without dragging the surrounding
+# trainer state into the spawn.
+# ---------------------------------------------------------------------------
+
+# Stop the captured value at the next sentence boundary so
+# "Answer: 18. Çünkü …" does NOT swallow the trailing prose into the
+# comparison string. The boundary is "[.!?] followed by whitespace OR EOL"
+# — bare "." between digits ("Answer: 1.5") is preserved because a
+# decimal "." is not followed by whitespace or end-of-string.
+#
+# Implementation notes:
+#   - First chunk: ``[^\s.!?\n][^.!?\n]*`` — must start with a non-space,
+#     then any non-newline that isn't sentence punctuation. This covers
+#     "18", "70 km/h", "$40", "12:15", "2/5".
+#   - Optional repeats: ``[.!?](?!\s|$)[^.!?\n]*`` — sentence punctuation
+#     is allowed inside the capture *only* when not followed by
+#     whitespace/EOL, which keeps "1.5" / "3.14159" intact while still
+#     stopping at "18. Çünkü ...".
+#   - Greedy throughout — no reluctant quantifier needed because the
+#     character classes self-bound at the next sentence break.
+_ANSWER_PATTERN = re.compile(
+    # First class drops `\n` because `\s` already covers it.
+    r"answer\s*:\s*([^\s.!?][^.!?\n]*(?:[.!?](?!\s|$)[^.!?\n]*)*)",
+    re.IGNORECASE,
+)
+
+
+# Units / suffixes the prompts in the grpo-math template attach to numeric
+# answers — stripped before comparison so "Answer: $15" matches gold "15".
+# Order matters: longer/multi-char tokens first to avoid partial overlaps
+# (e.g. "km/h" must be matched before "km").
+_REWARD_STRIP_TOKENS: tuple[str, ...] = (
+    "km/h",
+    "m/s",
+    "mL",
+    "ml",
+    "m²",
+    "liters",
+    "hours",
+    "km",
+    "cm",
+    "kg",
+    "$",
+    "%",
+    "m",
+)
+
+
+# Single-letter alphabetic tokens (e.g. "m" for meters) need a boundary check
+# before stripping — otherwise the bare "m" rule would shave the trailing
+# letter off normal English words like "them" or "method". Multi-char and
+# non-alpha tokens ("$", "%", "kg", "km/h") have no such ambiguity.
+_BOUNDARY_REQUIRED_TOKENS: frozenset[str] = frozenset({"m"})
+
+
+def _is_unit_suffix_safe_to_strip(out: str, unit: str) -> bool:
+    """True when ``out`` ends with ``unit`` AND the char before is a digit/space."""
+    if unit not in _BOUNDARY_REQUIRED_TOKENS:
+        return True
+    if len(out) == len(unit):
+        return True
+    prev = out[-len(unit) - 1]
+    return prev.isdigit() or prev.isspace()
+
+
+def _is_unit_prefix_safe_to_strip(out: str, unit: str) -> bool:
+    """True when ``out`` starts with ``unit`` AND the next char is a digit/space."""
+    if unit not in _BOUNDARY_REQUIRED_TOKENS:
+        return True
+    if len(out) == len(unit):
+        return True
+    nxt = out[len(unit)]
+    return nxt.isdigit() or nxt.isspace()
+
+
+def _normalize_answer(s: Any) -> str:
+    """Trim whitespace, sentence punctuation, and known unit suffixes / prefixes.
+
+    Designed for the grpo-math template's ``Answer: <value>`` outputs;
+    leaves fractions ("2/5") and time strings ("12:15") intact for
+    string-equality fallback in :func:`_answers_match`.
+
+    Accepts any value type — ``None`` returns ``""``; ints, floats, and
+    bools are stringified first so a ``gold_answer`` field carrying ``0``
+    or ``False`` doesn't crash with ``AttributeError`` on ``.strip()``.
+    """
+    if s is None:
+        return ""
+    if not isinstance(s, str):
+        s = str(s)
+    out = s.strip().rstrip(".!?")
+    # Strip a known unit token from either end. Repeat once: "$15 USD"-style
+    # collisions don't appear in the bundled prompts but a defensive single
+    # rescan keeps things predictable. Single-letter alpha tokens (only "m"
+    # today) require a digit/space boundary so "them" / "method" don't get
+    # truncated.
+    for _ in range(2):
+        for unit in _REWARD_STRIP_TOKENS:
+            if out.endswith(unit) and _is_unit_suffix_safe_to_strip(out, unit):
+                out = out[: -len(unit)].rstrip()
+            if out.startswith(unit) and _is_unit_prefix_safe_to_strip(out, unit):
+                out = out[len(unit) :].lstrip()
+    return out.strip()
+
+
+def _answers_match(extracted: str, gold: str) -> bool:
+    """True when ``extracted`` is the same answer as ``gold``.
+
+    Tries exact string match first, then numeric match with a small float
+    tolerance — keeps non-numeric answers ("12:15", "2/5") correct without
+    forcing the prompts into a single shape.
+    """
+    if extracted == gold:
+        return True
+    try:
+        return abs(float(extracted) - float(gold)) < 1e-6
+    except ValueError:
+        return False
+
+
+def _math_reward_fn(completions, **kwargs):
+    """Built-in regex-based reward for grpo-math style prompts.
+
+    Each completion is expected to end with ``Answer: <value>``; the captured
+    value is normalized (units stripped) and compared to the dataset's
+    ``gold_answer`` field. TRL passes per-sample dataset columns as kwargs.
+
+    Returns 1.0 for an exact match, 0.0 otherwise. Generations that don't
+    contain an ``Answer:`` marker score 0.0 — the regex implicitly enforces
+    the spec'd output format.
+    """
+    golds = kwargs.get("gold_answer")
+    # No gold_answer column passed → reward function is wired but the dataset
+    # carries no ground truth. Return zero rewards so training continues
+    # (combined_format_length_reward still drives gradient via the format
+    # signal). This branch should be unreachable in practice — the trainer
+    # only wires _math_reward_fn after _dataset_has_gold_answers returns True.
+    if golds is None:
+        return [0.0] * len(completions)
+    # Use strict=True so a wiring regression (mismatched batch sizes) raises
+    # immediately instead of silently truncating to the shorter list and
+    # masking the bug as low reward.
+    rewards: list[float] = []
+    for completion, gold in zip(completions, golds, strict=True):
+        match = _ANSWER_PATTERN.search(completion or "")
+        if not match:
+            rewards.append(0.0)
+            continue
+        extracted = _normalize_answer(match.group(1))
+        gold_norm = _normalize_answer(gold)
+        rewards.append(1.0 if _answers_match(extracted, gold_norm) else 0.0)
+    return rewards
+
+
+def _dataset_has_gold_answers(dataset: Dict[str, Any]) -> bool:
+    """Return True when the dataset's train split has a ``gold_answer`` field.
+
+    Looks at the first row only — ForgeLM's preparation pipeline already
+    enforces a homogeneous schema, so a single probe is sufficient.
+
+    Detection is presence-based: ``0``, ``0.0``, and ``False`` count as
+    real gold answers (a math problem may legitimately have ``"0"`` as the
+    correct answer). Only an empty string ``""`` or ``None`` is treated
+    as "the column exists in name only" and ignored — those typically
+    come from a schema placeholder rather than a real label.
+    """
+    train = dataset.get("train") if isinstance(dataset, dict) else None
+    if train is None or len(train) == 0:
+        return False
+    # Prefer dict-style row access; fall back to HuggingFace Dataset's
+    # `column_names` attribute when row access isn't supported.
+    try:
+        first = train[0]
+        if isinstance(first, dict):
+            if "gold_answer" not in first:
+                return False
+            val = first["gold_answer"]
+            return val is not None and val != ""
+    except (IndexError, KeyError, TypeError):
+        pass
+    cols = getattr(train, "column_names", None)
+    return bool(cols and "gold_answer" in cols)
 
 
 class ForgeTrainer:
@@ -260,7 +450,9 @@ class ForgeTrainer:
 
             # GRPO generates responses during training — needs generation params
             kwargs["num_generations"] = self.config.training.grpo_num_generations
-            kwargs["max_new_tokens"] = self.config.training.grpo_max_new_tokens
+            # TRL >=0.12 expects `max_completion_length`; the older `max_new_tokens`
+            # raises TypeError at GRPOConfig construction.
+            kwargs["max_completion_length"] = self.config.training.grpo_max_completion_length
             # GRPO doesn't use load_best_model_at_end the same way
             kwargs.pop("load_best_model_at_end", None)
             kwargs.pop("metric_for_best_model", None)
@@ -352,67 +544,111 @@ class ForgeTrainer:
             "callbacks": callbacks,
         }
 
+        if tt == "grpo":
+            self.trainer = self._build_grpo_trainer(trainer_kwargs, callbacks)
+        else:
+            self.trainer = self._build_simple_trl_trainer(tt, trainer_kwargs)
+
+    def _build_simple_trl_trainer(self, tt: str, trainer_kwargs: Dict[str, Any]) -> Any:
+        """Build any non-GRPO TRL trainer. GRPO needs reward-func wiring and is handled separately."""
         if tt == "sft":
             logger.info("Initializing TRL SFTTrainer...")
-            self.trainer = SFTTrainer(**trainer_kwargs)
-        elif tt == "orpo":
+            return SFTTrainer(**trainer_kwargs)
+        if tt == "orpo":
             logger.info("Initializing TRL ORPOTrainer (ORPO preference alignment)...")
             from trl import ORPOTrainer
 
-            self.trainer = ORPOTrainer(**trainer_kwargs)
-        elif tt == "dpo":
+            return ORPOTrainer(**trainer_kwargs)
+        if tt == "dpo":
             logger.info("Initializing TRL DPOTrainer (DPO preference alignment)...")
             from trl import DPOTrainer
 
-            self.trainer = DPOTrainer(**trainer_kwargs)
-        elif tt == "simpo":
+            return DPOTrainer(**trainer_kwargs)
+        if tt == "simpo":
             logger.info("Initializing TRL CPOTrainer (SimPO preference alignment)...")
             from trl import CPOTrainer
 
-            self.trainer = CPOTrainer(**trainer_kwargs)
-        elif tt == "kto":
+            return CPOTrainer(**trainer_kwargs)
+        if tt == "kto":
             logger.info("Initializing TRL KTOTrainer (binary feedback alignment)...")
             from trl import KTOTrainer
 
-            self.trainer = KTOTrainer(**trainer_kwargs)
-        elif tt == "grpo":
-            logger.info("Initializing TRL GRPOTrainer (reasoning RL)...")
-            from trl import GRPOTrainer
+            return KTOTrainer(**trainer_kwargs)
+        raise ValueError(f"Unknown trainer_type: {tt}")
 
-            # GRPO doesn't use eval_dataset the same way — remove callbacks that depend on eval
-            trainer_kwargs.pop("eval_dataset", None)
-            if callbacks:
-                logger.info(
-                    "GRPO trainer: removing %d callback(s) (EarlyStopping, eval callbacks). "
-                    "GRPO uses generation-based rewards, not validation loss.",
-                    len(callbacks),
-                )
-            trainer_kwargs["callbacks"] = []
+    def _build_grpo_trainer(self, trainer_kwargs: Dict[str, Any], callbacks: list) -> Any:
+        """Build a TRL GRPOTrainer with the right reward-func chain wired up."""
+        logger.info("Initializing TRL GRPOTrainer (reasoning RL)...")
+        from trl import GRPOTrainer
 
-            # Load reward model if configured
-            reward_model_path = getattr(self.config.training, "grpo_reward_model", None)
-            if reward_model_path:
-                logger.info("Loading GRPO reward model: %s", reward_model_path)
-                from transformers import AutoModelForSequenceClassification
-                from transformers import AutoTokenizer as _AutoTok
+        # GRPO doesn't use eval_dataset the same way — remove callbacks that depend on eval
+        trainer_kwargs.pop("eval_dataset", None)
+        if callbacks:
+            logger.info(
+                "GRPO trainer: removing %d callback(s) (EarlyStopping, eval callbacks). "
+                "GRPO uses generation-based rewards, not validation loss.",
+                len(callbacks),
+            )
+        trainer_kwargs["callbacks"] = []
+        trainer_kwargs["reward_funcs"] = self._resolve_grpo_reward_funcs()
+        return GRPOTrainer(**trainer_kwargs)
 
-                _rw_tok = _AutoTok.from_pretrained(reward_model_path)
-                _rw_model = AutoModelForSequenceClassification.from_pretrained(reward_model_path, device_map="auto")
+    def _resolve_grpo_reward_funcs(self) -> list:
+        """Pick the GRPO reward callables. trl.GRPOTrainer requires reward_funcs to be set.
 
-                def _reward_fn(completions, **kwargs):
-                    import torch as _t
+        TRL sums multiple reward funcs additively, so we can stack signals
+        when both are available:
+          1) explicit reward model → single classifier callable. Stops
+             here; the user opted into a learned reward.
+          2) no reward model → built-in format+length shaping reward
+             (gradient-friendly, always teaches output structure).
+             If the dataset also carries a `gold_answer` field, append
+             the built-in correctness reward so the model learns to be
+             both well-formatted AND right.
+        """
+        reward_model_path = getattr(self.config.training, "grpo_reward_model", None)
+        if reward_model_path:
+            logger.info("GRPO reward source: classifier model %s", reward_model_path)
+            return [self._build_classifier_reward(reward_model_path)]
 
-                    inputs = _rw_tok(completions, return_tensors="pt", truncation=True, padding=True, max_length=512)
-                    inputs = {k: v.to(_rw_model.device) for k, v in inputs.items()}
-                    with _t.no_grad():
-                        logits = _rw_model(**inputs).logits
-                    return logits[:, 0].tolist()
+        from .grpo_rewards import combined_format_length_reward
 
-                trainer_kwargs["reward_funcs"] = [_reward_fn]
-
-            self.trainer = GRPOTrainer(**trainer_kwargs)
+        reward_funcs: list = [combined_format_length_reward]
+        if _dataset_has_gold_answers(self.dataset):
+            reward_funcs.append(_math_reward_fn)
+            logger.info(
+                "GRPO reward source: built-in format+length shaping reward "
+                "(weight 0.8/0.2) + correctness reward against `gold_answer` "
+                "field (additive). No training.grpo_reward_model configured."
+            )
         else:
-            raise ValueError(f"Unknown trainer_type: {tt}")
+            logger.info(
+                "GRPO reward source: built-in format+length shaping reward "
+                "(weight 0.8/0.2). No training.grpo_reward_model configured "
+                "and dataset has no `gold_answer` field — model learns output "
+                "structure only. Add a `gold_answer` column for a correctness signal."
+            )
+        return reward_funcs
+
+    @staticmethod
+    def _build_classifier_reward(reward_model_path: str):
+        """Wrap an HF sequence-classification model as a TRL reward callable."""
+        from transformers import AutoModelForSequenceClassification
+        from transformers import AutoTokenizer as _AutoTok
+
+        _rw_tok = _AutoTok.from_pretrained(reward_model_path)
+        _rw_model = AutoModelForSequenceClassification.from_pretrained(reward_model_path, device_map="auto")
+
+        def _reward_fn(completions, **kwargs):
+            import torch as _t
+
+            inputs = _rw_tok(completions, return_tensors="pt", truncation=True, padding=True, max_length=512)
+            inputs = {k: v.to(_rw_model.device) for k, v in inputs.items()}
+            with _t.no_grad():
+                logits = _rw_model(**inputs).logits
+            return logits[:, 0].tolist()
+
+        return _reward_fn
 
     def _run_with_oom_recovery(self, resume_from_checkpoint: Optional[str]) -> Any:
         """Run self.trainer.train() with optional OOM recovery.

@@ -4,9 +4,12 @@ Generates a valid config.yaml through step-by-step prompts.
 No external dependencies required — uses stdlib input().
 """
 
+import json
 import logging
 import os
+import re
 import sys
+from pathlib import Path
 from typing import Optional
 
 import yaml
@@ -38,6 +41,11 @@ TARGET_MODULE_PRESETS = {
 
 # Common dataset-format hints for preference-based trainers (DPO/SimPO/ORPO)
 _PREFERENCE_COLUMNS_HINT = "Columns: prompt, chosen, rejected"
+
+# HF Hub dataset IDs look like "<org>/<name>" — exactly one slash, with the
+# allowed character set used by the Hub. We accept these BYOD inputs without
+# touching the local filesystem; the trainer resolves them at runtime.
+_HF_HUB_ID_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 
 
 def _prompt(question: str, default: str = "") -> str:
@@ -315,18 +323,167 @@ def _collect_galore_config(use_galore: bool) -> dict:
     }
 
 
-def run_wizard() -> Optional[str]:
-    """Run the interactive configuration wizard.
+_BYOD_CANCEL_TOKENS = ("cancel", "c", "q", "quit")
 
-    Returns the path to the generated config file when the user opts to start
-    training immediately, or ``None`` when the user defers — callers must
-    handle both cases.
+
+_BYOD_LOCAL_NOT_FOUND = object()
+"""Sentinel for ``_validate_local_jsonl``: file does not exist on disk.
+
+Distinct from ``None`` (file exists but is not valid JSONL) so the caller
+can fall back to an HF Hub-ID interpretation only when the local path
+isn't there at all.
+"""
+
+
+def _validate_local_jsonl(raw_path: str):
+    """Validate a user-supplied JSONL path.
+
+    Returns:
+        - The absolute path string when the file exists and parses as JSONL.
+        - ``_BYOD_LOCAL_NOT_FOUND`` when the path doesn't exist on disk
+          (caller may fall back to HF Hub ID semantics).
+        - ``None`` when the file exists but the first non-empty line fails
+          to parse as JSON (caller must re-prompt; validation message is
+          already printed).
     """
+    resolved = Path(raw_path).expanduser()
+    if not resolved.is_file():
+        return _BYOD_LOCAL_NOT_FOUND
+    try:
+        with open(resolved, "r", encoding="utf-8") as fh:
+            first_line = next((line for line in fh if line.strip()), "")
+        if not first_line:
+            raise ValueError("file is empty")
+        json.loads(first_line)
+    except (OSError, ValueError) as e:
+        print(f"  File is not valid JSONL (first line failed to parse): {e}")
+        return None
+    return str(resolved.resolve())
+
+
+def _resolve_byod_dataset_path() -> Optional[str]:
+    """Prompt the user for a BYOD dataset path and validate it.
+
+    Returns the validated path (HF Hub ID strings are returned verbatim,
+    local paths are returned as resolved absolute paths). Returns ``None``
+    when the user types ``cancel`` / ``quit`` — that's the signal for the
+    caller to fall back to the full wizard.
+
+    The loop is resilient to typos: an empty input re-prompts, a missing
+    file re-prompts, malformed JSONL re-prompts. Surfaces validation
+    failures immediately instead of 30 seconds into the training subprocess.
+
+    HF Hub IDs (single-slash ``<org>/<name>`` strings matching
+    ``_HF_HUB_ID_RE``) bypass filesystem validation. The regex already
+    enforces a single ``/``.
+    """
+    while True:
+        dataset_path = _prompt(
+            "Path to your dataset JSONL (must exist as a JSONL file) or HF Hub ID, "
+            "or 'cancel' to fall back to the full wizard",
+            "",
+        )
+        if dataset_path.strip().lower() in _BYOD_CANCEL_TOKENS:
+            print("  Cancelled — falling back to the full wizard.")
+            return None
+        if not dataset_path:
+            print("  A dataset path is required for this template. Type 'cancel' to use the full wizard instead.")
+            continue
+
+        # Try local file first. The HF Hub ID regex would otherwise misclassify
+        # relative local paths like "data/train.jsonl" as Hub IDs (single slash,
+        # safe-name char class). Only fall back to HF Hub semantics when the
+        # path doesn't exist on disk at all.
+        result = _validate_local_jsonl(dataset_path)
+        if isinstance(result, str):
+            return result
+        if result is None:
+            # File exists but JSONL parse failed; message already printed.
+            continue
+
+        # result is the _BYOD_LOCAL_NOT_FOUND sentinel — try HF Hub ID.
+        if _HF_HUB_ID_RE.match(dataset_path):
+            print(f"  Treating '{dataset_path}' as an HF Hub dataset ID (no local validation).")
+            return dataset_path
+
+        print(f"  Path not found or not a regular file: {dataset_path}")
+
+
+def _maybe_run_quickstart_template() -> Optional[str]:
+    """Offer the quickstart template path before the full 8-step wizard.
+
+    Returns the generated config path when the user picks a template;
+    returns ``None`` when they decline (signal to fall through to the full
+    flow).
+    """
+    from .quickstart import TEMPLATES, list_templates, run_quickstart
+
     print("\n" + "=" * 60)
     print("  ForgeLM Configuration Wizard")
     print("=" * 60)
 
-    # Step 1: Hardware Detection
+    if not _prompt_yes_no(
+        "\nStart from a curated quickstart template? (recommended for first runs)",
+        default=True,
+    ):
+        return None
+
+    print("\nAvailable templates:")
+    names = []
+    for tpl in list_templates():
+        bundled = "[x] data" if tpl.bundled_dataset else "[ ] BYOD"
+        names.append(tpl.name)
+        print(f"  {len(names)}) {tpl.name}  —  {tpl.title}  ({bundled}, ~{tpl.estimated_minutes}min)")
+    raw = _prompt("Pick a template by number or name", names[0])
+
+    chosen: Optional[str] = None
+    if raw.isdigit():
+        idx = int(raw)
+        if 1 <= idx <= len(names):
+            chosen = names[idx - 1]
+    elif raw in TEMPLATES:
+        chosen = raw
+    if chosen is None:
+        print(f"  Could not interpret '{raw}'. Falling back to the full wizard.")
+        return None
+
+    template = TEMPLATES[chosen]
+    if not template.bundled_dataset:
+        print(f"  '{chosen}' is BYOD — bring your own JSONL dataset.")
+        dataset_path = _resolve_byod_dataset_path()
+        if dataset_path is None:
+            return None
+    else:
+        dataset_path = ""
+
+    try:
+        result = run_quickstart(
+            chosen,
+            dataset_override=dataset_path or None,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        print(f"  Quickstart failed: {e}. Falling back to the full wizard.")
+        return None
+
+    print(f"\n  Quickstart config generated at: {result.config_path}")
+    print(f"  Selected model: {result.chosen_model}  ({result.selection_reason})")
+    print(f"  Dataset       : {result.dataset_path}")
+    print()
+    return str(result.config_path)
+
+
+def _finalize_quickstart_path(quickstart_path: str) -> Optional[str]:
+    """Ask whether to start training now with the quickstart-generated config."""
+    if _prompt_yes_no("Start training now with the generated config?", default=False):
+        print(f"\n  Running: forgelm --config {quickstart_path}")
+        return quickstart_path
+    print("\n  To start training later, run:")
+    print(f"    forgelm --config {quickstart_path}")
+    return None
+
+
+def _detect_hardware_and_backend() -> tuple:
+    """Run the wizard's hardware-detection step and pick a backend hint."""
     print("\n[1/8] Hardware Detection")
     hw = _detect_hardware()
     if hw["gpu_available"]:
@@ -334,14 +491,35 @@ def run_wizard() -> Optional[str]:
     else:
         print("  No GPU detected. Training will use CPU (very slow for real workloads).")
 
-    # Suggest backend
     suggested_backend = "transformers"
-    if hw["gpu_available"]:
-        if sys.platform == "linux":
-            suggested_backend = "unsloth"
-            print("  Recommended backend: unsloth (Linux + GPU detected)")
-        else:
-            print("  Recommended backend: transformers (Unsloth requires Linux)")
+    if hw["gpu_available"] and sys.platform == "linux":
+        suggested_backend = "unsloth"
+        print("  Recommended backend: unsloth (Linux + GPU detected)")
+    elif hw["gpu_available"]:
+        print("  Recommended backend: transformers (Unsloth requires Linux)")
+    return hw, suggested_backend
+
+
+def run_wizard() -> Optional[str]:
+    """Run the interactive configuration wizard.
+
+    Returns the path to the generated config file when the user opts to start
+    training immediately, or ``None`` when the user defers — callers must
+    handle both cases.
+    """
+    quickstart_path = _maybe_run_quickstart_template()
+    if quickstart_path is not None:
+        return _finalize_quickstart_path(quickstart_path)
+
+    # Full 8-step flow (fallback when user declined the quickstart shortcut).
+    print("\n  Falling back to the full configuration wizard.")
+    return _run_full_wizard()
+
+
+def _run_full_wizard() -> Optional[str]:
+    """8-step interactive flow producing a hand-rolled config.yaml."""
+    # Step 1: Hardware Detection
+    _, suggested_backend = _detect_hardware_and_backend()
 
     # Step 2: Model Selection
     model_name = _select_model()

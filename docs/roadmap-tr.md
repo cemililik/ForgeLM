@@ -7,31 +7,41 @@
 | Tür | Faz | Durum |
 |-----|-----|-------|
 | ✅ Tamam | [Faz 1-9](roadmap/completed-phases.md) | SOTA iyileştirmeleri, değerlendirme, güvenilirlik, kurumsal entegrasyon, ekosistem, hizalama stack'i, güvenlik, EU AI Act uyumluluğu (Madde 9-17 + Ek IV), gelişmiş güvenlik zekası |
-| 📋 Planlandı | [Faz 10 — Post-Training Tamamlama](roadmap/phase-10-post-training.md) | `forgelm/inference.py`, `chat`, `export` (GGUF), `fit-check`, `deploy` |
-| 📋 Planlandı | [Faz 11 — Doküman Yutma ve Veri Denetimi](roadmap/phase-11-data-ingestion.md) | PDF/DOCX/EPUB → JSONL, PII tespiti, yakın-duplicate denetimi |
-| 📋 Planlandı | [Faz 12 — Quickstart Katmanı ve Onboarding](roadmap/phase-12-quickstart.md) | `forgelm quickstart <template>`, 5 template, örnek veri setleri |
-| 📋 Planlandı | [Faz 13 — Pro CLI ve Gözlemlenebilirlik Dashboard](roadmap/phase-13-pro-cli.md) | Lisans korumalı dashboard, HPO, zamanlanmış görevler, takım config store |
+| ✅ Tamam | [Faz 10 — Post-Training Tamamlama](roadmap/phase-10-post-training.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — `v0.4.0` |
+| ✅ Tamam | [Faz 10.5 — Quickstart Katmanı ve Onboarding](roadmap/phase-12-quickstart.md) | `forgelm quickstart <template>`, 5 hazır template, seed veri setleri — `v0.4.5` |
+| 📋 Planlandı | [Faz 11 — Doküman Yutma ve Veri Denetimi](roadmap/phase-11-data-ingestion.md) | PDF/DOCX/EPUB → JSONL, PII tespiti, yakın-duplicate denetimi → `v0.5.0` |
+| 📋 Planlandı | [Faz 13 — Pro CLI ve Gözlemlenebilirlik Dashboard](roadmap/phase-13-pro-cli.md) | Lisans korumalı dashboard, HPO, zamanlanmış görevler, takım config store → `v0.6.0-pro` |
+| 📋 Planlandı | [Faz 14 — Çok Aşamalı Pipeline Zincirleri](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO config zinciri, pipeline kaynak izleri → `v0.5.1` |
 
-**Güncel durum:** 11 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9) tamamlandı. 4 faz (10-13) planlandı. Hedef `v0.4.0`: Faz 10. Hedef `v0.5.0`: Faz 11 + 12.
+**PyPI'deki son sürüm:** `v0.4.0` — Post-Training Tamamlama (2026-04-26 yayınlandı). Inference primitif'leri, etkileşimli chat REPL, GGUF export, VRAM fit advisor, deployment config üretimi.
+
+**Git'te etiketli ama PyPI'de yok:** `v0.4.5` — Quickstart Katmanı (tek komutla hazır template'ler: `forgelm quickstart customer-support`). Küçük GPU'larda modeli otomatik küçültür, mevcut trainer'ın değişmeden kabul ettiği bir YAML üretir.
+
+**Güncel kilometretaşı:** `v0.5.0` — Doküman Yutma ve Veri Denetimi (Faz 11). PDF/DOCX/EPUB → JSONL, PII tespiti, yakın-duplicate denetimi.
+
+**Güncel durum:** 13 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5) tamamlandı. 3 faz (11, 13, 14) planlandı. Hedef `v0.5.0`: Faz 11. Hedef `v0.5.1`: Faz 14.
 
 ## Planlanan işlerin özeti
 
 ```mermaid
 graph LR
-    P10[Faz 10<br/>Post-Training<br/>Completion] --> P11[Faz 11<br/>Veri<br/>Yutma]
-    P10 --> P12[Faz 12<br/>Quickstart<br/>Katmanı]
-    P11 --> P12
-    P12 --> P13[Faz 13<br/>Pro CLI<br/>+ Dashboard]
+    P10[Faz 10<br/>Post-Training<br/>Completion] --> P105[Faz 10.5<br/>Quickstart<br/>Katmanı]
+    P10 --> P11[Faz 11<br/>Veri<br/>Yutma]
+    P105 --> P11
+    P11 --> P13[Faz 13<br/>Pro CLI<br/>+ Dashboard]
+    P11 --> P14[Faz 14<br/>Pipeline<br/>Zincirleri]
 
     P10 -.-> V1[v0.4.0]
+    P105 -.-> V15[v0.4.5]
     P11 -.-> V2[v0.5.0]
-    P12 -.-> V2
+    P14 -.-> V25[v0.5.1]
     P13 -.-> V3[v0.6.0-pro]
 
-    style P10 fill:#002244,stroke:#00aaff
+    style P10 fill:#003300,stroke:#00ff88
+    style P105 fill:#003300,stroke:#00ff88
     style P11 fill:#002244,stroke:#00aaff
-    style P12 fill:#002244,stroke:#00aaff
     style P13 fill:#442200,stroke:#ffaa00
+    style P14 fill:#002244,stroke:#00aaff
 ```
 
 ## Yol gösterici ilkeler
@@ -48,11 +58,12 @@ docs/
 ├── roadmap.md                                  # İngilizce özet index
 ├── roadmap-tr.md                               # Bu dosya — Türkçe mirror
 └── roadmap/
-    ├── completed-phases.md                     # Faz 1-9 arşivi (detaylı, İngilizce)
-    ├── phase-10-post-training.md               # Aktif planlama
-    ├── phase-11-data-ingestion.md              # Aktif planlama
-    ├── phase-12-quickstart.md                  # Aktif planlama
-    ├── phase-13-pro-cli.md                     # Aktif planlama (gated)
+    ├── completed-phases.md                     # Faz 1-10 arşivi (detaylı, İngilizce)
+    ├── phase-10-post-training.md               # Tamamlandı — v0.4.0
+    ├── phase-11-data-ingestion.md              # Planlandı — v0.5.0
+    ├── phase-12-quickstart.md                  # Planlandı — Faz 10.5 — v0.4.5 (etiketli, PyPI'de yok)
+    ├── phase-13-pro-cli.md                     # Planlandı — v0.6.0-pro (gated)
+    ├── phase-14-pipeline-chains.md             # Planlandı — v0.5.1
     ├── releases.md                             # v0.3.0 → v0.6.0 sürüm notları
     └── risks-and-decisions.md                  # Risk matrisi, fırsatlar, rekabet analizi, karar günlüğü
 ```

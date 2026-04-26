@@ -118,7 +118,7 @@ def _process_user_assistant_format(examples: dict, clean_text: bool, add_eos: bo
     sys_texts = examples["System"] if has_system else [""] * len(user_texts)
     texts = [
         _format_user_assistant_row(s, u, a, clean_text, add_eos, eos_token)
-        for s, u, a in zip(sys_texts, user_texts, asst_texts)
+        for s, u, a in zip(sys_texts, user_texts, asst_texts, strict=True)
     ]
     return {"text": texts}
 

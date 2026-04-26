@@ -22,6 +22,35 @@ pip install -e ".[qlora]"
 
 ## 2. Generate Config
 
+### Option 0: One-Command Quickstart Template (v0.4.5+)
+
+The fastest path: pick a bundled template and let ForgeLM pick the model, dataset, and conservative defaults for you.
+
+```bash
+# List the bundled templates
+forgelm quickstart --list
+
+# Generate a config (and a small bundled seed dataset) for a customer-support assistant
+forgelm quickstart customer-support --dry-run
+
+# Run end-to-end: render config, train, then drop into chat with the result
+forgelm quickstart customer-support
+```
+
+Bundled templates (all use QLoRA 4-bit, rank-8, batch=1 by default — safe to run on a single 12 GB GPU):
+
+| Template | Trainer | What you get |
+|---|---|---|
+| `customer-support` | SFT | Polite, brand-safe support replies |
+| `code-assistant` | SFT | Short Python/programming Q&A |
+| `domain-expert` | SFT | Empty (BYOD — pair with your JSONL) |
+| `medical-qa-tr` | SFT | Turkish medical Q&A with safety disclaimers |
+| `grpo-math` | GRPO | Grade-school math reasoning |
+
+ForgeLM auto-downsizes the model on small GPUs (e.g. `Qwen2.5-7B-Instruct` → `SmolLM2-1.7B-Instruct` when < 10 GB VRAM is available). Override with `--model your-org/your-model` or `--dataset path/to/your.jsonl`.
+
+See [LICENSES.md](https://github.com/cemililik/ForgeLM/blob/main/forgelm/templates/LICENSES.md) for the licenses of bundled seed datasets (CC-BY-SA 4.0, author-original).
+
 ### Option A: Interactive Wizard
 
 ```bash

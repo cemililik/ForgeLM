@@ -87,7 +87,10 @@ def test_full_runtime_smoke():
             main()
         except SystemExit as e:
             if e.code != 0:
-                raise RuntimeError(f"CLI exited with code {e.code}") from e
+                # Re-raise SystemExit unchanged so the script's runner
+                # sees the CLI's exit code; wrapping it in RuntimeError
+                # would mask the contract.
+                raise
 
     # 4. Doğrulamalar
     final_model_dir = os.path.join(output_dir, "final_model")

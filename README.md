@@ -26,6 +26,11 @@
 - **LLM-as-Judge**: API-based (OpenAI) or local model scoring for quality assessment
 - **Auto-Revert**: Automatically discard models that fail loss, benchmark, or safety thresholds
 
+### Quickstart Layer (v0.4.5)
+- **One-Command Templates**: `forgelm quickstart customer-support` — bundled templates for SFT, code, BYOD domain expert, Turkish medical Q&A, and GRPO math reasoning. Auto-downsizes models on small GPUs.
+- **Conservative Defaults**: Every template ships QLoRA 4-bit, rank=8, batch=1, gradient checkpointing on — designed to run on a single 12 GB GPU.
+- **Wizard Integration**: `forgelm --wizard` opens with "Start from a template?" — same code paths, same YAML schema as a hand-written config.
+
 ### Post-Training (v0.4.0)
 - **Interactive Chat**: `forgelm chat ./model` — streaming REPL with `/reset`, `/save`, `/temperature`, `/system` commands; optional Llama Guard safety routing
 - **GGUF Export**: `forgelm export ./model --quant q4_k_m` — wraps `llama-cpp-python` converter; 6 quant levels; SHA-256 appended to integrity manifest
@@ -52,7 +57,13 @@
 pip install -e .
 pip install -e ".[export]"   # GGUF export (optional, non-Windows)
 
-# Generate config interactively
+# Fastest path: pick a bundled template (v0.4.5+)
+forgelm quickstart --list
+forgelm quickstart customer-support           # render config + train + chat
+forgelm quickstart code-assistant --dry-run   # render config only
+forgelm quickstart medical-qa-tr --model your-org/your-model  # override
+
+# Or generate config interactively
 forgelm --wizard
 
 # Validate without training

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime
 from typing import Any, List, Optional
 
@@ -178,6 +179,7 @@ class ChatSession:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             path = f"chat_history_{ts}.jsonl"
         try:
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 # Persist the system prompt as the first message so the saved
                 # transcript is replayable as-is (reproducibility requirement).

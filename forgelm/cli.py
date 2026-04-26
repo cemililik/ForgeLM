@@ -7,17 +7,26 @@ import os
 import sys
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
+from pathlib import Path
 
 from .config import ConfigError, ForgeConfig, load_config
 
-logger = logging.getLogger("forgelm.cli")
+# Module name used both for the package logger and as the `python -m`
+# target when forgelm respawns itself for the quickstart subprocess flow.
+_CLI_MODULE = "forgelm.cli"
 
-# Exit codes
+logger = logging.getLogger(_CLI_MODULE)
+
+# Exit codes — ForgeLM's public CLI contract. Any other value (e.g. signal-
+# derived 128+N codes) is clamped to EXIT_TRAINING_ERROR before propagating.
 EXIT_SUCCESS = 0
 EXIT_CONFIG_ERROR = 1
 EXIT_TRAINING_ERROR = 2
 EXIT_EVAL_FAILURE = 3
 EXIT_AWAITING_APPROVAL = 4
+_PUBLIC_EXIT_CODES = frozenset(
+    {EXIT_SUCCESS, EXIT_CONFIG_ERROR, EXIT_TRAINING_ERROR, EXIT_EVAL_FAILURE, EXIT_AWAITING_APPROVAL}
+)
 
 
 def _get_version() -> str:
@@ -170,15 +179,68 @@ def _add_deploy_subcommand(subparsers) -> None:
     _add_common_subparser_flags(p, include_output_format=True)
 
 
+def _add_quickstart_subcommand(subparsers) -> None:
+    p = subparsers.add_parser(
+        "quickstart",
+        help="Generate a config from a curated template (and optionally start training).",
+        description=(
+            "Pick a template (e.g. customer-support, code-assistant), get a working YAML and "
+            "(optionally) seed dataset out the other end. The generated config uses the same "
+            "schema as a hand-written one — quickstart is just opinionated defaults plus a "
+            "license-clean seed dataset."
+        ),
+    )
+    p.add_argument(
+        "template",
+        nargs="?",
+        default=None,
+        help="Template name. Run with --list to see what's available.",
+    )
+    p.add_argument("--list", action="store_true", help="List available templates and exit.")
+    p.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        metavar="MODEL_ID",
+        help="Override the template's primary model (HF Hub ID or local path).",
+    )
+    p.add_argument(
+        "--dataset",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Override the template's bundled dataset (HF Hub ID or local JSONL path).",
+    )
+    p.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        metavar="FILE",
+        help="Where to write the generated YAML (default: ./configs/<template>-<timestamp>.yaml).",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Generate the config and print next steps; do not invoke training.",
+    )
+    p.add_argument(
+        "--no-chat",
+        action="store_true",
+        help="When training succeeds, do NOT auto-launch `forgelm chat` afterwards.",
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="ForgeLM: Language Model Fine-Tuning Toolkit",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Subcommands:\n"
-            "  forgelm chat MODEL_PATH    Interactive chat REPL\n"
-            "  forgelm export MODEL_PATH  Export model to GGUF\n"
-            "  forgelm deploy MODEL_PATH  Generate serving config\n"
+            "  forgelm quickstart [TEMPLATE]   Generate a config from a curated template\n"
+            "  forgelm chat MODEL_PATH         Interactive chat REPL\n"
+            "  forgelm export MODEL_PATH       Export model to GGUF\n"
+            "  forgelm deploy MODEL_PATH       Generate serving config\n"
             "\nRun 'forgelm <subcommand> --help' for subcommand details."
         ),
     )
@@ -188,6 +250,7 @@ def parse_args():
     _add_chat_subcommand(subparsers)
     _add_export_subcommand(subparsers)
     _add_deploy_subcommand(subparsers)
+    _add_quickstart_subcommand(subparsers)
 
     # --- Top-level flags (training / config-driven mode) ---
     parser.add_argument("--config", type=str, help="Path to the YAML configuration file.")
@@ -524,65 +587,81 @@ def _resolve_resume_checkpoint(checkpoint_dir: str, resume_arg: str) -> str | No
     return latest
 
 
+def _build_result_json_envelope(result) -> dict:
+    """Assemble the JSON envelope for a TrainResult; only populated sub-blocks are added."""
+    output = {
+        "success": result.success,
+        "metrics": result.metrics,
+        "final_model_path": result.final_model_path,
+        "reverted": result.reverted,
+    }
+    if result.benchmark_scores is not None:
+        output["benchmark"] = {
+            "scores": result.benchmark_scores,
+            "average": result.benchmark_average,
+            "passed": result.benchmark_passed,
+        }
+    if result.resource_usage:
+        output["resource_usage"] = result.resource_usage
+    if result.estimated_cost_usd is not None:
+        output["estimated_cost_usd"] = result.estimated_cost_usd
+    if result.safety_passed is not None:
+        output["safety"] = {
+            "passed": result.safety_passed,
+            "safety_score": result.safety_score,
+            "categories": result.safety_categories,
+            "severity": result.safety_severity,
+            "low_confidence_count": result.safety_low_confidence,
+        }
+    if result.judge_score is not None:
+        output["judge"] = {"average_score": result.judge_score}
+    return output
+
+
+def _log_result_status(result) -> None:
+    """Log success/failure headline (text mode)."""
+    if result.success:
+        logger.info("ForgeLM Training Pipeline Completed Successfully!")
+        if result.final_model_path:
+            logger.info("Final model saved to: %s", result.final_model_path)
+    elif result.reverted:
+        logger.error("ForgeLM Pipeline failed autonomous evaluation. Model was reverted.")
+    else:
+        logger.error("ForgeLM Pipeline failed.")
+
+
+def _log_cost_summary(result) -> None:
+    """Log estimated cost + GPU-hour breakdown when available (text mode)."""
+    if result.estimated_cost_usd is None:
+        return
+    logger.info("Estimated training cost: $%.4f", result.estimated_cost_usd)
+    if not result.resource_usage:
+        return
+    gpu_hours = result.resource_usage.get("gpu_hours")
+    cost_source = result.resource_usage.get("cost_source", "unknown")
+    if gpu_hours:
+        logger.info("  GPU-hours: %.3f (pricing: %s)", gpu_hours, cost_source)
+
+
+def _log_benchmark_summary(result) -> None:
+    """Log per-task benchmark scores + average (text mode)."""
+    if not result.benchmark_scores:
+        return
+    logger.info("Benchmark Results:")
+    for task, score in result.benchmark_scores.items():
+        logger.info("  %s: %.4f", task, score)
+    if result.benchmark_average is not None:
+        logger.info("  Average: %.4f", result.benchmark_average)
+
+
 def _output_result(result, output_format: str) -> None:
     """Output training result in the requested format."""
     if output_format == "json":
-        output = {
-            "success": result.success,
-            "metrics": result.metrics,
-            "final_model_path": result.final_model_path,
-            "reverted": result.reverted,
-        }
-        if result.benchmark_scores is not None:
-            output["benchmark"] = {
-                "scores": result.benchmark_scores,
-                "average": result.benchmark_average,
-                "passed": result.benchmark_passed,
-            }
-        if result.resource_usage:
-            output["resource_usage"] = result.resource_usage
-        if result.estimated_cost_usd is not None:
-            output["estimated_cost_usd"] = result.estimated_cost_usd
-        if result.safety_passed is not None:
-            output["safety"] = {
-                "passed": result.safety_passed,
-                "safety_score": result.safety_score,
-                "categories": result.safety_categories,
-                "severity": result.safety_severity,
-                "low_confidence_count": result.safety_low_confidence,
-            }
-        if result.judge_score is not None:
-            output["judge"] = {
-                "average_score": result.judge_score,
-            }
-        print(json.dumps(output, indent=2))
-    else:
-        if result.success:
-            logger.info("ForgeLM Training Pipeline Completed Successfully!")
-            if result.final_model_path:
-                logger.info("Final model saved to: %s", result.final_model_path)
-        else:
-            if result.reverted:
-                logger.error("ForgeLM Pipeline failed autonomous evaluation. Model was reverted.")
-            else:
-                logger.error("ForgeLM Pipeline failed.")
-
-        # Print cost estimation in text mode
-        if result.estimated_cost_usd is not None:
-            logger.info("Estimated training cost: $%.4f", result.estimated_cost_usd)
-            if result.resource_usage:
-                gpu_hours = result.resource_usage.get("gpu_hours")
-                cost_source = result.resource_usage.get("cost_source", "unknown")
-                if gpu_hours:
-                    logger.info("  GPU-hours: %.3f (pricing: %s)", gpu_hours, cost_source)
-
-        # Print benchmark results in text mode
-        if result.benchmark_scores:
-            logger.info("Benchmark Results:")
-            for task, score in result.benchmark_scores.items():
-                logger.info("  %s: %.4f", task, score)
-            if result.benchmark_average is not None:
-                logger.info("  Average: %.4f", result.benchmark_average)
+        print(json.dumps(_build_result_json_envelope(result), indent=2))
+        return
+    _log_result_status(result)
+    _log_cost_summary(result)
+    _log_benchmark_summary(result)
 
 
 def _run_fit_check(config: ForgeConfig, output_format: str) -> None:
@@ -716,8 +795,222 @@ def _run_deploy_cmd(args, output_format: str) -> None:
         sys.exit(EXIT_TRAINING_ERROR)
 
 
+def _build_quickstart_inherited_flags(args) -> tuple[list[str], list[str]]:
+    """Return (train_flags, chat_flags) propagated from parent argv.
+
+    Both lists carry --quiet / --log-level / --offline. Only the train
+    list carries --output-format json — chat is interactive and JSON
+    mode would muddy its stdout.
+    """
+    train_flags: list[str] = []
+    chat_flags: list[str] = []
+    if getattr(args, "output_format", None) == "json":
+        train_flags += ["--output-format", "json"]
+    if getattr(args, "quiet", False):
+        train_flags.append("--quiet")
+        chat_flags.append("--quiet")
+    log_level = getattr(args, "log_level", None)
+    if log_level:
+        train_flags += ["--log-level", log_level]
+        chat_flags += ["--log-level", log_level]
+    if getattr(args, "offline", False):
+        train_flags.append("--offline")
+        chat_flags.append("--offline")
+    return train_flags, chat_flags
+
+
+def _emit_quickstart_list(output_format: str) -> None:
+    """Print the registered quickstart templates and exit (text or JSON)."""
+    from .quickstart import format_template_list, list_templates
+
+    if output_format == "json":
+        payload = [
+            {
+                "name": t.name,
+                "title": t.title,
+                "description": t.description,
+                "primary_model": t.primary_model,
+                "fallback_model": t.fallback_model,
+                "trainer_type": t.trainer_type,
+                "estimated_minutes": t.estimated_minutes,
+                "min_vram_for_primary_gb": t.min_vram_for_primary_gb,
+                "bundled_dataset": t.bundled_dataset,
+                "license_note": t.license_note,
+            }
+            for t in list_templates()
+        ]
+        print(json.dumps(payload, indent=2))
+    else:
+        print(format_template_list())
+
+
+def _emit_quickstart_result(result, output_format: str) -> None:
+    """Print the quickstart-generation summary (JSON envelope or text)."""
+    from .quickstart import summarize_result
+
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "template": result.template.name,
+                    "config_path": str(result.config_path),
+                    "model": result.chosen_model,
+                    "dataset": result.dataset_path,
+                    "selection_reason": result.selection_reason,
+                    "dry_run": result.dry_run,
+                    "notes": result.extra_notes,
+                },
+                indent=2,
+            )
+        )
+    else:
+        print(summarize_result(result))
+
+
+def _run_quickstart_train_subprocess(args, config_path: Path) -> None:
+    """Spawn `forgelm --config <generated>` as a child process; exit on non-zero.
+
+    The child's raw return code is logged for debuggability but is mapped to
+    one of ForgeLM's documented exit codes (0/1/2/3/4) before propagating —
+    signal-derived codes like 137 (SIGKILL) or 139 (SIGSEGV) shouldn't leak
+    out of the public CLI contract.
+    """
+    import subprocess  # nosec B404 — argv-list usage only
+
+    inherited, _ = _build_quickstart_inherited_flags(args)
+    train_cmd = [sys.executable, "-m", _CLI_MODULE, *inherited, "--config", os.path.abspath(config_path)]
+    logger.info("Starting training: %s", " ".join(train_cmd))
+    # Security justification (Codacy / Bandit B603 / ruff S603):
+    # - argv is a fixed list, not a shell string — shell=False is implicit.
+    # - argv[0] is sys.executable (the running Python), not a user-controlled
+    #   command name. argv[1] is "-m" with the literal _CLI_MODULE constant.
+    # - The only user-influenced segment is `os.path.abspath(config_path)`,
+    #   which is passed verbatim as a single argv element (no shell expansion,
+    #   no string concatenation).
+    # → No command-injection or shell-metachar surface. Safe to ignore.
+    train_rc = subprocess.run(train_cmd, check=False).returncode  # noqa: S603  # nosec B603
+    if train_rc != 0:
+        logger.error("Training exited with code %d", train_rc)
+        exit_code = train_rc if train_rc in _PUBLIC_EXIT_CODES else EXIT_TRAINING_ERROR
+        sys.exit(exit_code)
+
+
+def _run_quickstart_chat_subprocess(args, config_path: Path) -> None:
+    """Auto-launch `forgelm chat <trained-model>` after a successful training run."""
+    import subprocess  # nosec B404 — argv-list usage only
+
+    output_dir, final_subdir = _load_quickstart_train_paths(config_path)
+    final_model_dir = Path(output_dir) / final_subdir
+    if not final_model_dir.is_dir():
+        logger.warning(
+            "Skipping auto-chat: trained model directory not found at %s. Run `forgelm chat <model_path>` manually.",
+            final_model_dir,
+        )
+        return
+
+    _, inherited_chat = _build_quickstart_inherited_flags(args)
+    chat_cmd = [sys.executable, "-m", _CLI_MODULE, *inherited_chat, "chat", os.path.abspath(final_model_dir)]
+    logger.info("Launching chat REPL: %s", " ".join(chat_cmd))
+    # Same security justification as the training subprocess above:
+    # argv list-form, sys.executable head, _CLI_MODULE literal, only the
+    # final_model_dir is dynamic and passed as a single argv element. No
+    # shell, no concatenation → no injection surface.
+    chat_rc = subprocess.run(chat_cmd, check=False).returncode  # noqa: S603  # nosec B603
+    # 130 == SIGINT (Ctrl-C is the normal way to leave the REPL). Anything else
+    # non-zero is a crash worth surfacing, but chat exit is not the operator's
+    # training-success signal so we still exit 0 — the training run already
+    # succeeded by the time we got here.
+    if chat_rc not in (0, 130):
+        logger.warning("Chat subprocess exited with code %d", chat_rc)
+
+
+def _run_quickstart_train_then_chat(args, result) -> None:
+    """Run training then (unless --no-chat) auto-launch the chat REPL.
+
+    Extracted from ``_run_quickstart_cmd`` so the dispatcher stays a flat
+    sequence of steps. ``_run_quickstart_train_subprocess`` exits on
+    non-zero training rc; if it returns we know training succeeded, so the
+    chat branch is reachable without an explicit success check.
+    """
+    # Spec: invoke training automatically. Use a subprocess so each phase keeps
+    # its own clean process state and Ctrl-C is honoured cleanly.
+    _run_quickstart_train_subprocess(args, result.config_path)
+
+    if args.no_chat:
+        sys.exit(EXIT_SUCCESS)
+
+    _run_quickstart_chat_subprocess(args, result.config_path)
+    sys.exit(EXIT_SUCCESS)
+
+
+def _run_quickstart_cmd(args, output_format: str) -> None:
+    """Dispatch the ``forgelm quickstart`` subcommand.
+
+    Three flows: ``--list`` (print templates and exit); plain
+    ``forgelm quickstart TEMPLATE`` (generate config + auto-train + auto-chat);
+    ``--dry-run`` (generate config, print next step, do not train).
+    """
+    from .quickstart import run_quickstart
+
+    if args.list:
+        _emit_quickstart_list(output_format)
+        sys.exit(EXIT_SUCCESS)
+
+    if not args.template:
+        err = "forgelm quickstart: TEMPLATE is required (or pass --list to see the menu)."
+        if output_format == "json":
+            print(json.dumps({"success": False, "error": err}))
+        else:
+            logger.error(err)
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    try:
+        result = run_quickstart(
+            args.template,
+            model_override=args.model,
+            dataset_override=args.dataset,
+            output_path=args.output,
+            dry_run=args.dry_run,
+        )
+    except (FileNotFoundError, FileExistsError, ValueError) as e:
+        # FileExistsError is raised by _resolve_dataset when an explicit
+        # --output dir already contains a seed dataset (refuses to clobber);
+        # treat it as a config-level error so the user gets the actionable
+        # message instead of a Python traceback.
+        if output_format == "json":
+            print(json.dumps({"success": False, "error": str(e)}))
+        else:
+            logger.error("Quickstart failed: %s", e)
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    _emit_quickstart_result(result, output_format)
+
+    if result.dry_run:
+        sys.exit(EXIT_SUCCESS)
+
+    _run_quickstart_train_then_chat(args, result)
+
+
+def _load_quickstart_train_paths(config_path: Path) -> tuple[str, str]:
+    """Read the generated YAML and return ``(output_dir, final_model_dir)``.
+
+    Kept tiny + standalone so quickstart never has to import the heavy config
+    validation pipeline just to find the trained checkpoint directory.
+    """
+    import yaml
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    training = cfg.get("training", {}) or {}
+    return (
+        training.get("output_dir", "./checkpoints"),
+        training.get("final_model_dir", "final_model"),
+    )
+
+
 def _dispatch_subcommand(command: str, args) -> None:
-    """Run a Phase 10 subcommand (chat / export / deploy) and exit."""
+    """Run a Phase 10/10.5 subcommand (chat / export / deploy / quickstart) and exit."""
     if command == "chat":
         # _run_chat_cmd's REPL catches KeyboardInterrupt internally for the
         # input prompt; this outer guard covers Ctrl-C during model load /
@@ -732,6 +1025,12 @@ def _dispatch_subcommand(command: str, args) -> None:
         sys.exit(EXIT_SUCCESS)
     elif command == "deploy":
         _run_deploy_cmd(args, getattr(args, "output_format", "text"))
+        sys.exit(EXIT_SUCCESS)
+    elif command == "quickstart":
+        try:
+            _run_quickstart_cmd(args, getattr(args, "output_format", "text"))
+        except KeyboardInterrupt:
+            pass
         sys.exit(EXIT_SUCCESS)
 
 

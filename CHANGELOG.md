@@ -4,6 +4,68 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+## [0.4.5] — 2026-04-26
+
+### Added
+
+**Quickstart Layer (Phase 10.5)** — One-command bundled templates with opinionated defaults. Primary community-growth driver: closes the gap between "I just installed ForgeLM" and "I have a fine-tuned model running locally."
+
+- **`forgelm/quickstart.py`** — Template registry + orchestrator:
+  - `Template` (frozen dataclass) — `name`, `title`, `description`, `primary_model`, `fallback_model`, `trainer_type`, `estimated_minutes`, `min_vram_for_primary_gb`, `bundled_dataset`, `license_note`.
+  - `TEMPLATES: Dict[str, Template]` — 5 entries: `customer-support`, `code-assistant`, `domain-expert`, `medical-qa-tr`, `grpo-math`.
+  - `auto_select_model(template, available_vram_gb)` — picks primary model when VRAM ≥ threshold (10–12 GB), fallback otherwise; explicit `no-gpu-detected` reason when CUDA is absent.
+  - `_detect_available_vram_gb()` — wraps `torch.cuda.mem_get_info()`; returns `None` when no GPU (test mock point).
+  - `run_quickstart(template_name, *, model_override, dataset_override, output_path, dry_run, available_vram_gb)` → `QuickstartResult` — copies seed dataset, substitutes `model.name_or_path` and `data.dataset_name_or_path`, writes `configs/<template>-YYYYMMDDHHMMSS.yaml`. Generated YAML is identical in shape to a hand-written one — same trainer, same schema.
+  - `format_template_list()`, `summarize_result(result)` — text/JSON renderers for CLI use.
+
+- **`forgelm quickstart <template>` CLI subcommand** (in `forgelm/cli.py`):
+  - `--list` — prints the registry; honors top-level `--output-format json` for CI.
+  - `--model <id>` — override auto-selected model.
+  - `--dataset <path>` — override the bundled seed dataset (required for `domain-expert`).
+  - `--output <path>` — custom YAML output path (default: `./configs/<template>-<timestamp>.yaml`).
+  - `--dry-run` — generate config only; skip training and chat.
+  - `--no-chat` — train but skip the post-training chat REPL.
+  - On a successful run, subprocess-invokes `forgelm --config <out>` and then `forgelm chat <output_dir>` (unless `--no-chat`).
+
+- **Wizard integration** — `forgelm --wizard` now opens with "Start from a template?":
+  - Yes → routes to the quickstart selector; the wizard becomes a thin shell over `run_quickstart()`.
+  - No → falls through to the existing 8-step interactive flow.
+  - No bifurcation: identical code paths and YAML schema downstream.
+
+- **5 bundled templates** under `forgelm/templates/`:
+  - `customer-support/` — Qwen2.5-7B-Instruct primary, SmolLM2-1.7B-Instruct fallback. SFT trainer. 60-example seed JSONL in `{"messages": [...]}` format.
+  - `code-assistant/` — Qwen2.5-Coder-7B-Instruct primary. SFT. 60-example Python/programming Q&A.
+  - `domain-expert/` — BYOD; empty data with a README explaining how to pair with `forgelm ingest` (Phase 11) or a custom JSONL.
+  - `medical-qa-tr/` — Turkish medical Q&A SFT. 40+ examples; every answer ends with "Tıbbi acil durumlarda 112'yi arayın..." (medical-disclaimer guardrail).
+  - `grpo-math/` — Qwen2.5-Math-7B-Instruct primary, Qwen2.5-Math-1.5B-Instruct fallback. GRPO trainer (`grpo_num_generations: 4`). 40 grade-school math word problems in prompt-only format.
+
+- **Conservative defaults** in every template config:
+  - QLoRA 4-bit NF4, LoRA rank=8, `per_device_train_batch_size=1`, gradient checkpointing on, safety eval / compliance artifacts opt-in only.
+  - Designed so the smallest fallback model + the bundled seed dataset run end-to-end on a 12 GB consumer GPU.
+
+- **`forgelm/templates/LICENSES.md`** — Full attribution for bundled seed datasets (CC-BY-SA 4.0, author-original); contributing guide for new templates; medical-disclaimer note for `medical-qa-tr`.
+
+- **`pyproject.toml` `[tool.setuptools.package-data]`** — bundles `*.yaml`, `*.jsonl`, `*.md` under `forgelm.templates` into the wheel so `pip install forgelm` users get the templates without a source checkout.
+
+- **Tests** — `tests/test_quickstart.py` (40 tests, GPU-independent via `_detect_available_vram_gb` mock):
+  - Registry consistency, get-template lookups, list ordering.
+  - Every template's YAML config is parseable, has `model`/`training`/`data`/`lora` sections, and uses the placeholder dataset string the quickstart layer overwrites.
+  - Every bundled JSONL parses as JSON line by line.
+  - `auto_select_model` primary/fallback/no-gpu paths.
+  - End-to-end `run_quickstart` flow: substitution, overrides win over auto-select, dry-run hint in summary, `domain-expert` rejects without `--dataset`.
+  - CLI dispatch (`--list` text + JSON, `--dry-run` writes YAML and exits 0, missing template → CONFIG_ERROR).
+  - **Regression**: every generated YAML round-trips through `load_config()` — the strongest guard against template drift the moment a config schema changes.
+
+- **CI** — `.github/workflows/nightly.yml` adds a per-template smoke test that runs `forgelm quickstart <name> --dry-run` followed by `forgelm --config <out> --dry-run` for every bundled template.
+
+### Documentation
+
+- New "Option 0: One-Command Quickstart Template" section at the top of `docs/guides/quickstart.md`.
+- `docs/roadmap.md`, `docs/roadmap-tr.md`, `docs/roadmap/phase-12-quickstart.md`, `docs/roadmap/releases.md` updated to mark Phase 10.5 as Done.
+- `README.md` quickstart section updated to lead with `forgelm quickstart`.
+
+---
+
 ## [0.4.0] — 2026-04-25
 
 ### Added

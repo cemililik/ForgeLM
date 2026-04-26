@@ -16,6 +16,23 @@ try:
 except ImportError:
     torch_available = False
 
+# These tests patch ``trl.GRPOTrainer``; mock.patch resolves the original
+# attribute via ``getattr`` before swapping. Newer ``trl`` releases lazy-load
+# the GRPO module, and the lazy import fails on torch versions that don't
+# expose ``torch.distributed.fsdp.FSDPModule`` (a moving target across
+# torch <-> trl pairings). When that happens the patch itself raises
+# AttributeError before our test code even runs — skip cleanly so nightly
+# matrix runs against bleeding-edge deps don't false-fail.
+grpo_patchable = False
+if torch_available:
+    try:
+        import trl  # noqa: F401
+
+        trl.GRPOTrainer  # noqa: B018 — touch attr to trigger trl's lazy loader
+        grpo_patchable = True
+    except (ImportError, AttributeError, RuntimeError):
+        grpo_patchable = False
+
 
 def _make_grpo_config(reward_model_path, output_dir=None):
     """Build a minimal ForgeConfig with grpo trainer and a reward model path."""
@@ -35,6 +52,10 @@ def _make_grpo_config(reward_model_path, output_dir=None):
 
 
 @pytest.mark.skipif(not torch_available, reason="torch not installed")
+@pytest.mark.skipif(
+    not grpo_patchable,
+    reason="trl.GRPOTrainer not importable in this environment (torch/trl version mismatch)",
+)
 class TestGrpoRewardCallable:
     def test_reward_funcs_is_callable_list(self, tmp_path):
         """When grpo_reward_model is configured, reward_funcs must be a list of callables."""
@@ -161,9 +182,10 @@ class TestGrpoRewardCallable:
         assert len(result) == 2, "result length must match number of completions"
         assert all(isinstance(v, float) for v in result), "all reward values must be floats"
 
-    def test_no_reward_model_no_reward_funcs(self, tmp_path):
-        """When grpo_reward_model is not set, reward_funcs must not be passed."""
+    def test_no_reward_model_no_gold_answers_uses_combined_fallback(self, tmp_path):
+        """No reward model AND no gold_answer → fallback is combined_format_length_reward only."""
         from forgelm.config import ForgeConfig
+        from forgelm.grpo_rewards import combined_format_length_reward
         from forgelm.trainer import ForgeTrainer
 
         config_data = {
@@ -181,13 +203,14 @@ class TestGrpoRewardCallable:
         trainer.model = MagicMock()
         trainer.tokenizer = MagicMock()
         trainer.config = config
+        # Plain ints — no `gold_answer` field anywhere.
         trainer.dataset = {"train": list(range(10))}
         trainer.checkpoint_dir = str(tmp_path)
         trainer.run_name = "grpo_no_reward"
         trainer.notifier = MagicMock()
         trainer.audit = MagicMock()
 
-        captured_kwargs = {}
+        captured_kwargs: dict = {}
 
         def fake_grpo_trainer(**kwargs):
             captured_kwargs.update(kwargs)
@@ -199,8 +222,59 @@ class TestGrpoRewardCallable:
         ):
             trainer._build_trainer(callbacks=[])
 
-        # reward_funcs key should either not be present or be an empty list
-        reward_funcs = captured_kwargs.get("reward_funcs", [])
-        assert reward_funcs == [] or reward_funcs is None, (
-            "reward_funcs should not be populated when grpo_reward_model is not set"
+        reward_funcs = captured_kwargs.get("reward_funcs")
+        assert reward_funcs == [combined_format_length_reward], (
+            "Without reward model and without gold_answer, only the combined "
+            "format+length shaping reward should be wired (no correctness signal available)."
+        )
+
+    def test_gold_answer_dataset_wires_combined_plus_math_reward(self, tmp_path):
+        """Dataset with gold_answer + no reward model → combined fallback PLUS math reward (additive)."""
+        from forgelm.config import ForgeConfig
+        from forgelm.grpo_rewards import combined_format_length_reward
+        from forgelm.trainer import ForgeTrainer, _math_reward_fn
+
+        config_data = {
+            "model": {"name_or_path": "org/model"},
+            "lora": {},
+            "training": {
+                "trainer_type": "grpo",
+                "output_dir": str(tmp_path),
+            },
+            "data": {"dataset_name_or_path": "org/dataset"},
+        }
+        config = ForgeConfig(**config_data)
+
+        trainer = ForgeTrainer.__new__(ForgeTrainer)
+        trainer.model = MagicMock()
+        trainer.tokenizer = MagicMock()
+        trainer.config = config
+        trainer.dataset = {
+            "train": [
+                {"prompt": "What is 2+2?", "gold_answer": "4"},
+                {"prompt": "What is 3+5?", "gold_answer": "8"},
+            ]
+        }
+        trainer.checkpoint_dir = str(tmp_path)
+        trainer.run_name = "grpo_math_reward"
+        trainer.notifier = MagicMock()
+        trainer.audit = MagicMock()
+
+        captured_kwargs: dict = {}
+
+        def fake_grpo_trainer(**kwargs):
+            captured_kwargs.update(kwargs)
+            return MagicMock()
+
+        with (
+            patch("trl.GRPOTrainer", side_effect=fake_grpo_trainer),
+            patch("trl.GRPOConfig", return_value=MagicMock()),
+        ):
+            trainer._build_trainer(callbacks=[])
+
+        reward_funcs = captured_kwargs.get("reward_funcs")
+        assert reward_funcs == [combined_format_length_reward, _math_reward_fn], (
+            "When gold_answer is present and no reward model is configured, both the "
+            "combined format+length reward (always-on baseline) AND the gold_answer "
+            "correctness reward must be wired additively."
         )

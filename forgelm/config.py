@@ -3,7 +3,7 @@ import os
 from typing import Any, Dict, List, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 logger = logging.getLogger("forgelm.config")
 
@@ -98,7 +98,12 @@ class LoraConfigModel(BaseModel):
 
 
 class TrainingConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # populate_by_name lets users keep the legacy `grpo_max_new_tokens` field
+    # name in their YAML even though the canonical attribute is now
+    # `grpo_max_completion_length` (matches TRL's GRPOConfig field). Without
+    # this flag, Pydantic would only accept the alias on input, never the
+    # canonical name.
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     output_dir: str = "./checkpoints"
     final_model_dir: str = "final_model"
@@ -123,9 +128,21 @@ class TrainingConfig(BaseModel):
     simpo_beta: float = 2.0  # SimPO scaling parameter
     kto_beta: float = 0.1  # KTO loss parameter
     grpo_num_generations: int = 4  # GRPO: number of responses to generate per prompt
-    grpo_max_new_tokens: int = 512  # GRPO: max tokens per generated response
+    # TRL >=0.12 renamed `max_new_tokens` to `max_completion_length` on GRPOConfig.
+    # We mirror the TRL spelling, but accept the legacy name via Pydantic alias
+    # so existing YAML configs and templates keep working without edits.
+    grpo_max_completion_length: int = Field(
+        default=512,
+        alias="grpo_max_new_tokens",
+        description="GRPO: max tokens per generated completion (TRL field name).",
+    )
     grpo_reward_model: Optional[str] = (
-        None  # GRPO: HF model path for reward scoring (None = use default verifiable rewards)
+        # GRPO: HF model path for reward scoring. When None, the trainer wires
+        # `combined_format_length_reward` as a baseline (always-on, gradient-rich
+        # format + length shaping signal). If the dataset additionally carries a
+        # `gold_answer` field (see the grpo-math template), a regex correctness
+        # reward is appended for additive scoring — TRL sums multiple reward funcs.
+        None
     )
     # --- GaLore (optimizer-level memory optimization, alternative to LoRA) ---
     galore_enabled: bool = False

@@ -263,9 +263,9 @@ def _ties_merge_tensor(deltas, weights, trim_fraction=0.2):
         flat = stacked[i].abs().flatten()
         if flat.numel() == 0:
             continue
-        # flat is already 1-D from .flatten(); the default behavior computes
-        # the quantile across all elements, which is what we want.
-        threshold = torch.quantile(flat.float(), trim_fraction)
+        # flat is already 1-D from .flatten(); dim=0 is explicit and
+        # equivalent to the default behavior over a 1-D tensor.
+        threshold = torch.quantile(flat.float(), trim_fraction, dim=0)
         stacked[i][stacked[i].abs() < threshold] = 0.0
 
     # Step 2: Elect sign — majority vote (ties resolve to +1)
