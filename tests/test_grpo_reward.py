@@ -16,6 +16,23 @@ try:
 except ImportError:
     torch_available = False
 
+# These tests patch ``trl.GRPOTrainer``; mock.patch resolves the original
+# attribute via ``getattr`` before swapping. Newer ``trl`` releases lazy-load
+# the GRPO module, and the lazy import fails on torch versions that don't
+# expose ``torch.distributed.fsdp.FSDPModule`` (a moving target across
+# torch <-> trl pairings). When that happens the patch itself raises
+# AttributeError before our test code even runs — skip cleanly so nightly
+# matrix runs against bleeding-edge deps don't false-fail.
+grpo_patchable = False
+if torch_available:
+    try:
+        import trl  # noqa: F401
+
+        trl.GRPOTrainer  # noqa: B018 — touch attr to trigger trl's lazy loader
+        grpo_patchable = True
+    except (ImportError, AttributeError, RuntimeError):
+        grpo_patchable = False
+
 
 def _make_grpo_config(reward_model_path, output_dir=None):
     """Build a minimal ForgeConfig with grpo trainer and a reward model path."""
@@ -35,6 +52,10 @@ def _make_grpo_config(reward_model_path, output_dir=None):
 
 
 @pytest.mark.skipif(not torch_available, reason="torch not installed")
+@pytest.mark.skipif(
+    not grpo_patchable,
+    reason="trl.GRPOTrainer not importable in this environment (torch/trl version mismatch)",
+)
 class TestGrpoRewardCallable:
     def test_reward_funcs_is_callable_list(self, tmp_path):
         """When grpo_reward_model is configured, reward_funcs must be a list of callables."""
