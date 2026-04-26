@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from typing import Dict, Optional
+from urllib.parse import urlparse
 
 import requests
 
@@ -13,6 +14,65 @@ class WebhookNotifier:
 
     def __init__(self, config):
         self.config = config.webhook
+
+    def _resolve_url(self) -> Optional[str]:
+        """Pick the webhook URL from the config, falling back to url_env."""
+        if not self.config:
+            return None
+        url = self.config.url
+        if not url and getattr(self.config, "url_env", None):
+            url = os.getenv(self.config.url_env)
+        return url or None
+
+    @staticmethod
+    def _mask(url: str) -> str:
+        """Redact credentials and signed query params from a webhook URL.
+
+        Slack/Teams/Discord webhooks carry secrets in the path or query; basic
+        auth can also embed them in userinfo. We log only ``scheme://host`` plus
+        the first path segment so the destination is identifiable but the
+        secret material is not leaked into logs.
+        """
+        try:
+            parts = urlparse(url)
+        except (ValueError, TypeError):
+            return "<unparseable-url>"
+        if not parts.scheme or not parts.netloc:
+            return "<malformed-url>"
+        host = parts.hostname or "unknown-host"
+        first_segment = ""
+        if parts.path:
+            stripped = parts.path.lstrip("/").split("/", 1)[0]
+            if stripped:
+                first_segment = f"/{stripped}/..."
+        return f"{parts.scheme}://{host}{first_segment}"
+
+    def _post_payload(self, url: str, payload: dict, event: str) -> None:
+        """POST *payload* to *url* and log any transport / HTTP errors."""
+        masked_url = self._mask(url)
+        try:
+            resp = requests.post(
+                url,
+                data=json.dumps(payload),
+                headers={"Content-Type": "application/json"},
+                timeout=getattr(self.config, "timeout", 5),
+            )
+            if not resp.ok:
+                # Don't log resp.text — receivers sometimes echo the payload
+                # (which can contain secret-bearing fields) or include their
+                # own auth context. Surface only the status code.
+                logger.warning(
+                    "Webhook HTTP %d for event '%s' (url=%s) — response body suppressed",
+                    resp.status_code,
+                    event,
+                    masked_url,
+                )
+        except requests.exceptions.Timeout:
+            logger.warning("Webhook request timed out for event '%s' (url=%s).", event, masked_url)
+        except requests.exceptions.ConnectionError:
+            logger.warning("Webhook connection failed for event '%s' (url=%s).", event, masked_url)
+        except Exception:
+            logger.exception("Unexpected error sending webhook notification for event '%s'.", event)
 
     def _send(
         self,
@@ -26,13 +86,7 @@ class WebhookNotifier:
         metrics: Optional[Dict[str, float]] = None,
         reason: Optional[str] = None,
     ) -> None:
-        if not self.config:
-            return
-
-        url = self.config.url
-        if not url and getattr(self.config, "url_env", None):
-            url = os.getenv(self.config.url_env)
-
+        url = self._resolve_url()
         if not url:
             return
 
@@ -53,30 +107,7 @@ class WebhookNotifier:
             "attachments": [{"title": title, "text": text, "color": color}],
         }
 
-        try:
-            resp = requests.post(
-                url,
-                data=json.dumps(payload),
-                headers={"Content-Type": "application/json"},
-                timeout=getattr(self.config, "timeout", 5),
-            )
-            if not resp.ok:
-                masked = url[:30] + "..." if len(url) > 30 else url
-                logger.warning(
-                    "Webhook HTTP %d for event '%s' (url=%s): %s",
-                    resp.status_code,
-                    event,
-                    masked,
-                    resp.text[:200],
-                )
-        except requests.exceptions.Timeout:
-            masked = url[:30] + "..." if len(url) > 30 else url
-            logger.warning("Webhook request timed out for event '%s' (url=%s).", event, masked)
-        except requests.exceptions.ConnectionError:
-            masked = url[:30] + "..." if len(url) > 30 else url
-            logger.warning("Webhook connection failed for event '%s' (url=%s).", event, masked)
-        except Exception:
-            logger.exception("Unexpected error sending webhook notification for event '%s'.", event)
+        self._post_payload(url, payload, event)
 
     def notify_start(self, run_name: str) -> None:
         if self.config and self.config.notify_on_start:

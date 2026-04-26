@@ -54,6 +54,49 @@ class SyntheticDataGenerator:
             raise ValueError("Synthetic data generation is not enabled in config.")
         self._teacher = None
 
+    def _generate_one(self, prompt: str, idx: int, result: SyntheticResult) -> Optional[dict]:
+        """Generate a single entry; updates *result* counters in-place.
+
+        Returns the formatted entry on success, ``None`` on failure (already
+        recorded in ``result.errors``). The caller handles rate limiting.
+        """
+        try:
+            response = self._call_teacher(prompt)
+        except Exception as e:
+            result.failed += 1
+            result.errors.append(f"Prompt {idx}: {e}")
+            logger.warning("Generation failed for prompt %d: %s", idx, e)
+            return None
+
+        if not response:
+            result.failed += 1
+            result.errors.append(f"Prompt {idx}: empty response")
+            logger.warning(
+                "Empty response from teacher for prompt %d: %.80s",
+                idx,
+                prompt,
+            )
+            return None
+
+        result.successful += 1
+        return self._format_entry(prompt, response)
+
+    def _write_output(self, output_file: str, generated: List[dict], result: SyntheticResult) -> None:
+        """Write the JSONL output and log summary stats."""
+        if not generated:
+            logger.warning("No data generated. Output file not created.")
+            return
+        os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
+        with open(output_file, "w", encoding="utf-8") as f:
+            for entry in generated:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        logger.info(
+            "Synthetic data saved: %s (%d entries, %.1f%% success rate)",
+            output_file,
+            len(generated),
+            result.success_rate * 100,
+        )
+
     def generate(self, output_path: Optional[str] = None) -> SyntheticResult:
         """Generate synthetic data and save to JSONL.
 
@@ -78,45 +121,21 @@ class SyntheticDataGenerator:
             self.synth_cfg.teacher_backend,
         )
 
+        rate_limit = self.synth_cfg.teacher_backend == "api" and self.synth_cfg.api_delay > 0
         start_time = time.time()
-        generated = []
+        generated: List[dict] = []
 
+        last_idx = len(prompts) - 1
         for i, prompt in enumerate(prompts):
-            try:
-                response = self._call_teacher(prompt)
-                if response:
-                    entry = self._format_entry(prompt, response)
-                    generated.append(entry)
-                    result.successful += 1
-                else:
-                    result.failed += 1
-                    result.errors.append(f"Prompt {i}: empty response")
-            except Exception as e:
-                result.failed += 1
-                result.errors.append(f"Prompt {i}: {e}")
-                logger.warning("Generation failed for prompt %d: %s", i, e)
-
-            # Rate limiting for API backends
-            if self.synth_cfg.teacher_backend == "api" and self.synth_cfg.api_delay > 0:
+            entry = self._generate_one(prompt, i, result)
+            if entry is not None:
+                generated.append(entry)
+            # Skip the trailing sleep — there's no next request to throttle
+            if rate_limit and i < last_idx:
                 time.sleep(self.synth_cfg.api_delay)
 
         result.duration_seconds = time.time() - start_time
-
-        # Write output
-        if generated:
-            os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
-            with open(output_file, "w", encoding="utf-8") as f:
-                for entry in generated:
-                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-            logger.info(
-                "Synthetic data saved: %s (%d entries, %.1f%% success rate)",
-                output_file,
-                len(generated),
-                result.success_rate * 100,
-            )
-        else:
-            logger.warning("No data generated. Output file not created.")
-
+        self._write_output(output_file, generated, result)
         return result
 
     def _load_seed_prompts(self) -> List[str]:
@@ -240,24 +259,61 @@ class SyntheticDataGenerator:
         )
         self._teacher = (model, tokenizer)
 
+    def _load_file_responses(self) -> dict:
+        """Read the pre-generated prompt→response map from seed_file (one-shot).
+
+        Loud about failures: logs a warning when seed_file is unset or missing
+        (which silently produces empty responses for every prompt) and
+        debug-logs each malformed line with line number so users can fix the
+        underlying file.
+        """
+        responses: dict = {}
+        seed_file = self.synth_cfg.seed_file
+        if not seed_file:
+            logger.warning("teacher_backend='file' but synthetic.seed_file is unset; all responses will be empty.")
+            return responses
+        if not os.path.isfile(seed_file):
+            logger.warning(
+                "teacher_backend='file' but synthetic.seed_file does not exist: %s — all responses will be empty.",
+                seed_file,
+            )
+            return responses
+        malformed = 0
+        with open(seed_file, encoding="utf-8") as f:
+            for lineno, line in enumerate(f, start=1):
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError as e:
+                    malformed += 1
+                    logger.debug(
+                        "Skipping malformed JSON in %s line %d: %s — %s",
+                        seed_file,
+                        lineno,
+                        e,
+                        line[:120].rstrip(),
+                    )
+                    continue
+                p = data.get("prompt", "")
+                r = data.get("response") or data.get("completion") or data.get("output", "")
+                if p and r:
+                    responses[p] = r
+        if malformed:
+            logger.warning(
+                "Skipped %d malformed line(s) while loading %s; enable DEBUG logging for line-by-line detail.",
+                malformed,
+                seed_file,
+            )
+        if not responses:
+            logger.warning(
+                "synthetic.seed_file %s loaded zero usable prompt→response pairs; all teacher calls will return empty.",
+                seed_file,
+            )
+        return responses
+
     def _call_file_teacher(self, prompt: str) -> str:
         """Read pre-generated responses from a file."""
         if self._teacher is None:
-            # Load all responses into memory, keyed by prompt
-            responses = {}
-            if self.synth_cfg.seed_file and os.path.isfile(self.synth_cfg.seed_file):
-                with open(self.synth_cfg.seed_file, encoding="utf-8") as f:
-                    for line in f:
-                        try:
-                            data = json.loads(line)
-                            p = data.get("prompt", "")
-                            r = data.get("response", data.get("completion", data.get("output", "")))
-                            if p and r:
-                                responses[p] = r
-                        except json.JSONDecodeError:
-                            continue
-            self._teacher = responses
-
+            self._teacher = self._load_file_responses()
         return self._teacher.get(prompt, "")
 
     def _format_entry(self, prompt: str, response: str) -> dict:

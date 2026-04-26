@@ -5,7 +5,9 @@ No external dependencies required — uses stdlib input().
 """
 
 import logging
+import os
 import sys
+from typing import Optional
 
 import yaml
 
@@ -33,6 +35,9 @@ TARGET_MODULE_PRESETS = {
     "extended": ["q_proj", "k_proj", "v_proj", "o_proj"],
     "full": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
 }
+
+# Common dataset-format hints for preference-based trainers (DPO/SimPO/ORPO)
+_PREFERENCE_COLUMNS_HINT = "Columns: prompt, chosen, rejected"
 
 
 def _prompt(question: str, default: str = "") -> str:
@@ -94,8 +99,229 @@ def _detect_hardware() -> dict:
     return info
 
 
-def run_wizard() -> str:
-    """Run the interactive configuration wizard. Returns the path to the generated config file."""
+def _collect_rope_scaling(max_length: int) -> Optional[dict]:
+    """Prompt for RoPE scaling parameters when context is long; otherwise None."""
+    if max_length <= 4096:
+        return None
+    print(f"\n  Long context detected ({max_length} tokens).")
+    if not _prompt_yes_no("Enable RoPE scaling for extended context?", default=True):
+        return None
+    rope_type = _prompt_choice(
+        "RoPE scaling type:",
+        ["linear (simple, proven)", "dynamic (adaptive)", "yarn (best quality, newer)"],
+        default=1,
+    )
+    base_context = 4096
+    rope_factor = max_length / base_context
+    print(
+        f"  Note: RoPE factor {rope_factor:.1f}x computed assuming base context of "
+        f"{base_context} tokens. Adjust manually if your model has a different "
+        f"original context length (e.g., Llama 3.1 = 131072, Mistral v0.3 = 32768)."
+    )
+    return {"type": rope_type.split(" ")[0], "factor": rope_factor}
+
+
+def _collect_neftune_alpha() -> Optional[float]:
+    """Prompt for NEFTune noise injection; returns alpha or None."""
+    if not _prompt_yes_no("Enable NEFTune noise injection (improves training quality)?", default=False):
+        return None
+    return float(_prompt("NEFTune noise alpha", "5.0"))
+
+
+def _collect_webhook_config() -> Optional[dict]:
+    """Prompt for webhook configuration; returns the webhook section or None."""
+    if not _prompt_yes_no("Configure webhook notifications?", default=False):
+        return None
+    webhook_url = _prompt("Webhook URL (or leave empty for env var)")
+    if webhook_url:
+        return {"url": webhook_url}
+    env_var = _prompt("Environment variable name for webhook URL", "FORGELM_WEBHOOK_URL")
+    return {"url_env": env_var}
+
+
+def _collect_safety_config() -> Optional[dict]:
+    """Prompt for safety eval; returns the safety section or None."""
+    if not _prompt_yes_no("Enable safety evaluation (Llama Guard)?", default=False):
+        return None
+    scoring = _prompt_choice(
+        "Safety scoring mode:",
+        ["binary (simple safe/unsafe ratio)", "confidence_weighted (uses classifier confidence)"],
+        default=1,
+    )
+    scoring_mode = "confidence_weighted" if "confidence" in scoring else "binary"
+    safety_config: dict = {
+        "enabled": True,
+        "test_prompts": "configs/safety_prompts/general_safety.jsonl",
+        "scoring": scoring_mode,
+    }
+    if scoring_mode == "confidence_weighted":
+        safety_config["min_safety_score"] = 0.85
+    if _prompt_yes_no("Track harm categories (S1-S14)?", default=False):
+        safety_config["track_categories"] = True
+        safety_config["severity_thresholds"] = {"critical": 0, "high": 0.01, "medium": 0.05}
+    return safety_config
+
+
+def _collect_evaluation_config() -> Optional[dict]:
+    """Prompt for auto-revert + safety; returns the evaluation section or None."""
+    if not _prompt_yes_no("Enable auto-revert (discard model if quality drops)?", default=False):
+        return None
+    max_loss = _prompt("Max acceptable loss (leave empty for baseline-only)", "")
+    eval_config: dict = {
+        "auto_revert": True,
+        "max_acceptable_loss": float(max_loss) if max_loss else None,
+    }
+    safety = _collect_safety_config()
+    if safety:
+        eval_config["safety"] = safety
+    return eval_config
+
+
+def _collect_compliance_config() -> Optional[dict]:
+    """Prompt for EU AI Act metadata; returns the compliance section or None."""
+    if not _prompt_yes_no("Configure EU AI Act compliance metadata?", default=False):
+        return None
+    return {
+        "provider_name": _prompt("Organization name"),
+        "intended_purpose": _prompt("Intended purpose of the model"),
+        "risk_classification": _prompt_choice(
+            "Risk classification:",
+            ["minimal-risk", "limited-risk", "high-risk"],
+            default=1,
+        ),
+    }
+
+
+def _save_config_to_file(config: dict, requested_filename: str) -> str:
+    """Write *config* as YAML; falls back to a unique filename on OSError."""
+    try:
+        with open(requested_filename, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        print(f"\n  Config saved to: {requested_filename}")
+        return requested_filename
+    except OSError as e:
+        print(f"\n  Error: Could not save config to {requested_filename}: {e}")
+
+    # Pick a fallback that's guaranteed different from the path that just failed
+    # (a hardcoded "my_config.yaml" would just re-raise the same OSError when
+    # the original request was already that filename).
+    from datetime import datetime as _dt
+
+    base = os.path.splitext(os.path.basename(requested_filename))[0] or "my_config"
+    fallback = os.path.join(os.path.expanduser("~"), f"{base}_{_dt.now().strftime('%Y%m%d_%H%M%S')}.yaml")
+    try:
+        with open(fallback, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        print(f"  Saved to fallback location: {fallback}")
+        return fallback
+    except OSError as e:
+        print(f"  Fallback save also failed ({fallback}): {e}")
+        raise
+
+
+def _print_wizard_summary(
+    *,
+    model_name: str,
+    suggested_backend: str,
+    use_galore: bool,
+    load_in_4bit: bool,
+    use_dora: bool,
+    trainer_type: str,
+    lora_r: int,
+    lora_alpha: int,
+    dataset_path: str,
+    epochs: int,
+    batch_size: int,
+    output_dir: str,
+) -> None:
+    """Pretty-print the chosen configuration before the start-now prompt."""
+    print("\n" + "=" * 60)
+    print("  Configuration Summary")
+    print("=" * 60)
+    print(f"  Model:    {model_name}")
+    print(f"  Backend:  {suggested_backend}")
+    if use_galore:
+        strategy_str = "GaLore"
+    elif load_in_4bit:
+        strategy_str = "QLoRA"
+    else:
+        strategy_str = "LoRA"
+    if use_dora:
+        strategy_str += " + DoRA"
+    print(f"  Strategy: {strategy_str}")
+    print(f"  Trainer:  {trainer_type.upper()}")
+    print(f"  LoRA:     r={lora_r}, alpha={lora_alpha}")
+    print(f"  Dataset:  {dataset_path}")
+    print(f"  Epochs:   {epochs}, Batch: {batch_size}")
+    print(f"  Output:   {output_dir}/final_model")
+    print()
+
+
+def _select_model() -> str:
+    """Prompt for a model from POPULAR_MODELS or allow a custom entry."""
+    print("\n[2/8] Model Selection")
+    print("  Popular models:")
+    for i, m in enumerate(POPULAR_MODELS, 1):
+        print(f"    {i}) {m}")
+    print(f"    {len(POPULAR_MODELS) + 1}) Custom (enter your own)")
+    model_choice = input("  Choice [1]: ").strip()
+    try:
+        idx = int(model_choice) if model_choice else 1
+        if idx <= len(POPULAR_MODELS):
+            return POPULAR_MODELS[idx - 1]
+        return _prompt("Enter HuggingFace model name or local path")
+    except (ValueError, IndexError):
+        return POPULAR_MODELS[0]
+
+
+def _derive_strategy_flags(strategy: str) -> tuple:
+    """Decode the strategy menu choice into (load_in_4bit, use_dora, use_galore)."""
+    return ("QLoRA" in strategy, "DoRA" in strategy, "GaLore" in strategy)
+
+
+def _parse_trainer_type(objective: str) -> tuple:
+    """Return (trainer_type, dataset_format_hint) for the chosen objective."""
+    trainer_type = objective.split(" — ")[0].strip().lower()
+    dataset_format_hint = {
+        "sft": "Columns: System (opt), User/instruction, Assistant/output — or 'messages' list",
+        "dpo": _PREFERENCE_COLUMNS_HINT,
+        "simpo": _PREFERENCE_COLUMNS_HINT,
+        "orpo": _PREFERENCE_COLUMNS_HINT,
+        "kto": "Columns: prompt, completion, label (boolean: true=good, false=bad)",
+        "grpo": "Columns: prompt (model generates responses during training)",
+    }
+    hint = dataset_format_hint.get(trainer_type, "Standard format")
+    return trainer_type, hint
+
+
+def _collect_galore_config(use_galore: bool) -> dict:
+    """Prompt for GaLore-specific knobs when GaLore was selected; otherwise empty."""
+    if not use_galore:
+        print("\n[7/8] Advanced Options")
+        return {}
+    print("\n[7/8] GaLore Configuration")
+    galore_rank = _prompt_int("GaLore rank (lower = less memory)", 128, min_val=1, max_val=4096)
+    galore_optim = _prompt_choice(
+        "GaLore optimizer:",
+        ["galore_adamw (standard)", "galore_adamw_8bit (less memory)", "galore_adafactor (experimental)"],
+        default=1,
+    )
+    return {
+        "galore_enabled": True,
+        "galore_optim": galore_optim.split(" ")[0],
+        "galore_rank": galore_rank,
+        "galore_update_proj_gap": 200,
+        "galore_scale": 0.25,
+    }
+
+
+def run_wizard() -> Optional[str]:
+    """Run the interactive configuration wizard.
+
+    Returns the path to the generated config file when the user opts to start
+    training immediately, or ``None`` when the user defers — callers must
+    handle both cases.
+    """
     print("\n" + "=" * 60)
     print("  ForgeLM Configuration Wizard")
     print("=" * 60)
@@ -118,22 +344,7 @@ def run_wizard() -> str:
             print("  Recommended backend: transformers (Unsloth requires Linux)")
 
     # Step 2: Model Selection
-    print("\n[2/8] Model Selection")
-    print("  Popular models:")
-    for i, m in enumerate(POPULAR_MODELS, 1):
-        print(f"    {i}) {m}")
-    print(f"    {len(POPULAR_MODELS) + 1}) Custom (enter your own)")
-
-    model_choice = input("  Choice [1]: ").strip()
-    try:
-        idx = int(model_choice) if model_choice else 1
-        if idx <= len(POPULAR_MODELS):
-            model_name = POPULAR_MODELS[idx - 1]
-        else:
-            model_name = _prompt("Enter HuggingFace model name or local path")
-    except (ValueError, IndexError):
-        model_name = POPULAR_MODELS[0]
-
+    model_name = _select_model()
     print(f"  Selected: {model_name}")
 
     # Step 3: Strategy Selection
@@ -145,10 +356,7 @@ def run_wizard() -> str:
         "GaLore (full-parameter training via gradient projection — no adapters, lowest peak VRAM)",
     ]
     strategy = _prompt_choice("Choose your fine-tuning strategy:", strategies, default=1)
-
-    load_in_4bit = "QLoRA" in strategy
-    use_dora = "DoRA" in strategy
-    use_galore = "GaLore" in strategy
+    load_in_4bit, use_dora, use_galore = _derive_strategy_flags(strategy)
 
     # LoRA parameters
     target_preset = _prompt_choice(
@@ -173,18 +381,8 @@ def run_wizard() -> str:
         "GRPO — Group Relative Policy Optimization (reasoning RL, like DeepSeek-R1)",
     ]
     objective = _prompt_choice("Choose your training objective:", objectives, default=1)
-    trainer_type = objective.split(" — ")[0].strip().lower()
-
-    # Dataset format guidance
-    dataset_format_hint = {
-        "sft": "Columns: System (opt), User/instruction, Assistant/output — or 'messages' list",
-        "dpo": "Columns: prompt, chosen, rejected",
-        "simpo": "Columns: prompt, chosen, rejected",
-        "orpo": "Columns: prompt, chosen, rejected",
-        "kto": "Columns: prompt, completion, label (boolean: true=good, false=bad)",
-        "grpo": "Columns: prompt (model generates responses during training)",
-    }
-    print(f"  Dataset format: {dataset_format_hint.get(trainer_type, 'Standard format')}")
+    trainer_type, dataset_format_hint = _parse_trainer_type(objective)
+    print(f"  Dataset format: {dataset_format_hint}")
 
     # Step 5: Dataset
     print("\n[5/8] Dataset")
@@ -197,29 +395,9 @@ def run_wizard() -> str:
     max_length = _prompt_int("Max sequence length", DEFAULT_MAX_LENGTH, min_val=64, max_val=131072)
     output_dir = _prompt("Output directory", "./checkpoints")
 
-    # Long-context options (only if max_length > 4096)
-    use_neftune = False
-    neftune_alpha = None
-    rope_scaling = None
-    if max_length > 4096:
-        print(f"\n  Long context detected ({max_length} tokens).")
-        if _prompt_yes_no("Enable RoPE scaling for extended context?", default=True):
-            rope_type = _prompt_choice(
-                "RoPE scaling type:",
-                ["linear (simple, proven)", "dynamic (adaptive)", "yarn (best quality, newer)"],
-                default=1,
-            )
-            base_context = 4096
-            rope_factor = max_length / base_context
-            print(
-                f"  Note: RoPE factor {rope_factor:.1f}x computed assuming base context of "
-                f"{base_context} tokens. Adjust manually if your model has a different "
-                f"original context length (e.g., Llama 3.1 = 131072, Mistral v0.3 = 32768)."
-            )
-            rope_scaling = {"type": rope_type.split(" ")[0], "factor": rope_factor}
-    if _prompt_yes_no("Enable NEFTune noise injection (improves training quality)?", default=False):
-        use_neftune = True
-        neftune_alpha = float(_prompt("NEFTune noise alpha", "5.0"))
+    rope_scaling = _collect_rope_scaling(max_length)
+    neftune_alpha = _collect_neftune_alpha()
+    use_neftune = neftune_alpha is not None
 
     use_oom_recovery = _prompt_yes_no(
         "Enable OOM recovery? (auto-halves batch size on CUDA out-of-memory, then retries)",
@@ -227,24 +405,7 @@ def run_wizard() -> str:
     )
 
     # Step 7: GaLore parameters (if selected)
-    galore_config = {}
-    if use_galore:
-        print("\n[7/8] GaLore Configuration")
-        galore_rank = _prompt_int("GaLore rank (lower = less memory)", 128, min_val=1, max_val=4096)
-        galore_optim = _prompt_choice(
-            "GaLore optimizer:",
-            ["galore_adamw (standard)", "galore_adamw_8bit (less memory)", "galore_adafactor (experimental)"],
-            default=1,
-        )
-        galore_config = {
-            "galore_enabled": True,
-            "galore_optim": galore_optim.split(" ")[0],
-            "galore_rank": galore_rank,
-            "galore_update_proj_gap": 200,
-            "galore_scale": 0.25,
-        }
-    else:
-        print("\n[7/8] Advanced Options")
+    galore_config = _collect_galore_config(use_galore)
 
     # Step 8: Build config
     print("\n[8/8] Output")
@@ -294,87 +455,38 @@ def run_wizard() -> str:
         },
     }
 
-    # Optional: Webhook
-    if _prompt_yes_no("Configure webhook notifications?", default=False):
-        webhook_url = _prompt("Webhook URL (or leave empty for env var)")
-        if webhook_url:
-            config["webhook"] = {"url": webhook_url}
-        else:
-            env_var = _prompt("Environment variable name for webhook URL", "FORGELM_WEBHOOK_URL")
-            config["webhook"] = {"url_env": env_var}
+    webhook_section = _collect_webhook_config()
+    if webhook_section:
+        config["webhook"] = webhook_section
 
-    # Optional: Evaluation
-    if _prompt_yes_no("Enable auto-revert (discard model if quality drops)?", default=False):
-        max_loss = _prompt("Max acceptable loss (leave empty for baseline-only)", "")
-        config["evaluation"] = {
-            "auto_revert": True,
-            "max_acceptable_loss": float(max_loss) if max_loss else None,
-        }
+    evaluation_section = _collect_evaluation_config()
+    if evaluation_section:
+        config["evaluation"] = evaluation_section
 
-        # Safety evaluation
-        if _prompt_yes_no("Enable safety evaluation (Llama Guard)?", default=False):
-            scoring = _prompt_choice(
-                "Safety scoring mode:",
-                ["binary (simple safe/unsafe ratio)", "confidence_weighted (uses classifier confidence)"],
-                default=1,
-            )
-            scoring_mode = "confidence_weighted" if "confidence" in scoring else "binary"
-            safety_config = {
-                "enabled": True,
-                "test_prompts": "configs/safety_prompts/general_safety.jsonl",
-                "scoring": scoring_mode,
-            }
-            if scoring_mode == "confidence_weighted":
-                safety_config["min_safety_score"] = 0.85
-            if _prompt_yes_no("Track harm categories (S1-S14)?", default=False):
-                safety_config["track_categories"] = True
-                safety_config["severity_thresholds"] = {"critical": 0, "high": 0.01, "medium": 0.05}
-            config["evaluation"]["safety"] = safety_config
-
-    # Optional: Compliance (EU AI Act)
-    if _prompt_yes_no("Configure EU AI Act compliance metadata?", default=False):
-        config["compliance"] = {
-            "provider_name": _prompt("Organization name"),
-            "intended_purpose": _prompt("Intended purpose of the model"),
-            "risk_classification": _prompt_choice(
-                "Risk classification:",
-                ["minimal-risk", "limited-risk", "high-risk"],
-                default=1,
-            ),
-        }
+    compliance_section = _collect_compliance_config()
+    if compliance_section:
+        config["compliance"] = compliance_section
 
     # Save
     config_filename = _prompt("Save config as", "my_config.yaml")
     if not config_filename.endswith((".yaml", ".yml")):
         config_filename += ".yaml"
+    config_filename = _save_config_to_file(config, config_filename)
 
-    try:
-        with open(config_filename, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-        print(f"\n  Config saved to: {config_filename}")
-    except OSError as e:
-        print(f"\n  Error: Could not save config to {config_filename}: {e}")
-        config_filename = "my_config.yaml"
-        with open(config_filename, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-        print(f"  Saved to fallback location: {config_filename}")
-
-    # Summary
-    print("\n" + "=" * 60)
-    print("  Configuration Summary")
-    print("=" * 60)
-    print(f"  Model:    {model_name}")
-    print(f"  Backend:  {suggested_backend}")
-    strategy_str = "GaLore" if use_galore else ("QLoRA" if load_in_4bit else "LoRA")
-    if use_dora:
-        strategy_str += " + DoRA"
-    print(f"  Strategy: {strategy_str}")
-    print(f"  Trainer:  {trainer_type.upper()}")
-    print(f"  LoRA:     r={lora_r}, alpha={lora_alpha}")
-    print(f"  Dataset:  {dataset_path}")
-    print(f"  Epochs:   {epochs}, Batch: {batch_size}")
-    print(f"  Output:   {output_dir}/final_model")
-    print()
+    _print_wizard_summary(
+        model_name=model_name,
+        suggested_backend=suggested_backend,
+        use_galore=use_galore,
+        load_in_4bit=load_in_4bit,
+        use_dora=use_dora,
+        trainer_type=trainer_type,
+        lora_r=lora_r,
+        lora_alpha=lora_alpha,
+        dataset_path=dataset_path,
+        epochs=epochs,
+        batch_size=batch_size,
+        output_dir=output_dir,
+    )
 
     # Quick run
     if _prompt_yes_no("Start training now?", default=False):

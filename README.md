@@ -26,6 +26,12 @@
 - **LLM-as-Judge**: API-based (OpenAI) or local model scoring for quality assessment
 - **Auto-Revert**: Automatically discard models that fail loss, benchmark, or safety thresholds
 
+### Post-Training (v0.4.0)
+- **Interactive Chat**: `forgelm chat ./model` — streaming REPL with `/reset`, `/save`, `/temperature`, `/system` commands; optional Llama Guard safety routing
+- **GGUF Export**: `forgelm export ./model --quant q4_k_m` — wraps `llama-cpp-python` converter; 6 quant levels; SHA-256 appended to integrity manifest
+- **Deployment Configs**: `forgelm deploy ./model --target ollama|vllm|tgi|hf-endpoints` — generates ready-to-use config files; does not start the server
+- **VRAM Fit Check**: `forgelm --config my.yaml --fit-check` — pre-flight memory estimator; `FITS / TIGHT / OOM / UNKNOWN` verdict with recommendations
+
 ### Enterprise & MLOps
 - **Config-Driven**: Declarative YAML — built for CI/CD pipelines, not notebooks
 - **EU AI Act Compliance**: Auto-generated audit trails, data provenance (SHA-256), training manifests
@@ -44,18 +50,24 @@
 ```bash
 # Install
 pip install -e .
+pip install -e ".[export]"   # GGUF export (optional, non-Windows)
 
 # Generate config interactively
 forgelm --wizard
 
-# Or copy template and edit
-cp config_template.yaml my_config.yaml
-
 # Validate without training
 forgelm --config my_config.yaml --dry-run
 
+# Check VRAM before a long run
+forgelm --config my_config.yaml --fit-check
+
 # Train
 forgelm --config my_config.yaml
+
+# After training: chat, export, deploy
+forgelm chat ./checkpoints/final_model
+forgelm export ./checkpoints/final_model --output model.gguf --quant q4_k_m
+forgelm deploy ./checkpoints/final_model --target ollama --output ./Modelfile
 ```
 
 See the [Quick Start Guide](docs/guides/quickstart.md) for a complete walkthrough.
@@ -162,10 +174,15 @@ forgelm --version                            # Show version
 ```
 forgelm/
 ├── cli.py           # CLI with 10+ modes (train, dry-run, merge, benchmark, wizard...)
-├── config.py        # Pydantic config (15 models: training, evaluation, distributed...)
+├── config.py        # Pydantic config (19 models: training, evaluation, distributed...)
 ├── data.py          # Dataset loading (SFT, DPO, KTO, GRPO formats + multi-dataset)
 ├── model.py         # Model loading (transformers, unsloth, MoE, PEFT)
 ├── trainer.py       # Training orchestration (6 trainer types via TRL, GaLore, long-context)
+├── inference.py     # Shared inference primitives (load, generate, stream, adaptive sampling)
+├── chat.py          # Interactive terminal REPL with streaming and slash commands
+├── export.py        # GGUF export via llama-cpp-python
+├── fit_check.py     # Pre-flight VRAM estimator (FITS / TIGHT / OOM / UNKNOWN)
+├── deploy.py        # Deployment config generator (Ollama, vLLM, TGI, HF Endpoints)
 ├── results.py       # TrainResult dataclass
 ├── benchmark.py     # lm-evaluation-harness integration
 ├── safety.py        # Post-training safety evaluation (Llama Guard)
@@ -180,7 +197,7 @@ forgelm/
 
 configs/deepspeed/   # ZeRO-2, ZeRO-3, ZeRO-3+Offload presets
 notebooks/           # Colab-ready Jupyter notebooks
-tests/               # 145+ unit tests across 11 test files
+tests/               # 430 passed (+34 skipped) across 30 test files
 docs/guides/         # Quickstart, alignment, CI/CD, enterprise, safety guides
 ```
 

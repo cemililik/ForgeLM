@@ -22,6 +22,8 @@ pip install -e ".[eval]"         # lm-evaluation-harness
 pip install -e ".[tracking]"     # W&B experiment tracking
 pip install -e ".[distributed]"  # DeepSpeed multi-GPU
 pip install -e ".[merging]"      # mergekit model merging
+pip install -e ".[export]"       # GGUF export (llama-cpp-python, non-Windows)
+pip install -e ".[chat]"         # Rich rendering in forgelm chat
 ```
 
 ## Authentication
@@ -76,6 +78,47 @@ forgelm --config my_config.yaml --resume ./checkpoints/checkpoint-500
 # Air-gapped / offline mode (no HF Hub calls)
 forgelm --config my_config.yaml --offline
 ```
+
+### VRAM Fit Check
+
+Before training, estimate whether your config fits in GPU memory:
+
+```bash
+# Text output (human-readable verdict)
+forgelm --config my_config.yaml --fit-check
+
+# JSON output (for CI/CD pipelines)
+forgelm --config my_config.yaml --fit-check --output-format json
+```
+
+Output shows: estimated peak VRAM, available VRAM (if GPU detected), verdict (`FITS` / `TIGHT` / `OOM` / `UNKNOWN`), and ordered recommendations. Falls back to hypothetical mode when no GPU is detected.
+
+### Post-Training: Chat, Export, Deploy
+
+After training, interact with and deploy your fine-tuned model directly from the CLI. These subcommands work without `--config`.
+
+```bash
+# Interactive chat REPL (streaming by default)
+forgelm chat ./checkpoints/final_model
+forgelm chat ./checkpoints/final_model --adapter ./adapter --safety
+forgelm chat ./checkpoints/final_model --system "You are a helpful assistant." --temperature 0.8
+
+# Export to GGUF (for Ollama, LM Studio, llama.cpp)
+# Requires: pip install forgelm[export]
+forgelm export ./checkpoints/final_model --output model.gguf --quant q4_k_m
+forgelm export ./checkpoints/final_model --output model.gguf --quant q8_0 --adapter ./adapter
+
+# Generate deployment config files
+forgelm deploy ./checkpoints/final_model --target ollama --output ./Modelfile
+forgelm deploy ./checkpoints/final_model --target vllm --output ./vllm_config.yaml
+forgelm deploy ./checkpoints/final_model --target tgi --output ./docker-compose.yaml
+forgelm deploy ./checkpoints/final_model --target hf-endpoints --output ./endpoint.json
+forgelm deploy ./checkpoints/final_model --target ollama --output ./Modelfile --system "Be concise."
+```
+
+**Chat slash commands:** `/reset`, `/save [file]`, `/temperature N`, `/system [prompt]`, `/help`, `/exit`
+
+**Export quantization levels:** `q2_k`, `q3_k_m`, `q4_k_m` (recommended), `q5_k_m`, `q8_0`, `f16`
 
 ### Synthetic Data Generation
 

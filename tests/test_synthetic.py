@@ -45,10 +45,10 @@ class TestSyntheticConfig:
 
     def test_defaults(self):
         config = _config(synthetic={"enabled": True, "teacher_model": "gpt-4"})
-        assert config.synthetic.temperature == 0.7
+        assert config.synthetic.temperature == pytest.approx(0.7)
         assert config.synthetic.max_new_tokens == 1024
         assert config.synthetic.output_format == "messages"
-        assert config.synthetic.api_delay == 0.5
+        assert config.synthetic.api_delay == pytest.approx(0.5)
         assert config.synthetic.api_timeout == 60
         assert config.synthetic.output_file == "synthetic_data.jsonl"
 
@@ -77,15 +77,15 @@ class TestSyntheticConfig:
 class TestSyntheticResult:
     def test_success_rate_zero(self):
         r = SyntheticResult(total_prompts=0)
-        assert r.success_rate == 0.0
+        assert r.success_rate == pytest.approx(0.0)
 
     def test_success_rate_partial(self):
         r = SyntheticResult(total_prompts=10, successful=7, failed=3)
-        assert r.success_rate == 0.7
+        assert r.success_rate == pytest.approx(0.7)
 
     def test_success_rate_full(self):
         r = SyntheticResult(total_prompts=5, successful=5, failed=0)
-        assert r.success_rate == 1.0
+        assert r.success_rate == pytest.approx(1.0)
 
 
 class TestSyntheticGenerator:
@@ -259,7 +259,7 @@ synthetic:
 
         assert config.synthetic.enabled is True
         assert config.synthetic.teacher_model == "gpt-4o"
-        assert config.synthetic.temperature == 0.5
+        assert config.synthetic.temperature == pytest.approx(0.5)
 
     def test_config_template_still_valid(self):
         config = load_config("config_template.yaml")

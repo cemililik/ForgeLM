@@ -8,7 +8,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("forgelm.judge")
 
@@ -31,7 +31,10 @@ class JudgeResult:
     """Result of an LLM-as-Judge evaluation."""
 
     average_score: float = 0.0
-    scores: List[float] = field(default_factory=list)
+    # None entries are sentinel values for parse/transport failures (see
+    # _clip_judge_score). Consumers iterating ``scores`` must filter or
+    # otherwise handle them; the average is computed over non-None entries.
+    scores: List[Optional[float]] = field(default_factory=list)
     passed: bool = True
     failure_reason: Optional[str] = None
     details: List[Dict[str, Any]] = field(default_factory=list)
@@ -57,7 +60,9 @@ def _parse_judge_json(text: str) -> Dict[str, Any]:
             except json.JSONDecodeError:
                 continue
     logger.warning("Could not parse judge response as JSON: %s", text[:200])
-    return {"score": 0, "reason": f"Invalid JSON response: {text[:200]}"}
+    # Use score=None as the failure sentinel — score=0 used to be clipped up
+    # to 1.0 by _clip_judge_score and silently lowered the average.
+    return {"score": None, "reason": f"Invalid JSON response: {text[:200]}"}
 
 
 def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: str = None) -> Dict[str, Any]:
@@ -83,10 +88,10 @@ def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: 
         return _parse_judge_json(content)
     except json.JSONDecodeError as e:
         logger.warning("API judge returned invalid JSON: %s", e)
-        return {"score": 0, "reason": f"Invalid JSON from API: {e}"}
+        return {"score": None, "reason": f"Invalid JSON from API: {e}"}
     except Exception as e:
         logger.warning("API judge call failed: %s", e)
-        return {"score": 0, "reason": f"API error: {e}"}
+        return {"score": None, "reason": f"API error: {e}"}
 
 
 def _call_local_judge(prompt: str, model: Any, tokenizer: Any) -> Dict[str, Any]:
@@ -102,7 +107,92 @@ def _call_local_judge(prompt: str, model: Any, tokenizer: Any) -> Dict[str, Any]
         return _parse_judge_json(response)
     except Exception as e:
         logger.warning("Local judge evaluation failed: %s", e)
-        return {"score": 0, "reason": f"Local judge error: {e}"}
+        return {"score": None, "reason": f"Local judge error: {e}"}
+
+
+def _load_eval_prompts(path: str) -> List[str]:
+    """Load prompts from a JSONL file (one prompt per line, plain or JSON object)."""
+    prompts: List[str] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+                prompts.append(data.get("prompt", data.get("text", "")))
+            except json.JSONDecodeError:
+                prompts.append(line)
+    return prompts
+
+
+def _load_local_judge(judge_model: str) -> Tuple[Any, Any]:
+    """Load a local judge model + tokenizer pair."""
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    logger.info("Loading local judge model: %s", judge_model)
+    tok = AutoTokenizer.from_pretrained(judge_model)
+    mdl = AutoModelForCausalLM.from_pretrained(judge_model, device_map="auto")
+    return mdl, tok
+
+
+def _generate_response(model: Any, tokenizer: Any, prompt: str, max_new_tokens: int) -> str:
+    """Generate a single response from the fine-tuned model under evaluation."""
+    import torch as _torch
+
+    try:
+        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        with _torch.no_grad():
+            outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+        return tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
+    except Exception as e:
+        logger.warning("Failed to generate response: %s", e)
+        return ""
+
+
+def _clip_judge_score(raw_score: Optional[float]) -> Optional[float]:
+    """Clip the judge's raw 1-10 score; pass through None for parse/transport failures.
+
+    None preserves the failure signal so the caller can skip the sample in the
+    average (rather than counting it as a 1.0 floor and pulling the score down).
+    """
+    if raw_score is None:
+        return None
+    score = max(1.0, min(10.0, raw_score))
+    if raw_score != score:
+        logger.warning(
+            "Judge returned out-of-range score %.1f (expected 1-10), clipped to %.1f",
+            raw_score,
+            score,
+        )
+    return score
+
+
+def _save_judge_results(
+    output_dir: str,
+    avg_score: float,
+    min_score: float,
+    passed: bool,
+    num_prompts: int,
+    details: List[Dict[str, Any]],
+) -> None:
+    """Persist the judge run summary as judge_results.json."""
+    os.makedirs(output_dir, exist_ok=True)
+    results_path = os.path.join(output_dir, "judge_results.json")
+    with open(results_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "average_score": avg_score,
+                "min_score": min_score,
+                "passed": passed,
+                "num_prompts": num_prompts,
+                "details": details,
+            },
+            f,
+            indent=2,
+        )
+    logger.info("Judge results saved to %s", results_path)
 
 
 def run_judge_evaluation(
@@ -138,73 +228,39 @@ def run_judge_evaluation(
         return JudgeResult(passed=False, failure_reason=f"Eval dataset not found: {eval_dataset_path}")
 
     rubric = rubric or DEFAULT_RUBRIC
-
-    # Load eval prompts
-    eval_prompts = []
-    with open(eval_dataset_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                try:
-                    data = json.loads(line)
-                    eval_prompts.append(data.get("prompt", data.get("text", "")))
-                except json.JSONDecodeError:
-                    eval_prompts.append(line)
-
+    eval_prompts = _load_eval_prompts(eval_dataset_path)
     if not eval_prompts:
         logger.warning("No eval prompts found. Skipping judge evaluation.")
         return JudgeResult(passed=True)
 
     logger.info("Running LLM-as-Judge evaluation with %d prompts (judge: %s)...", len(eval_prompts), judge_model)
 
-    # Generate responses from fine-tuned model
-    scores = []
-    details = []
     is_api_judge = judge_api_key is not None
-
-    # Load local judge if needed
     local_judge_model = None
     local_judge_tokenizer = None
     if not is_api_judge:
         try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
-
-            logger.info("Loading local judge model: %s", judge_model)
-            local_judge_tokenizer = AutoTokenizer.from_pretrained(judge_model)
-            local_judge_model = AutoModelForCausalLM.from_pretrained(judge_model, device_map="auto")
+            local_judge_model, local_judge_tokenizer = _load_local_judge(judge_model)
         except Exception as e:
             logger.error("Failed to load local judge model: %s", e)
             return JudgeResult(passed=False, failure_reason=f"Judge model load failed: {e}")
 
-    import torch as _torch
+    scores: List[Optional[float]] = []
+    details: List[Dict[str, Any]] = []
+    failure_count = 0
 
     for prompt in eval_prompts:
-        # Generate response from fine-tuned model
-        try:
-            inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
-            inputs = {k: v.to(model.device) for k, v in inputs.items()}
-            with _torch.no_grad():
-                outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
-            response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
-        except Exception as e:
-            logger.warning("Failed to generate response: %s", e)
-            response = ""
-
-        # Score with judge
+        response = _generate_response(model, tokenizer, prompt, max_new_tokens)
         judge_prompt = rubric.format(prompt=prompt[:500], response=response[:1000])
         if is_api_judge:
             result = _call_api_judge(judge_prompt, judge_api_key, judge_model, api_base=api_base)
         else:
             result = _call_local_judge(judge_prompt, local_judge_model, local_judge_tokenizer)
 
-        raw_score = float(result.get("score", 0))
-        score = max(1.0, min(10.0, raw_score))
-        if raw_score != score:
-            logger.warning(
-                "Judge returned out-of-range score %.1f (expected 1-10), clipped to %.1f",
-                raw_score,
-                score,
-            )
+        raw_score = result.get("score")
+        score = _clip_judge_score(float(raw_score) if raw_score is not None else None)
+        if score is None:
+            failure_count += 1
         scores.append(score)
         details.append(
             {
@@ -212,35 +268,37 @@ def run_judge_evaluation(
                 "response": response[:200],
                 "score": score,
                 "reason": result.get("reason", ""),
+                "judge_failed": score is None,
             }
         )
 
-    avg_score = sum(scores) / len(scores) if scores else 0.0
-    logger.info("LLM-as-Judge average score: %.2f / 10.0", avg_score)
+    valid_scores = [s for s in scores if s is not None]
 
-    passed = avg_score >= min_score
-    failure_reason = None
-    if not passed:
-        failure_reason = f"Average judge score ({avg_score:.2f}) below minimum ({min_score:.2f})"
+    # No valid scores → distinct failure mode. Treating this as "low average"
+    # would mislead the operator into thinking the model performed badly when
+    # really the judge itself never produced a usable verdict.
+    if not valid_scores:
+        avg_score = 0.0
+        passed = False
+        failure_reason = f"No valid judge scores (all {failure_count}/{len(eval_prompts)} parses/requests failed)."
         logger.error("JUDGE EVALUATION FAILED: %s", failure_reason)
+    else:
+        avg_score = sum(valid_scores) / len(valid_scores)
+        logger.info(
+            "LLM-as-Judge average score: %.2f / 10.0 (%d/%d valid; %d judge failures)",
+            avg_score,
+            len(valid_scores),
+            len(eval_prompts),
+            failure_count,
+        )
+        passed = avg_score >= min_score
+        failure_reason = None
+        if not passed:
+            failure_reason = f"Average judge score ({avg_score:.2f}) below minimum ({min_score:.2f})"
+            logger.error("JUDGE EVALUATION FAILED: %s", failure_reason)
 
-    # Save results
     if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-        results_path = os.path.join(output_dir, "judge_results.json")
-        with open(results_path, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "average_score": avg_score,
-                    "min_score": min_score,
-                    "passed": passed,
-                    "num_prompts": len(eval_prompts),
-                    "details": details,
-                },
-                f,
-                indent=2,
-            )
-        logger.info("Judge results saved to %s", results_path)
+        _save_judge_results(output_dir, avg_score, min_score, passed, len(eval_prompts), details)
 
     return JudgeResult(
         average_score=avg_score,

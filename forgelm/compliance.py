@@ -324,8 +324,12 @@ def generate_training_manifest(
 # ---------------------------------------------------------------------------
 
 
-def _sanitize_md(text: str) -> str:
-    """Escape user-controlled text before embedding in Markdown to prevent injection."""
+def _sanitize_md(text: Optional[str]) -> str:
+    """Escape user-controlled text before embedding in Markdown to prevent injection.
+
+    Accepts ``None`` (treated as "Not specified") so callers can pass through
+    optional config fields without a per-site None-check.
+    """
     if not text:
         return "Not specified"
     text = text.replace("\n", " ").replace("\r", " ")
@@ -420,10 +424,14 @@ If the model produces harmful, biased, or incorrect outputs in production:
 
 def export_compliance_artifacts(
     manifest: Dict[str, Any],
-    config: Any,
     output_dir: str,
 ) -> List[str]:
-    """Export all compliance artifacts to a directory."""
+    """Export all compliance artifacts to a directory.
+
+    The *manifest* (produced by :func:`generate_training_manifest`) already
+    contains all the config-derived data needed for the artifacts, so the
+    config object itself is not required here.
+    """
     import yaml
 
     os.makedirs(output_dir, exist_ok=True)

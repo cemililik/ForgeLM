@@ -22,7 +22,7 @@ class TestTrainResult:
             final_model_path="/path/to/model",
         )
         assert result.success is True
-        assert result.metrics["eval_loss"] == 0.5
+        assert result.metrics["eval_loss"] == pytest.approx(0.5)
         assert result.final_model_path == "/path/to/model"
         assert result.reverted is False
         assert result.error is None

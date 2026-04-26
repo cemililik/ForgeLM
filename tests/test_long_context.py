@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from forgelm.config import ForgeConfig, load_config
 
 BASE = {
@@ -29,7 +31,7 @@ class TestRopeScaling:
     def test_rope_linear(self):
         config = _config(training={"rope_scaling": {"type": "linear", "factor": 4.0}})
         assert config.training.rope_scaling["type"] == "linear"
-        assert config.training.rope_scaling["factor"] == 4.0
+        assert config.training.rope_scaling["factor"] == pytest.approx(4.0)
 
     def test_rope_dynamic(self):
         config = _config(training={"rope_scaling": {"type": "dynamic", "factor": 2.0}})
@@ -38,7 +40,7 @@ class TestRopeScaling:
     def test_rope_yarn(self):
         config = _config(training={"rope_scaling": {"type": "yarn", "factor": 8.0}})
         assert config.training.rope_scaling["type"] == "yarn"
-        assert config.training.rope_scaling["factor"] == 8.0
+        assert config.training.rope_scaling["factor"] == pytest.approx(8.0)
 
 
 class TestNeftune:
@@ -48,11 +50,11 @@ class TestNeftune:
 
     def test_neftune_enabled(self):
         config = _config(training={"neftune_noise_alpha": 5.0})
-        assert config.training.neftune_noise_alpha == 5.0
+        assert config.training.neftune_noise_alpha == pytest.approx(5.0)
 
     def test_neftune_custom_value(self):
         config = _config(training={"neftune_noise_alpha": 15.0})
-        assert config.training.neftune_noise_alpha == 15.0
+        assert config.training.neftune_noise_alpha == pytest.approx(15.0)
 
 
 class TestSlidingWindow:
@@ -100,8 +102,8 @@ training:
         config = load_config(str(config_file))
 
         assert config.training.rope_scaling["type"] == "yarn"
-        assert config.training.rope_scaling["factor"] == 4.0
-        assert config.training.neftune_noise_alpha == 5.0
+        assert config.training.rope_scaling["factor"] == pytest.approx(4.0)
+        assert config.training.neftune_noise_alpha == pytest.approx(5.0)
         assert config.training.sliding_window_attention == 4096
         assert config.training.sample_packing is True
 
@@ -143,5 +145,5 @@ training:
         output = json.loads(f.getvalue())
 
         assert output["rope_scaling"]["type"] == "linear"
-        assert output["rope_scaling"]["factor"] == 4.0
-        assert output["neftune_noise_alpha"] == 10.0
+        assert output["rope_scaling"]["factor"] == pytest.approx(4.0)
+        assert output["neftune_noise_alpha"] == pytest.approx(10.0)

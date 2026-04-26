@@ -159,7 +159,7 @@ class DistributedConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    strategy: Optional[str] = None  # "deepspeed" or "fsdp"; None = single-GPU
+    strategy: Optional[str] = None  # values: deepspeed, fsdp, or None for single-GPU
     # --- DeepSpeed ---
     deepspeed_config: Optional[str] = None  # path to DS JSON or preset name: "zero2", "zero3", "zero3_offload"
     # --- FSDP ---
@@ -383,9 +383,8 @@ class ForgeConfig(BaseModel):
     monitoring: Optional[MonitoringConfig] = None
     synthetic: Optional[SyntheticConfig] = None
 
-    @model_validator(mode="after")
-    def _validate_consistency(self):
-        # Warn about potential config issues
+    def _warn_general_consistency(self) -> None:
+        """Emit warnings for the broad cross-field config inconsistencies."""
         if self.evaluation and self.evaluation.auto_revert and self.training.merge_adapters:
             logger.warning(
                 "auto_revert=True with merge_adapters=True: if evaluation fails, "
@@ -421,83 +420,95 @@ class ForgeConfig(BaseModel):
                 self.training.eval_steps,
                 self.training.save_steps,
             )
-        # High-risk compliance enforcement
+
+    def _warn_high_risk_compliance(self) -> None:
+        """EU AI Act high-risk compliance recommendations."""
         is_high_risk = (self.risk_assessment and self.risk_assessment.risk_category == "high-risk") or (
             self.compliance and self.compliance.risk_classification == "high-risk"
         )
-        if is_high_risk:
-            if not self.evaluation or not self.evaluation.auto_revert:
-                logger.warning(
-                    "High-risk AI classification requires evaluation.auto_revert: true "
-                    "for EU AI Act compliance. Safety gates should be enabled."
-                )
-            if not self.evaluation or not self.evaluation.safety or not self.evaluation.safety.enabled:
-                logger.warning(
-                    "High-risk AI classification: safety evaluation is strongly recommended. "
-                    "Set evaluation.safety.enabled: true."
-                )
-            if (
-                self.evaluation
-                and self.evaluation.safety
-                and self.evaluation.safety.enabled
-                and not self.evaluation.safety.track_categories
-            ):
-                logger.warning(
-                    "High-risk AI: harm category tracking (track_categories: true) is recommended "
-                    "for detailed EU AI Act compliance documentation."
-                )
-        # Trainer type validation
+        if not is_high_risk:
+            return
+        if not self.evaluation or not self.evaluation.auto_revert:
+            logger.warning(
+                "High-risk AI classification requires evaluation.auto_revert: true "
+                "for EU AI Act compliance. Safety gates should be enabled."
+            )
+        safety = self.evaluation.safety if self.evaluation else None
+        if not safety or not safety.enabled:
+            logger.warning(
+                "High-risk AI classification: safety evaluation is strongly recommended. "
+                "Set evaluation.safety.enabled: true."
+            )
+        elif not safety.track_categories:
+            logger.warning(
+                "High-risk AI: harm category tracking (track_categories: true) is recommended "
+                "for detailed EU AI Act compliance documentation."
+            )
+
+    def _validate_trainer_type(self) -> None:
         valid_trainers = {"sft", "orpo", "dpo", "simpo", "kto", "grpo"}
         if self.training.trainer_type not in valid_trainers:
             raise ValueError(
                 f"Invalid trainer_type: '{self.training.trainer_type}'. "
                 f"Must be one of: {', '.join(sorted(valid_trainers))}"
             )
-        # GaLore validations
-        if self.training.galore_enabled:
-            valid_galore_optims = {
-                "galore_adamw",
-                "galore_adamw_8bit",
-                "galore_adafactor",
-                "galore_adamw_layerwise",
-                "galore_adamw_8bit_layerwise",
-                "galore_adafactor_layerwise",
-            }
-            if self.training.galore_optim not in valid_galore_optims:
-                raise ValueError(
-                    f"Invalid galore_optim: '{self.training.galore_optim}'. "
-                    f"Must be one of: {', '.join(sorted(valid_galore_optims))}"
-                )
-            if self.lora and self.lora.r > 0:
-                logger.info(
-                    "GaLore (gradient rank=%d) enabled alongside LoRA (adapter rank=%d). "
-                    "GaLore reduces gradient memory via low-rank projection; "
-                    "LoRA constrains trainable parameters. Both are active simultaneously.",
-                    self.training.galore_rank,
-                    self.lora.r,
-                )
-            if "layerwise" in self.training.galore_optim and self.distributed and self.distributed.strategy:
-                raise ValueError(
-                    "GaLore layerwise optimizers do not support multi-GPU (DDP). "
-                    "Use a non-layerwise variant (e.g., galore_adamw) or disable distributed training."
-                )
-        # Distributed training validations
-        if self.distributed and self.distributed.strategy:
-            if self.model.backend == "unsloth":
-                raise ValueError(
-                    "Unsloth backend does not support multi-GPU distributed training. "
-                    "Set backend: 'transformers' for DeepSpeed/FSDP."
-                )
-            if (
-                self.distributed.strategy == "deepspeed"
-                and self.distributed.deepspeed_config
-                and "zero3" in str(self.distributed.deepspeed_config)
-                and self.model.load_in_4bit
-            ):
-                logger.warning(
-                    "QLoRA (4-bit) with DeepSpeed ZeRO-3 has known compatibility issues. "
-                    "Consider using ZeRO-2 or disabling 4-bit quantization for stability."
-                )
+
+    def _validate_galore(self) -> None:
+        if not self.training.galore_enabled:
+            return
+        valid_galore_optims = {
+            "galore_adamw",
+            "galore_adamw_8bit",
+            "galore_adafactor",
+            "galore_adamw_layerwise",
+            "galore_adamw_8bit_layerwise",
+            "galore_adafactor_layerwise",
+        }
+        if self.training.galore_optim not in valid_galore_optims:
+            raise ValueError(
+                f"Invalid galore_optim: '{self.training.galore_optim}'. "
+                f"Must be one of: {', '.join(sorted(valid_galore_optims))}"
+            )
+        if self.lora.r > 0:
+            logger.info(
+                "GaLore (gradient rank=%d) enabled alongside LoRA (adapter rank=%d). "
+                "GaLore reduces gradient memory via low-rank projection; "
+                "LoRA constrains trainable parameters. Both are active simultaneously.",
+                self.training.galore_rank,
+                self.lora.r,
+            )
+        if "layerwise" in self.training.galore_optim and self.distributed and self.distributed.strategy:
+            raise ValueError(
+                "GaLore layerwise optimizers do not support multi-GPU (DDP). "
+                "Use a non-layerwise variant (e.g., galore_adamw) or disable distributed training."
+            )
+
+    def _validate_distributed(self) -> None:
+        if not (self.distributed and self.distributed.strategy):
+            return
+        if self.model.backend == "unsloth":
+            raise ValueError(
+                "Unsloth backend does not support multi-GPU distributed training. "
+                "Set backend: 'transformers' for DeepSpeed/FSDP."
+            )
+        if (
+            self.distributed.strategy == "deepspeed"
+            and self.distributed.deepspeed_config
+            and "zero3" in str(self.distributed.deepspeed_config)
+            and self.model.load_in_4bit
+        ):
+            logger.warning(
+                "QLoRA (4-bit) with DeepSpeed ZeRO-3 has known compatibility issues. "
+                "Consider using ZeRO-2 or disabling 4-bit quantization for stability."
+            )
+
+    @model_validator(mode="after")
+    def _validate_consistency(self):
+        self._warn_general_consistency()
+        self._warn_high_risk_compliance()
+        self._validate_trainer_type()
+        self._validate_galore()
+        self._validate_distributed()
         return self
 
 

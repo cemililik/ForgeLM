@@ -36,14 +36,14 @@ class TestApplyMoeExpertQuantization:
     def test_runs_without_error(self):
         model, _ = _make_mock_model(4)
         # Should not raise
-        _apply_moe_expert_quantization(model, 4)
+        _apply_moe_expert_quantization(model)
 
     def test_logs_info(self, caplog):
         import logging
 
         model, _ = _make_mock_model(4)
         with caplog.at_level(logging.INFO, logger="forgelm.model"):
-            _apply_moe_expert_quantization(model, 4)
+            _apply_moe_expert_quantization(model)
         # Should log something about quantization
         assert "quantization" in caplog.text.lower() or "expert" in caplog.text.lower()
 

@@ -44,8 +44,152 @@ def _setup_logging(log_level: str, json_format: bool = False) -> None:
     )
 
 
+def _add_common_subparser_flags(p: argparse.ArgumentParser, *, include_output_format: bool) -> None:
+    """Register the shared --quiet / --log-level / --output-format flags.
+
+    Uses ``default=argparse.SUPPRESS`` so an explicit flag at the main-parser
+    level (before the subcommand) is not clobbered when the subparser fills
+    in its own defaults.
+    """
+    if include_output_format:
+        p.add_argument(
+            "--output-format",
+            type=str,
+            default=argparse.SUPPRESS,
+            choices=["text", "json"],
+            help="Output format: text (default) or json.",
+        )
+    p.add_argument("-q", "--quiet", action="store_true", default=argparse.SUPPRESS, help="Suppress INFO logs.")
+    p.add_argument(
+        "--log-level",
+        type=str,
+        default=argparse.SUPPRESS,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Set logging verbosity (default: INFO).",
+    )
+
+
+def _add_chat_subcommand(subparsers) -> None:
+    p = subparsers.add_parser(
+        "chat",
+        help="Interactive chat REPL with a fine-tuned model.",
+        description=(
+            "Load a fine-tuned model and start an interactive terminal session.  "
+            "Supports streaming output, slash commands (/reset, /save, /temperature, "
+            "/system, /exit), and optional per-response safety annotations."
+        ),
+    )
+    p.add_argument("model_path", help="Path to a saved HuggingFace model directory or HF Hub ID.")
+    p.add_argument("--adapter", type=str, default=None, help="PEFT adapter directory to merge before chat.")
+    p.add_argument("--system", type=str, default=None, metavar="PROMPT", help="Initial system prompt.")
+    p.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature (default: 0.7).")
+    p.add_argument("--max-new-tokens", type=int, default=512, help="Max tokens per response (default: 512).")
+    p.add_argument("--no-stream", action="store_true", help="Disable streaming output.")
+    p.add_argument("--load-in-4bit", action="store_true", help="Load model in 4-bit NF4 quantisation.")
+    p.add_argument("--load-in-8bit", action="store_true", help="Load model in 8-bit quantisation.")
+    p.add_argument("--trust-remote-code", action="store_true", help="Allow execution of model-bundled code.")
+    p.add_argument(
+        "--backend",
+        type=str,
+        default="transformers",
+        choices=["transformers", "unsloth"],
+        help="Model backend (default: transformers).",
+    )
+    # chat is interactive; --output-format doesn't apply.
+    _add_common_subparser_flags(p, include_output_format=False)
+
+
+def _add_export_subcommand(subparsers) -> None:
+    p = subparsers.add_parser(
+        "export",
+        help="Export a fine-tuned model to GGUF format.",
+        description=(
+            "Convert a HuggingFace model to GGUF for use with Ollama, llama.cpp, "
+            "and compatible runtimes.  Requires: pip install 'forgelm[export]'"
+        ),
+    )
+    p.add_argument("model_path", help="Path to a saved HuggingFace model directory.")
+    p.add_argument("--output", type=str, required=True, metavar="FILE", help="Output .gguf file path.")
+    p.add_argument(
+        "--format",
+        type=str,
+        default="gguf",
+        choices=["gguf"],
+        help="Export format (default: gguf).",
+    )
+    p.add_argument(
+        "--quant",
+        type=str,
+        default="q4_k_m",
+        choices=["q2_k", "q3_k_m", "q4_k_m", "q5_k_m", "q8_0", "f16"],
+        help="Quantisation type (default: q4_k_m).",
+    )
+    p.add_argument("--adapter", type=str, default=None, help="PEFT adapter directory to merge before export.")
+    p.add_argument(
+        "--no-integrity-update",
+        action="store_true",
+        help="Skip updating model_integrity.json with the exported artifact.",
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
+def _add_deploy_subcommand(subparsers) -> None:
+    p = subparsers.add_parser(
+        "deploy",
+        help="Generate a deployment configuration for a serving runtime.",
+        description=(
+            "Produce a ready-to-use config file for Ollama, vLLM, TGI, or "
+            "HuggingFace Inference Endpoints.  Does not start a server."
+        ),
+    )
+    p.add_argument("model_path", help="Path to a saved HuggingFace model directory or HF Hub ID.")
+    p.add_argument(
+        "--target",
+        type=str,
+        required=True,
+        choices=["ollama", "vllm", "tgi", "hf-endpoints"],
+        help="Target serving runtime.",
+    )
+    p.add_argument("--output", type=str, default=None, metavar="FILE", help="Output file path (default: auto).")
+    p.add_argument("--system", type=str, default=None, metavar="PROMPT", help="System prompt (Ollama only).")
+    p.add_argument("--max-length", type=int, default=4096, help="Context window length (default: 4096).")
+    p.add_argument(
+        "--gpu-memory-utilization",
+        type=float,
+        default=0.90,
+        help="vLLM GPU memory utilisation fraction (default: 0.90).",
+    )
+    p.add_argument("--port", type=int, default=8080, help="Host port for TGI container (default: 8080).")
+    p.add_argument("--trust-remote-code", action="store_true", help="Set trust_remote_code in vLLM config.")
+    p.add_argument(
+        "--vendor",
+        type=str,
+        default="aws",
+        help="Cloud vendor for HF Endpoints config (default: aws).",
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="ForgeLM: Language Model Fine-Tuning Toolkit")
+    parser = argparse.ArgumentParser(
+        description="ForgeLM: Language Model Fine-Tuning Toolkit",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Subcommands:\n"
+            "  forgelm chat MODEL_PATH    Interactive chat REPL\n"
+            "  forgelm export MODEL_PATH  Export model to GGUF\n"
+            "  forgelm deploy MODEL_PATH  Generate serving config\n"
+            "\nRun 'forgelm <subcommand> --help' for subcommand details."
+        ),
+    )
+
+    # --- Subcommand router (dest=command; None when not given → training mode) ---
+    subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
+    _add_chat_subcommand(subparsers)
+    _add_export_subcommand(subparsers)
+    _add_deploy_subcommand(subparsers)
+
+    # --- Top-level flags (training / config-driven mode) ---
     parser.add_argument("--config", type=str, help="Path to the YAML configuration file.")
     parser.add_argument(
         "--wizard", action="store_true", help="Launch interactive configuration wizard to generate a config.yaml."
@@ -53,6 +197,14 @@ def parse_args():
     parser.add_argument("--version", action="version", version=f"ForgeLM {_get_version()}")
     parser.add_argument(
         "--dry-run", action="store_true", help="Validate configuration and check model/dataset access without training."
+    )
+    parser.add_argument(
+        "--fit-check",
+        action="store_true",
+        help=(
+            "Estimate peak training VRAM from the config without loading the model.  "
+            "Requires --config.  Prints a FITS / TIGHT / OOM verdict with a breakdown."
+        ),
     )
     parser.add_argument(
         "--resume",
@@ -112,8 +264,36 @@ def parse_args():
     return parser.parse_args()
 
 
-def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
-    """Validate config, model access, and dataset access without loading heavy dependencies."""
+def _galore_dry_run_fields(config: ForgeConfig) -> dict:
+    if not config.training.galore_enabled:
+        return {"galore_enabled": False, "galore_optim": None, "galore_rank": None}
+    return {
+        "galore_enabled": True,
+        "galore_optim": config.training.galore_optim,
+        "galore_rank": config.training.galore_rank,
+    }
+
+
+def _evaluation_dry_run_fields(config: ForgeConfig) -> dict:
+    eval_cfg = config.evaluation
+    safety = eval_cfg.safety if eval_cfg else None
+    return {
+        "auto_revert": bool(eval_cfg and eval_cfg.auto_revert),
+        "safety_enabled": bool(safety and safety.enabled),
+        "safety_scoring": safety.scoring if safety else None,
+    }
+
+
+def _compliance_dry_run_fields(config: ForgeConfig) -> dict:
+    comp = config.compliance
+    return {
+        "compliance_configured": bool(comp and comp.provider_name),
+        "risk_classification": comp.risk_classification if comp else None,
+    }
+
+
+def _build_dry_run_result(config: ForgeConfig) -> dict:
+    """Assemble the dry-run summary dict from the validated config."""
     result = {
         "status": "valid",
         "model": config.model.name_or_path,
@@ -131,18 +311,17 @@ def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
         "distributed": config.distributed.strategy if config.distributed else None,
         "rope_scaling": config.training.rope_scaling,
         "neftune_noise_alpha": config.training.neftune_noise_alpha,
-        "galore_enabled": config.training.galore_enabled,
-        "galore_optim": config.training.galore_optim if config.training.galore_enabled else None,
-        "galore_rank": config.training.galore_rank if config.training.galore_enabled else None,
-        "auto_revert": bool(config.evaluation and config.evaluation.auto_revert),
-        "safety_enabled": bool(config.evaluation and config.evaluation.safety and config.evaluation.safety.enabled),
-        "safety_scoring": config.evaluation.safety.scoring
-        if (config.evaluation and config.evaluation.safety)
-        else None,
-        "compliance_configured": bool(config.compliance and config.compliance.provider_name),
-        "risk_classification": config.compliance.risk_classification if config.compliance else None,
         "webhook_configured": bool(config.webhook and (config.webhook.url or config.webhook.url_env)),
     }
+    result.update(_galore_dry_run_fields(config))
+    result.update(_evaluation_dry_run_fields(config))
+    result.update(_compliance_dry_run_fields(config))
+    return result
+
+
+def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
+    """Validate config, model access, and dataset access without loading heavy dependencies."""
+    result = _build_dry_run_result(config)
 
     if output_format == "json":
         print(json.dumps(result, indent=2))
@@ -151,9 +330,8 @@ def _run_dry_run(config: ForgeConfig, output_format: str) -> None:
     logger.info("=== DRY RUN MODE ===")
     logger.info("Configuration validated successfully.")
     for key, value in result.items():
-        if key == "status":
-            continue
-        logger.info("  %s: %s", key, value)
+        if key != "status":
+            logger.info("  %s: %s", key, value)
 
     if config.model.trust_remote_code:
         logger.warning("trust_remote_code is ENABLED — review model source before production use.")
@@ -309,7 +487,7 @@ def _run_compliance_export(config: ForgeConfig, output_dir: str, output_format: 
 
     logger.info("Generating compliance artifacts to %s...", output_dir)
     manifest = generate_training_manifest(config=config, metrics={})
-    files = export_compliance_artifacts(manifest, config, output_dir)
+    files = export_compliance_artifacts(manifest, output_dir)
 
     if output_format == "json":
         print(json.dumps({"success": True, "files": files, "output_dir": output_dir}, indent=2))
@@ -407,21 +585,299 @@ def _output_result(result, output_format: str) -> None:
                 logger.info("  Average: %.4f", result.benchmark_average)
 
 
+def _run_fit_check(config: ForgeConfig, output_format: str) -> None:
+    """Estimate peak training VRAM from config without loading the model."""
+    from .fit_check import estimate_vram, format_fit_check
+
+    result = estimate_vram(config)
+
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "verdict": result.verdict,
+                    "estimated_gb": result.estimated_gb,
+                    "available_gb": result.available_gb,
+                    "hypothetical": result.hypothetical,
+                    "breakdown": result.breakdown,
+                    "recommendations": result.recommendations,
+                },
+                indent=2,
+            )
+        )
+        return
+
+    print(format_fit_check(result))
+
+
+def _run_chat_cmd(args) -> None:
+    """Dispatch the ``forgelm chat`` subcommand."""
+    try:
+        from .chat import run_chat
+
+        run_chat(
+            model_path=args.model_path,
+            adapter=args.adapter,
+            system_prompt=args.system,
+            temperature=args.temperature,
+            max_new_tokens=args.max_new_tokens,
+            stream=not args.no_stream,
+            load_in_4bit=args.load_in_4bit,
+            load_in_8bit=args.load_in_8bit,
+            trust_remote_code=args.trust_remote_code,
+            backend=args.backend,
+        )
+    except ImportError as e:
+        logger.error("Missing dependency for chat: %s", e)
+        sys.exit(EXIT_TRAINING_ERROR)
+    except Exception as e:
+        logger.exception("Chat session failed: %s", e)
+        sys.exit(EXIT_TRAINING_ERROR)
+
+
+def _run_export_cmd(args, output_format: str) -> None:
+    """Dispatch the ``forgelm export`` subcommand."""
+    from .export import export_model
+
+    result = export_model(
+        model_path=args.model_path,
+        output_path=args.output,
+        output_format=args.format,
+        quant=args.quant,
+        adapter=args.adapter,
+        update_integrity=not args.no_integrity_update,
+    )
+
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "success": result.success,
+                    "output_path": result.output_path,
+                    "format": result.format,
+                    "quant": result.quant,
+                    "sha256": result.sha256,
+                    "size_bytes": result.size_bytes,
+                    "error": result.error,
+                },
+                indent=2,
+            )
+        )
+    else:
+        if result.success:
+            logger.info(
+                "Export complete: %s (quant=%s, sha256=%s…)",
+                result.output_path,
+                result.quant,
+                (result.sha256 or "")[:12],
+            )
+        else:
+            logger.error("Export failed: %s", result.error)
+
+    if not result.success:
+        sys.exit(EXIT_TRAINING_ERROR)
+
+
+def _run_deploy_cmd(args, output_format: str) -> None:
+    """Dispatch the ``forgelm deploy`` subcommand."""
+    from .deploy import HFEndpointsOptions, generate_deploy_config
+
+    result = generate_deploy_config(
+        model_path=args.model_path,
+        target=args.target,
+        output_path=args.output,
+        system_prompt=args.system,
+        max_length=args.max_length,
+        trust_remote_code=args.trust_remote_code,
+        gpu_memory_utilization=args.gpu_memory_utilization,
+        port=args.port,
+        hf_endpoints=HFEndpointsOptions(vendor=getattr(args, "vendor", "aws")),
+    )
+
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "success": result.success,
+                    "target": result.target,
+                    "output_path": result.output_path,
+                    "error": result.error,
+                },
+                indent=2,
+            )
+        )
+    else:
+        if result.success:
+            logger.info("Deploy config written: %s (target=%s)", result.output_path, result.target)
+        else:
+            logger.error("Deploy config generation failed: %s", result.error)
+
+    if not result.success:
+        sys.exit(EXIT_TRAINING_ERROR)
+
+
+def _dispatch_subcommand(command: str, args) -> None:
+    """Run a Phase 10 subcommand (chat / export / deploy) and exit."""
+    if command == "chat":
+        # _run_chat_cmd's REPL catches KeyboardInterrupt internally for the
+        # input prompt; this outer guard covers Ctrl-C during model load /
+        # welcome banner render, before the REPL loop has started.
+        try:
+            _run_chat_cmd(args)
+        except KeyboardInterrupt:
+            pass
+        sys.exit(EXIT_SUCCESS)
+    elif command == "export":
+        _run_export_cmd(args, getattr(args, "output_format", "text"))
+        sys.exit(EXIT_SUCCESS)
+    elif command == "deploy":
+        _run_deploy_cmd(args, getattr(args, "output_format", "text"))
+        sys.exit(EXIT_SUCCESS)
+
+
+def _maybe_run_wizard(args) -> None:
+    """Open the interactive wizard when --wizard was passed; mutates *args*."""
+    if not args.wizard:
+        return
+    from .wizard import run_wizard
+
+    config_path = run_wizard()
+    if config_path:
+        args.config = config_path
+    else:
+        sys.exit(EXIT_SUCCESS)
+
+
+def _load_config_or_exit(config_path: str, json_output: bool):
+    """Load config and translate exceptions into the right exit code."""
+    try:
+        logger.info("Loading configuration from %s...", config_path)
+        return load_config(config_path)
+    except FileNotFoundError as e:
+        msg = f"Config file not found: {e}"
+    except ConfigError as e:
+        msg = str(e)
+    except Exception as e:
+        msg = f"Unexpected error: {e}"
+    if json_output:
+        print(json.dumps({"success": False, "error": msg}))
+    else:
+        logger.error("Configuration error: %s", msg)
+    sys.exit(EXIT_CONFIG_ERROR)
+
+
+def _apply_offline_flag(config, offline_arg: bool) -> None:
+    if offline_arg:
+        config.model.offline = True
+    if config.model.offline:
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+        os.environ["HF_DATASETS_OFFLINE"] = "1"
+        logger.info("Offline mode enabled. All HF Hub network calls are disabled.")
+
+
+def _maybe_run_no_train_mode(config, args) -> None:
+    """If a non-training mode flag is set, run it and exit."""
+    if args.dry_run:
+        _run_dry_run(config, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+    if args.fit_check:
+        _run_fit_check(config, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+    if args.benchmark_only:
+        _run_benchmark_only(config, args.benchmark_only, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+    if args.merge:
+        _run_merge(config, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+    if args.generate_data:
+        _run_generate_data(config, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+    if args.compliance_export:
+        _run_compliance_export(config, args.compliance_export, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+
+
+def _report_training_error(
+    json_output: bool, payload: dict, log_msg: str, exit_code: int, *, with_traceback: bool = False
+) -> None:
+    """Emit a training-pipeline error and exit with *exit_code*.
+
+    Centralizes the "JSON to stdout vs human log message" split. Pass
+    ``with_traceback=True`` for unexpected exceptions where the stack trace
+    is more useful than a one-line message.
+    """
+    if json_output:
+        print(json.dumps(payload))
+    elif with_traceback:
+        logger.exception(log_msg)
+    else:
+        logger.error(log_msg)
+    sys.exit(exit_code)
+
+
+def _run_training_pipeline(config, args, json_output: bool) -> None:
+    """Run the full training pipeline (model load → data → trainer.train → cleanup)."""
+    try:
+        # Defer heavy imports so `--help`, `--version`, and `--dry-run` stay lightweight.
+        from .data import prepare_dataset
+        from .model import get_model_and_tokenizer
+        from .trainer import ForgeTrainer
+        from .utils import manage_checkpoints, setup_authentication
+
+        if not config.model.offline:
+            setup_authentication(config.auth.hf_token if config.auth else None)
+        else:
+            logger.info("Skipping HF authentication (offline mode).")
+
+        model, tokenizer = get_model_and_tokenizer(config)
+        dataset = prepare_dataset(config, tokenizer)
+
+        resume_checkpoint = None
+        if args.resume:
+            resume_checkpoint = _resolve_resume_checkpoint(config.training.output_dir, args.resume)
+
+        trainer = ForgeTrainer(model=model, tokenizer=tokenizer, config=config, dataset=dataset)
+        result = trainer.train(resume_from_checkpoint=resume_checkpoint)
+
+        logger.info("Cleaning up intermediate checkpoints...")
+        manage_checkpoints(config.training.output_dir, action="keep")
+
+        _output_result(result, args.output_format)
+        if result.success and config.evaluation and getattr(config.evaluation, "require_human_approval", False):
+            sys.exit(EXIT_AWAITING_APPROVAL)
+        sys.exit(EXIT_SUCCESS if result.success else EXIT_EVAL_FAILURE)
+
+    except ImportError as e:
+        _report_training_error(
+            json_output,
+            payload={"success": False, "error": f"Missing dependency: {e}"},
+            log_msg=f"Missing dependency: {e}. Check your installation.",
+            exit_code=EXIT_TRAINING_ERROR,
+        )
+    except Exception as e:
+        _report_training_error(
+            json_output,
+            payload={"success": False, "error": str(e)},
+            log_msg="Training pipeline failed.",
+            exit_code=EXIT_TRAINING_ERROR,
+            with_traceback=True,
+        )
+
+
 def main():
     args = parse_args()
 
-    # --wizard mode: generate config interactively
-    if args.wizard:
-        from .wizard import run_wizard
+    # Phase 10 subcommand dispatch — no --config required.
+    command = getattr(args, "command", None)
+    if command is not None:
+        json_output = getattr(args, "output_format", "text") == "json"
+        log_level = "WARNING" if getattr(args, "quiet", False) else getattr(args, "log_level", "INFO")
+        _setup_logging(log_level, json_format=json_output)
+        _dispatch_subcommand(command, args)
 
-        config_path = run_wizard()
-        if config_path:
-            # User chose to start training immediately — update args
-            args.config = config_path
-        else:
-            sys.exit(EXIT_SUCCESS)
+    _maybe_run_wizard(args)
 
-    # --config is required except for --version and --wizard (handled above)
     if not args.config:
         print("Error: --config is required. Use --help for usage.", file=sys.stderr)
         sys.exit(EXIT_CONFIG_ERROR)
@@ -430,114 +886,10 @@ def main():
     log_level = "WARNING" if args.quiet else args.log_level
     _setup_logging(log_level, json_format=json_output)
 
-    # 1. Load and validate configuration
-    try:
-        logger.info("Loading configuration from %s...", args.config)
-        config = load_config(args.config)
-    except FileNotFoundError as e:
-        if json_output:
-            print(json.dumps({"success": False, "error": f"Config file not found: {e}"}))
-        else:
-            logger.error("Configuration file not found: %s", e)
-        sys.exit(EXIT_CONFIG_ERROR)
-    except ConfigError as e:
-        if json_output:
-            print(json.dumps({"success": False, "error": str(e)}))
-        else:
-            logger.error("Configuration error: %s", e)
-        sys.exit(EXIT_CONFIG_ERROR)
-    except Exception as e:
-        if json_output:
-            print(json.dumps({"success": False, "error": f"Unexpected error: {e}"}))
-        else:
-            logger.error("Unexpected error loading configuration: %s", e)
-        sys.exit(EXIT_CONFIG_ERROR)
-
-    # 2. Apply --offline flag
-    if args.offline:
-        config.model.offline = True
-    if config.model.offline:
-        os.environ["HF_HUB_OFFLINE"] = "1"
-        os.environ["TRANSFORMERS_OFFLINE"] = "1"
-        os.environ["HF_DATASETS_OFFLINE"] = "1"
-        logger.info("Offline mode enabled. All HF Hub network calls are disabled.")
-
-    # 3. Dry-run mode: validate and exit
-    if args.dry_run:
-        _run_dry_run(config, args.output_format)
-        sys.exit(EXIT_SUCCESS)
-
-    # 4. Benchmark-only mode: evaluate an existing model without training
-    if args.benchmark_only:
-        _run_benchmark_only(config, args.benchmark_only, args.output_format)
-        sys.exit(EXIT_SUCCESS)
-
-    # 5. Merge mode: merge models from config without training
-    if args.merge:
-        _run_merge(config, args.output_format)
-        sys.exit(EXIT_SUCCESS)
-
-    # 6. Synthetic data generation mode
-    if args.generate_data:
-        _run_generate_data(config, args.output_format)
-        sys.exit(EXIT_SUCCESS)
-
-    # 7. Compliance export mode: generate audit artifacts from config
-    if args.compliance_export:
-        _run_compliance_export(config, args.compliance_export, args.output_format)
-        sys.exit(EXIT_SUCCESS)
-
-    try:
-        # Defer heavy imports so `--help`, `--version`, and `--dry-run` stay lightweight.
-        from .data import prepare_dataset
-        from .model import get_model_and_tokenizer
-        from .trainer import ForgeTrainer
-        from .utils import manage_checkpoints, setup_authentication
-
-        # 7. Setup HF Authentication (skipped in offline mode)
-        if not config.model.offline:
-            setup_authentication(config.auth.hf_token if config.auth else None)
-        else:
-            logger.info("Skipping HF authentication (offline mode).")
-
-        # 8. Model & Tokenizer
-        model, tokenizer = get_model_and_tokenizer(config)
-
-        # 9. Data Preprocessing
-        dataset = prepare_dataset(config, tokenizer)
-
-        # 10. Resolve checkpoint resume
-        resume_checkpoint = None
-        if args.resume:
-            resume_checkpoint = _resolve_resume_checkpoint(config.training.output_dir, args.resume)
-
-        # 11. Training
-        trainer = ForgeTrainer(model=model, tokenizer=tokenizer, config=config, dataset=dataset)
-        result = trainer.train(resume_from_checkpoint=resume_checkpoint)
-
-        # 12. Checkpoint cleanup/compression
-        logger.info("Cleaning up intermediate checkpoints...")
-        manage_checkpoints(config.training.output_dir, action="keep")
-
-        # 13. Output result
-        _output_result(result, args.output_format)
-        # Human approval gate: exit code 4 if awaiting approval
-        if result.success and config.evaluation and getattr(config.evaluation, "require_human_approval", False):
-            sys.exit(EXIT_AWAITING_APPROVAL)
-        sys.exit(EXIT_SUCCESS if result.success else EXIT_EVAL_FAILURE)
-
-    except ImportError as e:
-        if json_output:
-            print(json.dumps({"success": False, "error": f"Missing dependency: {e}"}))
-        else:
-            logger.error("Missing dependency: %s. Check your installation.", e)
-        sys.exit(EXIT_TRAINING_ERROR)
-    except Exception as e:
-        if json_output:
-            print(json.dumps({"success": False, "error": str(e)}))
-        else:
-            logger.exception("Training pipeline failed.")
-        sys.exit(EXIT_TRAINING_ERROR)
+    config = _load_config_or_exit(args.config, json_output)
+    _apply_offline_flag(config, args.offline)
+    _maybe_run_no_train_mode(config, args)
+    _run_training_pipeline(config, args, json_output)
 
 
 if __name__ == "__main__":

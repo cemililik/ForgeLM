@@ -239,7 +239,7 @@ class TestComplianceExportIntegration:
         cfg = ForgeConfig(**_full_config())
         output_dir = str(tmp_path / "audit")
         manifest = generate_training_manifest(cfg, {"eval_loss": 0.5})
-        export_compliance_artifacts(manifest, cfg, output_dir)
+        export_compliance_artifacts(manifest, output_dir)
 
         annex_path = os.path.join(output_dir, "annex_iv_metadata.json")
         with open(annex_path) as f:
@@ -251,7 +251,7 @@ class TestComplianceExportIntegration:
         cfg = ForgeConfig(**_full_config())
         output_dir = str(tmp_path / "audit")
         manifest = generate_training_manifest(cfg, {})
-        export_compliance_artifacts(manifest, cfg, output_dir)
+        export_compliance_artifacts(manifest, output_dir)
 
         risk_path = os.path.join(output_dir, "risk_assessment.json")
         with open(risk_path) as f:
@@ -281,7 +281,7 @@ class TestAuditLoggerIntegration:
         assert all(e["run_id"] == "test-run-001" for e in events)
         assert events[0]["event"] == "pipeline.initialized"
         assert events[3]["event"] == "evaluation.safety"
-        assert events[3]["safe_ratio"] == 0.95
+        assert events[3]["safe_ratio"] == pytest.approx(0.95)
         assert events[4]["event"] == "human_approval.required"
         assert events[5]["event"] == "pipeline.completed"
 
@@ -339,7 +339,7 @@ class TestEvidenceBundleIntegration:
         # Generate all compliance artifacts
         compliance_dir = str(tmp_path / "compliance")
         manifest = generate_training_manifest(cfg, {"eval_loss": 0.5})
-        files = export_compliance_artifacts(manifest, cfg, compliance_dir)
+        files = export_compliance_artifacts(manifest, compliance_dir)
         assert len(files) >= 5
 
         # Create bundle

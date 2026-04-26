@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from datasets import DatasetDict, concatenate_datasets, load_dataset
 from transformers import PreTrainedTokenizer
@@ -53,6 +53,76 @@ def _load_single_dataset(path: str):
     return load_dataset(path)
 
 
+def _process_text_format(examples: dict, clean_text: bool, add_eos: bool, eos_token: str) -> dict:
+    """Pre-formatted text column (e.g., openassistant-guanaco)."""
+    texts = []
+    for t in examples["text"]:
+        t = clean_string(t, clean_text)
+        if add_eos and t and eos_token and not t.endswith(eos_token):
+            t += eos_token
+        texts.append(t)
+    return {"text": texts}
+
+
+def _process_messages_format(examples: dict, add_eos: bool, eos_token: str) -> dict:
+    """Modern conversational format (messages column)."""
+    texts = []
+    for msg_list in examples["messages"]:
+        try:
+            # apply_chat_template is not available here (no tokenizer reference);
+            # use fallback formatting — callers that need chat templates should
+            # pass a tokenizer-aware processor instead.
+            formatted_text = "".join(f"[{m['role'].upper()}]\n{m['content']}\n" for m in msg_list)
+            if add_eos and eos_token:
+                formatted_text += eos_token
+        except Exception:
+            formatted_text = ""
+        texts.append(formatted_text)
+    return {"text": texts}
+
+
+def _format_user_assistant_row(
+    sys_text: str, user_text: str, asst_text: str, clean_text: bool, add_eos: bool, eos_token: str
+) -> str:
+    """Render a single (System?, User, Assistant) row into a flat training string."""
+    sys_clean = clean_string(sys_text, clean_text) if sys_text else ""
+    user_clean = clean_string(user_text, clean_text)
+    asst_clean = clean_string(asst_text, clean_text)
+    sys_part = f"[SYSTEM]\n{sys_clean}\n" if sys_text else ""
+    formatted_text = sys_part + f"[USER]\n{user_clean}\n[ASSISTANT]\n{asst_clean}"
+    if add_eos and eos_token:
+        formatted_text += eos_token
+    return formatted_text
+
+
+def _process_user_assistant_format(examples: dict, clean_text: bool, add_eos: bool, eos_token: str) -> dict:
+    """Legacy User/Assistant or instruction/output column layout."""
+    has_system = "System" in examples
+    has_user = "User" in examples or "instruction" in examples
+    has_assistant = "Assistant" in examples or "output" in examples or "response" in examples
+
+    # Distinguish "wrong schema" (raise) from "empty batch" (return empty list).
+    # Truthiness on the column list would conflate the two.
+    if not has_user or not has_assistant:
+        fmt = _detect_dataset_format(list(examples.keys()))
+        raise KeyError(
+            f"Dataset must contain 'User'/'instruction' and 'Assistant'/'output' columns, "
+            f"or a pre-formatted 'text' column. "
+            f"Found: {list(examples.keys())}. "
+            f"Detected format: {fmt['description']}. "
+            f"Suggested trainer: {fmt['suggested_trainer']}"
+        )
+
+    user_texts = examples.get("User", examples.get("instruction", []))
+    asst_texts = examples.get("Assistant", examples.get("output", examples.get("response", [])))
+    sys_texts = examples["System"] if has_system else [""] * len(user_texts)
+    texts = [
+        _format_user_assistant_row(s, u, a, clean_text, add_eos, eos_token)
+        for s, u, a in zip(sys_texts, user_texts, asst_texts)
+    ]
+    return {"text": texts}
+
+
 def _make_batch_processor(clean_text: bool, add_eos: bool, eos_token: str):
     """
     Returns a multiprocessing-safe batch processor.
@@ -60,254 +130,221 @@ def _make_batch_processor(clean_text: bool, add_eos: bool, eos_token: str):
     """
 
     def process_batch(examples):
-        # Handle pre-formatted text column (e.g., openassistant-guanaco)
         if "text" in examples and "User" not in examples and "messages" not in examples:
-            texts = []
-            for t in examples["text"]:
-                t = clean_string(t, clean_text)
-                if add_eos and t and eos_token and not t.endswith(eos_token):
-                    t += eos_token
-                texts.append(t)
-            return {"text": texts}
-
-        # Handle modern conversational format (messages column)
+            return _process_text_format(examples, clean_text, add_eos, eos_token)
         if "messages" in examples:
-            texts = []
-            for msg_list in examples["messages"]:
-                try:
-                    # apply_chat_template is not available here (no tokenizer reference);
-                    # use fallback formatting — callers that need chat templates should
-                    # pass a tokenizer-aware processor instead.
-                    formatted_text = ""
-                    for m in msg_list:
-                        formatted_text += f"[{m['role'].upper()}]\n{m['content']}\n"
-                    if add_eos and eos_token:
-                        formatted_text += eos_token
-                except Exception:
-                    formatted_text = ""
-                texts.append(formatted_text)
-            return {"text": texts}
-
-        has_system = "System" in examples
-        sys_texts = (
-            examples["System"] if has_system else [""] * len(examples.get("User", examples.get("instruction", [])))
-        )
-        user_texts = examples.get("User", examples.get("instruction", []))
-        asst_texts = examples.get("Assistant", examples.get("output", examples.get("response", [])))
-
-        if not user_texts or not asst_texts:
-            _fmt = _detect_dataset_format(list(examples.keys()))
-            raise KeyError(
-                f"Dataset must contain 'User'/'instruction' and 'Assistant'/'output' columns, "
-                f"or a pre-formatted 'text' column. "
-                f"Found: {list(examples.keys())}. "
-                f"Detected format: {_fmt['description']}. "
-                f"Suggested trainer: {_fmt['suggested_trainer']}"
-            )
-
-        texts = []
-        for sys_text, user_text, asst_text in zip(sys_texts, user_texts, asst_texts):
-            messages = []
-            if sys_text:
-                messages.append({"role": "system", "content": clean_string(sys_text, clean_text)})
-            messages.append({"role": "user", "content": clean_string(user_text, clean_text)})
-            messages.append({"role": "assistant", "content": clean_string(asst_text, clean_text)})
-
-            # Fallback formatting (no tokenizer in this primitive closure)
-            sys_part = f"[SYSTEM]\n{messages[0]['content']}\n" if sys_text else ""
-            user_idx = 1 if sys_text else 0
-            formatted_text = (
-                sys_part + f"[USER]\n{messages[user_idx]['content']}\n[ASSISTANT]\n{messages[-1]['content']}"
-            )
-            if add_eos and eos_token:
-                formatted_text += eos_token
-
-            texts.append(formatted_text)
-
-        return {"text": texts}
+            return _process_messages_format(examples, add_eos, eos_token)
+        return _process_user_assistant_format(examples, clean_text, add_eos, eos_token)
 
     return process_batch
 
 
+_PREFERENCE_TRAINERS = {"dpo", "simpo", "orpo"}
+
+
+def _apply_mix_ratio(all_train: list, mix_ratio: list) -> list:
+    """Re-sample the per-dataset training splits according to *mix_ratio* weights."""
+    total_weight = sum(mix_ratio)
+    if total_weight == 0:
+        logger.warning("mix_ratio weights sum to 0. Using uniform mixing.")
+        return all_train
+    normalized = [w / total_weight for w in mix_ratio]
+    max_dataset_size = max(len(ds) for ds in all_train)
+    sampled = []
+    for ds, ratio in zip(all_train, normalized):
+        n_samples = min(int(max_dataset_size * ratio), len(ds))
+        sampled.append(ds.shuffle(seed=42).select(range(n_samples)))
+    logger.info("Applied mix ratios: %s", mix_ratio)
+    return sampled
+
+
+def _merge_extra_datasets(primary_dataset, extra_paths: list, mix_ratio: Optional[list]):
+    """Concatenate primary + extra dataset training splits, optionally weighted."""
+    all_train = [primary_dataset["train"]]
+    for i, extra_path in enumerate(extra_paths):
+        logger.info("Loading extra dataset [%d]: %s", i + 1, extra_path)
+        extra_ds = _load_single_dataset(extra_path)
+        all_train.append(extra_ds["train"])
+
+    if mix_ratio:
+        if len(mix_ratio) == len(all_train):
+            all_train = _apply_mix_ratio(all_train, mix_ratio)
+        else:
+            logger.warning(
+                "mix_ratio length (%d) doesn't match dataset count (%d). Using uniform mixing.",
+                len(mix_ratio),
+                len(all_train),
+            )
+
+    merged_train = concatenate_datasets(all_train)
+    logger.info("Merged %d datasets into %d training samples.", len(all_train), len(merged_train))
+    dataset = DatasetDict({"train": merged_train})
+    if "validation" in primary_dataset:
+        dataset["validation"] = primary_dataset["validation"]
+    return dataset
+
+
+def _ensure_validation_split(dataset):
+    """Make sure ``dataset['validation']`` exists, deriving it from train if needed."""
+    if "validation" in dataset:
+        return dataset
+    if "test" in dataset:
+        dataset["validation"] = dataset["test"]
+        return dataset
+    dataset_size = len(dataset["train"])
+    test_size = min(0.1, 2000 / max(dataset_size, 1))
+    test_size = max(test_size, 0.01)
+    logger.info(
+        "No validation split found. Auto-splitting: %.1f%% (%d samples) for validation.",
+        test_size * 100,
+        int(dataset_size * test_size),
+    )
+    split_dataset = dataset["train"].train_test_split(test_size=test_size, seed=42)
+    return DatasetDict({"train": split_dataset["train"], "validation": split_dataset["test"]})
+
+
+def _validate_trainer_columns(
+    trainer_type: str,
+    sample_columns: list,
+    detected_format: dict,
+    has_chosen_rejected: bool,
+    has_kto_format: bool,
+) -> None:
+    """Raise KeyError when the loaded dataset doesn't match the trainer's expected schema."""
+    if trainer_type in _PREFERENCE_TRAINERS and not has_chosen_rejected:
+        raise KeyError(
+            f"{trainer_type.upper()} trainer requires 'chosen' and 'rejected' columns, "
+            f"but found: {', '.join(sample_columns)}.\n\n"
+            f"Your dataset looks like: {detected_format['description']}\n"
+            f'Suggested: Use trainer_type: "{detected_format["suggested_trainer"]}" instead, '
+            f"or convert your data to preference format (prompt + chosen + rejected)."
+        )
+    if trainer_type == "kto" and not has_kto_format:
+        raise KeyError(
+            f"KTO trainer requires 'completion' and 'label' (boolean) columns, "
+            f"but found: {', '.join(sample_columns)}.\n\n"
+            f"Your dataset looks like: {detected_format['description']}\n"
+            f'Suggested: Use trainer_type: "{detected_format["suggested_trainer"]}" instead, '
+            f"or convert your data to KTO format (prompt + completion + label)."
+        )
+    if trainer_type == "grpo" and "prompt" not in sample_columns:
+        raise KeyError(
+            f"GRPO trainer requires a 'prompt' column, "
+            f"but found: {', '.join(sample_columns)}.\n\n"
+            f"Your dataset looks like: {detected_format['description']}\n"
+            f'Suggested: Use trainer_type: "{detected_format["suggested_trainer"]}" instead, '
+            f"or convert your data to prompt-only format."
+        )
+
+
+def _shuffle_and_passthrough(dataset, shuffle: bool) -> Dict[str, Any]:
+    """Return splits as-is — for trainers that need raw columns.
+
+    Only the ``train`` split is shuffled when ``shuffle=True``; validation
+    and test splits are preserved in their original order so evaluation is
+    reproducible across runs and metrics line up sample-by-sample.
+    """
+    out: Dict[str, Any] = {}
+    for split in dataset:
+        current = dataset[split]
+        if shuffle and split == "train":
+            current = current.shuffle(seed=42)
+        out[split] = current
+    return out
+
+
+def _passthrough_for_trainer(trainer_type: str, dataset, shuffle: bool) -> Optional[Dict[str, Any]]:
+    """If trainer takes raw preference/KTO/GRPO columns, return splits as-is; else None."""
+    if trainer_type in _PREFERENCE_TRAINERS:
+        logger.info("Detected preference dataset (chosen/rejected) for %s training.", trainer_type.upper())
+        return _shuffle_and_passthrough(dataset, shuffle)
+    if trainer_type == "kto":
+        logger.info("Detected KTO dataset (completion/label) for KTO training.")
+        return _shuffle_and_passthrough(dataset, shuffle)
+    if trainer_type == "grpo":
+        logger.info("Detected prompt dataset for GRPO training.")
+        return _shuffle_and_passthrough(dataset, shuffle)
+    return None
+
+
+def _passthrough_multimodal(config: Any, dataset, sample_columns: list) -> Optional[Dict[str, Any]]:
+    """Multimodal VLM datasets pass through unchanged so the VLM processor can run."""
+    mm_cfg = getattr(config.model, "multimodal", None)
+    if not (mm_cfg and mm_cfg.enabled):
+        return None
+    image_col = mm_cfg.image_column
+    text_col = mm_cfg.text_column
+    if image_col not in sample_columns:
+        raise KeyError(
+            f"Multimodal mode enabled but image column '{image_col}' not found. "
+            f"Found columns: {', '.join(sample_columns)}. "
+            f"Set model.multimodal.image_column to match your dataset."
+        )
+    logger.info(
+        "Multimodal VLM dataset detected (image='%s', text='%s'). Passing through for VLM processor handling.",
+        image_col,
+        text_col,
+    )
+    return _shuffle_and_passthrough(dataset, config.data.shuffle)
+
+
+def _format_sft_dataset(dataset, processor, shuffle: bool) -> Dict[str, Any]:
+    """Apply the SFT chat-template formatter across all splits.
+
+    Only the ``train`` split is shuffled — keeping validation/test order
+    stable preserves reproducible eval metrics across runs.
+    """
+    logger.info("Formatting dataset with Chat Templates...")
+    processed: Dict[str, Any] = {}
+    for split in dataset:
+        current = dataset[split]
+        if shuffle and split == "train":
+            current = current.shuffle(seed=42)
+        processed[split] = current.map(
+            processor,
+            batched=True,
+            remove_columns=current.column_names,
+            num_proc=min(os.cpu_count() or 1, 8),
+            desc=f"Formatting {split} split",
+        )
+    return processed
+
+
 def prepare_dataset(config: Any, tokenizer: PreTrainedTokenizer) -> Dict[str, Any]:
     """Loads and tokenizes the dataset based on ForgeConfig."""
-
     logger.info("Loading dataset from %s...", config.data.dataset_name_or_path)
     primary_dataset = _load_single_dataset(config.data.dataset_name_or_path)
     dataset = primary_dataset
 
-    # Multi-dataset support: load and merge extra datasets
     extra_datasets = getattr(config.data, "extra_datasets", None)
     if extra_datasets:
-        all_train = [dataset["train"]]
-        mix_ratio = getattr(config.data, "mix_ratio", None)
-
-        for i, extra_path in enumerate(extra_datasets):
-            logger.info("Loading extra dataset [%d]: %s", i + 1, extra_path)
-            extra_ds = _load_single_dataset(extra_path)
-            all_train.append(extra_ds["train"])
-
-        # Apply mix ratios via sampling
-        if mix_ratio and len(mix_ratio) == len(all_train):
-            total_weight = sum(mix_ratio)
-            if total_weight == 0:
-                logger.warning("mix_ratio weights sum to 0. Using uniform mixing.")
-            else:
-                normalized = [w / total_weight for w in mix_ratio]
-                # Total target = sum of all dataset sizes weighted proportionally
-                max_dataset_size = max(len(ds) for ds in all_train)
-                sampled = []
-                for ds, ratio in zip(all_train, normalized):
-                    n_samples = min(int(max_dataset_size * ratio), len(ds))
-                    sampled.append(ds.shuffle(seed=42).select(range(n_samples)))
-                all_train = sampled
-                logger.info("Applied mix ratios: %s", mix_ratio)
-        else:
-            if mix_ratio:
-                logger.warning(
-                    "mix_ratio length (%d) doesn't match dataset count (%d). Using uniform mixing.",
-                    len(mix_ratio),
-                    len(all_train),
-                )
-
-        merged_train = concatenate_datasets(all_train)
-        logger.info("Merged %d datasets into %d training samples.", len(all_train), len(merged_train))
-        dataset = DatasetDict({"train": merged_train})
-        # Validation from primary dataset (already loaded, no re-fetch)
-        if "validation" in primary_dataset:
-            dataset["validation"] = primary_dataset["validation"]
-
-    # Ensure splits exist (train / validation)
-    if "validation" not in dataset and "test" in dataset:
-        dataset["validation"] = dataset["test"]
-    elif "validation" not in dataset:
-        dataset_size = len(dataset["train"])
-        test_size = min(0.1, 2000 / max(dataset_size, 1))
-        test_size = max(test_size, 0.01)
-        logger.info(
-            "No validation split found. Auto-splitting: %.1f%% (%d samples) for validation.",
-            test_size * 100,
-            int(dataset_size * test_size),
+        dataset = _merge_extra_datasets(
+            primary_dataset,
+            extra_datasets,
+            getattr(config.data, "mix_ratio", None),
         )
-        split_dataset = dataset["train"].train_test_split(test_size=test_size, seed=42)
-        dataset = DatasetDict({"train": split_dataset["train"], "validation": split_dataset["test"]})
+
+    dataset = _ensure_validation_split(dataset)
+
+    sample_columns = dataset["train"].column_names if "train" in dataset else []
+
+    multimodal = _passthrough_multimodal(config, dataset, sample_columns)
+    if multimodal is not None:
+        return multimodal
+
+    trainer_type = getattr(config.training, "trainer_type", "sft")
+    has_chosen_rejected = "chosen" in sample_columns and "rejected" in sample_columns
+    has_kto_format = "completion" in sample_columns and "label" in sample_columns
+    detected_format = _detect_dataset_format(sample_columns)
+    _validate_trainer_columns(trainer_type, sample_columns, detected_format, has_chosen_rejected, has_kto_format)
+
+    raw = _passthrough_for_trainer(trainer_type, dataset, config.data.shuffle)
+    if raw is not None:
+        return raw
 
     processor = _make_batch_processor(
         clean_text=config.data.clean_text,
         add_eos=config.data.add_eos,
         eos_token=tokenizer.eos_token or "",
     )
-
-    # Detect dataset format and trainer type
-    trainer_type = getattr(config.training, "trainer_type", "sft")
-    sample_columns = dataset["train"].column_names if "train" in dataset else []
-    has_chosen_rejected = "chosen" in sample_columns and "rejected" in sample_columns
-    has_kto_format = "completion" in sample_columns and "label" in sample_columns
-    has_prompt_only = "prompt" in sample_columns and not has_chosen_rejected
-
-    # Multimodal VLM datasets: pass through with image column handling
-    mm_cfg = getattr(config.model, "multimodal", None)
-    if mm_cfg and mm_cfg.enabled:
-        image_col = mm_cfg.image_column
-        text_col = mm_cfg.text_column
-        if image_col not in sample_columns:
-            raise KeyError(
-                f"Multimodal mode enabled but image column '{image_col}' not found. "
-                f"Found columns: {', '.join(sample_columns)}. "
-                f"Set model.multimodal.image_column to match your dataset."
-            )
-        logger.info(
-            "Multimodal VLM dataset detected (image='%s', text='%s'). Passing through for VLM processor handling.",
-            image_col,
-            text_col,
-        )
-        processed = {}
-        for split in dataset:
-            current_dataset = dataset[split]
-            if config.data.shuffle:
-                current_dataset = current_dataset.shuffle(seed=42)
-            processed[split] = current_dataset
-        return processed
-
-    # Detect what format the dataset actually is
-    _detected_format = _detect_dataset_format(sample_columns)
-
-    # Preference trainers: DPO, SimPO, ORPO require chosen/rejected
-    preference_trainers = {"dpo", "simpo", "orpo"}
-    if trainer_type in preference_trainers and not has_chosen_rejected:
-        raise KeyError(
-            f"{trainer_type.upper()} trainer requires 'chosen' and 'rejected' columns, "
-            f"but found: {', '.join(sample_columns)}.\n\n"
-            f"Your dataset looks like: {_detected_format['description']}\n"
-            f'Suggested: Use trainer_type: "{_detected_format["suggested_trainer"]}" instead, '
-            f"or convert your data to preference format (prompt + chosen + rejected)."
-        )
-
-    # KTO requires completion/label format
-    if trainer_type == "kto" and not has_kto_format:
-        raise KeyError(
-            f"KTO trainer requires 'completion' and 'label' (boolean) columns, "
-            f"but found: {', '.join(sample_columns)}.\n\n"
-            f"Your dataset looks like: {_detected_format['description']}\n"
-            f'Suggested: Use trainer_type: "{_detected_format["suggested_trainer"]}" instead, '
-            f"or convert your data to KTO format (prompt + completion + label)."
-        )
-
-    # GRPO requires prompt column (generates responses during training)
-    if trainer_type == "grpo" and not has_prompt_only and "prompt" not in sample_columns:
-        raise KeyError(
-            f"GRPO trainer requires a 'prompt' column, "
-            f"but found: {', '.join(sample_columns)}.\n\n"
-            f"Your dataset looks like: {_detected_format['description']}\n"
-            f'Suggested: Use trainer_type: "{_detected_format["suggested_trainer"]}" instead, '
-            f"or convert your data to prompt-only format."
-        )
-
-    # Preference / alignment datasets are passed through with minimal processing
-    # TRL trainers expect specific column formats
-    if trainer_type in preference_trainers and has_chosen_rejected:
-        logger.info("Detected preference dataset (chosen/rejected) for %s training.", trainer_type.upper())
-        processed = {}
-        for split in dataset:
-            current_dataset = dataset[split]
-            if config.data.shuffle:
-                current_dataset = current_dataset.shuffle(seed=42)
-            processed[split] = current_dataset
-        return processed
-
-    if trainer_type == "kto":
-        logger.info("Detected KTO dataset (completion/label) for KTO training.")
-        processed = {}
-        for split in dataset:
-            current_dataset = dataset[split]
-            if config.data.shuffle:
-                current_dataset = current_dataset.shuffle(seed=42)
-            processed[split] = current_dataset
-        return processed
-
-    if trainer_type == "grpo":
-        logger.info("Detected prompt dataset for GRPO training.")
-        processed = {}
-        for split in dataset:
-            current_dataset = dataset[split]
-            if config.data.shuffle:
-                current_dataset = current_dataset.shuffle(seed=42)
-            processed[split] = current_dataset
-        return processed
-
-    logger.info("Formatting dataset with Chat Templates...")
-    processed = {}
-    for split in dataset:
-        current_dataset = dataset[split]
-        if config.data.shuffle:
-            current_dataset = current_dataset.shuffle(seed=42)
-
-        processed[split] = current_dataset.map(
-            processor,
-            batched=True,
-            remove_columns=current_dataset.column_names,
-            num_proc=min(os.cpu_count() or 1, 8),
-            desc=f"Formatting {split} split",
-        )
-
-    return processed
+    return _format_sft_dataset(dataset, processor, config.data.shuffle)

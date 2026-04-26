@@ -34,6 +34,69 @@ def _check_lm_eval_available() -> None:
         ) from e
 
 
+# Keys lm-eval may use for accuracy, in priority order
+_ACC_METRIC_KEYS = ("acc_norm,none", "acc,none", "acc_norm", "acc")
+
+
+def _extract_task_score(task_name: str, task_result: Dict[str, Any]) -> Optional[float]:
+    """Pick the most appropriate accuracy metric out of an lm-eval task result."""
+    for key in _ACC_METRIC_KEYS:
+        score = task_result.get(key)
+        if score is not None:
+            logger.info("  %s: %.4f", task_name, score)
+            return float(score)
+
+    # Fallback: any key that looks like an accuracy
+    for key, value in task_result.items():
+        if isinstance(value, (int, float)) and "acc" in key:
+            logger.info("  %s: %.4f (%s)", task_name, value, key)
+            return float(value)
+
+    logger.warning("  %s: no accuracy metric found in results", task_name)
+    return None
+
+
+def _parse_results(raw_results: Dict[str, Any]) -> Dict[str, float]:
+    """Convert raw lm-eval per-task output into a flat task → accuracy map."""
+    scores: Dict[str, float] = {}
+    for task_name, task_result in raw_results.items():
+        score = _extract_task_score(task_name, task_result)
+        if score is not None:
+            scores[task_name] = score
+    return scores
+
+
+def _save_benchmark_json(
+    output_dir: str,
+    tasks: List[str],
+    scores: Dict[str, float],
+    average_score: float,
+    passed: bool,
+    num_fewshot: Optional[int],
+    limit: Optional[int],
+) -> None:
+    """Persist the benchmark summary to ``benchmark_results.json``."""
+    os.makedirs(output_dir, exist_ok=True)
+    results_path = os.path.join(output_dir, "benchmark_results.json")
+    try:
+        with open(results_path, "w") as f:
+            json.dump(
+                {
+                    "tasks": tasks,
+                    "scores": scores,
+                    "average_score": average_score,
+                    "passed": passed,
+                    "num_fewshot": num_fewshot,
+                    "limit": limit,
+                },
+                f,
+                indent=2,
+            )
+        logger.info("Benchmark results saved to %s", results_path)
+    except Exception as e:
+        logger.warning("Failed to save benchmark results: %s", e)
+
+
 def run_benchmark(
     model: Any,
     tokenizer: Any,
@@ -70,72 +133,27 @@ def run_benchmark(
 
     logger.info("Starting benchmark evaluation with tasks: %s", tasks)
 
-    # Wrap model for lm-eval
     try:
-        lm_obj = HFLM(
-            pretrained=model,
-            tokenizer=tokenizer,
-            batch_size=batch_size,
-        )
+        lm_obj = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=batch_size)
     except Exception as e:
         logger.error("Failed to initialize lm-eval model wrapper: %s", e)
-        return BenchmarkResult(
-            passed=False,
-            failure_reason=f"Model wrapper initialization failed: {e}",
-        )
+        return BenchmarkResult(passed=False, failure_reason=f"Model wrapper initialization failed: {e}")
 
-    # Build task arguments
-    task_kwargs = {}
+    task_kwargs: Dict[str, Any] = {}
     if num_fewshot is not None:
         task_kwargs["num_fewshot"] = num_fewshot
 
-    # Run evaluation
     try:
-        results = lm_eval.simple_evaluate(
-            model=lm_obj,
-            tasks=tasks,
-            limit=limit,
-            **task_kwargs,
-        )
+        results = lm_eval.simple_evaluate(model=lm_obj, tasks=tasks, limit=limit, **task_kwargs)
     except Exception as e:
         logger.error("Benchmark evaluation failed: %s", e)
-        return BenchmarkResult(
-            passed=False,
-            failure_reason=f"Evaluation execution failed: {e}",
-        )
+        return BenchmarkResult(passed=False, failure_reason=f"Evaluation execution failed: {e}")
 
-    # Parse results
-    scores = {}
     raw_results = results.get("results", {})
-
-    for task_name, task_result in raw_results.items():
-        # lm-eval stores metrics under various keys; prefer acc_norm, then acc
-        # Use explicit None checks to avoid treating 0.0 as missing
-        score = task_result.get("acc_norm,none")
-        if score is None:
-            score = task_result.get("acc,none")
-        if score is None:
-            score = task_result.get("acc_norm")
-        if score is None:
-            score = task_result.get("acc")
-        if score is not None:
-            scores[task_name] = float(score)
-            logger.info("  %s: %.4f", task_name, score)
-        else:
-            # Try to find any metric that looks like an accuracy
-            for key, value in task_result.items():
-                if isinstance(value, (int, float)) and "acc" in key:
-                    scores[task_name] = float(value)
-                    logger.info("  %s: %.4f (%s)", task_name, value, key)
-                    break
-            else:
-                logger.warning("  %s: no accuracy metric found in results", task_name)
-
-    # Compute average
+    scores = _parse_results(raw_results)
     average_score = sum(scores.values()) / len(scores) if scores else 0.0
     logger.info("Average benchmark score: %.4f", average_score)
 
-    # Check minimum score threshold
     passed = True
     failure_reason = None
     if min_score is not None and average_score < min_score:
@@ -143,24 +161,8 @@ def run_benchmark(
         failure_reason = f"Average benchmark score ({average_score:.4f}) is below minimum threshold ({min_score:.4f})."
         logger.error("BENCHMARK FAILED: %s", failure_reason)
 
-    # Save results to file
     if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-        results_path = os.path.join(output_dir, "benchmark_results.json")
-        try:
-            output_data = {
-                "tasks": tasks,
-                "scores": scores,
-                "average_score": average_score,
-                "passed": passed,
-                "num_fewshot": num_fewshot,
-                "limit": limit,
-            }
-            with open(results_path, "w") as f:
-                json.dump(output_data, f, indent=2)
-            logger.info("Benchmark results saved to %s", results_path)
-        except Exception as e:
-            logger.warning("Failed to save benchmark results: %s", e)
+        _save_benchmark_json(output_dir, tasks, scores, average_score, passed, num_fewshot, limit)
 
     return BenchmarkResult(
         scores=scores,

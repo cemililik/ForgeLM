@@ -66,7 +66,7 @@ class TestLoraConfig:
         lora = LoraConfigModel()
         assert lora.r == 8
         assert lora.alpha == 16
-        assert lora.dropout == 0.1
+        assert lora.dropout == pytest.approx(0.1)
         assert lora.bias == "none"
         assert lora.use_dora is False
         assert lora.target_modules == ["q_proj", "v_proj"]
@@ -94,7 +94,7 @@ class TestTrainingConfig:
 
     def test_custom_values(self):
         t = TrainingConfig(learning_rate=1e-4, num_train_epochs=5)
-        assert t.learning_rate == 1e-4
+        assert t.learning_rate == pytest.approx(1e-4)
         assert t.num_train_epochs == 5
 
 
@@ -111,7 +111,7 @@ class TestEvaluationConfig:
     def test_auto_revert_with_max_loss(self):
         e = EvaluationConfig(auto_revert=True, max_acceptable_loss=2.5)
         assert e.auto_revert is True
-        assert e.max_acceptable_loss == 2.5
+        assert e.max_acceptable_loss == pytest.approx(2.5)
 
 
 # --- WebhookConfig ---

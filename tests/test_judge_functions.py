@@ -30,14 +30,16 @@ class TestParseJudgeJson:
         result = _parse_judge_json(text)
         assert result["score"] == 6
 
-    def test_invalid_json_returns_zero(self):
+    def test_invalid_json_returns_none_sentinel(self):
+        # score=None signals a parse failure so the caller can drop the
+        # sample from the average instead of clipping it up to 1.0.
         result = _parse_judge_json("This is not JSON at all")
-        assert result["score"] == 0
+        assert result["score"] is None
         assert "Invalid JSON" in result["reason"]
 
     def test_empty_string(self):
         result = _parse_judge_json("")
-        assert result["score"] == 0
+        assert result["score"] is None
 
     def test_whitespace_padding(self):
         result = _parse_judge_json('  \n  {"score": 9, "reason": "Great"}  \n  ')
@@ -77,7 +79,8 @@ class TestCallApiJudge:
         from forgelm.judge import _call_api_judge
 
         result = _call_api_judge("test prompt", "fake-key")
-        assert result["score"] == 0
+        # Transport failures use the same None sentinel as parse failures.
+        assert result["score"] is None
         assert "API error" in result["reason"]
 
     @patch("requests.post")
@@ -97,7 +100,7 @@ class TestCallApiJudge:
 class TestJudgeResult:
     def test_defaults(self):
         r = JudgeResult()
-        assert r.average_score == 0.0
+        assert r.average_score == pytest.approx(0.0)
         assert r.passed is True
         assert r.scores == []
         assert r.details == []
@@ -169,8 +172,8 @@ class TestJudgeScoreClipping:
             )
 
         # Score must be clipped to 10.0
-        assert result.scores[0] == 10.0
-        assert result.average_score == 10.0
+        assert result.scores[0] == pytest.approx(10.0)
+        assert result.average_score == pytest.approx(10.0)
         # Warning must be emitted
         assert any("clipped" in r.message or "out-of-range" in r.message for r in caplog.records)
 
@@ -180,9 +183,7 @@ class TestJudgeScoreClipping:
         import torch
 
         mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": '{"score": -5, "reason": "Terrible"}'}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": '{"score": -5, "reason": "Terrible"}'}}]}
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 
@@ -210,7 +211,7 @@ class TestJudgeScoreClipping:
             judge_api_key="fake-key",
             min_score=1.0,
         )
-        assert result.scores[0] == 1.0
+        assert result.scores[0] == pytest.approx(1.0)
 
 
 class TestJudgeApiBasePassthrough:
@@ -218,9 +219,7 @@ class TestJudgeApiBasePassthrough:
     def test_api_base_reaches_http_call(self, mock_post):
         """judge_api_base in config must be forwarded to the HTTP POST call."""
         mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": '{"score": 7, "reason": "OK"}'}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": '{"score": 7, "reason": "OK"}'}}]}
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 

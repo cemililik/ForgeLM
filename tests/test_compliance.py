@@ -3,6 +3,8 @@
 import json
 import os
 
+import pytest
+
 from forgelm.compliance import (
     _sanitize_md,
     compute_dataset_fingerprint,
@@ -32,7 +34,7 @@ class TestSafetyConfig:
     def test_defaults(self):
         s = SafetyConfig()
         assert s.enabled is False
-        assert s.max_safety_regression == 0.05
+        assert s.max_safety_regression == pytest.approx(0.05)
 
     def test_custom(self):
         s = SafetyConfig(enabled=True, classifier="custom/guard", max_safety_regression=0.1)
@@ -45,7 +47,7 @@ class TestJudgeConfig:
         j = JudgeConfig()
         assert j.enabled is False
         assert j.judge_model == "gpt-4o"
-        assert j.min_score == 5.0
+        assert j.min_score == pytest.approx(5.0)
 
     def test_local_judge(self):
         j = JudgeConfig(enabled=True, judge_model="/local/judge", judge_api_key_env=None)
@@ -72,7 +74,7 @@ class TestEvaluationWithSafetyJudge:
                 }
             )
         )
-        assert cfg.evaluation.llm_judge.min_score == 7.0
+        assert cfg.evaluation.llm_judge.min_score == pytest.approx(7.0)
 
     def test_eval_config_with_all(self):
         cfg = ForgeConfig(
@@ -119,12 +121,12 @@ class TestJudgeResult:
 class TestTrainResultPhase6:
     def test_resource_usage(self):
         r = TrainResult(success=True, resource_usage={"gpu_hours": 2.4, "peak_vram_gb": 22.1})
-        assert r.resource_usage["gpu_hours"] == 2.4
+        assert r.resource_usage["gpu_hours"] == pytest.approx(2.4)
 
     def test_safety_and_judge(self):
         r = TrainResult(success=True, safety_passed=True, judge_score=8.5)
         assert r.safety_passed is True
-        assert r.judge_score == 8.5
+        assert r.judge_score == pytest.approx(8.5)
 
 
 # --- Compliance ---
@@ -151,7 +153,7 @@ class TestTrainingManifest:
         assert manifest["model_lineage"]["base_model"] == "org/model"
         assert manifest["training_parameters"]["trainer_type"] == "sft"
         assert manifest["data_provenance"]["primary_dataset"] == "org/dataset"
-        assert manifest["evaluation_results"]["metrics"]["eval_loss"] == 0.5
+        assert manifest["evaluation_results"]["metrics"]["eval_loss"] == pytest.approx(0.5)
 
     def test_manifest_with_resource_usage(self):
         cfg = ForgeConfig(**_minimal_config())
@@ -160,7 +162,7 @@ class TestTrainingManifest:
             metrics={"eval_loss": 0.5},
             resource_usage={"gpu_hours": 1.5, "peak_vram_gb": 16.0},
         )
-        assert manifest["resource_usage"]["gpu_hours"] == 1.5
+        assert manifest["resource_usage"]["gpu_hours"] == pytest.approx(1.5)
 
 
 class TestComplianceExport:
@@ -170,7 +172,7 @@ class TestComplianceExport:
         cfg = ForgeConfig(**_minimal_config())
         manifest = generate_training_manifest(cfg, metrics={"eval_loss": 0.5})
         output_dir = str(tmp_path / "compliance")
-        files = export_compliance_artifacts(manifest, cfg, output_dir)
+        files = export_compliance_artifacts(manifest, output_dir)
         assert len(files) == 3
         assert all(os.path.isfile(f) for f in files)
         # Verify JSON is valid
@@ -194,9 +196,7 @@ class TestAuditLoggerHashChain:
 
         log2 = AuditLogger(str(tmp_path))
         # Must NOT reset to "genesis" — should read from the existing file
-        assert log2._prev_hash != "genesis", (
-            "Second AuditLogger instance must not reset the hash chain to 'genesis'"
-        )
+        assert log2._prev_hash != "genesis", "Second AuditLogger instance must not reset the hash chain to 'genesis'"
         # The second instance's starting hash is the hash of the last written line,
         # which matches what log1 computed after writing.
         assert log2._prev_hash == hash_after_first_event

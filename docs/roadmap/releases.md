@@ -18,11 +18,9 @@
 
 ---
 
----
-
 ## v0.3.1rc1 — "Security & Config Hardening" (2026-04-25)
 
-**Status:** Released (release candidate)
+**Status:** Folded into v0.4.0 (changes shipped as part of the v0.4.0 release; no standalone tag)
 
 ### Changes:
 - **Security**: Webhook URLs excluded from HuggingFace Hub model cards — prevent credential leaks
@@ -40,9 +38,19 @@
 
 ---
 
-## v0.4.0 — "Post-Training Completion" (Planlandı)
+## v0.4.0 — "Post-Training Completion" (2026-04-25)
 
-Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inference, chat, GGUF export, VRAM fit-check, deployment config generation. All five Phase 10 tasks (inference.py, chat.py, export, fit-check, deploy) complete before tagging v0.4.0.
+**Status:** Released
+
+Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inference, chat, GGUF export, VRAM fit-check, deployment config generation.
+
+### Features:
+1. [x] **`forgelm/inference.py`** — Shared generation primitives: `load_model`, `generate`, `generate_stream` (streaming via background thread), `logit_stats`, `adaptive_sample`. Supports transformers + peft (merge-and-unload) + unsloth backends.
+2. [x] **`forgelm chat`** — Interactive terminal REPL with streaming output, `/reset`, `/save`, `/temperature`, `/system` slash commands. Optional `rich` rendering. History capped at 50 turns. Optional Llama Guard safety routing.
+3. [x] **`forgelm export`** — GGUF conversion via `llama-cpp-python`'s `convert_hf_to_gguf.py`. Supports adapter merge before conversion. 6 quantization levels (`q2_k`, `q3_k_m`, `q4_k_m`, `q5_k_m`, `q8_0`, `f16`). SHA-256 appended to `model_integrity.json`. `pip install forgelm[export]`.
+4. [x] **`forgelm --fit-check`** — Pre-flight VRAM estimator. Architecture via `AutoConfig`. Formula: base weights + LoRA adapter + optimizer state (AdamW/8bit/GaLore) + activations (gradient-checkpointing aware). Verdicts: FITS / TIGHT / OOM / UNKNOWN. `--output-format json` for CI/CD.
+5. [x] **`forgelm deploy`** — Deployment config generator for 4 targets: `ollama` (Modelfile), `vllm` (YAML), `tgi` (docker-compose.yaml), `hf-endpoints` (JSON). Does not run the server itself.
+6. [x] **`pip install forgelm[export]`** — Optional `llama-cpp-python>=0.2.90` extra. `pip install forgelm[chat]` — Optional `rich>=13.0.0` extra.
 
 ---
 

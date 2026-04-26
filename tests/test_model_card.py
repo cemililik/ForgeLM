@@ -108,9 +108,7 @@ class TestGenerateModelCard:
         from forgelm.model_card import generate_model_card
 
         secret_url = "https://hooks.slack.com/services/SECRET_TOKEN/MORE_SECRET"
-        config = ForgeConfig(
-            **_minimal_config(webhook={"url": secret_url})
-        )
+        config = ForgeConfig(**_minimal_config(webhook={"url": secret_url}))
         final_path = str(tmp_path / "model")
         card_path = generate_model_card(
             config=config,

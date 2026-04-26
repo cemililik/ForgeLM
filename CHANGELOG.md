@@ -4,6 +4,103 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-04-25
+
+### Added
+
+**Post-Training Completion (Phase 10)**
+
+- **`forgelm/inference.py`** — Shared generation primitives for all post-training features:
+  - `load_model(path, adapter, backend, load_in_4bit, load_in_8bit, trust_remote_code)` — loads HF model + tokenizer; optional PEFT adapter merge via `merge_and_unload()`; unsloth backend support
+  - `generate(model, tokenizer, prompt, *, messages, system_prompt, history, max_new_tokens, temperature, top_k, top_p, repetition_penalty)` — non-streaming text generation
+  - `generate_stream(...)` — streaming via `TextIteratorStreamer` in daemon thread; yields token chunks
+  - `logit_stats(logits)` — returns `{entropy, top1_prob, effective_vocab}` for token-level confidence inspection
+  - `adaptive_sample(logits, temperature, top_k, top_p, entropy_threshold)` — greedy below entropy threshold, nucleus sampling above
+  - `_build_prompt` — uses `tokenizer.apply_chat_template` when available; falls back to `"role: content\n"` join
+
+- **`forgelm/chat.py`** — Interactive terminal REPL (`ChatSession` class + `run_chat()` entry point):
+  - Streaming output by default; `--no-stream` flag for non-streaming
+  - Slash commands: `/reset`, `/save [file]`, `/temperature N`, `/system [prompt]`, `/help`, `/exit`
+  - History management with 50-turn cap (`_MAX_HISTORY_PAIRS`)
+  - Optional `rich` rendering via `pip install forgelm[chat]`
+  - Optional `--safety` flag routes each response through Llama Guard
+
+- **`forgelm/fit_check.py`** — VRAM pre-flight advisor:
+  - `estimate_vram(config)` → `FitCheckResult(verdict, estimated_gb, available_gb, breakdown, recommendations)`
+  - Verdicts: `FITS` (< 85% GPU), `TIGHT` (85-95%), `OOM` (> 95%), `UNKNOWN` (no GPU)
+  - Architecture loaded via `transformers.AutoConfig`; fallback size-hint dict for 7b/8b/13b/70b families
+  - VRAM components: base weights + LoRA adapter + optimizer state (AdamW/8-bit/GaLore-aware) + activations (gradient-checkpointing divides by √layers)
+  - `format_fit_check(result)` — human-readable summary; `--output-format json` for CI/CD
+  - Hypothetical mode when no CUDA detected — still estimates based on architecture
+
+- **`forgelm/export.py`** — GGUF model export:
+  - `export_model(model_path, output_path, *, format, quant, adapter, update_integrity, extra_args)` → `ExportResult`
+  - Wraps `llama-cpp-python`'s `convert_hf_to_gguf.py` — no reimplementation of conversion logic
+  - Supported quantizations: `q2_k`, `q3_k_m`, `q4_k_m`, `q5_k_m`, `q8_0`, `f16`
+  - **K-quant note**: `q2_k`/`q3_k_m`/`q4_k_m`/`q5_k_m` require a two-step flow.
+    `forgelm export ... --quant q4_k_m model.gguf` produces an intermediate
+    `model.f16.gguf`; run `llama-quantize model.f16.gguf model.gguf Q4_K_M`
+    afterward to obtain the K-quant. The `ExportResult.quant` field reflects
+    what was actually written (so `model_integrity.json` SHA-256 stays honest)
+  - Adapter merge: loads base + PEFT, saves merged fp16 weights before conversion
+  - `_sha256_file` — chunked 64 KB reads for large models
+  - `_update_integrity_manifest` — appends export artifact (path, quant, sha256, size_bytes) to `model_integrity.json`
+  - Optional dependency: `pip install forgelm[export]` (`llama-cpp-python>=0.2.90`)
+
+- **`forgelm/deploy.py`** — Deployment config file generation:
+  - `generate_deploy_config(model_path, target, output_path, *, system_prompt, max_length, temperature, top_k, top_p, ...)` → `DeployResult`
+  - Target `ollama`: Modelfile with FROM, SYSTEM (double-quote escaped), PARAMETER directives
+  - Target `vllm`: YAML engine config with GPU memory utilization, dtype, trust_remote_code
+  - Target `tgi`: docker-compose.yaml with GPU resource reservation, port mapping, max-input/total-length
+  - Target `hf-endpoints`: JSON spec with model repository, task, compute instance, region, framework
+  - Case-insensitive target matching; default output filenames per target
+
+- **CLI subcommands** (`forgelm/cli.py`):
+  - `forgelm chat MODEL_PATH [--adapter] [--system] [--temperature] [--max-new-tokens] [--safety] [--no-stream] [--load-in-4bit] [--load-in-8bit] [--trust-remote-code] [--backend]`
+  - `forgelm export MODEL_PATH --output FILE [--format gguf] [--quant q4_k_m] [--adapter] [--no-integrity-update]`
+  - `forgelm deploy MODEL_PATH --target TARGET [--output FILE] [--system] [--max-length] [--temperature] [--top-k] [--top-p] [--trust-remote-code]`
+  - `forgelm --config CONFIG --fit-check [--output-format json]`
+  - All subcommands work without `--config`; backward-compatible with existing flat CLI
+
+- **Optional extras** in `pyproject.toml`:
+  - `forgelm[export]` — `llama-cpp-python>=0.2.90` (non-Windows)
+  - `forgelm[chat]` — `rich>=13.0.0`
+
+- **New test modules**:
+  - `tests/test_inference.py` — 16 tests covering `_build_prompt`, `_to_messages`, `logit_stats`, `adaptive_sample`, `load_model`, `generate` with custom torch stub (no GPU required)
+  - `tests/test_fit_check.py` — 18 tests covering parameter estimation, VRAM components, GPU scenarios (no CUDA, 4 GB, 80 GB), `format_fit_check`
+  - `tests/test_export.py` — 12 tests covering SHA-256, integrity manifest, GGUF export flow with subprocess mock
+  - `tests/test_deploy.py` — 21 tests covering all 4 target generators and `generate_deploy_config` integration
+  - `tests/test_cli_phase10.py` — 22 tests covering `--fit-check`, all deploy targets, export subcommand, chat subcommand, subcommand routing
+
+### Changed
+
+- **`forgelm/__init__.py`** — version bumped to `0.4.0`
+- **`forgelm/cli.py`** — added subparser architecture with `chat`, `export`, `deploy` subcommands; added `--fit-check` flag; `KeyboardInterrupt` caught in chat dispatch for graceful exit
+- **`forgelm/wizard.py`** — (no changes needed; Phase 10 features are all CLI-driven, not wizard-driven)
+
+### Breaking
+
+- **`forgelm.compliance.export_compliance_artifacts`** signature changed from
+  `(manifest, config, output_dir)` to `(manifest, output_dir)`. The `config`
+  argument was unused (the manifest already contains all derived values).
+  External callers must drop the second positional argument.
+- **`forgelm.export.export_model`** keyword `format=` renamed to
+  `output_format=` to avoid shadowing the `format` builtin. Update
+  `export_model(..., format="gguf", ...)` → `export_model(...,
+  output_format="gguf", ...)`.
+- **`forgelm.deploy.generate_deploy_config`** parameter list collapsed from
+  18 → 11 args. The HF Endpoints fields (task/instance_size/instance_type/
+  region/framework/vendor) are now grouped as
+  `hf_endpoints: HFEndpointsOptions = None`; sampling defaults
+  (temperature/top_k/top_p) are grouped as
+  `sampling: SamplingOptions = None`. Pass instances of those dataclasses
+  instead of the individual kwargs.
+
+---
+
+## [0.3.1rc1] — 2026-03-28 (included in v0.4.0 branch)
+
 ### Added
 - **Engineering standards** (`docs/standards/`) — 9 standard documents: coding, architecture, error-handling, logging-observability, testing, documentation, localization, code-review, release.
 - **AI agent skills** (`.claude/skills/`) — 6 task-specific SKILL.md checklists: add-config-field, add-trainer-feature, add-test, sync-bilingual-docs, cut-release, review-pr.
@@ -13,6 +110,18 @@ All notable changes to ForgeLM are documented here.
 ### Changed
 - **docs/ reorganization** — Reference docs moved to `docs/reference/`, design specs to `docs/design/`. All internal links updated (29 link fixes).
 - **Roadmap refactored** — `docs/roadmap.md` reduced from 910 to 78 lines; phase details moved to `docs/roadmap/` subdirectory.
+
+### Fixed (Security & Config Hardening)
+- Webhook URLs excluded from HuggingFace Hub model cards — prevents credential leaks
+- User-supplied strings sanitized before Markdown template embedding (content injection prevention)
+- All 19 Pydantic sub-models enforce `extra="forbid"` — YAML typos are errors, not silent bugs
+- Deprecated `lora.use_dora` / `lora.use_rslora` booleans auto-normalize to `lora.method` with warnings
+- Audit log hash chain restores continuity across process restarts
+- Compliance manifests correctly report pre-OOM-recovery batch size
+- GRPO reward model path correctly wrapped as callable
+- Safety classifier receives full `[INST] prompt [/INST] response` context
+- Extension-less files raise clear `ValueError` instead of silently loading wrong format
+- TIES tie-breaking fixed; DARE now deterministic with `seed=42`
 
 ## [0.3.0] — 2026-03-28
 
