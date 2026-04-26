@@ -15,7 +15,7 @@
 
 **Latest release on PyPI:** `v0.4.0` — Post-Training Completion (published 2026-04-26). Inference primitives, interactive chat REPL, GGUF export, VRAM fit advisor, and deployment config generation.
 
-**Tagged but not yet on PyPI:** `v0.4.5` — Quickstart Layer (one-command bundled templates: `forgelm quickstart customer-support`). Auto-downsizes models on small GPUs, generates a config that the existing trainer accepts unchanged.
+**Merged to main, tag + PyPI publish pending:** `v0.4.5` — Quickstart Layer (one-command bundled templates: `forgelm quickstart customer-support`). Auto-downsizes models on small GPUs, generates a config that the existing trainer accepts unchanged. Landed via PR #9 (2026-04-26); the `v0.4.5` git tag and PyPI upload are the remaining release-engineering steps.
 
 **Current milestone:** `v0.5.0` — Document Ingestion & Data Audit (Phase 11). PDF/DOCX/EPUB → JSONL, PII detection, near-duplicate audit.
 
@@ -61,7 +61,7 @@ docs/
     ├── completed-phases.md                     # Phase 1-10 archive (detailed)
     ├── phase-10-post-training.md               # Completed — v0.4.0
     ├── phase-11-data-ingestion.md              # Planned — v0.5.0
-    ├── phase-12-quickstart.md                  # Done (Phase 10.5) — tagged v0.4.5, not yet on PyPI
+    ├── phase-12-quickstart.md                  # Done (Phase 10.5) — merged to main as v0.4.5; tag + PyPI publish pending
     ├── phase-13-pro-cli.md                     # Planned — v0.6.0-pro (gated)
     ├── phase-14-pipeline-chains.md             # Planned — v0.5.1
     ├── releases.md                             # v0.3.0 → v0.6.0 release notes
