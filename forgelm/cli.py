@@ -881,6 +881,14 @@ def _run_quickstart_train_subprocess(args, config_path: Path) -> None:
     inherited, _ = _build_quickstart_inherited_flags(args)
     train_cmd = [sys.executable, "-m", _CLI_MODULE, *inherited, "--config", os.path.abspath(config_path)]
     logger.info("Starting training: %s", " ".join(train_cmd))
+    # Security justification (Codacy / Bandit B603 / ruff S603):
+    # - argv is a fixed list, not a shell string — shell=False is implicit.
+    # - argv[0] is sys.executable (the running Python), not a user-controlled
+    #   command name. argv[1] is "-m" with the literal _CLI_MODULE constant.
+    # - The only user-influenced segment is `os.path.abspath(config_path)`,
+    #   which is passed verbatim as a single argv element (no shell expansion,
+    #   no string concatenation).
+    # → No command-injection or shell-metachar surface. Safe to ignore.
     train_rc = subprocess.run(train_cmd, check=False).returncode  # noqa: S603  # nosec B603
     if train_rc != 0:
         logger.error("Training exited with code %d", train_rc)
@@ -904,6 +912,10 @@ def _run_quickstart_chat_subprocess(args, config_path: Path) -> None:
     _, inherited_chat = _build_quickstart_inherited_flags(args)
     chat_cmd = [sys.executable, "-m", _CLI_MODULE, *inherited_chat, "chat", os.path.abspath(final_model_dir)]
     logger.info("Launching chat REPL: %s", " ".join(chat_cmd))
+    # Same security justification as the training subprocess above:
+    # argv list-form, sys.executable head, _CLI_MODULE literal, only the
+    # final_model_dir is dynamic and passed as a single argv element. No
+    # shell, no concatenation → no injection surface.
     chat_rc = subprocess.run(chat_cmd, check=False).returncode  # noqa: S603  # nosec B603
     # 130 == SIGINT (Ctrl-C is the normal way to leave the REPL). Anything else
     # non-zero is a crash worth surfacing, but chat exit is not the operator's

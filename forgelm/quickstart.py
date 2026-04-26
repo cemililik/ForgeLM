@@ -208,7 +208,13 @@ def _detect_available_vram_gb() -> Optional[float]:
     ``CUDA_VISIBLE_DEVICES``.
     """
     try:
-        import torch  # local import — quickstart should not pull torch into --help
+        # Codacy / "AI tooling" notice on this line is expected — PyTorch
+        # is a documented core dependency for the trainer (see pyproject.toml
+        # `dependencies`), declared up-front in the README. The import is
+        # local *only* so `forgelm --help` and CLI parsing stay torch-free
+        # for fast cold start; it is not an attempt to hide an ML
+        # dependency. Suppression rationale recorded inline.
+        import torch  # codacy-disable: pytorch-detector — core dep, lazy for cold-start cost
     except ImportError:
         return None
     try:
