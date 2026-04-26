@@ -13,7 +13,9 @@
 | 📋 Planned | [Phase 13 — Pro CLI & Observability Dashboard](roadmap/phase-13-pro-cli.md) | License-gated dashboard, HPO, scheduled jobs, team config store → `v0.6.0-pro` |
 | 📋 Planned | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO chained config, pipeline provenance artifacts → `v0.5.1` |
 
-**Current milestone:** `v0.4.0` — Post-Training Completion (April 2026). Inference primitives, interactive chat REPL, GGUF export, VRAM fit advisor, and deployment config generation.
+**Latest release:** `v0.4.0` — Post-Training Completion (shipped 2026-04-26 to PyPI). Inference primitives, interactive chat REPL, GGUF export, VRAM fit advisor, and deployment config generation.
+
+**Current milestone:** `v0.4.5` — Quickstart Layer (Phase 10.5). Pre-built templates and the `forgelm quickstart <template>` command — primary community growth driver.
 
 **Current state:** 12 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10) complete. 4 phases (10.5, 11, 13, 14) planned. Target `v0.4.5` release: Phase 10.5 (Quickstart). Target `v0.5.0`: Phase 11.
 

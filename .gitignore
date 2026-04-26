@@ -60,3 +60,7 @@ logs/
 .ipynb_checkpoints
 .coverage
 .DS_Store
+
+# Claude Code runtime artifacts
+.claude/scheduled_tasks.lock
+.claude/state/
