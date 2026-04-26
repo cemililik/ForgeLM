@@ -55,11 +55,18 @@ from __future__ import annotations
 import re
 
 # Compiled once at import time. Matches "Answer:" (any case) followed by at
-# least one non-whitespace character, optionally followed by spaces / units /
-# punctuation, anchored to end-of-string with ``\s*\Z`` so trailing whitespace
-# (including newlines) is allowed but no further sentence content is.
+# least one non-whitespace character followed by any non-newline content,
+# anchored to end-of-string with ``\Z``.
+#
+# ReDoS note: the previous form ``\S[^\n]*?\s*\Z`` mixed a reluctant
+# quantifier (``[^\n]*?``) with a tail (``\s*\Z``) whose character class
+# overlapped — Python's regex engine backtracked O(n²) on long inputs that
+# don't terminate with ``Answer: <value>``. The fix is two-part: callers
+# strip trailing whitespace before matching (so the tail collapses to a
+# bare ``\Z``), and the body uses a greedy ``[^\n]*`` whose end is fixed
+# by ``\Z``. No quantifier overlap → linear-time matching.
 _ANSWER_PATTERN = re.compile(
-    r"answer\s*:\s*\S[^\n]*?\s*\Z",
+    r"answer\s*:\s*\S[^\n]*\Z",
     re.IGNORECASE,
 )
 
@@ -90,7 +97,10 @@ def format_match_reward(completions: list[str], **kwargs) -> list[float]:
         if not completion:
             rewards.append(0.0)
             continue
-        rewards.append(1.0 if _ANSWER_PATTERN.search(completion) else 0.0)
+        # rstrip() collapses the regex tail to a plain ``\Z`` so the
+        # engine has no quantifier ambiguity (see _ANSWER_PATTERN
+        # comment for the ReDoS background).
+        rewards.append(1.0 if _ANSWER_PATTERN.search(completion.rstrip()) else 0.0)
     return rewards
 
 

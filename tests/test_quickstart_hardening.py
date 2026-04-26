@@ -71,9 +71,13 @@ class TestMaterializeConfigNullSafety:
 
         monkeypatch.setattr(qs, "template_assets", _fake_assets)
         tpl = get_template("customer-support")
-        cfg = _materialize_config(tpl, "my-org/m", "/tmp/data.jsonl")
+        # Use tmp_path-based string instead of "/tmp/..." — Sonar flags the
+        # latter as a publicly-writable race-condition surface even though
+        # the path is never actually opened here (just rendered into YAML).
+        ds_path = str(tmp_path / "data.jsonl")
+        cfg = _materialize_config(tpl, "my-org/m", ds_path)
         assert cfg["model"] == {"name_or_path": "my-org/m"}
-        assert cfg["data"] == {"dataset_name_or_path": "/tmp/data.jsonl"}
+        assert cfg["data"] == {"dataset_name_or_path": ds_path}
 
     def test_non_mapping_model_value_raises_clear_error(self, tmp_path, monkeypatch):
         fake_cfg = tmp_path / "config.yaml"
@@ -87,7 +91,7 @@ class TestMaterializeConfigNullSafety:
         monkeypatch.setattr(qs, "template_assets", _fake_assets)
         tpl = get_template("customer-support")
         with pytest.raises(ValueError, match="non-mapping value for 'model'"):
-            _materialize_config(tpl, "my-org/m", "/tmp/data.jsonl")
+            _materialize_config(tpl, "my-org/m", str(tmp_path / "data.jsonl"))
 
 
 # ---------------------------------------------------------------------------
