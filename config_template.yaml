@@ -45,7 +45,7 @@ training:
   # kto_beta: 0.1           # KTO loss parameter
   # orpo_beta: 0.1          # ORPO odds ratio weight
   # grpo_num_generations: 4 # GRPO: responses per prompt
-  # grpo_max_new_tokens: 512
+  # grpo_max_completion_length: 512  # legacy alias `grpo_max_new_tokens` still accepted
   # grpo_reward_model: "org/reward-model"  # GRPO: reward model for scoring
   # report_to: "tensorboard"  # "tensorboard", "wandb", "mlflow", or "none"
   # run_name: "my_experiment"  # W&B/MLflow run name; auto-generated if omitted

@@ -162,8 +162,8 @@ GRPO generates multiple responses per prompt, scores them, and reinforces better
 ```yaml
 training:
   trainer_type: "grpo"
-  grpo_num_generations: 4    # Generate 4 responses per prompt
-  grpo_max_new_tokens: 512   # Max response length
+  grpo_num_generations: 4              # Generate 4 responses per prompt
+  grpo_max_completion_length: 512      # Max tokens per completion (legacy alias `grpo_max_new_tokens` still accepted)
   grpo_reward_model: null    # See "Reward selection" below.
   learning_rate: 1.0e-6      # Very low LR for RL stability
   num_train_epochs: 1

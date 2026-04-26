@@ -135,7 +135,7 @@ across retries. Each retry attempt is logged to the audit trail.
 | `kto_beta` | float | `0.1` | KTO loss parameter |
 | `orpo_beta` | float | `0.1` | ORPO odds ratio weight |
 | `grpo_num_generations` | int | `4` | GRPO: responses per prompt |
-| `grpo_max_new_tokens` | int | `512` | GRPO: max response length |
+| `grpo_max_completion_length` | int | `512` | GRPO: max tokens per completion (legacy alias `grpo_max_new_tokens` accepted) |
 | `grpo_reward_model` | string | `null` | GRPO: reward model path (HF or local) |
 
 ---

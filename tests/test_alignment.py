@@ -48,18 +48,20 @@ class TestTrainerTypeConfig:
         assert t.kto_beta == pytest.approx(0.05)
 
     def test_grpo_parameters(self):
+        # Legacy alias `grpo_max_new_tokens` must still be accepted on input;
+        # the canonical attribute is `grpo_max_completion_length` (matches TRL).
         t = TrainingConfig(
             trainer_type="grpo",
             grpo_num_generations=8,
             grpo_max_new_tokens=1024,
         )
         assert t.grpo_num_generations == 8
-        assert t.grpo_max_new_tokens == 1024
+        assert t.grpo_max_completion_length == 1024
 
     def test_grpo_defaults(self):
         t = TrainingConfig(trainer_type="grpo")
         assert t.grpo_num_generations == 4
-        assert t.grpo_max_new_tokens == 512
+        assert t.grpo_max_completion_length == 512
 
 
 # --- Full config with alignment ---

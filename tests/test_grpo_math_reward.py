@@ -158,6 +158,50 @@ class TestMathRewardFn:
         rewards = _math_reward_fn(["Answer: 7"], gold_answer=["7"])
         assert all(isinstance(r, float) for r in rewards)
 
+    def test_reward_extraction_ignores_trailing_prose(self):
+        """Trailing prose after the answer must not poison the comparison.
+
+        Models commonly produce mid-sentence answers like
+        "Answer: 18. Bu doğru." A greedy regex would capture
+        "18. Bu doğru" → fail to normalize → reward 0.0 even though the
+        numeric answer is correct. The anchored regex must stop at the
+        sentence boundary.
+        """
+        completions = [
+            "The work is 30-12=18. Answer: 18. Bu doğru.",
+            "Answer: 18",
+        ]
+        rewards = _math_reward_fn(completions, gold_answer=["18", "18"])
+        assert rewards == [1.0, 1.0]
+
+    def test_reward_extraction_handles_units_with_trailing_prose(self):
+        """Units inside the captured value must survive, prose must not."""
+        completions = ["Computing: 70 km/h. Answer: 70 km/h. Final."]
+        rewards = _math_reward_fn(completions, gold_answer=["70"])
+        assert rewards == [1.0]
+
+    def test_reward_extraction_handles_punctuation_after_value(self):
+        """A trailing exclamation/question mark must not be captured."""
+        completions = ["Answer: 7!"]
+        rewards = _math_reward_fn(completions, gold_answer=["7"])
+        assert rewards == [1.0]
+
+    def test_reward_extraction_preserves_decimal_values(self):
+        """Decimal values must NOT be split at the internal period.
+
+        Regression: an earlier sentence-boundary regex treated every "." as a
+        boundary, so "Answer: 1.5" captured "1" and mismatched gold "1.5".
+        The fix uses a punctuation-followed-by-whitespace lookahead so bare
+        periods between digits stay inside the capture.
+        """
+        completions = [
+            "Answer: 1.5",
+            "Reasoning here. Answer: 1.5. Bu doğru.",
+            "Answer: 3.14159",
+        ]
+        rewards = _math_reward_fn(completions, gold_answer=["1.5", "1.5", "3.14159"])
+        assert rewards == [1.0, 1.0, 1.0]
+
 
 # ---------------------------------------------------------------------------
 # _dataset_has_gold_answers

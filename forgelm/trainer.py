@@ -100,7 +100,17 @@ def _math_reward_fn(completions, **kwargs):
 
     golds = kwargs.get("gold_answer", [])
     rewards: list[float] = []
-    pattern = re.compile(r"answer\s*:\s*([^\n]+)", re.IGNORECASE)
+    # Stop the captured value at the next sentence boundary so
+    # "Answer: 18. Çünkü …" does NOT swallow the trailing prose into the
+    # comparison string. The boundary is "[.!?] followed by whitespace OR EOL"
+    # — bare "." between digits ("Answer: 1.5") is preserved because the
+    # lookahead requires whitespace or end-of-string after the punctuation.
+    # Internal spaces, slashes, colons, dollar signs, and decimals are all
+    # kept inside the capture for `_normalize_answer` to handle downstream.
+    pattern = re.compile(
+        r"answer\s*:\s*(.+?)(?=[.!?]\s|[.!?]$|$)",
+        re.IGNORECASE,
+    )
     for completion, gold in zip(completions, golds, strict=False):
         match = pattern.search(completion or "")
         if not match:
@@ -375,7 +385,9 @@ class ForgeTrainer:
 
             # GRPO generates responses during training — needs generation params
             kwargs["num_generations"] = self.config.training.grpo_num_generations
-            kwargs["max_new_tokens"] = self.config.training.grpo_max_new_tokens
+            # TRL >=0.12 expects `max_completion_length`; the older `max_new_tokens`
+            # raises TypeError at GRPOConfig construction.
+            kwargs["max_completion_length"] = self.config.training.grpo_max_completion_length
             # GRPO doesn't use load_best_model_at_end the same way
             kwargs.pop("load_best_model_at_end", None)
             kwargs.pop("metric_for_best_model", None)
