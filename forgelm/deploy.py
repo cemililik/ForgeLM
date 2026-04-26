@@ -52,6 +52,27 @@ class DeployResult:
     error: Optional[str] = None
 
 
+@dataclass
+class SamplingOptions:
+    """Sampling defaults for runtimes that bake them into the config (Ollama)."""
+
+    temperature: float = 0.7
+    top_k: int = 50
+    top_p: float = 0.9
+
+
+@dataclass
+class HFEndpointsOptions:
+    """All HuggingFace Inference Endpoints knobs that the JSON spec accepts."""
+
+    task: str = "text-generation"
+    instance_size: str = "x2"
+    instance_type: str = "nvidia-a10g"
+    region: str = "us-east-1"
+    framework: str = "pytorch"
+    vendor: str = "aws"
+
+
 # ---------------------------------------------------------------------------
 # Per-target generators
 # ---------------------------------------------------------------------------
@@ -189,22 +210,14 @@ def generate_deploy_config(
     system_prompt: Optional[str] = None,
     max_length: int = 4096,
     trust_remote_code: bool = False,
-    # Sampling defaults (ollama + vllm)
-    temperature: float = 0.7,
-    top_k: int = 50,
-    top_p: float = 0.9,
+    # Grouped: see SamplingOptions / HFEndpointsOptions for fields
+    sampling: Optional[SamplingOptions] = None,
+    hf_endpoints: Optional[HFEndpointsOptions] = None,
     # vLLM-specific
     gpu_memory_utilization: float = 0.90,
     dtype: str = "bfloat16",
     # TGI-specific
     port: int = 8080,
-    # HF Endpoints-specific
-    task: str = "text-generation",
-    instance_size: str = "x2",
-    instance_type: str = "nvidia-a10g",
-    region: str = "us-east-1",
-    framework: str = "pytorch",
-    vendor: str = "aws",
 ) -> DeployResult:
     """Generate a deployment configuration file for the given *target* runtime.
 
@@ -216,22 +229,21 @@ def generate_deploy_config(
         system_prompt: Optional system prompt to embed (Ollama Modelfile only).
         max_length: Context window length.
         trust_remote_code: Passed to vLLM config.
-        temperature: Default sampling temperature.
-        top_k: Top-k filtering.
-        top_p: Nucleus probability.
+        sampling: Sampling defaults bundle (temperature/top_k/top_p) used by
+            Ollama. Defaults to ``SamplingOptions()`` when ``None``.
+        hf_endpoints: HF-Endpoints knobs (task/instance_size/instance_type/
+            region/framework/vendor). Defaults to ``HFEndpointsOptions()``
+            when ``None``.
         gpu_memory_utilization: vLLM GPU utilisation fraction.
         dtype: Compute dtype string (vLLM).
         port: Host port for the TGI container.
-        task: HF Endpoints task type.
-        instance_size: HF Endpoints instance size.
-        instance_type: HF Endpoints GPU type.
-        region: HF Endpoints cloud region.
-        framework: HF Endpoints framework.
-        vendor: HF Endpoints cloud vendor (default: ``"aws"``; also ``"azure"``, ``"gcp"``).
 
     Returns:
         :class:`DeployResult` with the generated content and output path.
     """
+    sampling = sampling or SamplingOptions()
+    hf_endpoints = hf_endpoints or HFEndpointsOptions()
+
     target = target.lower()
     if target not in SUPPORTED_TARGETS:
         return DeployResult(
@@ -259,14 +271,24 @@ def generate_deploy_config(
 
     try:
         if target == "ollama":
-            content = _ollama_modelfile(model_path, system_prompt, max_length, temperature, top_k, top_p)
+            content = _ollama_modelfile(
+                model_path, system_prompt, max_length, sampling.temperature, sampling.top_k, sampling.top_p
+            )
         elif target == "vllm":
             content = _vllm_config(model_path, max_length, trust_remote_code, gpu_memory_utilization, dtype)
         elif target == "tgi":
             max_total = max_length + 512  # generous output budget
             content = _tgi_compose(model_path, max_length, max_total, port)
         else:  # hf-endpoints
-            content = _hf_endpoints_json(model_path, task, instance_size, instance_type, region, framework, vendor)
+            content = _hf_endpoints_json(
+                model_path,
+                hf_endpoints.task,
+                hf_endpoints.instance_size,
+                hf_endpoints.instance_type,
+                hf_endpoints.region,
+                hf_endpoints.framework,
+                hf_endpoints.vendor,
+            )
 
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:

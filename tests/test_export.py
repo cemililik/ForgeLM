@@ -92,7 +92,7 @@ class TestUpdateIntegrityManifest:
         assert artifact["quant"] == "q4_k_m"
 
     def test_no_error_when_manifest_missing(self, tmp_path):
-        result = ExportResult(success=True, output_path="/tmp/model.gguf", sha256="abc")
+        result = ExportResult(success=True, output_path=str(tmp_path / "model.gguf"), sha256="abc")
         # Should not raise even though model_integrity.json doesn't exist
         _update_integrity_manifest(str(tmp_path), result)
 
@@ -133,7 +133,7 @@ class TestExportModel:
         return output_path, fake_run
 
     def test_unsupported_format_returns_failure(self, tmp_path):
-        result = export_model(str(tmp_path / "model"), str(tmp_path / "out.xyz"), format="xyz")
+        result = export_model(str(tmp_path / "model"), str(tmp_path / "out.xyz"), format_="xyz")
         assert result.success is False
         assert "xyz" in result.error
 

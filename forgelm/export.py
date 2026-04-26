@@ -23,12 +23,15 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger("forgelm.export")
 
 SUPPORTED_FORMATS = frozenset({"gguf"})
 SUPPORTED_QUANTS = frozenset({"q2_k", "q3_k_m", "q4_k_m", "q5_k_m", "q8_0", "f16"})
+
+# Name of the HF→GGUF conversion script bundled with llama-cpp-python.
+_CONVERTER_SCRIPT = "convert_hf_to_gguf.py"
 
 # Quant types supported directly by convert_hf_to_gguf.py via --outtype.
 # K-quants (q2_k, q3_k_m, q4_k_m, q5_k_m) require a two-step process:
@@ -95,10 +98,10 @@ def _find_converter_script() -> str:
     pkg_root = os.path.dirname(os.path.abspath(llama_cpp.__file__))
 
     candidates = [
-        os.path.join(pkg_root, "convert_hf_to_gguf.py"),
-        os.path.join(pkg_root, "scripts", "convert_hf_to_gguf.py"),
+        os.path.join(pkg_root, _CONVERTER_SCRIPT),
+        os.path.join(pkg_root, "scripts", _CONVERTER_SCRIPT),
         # Some versions place it one level up
-        os.path.join(os.path.dirname(pkg_root), "convert_hf_to_gguf.py"),
+        os.path.join(os.path.dirname(pkg_root), _CONVERTER_SCRIPT),
     ]
 
     for path in candidates:
@@ -107,9 +110,9 @@ def _find_converter_script() -> str:
             return path
 
     raise FileNotFoundError(
-        "convert_hf_to_gguf.py not found inside the llama-cpp-python installation.  "
+        f"{_CONVERTER_SCRIPT} not found inside the llama-cpp-python installation.  "
         "Try: pip install 'llama-cpp-python>=0.2.90'  "
-        "Or set FORGELM_GGUF_CONVERTER=/path/to/convert_hf_to_gguf.py to use a custom script."
+        f"Or set FORGELM_GGUF_CONVERTER=/path/to/{_CONVERTER_SCRIPT} to use a custom script."
     )
 
 
@@ -194,11 +197,128 @@ def _update_integrity_manifest(model_dir: str, export_result: ExportResult) -> N
 # ---------------------------------------------------------------------------
 
 
+def _validate_export_request(fmt: str, quant: str) -> Optional[ExportResult]:
+    """Reject unsupported format/quant up front; return None when both are valid."""
+    if fmt not in SUPPORTED_FORMATS:
+        return ExportResult(
+            success=False,
+            format=fmt,
+            error=f"Unsupported format '{fmt}'. Supported: {', '.join(sorted(SUPPORTED_FORMATS))}",
+        )
+    if quant not in SUPPORTED_QUANTS:
+        return ExportResult(
+            success=False,
+            quant=quant,
+            error=f"Unsupported quantisation '{quant}'. Supported: {', '.join(sorted(SUPPORTED_QUANTS))}",
+        )
+    return None
+
+
+def _resolve_kquant_path(quant: str, output_path: str) -> Tuple[str, str]:
+    """K-quants need a separate llama-quantize step.
+
+    Returns ``(actual_quant, actual_output_path)``: when *quant* is a K-quant we
+    redirect the converter output to a ``.f16.gguf`` sibling so the integrity
+    manifest never records a SHA-256 against a file that doesn't match the
+    requested quant. Non-K-quants pass through unchanged.
+    """
+    if quant not in _K_QUANTS:
+        return quant, output_path
+    if output_path.endswith(".gguf"):
+        actual_output_path = output_path[: -len(".gguf")] + ".f16.gguf"
+    else:
+        actual_output_path = output_path + ".f16.gguf"
+    logger.warning(
+        "K-quant '%s' is not supported directly by %s. "
+        "Producing an intermediate f16 GGUF at %s instead. "
+        "To get a %s GGUF, run `llama-quantize %s %s %s` afterward.",
+        quant,
+        _CONVERTER_SCRIPT,
+        actual_output_path,
+        quant,
+        actual_output_path,
+        output_path,
+        quant.upper(),
+    )
+    return "f16", actual_output_path
+
+
+def _build_converter_command(
+    converter: str, source_path: str, actual_output_path: str, requested_quant: str, extra_args: Optional[List[str]]
+) -> List[str]:
+    """Compose the argv for the bundled HF→GGUF converter."""
+    cmd: List[str] = [
+        sys.executable,
+        converter,
+        source_path,
+        "--outfile",
+        actual_output_path,
+        "--outtype",
+        _OUTTYPE_MAP[requested_quant],
+    ]
+    if extra_args:
+        cmd.extend(extra_args)
+    return cmd
+
+
+def _run_converter(cmd: List[str], fmt: str, actual_quant: str) -> Optional[ExportResult]:
+    """Run the converter and return an ExportResult on failure (None on success)."""
+    logger.info("Running GGUF conversion: %s", " ".join(cmd))
+    # Bandit B603: cmd is a fixed list (no shell=True); converter path comes
+    # from _find_converter_script and source/output paths from the user's own
+    # call — no untrusted input.
+    try:
+        proc = subprocess.run(  # noqa: S603  # nosec B603
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=3600,
+        )
+    except subprocess.TimeoutExpired:
+        return ExportResult(
+            success=False,
+            format=fmt,
+            quant=actual_quant,
+            error="GGUF conversion timed out after 3600 seconds.",
+        )
+    except Exception as e:
+        return ExportResult(success=False, format=fmt, quant=actual_quant, error=str(e))
+
+    if proc.returncode == 0:
+        return None
+
+    full_stderr = (proc.stderr or "").strip()
+    full_stdout = (proc.stdout or "").strip()
+    if full_stderr:
+        logger.error("GGUF converter stderr:\n%s", full_stderr)
+    if full_stdout:
+        logger.error("GGUF converter stdout:\n%s", full_stdout)
+    logger.error("GGUF conversion failed (exit %d)", proc.returncode)
+    error_detail = full_stderr or full_stdout or "unknown error"
+    return ExportResult(
+        success=False,
+        format=fmt,
+        quant=actual_quant,
+        error=f"Converter exited with code {proc.returncode}: {error_detail[:500]}",
+    )
+
+
+def _cleanup_merged_dir(merged_dir: Optional[str]) -> None:
+    """Remove the temporary adapter-merge directory if one was created."""
+    if not (merged_dir and os.path.isdir(merged_dir)):
+        return
+    import shutil
+
+    shutil.rmtree(merged_dir, ignore_errors=True)
+    logger.debug("Cleaned up temporary merged directory: %s", merged_dir)
+
+
 def export_model(
     model_path: str,
     output_path: str,
     *,
-    format: str = "gguf",
+    format_: str = "gguf",
     quant: str = "q4_k_m",
     adapter: Optional[str] = None,
     update_integrity: bool = True,
@@ -212,7 +332,8 @@ def export_model(
     Args:
         model_path: Path to a saved HuggingFace model directory.
         output_path: Destination ``.gguf`` file path.
-        format: Export format.  Only ``"gguf"`` is currently supported.
+        format_: Export format. Only ``"gguf"`` is currently supported.
+            (Trailing underscore avoids shadowing the ``format`` builtin.)
         quant: Quantisation type.  One of
             ``q2_k, q3_k_m, q4_k_m, q5_k_m, q8_0, f16``.
         adapter: Optional PEFT adapter directory to merge before export.
@@ -223,27 +344,17 @@ def export_model(
     Returns:
         :class:`ExportResult` with SHA-256, file size, and output path.
     """
-    format = format.lower()
+    fmt = format_.lower()
     quant = quant.lower()
 
-    if format not in SUPPORTED_FORMATS:
-        return ExportResult(
-            success=False,
-            format=format,
-            error=f"Unsupported format '{format}'. Supported: {', '.join(sorted(SUPPORTED_FORMATS))}",
-        )
-
-    if quant not in SUPPORTED_QUANTS:
-        return ExportResult(
-            success=False,
-            quant=quant,
-            error=(f"Unsupported quantisation '{quant}'. Supported: {', '.join(sorted(SUPPORTED_QUANTS))}"),
-        )
+    rejection = _validate_export_request(fmt, quant)
+    if rejection is not None:
+        return rejection
 
     try:
         converter = _find_converter_script()
     except (ImportError, FileNotFoundError) as e:
-        return ExportResult(success=False, format=format, quant=quant, error=str(e))
+        return ExportResult(success=False, format=fmt, quant=quant, error=str(e))
 
     # Merge adapter if requested
     source_path = model_path
@@ -254,100 +365,22 @@ def export_model(
             _merge_adapter(model_path, adapter, merged_dir)
             source_path = merged_dir
         except Exception as e:
-            return ExportResult(
-                success=False,
-                format=format,
-                quant=quant,
-                error=f"Adapter merge failed: {e}",
-            )
+            return ExportResult(success=False, format=fmt, quant=quant, error=f"Adapter merge failed: {e}")
 
-    # K-quants need a separate llama-quantize step; convert to f16 here
-    # and route the output to a `.f16` filename so the manifest never claims
-    # a SHA-256 that doesn't match the requested quant.
-    requested_quant = quant
-    actual_quant = quant
-    actual_output_path = output_path
-    if quant in _K_QUANTS:
-        actual_quant = "f16"
-        if output_path.endswith(".gguf"):
-            actual_output_path = output_path[: -len(".gguf")] + ".f16.gguf"
-        else:
-            actual_output_path = output_path + ".f16.gguf"
-        logger.warning(
-            "K-quant '%s' is not supported directly by convert_hf_to_gguf.py. "
-            "Producing an intermediate f16 GGUF at %s instead. "
-            "To get a %s GGUF, run `llama-quantize %s %s %s` afterwards.",
-            requested_quant,
-            actual_output_path,
-            requested_quant,
-            actual_output_path,
-            output_path,
-            requested_quant.upper(),
-        )
+    actual_quant, actual_output_path = _resolve_kquant_path(quant, output_path)
+    cmd = _build_converter_command(converter, source_path, actual_output_path, quant, extra_args)
 
-    # Build converter command
-    outtype = _OUTTYPE_MAP[requested_quant]
-    cmd: List[str] = [
-        sys.executable,
-        converter,
-        source_path,
-        "--outfile",
-        actual_output_path,
-        "--outtype",
-        outtype,
-    ]
-    if extra_args:
-        cmd.extend(extra_args)
-
-    logger.info("Running GGUF conversion: %s", " ".join(cmd))
-
-    # Bandit B603: cmd is built from a fixed list (no shell=True), the
-    # converter path is resolved by _find_converter_script, and source/output
-    # paths come from the user's own export call — no untrusted input.
     try:
-        proc = subprocess.run(  # noqa: S603  # nosec B603
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=3600,
-        )
-        if proc.returncode != 0:
-            full_stderr = proc.stderr or ""
-            full_stdout = proc.stdout or ""
-            # Log the full output so debug context isn't lost on truncation
-            if full_stderr.strip():
-                logger.error("GGUF converter stderr:\n%s", full_stderr)
-            if full_stdout.strip():
-                logger.error("GGUF converter stdout:\n%s", full_stdout)
-            error_detail = full_stderr.strip() or full_stdout.strip() or "unknown error"
-            logger.error("GGUF conversion failed (exit %d)", proc.returncode)
-            return ExportResult(
-                success=False,
-                format=format,
-                quant=actual_quant,
-                error=f"Converter exited with code {proc.returncode}: {error_detail[:500]}",
-            )
-    except subprocess.TimeoutExpired:
-        return ExportResult(
-            success=False,
-            format=format,
-            quant=actual_quant,
-            error="GGUF conversion timed out after 3600 seconds.",
-        )
-    except Exception as e:
-        return ExportResult(success=False, format=format, quant=actual_quant, error=str(e))
+        failure = _run_converter(cmd, fmt, actual_quant)
+        if failure is not None:
+            return failure
     finally:
-        if merged_dir and os.path.isdir(merged_dir):
-            import shutil
-
-            shutil.rmtree(merged_dir, ignore_errors=True)
-            logger.debug("Cleaned up temporary merged directory: %s", merged_dir)
+        _cleanup_merged_dir(merged_dir)
 
     if not os.path.isfile(actual_output_path):
         return ExportResult(
             success=False,
-            format=format,
+            format=fmt,
             quant=actual_quant,
             error=f"Conversion appeared to succeed but output file not found: {actual_output_path}",
         )
@@ -359,7 +392,7 @@ def export_model(
     result = ExportResult(
         success=True,
         output_path=actual_output_path,
-        format=format,
+        format=fmt,
         quant=actual_quant,
         sha256=digest,
         size_bytes=size_bytes,

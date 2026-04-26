@@ -85,6 +85,16 @@ All notable changes to ForgeLM are documented here.
   `(manifest, config, output_dir)` to `(manifest, output_dir)`. The `config`
   argument was unused (the manifest already contains all derived values).
   External callers must drop the second positional argument.
+- **`forgelm.export.export_model`** keyword `format=` renamed to `format_=`
+  to avoid shadowing the `format` builtin. Update `export_model(...,
+  format="gguf", ...)` → `export_model(..., format_="gguf", ...)`.
+- **`forgelm.deploy.generate_deploy_config`** parameter list collapsed from
+  18 → 11 args. The HF Endpoints fields (task/instance_size/instance_type/
+  region/framework/vendor) are now grouped as
+  `hf_endpoints: HFEndpointsOptions = None`; sampling defaults
+  (temperature/top_k/top_p) are grouped as
+  `sampling: SamplingOptions = None`. Pass instances of those dataclasses
+  instead of the individual kwargs.
 
 ---
 

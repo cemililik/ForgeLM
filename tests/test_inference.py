@@ -17,140 +17,156 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
+class _Scalar:
+    """Module-scope scalar wrapper — `.item()` mimics torch's 0-d tensor."""
+
+    def __init__(self, v):
+        self._v = v
+
+    def item(self):
+        return self._v
+
+
+class _Tensor:
+    """Module-scope torch.Tensor stub.
+
+    Hoisted out of `_make_torch_stub` so call sites don't have to bind it as
+    a local variable (which would trigger snake-case naming warnings) and so
+    `_make_torch_stub`'s cognitive complexity stays low.
+    """
+
+    def __init__(self, data=None):
+        self._data = data or [0.1, 0.9]
+
+    def float(self):
+        return self
+
+    def max(self):
+        return _Scalar(max(self._data))
+
+    def argmax(self):
+        return _Scalar(self._data.index(max(self._data)))
+
+    def log(self):
+        import math
+
+        return _Tensor([math.log(x + 1e-10) for x in self._data])
+
+    def sum(self):
+        return _Scalar(sum(self._data))
+
+    def __mul__(self, other):
+        if isinstance(other, _Tensor):
+            return _Tensor([a * b for a, b in zip(self._data, other._data)])
+        return _Tensor([x * other for x in self._data])
+
+    def __add__(self, other):
+        if isinstance(other, _Tensor):
+            return _Tensor([a + b for a, b in zip(self._data, other._data)])
+        return _Tensor([x + other for x in self._data])
+
+    def __radd__(self, other):
+        return self.__add__(other)
+
+    def __sub__(self, other):
+        if isinstance(other, _Tensor):
+            return _Tensor([a - b for a, b in zip(self._data, other._data)])
+        return _Tensor([x - other for x in self._data])
+
+    def __truediv__(self, other):
+        return _Tensor([x / other for x in self._data])
+
+    def size(self, dim=None):
+        if dim is not None:
+            return len(self._data)
+        return (len(self._data),)
+
+    def __neg__(self):
+        return _Tensor([-x for x in self._data])
+
+    def __gt__(self, threshold):
+        if isinstance(threshold, _Tensor):
+            t = threshold._data[0] if len(threshold._data) == 1 else threshold._data
+            return _Tensor([1 if x > (t if not isinstance(t, list) else t[i]) else 0 for i, x in enumerate(self._data)])
+        return _Tensor([1 if x > threshold else 0 for x in self._data])
+
+    def __lt__(self, other):
+        if isinstance(other, _Tensor):
+            t = other._data[0] if len(other._data) == 1 else None
+            if t is not None:
+                return _Tensor([1 if x < t else 0 for x in self._data])
+            return _Tensor([1 if x < y else 0 for x, y in zip(self._data, other._data)])
+        return _Tensor([1 if x < other else 0 for x in self._data])
+
+    def item(self):
+        return self._data[0]
+
+    def to(self, device):
+        return self
+
+    @property
+    def device(self):
+        return "cpu"
+
+    @property
+    def shape(self):
+        return (1, len(self._data))
+
+    def __getitem__(self, idx):
+        return self._data[idx]
+
+    def __setitem__(self, idx, value):
+        if isinstance(idx, _Tensor):
+            # Boolean mask assignment
+            for i, mask_val in enumerate(idx._data):
+                if mask_val:
+                    self._data[i] = value
+        else:
+            self._data[idx] = value
+
+    def unsqueeze(self, dim):
+        return self
+
+
+def _stub_softmax(tensor, dim=-1):
+    import math
+
+    data = tensor._data if hasattr(tensor, "_data") else [0.1, 0.9]
+    exp_vals = [math.exp(x) for x in data]
+    s = sum(exp_vals)
+    return _Tensor([x / s for x in exp_vals])
+
+
+def _stub_log(tensor):
+    import math
+
+    data = tensor._data if hasattr(tensor, "_data") else [0.1, 0.9]
+    return _Tensor([math.log(max(x, 1e-10)) for x in data])
+
+
+def _stub_sum(tensor, dim=None):
+    return _Scalar(sum(tensor._data))
+
+
 def _make_torch_stub():
-    """Build a lightweight torch stub covering the symbols inference.py uses."""
+    """Build a lightweight torch stub covering the symbols inference.py uses.
+
+    Tensor / Scalar / op implementations live at module scope; this function
+    is just module-assembly so its cognitive complexity stays well below the
+    SonarCloud threshold.
+    """
     t = types.ModuleType("torch")
     t.inference_mode = lambda: MagicMock(__enter__=lambda s: None, __exit__=lambda *a: None)
-
-    class _Tensor:
-        def __init__(self, data=None):
-            self._data = data or [0.1, 0.9]
-
-        def float(self):
-            return self
-
-        def max(self):
-            return _Scalar(max(self._data))
-
-        def argmax(self):
-            return _Scalar(self._data.index(max(self._data)))
-
-        def log(self):
-            import math
-
-            return _Tensor([math.log(x + 1e-10) for x in self._data])
-
-        def sum(self):
-            return _Scalar(sum(self._data))
-
-        def __mul__(self, other):
-            if isinstance(other, _Tensor):
-                return _Tensor([a * b for a, b in zip(self._data, other._data)])
-            return _Tensor([x * other for x in self._data])
-
-        def __add__(self, other):
-            if isinstance(other, _Tensor):
-                return _Tensor([a + b for a, b in zip(self._data, other._data)])
-            return _Tensor([x + other for x in self._data])
-
-        def __radd__(self, other):
-            return self.__add__(other)
-
-        def __sub__(self, other):
-            if isinstance(other, _Tensor):
-                return _Tensor([a - b for a, b in zip(self._data, other._data)])
-            return _Tensor([x - other for x in self._data])
-
-        def __truediv__(self, other):
-            return _Tensor([x / other for x in self._data])
-
-        def size(self, dim=None):
-            if dim is not None:
-                return len(self._data)
-            return (len(self._data),)
-
-        def __neg__(self):
-            return _Tensor([-x for x in self._data])
-
-        def __gt__(self, threshold):
-            if isinstance(threshold, _Tensor):
-                t = threshold._data[0] if len(threshold._data) == 1 else threshold._data
-                return _Tensor(
-                    [1 if x > (t if not isinstance(t, list) else t[i]) else 0 for i, x in enumerate(self._data)]
-                )
-            return _Tensor([1 if x > threshold else 0 for x in self._data])
-
-        def __lt__(self, other):
-            if isinstance(other, _Tensor):
-                t = other._data[0] if len(other._data) == 1 else None
-                if t is not None:
-                    return _Tensor([1 if x < t else 0 for x in self._data])
-                return _Tensor([1 if x < y else 0 for x, y in zip(self._data, other._data)])
-            return _Tensor([1 if x < other else 0 for x in self._data])
-
-        def item(self):
-            return self._data[0]
-
-        def to(self, device):
-            return self
-
-        @property
-        def device(self):
-            return "cpu"
-
-        @property
-        def shape(self):
-            return (1, len(self._data))
-
-        def __getitem__(self, idx):
-            return self._data[idx]
-
-        def __setitem__(self, idx, value):
-            if isinstance(idx, _Tensor):
-                # Boolean mask assignment
-                for i, mask_val in enumerate(idx._data):
-                    if mask_val:
-                        self._data[i] = value
-            else:
-                self._data[idx] = value
-
-        def unsqueeze(self, dim):
-            return self
-
-    class _Scalar:
-        def __init__(self, v):
-            self._v = v
-
-        def item(self):
-            return self._v
-
-    def softmax(tensor, dim=-1):
-        import math
-
-        data = tensor._data if hasattr(tensor, "_data") else [0.1, 0.9]
-        exp_vals = [math.exp(x) for x in data]
-        s = sum(exp_vals)
-        return _Tensor([x / s for x in exp_vals])
-
-    def log(tensor):
-        import math
-
-        data = tensor._data if hasattr(tensor, "_data") else [0.1, 0.9]
-        return _Tensor([math.log(max(x, 1e-10)) for x in data])
-
-    def sum_fn(tensor, dim=None):
-        return _Scalar(sum(tensor._data))
-
     t.Tensor = _Tensor
-    t.softmax = softmax
-    t.log = log
-    t.sum = sum_fn
+    t.softmax = _stub_softmax
+    t.log = _stub_log
+    t.sum = _stub_sum
     t.cuda = MagicMock()
     t.cuda.is_available = MagicMock(return_value=False)
     t.cuda.is_bf16_supported = MagicMock(return_value=False)
     t.bfloat16 = "bfloat16"
     t.float16 = "float16"
-    return t, _Tensor, _Scalar
+    return t
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +240,7 @@ class TestToMessages:
 
 class TestLogitStats:
     def test_returns_expected_keys(self):
-        torch_stub, _Tensor, _ = _make_torch_stub()
+        torch_stub = _make_torch_stub()
         with patch.dict(sys.modules, {"torch": torch_stub}):
             from forgelm.inference import logit_stats
 
@@ -236,7 +252,7 @@ class TestLogitStats:
         assert "effective_vocab" in stats
 
     def test_top1_prob_in_range(self):
-        torch_stub, _Tensor, _ = _make_torch_stub()
+        torch_stub = _make_torch_stub()
         with patch.dict(sys.modules, {"torch": torch_stub}):
             from forgelm.inference import logit_stats
 
@@ -246,7 +262,7 @@ class TestLogitStats:
         assert 0.0 < stats["top1_prob"] <= 1.0
 
     def test_entropy_non_negative(self):
-        torch_stub, _Tensor, _ = _make_torch_stub()
+        torch_stub = _make_torch_stub()
         with patch.dict(sys.modules, {"torch": torch_stub}):
             from forgelm.inference import logit_stats
 
@@ -256,7 +272,7 @@ class TestLogitStats:
         assert stats["entropy"] >= 0.0
 
     def test_effective_vocab_non_negative_int(self):
-        torch_stub, _Tensor, _ = _make_torch_stub()
+        torch_stub = _make_torch_stub()
         with patch.dict(sys.modules, {"torch": torch_stub}):
             from forgelm.inference import logit_stats
 
@@ -269,7 +285,7 @@ class TestLogitStats:
 
 class TestAdaptiveSample:
     def _make_logits(self, values):
-        torch_stub, _Tensor, _ = _make_torch_stub()
+        torch_stub = _make_torch_stub()
 
         # Build a proper stub that supports topk, sort, cumsum, multinomial
         logit = _Tensor(values)
@@ -416,7 +432,7 @@ class TestLoadModel:
         with patch.dict(sys.modules, {"torch": torch_stub, "transformers": transformers_stub, "peft": peft_stub}):
             from forgelm.inference import load_model
 
-            model, tok = load_model("org/model", adapter="./adapter")
+            model, _ = load_model("org/model", adapter="./adapter")
 
         peft_stub.PeftModel.from_pretrained.assert_called_once_with(mock_model, "./adapter")
         peft_model.merge_and_unload.assert_called_once()

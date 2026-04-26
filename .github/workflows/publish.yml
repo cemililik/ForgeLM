@@ -4,13 +4,13 @@ on:
   release:
     types: [published]
 
-# Default to read-only at workflow level; only the publish jobs declare id-token write.
-permissions:
-  contents: read
+# No workflow-level permissions — each job declares the minimal set it needs.
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # checkout needs read access to the release ref
     steps:
       - uses: actions/checkout@v5
 
@@ -44,7 +44,8 @@ jobs:
       name: testpypi
       url: https://test.pypi.org/p/forgelm
     permissions:
-      id-token: write  # Required for trusted publishing to TestPyPI
+      contents: read  # download-artifact reads workflow run state
+      id-token: write  # required for trusted publishing to TestPyPI
     steps:
       - uses: actions/download-artifact@v5
         with:
@@ -65,7 +66,8 @@ jobs:
       name: pypi
       url: https://pypi.org/p/forgelm
     permissions:
-      id-token: write  # Required for trusted publishing to PyPI
+      contents: read  # download-artifact reads workflow run state
+      id-token: write  # required for trusted publishing to PyPI
     steps:
       - uses: actions/download-artifact@v5
         with:

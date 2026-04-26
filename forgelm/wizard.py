@@ -257,6 +257,64 @@ def _print_wizard_summary(
     print()
 
 
+def _select_model() -> str:
+    """Prompt for a model from POPULAR_MODELS or allow a custom entry."""
+    print("\n[2/8] Model Selection")
+    print("  Popular models:")
+    for i, m in enumerate(POPULAR_MODELS, 1):
+        print(f"    {i}) {m}")
+    print(f"    {len(POPULAR_MODELS) + 1}) Custom (enter your own)")
+    model_choice = input("  Choice [1]: ").strip()
+    try:
+        idx = int(model_choice) if model_choice else 1
+        if idx <= len(POPULAR_MODELS):
+            return POPULAR_MODELS[idx - 1]
+        return _prompt("Enter HuggingFace model name or local path")
+    except (ValueError, IndexError):
+        return POPULAR_MODELS[0]
+
+
+def _derive_strategy_flags(strategy: str) -> tuple:
+    """Decode the strategy menu choice into (load_in_4bit, use_dora, use_galore)."""
+    return ("QLoRA" in strategy, "DoRA" in strategy, "GaLore" in strategy)
+
+
+def _parse_trainer_type(objective: str) -> tuple:
+    """Return (trainer_type, dataset_format_hint) for the chosen objective."""
+    trainer_type = objective.split(" — ")[0].strip().lower()
+    dataset_format_hint = {
+        "sft": "Columns: System (opt), User/instruction, Assistant/output — or 'messages' list",
+        "dpo": _PREFERENCE_COLUMNS_HINT,
+        "simpo": _PREFERENCE_COLUMNS_HINT,
+        "orpo": _PREFERENCE_COLUMNS_HINT,
+        "kto": "Columns: prompt, completion, label (boolean: true=good, false=bad)",
+        "grpo": "Columns: prompt (model generates responses during training)",
+    }
+    hint = dataset_format_hint.get(trainer_type, "Standard format")
+    return trainer_type, hint
+
+
+def _collect_galore_config(use_galore: bool) -> dict:
+    """Prompt for GaLore-specific knobs when GaLore was selected; otherwise empty."""
+    if not use_galore:
+        print("\n[7/8] Advanced Options")
+        return {}
+    print("\n[7/8] GaLore Configuration")
+    galore_rank = _prompt_int("GaLore rank (lower = less memory)", 128, min_val=1, max_val=4096)
+    galore_optim = _prompt_choice(
+        "GaLore optimizer:",
+        ["galore_adamw (standard)", "galore_adamw_8bit (less memory)", "galore_adafactor (experimental)"],
+        default=1,
+    )
+    return {
+        "galore_enabled": True,
+        "galore_optim": galore_optim.split(" ")[0],
+        "galore_rank": galore_rank,
+        "galore_update_proj_gap": 200,
+        "galore_scale": 0.25,
+    }
+
+
 def run_wizard() -> Optional[str]:
     """Run the interactive configuration wizard.
 
@@ -286,22 +344,7 @@ def run_wizard() -> Optional[str]:
             print("  Recommended backend: transformers (Unsloth requires Linux)")
 
     # Step 2: Model Selection
-    print("\n[2/8] Model Selection")
-    print("  Popular models:")
-    for i, m in enumerate(POPULAR_MODELS, 1):
-        print(f"    {i}) {m}")
-    print(f"    {len(POPULAR_MODELS) + 1}) Custom (enter your own)")
-
-    model_choice = input("  Choice [1]: ").strip()
-    try:
-        idx = int(model_choice) if model_choice else 1
-        if idx <= len(POPULAR_MODELS):
-            model_name = POPULAR_MODELS[idx - 1]
-        else:
-            model_name = _prompt("Enter HuggingFace model name or local path")
-    except (ValueError, IndexError):
-        model_name = POPULAR_MODELS[0]
-
+    model_name = _select_model()
     print(f"  Selected: {model_name}")
 
     # Step 3: Strategy Selection
@@ -313,10 +356,7 @@ def run_wizard() -> Optional[str]:
         "GaLore (full-parameter training via gradient projection — no adapters, lowest peak VRAM)",
     ]
     strategy = _prompt_choice("Choose your fine-tuning strategy:", strategies, default=1)
-
-    load_in_4bit = "QLoRA" in strategy
-    use_dora = "DoRA" in strategy
-    use_galore = "GaLore" in strategy
+    load_in_4bit, use_dora, use_galore = _derive_strategy_flags(strategy)
 
     # LoRA parameters
     target_preset = _prompt_choice(
@@ -341,18 +381,8 @@ def run_wizard() -> Optional[str]:
         "GRPO — Group Relative Policy Optimization (reasoning RL, like DeepSeek-R1)",
     ]
     objective = _prompt_choice("Choose your training objective:", objectives, default=1)
-    trainer_type = objective.split(" — ")[0].strip().lower()
-
-    # Dataset format guidance
-    dataset_format_hint = {
-        "sft": "Columns: System (opt), User/instruction, Assistant/output — or 'messages' list",
-        "dpo": _PREFERENCE_COLUMNS_HINT,
-        "simpo": _PREFERENCE_COLUMNS_HINT,
-        "orpo": _PREFERENCE_COLUMNS_HINT,
-        "kto": "Columns: prompt, completion, label (boolean: true=good, false=bad)",
-        "grpo": "Columns: prompt (model generates responses during training)",
-    }
-    print(f"  Dataset format: {dataset_format_hint.get(trainer_type, 'Standard format')}")
+    trainer_type, dataset_format_hint = _parse_trainer_type(objective)
+    print(f"  Dataset format: {dataset_format_hint}")
 
     # Step 5: Dataset
     print("\n[5/8] Dataset")
@@ -375,24 +405,7 @@ def run_wizard() -> Optional[str]:
     )
 
     # Step 7: GaLore parameters (if selected)
-    galore_config = {}
-    if use_galore:
-        print("\n[7/8] GaLore Configuration")
-        galore_rank = _prompt_int("GaLore rank (lower = less memory)", 128, min_val=1, max_val=4096)
-        galore_optim = _prompt_choice(
-            "GaLore optimizer:",
-            ["galore_adamw (standard)", "galore_adamw_8bit (less memory)", "galore_adafactor (experimental)"],
-            default=1,
-        )
-        galore_config = {
-            "galore_enabled": True,
-            "galore_optim": galore_optim.split(" ")[0],
-            "galore_rank": galore_rank,
-            "galore_update_proj_gap": 200,
-            "galore_scale": 0.25,
-        }
-    else:
-        print("\n[7/8] Advanced Options")
+    galore_config = _collect_galore_config(use_galore)
 
     # Step 8: Build config
     print("\n[8/8] Output")

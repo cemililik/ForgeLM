@@ -642,7 +642,7 @@ def _run_export_cmd(args, output_format: str) -> None:
     result = export_model(
         model_path=args.model_path,
         output_path=args.output,
-        format=args.format,
+        format_=args.format,
         quant=args.quant,
         adapter=args.adapter,
         update_integrity=not args.no_integrity_update,
@@ -680,7 +680,7 @@ def _run_export_cmd(args, output_format: str) -> None:
 
 def _run_deploy_cmd(args, output_format: str) -> None:
     """Dispatch the ``forgelm deploy`` subcommand."""
-    from .deploy import generate_deploy_config
+    from .deploy import HFEndpointsOptions, generate_deploy_config
 
     result = generate_deploy_config(
         model_path=args.model_path,
@@ -691,7 +691,7 @@ def _run_deploy_cmd(args, output_format: str) -> None:
         trust_remote_code=args.trust_remote_code,
         gpu_memory_utilization=args.gpu_memory_utilization,
         port=args.port,
-        vendor=getattr(args, "vendor", "aws"),
+        hf_endpoints=HFEndpointsOptions(vendor=getattr(args, "vendor", "aws")),
     )
 
     if output_format == "json":

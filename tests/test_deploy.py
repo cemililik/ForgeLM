@@ -243,13 +243,14 @@ class TestGenerateDeployConfig:
         assert "true" in content.lower()
 
     def test_json_roundtrip_for_hf_endpoints(self, tmp_path):
+        from forgelm.deploy import HFEndpointsOptions
+
         out = str(tmp_path / "ep.json")
         generate_deploy_config(
             "./model",
             "hf-endpoints",
             out,
-            instance_type="nvidia-a100",
-            region="eu-west-3",
+            hf_endpoints=HFEndpointsOptions(instance_type="nvidia-a100", region="eu-west-3"),
         )
         with open(out) as f:
             parsed = json.load(f)
