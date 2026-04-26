@@ -63,14 +63,23 @@ No GPU required. No network calls. CPU-only.
   "cross_split_overlap": {
     "hamming_threshold": 3,
     "pairs": {
-      "train__test": {"leaked_rows_in_train": 7, "leak_rate": 0.0056}
+      "train__test": {
+        "leaked_rows_in_train": 7,
+        "leak_rate_train": 0.0056,
+        "leaked_rows_in_test": 7,
+        "leak_rate_test": 0.7
+      }
     }
   }
 }
 ```
 
-A non-zero leak rate between train and test is a **silent killer of
-benchmark fidelity** — fix the splits before training.
+The audit reports leak rate **in both directions** because they tell
+different stories. With 1240 train rows and 10 test rows where 7 leak,
+`leak_rate_train = 7/1240 = 0.56%` looks negligible but
+`leak_rate_test = 7/10 = 70%` is the metric that actually destroys
+benchmark fidelity. Always read the smaller-side rate — that is the
+silent killer of test integrity.
 
 ### PII summary
 

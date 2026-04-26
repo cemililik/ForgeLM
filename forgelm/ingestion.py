@@ -31,7 +31,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 logger = logging.getLogger("forgelm.ingestion")
 
@@ -305,6 +305,70 @@ def describe_strategies() -> List[Tuple[str, str]]:
     ]
 
 
+@dataclass
+class _FileOutcome:
+    """Per-file aggregate emitted by :func:`_process_one_file`."""
+
+    chunks_written: int = 0
+    chars_written: int = 0
+    file_processed: bool = False
+    file_skipped: bool = False
+    extension: Optional[str] = None
+    pii_counts: Dict[str, int] = field(default_factory=dict)
+
+
+def _process_one_file(
+    fpath: Path,
+    out_fh: Any,
+    *,
+    strategy: str,
+    chunk_size: int,
+    overlap: int,
+    mask_pii: Optional[Callable[..., Any]],
+) -> _FileOutcome:
+    """Extract → chunk → optionally mask → emit JSONL for a single file.
+
+    ImportError propagates (missing optional extra is not a per-file skip).
+    Any other extraction failure is logged + counted as a skip.
+    """
+    extractor = _select_extractor(fpath)
+    if extractor is None:
+        return _FileOutcome(file_skipped=True)
+
+    try:
+        text = extractor(fpath)
+    except ImportError:
+        # ImportError must propagate — missing extras are not a per-file
+        # skip. The CLI wrapper turns this into EXIT_TRAINING_ERROR +
+        # an install-hint message.
+        raise
+    except Exception as exc:
+        logger.warning("Skipping '%s' (extraction failed): %s", fpath, exc)
+        return _FileOutcome(file_skipped=True)
+
+    if not text or not text.strip():
+        logger.warning("Skipping '%s' (no extractable text).", fpath)
+        return _FileOutcome(file_skipped=True)
+
+    outcome = _FileOutcome(file_processed=True, extension=fpath.suffix.lower())
+    for chunk in _strategy_dispatch(strategy, text, chunk_size, overlap):
+        payload = chunk.strip()
+        if not payload:
+            continue
+        if mask_pii is not None:
+            # Get the masked text + per-type counts in a single pass.
+            # Counting via detect_pii beforehand would double-count
+            # spans matched by multiple patterns; mask_pii's own
+            # first-match-wins precedence gives the truthful count.
+            payload, redaction_counts = mask_pii(payload, return_counts=True)
+            for kind, count in redaction_counts.items():
+                outcome.pii_counts[kind] = outcome.pii_counts.get(kind, 0) + count
+        out_fh.write(json.dumps({"text": payload}, ensure_ascii=False) + "\n")
+        outcome.chunks_written += 1
+        outcome.chars_written += len(payload)
+    return outcome
+
+
 def ingest_path(
     input_path: str,
     *,
@@ -343,9 +407,11 @@ def ingest_path(
     if pii_mask:
         # Lazy import: PII helpers live in data_audit.py; we don't want to
         # pay the audit module's import cost when masking is off.
-        from .data_audit import mask_pii
+        from .data_audit import mask_pii as _mask_pii
+
+        mask_pii_fn: Optional[Callable[..., Any]] = _mask_pii
     else:
-        mask_pii = None  # type: ignore[assignment]
+        mask_pii_fn = None
 
     files = list(_iter_input_files(src, recursive))
     if not files:
@@ -364,43 +430,24 @@ def ingest_path(
     # avoids CRLF surprises. Linux/macOS default is already LF.
     with open(dst, "w", encoding=encoding, newline="\n") as out_fh:
         for fpath in files:
-            extractor = _select_extractor(fpath)
-            if extractor is None:
+            outcome = _process_one_file(
+                fpath,
+                out_fh,
+                strategy=strategy,
+                chunk_size=chunk_size,
+                overlap=overlap,
+                mask_pii=mask_pii_fn,
+            )
+            chunk_count += outcome.chunks_written
+            total_chars += outcome.chars_written
+            if outcome.file_processed:
+                files_processed += 1
+                if outcome.extension:
+                    format_counts[outcome.extension] = format_counts.get(outcome.extension, 0) + 1
+            if outcome.file_skipped:
                 files_skipped += 1
-                continue
-            try:
-                text = extractor(fpath)
-            except ImportError:
-                raise
-            except Exception as exc:
-                logger.warning("Skipping '%s' (extraction failed): %s", fpath, exc)
-                files_skipped += 1
-                continue
-
-            if not text or not text.strip():
-                files_skipped += 1
-                logger.warning("Skipping '%s' (no extractable text).", fpath)
-                continue
-
-            files_processed += 1
-            ext = fpath.suffix.lower()
-            format_counts[ext] = format_counts.get(ext, 0) + 1
-
-            for chunk in _strategy_dispatch(strategy, text, chunk_size, overlap):
-                payload = chunk.strip()
-                if not payload:
-                    continue
-                if mask_pii is not None:
-                    # Get the masked text + per-type counts in a single pass.
-                    # Counting via detect_pii beforehand would double-count
-                    # spans matched by multiple patterns; mask_pii's own
-                    # first-match-wins precedence gives the truthful count.
-                    payload, redaction_counts = mask_pii(payload, return_counts=True)
-                    for kind, count in redaction_counts.items():
-                        pii_redaction_counts[kind] = pii_redaction_counts.get(kind, 0) + count
-                out_fh.write(json.dumps({"text": payload}, ensure_ascii=False) + "\n")
-                chunk_count += 1
-                total_chars += len(payload)
+            for kind, count in outcome.pii_counts.items():
+                pii_redaction_counts[kind] = pii_redaction_counts.get(kind, 0) + count
 
     if files_skipped:
         notes.append(f"skipped {files_skipped} file(s) — see warnings above")

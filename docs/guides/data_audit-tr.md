@@ -63,14 +63,23 @@ GPU gerekmiyor. Ağ çağrısı yok. CPU-only.
   "cross_split_overlap": {
     "hamming_threshold": 3,
     "pairs": {
-      "train__test": {"leaked_rows_in_train": 7, "leak_rate": 0.0056}
+      "train__test": {
+        "leaked_rows_in_train": 7,
+        "leak_rate_train": 0.0056,
+        "leaked_rows_in_test": 7,
+        "leak_rate_test": 0.7
+      }
     }
   }
 }
 ```
 
-Train ile test arasında sıfır olmayan leak rate **benchmark
-güvenirliğinin sessiz katilidir** — eğitim öncesi split'leri düzeltin.
+Audit leak rate'i **her iki yönde** de raporlar çünkü birbirinden farklı
+hikâyeler anlatırlar. 1240 train + 10 test satırında 7'sinin sızdığı bir
+durumda `leak_rate_train = 7/1240 = %0.56` önemsiz görünür ama
+`leak_rate_test = 7/10 = %70` benchmark güvenirliğini fiilen yok eden
+metriktir. Her zaman küçük tarafın oranını okuyun — test bütünlüğünün
+sessiz katili odur.
 
 ### PII özeti
 

@@ -235,7 +235,7 @@ def _add_quickstart_subcommand(subparsers) -> None:
 def _add_ingest_subcommand(subparsers) -> None:
     p = subparsers.add_parser(
         "ingest",
-        help="Convert raw documents (PDF / DOCX / EPUB / TXT) into SFT-ready JSONL.",
+        help="Convert raw documents (PDF / DOCX / EPUB / TXT / Markdown) into SFT-ready JSONL.",
         description=(
             "Walk a file or directory tree, extract text per format, chunk with the "
             'selected strategy, and emit a {"text": ...} JSONL the trainer accepts. '
@@ -299,7 +299,7 @@ def parse_args():
         epilog=(
             "Subcommands:\n"
             "  forgelm quickstart [TEMPLATE]   Generate a config from a curated template\n"
-            "  forgelm ingest PATH             Convert raw docs (PDF/DOCX/EPUB/TXT) → JSONL\n"
+            "  forgelm ingest PATH             Convert raw docs (PDF/DOCX/EPUB/TXT/Markdown) → JSONL\n"
             "  forgelm chat MODEL_PATH         Interactive chat REPL\n"
             "  forgelm export MODEL_PATH       Export model to GGUF\n"
             "  forgelm deploy MODEL_PATH       Generate serving config\n"
@@ -1148,10 +1148,11 @@ def _run_data_audit(audit_input: str, output_dir: Optional[str], output_format: 
     target = output_dir or "./audit"
     try:
         report = audit_dataset(audit_input, output_dir=target)
-    except (FileNotFoundError, OSError) as exc:
-        # OSError covers PermissionError / ENOSPC / IsADirectoryError that
-        # bubble up from _resolve_input or _read_jsonl_split when the target
-        # is unreachable BEFORE the per-split tolerance loop kicks in.
+    except OSError as exc:
+        # OSError covers FileNotFoundError / PermissionError / ENOSPC /
+        # IsADirectoryError that bubble up from _resolve_input or
+        # _read_jsonl_split when the target is unreachable BEFORE the
+        # per-split tolerance loop kicks in.
         if output_format == "json":
             print(json.dumps({"success": False, "error": str(exc)}))
         else:

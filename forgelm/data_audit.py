@@ -164,8 +164,14 @@ def _validate_match(pii_type: str, match: str) -> bool:
     return True
 
 
-def detect_pii(text: str) -> Dict[str, int]:
+def detect_pii(text: Any) -> Dict[str, int]:
     """Return a ``{pii_type: count}`` map for the given string.
+
+    The signature is intentionally ``Any`` — the audit calls this with
+    arbitrary JSONL row payloads and we explicitly want a defensive empty
+    return for ``None`` / numbers / lists rather than a TypeError. String
+    callers see no behavioural difference; static-checker friction goes
+    away.
 
     Validation: credit cards run through Luhn; TR national IDs run through
     the TC Kimlik No checksum. Other categories use regex shape only — false
@@ -187,12 +193,17 @@ def detect_pii(text: str) -> Dict[str, int]:
 
 
 def mask_pii(
-    text: str,
+    text: Any,
     replacement: str = "[REDACTED]",
     *,
     return_counts: bool = False,
 ) -> Any:
     """Return ``text`` with every detected PII span replaced by ``replacement``.
+
+    Like :func:`detect_pii`, the input type is ``Any`` so callers passing
+    arbitrary JSONL payloads get a defensive passthrough on non-strings
+    rather than a TypeError. ``None`` returns ``None``; ints / lists / etc.
+    are returned unchanged.
 
     Pattern precedence is the dict order in :data:`_PII_PATTERNS` — most
     specific patterns first (email, IBAN, credit card, national IDs) so a
@@ -241,9 +252,11 @@ def _tokenize(text: str) -> List[str]:
 def compute_simhash(text: str, *, bits: int = 64) -> int:
     """64-bit simhash over case-folded word tokens.
 
-    Uses MD5 (non-cryptographic use — pure mixing), then per-bit majority
-    voting weighted by token frequency to produce the final fingerprint.
-    Empty input → ``0``.
+    Uses BLAKE2b (non-cryptographic use — pure bit-mixing) with a truncated
+    digest, then per-bit majority voting weighted by token frequency to
+    produce the final fingerprint. BLAKE2b is on the modern allowlist
+    (vs. flagged MD5/SHA1) and natively supports digest_size truncation,
+    avoiding the slice we'd need with SHA-256. Empty input → ``0``.
     """
     tokens = _tokenize(text)
     if not tokens:
@@ -253,10 +266,11 @@ def compute_simhash(text: str, *, bits: int = 64) -> int:
     for token in tokens:
         weights[token] = weights.get(token, 0) + 1
 
+    digest_bytes = bits // 8
     bit_scores = [0] * bits
     for token, weight in weights.items():
-        digest = hashlib.md5(token.encode("utf-8"), usedforsecurity=False).digest()
-        token_hash = int.from_bytes(digest[: bits // 8], "big")
+        digest = hashlib.blake2b(token.encode("utf-8"), digest_size=digest_bytes).digest()
+        token_hash = int.from_bytes(digest, "big")
         for i in range(bits):
             bit = (token_hash >> i) & 1
             bit_scores[i] += weight if bit else -weight
@@ -387,29 +401,14 @@ audit's silent stretch is over a few seconds. Threshold picked so smoke
 tests / quickstart audits stay quiet but real corpora surface signal."""
 
 
-def _audit_split(
-    split_name: str,
-    rows: List[Any],
-    *,
-    near_dup_threshold: int = DEFAULT_NEAR_DUP_HAMMING,
-) -> Tuple[Dict[str, Any], List[int], Dict[str, int]]:
-    """Per-split metrics. Returns (info_dict, simhashes_list, pii_counts_dict).
+def _compute_schema(rows: List[Any]) -> Tuple[List[str], List[str], int]:
+    """Inspect rows; return (column_union, drift_columns, non_object_rows).
 
-    Tolerates non-dict rows (raw arrays, scalars, etc. — anything well-formed
-    JSON but not an object). They are surfaced as ``non_object_rows`` so the
-    operator distinguishes "row dropped because it was the wrong shape" from
-    "row had an empty text payload".
+    ``base_columns`` for drift is the **modal keyset** (most common shape
+    across rows). Picking rows[0] would falsely flag every other column
+    when row 0 is the outlier (header row, missing optional field,
+    non-dict junk).
     """
-    info: Dict[str, Any] = {"sample_count": len(rows)}
-    if not rows:
-        info["near_duplicate_pairs"] = 0
-        return info, [], {}
-
-    n_rows = len(rows)
-    log_progress = n_rows >= _PROGRESS_INTERVAL
-
-    # Build the column union AND remember each row's keyset so we can pick
-    # a stable "base" via modal voting (see schema_drift_columns below).
     seen_columns: Dict[str, None] = {}  # ordered set
     keysets: List[frozenset] = []
     non_object_rows = 0
@@ -421,77 +420,146 @@ def _audit_split(
                 seen_columns.setdefault(col, None)
         else:
             non_object_rows += 1
-    info["columns"] = list(seen_columns)
-
-    # Modal-keyset base for drift detection. Picking rows[0] as the "norm"
-    # falsely flags every other column when row 0 happens to be the
-    # outlier (header row, missing optional field, non-dict junk).
     if keysets:
         most_common_keyset, _ = Counter(keysets).most_common(1)[0]
         base_columns = set(most_common_keyset)
     else:
         base_columns = set()
     drift_columns = [c for c in seen_columns if c not in base_columns]
+    return list(seen_columns), drift_columns, non_object_rows
+
+
+def _compute_payloads(rows: List[Any]) -> Tuple[List[str], int]:
+    """Extract text-payload-or-empty for each row; return (payloads, null_or_empty_count).
+
+    Non-dict rows are silently treated as empty here — :func:`_compute_schema`
+    already exposed them under ``non_object_rows``.
+    """
+    payloads: List[str] = []
+    null_or_empty = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            null_or_empty += 1
+            payloads.append("")
+            continue
+        payload = _extract_text_payload(row)
+        if not payload:
+            null_or_empty += 1
+        payloads.append(payload)
+    return payloads, null_or_empty
+
+
+def _compute_top_languages(payloads: List[str], sample_size: int = 200) -> List[Dict[str, Any]]:
+    """Top-3 languages by count, sampled to bound cost on large splits."""
+    sample = payloads[: min(sample_size, len(payloads))]
+    counts: Dict[str, int] = {}
+    for t in sample:
+        lang = _detect_language(t)
+        if lang:
+            counts[lang] = counts.get(lang, 0) + 1
+    if not counts:
+        return []
+    top3 = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:3]
+    return [{"code": code, "count": n} for code, n in top3]
+
+
+def _compute_fingerprints(split_name: str, payloads: List[str]) -> List[int]:
+    """Per-row simhash with operator-friendly progress logging on large splits."""
+    n_rows = len(payloads)
+    log_progress = n_rows >= _PROGRESS_INTERVAL
+    if log_progress:
+        logger.info("audit/%s: computing simhashes for %d rows…", split_name, n_rows)
+    fingerprints: List[int] = []
+    for idx, t in enumerate(payloads):
+        fingerprints.append(compute_simhash(t))
+        if log_progress and (idx + 1) % _PROGRESS_INTERVAL == 0:
+            logger.info("audit/%s: %d / %d rows fingerprinted", split_name, idx + 1, n_rows)
+    return fingerprints
+
+
+def _aggregate_pii(payloads: List[str]) -> Dict[str, int]:
+    """Sum :func:`detect_pii` flags across all payloads."""
+    counts: Dict[str, int] = {}
+    for t in payloads:
+        for kind, n in detect_pii(t).items():
+            counts[kind] = counts.get(kind, 0) + n
+    return counts
+
+
+def _audit_split(
+    split_name: str,
+    rows: List[Any],
+    *,
+    near_dup_threshold: int = DEFAULT_NEAR_DUP_HAMMING,
+) -> Tuple[Dict[str, Any], List[int], Dict[str, int]]:
+    """Per-split metrics. Returns (info_dict, simhashes_list, pii_counts_dict).
+
+    Tolerates non-dict rows (raw arrays, scalars, etc. — anything well-formed
+    JSON but not an object). They are surfaced as ``non_object_rows`` so the
+    operator distinguishes "row dropped because it was the wrong shape" from
+    "row had an empty text payload". The function is a thin orchestrator over
+    the per-pass helpers above; each helper owns one concern and is unit-
+    testable in isolation.
+    """
+    info: Dict[str, Any] = {"sample_count": len(rows)}
+    if not rows:
+        info["near_duplicate_pairs"] = 0
+        return info, [], {}
+
+    columns, drift_columns, non_object_rows = _compute_schema(rows)
+    info["columns"] = columns
     if drift_columns:
         info["schema_drift_columns"] = drift_columns
     if non_object_rows:
         info["non_object_rows"] = non_object_rows
 
-    text_payloads: List[str] = []
-    null_or_empty = 0
-    for row in rows:
-        if not isinstance(row, dict):
-            # Non-dict rows yield no text — track separately as
-            # non_object_rows above; here count them as null/empty so
-            # downstream length stats / fingerprints stay honest.
-            null_or_empty += 1
-            text_payloads.append("")
-            continue
-        payload = _extract_text_payload(row)
-        if not payload:
-            null_or_empty += 1
-        text_payloads.append(payload)
-
-    lengths = [len(t) for t in text_payloads if t]
-    info["text_length"] = _length_stats(lengths)
+    payloads, null_or_empty = _compute_payloads(rows)
+    info["text_length"] = _length_stats([len(t) for t in payloads if t])
     info["null_or_empty_count"] = null_or_empty
     info["null_or_empty_rate"] = round(null_or_empty / len(rows), 4)
 
-    # Language: aggregate from a sample to bound cost on large splits.
-    sample = text_payloads[: min(200, len(text_payloads))]
-    lang_counts: Dict[str, int] = {}
-    for t in sample:
-        lang = _detect_language(t)
-        if lang:
-            lang_counts[lang] = lang_counts.get(lang, 0) + 1
-    if lang_counts:
-        top3 = sorted(lang_counts.items(), key=lambda kv: kv[1], reverse=True)[:3]
-        info["languages_top3"] = [{"code": code, "count": n} for code, n in top3]
+    languages_top3 = _compute_top_languages(payloads)
+    if languages_top3:
+        info["languages_top3"] = languages_top3
 
-    if log_progress:
-        logger.info("audit/%s: computing simhashes for %d rows…", split_name, n_rows)
-    fingerprints: List[int] = []
-    for idx, t in enumerate(text_payloads):
-        fingerprints.append(compute_simhash(t))
-        if log_progress and (idx + 1) % _PROGRESS_INTERVAL == 0:
-            logger.info("audit/%s: %d / %d rows fingerprinted", split_name, idx + 1, n_rows)
+    fingerprints = _compute_fingerprints(split_name, payloads)
     info["simhash_distinct"] = len({fp for fp in fingerprints if fp != 0})
 
-    pii_counts_split: Dict[str, int] = {}
-    for t in text_payloads:
-        for kind, n in detect_pii(t).items():
-            pii_counts_split[kind] = pii_counts_split.get(kind, 0) + n
+    pii_counts_split = _aggregate_pii(payloads)
     if pii_counts_split:
         info["pii_counts"] = pii_counts_split
 
     # Within-split near-duplicate detection lives here so info[] is fully
     # owned by _audit_split; the orchestrator never back-fills its fields.
-    if log_progress:
-        logger.info("audit/%s: scanning for near-duplicates (O(n²); %d rows)…", split_name, n_rows)
+    if len(rows) >= _PROGRESS_INTERVAL:
+        logger.info("audit/%s: scanning for near-duplicates (O(n²); %d rows)…", split_name, len(rows))
     within_pairs = find_near_duplicates(fingerprints, threshold=near_dup_threshold)
     info["near_duplicate_pairs"] = len(within_pairs)
 
     return info, fingerprints, pii_counts_split
+
+
+def _count_leaked_rows(source: List[int], target: List[int], threshold: int) -> int:
+    """Rows in ``source`` whose nearest neighbour in ``target`` is within ``threshold``."""
+    return sum(1 for fp in source if any(hamming_distance(fp, other) <= threshold for other in target))
+
+
+def _pair_leak_payload(
+    a: str,
+    fp_a: List[int],
+    b: str,
+    fp_b: List[int],
+    threshold: int,
+) -> Dict[str, Any]:
+    """Both-directional leak counts + rates for one (a, b) split pair."""
+    leaked_in_a = _count_leaked_rows(fp_a, fp_b, threshold)
+    leaked_in_b = _count_leaked_rows(fp_b, fp_a, threshold)
+    return {
+        f"leaked_rows_in_{a}": leaked_in_a,
+        f"leak_rate_{a}": round(leaked_in_a / len(fp_a), 4),
+        f"leaked_rows_in_{b}": leaked_in_b,
+        f"leak_rate_{b}": round(leaked_in_b / len(fp_b), 4),
+    }
 
 
 def _cross_split_overlap(
@@ -505,44 +573,21 @@ def _cross_split_overlap(
     benchmark fidelity, but the asymmetric one (shared / larger split)
     is informative too. Without both, an operator scanning
     ``train__test = 0.05`` could miss that the same 5 rows leak 50% of
-    a small test set. We report both numbers explicitly.
+    a small test set.
     """
+    nonzero = {name: [fp for fp in fps if fp != 0] for name, fps in fingerprints_by_split.items()}
+    splits = list(nonzero.keys())
     report: Dict[str, Any] = {"hamming_threshold": threshold, "pairs": {}}
-    splits = list(fingerprints_by_split.keys())
     for i, a in enumerate(splits):
-        fp_a = [fp for fp in fingerprints_by_split[a] if fp != 0]
+        fp_a = nonzero[a]
         if not fp_a:
             continue
         for j in range(i + 1, len(splits)):
             b = splits[j]
-            fp_b = [fp for fp in fingerprints_by_split[b] if fp != 0]
+            fp_b = nonzero[b]
             if not fp_b:
                 continue
-            fp_a_set = set(fp_a)
-            fp_b_set = set(fp_b)
-            # Single pass over fp_a captures both directions:
-            # rows in `a` whose nearest neighbour in `b` is within threshold,
-            # and the per-row matched fingerprints lift contributes to the
-            # `b`-side count.
-            leaked_in_a = 0
-            matched_b: set = set()
-            for fp in fp_a:
-                for other in fp_b_set:
-                    if hamming_distance(fp, other) <= threshold:
-                        leaked_in_a += 1
-                        matched_b.add(other)
-                        break
-            # Now count distinct b-rows whose nearest neighbour in `a` is
-            # close. We have `matched_b` as a starting point but a single
-            # pass over `b` is needed to find rows that match any `a`-row,
-            # not just the first `a`-row that triggered a match.
-            leaked_in_b = sum(1 for fp in fp_b if any(hamming_distance(fp, other) <= threshold for other in fp_a_set))
-            report["pairs"][f"{a}__{b}"] = {
-                f"leaked_rows_in_{a}": leaked_in_a,
-                f"leak_rate_{a}": round(leaked_in_a / len(fp_a), 4),
-                f"leaked_rows_in_{b}": leaked_in_b,
-                f"leak_rate_{b}": round(leaked_in_b / len(fp_b), 4),
-            }
+            report["pairs"][f"{a}__{b}"] = _pair_leak_payload(a, fp_a, b, fp_b, threshold)
     return report
 
 
@@ -563,6 +608,55 @@ _SPLIT_ALIASES: Dict[str, str] = {
 }
 
 
+def _scan_canonical_split_files(src: Path) -> Tuple[Dict[str, Path], List[str]]:
+    """Discover ``train`` / ``validation`` / ``test`` files via canonical names + aliases."""
+    layouts: Dict[str, Path] = {}
+    notes: List[str] = []
+    for stem, canonical in _SPLIT_ALIASES.items():
+        candidate = src / f"{stem}.jsonl"
+        if not candidate.is_file():
+            continue
+        if canonical in layouts:
+            notes.append(
+                f"both '{layouts[canonical].name}' and '{candidate.name}' map to "
+                f"the '{canonical}' split; using the first one. Rename to disambiguate."
+            )
+            continue
+        if stem != canonical:
+            notes.append(f"'{candidate.name}' treated as the '{canonical}' split.")
+        layouts[canonical] = candidate
+    return layouts, notes
+
+
+def _scan_pseudo_split_files(src: Path) -> Tuple[Dict[str, Path], List[str]]:
+    """Last-resort fallback: every ``*.jsonl`` becomes its own pseudo-split.
+
+    Cross-split leakage analysis on pseudo-splits is meaningless (those
+    files probably aren't a real train/test partition), so warn loudly.
+    """
+    layouts: Dict[str, Path] = {}
+    notes: List[str] = []
+    for jsonl in sorted(src.glob("*.jsonl")):
+        layouts[jsonl.stem] = jsonl
+    if layouts:
+        msg = (
+            f"no canonical split files found in '{src}'. "
+            "Each .jsonl is being audited as its own pseudo-split — "
+            "cross-split leakage analysis is meaningless without a real partition."
+        )
+        notes.append(msg)
+        logger.warning(msg)
+    return layouts, notes
+
+
+def _resolve_directory_splits(src: Path) -> Tuple[Dict[str, Path], List[str]]:
+    """Find a usable split layout under ``src`` (canonical first, pseudo as fallback)."""
+    layouts, notes = _scan_canonical_split_files(src)
+    if layouts:
+        return layouts, notes
+    return _scan_pseudo_split_files(src)
+
+
 def _resolve_input(source: str) -> Tuple[Dict[str, Path], List[str]]:
     """Map the user-supplied path to a ``{split_name: path}`` dict + notes.
 
@@ -571,54 +665,122 @@ def _resolve_input(source: str) -> Tuple[Dict[str, Path], List[str]]:
     * Directory with files matching canonical names (``train.jsonl`` /
       ``validation.jsonl`` / ``test.jsonl``) or common aliases (``dev`` /
       ``val`` / ``valid`` / ``eval`` / ``holdout``).
-
-    Returns a ``(splits_dict, notes_list)`` tuple. ``notes_list`` carries
-    operator-relevant signals (alias collapse, pseudo-split fallback)
-    surfaced both in the report and in the CLI summary.
     """
     src = Path(source).expanduser().resolve()
-    notes: List[str] = []
     if src.is_file():
-        return {"train": src}, notes
+        return {"train": src}, []
     if src.is_dir():
-        layouts: Dict[str, Path] = {}
-        # Canonical + alias discovery.
-        for stem, canonical in _SPLIT_ALIASES.items():
-            candidate = src / f"{stem}.jsonl"
-            if not candidate.is_file():
-                continue
-            if canonical in layouts:
-                # Two files map to the same canonical split — surface this
-                # rather than silently picking one.
-                notes.append(
-                    f"both '{layouts[canonical].name}' and '{candidate.name}' map to "
-                    f"the '{canonical}' split; using the first one. Rename to disambiguate."
-                )
-                continue
-            if stem != canonical:
-                notes.append(f"'{candidate.name}' treated as the '{canonical}' split.")
-            layouts[canonical] = candidate
+        layouts, notes = _resolve_directory_splits(src)
         if layouts:
-            return layouts, notes
-
-        # No canonical / alias hits — last-resort fallback: every .jsonl
-        # becomes its own pseudo-split. Cross-split leakage analysis here
-        # is misleading (those files probably aren't a real train/test
-        # partition), so warn loudly.
-        for jsonl in sorted(src.glob("*.jsonl")):
-            layouts[jsonl.stem] = jsonl
-        if layouts:
-            notes.append(
-                f"no canonical split files found in '{src}'. "
-                "Each .jsonl is being audited as its own pseudo-split — "
-                "cross-split leakage analysis is meaningless without a real partition."
-            )
-            logger.warning(notes[-1])
             return layouts, notes
     raise FileNotFoundError(
         f"Audit input not found or empty: '{src}'. "
         f"Pass a .jsonl file or a directory containing train.jsonl / validation.jsonl / test.jsonl."
     )
+
+
+# ---------------------------------------------------------------------------
+# Per-split processing — extracted from audit_dataset for readability and
+# testability. Each helper owns one concern; the orchestrator stitches them.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _SplitOutcome:
+    """Bundle of per-split results assembled by :func:`_process_split`."""
+
+    info: Dict[str, Any]
+    fingerprints: List[int]
+    pii_split: Dict[str, int]
+    row_count: int
+    parse_errors: int
+    decode_errors: int
+    split_notes: List[str]
+
+
+def _process_split(
+    split_name: str,
+    path: Path,
+    *,
+    near_dup_threshold: int,
+) -> _SplitOutcome:
+    """Read + audit one split. Tolerates per-split filesystem failures."""
+    try:
+        rows, parse_errors, decode_errors = _read_jsonl_split(path)
+    except OSError as exc:
+        logger.warning("Could not read split '%s' (%s): %s — skipping.", split_name, path, exc)
+        return _SplitOutcome(
+            info={"error": f"read_failed: {exc}", "path": str(path)},
+            fingerprints=[],
+            pii_split={},
+            row_count=0,
+            parse_errors=0,
+            decode_errors=0,
+            split_notes=[f"split '{split_name}' skipped (read failure: {exc})"],
+        )
+
+    logger.info("audit: scanning split '%s' (%d rows from %s)", split_name, len(rows), path.name)
+    info, fingerprints, pii_split = _audit_split(split_name, rows, near_dup_threshold=near_dup_threshold)
+
+    split_notes: List[str] = []
+    # Surface JSONL hygiene metrics on the split itself so the report
+    # distinguishes "this split has 1240 rows" from "this split had 1330
+    # lines but 90 were malformed JSON we silently dropped".
+    if parse_errors:
+        info["parse_errors"] = parse_errors
+        split_notes.append(
+            f"split '{split_name}': {parse_errors} malformed JSONL line(s) "
+            "skipped — metrics computed over the parseable subset only."
+        )
+    if decode_errors:
+        info["decode_errors"] = decode_errors
+        split_notes.append(
+            f"split '{split_name}': {decode_errors} line(s) had non-UTF-8 "
+            "bytes (replaced with U+FFFD). Re-encode the source file as "
+            "UTF-8 if these rows matter."
+        )
+
+    return _SplitOutcome(
+        info=info,
+        fingerprints=fingerprints,
+        pii_split=pii_split,
+        row_count=len(rows),
+        parse_errors=parse_errors,
+        decode_errors=decode_errors,
+        split_notes=split_notes,
+    )
+
+
+def _pii_summary_notes(pii_summary: Dict[str, int]) -> List[str]:
+    """Operator-actionable note (or "none flagged") for the aggregate PII counts."""
+    if not pii_summary:
+        return ["No PII flagged. (Regex-based detector — false negatives possible.)"]
+    flag_total = sum(pii_summary.values())
+    breakdown = ", ".join(f"{k}={v}" for k, v in sorted(pii_summary.items()))
+    return [
+        f"PII flags surfaced ({flag_total} total: {breakdown}). "
+        "Review before publishing; mask with `forgelm ingest --pii-mask` "
+        "or use `forgelm.data_audit.mask_pii` programmatically."
+    ]
+
+
+def _cross_split_leak_notes(cross: Dict[str, Any]) -> List[str]:
+    """Surface the WORST leak direction so an asymmetric figure doesn't bury it."""
+    cross_pairs = cross.get("pairs", {}) or {}
+    leaking = []
+    for name, payload in cross_pairs.items():
+        rates = [v for k, v in payload.items() if k.startswith("leak_rate_")]
+        if rates and max(rates) > 0:
+            leaking.append((name, max(rates)))
+    if not leaking:
+        return []
+    worst = max(leaking, key=lambda kv: kv[1])
+    return [
+        f"Cross-split leakage detected in {len(leaking)} pair(s): "
+        f"{', '.join(name for name, _ in leaking)}. "
+        f"Worst leak rate: {worst[1]:.2%} ({worst[0]}). "
+        "Re-shuffle splits before benchmarking — leaked rows poison test fidelity."
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -659,79 +821,20 @@ def audit_dataset(
     decode_errors_total = 0
 
     for split_name, path in splits_paths.items():
-        # Per-split filesystem-failure tolerance (Bug 31): a bad split is
-        # reported, not aborted; operators want a partial report over no
-        # report at all.
-        try:
-            rows, parse_errors, decode_errors = _read_jsonl_split(path)
-        except OSError as exc:
-            logger.warning("Could not read split '%s' (%s): %s — skipping.", split_name, path, exc)
-            splits_info[split_name] = {"error": f"read_failed: {exc}", "path": str(path)}
-            fingerprints_by_split[split_name] = []
-            notes.append(f"split '{split_name}' skipped (read failure: {exc})")
-            continue
-
-        logger.info("audit: scanning split '%s' (%d rows from %s)", split_name, len(rows), path.name)
-        info, fingerprints, pii_split = _audit_split(split_name, rows, near_dup_threshold=near_dup_threshold)
-        # Surface JSONL hygiene metrics on the split itself so the
-        # report distinguishes "this split has 1240 rows" from "this
-        # split had 1330 lines but 90 were malformed JSON we silently
-        # dropped" (Bug 4).
-        if parse_errors:
-            info["parse_errors"] = parse_errors
-            notes.append(
-                f"split '{split_name}': {parse_errors} malformed JSONL line(s) "
-                "skipped — metrics computed over the parseable subset only."
-            )
-            parse_errors_total += parse_errors
-        if decode_errors:
-            info["decode_errors"] = decode_errors
-            notes.append(
-                f"split '{split_name}': {decode_errors} line(s) had non-UTF-8 "
-                "bytes (replaced with U+FFFD). Re-encode the source file as "
-                "UTF-8 if these rows matter."
-            )
-            decode_errors_total += decode_errors
-
-        splits_info[split_name] = info
-        fingerprints_by_split[split_name] = fingerprints
-        total_samples += len(rows)
-        near_dup_pairs[split_name] = info.get("near_duplicate_pairs", 0)
-
-        for kind, count in pii_split.items():
+        outcome = _process_split(split_name, path, near_dup_threshold=near_dup_threshold)
+        splits_info[split_name] = outcome.info
+        fingerprints_by_split[split_name] = outcome.fingerprints
+        total_samples += outcome.row_count
+        near_dup_pairs[split_name] = outcome.info.get("near_duplicate_pairs", 0)
+        notes.extend(outcome.split_notes)
+        parse_errors_total += outcome.parse_errors
+        decode_errors_total += outcome.decode_errors
+        for kind, count in outcome.pii_split.items():
             pii_summary[kind] = pii_summary.get(kind, 0) + count
 
     cross = _cross_split_overlap(fingerprints_by_split, near_dup_threshold)
-
-    # Actionable, not just informational — Bug 34.
-    if not pii_summary:
-        notes.append("No PII flagged. (Regex-based detector — false negatives possible.)")
-    else:
-        flag_total = sum(pii_summary.values())
-        breakdown = ", ".join(f"{k}={v}" for k, v in sorted(pii_summary.items()))
-        notes.append(
-            f"PII flags surfaced ({flag_total} total: {breakdown}). "
-            "Review before publishing; mask with `forgelm ingest --pii-mask` "
-            "or use `forgelm.data_audit.mask_pii` programmatically."
-        )
-
-    # Cross-split leakage: surface the WORST direction (max of leak_rate_a
-    # and leak_rate_b), not just any non-zero asymmetric figure. The
-    # smaller-side rate is what actually destroys benchmark fidelity.
-    cross_pairs = cross.get("pairs", {}) or {}
-    leaking = []
-    for name, payload in cross_pairs.items():
-        rates = [v for k, v in payload.items() if k.startswith("leak_rate_")]
-        if rates and max(rates) > 0:
-            leaking.append((name, max(rates)))
-    if leaking:
-        worst = max(leaking, key=lambda kv: kv[1])
-        notes.append(
-            f"Cross-split leakage detected in {len(leaking)} pair(s): "
-            f"{', '.join(name for name, _ in leaking)}. "
-            f"Worst leak rate: {worst[1]:.2%} ({worst[0]}). "
-            "Re-shuffle splits before benchmarking — leaked rows poison test fidelity."
-        )
+    notes.extend(_pii_summary_notes(pii_summary))
+    notes.extend(_cross_split_leak_notes(cross))
 
     near_dup_total = sum(near_dup_pairs.values())
     if near_dup_total > 0:

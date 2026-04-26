@@ -96,7 +96,7 @@ false positives are intentional. Audit your output afterwards with
 
 ## Recursive directory walk
 
-```
+```text
 ./policies/
 ├── 2024_q1.pdf
 ├── 2024_q2.pdf

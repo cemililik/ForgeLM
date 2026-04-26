@@ -84,6 +84,84 @@ class AuditLogger:
 # ---------------------------------------------------------------------------
 
 
+def _build_text_length_stats(split_data: Any, split_name: str) -> Optional[Dict[str, Any]]:
+    """Compute min/max/mean/median/p95 of the ``text`` column, if present."""
+    if not (hasattr(split_data, "column_names") and "text" in split_data.column_names):
+        return None
+    try:
+        texts = split_data["text"]
+        lengths = sorted(len(t) for t in texts if isinstance(t, str))
+    except Exception as exc:
+        logger.debug("Could not compute text stats for %s: %s", split_name, exc)
+        return None
+    if not lengths:
+        return None
+    return {
+        "min": lengths[0],
+        "max": lengths[-1],
+        "mean": round(sum(lengths) / len(lengths), 1),
+        "median": lengths[len(lengths) // 2],
+        "p95": lengths[int(len(lengths) * 0.95)],
+    }
+
+
+def _build_split_info(split_name: str, split_data: Any) -> Dict[str, Any]:
+    """Per-split sample count + column schema + length distribution."""
+    info: Dict[str, Any] = {"sample_count": len(split_data)}
+    if hasattr(split_data, "column_names"):
+        info["columns"] = split_data.column_names
+    text_length = _build_text_length_stats(split_data, split_name)
+    if text_length:
+        info["text_length"] = text_length
+    return info
+
+
+def _governance_section(config: Any) -> Optional[Dict[str, Any]]:
+    """Return the operator-supplied Article 10 metadata block, if any."""
+    gov_cfg = getattr(config.data, "governance", None)
+    if not gov_cfg:
+        return None
+    return {
+        "collection_method": gov_cfg.collection_method,
+        "annotation_process": gov_cfg.annotation_process,
+        "known_biases": gov_cfg.known_biases,
+        "personal_data_included": gov_cfg.personal_data_included,
+        "dpia_completed": gov_cfg.dpia_completed,
+    }
+
+
+def _maybe_inline_audit_report(config: Any) -> Optional[Dict[str, Any]]:
+    """Read ``data_audit_report.json`` from ``training.output_dir`` if it's there.
+
+    Loud-but-non-fatal hint when the file is missing: the audit CLI
+    defaults to ``./audit/`` whereas the trainer's output_dir is
+    typically ``./checkpoints/`` — without explicit alignment the
+    inlining silently no-ops and the governance bundle ships without
+    the Article 10 data-quality section.
+    """
+    output_dir = getattr(getattr(config, "training", None), "output_dir", None)
+    if not output_dir:
+        return None
+    audit_path = os.path.join(output_dir, "data_audit_report.json")
+    if not os.path.isfile(audit_path):
+        logger.info(
+            "No data_audit_report.json at %s — governance report will lack the "
+            "Article 10 data-quality section. Run "
+            "`forgelm --data-audit <dataset> --output %s` before training to populate it.",
+            audit_path,
+            output_dir,
+        )
+        return None
+    try:
+        with open(audit_path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        # Audit JSON is best-effort enrichment — corrupt UTF-8 or a
+        # malformed file must not abort governance report generation.
+        logger.warning("Could not inline data_audit_report.json (%s): %s", audit_path, exc)
+        return None
+
+
 def generate_data_governance_report(config: Any, dataset: Dict[str, Any]) -> Dict[str, Any]:
     """Generate data quality and governance report per EU AI Act Article 10.
 
@@ -92,78 +170,19 @@ def generate_data_governance_report(config: Any, dataset: Dict[str, Any]) -> Dic
     its findings are inlined under the ``data_audit`` key so the governance
     artifact is a single self-contained document rather than a pointer.
     """
-    report = {
+    report: Dict[str, Any] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "primary_dataset": config.data.dataset_name_or_path,
-        "splits": {},
+        "splits": {name: _build_split_info(name, data) for name, data in dataset.items()},
     }
 
-    # Per-split statistics
-    for split_name, split_data in dataset.items():
-        split_info = {"sample_count": len(split_data)}
+    governance = _governance_section(config)
+    if governance:
+        report["governance"] = governance
 
-        # Column schema
-        if hasattr(split_data, "column_names"):
-            split_info["columns"] = split_data.column_names
-
-        # Text length statistics (if "text" column exists)
-        if hasattr(split_data, "column_names") and "text" in split_data.column_names:
-            try:
-                texts = split_data["text"]
-                lengths = [len(t) for t in texts if isinstance(t, str)]
-                if lengths:
-                    lengths.sort()
-                    split_info["text_length"] = {
-                        "min": lengths[0],
-                        "max": lengths[-1],
-                        "mean": round(sum(lengths) / len(lengths), 1),
-                        "median": lengths[len(lengths) // 2],
-                        "p95": lengths[int(len(lengths) * 0.95)],
-                    }
-            except Exception as e:
-                logger.debug("Could not compute text stats for %s: %s", split_name, e)
-
-        report["splits"][split_name] = split_info
-
-    # Governance metadata from config
-    gov_cfg = getattr(config.data, "governance", None)
-    if gov_cfg:
-        report["governance"] = {
-            "collection_method": gov_cfg.collection_method,
-            "annotation_process": gov_cfg.annotation_process,
-            "known_biases": gov_cfg.known_biases,
-            "personal_data_included": gov_cfg.personal_data_included,
-            "dpia_completed": gov_cfg.dpia_completed,
-        }
-
-    # Phase 11 Article 10 enrichment: if a `data_audit_report.json` exists in
-    # the trainer's output_dir, inline it. Operators usually run the audit
-    # before training; co-locating the result keeps the governance bundle
-    # self-contained rather than a pointer to a separate file.
-    output_dir = getattr(getattr(config, "training", None), "output_dir", None)
-    if output_dir:
-        audit_path = os.path.join(output_dir, "data_audit_report.json")
-        if os.path.isfile(audit_path):
-            try:
-                with open(audit_path, "r", encoding="utf-8") as fh:
-                    report["data_audit"] = json.load(fh)
-            except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
-                # Audit JSON is best-effort enrichment — corrupt UTF-8 or a
-                # malformed file must not abort governance report generation.
-                logger.warning("Could not inline data_audit_report.json (%s): %s", audit_path, exc)
-        else:
-            # Loud-but-non-fatal hint: the audit CLI defaults to `./audit/`
-            # whereas the trainer's output_dir is typically `./checkpoints/`
-            # — without explicit alignment the inlining silently no-ops and
-            # the governance bundle ships without the Article 10 data
-            # quality section. Tell the operator how to fix it.
-            logger.info(
-                "No data_audit_report.json at %s — governance report will lack the "
-                "Article 10 data-quality section. Run "
-                "`forgelm --data-audit <dataset> --output %s` before training to populate it.",
-                audit_path,
-                output_dir,
-            )
+    audit = _maybe_inline_audit_report(config)
+    if audit is not None:
+        report["data_audit"] = audit
 
     return report
 

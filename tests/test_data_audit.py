@@ -74,8 +74,10 @@ class TestPiiDetection:
         assert detect_pii("hello world how are you") == {}
 
     def test_returns_empty_for_non_string(self):
-        assert detect_pii(None) == {}  # type: ignore[arg-type]
-        assert detect_pii(42) == {}  # type: ignore[arg-type]
+        # Signature is `Any` — defensive passthrough for arbitrary JSONL
+        # row payloads that aren't strings (None, ints, lists, etc.).
+        assert detect_pii(None) == {}
+        assert detect_pii(42) == {}
 
     def test_pii_types_listed(self):
         # Sanity: the public tuple matches what detect_pii can emit.
@@ -118,7 +120,8 @@ class TestPiiMasking:
         assert "<X>" in out
 
     def test_passes_non_string_through(self):
-        assert mask_pii(None) is None  # type: ignore[arg-type]
+        # Defensive passthrough — see :func:`mask_pii` docstring.
+        assert mask_pii(None) is None
 
 
 class TestLuhnHelper:
@@ -432,7 +435,7 @@ class TestMaskPiiReturnCounts:
         assert "4111 1111 1111 1112" in out
 
     def test_non_string_returns_empty_counts(self):
-        out, counts = mask_pii(None, return_counts=True)  # type: ignore[arg-type]
+        out, counts = mask_pii(None, return_counts=True)
         assert (out, counts) == (None, {})
 
     def test_back_compat_one_arg_form_still_returns_string(self):
