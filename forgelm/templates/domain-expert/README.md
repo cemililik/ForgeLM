@@ -32,8 +32,8 @@ Q&A pairs over your source documents tends to work best.
 - ~500+ examples and a reasonable HF Hub model are enough for a useful first
   pass on small domain shifts.
 - For larger corpora or a domain with lots of jargon, consider running
-  `forgelm --generate-data` (Phase 5) first to expand a small seed into
-  many synthetic Q&A pairs before fine-tuning.
+  `forgelm --generate-data` (synthetic data pipeline) first to expand a
+  small seed into many synthetic Q&A pairs before fine-tuning.
 - For compliance-sensitive domains (medical, legal), enable
   `evaluation.safety` and the EU AI Act compliance metadata fields after
   the first training run.
