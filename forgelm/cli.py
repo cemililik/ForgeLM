@@ -17,12 +17,16 @@ _CLI_MODULE = "forgelm.cli"
 
 logger = logging.getLogger(_CLI_MODULE)
 
-# Exit codes
+# Exit codes — ForgeLM's public CLI contract. Any other value (e.g. signal-
+# derived 128+N codes) is clamped to EXIT_TRAINING_ERROR before propagating.
 EXIT_SUCCESS = 0
 EXIT_CONFIG_ERROR = 1
 EXIT_TRAINING_ERROR = 2
 EXIT_EVAL_FAILURE = 3
 EXIT_AWAITING_APPROVAL = 4
+_PUBLIC_EXIT_CODES = frozenset(
+    {EXIT_SUCCESS, EXIT_CONFIG_ERROR, EXIT_TRAINING_ERROR, EXIT_EVAL_FAILURE, EXIT_AWAITING_APPROVAL}
+)
 
 
 def _get_version() -> str:
@@ -849,7 +853,13 @@ def _emit_quickstart_result(result, output_format: str) -> None:
 
 
 def _run_quickstart_train_subprocess(args, config_path: Path) -> None:
-    """Spawn `forgelm --config <generated>` as a child process; exit on non-zero."""
+    """Spawn `forgelm --config <generated>` as a child process; exit on non-zero.
+
+    The child's raw return code is logged for debuggability but is mapped to
+    one of ForgeLM's documented exit codes (0/1/2/3/4) before propagating —
+    signal-derived codes like 137 (SIGKILL) or 139 (SIGSEGV) shouldn't leak
+    out of the public CLI contract.
+    """
     import subprocess  # nosec B404 — argv-list usage only
 
     inherited, _ = _build_quickstart_inherited_flags(args)
@@ -858,7 +868,8 @@ def _run_quickstart_train_subprocess(args, config_path: Path) -> None:
     train_rc = subprocess.run(train_cmd, check=False).returncode  # noqa: S603  # nosec B603
     if train_rc != 0:
         logger.error("Training exited with code %d", train_rc)
-        sys.exit(train_rc)
+        exit_code = train_rc if train_rc in _PUBLIC_EXIT_CODES else EXIT_TRAINING_ERROR
+        sys.exit(exit_code)
 
 
 def _run_quickstart_chat_subprocess(args, config_path: Path) -> None:
@@ -884,6 +895,25 @@ def _run_quickstart_chat_subprocess(args, config_path: Path) -> None:
     # succeeded by the time we got here.
     if chat_rc not in (0, 130):
         logger.warning("Chat subprocess exited with code %d", chat_rc)
+
+
+def _run_quickstart_train_then_chat(args, result) -> None:
+    """Run training then (unless --no-chat) auto-launch the chat REPL.
+
+    Extracted from ``_run_quickstart_cmd`` so the dispatcher stays a flat
+    sequence of steps. ``_run_quickstart_train_subprocess`` exits on
+    non-zero training rc; if it returns we know training succeeded, so the
+    chat branch is reachable without an explicit success check.
+    """
+    # Spec: invoke training automatically. Use a subprocess so each phase keeps
+    # its own clean process state and Ctrl-C is honoured cleanly.
+    _run_quickstart_train_subprocess(args, result.config_path)
+
+    if args.no_chat:
+        sys.exit(EXIT_SUCCESS)
+
+    _run_quickstart_chat_subprocess(args, result.config_path)
+    sys.exit(EXIT_SUCCESS)
 
 
 def _run_quickstart_cmd(args, output_format: str) -> None:
@@ -927,15 +957,7 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
     if result.dry_run:
         sys.exit(EXIT_SUCCESS)
 
-    # Spec: invoke training automatically. Use a subprocess so each phase keeps
-    # its own clean process state and Ctrl-C is honoured cleanly.
-    _run_quickstart_train_subprocess(args, result.config_path)
-
-    if args.no_chat:
-        sys.exit(EXIT_SUCCESS)
-
-    _run_quickstart_chat_subprocess(args, result.config_path)
-    sys.exit(EXIT_SUCCESS)
+    _run_quickstart_train_then_chat(args, result)
 
 
 def _load_quickstart_train_paths(config_path: Path) -> tuple[str, str]:

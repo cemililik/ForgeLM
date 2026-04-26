@@ -119,14 +119,23 @@ def test_train_subprocess_uses_absolute_config_path(tmp_path: Path):
 
 
 def test_chat_subprocess_uses_absolute_model_path(tmp_path: Path):
-    """The auto-launched chat REPL must receive an absolute model dir."""
+    """The auto-launched chat REPL must receive an absolute model dir.
+
+    Uses a real ``tmp_path/checkpoints/final_model`` directory rather than
+    monkey-patching ``pathlib.Path.is_dir`` globally — the global patch
+    affected every Path.is_dir() call in the importlib/yaml/setuptools
+    stack and was a foot-gun for unrelated changes.
+    """
     from forgelm.cli import main
 
     config_out = tmp_path / "abs-path-test.yaml"
     recorder = _RunRecorder()
 
-    # Per task spec: hard-code the patched train paths to a fixed string and
-    # force is_dir() True regardless of filesystem state.
+    # Materialise the real directory the chat-launch gate checks for.
+    checkpoints_dir = tmp_path / "checkpoints"
+    final_model_dir = checkpoints_dir / "final_model"
+    final_model_dir.mkdir(parents=True)
+
     argv = [
         "forgelm",
         "quickstart",
@@ -139,9 +148,8 @@ def test_chat_subprocess_uses_absolute_model_path(tmp_path: Path):
         patch("forgelm.quickstart._detect_available_vram_gb", return_value=24.0),
         patch(
             "forgelm.cli._load_quickstart_train_paths",
-            return_value=("/some/checkpoints", "final_model"),
+            return_value=(str(checkpoints_dir), "final_model"),
         ),
-        patch("pathlib.Path.is_dir", return_value=True),
         patch("subprocess.run", new=recorder),
         patch("sys.argv", argv),
     ):

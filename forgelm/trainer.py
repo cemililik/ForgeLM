@@ -177,6 +177,12 @@ def _dataset_has_gold_answers(dataset: Dict[str, Any]) -> bool:
 
     Looks at the first row only — ForgeLM's preparation pipeline already
     enforces a homogeneous schema, so a single probe is sufficient.
+
+    Detection is presence-based: ``0``, ``0.0``, and ``False`` count as
+    real gold answers (a math problem may legitimately have ``"0"`` as the
+    correct answer). Only an empty string ``""`` or ``None`` is treated
+    as "the column exists in name only" and ignored — those typically
+    come from a schema placeholder rather than a real label.
     """
     train = dataset.get("train") if isinstance(dataset, dict) else None
     if train is None or len(train) == 0:
@@ -186,7 +192,10 @@ def _dataset_has_gold_answers(dataset: Dict[str, Any]) -> bool:
     try:
         first = train[0]
         if isinstance(first, dict):
-            return "gold_answer" in first and bool(first["gold_answer"])
+            if "gold_answer" not in first:
+                return False
+            val = first["gold_answer"]
+            return val is not None and val != ""
     except (IndexError, KeyError, TypeError):
         pass
     cols = getattr(train, "column_names", None)

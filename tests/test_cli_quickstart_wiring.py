@@ -229,3 +229,45 @@ class TestChatExitCodeNotSwallowed:
         assert exc.code == 0
         chat_warnings = [r for r in caplog.records if "Chat subprocess exited" in r.getMessage()]
         assert chat_warnings == []
+
+
+# ---------------------------------------------------------------------------
+# 4. Train rc must be clamped to ForgeLM's documented exit-code contract
+# ---------------------------------------------------------------------------
+
+
+class TestTrainExitCodeClamping:
+    def test_signal_derived_rc_clamped_to_training_error(self, tmp_path, fake_train_paths):
+        """rc=139 (SIGSEGV) must surface as EXIT_TRAINING_ERROR (2), not 139."""
+        config_out = tmp_path / "cfg.yaml"
+        # Train crashed with a signal-derived rc; chat would never run.
+        recorder = _RunRecorder(returncodes=[139])
+        argv = [
+            "forgelm",
+            "quickstart",
+            "customer-support",
+            "--output",
+            str(config_out),
+        ]
+
+        exc = _invoke_main(argv, recorder)
+        # 139 is outside (0,1,2,3,4) → clamped to EXIT_TRAINING_ERROR (2).
+        assert exc.code == 2
+        # Only one subprocess call: training crashed before chat could fire.
+        assert len(recorder.calls) == 1
+
+    def test_documented_rc_propagates_unchanged(self, tmp_path, fake_train_paths):
+        """rc=3 (EXIT_EVAL_FAILURE) is part of the contract and must propagate as-is."""
+        config_out = tmp_path / "cfg.yaml"
+        recorder = _RunRecorder(returncodes=[3])
+        argv = [
+            "forgelm",
+            "quickstart",
+            "customer-support",
+            "--output",
+            str(config_out),
+        ]
+
+        exc = _invoke_main(argv, recorder)
+        assert exc.code == 3
+        assert len(recorder.calls) == 1

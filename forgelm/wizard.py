@@ -330,6 +330,9 @@ def _validate_local_jsonl(raw_path: str) -> Optional[str]:
     """Validate a user-supplied JSONL path; return the absolute path or None.
 
     None signals "re-prompt" (validation failure was already printed).
+    The returned path is always absolute (``Path.resolve()`` is applied
+    after ``expanduser()``) so callers downstream can ``cd`` freely without
+    losing track of the dataset.
     """
     resolved = Path(raw_path).expanduser()
     if not resolved.is_file():
@@ -344,7 +347,7 @@ def _validate_local_jsonl(raw_path: str) -> Optional[str]:
     except (OSError, ValueError) as e:
         print(f"  File is not valid JSONL (first line failed to parse): {e}")
         return None
-    return str(resolved)
+    return str(resolved.resolve())
 
 
 def _resolve_byod_dataset_path() -> Optional[str]:

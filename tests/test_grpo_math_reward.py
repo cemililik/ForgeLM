@@ -244,8 +244,29 @@ class TestDatasetHasGoldAnswers:
         assert _dataset_has_gold_answers(ds) is False
 
     def test_empty_gold_answer_treated_as_missing(self):
+        # "" is treated as "schema placeholder, no real label" — same as
+        # missing — so the trainer doesn't try to score against an empty target.
         ds = {"train": [{"prompt": "x", "gold_answer": ""}]}
         assert _dataset_has_gold_answers(ds) is False
+
+    def test_none_gold_answer_treated_as_missing(self):
+        ds = {"train": [{"prompt": "x", "gold_answer": None}]}
+        assert _dataset_has_gold_answers(ds) is False
+
+    def test_zero_int_gold_answer_treated_as_present(self):
+        # "0" is a perfectly valid math answer (e.g., "What is 5 - 5?"). Earlier
+        # presence check used bool(...) which would falsely drop integer zero.
+        ds = {"train": [{"prompt": "x", "gold_answer": 0}]}
+        assert _dataset_has_gold_answers(ds) is True
+
+    def test_zero_float_gold_answer_treated_as_present(self):
+        ds = {"train": [{"prompt": "x", "gold_answer": 0.0}]}
+        assert _dataset_has_gold_answers(ds) is True
+
+    def test_false_gold_answer_treated_as_present(self):
+        # Boolean labels are an unusual but legal shape; presence wins.
+        ds = {"train": [{"prompt": "x", "gold_answer": False}]}
+        assert _dataset_has_gold_answers(ds) is True
 
     def test_no_train_split(self):
         assert _dataset_has_gold_answers({}) is False
