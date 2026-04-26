@@ -879,7 +879,7 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
     if getattr(args, "offline", False):
         inherited_chat.append("--offline")
 
-    train_cmd = [sys.executable, "-m", "forgelm.cli", *inherited, "--config", str(result.config_path)]
+    train_cmd = [sys.executable, "-m", "forgelm.cli", *inherited, "--config", os.path.abspath(result.config_path)]
     logger.info("Starting training: %s", " ".join(train_cmd))
     train_rc = subprocess.run(train_cmd, check=False).returncode  # noqa: S603  # nosec B603
     if train_rc != 0:
@@ -901,7 +901,7 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
         )
         sys.exit(EXIT_SUCCESS)
 
-    chat_cmd = [sys.executable, "-m", "forgelm.cli", *inherited_chat, "chat", str(final_model_dir)]
+    chat_cmd = [sys.executable, "-m", "forgelm.cli", *inherited_chat, "chat", os.path.abspath(final_model_dir)]
     logger.info("Launching chat REPL: %s", " ".join(chat_cmd))
     chat_rc = subprocess.run(chat_cmd, check=False).returncode  # noqa: S603  # nosec B603
     # 130 == SIGINT (Ctrl-C is the normal way to leave the REPL). Anything else

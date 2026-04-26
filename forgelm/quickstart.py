@@ -235,10 +235,13 @@ def _resolve_dataset(template: Template, dataset_override: Optional[str], scratc
     if dest.exists():
         # Refuse to overwrite a previous run's dataset — each quickstart run
         # owns its own directory, so this should be unreachable except when a
-        # caller explicitly recycles a directory.
+        # caller explicitly recycles a directory. Surface the recovery paths
+        # so the operator isn't left guessing.
         raise FileExistsError(
-            f"Refusing to overwrite existing dataset at {dest}. "
-            "Quickstart writes a fresh per-run directory; do not reuse output dirs."
+            f"Dataset already exists at {dest}. Either:\n"
+            f"  - pass a fresh --output PATH (default: timestamped dir under ./configs/),\n"
+            f"  - pass --dataset {dest} to reuse this file as-is,\n"
+            f"  - or delete {dest} first."
         )
     shutil.copyfile(bundled, dest)
     notes.append(f"copied seed dataset to {dest}")
