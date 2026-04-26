@@ -7,11 +7,11 @@ otherwise. Each entry below points at the relevant `data.jsonl`.
 
 | Template | Dataset path | Examples | License | Origin |
 |---|---|---|---|---|
-| `customer-support` | `forgelm/templates/customer-support/data.jsonl` | ~60 | CC-BY-SA 4.0 | Authored by ForgeLM contributors |
-| `code-assistant` | `forgelm/templates/code-assistant/data.jsonl` | ~60 | CC-BY-SA 4.0 | Authored by ForgeLM contributors |
+| `customer-support` | `forgelm/templates/customer-support/data.jsonl` | 58 | CC-BY-SA 4.0 | Authored by ForgeLM contributors |
+| `code-assistant` | `forgelm/templates/code-assistant/data.jsonl` | 59 | CC-BY-SA 4.0 | Authored by ForgeLM contributors |
 | `domain-expert` | _(no bundled data — user-supplied)_ | — | N/A | Bring your own JSONL or `forgelm ingest` output |
-| `medical-qa-tr` | `forgelm/templates/medical-qa-tr/data.jsonl` | ~50 | CC-BY-SA 4.0 | Authored by ForgeLM contributors. **Disclaimers**: educational only, not clinical advice |
-| `grpo-math` | `forgelm/templates/grpo-math/data.jsonl` | ~40 | CC-BY-SA 4.0 | Grade-school style math problems authored by ForgeLM contributors |
+| `medical-qa-tr` | `forgelm/templates/medical-qa-tr/data.jsonl` | 49 | CC-BY-SA 4.0 | Authored by ForgeLM contributors. **Disclaimers**: educational only, not clinical advice |
+| `grpo-math` | `forgelm/templates/grpo-math/data.jsonl` | 40 | CC-BY-SA 4.0 | Grade-school style math problems authored by ForgeLM contributors |
 
 ## What "license-clean" means here
 
