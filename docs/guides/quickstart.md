@@ -269,3 +269,11 @@ synthetic:
 - [Enterprise Deployment](enterprise_deployment.md) — Docker, offline, multi-GPU
 - [Safety & Compliance](safety_compliance.md) — EU AI Act, safety evaluation
 - [Troubleshooting](troubleshooting.md) — common issues and solutions
+
+### Runnable notebooks (Colab)
+
+- [Quick Start — SFT](../../notebooks/quickstart_sft.ipynb)
+- [Post-Training Workflow](../../notebooks/post_training_workflow.ipynb) — `--fit-check` → `chat` → `export` → `deploy`
+- [Multi-Dataset Training](../../notebooks/multi_dataset.ipynb), [GaLore Memory Optimization](../../notebooks/galore_memory_optimization.ipynb), [Synthetic Data Pipeline](../../notebooks/synthetic_data_training.ipynb)
+- [Safety Evaluation & Red-Teaming](../../notebooks/safety_evaluation.ipynb)
+- Alignment: [DPO](../../notebooks/dpo_alignment.ipynb), [KTO](../../notebooks/kto_binary_feedback.ipynb), [GRPO](../../notebooks/grpo_reasoning.ipynb)

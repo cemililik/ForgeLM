@@ -1,5 +1,6 @@
 # ForgeLM
 
+[![PyPI](https://img.shields.io/pypi/v/forgelm.svg)](https://pypi.org/project/forgelm/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/cemililik/ForgeLM/actions/workflows/ci.yml/badge.svg)](https://github.com/cemililik/ForgeLM/actions/workflows/ci.yml)
@@ -108,11 +109,24 @@ See the [Quick Start Guide](docs/guides/quickstart.md) for a complete walkthroug
 
 ## Notebooks
 
+Each notebook is runnable in Colab with a free T4 GPU.
+
+**Getting started**
 - [Quick Start — SFT Fine-Tuning](notebooks/quickstart_sft.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/quickstart_sft.ipynb)
+
+**Alignment methods** (post-SFT preference / RL)
 - [DPO Preference Alignment](notebooks/dpo_alignment.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/dpo_alignment.ipynb)
 - [KTO Binary Feedback](notebooks/kto_binary_feedback.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/kto_binary_feedback.ipynb)
 - [GRPO Reasoning RL](notebooks/grpo_reasoning.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/grpo_reasoning.ipynb)
-- [Multi-Dataset Training](notebooks/multi_dataset.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/multi_dataset.ipynb)
+
+**Advanced training**
+- [Multi-Dataset Training](notebooks/multi_dataset.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/multi_dataset.ipynb) — mix multiple datasets with configurable ratios.
+- [GaLore Memory Optimization](notebooks/galore_memory_optimization.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/galore_memory_optimization.ipynb) — full-parameter training via gradient low-rank projection (LoRA alternative).
+- [Synthetic Data Pipeline](notebooks/synthetic_data_training.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/synthetic_data_training.ipynb) — teacher-to-student distillation (API / local / pre-generated backends).
+
+**Post-training & safety**
+- [Post-Training Workflow](notebooks/post_training_workflow.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/post_training_workflow.ipynb) — end-to-end Phase 10 toolchain: `--fit-check` → `chat` → `export` (GGUF) → `deploy`.
+- [Safety Evaluation & Red-Teaming](notebooks/safety_evaluation.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/safety_evaluation.ipynb) — 140 adversarial prompts × 6 categories (Llama Guard).
 
 ---
 
