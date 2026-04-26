@@ -216,6 +216,13 @@ def _chunk_sliding(text: str, chunk_size: int, overlap: int) -> Iterable[str]:
         chunk = text[start : start + chunk_size]
         if chunk.strip():
             yield chunk
+        # Stop once the current window already covers end-of-text. Without
+        # this guard, large `--overlap` produces runt trailing chunks that
+        # are pure prefixes of the prior chunk — they pollute the JSONL
+        # with semantically-empty rows and skew the audit's near-duplicate
+        # / length stats.
+        if start + chunk_size >= len(text):
+            return
 
 
 def _chunk_paragraph(text: str, max_chunk_size: int) -> Iterable[str]:
@@ -352,7 +359,10 @@ def ingest_path(
     pii_redaction_counts: dict = {}
     notes: List[str] = []
 
-    with open(dst, "w", encoding=encoding) as out_fh:
+    # newline="\n" pins LF on Windows. JSONL Files spec requires LF, and
+    # piping through tooling (jq -c, wc -l, downstream HF dataset loaders)
+    # avoids CRLF surprises. Linux/macOS default is already LF.
+    with open(dst, "w", encoding=encoding, newline="\n") as out_fh:
         for fpath in files:
             extractor = _select_extractor(fpath)
             if extractor is None:

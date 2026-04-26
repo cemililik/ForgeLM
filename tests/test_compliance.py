@@ -8,6 +8,7 @@ import pytest
 from forgelm.compliance import (
     _sanitize_md,
     compute_dataset_fingerprint,
+    generate_data_governance_report,
     generate_training_manifest,
 )
 from forgelm.config import ForgeConfig, JudgeConfig, SafetyConfig
@@ -254,3 +255,43 @@ class TestSanitizeMd:
     def test_multiple_pipes_all_escaped(self):
         result = _sanitize_md("a | b | c")
         assert result.count("\\|") == 2
+
+
+class TestGovernanceAuditInlining:
+    """Bug 6: Article 10 governance auto-inlines data_audit_report.json
+    from training output_dir; missing-file path emits a clear hint."""
+
+    def test_inlines_audit_when_present(self, tmp_path):
+        config = ForgeConfig(**_minimal_config(training={"output_dir": str(tmp_path)}))
+        audit_payload = {
+            "generated_at": "2026-04-27T00:00:00Z",
+            "total_samples": 42,
+            "pii_summary": {"email": 1},
+        }
+        with open(tmp_path / "data_audit_report.json", "w", encoding="utf-8") as fh:
+            json.dump(audit_payload, fh)
+
+        report = generate_data_governance_report(config, dataset={})
+        assert report["data_audit"] == audit_payload
+
+    def test_warns_when_audit_corrupt(self, tmp_path, caplog):
+        config = ForgeConfig(**_minimal_config(training={"output_dir": str(tmp_path)}))
+        # Malformed JSON should NOT abort governance generation; the
+        # report carries no data_audit key + a warning is logged.
+        (tmp_path / "data_audit_report.json").write_text("{not valid json", encoding="utf-8")
+        with caplog.at_level("WARNING", logger="forgelm.compliance"):
+            report = generate_data_governance_report(config, dataset={})
+        assert "data_audit" not in report
+        assert any("Could not inline" in r.message for r in caplog.records)
+
+    def test_info_log_when_audit_missing(self, tmp_path, caplog):
+        # The audit CLI defaults to ./audit/ but the trainer's
+        # output_dir is typically ./checkpoints/ — without alignment
+        # the inlining silently no-ops. Loud INFO log surfaces the
+        # path mismatch with an actionable command hint.
+        config = ForgeConfig(**_minimal_config(training={"output_dir": str(tmp_path)}))
+        with caplog.at_level("INFO", logger="forgelm.compliance"):
+            report = generate_data_governance_report(config, dataset={})
+        assert "data_audit" not in report
+        info_msgs = [r.message for r in caplog.records if r.levelname == "INFO"]
+        assert any("No data_audit_report.json" in m and "forgelm --data-audit" in m for m in info_msgs)

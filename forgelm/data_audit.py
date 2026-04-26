@@ -31,6 +31,7 @@ import json
 import logging
 import os
 import re
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -348,18 +349,36 @@ def _extract_text_payload(row: Dict[str, Any]) -> str:
     return ""
 
 
-def _read_jsonl_split(path: Path) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    with open(path, "r", encoding="utf-8") as fh:
+def _read_jsonl_split(path: Path) -> Tuple[List[Any], int, int]:
+    """Read a JSONL split tolerantly. Returns ``(rows, parse_errors, decode_errors)``.
+
+    * UTF-8 decode is permissive (``errors="replace"``) — a single mojibake
+      line never aborts the whole audit. Lines containing the U+FFFD
+      replacement char are tracked separately so the operator gets a
+      structured signal.
+    * ``json.JSONDecodeError`` is caught per line; the parser-error count
+      is returned for the audit report so silently dropping rows leaves a
+      paper trail.
+    * Returned ``rows`` may contain non-dict JSON (lists, scalars). The
+      auditor downstream knows to handle them — :func:`_extract_text_payload`
+      and :func:`_audit_split` both already guard ``isinstance(row, dict)``.
+    """
+    rows: List[Any] = []
+    parse_errors = 0
+    decode_errors = 0
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
         for line_number, line in enumerate(fh, start=1):
             line = line.strip()
             if not line:
                 continue
+            if "�" in line:
+                decode_errors += 1
             try:
                 rows.append(json.loads(line))
             except json.JSONDecodeError as exc:
+                parse_errors += 1
                 logger.warning("Skipping malformed JSONL line %d in %s: %s", line_number, path, exc)
-    return rows
+    return rows, parse_errors, decode_errors
 
 
 _PROGRESS_INTERVAL: int = 5000
@@ -368,32 +387,66 @@ audit's silent stretch is over a few seconds. Threshold picked so smoke
 tests / quickstart audits stay quiet but real corpora surface signal."""
 
 
-def _audit_split(split_name: str, rows: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], List[int], Dict[str, int]]:
-    """Per-split metrics. Returns (info_dict, simhashes_list, pii_counts_dict)."""
+def _audit_split(
+    split_name: str,
+    rows: List[Any],
+    *,
+    near_dup_threshold: int = DEFAULT_NEAR_DUP_HAMMING,
+) -> Tuple[Dict[str, Any], List[int], Dict[str, int]]:
+    """Per-split metrics. Returns (info_dict, simhashes_list, pii_counts_dict).
+
+    Tolerates non-dict rows (raw arrays, scalars, etc. — anything well-formed
+    JSON but not an object). They are surfaced as ``non_object_rows`` so the
+    operator distinguishes "row dropped because it was the wrong shape" from
+    "row had an empty text payload".
+    """
     info: Dict[str, Any] = {"sample_count": len(rows)}
     if not rows:
+        info["near_duplicate_pairs"] = 0
         return info, [], {}
 
     n_rows = len(rows)
     log_progress = n_rows >= _PROGRESS_INTERVAL
 
-    # Schema is the *union* of keys across rows — heterogeneous BYOD JSONL
-    # often has optional fields (e.g. only some rows have `gold_answer`).
-    # Reading just rows[0].keys() would silently drop those extras.
+    # Build the column union AND remember each row's keyset so we can pick
+    # a stable "base" via modal voting (see schema_drift_columns below).
     seen_columns: Dict[str, None] = {}  # ordered set
+    keysets: List[frozenset] = []
+    non_object_rows = 0
     for row in rows:
         if isinstance(row, dict):
-            for col in row.keys():
+            keys = frozenset(row.keys())
+            keysets.append(keys)
+            for col in keys:
                 seen_columns.setdefault(col, None)
+        else:
+            non_object_rows += 1
     info["columns"] = list(seen_columns)
-    base_columns = set(rows[0].keys()) if isinstance(rows[0], dict) else set()
+
+    # Modal-keyset base for drift detection. Picking rows[0] as the "norm"
+    # falsely flags every other column when row 0 happens to be the
+    # outlier (header row, missing optional field, non-dict junk).
+    if keysets:
+        most_common_keyset, _ = Counter(keysets).most_common(1)[0]
+        base_columns = set(most_common_keyset)
+    else:
+        base_columns = set()
     drift_columns = [c for c in seen_columns if c not in base_columns]
     if drift_columns:
         info["schema_drift_columns"] = drift_columns
+    if non_object_rows:
+        info["non_object_rows"] = non_object_rows
 
     text_payloads: List[str] = []
     null_or_empty = 0
     for row in rows:
+        if not isinstance(row, dict):
+            # Non-dict rows yield no text — track separately as
+            # non_object_rows above; here count them as null/empty so
+            # downstream length stats / fingerprints stay honest.
+            null_or_empty += 1
+            text_payloads.append("")
+            continue
         payload = _extract_text_payload(row)
         if not payload:
             null_or_empty += 1
@@ -431,6 +484,13 @@ def _audit_split(split_name: str, rows: List[Dict[str, Any]]) -> Tuple[Dict[str,
     if pii_counts_split:
         info["pii_counts"] = pii_counts_split
 
+    # Within-split near-duplicate detection lives here so info[] is fully
+    # owned by _audit_split; the orchestrator never back-fills its fields.
+    if log_progress:
+        logger.info("audit/%s: scanning for near-duplicates (O(n²); %d rows)…", split_name, n_rows)
+    within_pairs = find_near_duplicates(fingerprints, threshold=near_dup_threshold)
+    info["near_duplicate_pairs"] = len(within_pairs)
+
     return info, fingerprints, pii_counts_split
 
 
@@ -438,7 +498,15 @@ def _cross_split_overlap(
     fingerprints_by_split: Dict[str, List[int]],
     threshold: int,
 ) -> Dict[str, Any]:
-    """Pairwise leakage report across train/validation/test splits."""
+    """Pairwise leakage report across train/validation/test splits.
+
+    Reports leak rate **in both directions** — the symmetric ratio
+    (shared / smaller-split-size) is the metric that actually destroys
+    benchmark fidelity, but the asymmetric one (shared / larger split)
+    is informative too. Without both, an operator scanning
+    ``train__test = 0.05`` could miss that the same 5 rows leak 50% of
+    a small test set. We report both numbers explicitly.
+    """
     report: Dict[str, Any] = {"hamming_threshold": threshold, "pairs": {}}
     splits = list(fingerprints_by_split.keys())
     for i, a in enumerate(splits):
@@ -447,15 +515,33 @@ def _cross_split_overlap(
             continue
         for j in range(i + 1, len(splits)):
             b = splits[j]
-            fp_b_set = {fp for fp in fingerprints_by_split[b] if fp != 0}
-            if not fp_b_set:
+            fp_b = [fp for fp in fingerprints_by_split[b] if fp != 0]
+            if not fp_b:
                 continue
-            shared = sum(1 for fp in fp_a if any(hamming_distance(fp, other) <= threshold for other in fp_b_set))
-            # `if not fp_a: continue` above guarantees fp_a is non-empty here,
-            # so the ternary on the leak_rate divisor is dead code — drop it.
+            fp_a_set = set(fp_a)
+            fp_b_set = set(fp_b)
+            # Single pass over fp_a captures both directions:
+            # rows in `a` whose nearest neighbour in `b` is within threshold,
+            # and the per-row matched fingerprints lift contributes to the
+            # `b`-side count.
+            leaked_in_a = 0
+            matched_b: set = set()
+            for fp in fp_a:
+                for other in fp_b_set:
+                    if hamming_distance(fp, other) <= threshold:
+                        leaked_in_a += 1
+                        matched_b.add(other)
+                        break
+            # Now count distinct b-rows whose nearest neighbour in `a` is
+            # close. We have `matched_b` as a starting point but a single
+            # pass over `b` is needed to find rows that match any `a`-row,
+            # not just the first `a`-row that triggered a match.
+            leaked_in_b = sum(1 for fp in fp_b if any(hamming_distance(fp, other) <= threshold for other in fp_a_set))
             report["pairs"][f"{a}__{b}"] = {
-                f"leaked_rows_in_{a}": shared,
-                "leak_rate": round(shared / len(fp_a), 4),
+                f"leaked_rows_in_{a}": leaked_in_a,
+                f"leak_rate_{a}": round(leaked_in_a / len(fp_a), 4),
+                f"leaked_rows_in_{b}": leaked_in_b,
+                f"leak_rate_{b}": round(leaked_in_b / len(fp_b), 4),
             }
     return report
 
@@ -569,13 +655,15 @@ def audit_dataset(
     near_dup_pairs: Dict[str, int] = {}
     notes: List[str] = list(resolution_notes)
 
+    parse_errors_total = 0
+    decode_errors_total = 0
+
     for split_name, path in splits_paths.items():
-        # Bug 31: tolerate per-split filesystem failures (permissions, EIO,
-        # truncated files mid-read). A bad split should be reported, not
-        # abort the whole audit — operators usually want a partial report
-        # over no report.
+        # Per-split filesystem-failure tolerance (Bug 31): a bad split is
+        # reported, not aborted; operators want a partial report over no
+        # report at all.
         try:
-            rows = _read_jsonl_split(path)
+            rows, parse_errors, decode_errors = _read_jsonl_split(path)
         except OSError as exc:
             logger.warning("Could not read split '%s' (%s): %s — skipping.", split_name, path, exc)
             splits_info[split_name] = {"error": f"read_failed: {exc}", "path": str(path)}
@@ -584,19 +672,34 @@ def audit_dataset(
             continue
 
         logger.info("audit: scanning split '%s' (%d rows from %s)", split_name, len(rows), path.name)
-        info, fingerprints, pii_split = _audit_split(split_name, rows)
+        info, fingerprints, pii_split = _audit_split(split_name, rows, near_dup_threshold=near_dup_threshold)
+        # Surface JSONL hygiene metrics on the split itself so the
+        # report distinguishes "this split has 1240 rows" from "this
+        # split had 1330 lines but 90 were malformed JSON we silently
+        # dropped" (Bug 4).
+        if parse_errors:
+            info["parse_errors"] = parse_errors
+            notes.append(
+                f"split '{split_name}': {parse_errors} malformed JSONL line(s) "
+                "skipped — metrics computed over the parseable subset only."
+            )
+            parse_errors_total += parse_errors
+        if decode_errors:
+            info["decode_errors"] = decode_errors
+            notes.append(
+                f"split '{split_name}': {decode_errors} line(s) had non-UTF-8 "
+                "bytes (replaced with U+FFFD). Re-encode the source file as "
+                "UTF-8 if these rows matter."
+            )
+            decode_errors_total += decode_errors
+
         splits_info[split_name] = info
         fingerprints_by_split[split_name] = fingerprints
         total_samples += len(rows)
+        near_dup_pairs[split_name] = info.get("near_duplicate_pairs", 0)
 
         for kind, count in pii_split.items():
             pii_summary[kind] = pii_summary.get(kind, 0) + count
-
-        if len(fingerprints) >= _PROGRESS_INTERVAL:
-            logger.info("audit/%s: scanning for near-duplicates (O(n²); %d rows)…", split_name, len(fingerprints))
-        within_pairs = find_near_duplicates(fingerprints, threshold=near_dup_threshold)
-        near_dup_pairs[split_name] = len(within_pairs)
-        info["near_duplicate_pairs"] = len(within_pairs)
 
     cross = _cross_split_overlap(fingerprints_by_split, near_dup_threshold)
 
@@ -612,11 +715,21 @@ def audit_dataset(
             "or use `forgelm.data_audit.mask_pii` programmatically."
         )
 
+    # Cross-split leakage: surface the WORST direction (max of leak_rate_a
+    # and leak_rate_b), not just any non-zero asymmetric figure. The
+    # smaller-side rate is what actually destroys benchmark fidelity.
     cross_pairs = cross.get("pairs", {}) or {}
-    leaking = [name for name, payload in cross_pairs.items() if payload.get("leak_rate", 0) > 0]
+    leaking = []
+    for name, payload in cross_pairs.items():
+        rates = [v for k, v in payload.items() if k.startswith("leak_rate_")]
+        if rates and max(rates) > 0:
+            leaking.append((name, max(rates)))
     if leaking:
+        worst = max(leaking, key=lambda kv: kv[1])
         notes.append(
-            f"Cross-split leakage detected in {len(leaking)} pair(s): {', '.join(leaking)}. "
+            f"Cross-split leakage detected in {len(leaking)} pair(s): "
+            f"{', '.join(name for name, _ in leaking)}. "
+            f"Worst leak rate: {worst[1]:.2%} ({worst[0]}). "
             "Re-shuffle splits before benchmarking — leaked rows poison test fidelity."
         )
 
@@ -625,6 +738,14 @@ def audit_dataset(
         notes.append(
             f"{near_dup_total} near-duplicate pair(s) found within splits. "
             "Inspect; identical chunks waste training compute and can overweight specific phrasing."
+        )
+
+    if parse_errors_total or decode_errors_total:
+        notes.append(
+            f"Data integrity: {parse_errors_total} parse error(s) + "
+            f"{decode_errors_total} decode error(s) across all splits. "
+            "These rows did NOT contribute to per-split metrics — re-emit the "
+            "JSONL after fixing or accept the parseable subset as audited."
         )
 
     report = AuditReport(
@@ -646,7 +767,10 @@ def audit_dataset(
         out_dir = Path(output_dir).expanduser().resolve()
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / "data_audit_report.json"
-        with open(out_path, "w", encoding="utf-8") as fh:
+        # newline="\n" pins LF on Windows so byte-exact reproducibility
+        # checksums match Linux/macOS runs (the JSONL Files spec also
+        # requires LF terminators).
+        with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
             json.dump(asdict(report), fh, indent=2, ensure_ascii=False)
         logger.info("Wrote audit report: %s", out_path)
 

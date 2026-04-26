@@ -192,7 +192,8 @@ varsayılan olarak `./audit/`'tir.
 ## Programmatic API
 
 ```python
-from forgelm.data_audit import audit_dataset, asdict
+from dataclasses import asdict
+from forgelm.data_audit import audit_dataset
 
 report = audit_dataset("data/sft.jsonl", output_dir="./audit/")
 print(report.total_samples, report.pii_summary)

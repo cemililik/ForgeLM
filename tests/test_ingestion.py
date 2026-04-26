@@ -73,6 +73,16 @@ class TestSlidingChunking:
         with pytest.raises(ValueError, match="quadratic"):
             list(_chunk_sliding("x" * 1000, chunk_size=200, overlap=199))
 
+    def test_no_runt_trailing_chunk(self):
+        # Bug 5: text=205, chunk=200, overlap=100, step=100 used to emit
+        # 3 chunks: [200, 105, 5]. The 5-char tail is a pure prefix of
+        # the previous chunk's overlap region — it adds zero new content
+        # AND skews near-duplicate / length stats. Early-exit kills it.
+        text = "x" * 205
+        chunks = list(_chunk_sliding(text, chunk_size=200, overlap=100))
+        assert len(chunks) == 2
+        assert all(len(c) >= 100 for c in chunks)
+
     def test_negative_chunk_size_rejected(self):
         with pytest.raises(ValueError, match="chunk_size"):
             list(_chunk_sliding("abc", chunk_size=-1, overlap=0))
@@ -272,6 +282,67 @@ class TestPdfExtractor:
         result = ingest_path(str(pdf_path), output_path=str(out), strategy="paragraph")
         assert result.files_processed == 0
         assert result.files_skipped >= 1
+
+
+@pytest.mark.skipif(not _has("docx"), reason="python-docx extra not installed")
+class TestDocxExtractor:
+    def test_paragraphs_and_tables_round_trip(self, tmp_path):
+        # python-docx can author its own input — no third-party fixture
+        # needed, no reportlab analogue required. Verifies BOTH the
+        # paragraph path AND the row-major table flattening promised by
+        # docs/guides/ingestion.md.
+        from docx import Document as _Document
+
+        doc = _Document()
+        doc.add_paragraph("First paragraph body.")
+        doc.add_paragraph("Second paragraph body.")
+        table = doc.add_table(rows=2, cols=2)
+        table.rows[0].cells[0].text = "left top"
+        table.rows[0].cells[1].text = "right top"
+        table.rows[1].cells[0].text = "left bot"
+        table.rows[1].cells[1].text = "right bot"
+        docx_path = tmp_path / "doc.docx"
+        doc.save(str(docx_path))
+
+        out = tmp_path / "out.jsonl"
+        result = ingest_path(str(docx_path), output_path=str(out), strategy="paragraph")
+        assert result.files_processed == 1
+        body = out.read_text(encoding="utf-8")
+        assert "First paragraph body." in body
+        # Row-major flattening: cells joined by " | " on each row
+        assert "left top | right top" in body
+        assert "left bot | right bot" in body
+
+
+@pytest.mark.skipif(not _has("ebooklib") or not _has("bs4"), reason="ebooklib/bs4 extras not installed")
+class TestEpubExtractor:
+    def test_chapter_text_round_trips(self, tmp_path):
+        # ebooklib can author its own input. Confirms the option dict
+        # we pass to read_epub doesn't break the happy path.
+        from ebooklib import epub
+
+        book = epub.EpubBook()
+        book.set_identifier("test")
+        book.set_title("Test")
+        book.set_language("en")
+        chapter = epub.EpubHtml(
+            title="Chapter",
+            file_name="chapter.xhtml",
+            content="<html><body><h1>Title</h1><p>Chapter body text here.</p></body></html>",
+        )
+        book.add_item(chapter)
+        book.add_item(epub.EpubNcx())
+        book.add_item(epub.EpubNav())
+        book.spine = [chapter]
+        book.toc = (chapter,)
+        epub_path = tmp_path / "doc.epub"
+        epub.write_epub(str(epub_path), book)
+
+        out = tmp_path / "out.jsonl"
+        result = ingest_path(str(epub_path), output_path=str(out), strategy="paragraph")
+        assert result.files_processed == 1
+        body = out.read_text(encoding="utf-8")
+        assert "Chapter body text here." in body
 
 
 def _hand_built_pdf(text: str) -> bytes:

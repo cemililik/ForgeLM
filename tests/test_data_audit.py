@@ -273,9 +273,36 @@ class TestAuditDirectoryLayout:
         report = audit_dataset(str(tmp_path))
         pairs = report.cross_split_overlap.get("pairs", {})
         assert any("train" in k and "test" in k for k in pairs)
-        # The reporter records the leak under one direction; rate >= 1.0 / count
+        # Bug 2: report carries per-split leak rates explicitly; both
+        # directions are surfaced so an asymmetric split (large train,
+        # small test) doesn't bury the test-side rate.
         leak_payload = next(iter(pairs.values()))
-        assert leak_payload["leak_rate"] > 0.0
+        assert leak_payload["leak_rate_train"] > 0.0
+        assert leak_payload["leak_rate_test"] > 0.0
+        assert leak_payload["leaked_rows_in_train"] == 1
+        assert leak_payload["leaked_rows_in_test"] == 1
+
+    def test_cross_split_leak_rate_per_direction_asymmetric(self, tmp_path):
+        # 100 train + 10 test, 5 of test are exact duplicates of train.
+        # The asymmetric direction (train side) hides the contamination
+        # at 5/100 = 5%; the test side reports 5/10 = 50% — that's the
+        # number an operator actually needs.
+        _write_jsonl(tmp_path / "train.jsonl", [{"text": f"row {i} alpha bravo charlie"} for i in range(100)])
+        _write_jsonl(
+            tmp_path / "test.jsonl",
+            [{"text": f"row {i} alpha bravo charlie"} for i in range(5)]  # leaked
+            + [{"text": f"row {i} novel content"} for i in range(100, 105)],  # unique
+        )
+        report = audit_dataset(str(tmp_path))
+        payload = report.cross_split_overlap["pairs"]["train__test"]
+        assert payload["leaked_rows_in_train"] == 5
+        assert payload["leaked_rows_in_test"] == 5
+        # The headline number is the test-side rate (the destructive direction).
+        assert payload["leak_rate_train"] == round(5 / 100, 4)
+        assert payload["leak_rate_test"] == round(5 / 10, 4)
+        # Notes line should call out the worst rate, not the small one.
+        notes_blob = " ".join(report.notes)
+        assert "50.00%" in notes_blob or "0.5" in notes_blob
 
 
 class TestMessagesFormat:
@@ -310,6 +337,110 @@ class TestSchemaDrift:
         cols = report.splits["train"]["columns"]
         assert "text" in cols and "gold_answer" in cols
         assert report.splits["train"].get("schema_drift_columns") == ["gold_answer"]
+
+
+class TestNonDictRowTolerance:
+    def test_non_dict_row_does_not_crash_audit(self, tmp_path):
+        # Bug: a JSON array / scalar row used to crash the audit at
+        # _extract_text_payload (AttributeError on list.get). It must now
+        # be classified as `non_object_rows` and counted toward
+        # null_or_empty without aborting the run.
+        path = tmp_path / "het.jsonl"
+        path.write_text(
+            '["a", "b"]\n{"text": "valid"}\n42\n"plain string"\n',
+            encoding="utf-8",
+        )
+        report = audit_dataset(str(path))
+        assert report.total_samples == 4
+        info = report.splits["train"]
+        assert info["non_object_rows"] == 3  # the array, the int, the string
+        assert info["null_or_empty_count"] >= 3
+        assert info["sample_count"] == 4
+
+
+class TestParseAndDecodeIntegrity:
+    def test_malformed_jsonl_lines_surface_in_report(self, tmp_path):
+        # Bug 4: parse errors used to be log-only — now they're a
+        # structured field on the split + an actionable note.
+        path = tmp_path / "broken.jsonl"
+        path.write_text(
+            '{"text": "good1"}\n{not valid json\n{"text": "good2"}\n}}}also bad\n',
+            encoding="utf-8",
+        )
+        report = audit_dataset(str(path))
+        info = report.splits["train"]
+        assert info["sample_count"] == 2  # only the parseable rows
+        assert info["parse_errors"] == 2
+        assert any("malformed JSONL" in n for n in report.notes)
+
+    def test_non_utf8_bytes_do_not_abort_audit(self, tmp_path):
+        # Bug 3: UnicodeDecodeError used to bubble up before any
+        # tolerance kicked in. Permissive read + decode_errors counter
+        # keeps the audit running.
+        path = tmp_path / "mojibake.jsonl"
+        path.write_bytes(
+            b'{"text": "good"}\n{"text": "bad \xff\xfe bytes"}\n{"text": "another"}\n',
+        )
+        report = audit_dataset(str(path))
+        info = report.splits["train"]
+        assert info["sample_count"] == 3  # nothing was silently dropped
+        assert info["decode_errors"] == 1
+        assert any("non-UTF-8" in n for n in report.notes)
+
+
+class TestModalSchemaDrift:
+    def test_drift_uses_modal_keyset_not_row_zero(self, tmp_path):
+        # Bug 9: when row 0 is the outlier (e.g. labeller skipped a
+        # field), the modal-keyset base must classify the majority shape
+        # as the norm — gold_answer here is on 9/10 rows so it's NOT drift.
+        path = tmp_path / "modal.jsonl"
+        rows = [{"text": "alpha"}]  # row 0: only `text`
+        for i in range(9):
+            rows.append({"text": f"beta {i}", "gold_answer": str(i)})  # majority
+        _write_jsonl(path, rows)
+        report = audit_dataset(str(path))
+        info = report.splits["train"]
+        # gold_answer is the modal column → not flagged as drift
+        assert "gold_answer" not in info.get("schema_drift_columns", [])
+        # `text` is in both shapes so it isn't drift either
+        assert info.get("schema_drift_columns", []) == []
+
+
+class TestMaskPiiReturnCounts:
+    """Bug 8: pii_redaction_counts is compliance evidence — protect it."""
+
+    def test_aggregates_per_pattern(self):
+        out, counts = mask_pii("a@x.com b@y.com c@z.com", return_counts=True)
+        assert counts == {"email": 3}
+        assert out.count("[REDACTED]") == 3
+
+    def test_first_match_wins_no_double_count(self):
+        # A 16-digit Luhn-valid run is a credit card AND used to also
+        # match the older phone pattern. The first-match-wins precedence
+        # must attribute it to ONE pattern only.
+        text = "card 4111 1111 1111 1111 here"
+        _, counts = mask_pii(text, return_counts=True)
+        assert counts.get("credit_card") == 1
+        assert counts.get("phone", 0) == 0
+
+    def test_invalid_luhn_not_counted(self):
+        # _replace returns the original text when validation fails;
+        # counts must NOT increment for the rejected match.
+        out, counts = mask_pii("nope 4111 1111 1111 1112", return_counts=True)
+        assert counts.get("credit_card", 0) == 0
+        # The string is preserved in the output (validation failed)
+        assert "4111 1111 1111 1112" in out
+
+    def test_non_string_returns_empty_counts(self):
+        out, counts = mask_pii(None, return_counts=True)  # type: ignore[arg-type]
+        assert (out, counts) == (None, {})
+
+    def test_back_compat_one_arg_form_still_returns_string(self):
+        # Existing callers that call mask_pii(text) without
+        # return_counts must keep getting a plain string back.
+        out = mask_pii("ping alice@example.com")
+        assert isinstance(out, str)
+        assert "[REDACTED]" in out
 
 
 class TestPartialFailureTolerance:

@@ -151,6 +151,19 @@ def generate_data_governance_report(config: Any, dataset: Dict[str, Any]) -> Dic
                 # Audit JSON is best-effort enrichment — corrupt UTF-8 or a
                 # malformed file must not abort governance report generation.
                 logger.warning("Could not inline data_audit_report.json (%s): %s", audit_path, exc)
+        else:
+            # Loud-but-non-fatal hint: the audit CLI defaults to `./audit/`
+            # whereas the trainer's output_dir is typically `./checkpoints/`
+            # — without explicit alignment the inlining silently no-ops and
+            # the governance bundle ships without the Article 10 data
+            # quality section. Tell the operator how to fix it.
+            logger.info(
+                "No data_audit_report.json at %s — governance report will lack the "
+                "Article 10 data-quality section. Run "
+                "`forgelm --data-audit <dataset> --output %s` before training to populate it.",
+                audit_path,
+                output_dir,
+            )
 
     return report
 
