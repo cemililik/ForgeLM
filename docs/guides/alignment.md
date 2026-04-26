@@ -156,7 +156,7 @@ training:
 GRPO generates multiple responses per prompt, scores them, and reinforces better ones — no human preference data needed.
 
 ```json
-{"prompt": "Solve: What is 15% of 240?"}
+{"prompt": "Solve: What is 15% of 240?", "gold_answer": "36"}
 ```
 
 ```yaml
@@ -164,14 +164,26 @@ training:
   trainer_type: "grpo"
   grpo_num_generations: 4    # Generate 4 responses per prompt
   grpo_max_new_tokens: 512   # Max response length
-  grpo_reward_model: null    # HF path to a sequence classification model used as reward.
-                            # ForgeLM wraps it as a callable automatically. null = TRL defaults.
+  grpo_reward_model: null    # See "Reward selection" below.
   learning_rate: 1.0e-6      # Very low LR for RL stability
   num_train_epochs: 1
 
 data:
   dataset_name_or_path: "./data/math_prompts.jsonl"
 ```
+
+### Reward selection
+
+GRPO needs a reward signal. ForgeLM wires reward callables additively (TRL sums multiple reward funcs into a single scalar):
+
+1. **`grpo_reward_model` set** — Loads the HF sequence-classification model at that path and uses its scalar output as the only reward signal. The built-in rewards below are bypassed; the operator opted into a learned reward.
+2. **No `grpo_reward_model`** — A baseline reward is always wired:
+   - **`combined_format_length_reward`** (`forgelm/grpo_rewards.py`) — `0.8 × format_match + 0.2 × length_shaping`. The format component returns 1.0 when the generation ends with `Answer: <value>` (case-insensitive, units allowed); the length component returns `min(len(completion) / 200, 1.0)` so early training has a non-flat gradient even before format compliance kicks in.
+   - **`_math_reward_fn`** (`forgelm/trainer.py`) — appended only when the dataset has a `gold_answer` field. Captures the value after `Answer:`, strips common units (`$`, `%`, `km/h`, `m²`, `liters`, …), and compares to `gold_answer` with exact-string match first, then numeric tolerance (1e-6). Returns `1.0` for a correct answer, `0.0` otherwise.
+
+The bundled `forgelm quickstart grpo-math` template ships with `gold_answer` populated, so the model gets both format teaching AND correctness teaching out of the box. To use a real reward model on top of grpo-math, set `grpo_reward_model` and the built-in rewards are bypassed.
+
+For your own dataset: the format+length baseline applies regardless. Add a `gold_answer` field per row to also get the correctness signal — the prompt's expected output format is `Answer: <value>` (with optional units that get stripped).
 
 > **Note:** GRPO requires a reward function or verifiable reward. For math, correctness of the answer is the reward. For general text, you may need a reward model.
 

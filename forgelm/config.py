@@ -125,7 +125,12 @@ class TrainingConfig(BaseModel):
     grpo_num_generations: int = 4  # GRPO: number of responses to generate per prompt
     grpo_max_new_tokens: int = 512  # GRPO: max tokens per generated response
     grpo_reward_model: Optional[str] = (
-        None  # GRPO: HF model path for reward scoring (None = use default verifiable rewards)
+        # GRPO: HF model path for reward scoring. When None, the trainer wires
+        # `combined_format_length_reward` as a baseline (always-on, gradient-rich
+        # format + length shaping signal). If the dataset additionally carries a
+        # `gold_answer` field (see the grpo-math template), a regex correctness
+        # reward is appended for additive scoring — TRL sums multiple reward funcs.
+        None
     )
     # --- GaLore (optimizer-level memory optimization, alternative to LoRA) ---
     galore_enabled: bool = False

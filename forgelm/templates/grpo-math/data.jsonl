@@ -1,40 +1,40 @@
-{"prompt":"Ali has 12 apples. He gives 3 to Bora and eats 2 himself. How many apples does Ali have left? Show your work and end with `Answer: <number>`."}
-{"prompt":"A train travels 60 km in the first hour and 80 km in the second hour. What is its average speed for the full 2 hours? Show your work and end with `Answer: <number> km/h`."}
-{"prompt":"A box contains 24 chocolates. Sara eats 1/4 of them. How many chocolates are left? Show your work and end with `Answer: <number>`."}
-{"prompt":"A rectangular garden is 8 m long and 5 m wide. What is its area? Show your work and end with `Answer: <number> m²`."}
-{"prompt":"There are 6 boxes, each holding 9 books. How many books are there in total? Show your work and end with `Answer: <number>`."}
-{"prompt":"Lina is 10 years old. Her brother is 4 years older. How old will her brother be in 5 years? Show your work and end with `Answer: <number>`."}
-{"prompt":"A pizza is cut into 8 slices. Three friends share it equally. How many full slices does each get and how many remain? Show your work and end with `Answer: <slices each>, <remaining>`."}
-{"prompt":"A pen costs $2 and a notebook costs $5. How much do 3 pens and 2 notebooks cost together? Show your work and end with `Answer: $<number>`."}
-{"prompt":"A bottle holds 1.5 liters of water. How many milliliters is that? Show your work and end with `Answer: <number> mL`."}
-{"prompt":"A class has 30 students. 60% are girls. How many boys are in the class? Show your work and end with `Answer: <number>`."}
-{"prompt":"A car uses 6 liters of fuel for every 100 km. How much fuel does it use for 250 km? Show your work and end with `Answer: <number> liters`."}
-{"prompt":"A baker makes 48 cookies and packs them into bags of 6. How many bags can he fill? Show your work and end with `Answer: <number>`."}
-{"prompt":"A square has a perimeter of 36 cm. What is the length of one side? Show your work and end with `Answer: <number> cm`."}
-{"prompt":"Mia reads 25 pages each day. How many pages will she read in 2 weeks? Show your work and end with `Answer: <number>`."}
-{"prompt":"A shirt is on sale for 20% off its $50 price. What is the sale price? Show your work and end with `Answer: $<number>`."}
-{"prompt":"A water tank holds 200 liters. It is 3/4 full. How many liters of water are in it? Show your work and end with `Answer: <number> liters`."}
-{"prompt":"There are 5 red, 8 blue, and 7 green marbles in a bag. What fraction are blue? Show your work and end with `Answer: <fraction>`."}
-{"prompt":"A train leaves at 9:30 and arrives 2 hours and 45 minutes later. What time does it arrive? Show your work and end with `Answer: <HH:MM>`."}
-{"prompt":"A farmer has 100 chickens. Each lays 1 egg per day. How many eggs are produced in 7 days? Show your work and end with `Answer: <number>`."}
-{"prompt":"If 3x + 5 = 20, what is x? Show your work and end with `Answer: <number>`."}
-{"prompt":"A right triangle has legs of 3 and 4. What is the length of the hypotenuse? Show your work and end with `Answer: <number>`."}
-{"prompt":"A car travels at 50 km/h for 3 hours, then 70 km/h for 2 hours. How far does it travel in total? Show your work and end with `Answer: <number> km`."}
-{"prompt":"Five workers can paint a wall in 6 hours. Assuming the same rate per worker, how many hours would 3 workers take? Show your work and end with `Answer: <number> hours`."}
-{"prompt":"What is 15% of 240? Show your work and end with `Answer: <number>`."}
-{"prompt":"A book has 320 pages. Tom has read 1/5 of it. How many pages has he read? Show your work and end with `Answer: <number>`."}
-{"prompt":"Three numbers add to 65. The first is twice the second, and the third is 5 more than the second. What is the second number? Show your work and end with `Answer: <number>`."}
-{"prompt":"A rectangular field is 30 m by 18 m. What is its perimeter? Show your work and end with `Answer: <number> m`."}
-{"prompt":"A bag has 4 red and 6 blue balls. What is the probability of drawing a red ball? Show your work and end with `Answer: <fraction>`."}
-{"prompt":"Convert 3/4 to a percentage. Show your work and end with `Answer: <number>%`."}
-{"prompt":"A cell phone discounted from $400 to $320. What was the percentage discount? Show your work and end with `Answer: <number>%`."}
-{"prompt":"A jar holds 500 g of sugar. Each cake needs 80 g. How many full cakes can be made? Show your work and end with `Answer: <number>`."}
-{"prompt":"On a number line, A is at -3 and B is at 7. What is the distance between A and B? Show your work and end with `Answer: <number>`."}
-{"prompt":"A taxi charges a $3 base fare plus $1.50 per km. What is the total cost for an 8 km trip? Show your work and end with `Answer: $<number>`."}
-{"prompt":"A school has 480 students. The ratio of boys to girls is 5:3. How many girls are there? Show your work and end with `Answer: <number>`."}
-{"prompt":"A swimmer swims 50 meters in 25 seconds. What is her speed in m/s? Show your work and end with `Answer: <number> m/s`."}
-{"prompt":"Solve for x: 2(x - 4) = 10. Show your work and end with `Answer: <number>`."}
-{"prompt":"A circle has a radius of 7 cm. Use π ≈ 22/7. What is its circumference? Show your work and end with `Answer: <number> cm`."}
-{"prompt":"A bag of rice weighs 2.5 kg. A shopkeeper has 18 such bags. What is their total weight? Show your work and end with `Answer: <number> kg`."}
-{"prompt":"What is the sum of all integers from 1 to 100? Show your work and end with `Answer: <number>`."}
-{"prompt":"A book costs $12 and a magazine costs $4. If a customer buys 5 books and 3 magazines, what is the total cost? Show your work and end with `Answer: $<number>`."}
+{"prompt":"Ali has 12 apples. He gives 3 to Bora and eats 2 himself. How many apples does Ali have left? Show your work and end with `Answer: <number>`.","gold_answer":"7"}
+{"prompt":"A train travels 60 km in the first hour and 80 km in the second hour. What is its average speed for the full 2 hours? Show your work and end with `Answer: <number> km/h`.","gold_answer":"70"}
+{"prompt":"A box contains 24 chocolates. Sara eats 1/4 of them. How many chocolates are left? Show your work and end with `Answer: <number>`.","gold_answer":"18"}
+{"prompt":"A rectangular garden is 8 m long and 5 m wide. What is its area? Show your work and end with `Answer: <number> m²`.","gold_answer":"40"}
+{"prompt":"There are 6 boxes, each holding 9 books. How many books are there in total? Show your work and end with `Answer: <number>`.","gold_answer":"54"}
+{"prompt":"Lina is 10 years old. Her brother is 4 years older. How old will her brother be in 5 years? Show your work and end with `Answer: <number>`.","gold_answer":"19"}
+{"prompt":"A pizza is cut into 8 slices. Three friends share it equally. How many full slices does each friend get? Show your work and end with `Answer: <number>`.","gold_answer":"2"}
+{"prompt":"A pen costs $2 and a notebook costs $5. How much do 3 pens and 2 notebooks cost together? Show your work and end with `Answer: $<number>`.","gold_answer":"16"}
+{"prompt":"A bottle holds 1.5 liters of water. How many milliliters is that? Show your work and end with `Answer: <number> mL`.","gold_answer":"1500"}
+{"prompt":"A class has 30 students. 60% are girls. How many boys are in the class? Show your work and end with `Answer: <number>`.","gold_answer":"12"}
+{"prompt":"A car uses 6 liters of fuel for every 100 km. How much fuel does it use for 250 km? Show your work and end with `Answer: <number> liters`.","gold_answer":"15"}
+{"prompt":"A baker makes 48 cookies and packs them into bags of 6. How many bags can he fill? Show your work and end with `Answer: <number>`.","gold_answer":"8"}
+{"prompt":"A square has a perimeter of 36 cm. What is the length of one side? Show your work and end with `Answer: <number> cm`.","gold_answer":"9"}
+{"prompt":"Mia reads 25 pages each day. How many pages will she read in 2 weeks? Show your work and end with `Answer: <number>`.","gold_answer":"350"}
+{"prompt":"A shirt is on sale for 20% off its $50 price. What is the sale price? Show your work and end with `Answer: $<number>`.","gold_answer":"40"}
+{"prompt":"A water tank holds 200 liters. It is 3/4 full. How many liters of water are in it? Show your work and end with `Answer: <number> liters`.","gold_answer":"150"}
+{"prompt":"There are 5 red, 8 blue, and 7 green marbles in a bag. What fraction are blue? Show your work and end with `Answer: <fraction>`.","gold_answer":"2/5"}
+{"prompt":"A train leaves at 9:30 and arrives 2 hours and 45 minutes later. What time does it arrive? Show your work and end with `Answer: <HH:MM>`.","gold_answer":"12:15"}
+{"prompt":"A farmer has 100 chickens. Each lays 1 egg per day. How many eggs are produced in 7 days? Show your work and end with `Answer: <number>`.","gold_answer":"700"}
+{"prompt":"If 3x + 5 = 20, what is x? Show your work and end with `Answer: <number>`.","gold_answer":"5"}
+{"prompt":"A right triangle has legs of 3 and 4. What is the length of the hypotenuse? Show your work and end with `Answer: <number>`.","gold_answer":"5"}
+{"prompt":"A car travels at 50 km/h for 3 hours, then 70 km/h for 2 hours. How far does it travel in total? Show your work and end with `Answer: <number> km`.","gold_answer":"290"}
+{"prompt":"Five workers can paint a wall in 6 hours. Assuming the same rate per worker, how many hours would 3 workers take? Show your work and end with `Answer: <number> hours`.","gold_answer":"10"}
+{"prompt":"What is 15% of 240? Show your work and end with `Answer: <number>`.","gold_answer":"36"}
+{"prompt":"A book has 320 pages. Tom has read 1/5 of it. How many pages has he read? Show your work and end with `Answer: <number>`.","gold_answer":"64"}
+{"prompt":"Three numbers add to 65. The first is twice the second, and the third is 5 more than the second. What is the second number? Show your work and end with `Answer: <number>`.","gold_answer":"15"}
+{"prompt":"A rectangular field is 30 m by 18 m. What is its perimeter? Show your work and end with `Answer: <number> m`.","gold_answer":"96"}
+{"prompt":"A bag has 4 red and 6 blue balls. What is the probability of drawing a red ball? Show your work and end with `Answer: <fraction>`.","gold_answer":"2/5"}
+{"prompt":"Convert 3/4 to a percentage. Show your work and end with `Answer: <number>%`.","gold_answer":"75"}
+{"prompt":"A cell phone discounted from $400 to $320. What was the percentage discount? Show your work and end with `Answer: <number>%`.","gold_answer":"20"}
+{"prompt":"A jar holds 500 g of sugar. Each cake needs 80 g. How many full cakes can be made? Show your work and end with `Answer: <number>`.","gold_answer":"6"}
+{"prompt":"On a number line, A is at -3 and B is at 7. What is the distance between A and B? Show your work and end with `Answer: <number>`.","gold_answer":"10"}
+{"prompt":"A taxi charges a $3 base fare plus $1.50 per km. What is the total cost for an 8 km trip? Show your work and end with `Answer: $<number>`.","gold_answer":"15"}
+{"prompt":"A school has 480 students. The ratio of boys to girls is 5:3. How many girls are there? Show your work and end with `Answer: <number>`.","gold_answer":"180"}
+{"prompt":"A swimmer swims 50 meters in 25 seconds. What is her speed in m/s? Show your work and end with `Answer: <number> m/s`.","gold_answer":"2"}
+{"prompt":"Solve for x: 2(x - 4) = 10. Show your work and end with `Answer: <number>`.","gold_answer":"9"}
+{"prompt":"A circle has a radius of 7 cm. Use π ≈ 22/7. What is its circumference? Show your work and end with `Answer: <number> cm`.","gold_answer":"44"}
+{"prompt":"A bag of rice weighs 2.5 kg. A shopkeeper has 18 such bags. What is their total weight? Show your work and end with `Answer: <number> kg`.","gold_answer":"45"}
+{"prompt":"What is the sum of all integers from 1 to 100? Show your work and end with `Answer: <number>`.","gold_answer":"5050"}
+{"prompt":"A book costs $12 and a magazine costs $4. If a customer buys 5 books and 3 magazines, what is the total cost? Show your work and end with `Answer: $<number>`.","gold_answer":"72"}

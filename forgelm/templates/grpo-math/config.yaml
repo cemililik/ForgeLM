@@ -2,6 +2,13 @@
 # Group Relative Policy Optimization on grade-school math word problems.
 # GRPO uses a prompt-only dataset; the model generates candidate answers
 # during training and a reward function scores them.
+#
+# Reward defaulting:
+#   No grpo_reward_model is configured: forgelm uses a built-in
+#   Answer:<value> format reward + length shaping. To use a learned reward
+#   classifier, add `grpo_reward_model: <hf-model-id>` under `training:`.
+#   Example (commented out):
+#     # grpo_reward_model: "OpenAssistant/reward-model-deberta-v3-large-v2"
 ---
 model:
   name_or_path: "Qwen/Qwen2.5-Math-7B-Instruct"
