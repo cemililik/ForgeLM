@@ -342,11 +342,19 @@ def _validate_local_jsonl(raw_path: str):
         - The absolute path string when the file exists and parses as JSONL.
         - ``_BYOD_LOCAL_NOT_FOUND`` when the path doesn't exist on disk
           (caller may fall back to HF Hub ID semantics).
-        - ``None`` when the file exists but the first non-empty line fails
-          to parse as JSON (caller must re-prompt; validation message is
-          already printed).
+        - ``None`` when the file exists but either is a directory, fails
+          JSONL parsing, or otherwise can't be loaded. ``None`` signals
+          "re-prompt"; the validation message is already printed.
     """
     resolved = Path(raw_path).expanduser()
+    if resolved.is_dir():
+        print(
+            f"  '{resolved}' is a directory, not a JSONL file. If it contains raw documents "
+            "(PDF/DOCX/EPUB/TXT), convert it first:\n"
+            f"      forgelm ingest {resolved} --recursive --output data/from_docs.jsonl\n"
+            "  Then re-run the wizard with the resulting JSONL path."
+        )
+        return None
     if not resolved.is_file():
         return _BYOD_LOCAL_NOT_FOUND
     try:

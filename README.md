@@ -27,6 +27,12 @@
 - **LLM-as-Judge**: API-based (OpenAI) or local model scoring for quality assessment
 - **Auto-Revert**: Automatically discard models that fail loss, benchmark, or safety thresholds
 
+### Document Ingestion & Data Audit (v0.5.0)
+- **Multi-Format Ingestion**: `forgelm ingest ./policies/ --recursive --output data/policies.jsonl` — turns raw PDF / DOCX / EPUB / TXT / Markdown into the SFT-ready JSONL the trainer accepts. Optional dep: `pip install forgelm[ingestion]`.
+- **Chunking Strategies**: `paragraph` (default; preserves boundaries) or `sliding` (fixed window with overlap).
+- **PII Masking on Ingest**: `--pii-mask` redacts emails, phones, credit cards (Luhn-validated), IBAN, and national IDs (TR / DE / FR / US-SSN) before chunks land in the JSONL.
+- **Dataset Audit**: `forgelm --data-audit data/sft.jsonl --output ./audit/` — produces `data_audit_report.json` with sample count, length distribution, top-3 language detection, simhash near-duplicate rate, cross-split leakage check, null/empty rate, and PII flag counts. CPU-only; feeds EU AI Act Article 10 governance artifact automatically when present at training time.
+
 ### Quickstart Layer (v0.4.5)
 - **One-Command Templates**: `forgelm quickstart customer-support` — bundled templates for SFT, code, BYOD domain expert, Turkish medical Q&A, and GRPO math reasoning. Auto-downsizes models on small GPUs.
 - **Conservative Defaults**: Every template ships QLoRA 4-bit, rank=8, batch=1, gradient checkpointing on — designed to run on a single 12 GB GPU.
@@ -64,6 +70,11 @@ forgelm quickstart customer-support           # render config + train + chat
 forgelm quickstart code-assistant --dry-run   # render config only
 forgelm quickstart medical-qa-tr --model your-org/your-model  # override
 
+# Have raw docs? Ingest them first (v0.5.0+)
+pip install -e ".[ingestion]"
+forgelm ingest ./policies/ --recursive --output data/policies.jsonl
+forgelm --data-audit data/policies.jsonl --output ./audit/
+
 # Or generate config interactively
 forgelm --wizard
 
@@ -91,6 +102,8 @@ See the [Quick Start Guide](docs/guides/quickstart.md) for a complete walkthroug
 | Guide | Description |
 |-------|-------------|
 | [Quick Start](docs/guides/quickstart.md) | First fine-tuned model in 5 minutes |
+| [Document Ingestion](docs/guides/ingestion.md) | Raw PDF/DOCX/EPUB → SFT-ready JSONL |
+| [Dataset Audit](docs/guides/data_audit.md) | Length, language, dedup, cross-split leakage, PII |
 | [Alignment (DPO/SimPO/KTO/GRPO)](docs/guides/alignment.md) | Complete post-training stack |
 | [CI/CD Pipeline Integration](docs/guides/cicd_pipeline.md) | GitHub Actions, GitLab CI, Docker |
 | [Enterprise Deployment](docs/guides/enterprise_deployment.md) | Docker, air-gapped, multi-GPU |
@@ -151,6 +164,9 @@ pip install -e ".[eval]"         # lm-evaluation-harness benchmarks
 pip install -e ".[tracking]"     # W&B experiment tracking
 pip install -e ".[distributed]"  # DeepSpeed multi-GPU
 pip install -e ".[merging]"      # mergekit model merging
+pip install -e ".[ingestion]"    # PDF/DOCX/EPUB → JSONL + langdetect
+pip install -e ".[export]"       # GGUF export via llama-cpp-python
+pip install -e ".[chat]"         # Rich terminal rendering for `forgelm chat`
 pip install -e ".[dev]"          # pytest, ruff (development)
 ```
 

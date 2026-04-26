@@ -44,13 +44,16 @@ def test_byod_rejects_nonexistent_path(capsys):
 
 
 def test_byod_rejects_directory(tmp_path, capsys):
-    # tmp_path itself is a directory — the BYOD loop must reject it.
+    # tmp_path itself is a directory — the BYOD loop must reject it AND hint
+    # at the Phase 11 ingestion pipeline (forgelm ingest) since a directory
+    # of raw docs is the most plausible reason a user landed here.
     answers = _PRELUDE + [str(tmp_path), "cancel"]
     with patch("builtins.input", side_effect=_make_input(answers)):
         result = wizard._maybe_run_quickstart_template()
     assert result is None
     captured = capsys.readouterr().out
-    assert f"Path not found or not a regular file: {tmp_path}" in captured
+    assert "is a directory, not a JSONL file" in captured
+    assert "forgelm ingest" in captured
 
 
 def test_byod_rejects_malformed_jsonl(tmp_path, capsys):

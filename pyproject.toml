@@ -79,6 +79,18 @@ export = [
   "llama-cpp-python>=0.2.90; sys_platform != 'win32'",
 ]
 
+# Phase 11: document ingestion — PDF/DOCX/EPUB/TXT → SFT-ready JSONL.
+# pypdf is pure-Python (cross-platform); ebooklib + beautifulsoup4 parse
+# EPUB containers; langdetect powers the audit's top-3 language stat.
+# OCR is intentionally out of scope (handle externally with Tesseract).
+ingestion = [
+  "pypdf>=4.0.0",
+  "python-docx>=1.0.0",
+  "ebooklib>=0.18",
+  "beautifulsoup4>=4.12.0",
+  "langdetect>=1.0.9",
+]
+
 # Phase 10: rich terminal rendering for the forgelm chat REPL.
 # Falls back to plain text output when not installed.
 chat = [

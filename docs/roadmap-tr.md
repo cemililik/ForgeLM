@@ -9,17 +9,19 @@
 | ✅ Tamam | [Faz 1-9](roadmap/completed-phases.md) | SOTA iyileştirmeleri, değerlendirme, güvenilirlik, kurumsal entegrasyon, ekosistem, hizalama stack'i, güvenlik, EU AI Act uyumluluğu (Madde 9-17 + Ek IV), gelişmiş güvenlik zekası |
 | ✅ Tamam | [Faz 10 — Post-Training Tamamlama](roadmap/phase-10-post-training.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — `v0.4.0` |
 | ✅ Tamam | [Faz 10.5 — Quickstart Katmanı ve Onboarding](roadmap/phase-12-quickstart.md) | `forgelm quickstart <template>`, 5 hazır template, seed veri setleri — `v0.4.5` |
-| 📋 Planlandı | [Faz 11 — Doküman Yutma ve Veri Denetimi](roadmap/phase-11-data-ingestion.md) | PDF/DOCX/EPUB → JSONL, PII tespiti, yakın-duplicate denetimi → `v0.5.0` |
+| ✅ Tamam | [Faz 11 — Doküman Yutma ve Veri Denetimi](roadmap/phase-11-data-ingestion.md) | `forgelm ingest`, `forgelm --data-audit`, PII regex + simhash dedup — `v0.5.0` için indi |
 | 📋 Planlandı | [Faz 13 — Pro CLI ve Gözlemlenebilirlik Dashboard](roadmap/phase-13-pro-cli.md) | Lisans korumalı dashboard, HPO, zamanlanmış görevler, takım config store → `v0.6.0-pro` |
 | 📋 Planlandı | [Faz 14 — Çok Aşamalı Pipeline Zincirleri](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO config zinciri, pipeline kaynak izleri → `v0.5.1` |
 
 **PyPI'deki son sürüm:** `v0.4.5` — Quickstart Katmanı (2026-04-26 yayınlandı). Tek komutla hazır template'ler: `forgelm quickstart customer-support`. Küçük GPU'larda modeli otomatik küçültür, mevcut trainer'ın değişmeden kabul ettiği bir YAML üretir.
 
+**Development'a indi, tag + PyPI publish bekliyor:** `v0.5.0` — Doküman Yutma ve Veri Denetimi (Faz 11). `forgelm ingest` raw PDF/DOCX/EPUB/TXT'yi SFT'ye uygun JSONL'a dönüştürür; `forgelm --data-audit` CPU-only veri kalite raporu üretir (uzunluk dağılımı, near-duplicate tespiti, cross-split sızıntı kontrolü, PII flag'leri) ve EU AI Act Madde 10 governance artifact'ına otomatik bağlanır.
+
 **Önceki:** `v0.4.0` — Post-Training Tamamlama (2026-04-26). Inference primitif'leri, etkileşimli chat REPL, GGUF export, VRAM fit advisor, deployment config üretimi.
 
-**Güncel kilometretaşı:** `v0.5.0` — Doküman Yutma ve Veri Denetimi (Faz 11). PDF/DOCX/EPUB → JSONL, PII tespiti, yakın-duplicate denetimi.
+**Güncel kilometretaşı:** `v0.5.1` — Çok Aşamalı Pipeline Zincirleri (Faz 14). SFT → DPO → GRPO zincir konfigürasyonu, pipeline kaynak izleri.
 
-**Güncel durum:** 13 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5) tamamlandı. 3 faz (11, 13, 14) planlandı. Hedef `v0.5.0`: Faz 11. Hedef `v0.5.1`: Faz 14.
+**Güncel durum:** 14 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11) tamamlandı. 2 faz (13, 14) planlandı. Hedef `v0.5.1`: Faz 14. `v0.6.0-pro` (Faz 13) adoption metriklerine bağlı.
 
 ## Planlanan işlerin özeti
 
@@ -39,7 +41,7 @@ graph LR
 
     style P10 fill:#003300,stroke:#00ff88
     style P105 fill:#003300,stroke:#00ff88
-    style P11 fill:#002244,stroke:#00aaff
+    style P11 fill:#003300,stroke:#00ff88
     style P13 fill:#442200,stroke:#ffaa00
     style P14 fill:#002244,stroke:#00aaff
 ```
@@ -60,7 +62,7 @@ docs/
 └── roadmap/
     ├── completed-phases.md                     # Faz 1-10 arşivi (detaylı, İngilizce)
     ├── phase-10-post-training.md               # Tamamlandı — v0.4.0
-    ├── phase-11-data-ingestion.md              # Planlandı — v0.5.0
+    ├── phase-11-data-ingestion.md              # Tamam (Faz 11) — v0.5.0 için indi; tag + PyPI publish bekliyor
     ├── phase-12-quickstart.md                  # Tamam (Faz 10.5) — v0.4.5 olarak yayınlandı
     ├── phase-13-pro-cli.md                     # Planlandı — v0.6.0-pro (gated)
     ├── phase-14-pipeline-chains.md             # Planlandı — v0.5.1

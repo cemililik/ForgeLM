@@ -80,9 +80,21 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ---
 
-## v0.5.0 — "Data Ingestion" (Planlandı)
+## v0.5.0 — "Document Ingestion & Data Audit"
 
-Odak: [Phase 11](phase-11-data-ingestion.md). Document ingestion pipeline: PDF/DOCX/EPUB → JSONL, PII detection, near-duplicate audit. Builds on Quickstart foundation.
+**Status:** Merged on `development` (2026-04-26). The `v0.5.0` git tag and PyPI publish are the remaining release-engineering steps. Focus: [Phase 11](phase-11-data-ingestion.md). Bridges raw enterprise corpora to ForgeLM's training data format and surfaces governance signals before training.
+
+### Features:
+
+1. [x] **`forgelm/ingestion.py`** + **`forgelm ingest`** subcommand — Multi-format document → JSONL pipeline with `paragraph` (default) and `sliding` chunking strategies, recursive directory walk, optional `--pii-mask`. Supported extensions: `.pdf` (`pypdf`), `.docx` (`python-docx`), `.epub` (`ebooklib` + `beautifulsoup4`), `.txt`, `.md`. Output is `{"text": ...}` JSONL recognized by ForgeLM's data loader as pre-formatted SFT input — no further preprocessing needed. OCR is intentionally out of scope; scanned PDFs warn and produce zero chunks.
+
+2. [x] **`forgelm/data_audit.py`** + **`forgelm --data-audit`** top-level flag — Per-split metrics (sample count, column schema, length distribution `min/max/mean/p50/p95`, top-3 language detection, null/empty rate), 64-bit simhash near-duplicate detection within each split, cross-split overlap report (catches train-test leakage), PII regex with Luhn-validated credit cards and TC Kimlik checksum-validated TR IDs. Layout: single `.jsonl` → treated as `train`; directory → split-keyed (`train.jsonl` / `validation.jsonl` / `test.jsonl`) auto-discovered. Writes `data_audit_report.json` to `--output` (default `./audit/`); `--output-format json` mirrors the report on stdout for CI/CD. CPU-only, no network.
+
+3. [x] **EU AI Act Article 10 integration** — `generate_data_governance_report` now inlines `data_audit_report.json` under the `data_audit` key when present in the trainer's `output_dir`. Compliance bundle becomes a single self-contained document.
+
+4. [x] **`pyproject.toml` `[ingestion]` extra** — `pypdf`, `python-docx`, `ebooklib`, `beautifulsoup4`, `langdetect`. Cross-platform; no native compilation. Plain TXT / Markdown ingestion + the audit module work without installing the extra (PII regex, simhash, length stats are pure stdlib).
+
+5. [x] **Tests + docs** — `tests/test_ingestion.py` and `tests/test_data_audit.py` (54 tests; PDF round-trip skips when `pypdf` missing). New guides: [`docs/guides/ingestion.md`](../guides/ingestion.md), [`docs/guides/data_audit.md`](../guides/data_audit.md). README feature section, install matrix, and roadmap status updated.
 
 ---
 

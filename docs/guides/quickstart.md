@@ -84,6 +84,22 @@ data:
   dataset_name_or_path: "timdettmers/openassistant-guanaco"  # or your dataset
 ```
 
+### Option C: I have raw documents (PDFs / DOCX / EPUBs), not JSONL
+
+Run the Phase 11 ingestion + audit pipeline first, then point any of the
+options above at the resulting JSONL:
+
+```bash
+pip install -e ".[ingestion]"
+forgelm ingest ./policies/ --recursive --output data/policies.jsonl
+forgelm --data-audit data/policies.jsonl --output ./audit/
+# Now `data/policies.jsonl` is ready to plug into a config.
+```
+
+See the [Document Ingestion Guide](ingestion.md) and [Dataset Audit
+Guide](data_audit.md) for chunking strategies, PII masking, and the
+governance signals the audit surfaces.
+
 ## 3. Validate (Dry Run)
 
 ```bash

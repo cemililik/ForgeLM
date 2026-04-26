@@ -85,7 +85,13 @@ class AuditLogger:
 
 
 def generate_data_governance_report(config: Any, dataset: Dict[str, Any]) -> Dict[str, Any]:
-    """Generate data quality and governance report per EU AI Act Article 10."""
+    """Generate data quality and governance report per EU AI Act Article 10.
+
+    When an audit report (``data_audit_report.json``) was produced by
+    ``forgelm --data-audit`` and lives in the trainer's checkpoint dir,
+    its findings are inlined under the ``data_audit`` key so the governance
+    artifact is a single self-contained document rather than a pointer.
+    """
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "primary_dataset": config.data.dataset_name_or_path,
@@ -129,6 +135,20 @@ def generate_data_governance_report(config: Any, dataset: Dict[str, Any]) -> Dic
             "personal_data_included": gov_cfg.personal_data_included,
             "dpia_completed": gov_cfg.dpia_completed,
         }
+
+    # Phase 11 Article 10 enrichment: if a `data_audit_report.json` exists in
+    # the trainer's output_dir, inline it. Operators usually run the audit
+    # before training; co-locating the result keeps the governance bundle
+    # self-contained rather than a pointer to a separate file.
+    output_dir = getattr(getattr(config, "training", None), "output_dir", None)
+    if output_dir:
+        audit_path = os.path.join(output_dir, "data_audit_report.json")
+        if os.path.isfile(audit_path):
+            try:
+                with open(audit_path, "r", encoding="utf-8") as fh:
+                    report["data_audit"] = json.load(fh)
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning("Could not inline data_audit_report.json (%s): %s", audit_path, exc)
 
     return report
 
