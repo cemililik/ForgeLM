@@ -343,11 +343,20 @@ def _read_jsonl_split(path: Path) -> List[Dict[str, Any]]:
     return rows
 
 
+_PROGRESS_INTERVAL: int = 5000
+"""Emit a progress log every N rows when a split is large enough that the
+audit's silent stretch is over a few seconds. Threshold picked so smoke
+tests / quickstart audits stay quiet but real corpora surface signal."""
+
+
 def _audit_split(split_name: str, rows: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], List[int], Dict[str, int]]:
     """Per-split metrics. Returns (info_dict, simhashes_list, pii_counts_dict)."""
     info: Dict[str, Any] = {"sample_count": len(rows)}
     if not rows:
         return info, [], {}
+
+    n_rows = len(rows)
+    log_progress = n_rows >= _PROGRESS_INTERVAL
 
     # Schema is the *union* of keys across rows — heterogeneous BYOD JSONL
     # often has optional fields (e.g. only some rows have `gold_answer`).
@@ -387,7 +396,13 @@ def _audit_split(split_name: str, rows: List[Dict[str, Any]]) -> Tuple[Dict[str,
         top3 = sorted(lang_counts.items(), key=lambda kv: kv[1], reverse=True)[:3]
         info["languages_top3"] = [{"code": code, "count": n} for code, n in top3]
 
-    fingerprints = [compute_simhash(t) for t in text_payloads]
+    if log_progress:
+        logger.info("audit/%s: computing simhashes for %d rows…", split_name, n_rows)
+    fingerprints: List[int] = []
+    for idx, t in enumerate(text_payloads):
+        fingerprints.append(compute_simhash(t))
+        if log_progress and (idx + 1) % _PROGRESS_INTERVAL == 0:
+            logger.info("audit/%s: %d / %d rows fingerprinted", split_name, idx + 1, n_rows)
     info["simhash_distinct"] = len({fp for fp in fingerprints if fp != 0})
 
     pii_counts_split: Dict[str, int] = {}
@@ -547,6 +562,7 @@ def audit_dataset(
             notes.append(f"split '{split_name}' skipped (read failure: {exc})")
             continue
 
+        logger.info("audit: scanning split '%s' (%d rows from %s)", split_name, len(rows), path.name)
         info, fingerprints, pii_split = _audit_split(split_name, rows)
         splits_info[split_name] = info
         fingerprints_by_split[split_name] = fingerprints
@@ -555,6 +571,8 @@ def audit_dataset(
         for kind, count in pii_split.items():
             pii_summary[kind] = pii_summary.get(kind, 0) + count
 
+        if len(fingerprints) >= _PROGRESS_INTERVAL:
+            logger.info("audit/%s: scanning for near-duplicates (O(n²); %d rows)…", split_name, len(fingerprints))
         within_pairs = find_near_duplicates(fingerprints, threshold=near_dup_threshold)
         near_dup_pairs[split_name] = len(within_pairs)
         info["near_duplicate_pairs"] = len(within_pairs)

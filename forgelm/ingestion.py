@@ -133,7 +133,14 @@ def _extract_epub(path: Path) -> str:
             "EPUB ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
         ) from exc
 
-    book = epub.read_epub(str(path))
+    # ebooklib >= 0.18 emits deprecation warnings unless `options=` is passed
+    # explicitly. ignore_ncx=True silences the noisy NCX (table of contents)
+    # warning that adds nothing for ingestion. ignore_missing_css avoids
+    # CSS-resolution warnings on EPUBs that ship broken stylesheets.
+    book = epub.read_epub(
+        str(path),
+        options={"ignore_ncx": True, "ignore_missing_css": True},
+    )
     chunks: List[str] = []
     for item in book.get_items():
         if item.get_type() != ITEM_DOCUMENT:

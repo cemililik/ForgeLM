@@ -179,11 +179,90 @@ paths, chunk count, format counts, notes). Useful for CI/CD pipelines.
 
 ## Limitations
 
-- **OCR:** out of scope. Use external tooling.
+- **OCR:** out of scope. Use external tooling — see the worked example below.
 - **Tables / figures:** PDF/DOCX tables are flattened to plain text. Structure is lost.
 - **Metadata:** title / author / page numbers are dropped — only body text reaches the JSONL.
 - **Encoding:** non-UTF-8 input is read with `errors="replace"`; binary noise becomes Unicode replacement characters.
 - **Semantic chunking:** raises `NotImplementedError` until embedding support lands in a follow-up phase.
+
+---
+
+## Working with scanned PDFs (OCR handoff)
+
+`forgelm ingest` does not perform OCR. Scanned PDFs without a text layer
+surface as a warning and emit zero chunks. The clean way is to OCR
+externally first, then pipe the result through ingestion. Two recipes,
+in increasing order of cost:
+
+### Recipe A — Tesseract (local, free)
+
+```bash
+# Install once.
+brew install tesseract            # macOS
+# or: sudo apt install tesseract-ocr tesseract-ocr-tur tesseract-ocr-eng  # Debian/Ubuntu
+
+# 1. Convert each scanned PDF page to a searchable PDF (text layer added).
+ocrmypdf scan_input.pdf scan_with_text_layer.pdf --language eng+tur
+
+# 2. Now ingest as a normal text-bearing PDF.
+forgelm ingest scan_with_text_layer.pdf --output data/scan.jsonl
+```
+
+`ocrmypdf` is the recommended wrapper — it handles deskew, page rotation,
+and writes a hidden text layer rather than burning OCR'd characters into
+the visual layer. Pure `tesseract` works too if you only need plain text:
+
+```bash
+# Per-page extraction, concatenate to a TXT, ingest the TXT.
+pdftoppm -r 300 scan_input.pdf scan_page -png
+for img in scan_page-*.png; do tesseract "$img" - >> scan_pages.txt; done
+forgelm ingest scan_pages.txt --output data/scan.jsonl
+```
+
+### Recipe B — AWS Textract (cloud, paid; better on tables / forms)
+
+```bash
+# 1. Upload scanned PDFs to S3.
+aws s3 cp scan_input.pdf s3://my-ingest-bucket/scan_input.pdf
+
+# 2. Start an async Textract job. (See AWS Textract docs for the polling
+#    + SNS notification pattern; a complete shell loop is out of scope.)
+aws textract start-document-text-detection \
+    --document-location "{\"S3Object\":{\"Bucket\":\"my-ingest-bucket\",\"Name\":\"scan_input.pdf\"}}"
+
+# 3. Once the job finishes, dump LINE blocks to text and ingest.
+python -c "
+import boto3, sys
+client = boto3.client('textract')
+job = sys.argv[1]
+result = client.get_document_text_detection(JobId=job)
+for block in result['Blocks']:
+    if block['BlockType'] == 'LINE':
+        print(block['Text'])
+" $JOB_ID > scan_textract.txt
+forgelm ingest scan_textract.txt --output data/scan.jsonl
+```
+
+Textract is materially better than Tesseract on:
+- Multi-column layouts (academic papers, magazines)
+- Mixed-language pages
+- Forms / tables (separate `start-document-analysis` API)
+
+The trade-off is per-page cost (~$0.0015 / page for text detection at
+the time of writing) and a network dependency.
+
+### What about forms with PII?
+
+Pre-process with `--pii-mask` after OCR, before publishing the dataset:
+
+```bash
+ocrmypdf medical_scan.pdf medical_with_text.pdf --language tur+eng
+forgelm ingest medical_with_text.pdf --output data/medical.jsonl --pii-mask
+forgelm --data-audit data/medical.jsonl --output ./audit/
+```
+
+The audit step verifies redaction worked: any remaining PII flag in
+`data_audit_report.json` is a row that escaped masking.
 
 For larger corpora or a domain with lots of jargon, consider running
 `forgelm --generate-data` (synthetic data pipeline) on the ingested JSONL
