@@ -326,18 +326,29 @@ def _collect_galore_config(use_galore: bool) -> dict:
 _BYOD_CANCEL_TOKENS = ("cancel", "c", "q", "quit")
 
 
-def _validate_local_jsonl(raw_path: str) -> Optional[str]:
-    """Validate a user-supplied JSONL path; return the absolute path or None.
+_BYOD_LOCAL_NOT_FOUND = object()
+"""Sentinel for ``_validate_local_jsonl``: file does not exist on disk.
 
-    None signals "re-prompt" (validation failure was already printed).
-    The returned path is always absolute (``Path.resolve()`` is applied
-    after ``expanduser()``) so callers downstream can ``cd`` freely without
-    losing track of the dataset.
+Distinct from ``None`` (file exists but is not valid JSONL) so the caller
+can fall back to an HF Hub-ID interpretation only when the local path
+isn't there at all.
+"""
+
+
+def _validate_local_jsonl(raw_path: str):
+    """Validate a user-supplied JSONL path.
+
+    Returns:
+        - The absolute path string when the file exists and parses as JSONL.
+        - ``_BYOD_LOCAL_NOT_FOUND`` when the path doesn't exist on disk
+          (caller may fall back to HF Hub ID semantics).
+        - ``None`` when the file exists but the first non-empty line fails
+          to parse as JSON (caller must re-prompt; validation message is
+          already printed).
     """
     resolved = Path(raw_path).expanduser()
     if not resolved.is_file():
-        print(f"  Path not found or not a regular file: {raw_path}")
-        return None
+        return _BYOD_LOCAL_NOT_FOUND
     try:
         with open(resolved, "r", encoding="utf-8") as fh:
             first_line = next((line for line in fh if line.strip()), "")
@@ -379,15 +390,23 @@ def _resolve_byod_dataset_path() -> Optional[str]:
             print("  A dataset path is required for this template. Type 'cancel' to use the full wizard instead.")
             continue
 
-        # Accept HF Hub dataset IDs ("<org>/<name>") without filesystem checks.
+        # Try local file first. The HF Hub ID regex would otherwise misclassify
+        # relative local paths like "data/train.jsonl" as Hub IDs (single slash,
+        # safe-name char class). Only fall back to HF Hub semantics when the
+        # path doesn't exist on disk at all.
+        result = _validate_local_jsonl(dataset_path)
+        if isinstance(result, str):
+            return result
+        if result is None:
+            # File exists but JSONL parse failed; message already printed.
+            continue
+
+        # result is the _BYOD_LOCAL_NOT_FOUND sentinel — try HF Hub ID.
         if _HF_HUB_ID_RE.match(dataset_path):
             print(f"  Treating '{dataset_path}' as an HF Hub dataset ID (no local validation).")
             return dataset_path
 
-        resolved = _validate_local_jsonl(dataset_path)
-        if resolved is not None:
-            return resolved
-        # _validate_local_jsonl already printed the failure; re-prompt.
+        print(f"  Path not found or not a regular file: {dataset_path}")
 
 
 def _maybe_run_quickstart_template() -> Optional[str]:

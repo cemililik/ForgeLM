@@ -945,7 +945,11 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
             output_path=args.output,
             dry_run=args.dry_run,
         )
-    except (FileNotFoundError, ValueError) as e:
+    except (FileNotFoundError, FileExistsError, ValueError) as e:
+        # FileExistsError is raised by _resolve_dataset when an explicit
+        # --output dir already contains a seed dataset (refuses to clobber);
+        # treat it as a config-level error so the user gets the actionable
+        # message instead of a Python traceback.
         if output_format == "json":
             print(json.dumps({"success": False, "error": str(e)}))
         else:

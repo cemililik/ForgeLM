@@ -184,6 +184,22 @@ class TestMathRewardFn:
         with pytest.raises(ValueError, match="zip"):
             _math_reward_fn(["Answer: 7", "Answer: 8"], gold_answer=["7"])
 
+    @pytest.mark.parametrize(
+        "gold,completion,expected",
+        [
+            (0, "Answer: 0", 1.0),  # int zero — must match
+            (0.0, "Answer: 0", 1.0),  # float zero
+            (False, "Answer: False", 1.0),  # bool stringified
+            (42, "Answer: 42", 1.0),  # plain int
+            (3.14, "Answer: 3.14", 1.0),  # plain float
+        ],
+    )
+    def test_non_string_gold_answer_does_not_crash(self, gold, completion, expected):
+        """gold_answer values may be int/float/bool when carried by HF Datasets;
+        the reward fn must stringify them rather than crashing on .strip()."""
+        rewards = _math_reward_fn([completion], gold_answer=[gold])
+        assert rewards == [expected]
+
     def test_reward_extraction_ignores_trailing_prose(self):
         """Trailing prose after the answer must not poison the comparison.
 

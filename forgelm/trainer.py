@@ -45,7 +45,8 @@ _EVT_REVERT_TRIGGERED = "eval.revert_triggered"
 #   - Greedy throughout — no reluctant quantifier needed because the
 #     character classes self-bound at the next sentence break.
 _ANSWER_PATTERN = re.compile(
-    r"answer\s*:\s*([^\s.!?\n][^.!?\n]*(?:[.!?](?!\s|$)[^.!?\n]*)*)",
+    # First class drops `\n` because `\s` already covers it.
+    r"answer\s*:\s*([^\s.!?][^.!?\n]*(?:[.!?](?!\s|$)[^.!?\n]*)*)",
     re.IGNORECASE,
 )
 
@@ -98,16 +99,21 @@ def _is_unit_prefix_safe_to_strip(out: str, unit: str) -> bool:
     return nxt.isdigit() or nxt.isspace()
 
 
-def _normalize_answer(s: Optional[str]) -> str:
+def _normalize_answer(s: Any) -> str:
     """Trim whitespace, sentence punctuation, and known unit suffixes / prefixes.
 
     Designed for the grpo-math template's ``Answer: <value>`` outputs;
     leaves fractions ("2/5") and time strings ("12:15") intact for
-    string-equality fallback in :func:`_answers_match`. ``None`` is
-    accepted as a defensive convenience and returns ``""``.
+    string-equality fallback in :func:`_answers_match`.
+
+    Accepts any value type — ``None`` returns ``""``; ints, floats, and
+    bools are stringified first so a ``gold_answer`` field carrying ``0``
+    or ``False`` doesn't crash with ``AttributeError`` on ``.strip()``.
     """
     if s is None:
         return ""
+    if not isinstance(s, str):
+        s = str(s)
     out = s.strip().rstrip(".!?")
     # Strip a known unit token from either end. Repeat once: "$15 USD"-style
     # collisions don't appear in the bundled prompts but a defensive single
