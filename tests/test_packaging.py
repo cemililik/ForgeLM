@@ -32,7 +32,13 @@ def test_templates_dir_is_a_real_python_package() -> None:
     after a wheel install.
     """
 
-    init_path = Path(forgelm.templates.__file__)
+    init_file = getattr(forgelm.templates, "__file__", None)
+    assert init_file is not None, (
+        "forgelm.templates has no __file__ attribute — it became a namespace "
+        "package. Wheels would not bundle the templates' data files. "
+        "Restore forgelm/templates/__init__.py."
+    )
+    init_path = Path(init_file)
     assert init_path.is_file(), (
         f"forgelm.templates.__init__.py missing at {init_path}; templates would not be importable from a wheel install."
     )

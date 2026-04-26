@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+import re
 import shutil
 from typing import Any, Dict, Optional
 
@@ -26,6 +27,16 @@ _EVT_REVERT_TRIGGERED = "eval.revert_triggered"
 # can pickle it across worker processes without dragging the surrounding
 # trainer state into the spawn.
 # ---------------------------------------------------------------------------
+
+# Stop the captured value at the next sentence boundary so
+# "Answer: 18. Çünkü …" does NOT swallow the trailing prose into the
+# comparison string. The boundary is "[.!?] followed by whitespace OR EOL"
+# — bare "." between digits ("Answer: 1.5") is preserved because the
+# lookahead requires whitespace or end-of-string after the punctuation.
+# Internal spaces, slashes, colons, dollar signs, and decimals are all
+# kept inside the capture for `_normalize_answer` to handle downstream.
+_ANSWER_PATTERN = re.compile(r"answer\s*:\s*(.+?)(?=[.!?]\s|[.!?]$|$)", re.IGNORECASE)
+
 
 # Units / suffixes the prompts in the grpo-math template attach to numeric
 # answers — stripped before comparison so "Answer: $15" matches gold "15".
@@ -96,23 +107,10 @@ def _math_reward_fn(completions, **kwargs):
     contain an ``Answer:`` marker score 0.0 — the regex implicitly enforces
     the spec'd output format.
     """
-    import re
-
     golds = kwargs.get("gold_answer", [])
     rewards: list[float] = []
-    # Stop the captured value at the next sentence boundary so
-    # "Answer: 18. Çünkü …" does NOT swallow the trailing prose into the
-    # comparison string. The boundary is "[.!?] followed by whitespace OR EOL"
-    # — bare "." between digits ("Answer: 1.5") is preserved because the
-    # lookahead requires whitespace or end-of-string after the punctuation.
-    # Internal spaces, slashes, colons, dollar signs, and decimals are all
-    # kept inside the capture for `_normalize_answer` to handle downstream.
-    pattern = re.compile(
-        r"answer\s*:\s*(.+?)(?=[.!?]\s|[.!?]$|$)",
-        re.IGNORECASE,
-    )
     for completion, gold in zip(completions, golds, strict=False):
-        match = pattern.search(completion or "")
+        match = _ANSWER_PATTERN.search(completion or "")
         if not match:
             rewards.append(0.0)
             continue

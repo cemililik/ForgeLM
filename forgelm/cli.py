@@ -771,6 +771,30 @@ def _run_deploy_cmd(args, output_format: str) -> None:
         sys.exit(EXIT_TRAINING_ERROR)
 
 
+def _build_quickstart_inherited_flags(args) -> tuple[list[str], list[str]]:
+    """Return (train_flags, chat_flags) propagated from parent argv.
+
+    Both lists carry --quiet / --log-level / --offline. Only the train
+    list carries --output-format json — chat is interactive and JSON
+    mode would muddy its stdout.
+    """
+    train_flags: list[str] = []
+    chat_flags: list[str] = []
+    if getattr(args, "output_format", None) == "json":
+        train_flags += ["--output-format", "json"]
+    if getattr(args, "quiet", False):
+        train_flags.append("--quiet")
+        chat_flags.append("--quiet")
+    log_level = getattr(args, "log_level", None)
+    if log_level:
+        train_flags += ["--log-level", log_level]
+        chat_flags += ["--log-level", log_level]
+    if getattr(args, "offline", False):
+        train_flags.append("--offline")
+        chat_flags.append("--offline")
+    return train_flags, chat_flags
+
+
 def _run_quickstart_cmd(args, output_format: str) -> None:
     """Dispatch the ``forgelm quickstart`` subcommand.
 
@@ -854,30 +878,10 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
     import subprocess  # nosec B404 — argv-list usage only; see comment above
 
     # Propagate top-level CLI flags so the child process inherits the
-    # operator's logging / output preferences.
-    inherited: list[str] = []
-    if getattr(args, "output_format", None) == "json":
-        inherited += ["--output-format", "json"]
-    if getattr(args, "quiet", False):
-        inherited.append("--quiet")
-    log_level = getattr(args, "log_level", None)
-    if log_level:
-        inherited += ["--log-level", log_level]
-    # --offline lives on the main parser only; forwarding before the
-    # subcommand keyword preserves air-gap intent for the child process.
-    if getattr(args, "offline", False):
-        inherited.append("--offline")
-
-    # chat is interactive; JSON mode is dropped (it has no consumer for the
-    # REPL and would muddy the stdout stream). --quiet / --log-level / --offline
-    # still apply, so the chat list is built independently from the same args.
-    inherited_chat: list[str] = []
-    if getattr(args, "quiet", False):
-        inherited_chat.append("--quiet")
-    if log_level:
-        inherited_chat += ["--log-level", log_level]
-    if getattr(args, "offline", False):
-        inherited_chat.append("--offline")
+    # operator's logging / output preferences. --offline lives on the main
+    # parser only; forwarding before the subcommand keyword preserves
+    # air-gap intent for the child process.
+    inherited, inherited_chat = _build_quickstart_inherited_flags(args)
 
     train_cmd = [sys.executable, "-m", "forgelm.cli", *inherited, "--config", os.path.abspath(result.config_path)]
     logger.info("Starting training: %s", " ".join(train_cmd))

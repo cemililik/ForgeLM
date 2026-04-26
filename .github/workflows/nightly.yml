@@ -114,7 +114,18 @@ jobs:
           # Build a clean venv so nothing from the checkout's cwd leaks in.
           python -m venv /tmp/wheel-test
           /tmp/wheel-test/bin/pip install --upgrade pip
-          /tmp/wheel-test/bin/pip install dist/forgelm-*.whl
+
+          # Resolve the wheel glob explicitly: there must be exactly one
+          # forgelm-*.whl, otherwise the test environment is ambiguous.
+          shopt -s nullglob
+          wheels=(dist/forgelm-*.whl)
+          if [ "${#wheels[@]}" -ne 1 ]; then
+            echo "Expected exactly one forgelm wheel in dist/; found ${#wheels[@]}: ${wheels[*]:-(none)}" >&2
+            exit 1
+          fi
+          wheel="${wheels[0]}"
+          echo "Installing: $wheel"
+          /tmp/wheel-test/bin/pip install "$wheel"
 
           # Run from /tmp specifically so the source tree is NOT on
           # sys.path — any template asset must come from the wheel's
