@@ -58,9 +58,24 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ---
 
-## v0.4.5 — "Quickstart Layer" (Planlandı)
+## v0.4.5 — "Quickstart Layer" (2026-04-25)
 
-Focus: [Phase 10.5](phase-12-quickstart.md) (Quickstart). Pre-built templates, sample datasets, `forgelm quickstart <template>` command. Direct community growth driver. Unblocked by Phase 10 tasks 1 + 2 (inference.py and chat.py) only; can begin development in parallel with Phase 10 tasks 3-5.
+**Status:** Released. Focus: [Phase 10.5](phase-12-quickstart.md) (Quickstart). One-command bundled templates, sample datasets, opinionated defaults — primary community growth driver.
+
+### Features:
+1. [x] **`forgelm/quickstart.py`** — Template registry (`@dataclass(frozen=True) Template`), `auto_select_model()` GPU-aware downsizing (≥10 GB VRAM → primary model; otherwise fallback ≤2B), `run_quickstart()` end-to-end orchestrator that copies the bundled seed dataset, substitutes `model.name_or_path` and `data.dataset_name_or_path`, and writes a `configs/<template>-YYYYMMDDHHMMSS.yaml` the existing trainer accepts unchanged.
+2. [x] **`forgelm quickstart <template>` CLI subcommand** — `--list` (text + JSON via `--output-format json`), `--model` / `--dataset` overrides, `--dry-run` (generate config but skip training), `--no-chat` (skip post-training chat REPL), `--output` (custom YAML path). On a successful train, subprocess-invokes `forgelm chat <output_dir>` for an immediate sanity loop.
+3. [x] **5 bundled templates** under [`forgelm/templates/`](../../forgelm/templates/):
+   - `customer-support` (Qwen2.5-7B-Instruct ↔ SmolLM2-1.7B-Instruct, SFT, 60-example seed JSONL)
+   - `code-assistant` (Qwen2.5-Coder-7B-Instruct ↔ SmolLM2-1.7B-Instruct, SFT, 60-example seed)
+   - `domain-expert` (BYOD — empty data, README walks through the workflow)
+   - `medical-qa-tr` (Qwen2.5-7B-Instruct, SFT, 40+ Turkish Q&A with safety disclaimers)
+   - `grpo-math` (Qwen2.5-Math-7B-Instruct ↔ Qwen2.5-Math-1.5B-Instruct, GRPO trainer, 40 grade-school math prompts)
+4. [x] **Conservative defaults** — every template ships with QLoRA 4-bit NF4, rank=8, batch=1 + gradient accumulation, gradient checkpointing on, safety eval / compliance artifacts opt-in only.
+5. [x] **Wizard integration** — `forgelm --wizard` now opens with "Start from a template?". Yes → invokes the quickstart flow; No → falls through to the existing 8-step interactive flow. No bifurcation: same code paths, same YAML schema.
+6. [x] **License hygiene** — [`forgelm/templates/LICENSES.md`](../../forgelm/templates/LICENSES.md) catalogs all bundled seed datasets (CC-BY-SA 4.0, author-original); contributing guide for new templates.
+7. [x] **Tests + CI** — 40-test [`tests/test_quickstart.py`](../../tests/test_quickstart.py) covering registry, bundled assets, auto-select, generation, CLI dispatch, and a regression test that loads every generated YAML through `load_config` (the strongest guard against template drift). Nightly CI smoke-tests every template via `quickstart --dry-run` + `--config <out> --dry-run`.
+8. [x] **`pyproject.toml` `[tool.setuptools.package-data]`** — bundles `*.yaml`, `*.jsonl`, `*.md` under `forgelm.templates` into the wheel so `pip install forgelm` users get the templates too.
 
 ---
 

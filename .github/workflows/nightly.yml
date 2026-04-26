@@ -54,6 +54,18 @@ jobs:
           forgelm --config config_template.yaml --dry-run
           forgelm --config config_template.yaml --dry-run --output-format json
 
+      - name: Quickstart templates smoke test
+        run: |
+          # Every bundled template must render to a valid YAML that
+          # passes pydantic validation. Catches template drift the
+          # moment a config schema changes.
+          forgelm quickstart --list
+          for tpl in customer-support code-assistant medical-qa-tr grpo-math; do
+            echo "=== Quickstart dry-run: $tpl ==="
+            forgelm quickstart "$tpl" --dry-run --output "/tmp/qs-$tpl.yaml"
+            forgelm --config "/tmp/qs-$tpl.yaml" --dry-run
+          done
+
   test-min-deps:
     name: Test with minimum supported versions
     runs-on: ubuntu-latest

@@ -8,16 +8,18 @@
 |-----|-------|--------|
 | ✅ Done | [Phase 1-9](roadmap/completed-phases.md) | SOTA upgrades, evaluation, reliability, enterprise integration, ecosystem, alignment stack, safety, EU AI Act compliance (Articles 9-17 + Annex IV), advanced safety intelligence |
 | ✅ Done | [Phase 10 — Post-Training Completion](roadmap/phase-10-post-training.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — shipped `v0.4.0` |
-| 📋 Planned | [Phase 10.5 — Quickstart Layer & Onboarding](roadmap/phase-12-quickstart.md) | `forgelm quickstart <template>`, 5 templates, sample datasets → `v0.4.5` |
+| ✅ Done | [Phase 10.5 — Quickstart Layer & Onboarding](roadmap/phase-12-quickstart.md) | `forgelm quickstart <template>`, 5 bundled templates with seed datasets — shipped `v0.4.5` |
 | 📋 Planned | [Phase 11 — Document Ingestion & Data Audit](roadmap/phase-11-data-ingestion.md) | PDF/DOCX/EPUB → JSONL, PII detection, near-duplicate audit → `v0.5.0` |
 | 📋 Planned | [Phase 13 — Pro CLI & Observability Dashboard](roadmap/phase-13-pro-cli.md) | License-gated dashboard, HPO, scheduled jobs, team config store → `v0.6.0-pro` |
 | 📋 Planned | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO chained config, pipeline provenance artifacts → `v0.5.1` |
 
-**Latest release:** `v0.4.0` — Post-Training Completion (shipped 2026-04-26 to PyPI). Inference primitives, interactive chat REPL, GGUF export, VRAM fit advisor, and deployment config generation.
+**Latest release:** `v0.4.5` — Quickstart Layer (shipped 2026-04-25). One-command bundled templates: `forgelm quickstart customer-support`. Auto-downsizes models on small GPUs, generates a config that the existing trainer accepts unchanged.
 
-**Current milestone:** `v0.4.5` — Quickstart Layer (Phase 10.5). Pre-built templates and the `forgelm quickstart <template>` command — primary community growth driver.
+**Previous:** `v0.4.0` — Post-Training Completion (2026-04-26 on PyPI). Inference primitives, interactive chat REPL, GGUF export, VRAM fit advisor, and deployment config generation.
 
-**Current state:** 12 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10) complete. 4 phases (10.5, 11, 13, 14) planned. Target `v0.4.5` release: Phase 10.5 (Quickstart). Target `v0.5.0`: Phase 11.
+**Current milestone:** `v0.5.0` — Document Ingestion & Data Audit (Phase 11). PDF/DOCX/EPUB → JSONL, PII detection, near-duplicate audit.
+
+**Current state:** 13 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5) complete. 3 phases (11, 13, 14) planned. Target `v0.5.0` release: Phase 11. Target `v0.5.1`: Phase 14.
 
 ## Quick summary of what's planned
 
@@ -36,7 +38,7 @@ graph LR
     P13 -.-> V3[v0.6.0-pro]
 
     style P10 fill:#003300,stroke:#00ff88
-    style P105 fill:#002244,stroke:#00aaff
+    style P105 fill:#003300,stroke:#00ff88
     style P11 fill:#002244,stroke:#00aaff
     style P13 fill:#442200,stroke:#ffaa00
     style P14 fill:#002244,stroke:#00aaff

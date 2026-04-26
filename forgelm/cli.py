@@ -7,6 +7,7 @@ import os
 import sys
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
+from pathlib import Path
 
 from .config import ConfigError, ForgeConfig, load_config
 
@@ -170,15 +171,68 @@ def _add_deploy_subcommand(subparsers) -> None:
     _add_common_subparser_flags(p, include_output_format=True)
 
 
+def _add_quickstart_subcommand(subparsers) -> None:
+    p = subparsers.add_parser(
+        "quickstart",
+        help="Generate a config from a curated template (and optionally start training).",
+        description=(
+            "Pick a template (e.g. customer-support, code-assistant), get a working YAML and "
+            "(optionally) seed dataset out the other end. The generated config uses the same "
+            "schema as a hand-written one — quickstart is just opinionated defaults plus a "
+            "license-clean seed dataset."
+        ),
+    )
+    p.add_argument(
+        "template",
+        nargs="?",
+        default=None,
+        help="Template name. Run with --list to see what's available.",
+    )
+    p.add_argument("--list", action="store_true", help="List available templates and exit.")
+    p.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        metavar="MODEL_ID",
+        help="Override the template's primary model (HF Hub ID or local path).",
+    )
+    p.add_argument(
+        "--dataset",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Override the template's bundled dataset (HF Hub ID or local JSONL path).",
+    )
+    p.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        metavar="FILE",
+        help="Where to write the generated YAML (default: ./configs/<template>-<timestamp>.yaml).",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Generate the config and print next steps; do not invoke training.",
+    )
+    p.add_argument(
+        "--no-chat",
+        action="store_true",
+        help="When training succeeds, do NOT auto-launch `forgelm chat` afterwards.",
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="ForgeLM: Language Model Fine-Tuning Toolkit",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Subcommands:\n"
-            "  forgelm chat MODEL_PATH    Interactive chat REPL\n"
-            "  forgelm export MODEL_PATH  Export model to GGUF\n"
-            "  forgelm deploy MODEL_PATH  Generate serving config\n"
+            "  forgelm quickstart [TEMPLATE]   Generate a config from a curated template\n"
+            "  forgelm chat MODEL_PATH         Interactive chat REPL\n"
+            "  forgelm export MODEL_PATH       Export model to GGUF\n"
+            "  forgelm deploy MODEL_PATH       Generate serving config\n"
             "\nRun 'forgelm <subcommand> --help' for subcommand details."
         ),
     )
@@ -188,6 +242,7 @@ def parse_args():
     _add_chat_subcommand(subparsers)
     _add_export_subcommand(subparsers)
     _add_deploy_subcommand(subparsers)
+    _add_quickstart_subcommand(subparsers)
 
     # --- Top-level flags (training / config-driven mode) ---
     parser.add_argument("--config", type=str, help="Path to the YAML configuration file.")
@@ -716,8 +771,126 @@ def _run_deploy_cmd(args, output_format: str) -> None:
         sys.exit(EXIT_TRAINING_ERROR)
 
 
+def _run_quickstart_cmd(args, output_format: str) -> None:
+    """Dispatch the ``forgelm quickstart`` subcommand.
+
+    Three flows: ``--list`` (print templates and exit); plain
+    ``forgelm quickstart TEMPLATE`` (generate config + auto-train + auto-chat);
+    ``--dry-run`` (generate config, print next step, do not train).
+    """
+    from .quickstart import format_template_list, run_quickstart, summarize_result
+
+    if args.list:
+        if output_format == "json":
+            from .quickstart import list_templates as _list
+
+            payload = [
+                {
+                    "name": t.name,
+                    "title": t.title,
+                    "description": t.description,
+                    "primary_model": t.primary_model,
+                    "fallback_model": t.fallback_model,
+                    "trainer_type": t.trainer_type,
+                    "estimated_minutes": t.estimated_minutes,
+                    "min_vram_for_primary_gb": t.min_vram_for_primary_gb,
+                    "bundled_dataset": t.bundled_dataset,
+                    "license_note": t.license_note,
+                }
+                for t in _list()
+            ]
+            print(json.dumps(payload, indent=2))
+        else:
+            print(format_template_list())
+        sys.exit(EXIT_SUCCESS)
+
+    if not args.template:
+        logger.error("forgelm quickstart: TEMPLATE is required (or pass --list to see the menu).")
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    try:
+        result = run_quickstart(
+            args.template,
+            model_override=args.model,
+            dataset_override=args.dataset,
+            output_path=args.output,
+            dry_run=args.dry_run,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        if output_format == "json":
+            print(json.dumps({"success": False, "error": str(e)}))
+        else:
+            logger.error("Quickstart failed: %s", e)
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "template": result.template.name,
+                    "config_path": str(result.config_path),
+                    "model": result.chosen_model,
+                    "dataset": result.dataset_path,
+                    "selection_reason": result.selection_reason,
+                    "dry_run": result.dry_run,
+                    "notes": result.extra_notes,
+                },
+                indent=2,
+            )
+        )
+    else:
+        print(summarize_result(result))
+
+    if result.dry_run:
+        sys.exit(EXIT_SUCCESS)
+
+    # Spec: invoke training automatically. Use a subprocess so each phase keeps
+    # its own clean process state and Ctrl-C is honoured cleanly.
+    import subprocess
+
+    train_cmd = [sys.executable, "-m", "forgelm.cli", "--config", str(result.config_path)]
+    logger.info("Starting training: %s", " ".join(train_cmd))
+    train_rc = subprocess.run(train_cmd, check=False).returncode  # noqa: S603  # nosec B603
+    if train_rc != 0:
+        logger.error("Training exited with code %d", train_rc)
+        sys.exit(train_rc)
+
+    if args.no_chat:
+        sys.exit(EXIT_SUCCESS)
+
+    # Auto-launch chat against the trained model. Mirror the trainer's output_dir
+    # convention from the bundled config.
+    final_model_dir = Path(_load_config_for_quickstart_chat(result.config_path)) / "final_model"
+    if not final_model_dir.is_dir():
+        logger.warning(
+            "Skipping auto-chat: trained model directory not found at %s. Run `forgelm chat <model_path>` manually.",
+            final_model_dir,
+        )
+        sys.exit(EXIT_SUCCESS)
+
+    chat_cmd = [sys.executable, "-m", "forgelm.cli", "chat", str(final_model_dir)]
+    logger.info("Launching chat REPL: %s", " ".join(chat_cmd))
+    subprocess.run(chat_cmd, check=False)  # noqa: S603  # nosec B603
+    sys.exit(EXIT_SUCCESS)
+
+
+def _load_config_for_quickstart_chat(config_path: Path) -> str:
+    """Read the generated YAML and return the training output_dir.
+
+    Kept tiny + standalone so quickstart never has to import the heavy config
+    validation pipeline just to find the trained checkpoint directory.
+    """
+    import yaml
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    training = cfg.get("training", {}) or {}
+    return training.get("output_dir", "./checkpoints")
+
+
 def _dispatch_subcommand(command: str, args) -> None:
-    """Run a Phase 10 subcommand (chat / export / deploy) and exit."""
+    """Run a Phase 10/10.5 subcommand (chat / export / deploy / quickstart) and exit."""
     if command == "chat":
         # _run_chat_cmd's REPL catches KeyboardInterrupt internally for the
         # input prompt; this outer guard covers Ctrl-C during model load /
@@ -732,6 +905,9 @@ def _dispatch_subcommand(command: str, args) -> None:
         sys.exit(EXIT_SUCCESS)
     elif command == "deploy":
         _run_deploy_cmd(args, getattr(args, "output_format", "text"))
+        sys.exit(EXIT_SUCCESS)
+    elif command == "quickstart":
+        _run_quickstart_cmd(args, getattr(args, "output_format", "text"))
         sys.exit(EXIT_SUCCESS)
 
 

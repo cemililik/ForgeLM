@@ -7,12 +7,15 @@
 | Tür | Faz | Durum |
 |-----|-----|-------|
 | ✅ Tamam | [Faz 1-9](roadmap/completed-phases.md) | SOTA iyileştirmeleri, değerlendirme, güvenilirlik, kurumsal entegrasyon, ekosistem, hizalama stack'i, güvenlik, EU AI Act uyumluluğu (Madde 9-17 + Ek IV), gelişmiş güvenlik zekası |
-| 📋 Planlandı | [Faz 10 — Post-Training Tamamlama](roadmap/phase-10-post-training.md) | `forgelm/inference.py`, `chat`, `export` (GGUF), `fit-check`, `deploy` |
-| 📋 Planlandı | [Faz 11 — Doküman Yutma ve Veri Denetimi](roadmap/phase-11-data-ingestion.md) | PDF/DOCX/EPUB → JSONL, PII tespiti, yakın-duplicate denetimi |
-| 📋 Planlandı | [Faz 12 — Quickstart Katmanı ve Onboarding](roadmap/phase-12-quickstart.md) | `forgelm quickstart <template>`, 5 template, örnek veri setleri |
-| 📋 Planlandı | [Faz 13 — Pro CLI ve Gözlemlenebilirlik Dashboard](roadmap/phase-13-pro-cli.md) | Lisans korumalı dashboard, HPO, zamanlanmış görevler, takım config store |
+| ✅ Tamam | [Faz 10 — Post-Training Tamamlama](roadmap/phase-10-post-training.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — `v0.4.0` |
+| ✅ Tamam | [Faz 10.5 — Quickstart Katmanı ve Onboarding](roadmap/phase-12-quickstart.md) | `forgelm quickstart <template>`, 5 hazır template, seed veri setleri — `v0.4.5` |
+| 📋 Planlandı | [Faz 11 — Doküman Yutma ve Veri Denetimi](roadmap/phase-11-data-ingestion.md) | PDF/DOCX/EPUB → JSONL, PII tespiti, yakın-duplicate denetimi → `v0.5.0` |
+| 📋 Planlandı | [Faz 13 — Pro CLI ve Gözlemlenebilirlik Dashboard](roadmap/phase-13-pro-cli.md) | Lisans korumalı dashboard, HPO, zamanlanmış görevler, takım config store → `v0.6.0-pro` |
+| 📋 Planlandı | [Faz 14 — Çok Aşamalı Pipeline Zincirleri](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO config zinciri, pipeline kaynak izleri → `v0.5.1` |
 
-**Güncel durum:** 11 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9) tamamlandı. 4 faz (10-13) planlandı. Hedef `v0.4.0`: Faz 10. Hedef `v0.5.0`: Faz 11 + 12.
+**Son sürüm:** `v0.4.5` — Quickstart Layer (2026-04-25). Tek komutla hazır template'ler: `forgelm quickstart customer-support`. Küçük GPU'larda modeli otomatik küçültür, mevcut trainer'ın değişmeden kabul ettiği bir YAML üretir.
+
+**Güncel durum:** 13 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5) tamamlandı. 3 faz (11, 13, 14) planlandı. Hedef `v0.5.0`: Faz 11. Hedef `v0.5.1`: Faz 14.
 
 ## Planlanan işlerin özeti
 

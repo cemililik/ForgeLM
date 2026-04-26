@@ -315,6 +315,69 @@ def _collect_galore_config(use_galore: bool) -> dict:
     }
 
 
+def _maybe_run_quickstart_template() -> Optional[str]:
+    """Offer the quickstart template path before the full 8-step wizard.
+
+    Returns the generated config path when the user picks a template;
+    returns ``None`` when they decline (signal to fall through to the full
+    flow).
+    """
+    from .quickstart import TEMPLATES, list_templates, run_quickstart
+
+    print("\n" + "=" * 60)
+    print("  ForgeLM Configuration Wizard")
+    print("=" * 60)
+
+    if not _prompt_yes_no(
+        "\nStart from a curated quickstart template? (recommended for first runs)",
+        default=True,
+    ):
+        return None
+
+    print("\nAvailable templates:")
+    names = []
+    for tpl in list_templates():
+        bundled = "✔ data" if tpl.bundled_dataset else "✘ BYOD"
+        names.append(tpl.name)
+        print(f"  {len(names)}) {tpl.name}  —  {tpl.title}  ({bundled}, ~{tpl.estimated_minutes}min)")
+    raw = _prompt("Pick a template by number or name", names[0])
+
+    chosen: Optional[str] = None
+    if raw.isdigit():
+        idx = int(raw)
+        if 1 <= idx <= len(names):
+            chosen = names[idx - 1]
+    elif raw in TEMPLATES:
+        chosen = raw
+    if chosen is None:
+        print(f"  Could not interpret '{raw}'. Falling back to the full wizard.")
+        return None
+
+    template = TEMPLATES[chosen]
+    if not template.bundled_dataset:
+        print(f"  '{chosen}' is BYOD — bring your own JSONL dataset. Pass it now or fall back to the full wizard.")
+        dataset_path = _prompt("Path to your dataset JSONL (empty to fall back)", "")
+        if not dataset_path:
+            return None
+    else:
+        dataset_path = ""
+
+    try:
+        result = run_quickstart(
+            chosen,
+            dataset_override=dataset_path or None,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        print(f"  Quickstart failed: {e}. Falling back to the full wizard.")
+        return None
+
+    print(f"\n  Quickstart config generated at: {result.config_path}")
+    print(f"  Selected model: {result.chosen_model}  ({result.selection_reason})")
+    print(f"  Dataset       : {result.dataset_path}")
+    print()
+    return str(result.config_path)
+
+
 def run_wizard() -> Optional[str]:
     """Run the interactive configuration wizard.
 
@@ -322,9 +385,17 @@ def run_wizard() -> Optional[str]:
     training immediately, or ``None`` when the user defers — callers must
     handle both cases.
     """
-    print("\n" + "=" * 60)
-    print("  ForgeLM Configuration Wizard")
-    print("=" * 60)
+    quickstart_path = _maybe_run_quickstart_template()
+    if quickstart_path is not None:
+        if _prompt_yes_no("Start training now with the generated config?", default=False):
+            print(f"\n  Running: forgelm --config {quickstart_path}")
+            return quickstart_path
+        print("\n  To start training later, run:")
+        print(f"    forgelm --config {quickstart_path}")
+        return None
+
+    # Full 8-step flow (fallback when user declined the quickstart shortcut).
+    print("\n  Falling back to the full configuration wizard.")
 
     # Step 1: Hardware Detection
     print("\n[1/8] Hardware Detection")
