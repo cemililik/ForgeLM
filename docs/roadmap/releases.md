@@ -82,7 +82,7 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ## v0.5.0 — "Document Ingestion & Data Audit"
 
-**Status:** Merged on `development` (2026-04-26). The `v0.5.0` git tag and PyPI publish are the remaining release-engineering steps. Focus: [Phase 11](phase-11-data-ingestion.md). Bridges raw enterprise corpora to ForgeLM's training data format and surfaces governance signals before training.
+**Status:** Shipped (PR #11 merged to `main` 2026-04-27). Focus: [Phase 11](phase-11-data-ingestion.md). Bridges raw enterprise corpora to ForgeLM's training data format and surfaces governance signals before training.
 
 ### Features:
 
@@ -98,9 +98,29 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ---
 
-## v0.5.1 — "Pipeline Chains" (Planlandı)
+## v0.5.1 — "Ingestion / Audit Polish"
 
-Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. No hard blockers; starts after Phase 10 lands.
+**Status:** Merged on `development`. Focus: [Phase 11.5](phase-11-5-backlog.md). Operational polish on top of `v0.5.0`'s ingestion + audit surface — no new training capabilities, but materially better handling for large corpora and a cleaner CLI shape.
+
+### Features:
+
+1. [x] **`forgelm audit` subcommand** — Promotes the `--data-audit` top-level flag to a first-class subcommand with its own `--output` default. The flag is preserved as a deprecation alias; existing pipelines keep working.
+2. [x] **LSH-banded near-duplicate detection** — Replaces the `O(n²)` pair scan inside each split (and across splits) with locality-sensitive-hashing bands (4 × 16-bit on the 64-bit fingerprint, hash-bucket lookup). Drops average-case to `O(n × k)` and unblocks audits on 100K+ row corpora.
+3. [x] **Streaming `_read_jsonl_split`** — The audit's JSONL reader now yields rows lazily and the per-split aggregator stays generator-based until simhash collection. Bounds memory on multi-million-row splits.
+4. [x] **Token-aware `--chunk-tokens`** — Optional ingestion flag that sizes chunks against an HF tokenizer instead of raw character counts. Removes a class of "my chunks blew through `max_length`" surprises.
+5. [x] **PDF page-level header / footer dedup** — Repeated page headers (company watermark, page number) used to inflate near-duplicate counts; common-prefix / common-suffix detection across pages now strips them.
+6. [x] **PII severity tiers** — Audit output adds a `pii_severity` block grading each PII type as `low / medium / high / critical` (e.g. `credit_card` → critical, `phone` → low) so compliance reviewers get a one-glance verdict.
+7. [x] **`summarize_report` truncation policy** — Multi-split summaries get a `verbose=False` default that suppresses zero-finding splits. Operators see issues, not 100 lines of "all clean" rows.
+8. [x] **Structured ingestion notes** — `IngestionResult.extra_notes` keeps the human-readable list but gains a parallel `notes_structured: {key: value}` map (e.g. `{"skipped_files": 3, "pii_redactions": {...}}`) for programmatic consumers.
+9. [x] **Wizard "ingest first" entry point** — A first-class wizard option ("I have raw documents") routes to `forgelm ingest`, surfaces a JSONL path, and folds it back into the BYOD prompt — closing the onboarding loop end-to-end.
+10. [x] **xxhash backend for simhash + token-level memo** — Drop-in faster non-crypto digest path (BLAKE2b kept as fallback for sites that can't add the optional dep). Token-level `lru_cache` memoizes repeat tokens (the/and/etc.) for a 2–5× speedup on long corpora.
+11. [x] **Atomic audit report write** — `data_audit_report.json` is written via `tempfile.NamedTemporaryFile` + atomic rename so a crashed audit never leaves a half-written report on disk.
+
+---
+
+## v0.5.2 — "Pipeline Chains" (Planlandı)
+
+Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. No hard blockers; starts after Phase 11.5 lands.
 
 ---
 

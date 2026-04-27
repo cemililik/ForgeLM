@@ -510,3 +510,133 @@ class TestSummarize:
         rendered = summarize_report(report)
         assert "Total samples" in rendered
         assert "train" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Phase 11.5 — LSH banding, streaming, PII severity, summary verbose, atomic write
+# ---------------------------------------------------------------------------
+
+
+class TestLshBandedNearDuplicates:
+    """Phase 11.5: find_near_duplicates uses LSH banding + must keep recall."""
+
+    def test_lsh_finds_same_pairs_as_brute_force(self):
+        """Sanity: LSH path must not lose any near-duplicates the brute path would find."""
+        from forgelm.data_audit import _find_near_duplicates_brute, find_near_duplicates
+
+        texts = [
+            "The quick brown fox jumps over the lazy dog",
+            "The quick brown fox leaps over the lazy dog",
+            "Quantum chromodynamics describes the strong nuclear force",
+            "The quick brown fox jumps over the lazy hound",
+            "Pure noise: blip blop bing bang bong",
+        ]
+        fps = [compute_simhash(t) for t in texts]
+        brute = _find_near_duplicates_brute(fps, threshold=DEFAULT_NEAR_DUP_HAMMING)
+        lsh = find_near_duplicates(fps, threshold=DEFAULT_NEAR_DUP_HAMMING)
+        # Same pair set (order is normalised by find_near_duplicates).
+        brute_pairs = {(i, j) for i, j, _ in brute}
+        lsh_pairs = {(i, j) for i, j, _ in lsh}
+        assert brute_pairs == lsh_pairs
+
+    def test_lsh_falls_back_to_brute_for_high_threshold(self):
+        """Threshold so high that bands shrink below 4 bits → brute path."""
+        from forgelm.data_audit import find_near_duplicates
+
+        fps = [compute_simhash("alpha"), compute_simhash("alpha"), compute_simhash("beta")]
+        # 64-bit fingerprint, threshold 16 → bands=17 → band_bits ≈ 3 → fallback.
+        pairs = find_near_duplicates(fps, threshold=16)
+        # Must still recall the alpha/alpha pair.
+        assert (0, 1) in {(i, j) for i, j, _ in pairs}
+
+
+class TestPiiSeverity:
+    """Phase 11.5: severity tiers surface a worst-tier verdict."""
+
+    def test_credit_card_is_critical(self, tmp_path):
+        path = tmp_path / "x.jsonl"
+        # Real Luhn-valid credit card test number: 4111 1111 1111 1111
+        _write_jsonl(path, [{"text": "card 4111 1111 1111 1111"}])
+        report = audit_dataset(str(path))
+        assert report.pii_severity["worst_tier"] == "critical"
+        assert report.pii_severity["by_tier"]["critical"] >= 1
+        assert report.pii_severity["by_type"]["credit_card"]["tier"] == "critical"
+
+    def test_no_pii_yields_neutral_severity(self, tmp_path):
+        path = tmp_path / "x.jsonl"
+        _write_jsonl(path, [{"text": "plain prose with no identifiers"}])
+        report = audit_dataset(str(path))
+        assert report.pii_severity["worst_tier"] is None
+        assert report.pii_severity["total"] == 0
+
+
+class TestSummarizeVerbosePolicy:
+    """Phase 11.5: summarize_report folds zero-finding splits by default."""
+
+    def test_clean_split_folded_in_default_mode(self, tmp_path):
+        # Build a dir with one clean split + one with a near-duplicate.
+        train_path = tmp_path / "train.jsonl"
+        val_path = tmp_path / "validation.jsonl"
+        _write_jsonl(train_path, [{"text": "alpha alpha alpha"}, {"text": "alpha alpha alpha"}])  # near-dup
+        _write_jsonl(val_path, [{"text": "completely different prose payload"}])
+        report = audit_dataset(str(tmp_path))
+        rendered_default = summarize_report(report)
+        rendered_verbose = summarize_report(report, verbose=True)
+        # Default mode: validation should be folded into a "clean" tail line.
+        assert "clean split" in rendered_default
+        # Verbose mode: validation appears as its own block.
+        assert "validation" in rendered_verbose
+
+
+class TestAtomicWrite:
+    """Phase 11.5: audit report writes are crash-safe via tempfile + rename."""
+
+    def test_no_temp_file_left_behind_on_success(self, tmp_path):
+        path = tmp_path / "x.jsonl"
+        _write_jsonl(path, [{"text": "alpha"}])
+        out_dir = tmp_path / "audit"
+        audit_dataset(str(path), output_dir=str(out_dir))
+        # Canonical report exists.
+        assert (out_dir / "data_audit_report.json").is_file()
+        # No leftover .data_audit_report.json.*.tmp files.
+        leftovers = [p for p in out_dir.iterdir() if p.name.endswith(".tmp")]
+        assert leftovers == []
+
+
+class TestStreamingReader:
+    """Phase 11.5: _read_jsonl_split is now a generator."""
+
+    def test_yields_per_line_tuples(self, tmp_path):
+        from forgelm.data_audit import _read_jsonl_split
+
+        path = tmp_path / "x.jsonl"
+        path.write_text(
+            '{"text": "good"}\n{not valid json\n{"text": "good2"}\n',
+            encoding="utf-8",
+        )
+        items = list(_read_jsonl_split(path))
+        # Three non-empty lines → three yields, one with parse_err=True.
+        assert len(items) == 3
+        good = [row for row, p_err, _ in items if not p_err]
+        bad = [row for row, p_err, _ in items if p_err]
+        assert len(good) == 2
+        assert len(bad) == 1
+        assert bad[0] is None
+
+
+class TestTokenCachePerformance:
+    """Phase 11.5: lru_cache on _token_digest is observable via cache_info."""
+
+    def test_repeat_token_across_texts_hits_cache(self):
+        """compute_simhash dedupes within a text; the win is across texts."""
+        from forgelm.data_audit import _token_digest
+
+        _token_digest.cache_clear()
+        # Each call hashes 3 distinct tokens → first call misses, second is all hits.
+        compute_simhash("alpha beta gamma")
+        first = _token_digest.cache_info()
+        compute_simhash("alpha beta gamma")
+        second = _token_digest.cache_info()
+        # Misses didn't grow on the second call; hits did.
+        assert second.misses == first.misses
+        assert second.hits == first.hits + 3

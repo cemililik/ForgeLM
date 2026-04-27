@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
@@ -49,7 +50,14 @@ CHUNK_STRATEGIES: Tuple[str, ...] = ("sliding", "paragraph", "semantic")
 
 @dataclass
 class IngestionResult:
-    """Summary of an ``ingest_path`` run."""
+    """Summary of an ``ingest_path`` run.
+
+    Both :attr:`extra_notes` (free-text, operator-friendly) and
+    :attr:`notes_structured` (programmatic ``{key: value}``) are emitted
+    so machine-driven pipelines do not need to regex-match the prose. The
+    structured payload is stable across releases; the free-text list is
+    for human consumption and may rephrase the same facts.
+    """
 
     output_path: Path
     chunk_count: int
@@ -59,6 +67,8 @@ class IngestionResult:
     format_counts: dict = field(default_factory=dict)
     pii_redaction_counts: dict = field(default_factory=dict)
     extra_notes: List[str] = field(default_factory=list)
+    notes_structured: Dict[str, Any] = field(default_factory=dict)
+    pdf_header_footer_lines_stripped: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +76,60 @@ class IngestionResult:
 # ---------------------------------------------------------------------------
 
 
-def _extract_pdf(path: Path) -> str:
+_PDF_REPEAT_MIN_PAGES: int = 3
+_PDF_REPEAT_THRESHOLD: float = 0.7
+
+
+def _strip_repeating_page_lines(pages: List[str]) -> Tuple[List[str], int]:
+    """Strip leading / trailing lines that repeat across pages.
+
+    Page-level headers (company watermark, document title) and footers
+    (page number text, copyright line) end up as the first / last line
+    of every page after :func:`_extract_pdf` and inflate near-duplicate
+    counts during the audit. We collect the first and last non-empty
+    line of each page, find lines that recur in ≥ 70 % of pages
+    (default), and pop them from the start / end of every page until
+    the run of repetitions ends.
+
+    Returns:
+        ``(cleaned_pages, lines_stripped)``. Caller can roll the count
+        into structured ingestion notes for downstream visibility.
+
+    The dedup is a no-op on documents with fewer than 3 pages — the
+    statistical signal is too weak to distinguish "header" from
+    "actual repeated paragraph".
+    """
+    if len(pages) < _PDF_REPEAT_MIN_PAGES:
+        return pages, 0
+
+    page_lines: List[List[str]] = [[ln.strip() for ln in p.splitlines() if ln.strip()] for p in pages]
+
+    first_counts: Counter = Counter(lines[0] for lines in page_lines if lines)
+    last_counts: Counter = Counter(lines[-1] for lines in page_lines if lines)
+
+    cutoff = max(2, int(_PDF_REPEAT_THRESHOLD * len(pages)))
+    repeating_firsts = {ln for ln, n in first_counts.items() if n >= cutoff}
+    repeating_lasts = {ln for ln, n in last_counts.items() if n >= cutoff}
+
+    if not repeating_firsts and not repeating_lasts:
+        return pages, 0
+
+    cleaned: List[str] = []
+    stripped = 0
+    for lines in page_lines:
+        kept = list(lines)
+        while kept and kept[0] in repeating_firsts:
+            kept.pop(0)
+            stripped += 1
+        while kept and kept[-1] in repeating_lasts:
+            kept.pop()
+            stripped += 1
+        if kept:
+            cleaned.append("\n".join(kept))
+    return cleaned, stripped
+
+
+def _extract_pdf(path: Path, *, dedup_state: Optional[Dict[str, int]] = None) -> str:
     try:
         from pypdf import PdfReader
         from pypdf.errors import DependencyError, FileNotDecryptedError
@@ -108,7 +171,14 @@ def _extract_pdf(path: Path) -> str:
             "run OCR (Tesseract / AWS Textract) before ingest.",
             path,
         )
-    return "\n\n".join(pages)
+        return ""
+
+    cleaned_pages, stripped = _strip_repeating_page_lines(pages)
+    if dedup_state is not None and stripped:
+        # Roll into the run-level structured notes so the operator can
+        # tell post-hoc that header/footer dedup was actually doing work.
+        dedup_state["lines_stripped"] = dedup_state.get("lines_stripped", 0) + stripped
+    return "\n\n".join(cleaned_pages)
 
 
 def _extract_docx(path: Path) -> str:
@@ -271,6 +341,103 @@ def _strategy_dispatch(strategy: str, text: str, chunk_size: int, overlap: int) 
 
 
 # ---------------------------------------------------------------------------
+# Phase 11.5: token-aware chunking (--chunk-tokens)
+# ---------------------------------------------------------------------------
+
+
+def _chunk_sliding_tokens(text: str, n_tokens: int, overlap_tokens: int, tokenizer: Any) -> Iterable[str]:
+    """Sliding window measured in tokenizer tokens, not characters.
+
+    Mirrors :func:`_chunk_sliding` (overlap clamped to half of the window
+    to prevent quadratic chunk explosion) but tokens are the unit so the
+    output sizes line up with ``model.max_length`` exactly.
+    """
+    if n_tokens <= 0:
+        raise ValueError("chunk_tokens must be positive")
+    if overlap_tokens < 0 or overlap_tokens >= n_tokens:
+        raise ValueError("overlap_tokens must be in [0, chunk_tokens)")
+    if overlap_tokens > n_tokens // 2:
+        raise ValueError(
+            f"overlap_tokens ({overlap_tokens}) must be at most chunk_tokens // 2 ({n_tokens // 2}) "
+            "to avoid quadratic chunk count. Reduce --overlap-tokens or increase --chunk-tokens."
+        )
+    encoded = tokenizer.encode(text, add_special_tokens=False)
+    if not encoded:
+        return
+    step = n_tokens - overlap_tokens
+    for start in range(0, len(encoded), step):
+        ids = encoded[start : start + n_tokens]
+        if not ids:
+            return
+        decoded = tokenizer.decode(ids, skip_special_tokens=True)
+        if decoded.strip():
+            yield decoded
+        if start + n_tokens >= len(encoded):
+            return
+
+
+def _chunk_paragraph_tokens(text: str, max_tokens: int, tokenizer: Any) -> Iterable[str]:
+    """Greedy paragraph packer with a token-count cap.
+
+    Same semantics as :func:`_chunk_paragraph` (paragraphs are the unit
+    of indivisibility), but the soft cap is measured in tokens so the
+    emitted chunks can't blow past ``model.max_length``. Paragraphs that
+    exceed ``max_tokens`` on their own are still emitted whole — better
+    than mid-sentence splits.
+    """
+    if max_tokens <= 0:
+        raise ValueError("chunk_tokens must be positive")
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    if not paragraphs:
+        return
+
+    current: List[str] = []
+    current_tokens = 0
+    for para in paragraphs:
+        para_tokens = len(tokenizer.encode(para, add_special_tokens=False))
+        if current_tokens + para_tokens <= max_tokens or not current:
+            current.append(para)
+            current_tokens += para_tokens
+        else:
+            yield "\n\n".join(current)
+            current = [para]
+            current_tokens = para_tokens
+    if current:
+        yield "\n\n".join(current)
+
+
+def _strategy_dispatch_tokens(
+    strategy: str,
+    text: str,
+    *,
+    chunk_tokens: int,
+    overlap_tokens: int,
+    tokenizer: Any,
+) -> Iterable[str]:
+    if strategy == "sliding":
+        return _chunk_sliding_tokens(text, chunk_tokens, overlap_tokens, tokenizer)
+    if strategy == "paragraph":
+        return _chunk_paragraph_tokens(text, chunk_tokens, tokenizer)
+    if strategy == "semantic":
+        return _chunk_semantic(text, chunk_tokens)
+    raise ValueError(f"Unknown chunking strategy '{strategy}'. Choose from: {', '.join(CHUNK_STRATEGIES)}")
+
+
+def _load_tokenizer(model_name: str) -> Any:
+    """Resolve ``model_name`` to an HF :class:`AutoTokenizer`.
+
+    Lazy import keeps the ingestion module import-time small for users
+    who never touch token-aware chunking. ``trust_remote_code`` is
+    intentionally OFF — token-aware chunking should never need a custom
+    tokenizer class, and turning it on here would let arbitrary HF Hub
+    repos run code at ingestion time without a config audit.
+    """
+    from transformers import AutoTokenizer  # type: ignore
+
+    return AutoTokenizer.from_pretrained(model_name, use_fast=True, trust_remote_code=False)
+
+
+# ---------------------------------------------------------------------------
 # File discovery + ingestion entry point
 # ---------------------------------------------------------------------------
 
@@ -325,8 +492,18 @@ def _process_one_file(
     chunk_size: int,
     overlap: int,
     mask_pii: Optional[Callable[..., Any]],
+    chunk_tokens: Optional[int] = None,
+    overlap_tokens: int = 0,
+    tokenizer: Any = None,
+    pdf_dedup_state: Optional[Dict[str, int]] = None,
 ) -> _FileOutcome:
     """Extract → chunk → optionally mask → emit JSONL for a single file.
+
+    ``chunk_tokens`` is honoured when set: token-aware chunking takes over
+    via :func:`_strategy_dispatch_tokens`, and ``chunk_size`` becomes a
+    fallback only when the tokenizer is missing. ``pdf_dedup_state`` is
+    threaded into :func:`_extract_pdf` so cross-page header/footer dedup
+    counts roll up into the run-level structured notes.
 
     ImportError propagates (missing optional extra is not a per-file skip).
     Any other extraction failure is logged + counted as a skip.
@@ -336,7 +513,10 @@ def _process_one_file(
         return _FileOutcome(file_skipped=True)
 
     try:
-        text = extractor(fpath)
+        if extractor is _extract_pdf:
+            text = _extract_pdf(fpath, dedup_state=pdf_dedup_state)
+        else:
+            text = extractor(fpath)
     except ImportError:
         # ImportError must propagate — missing extras are not a per-file
         # skip. The CLI wrapper turns this into EXIT_TRAINING_ERROR +
@@ -351,7 +531,14 @@ def _process_one_file(
         return _FileOutcome(file_skipped=True)
 
     outcome = _FileOutcome(file_processed=True, extension=fpath.suffix.lower())
-    for chunk in _strategy_dispatch(strategy, text, chunk_size, overlap):
+    if chunk_tokens and tokenizer is not None:
+        chunks_iter = _strategy_dispatch_tokens(
+            strategy, text, chunk_tokens=chunk_tokens, overlap_tokens=overlap_tokens, tokenizer=tokenizer
+        )
+    else:
+        chunks_iter = _strategy_dispatch(strategy, text, chunk_size, overlap)
+
+    for chunk in chunks_iter:
         payload = chunk.strip()
         if not payload:
             continue
@@ -379,30 +566,44 @@ def ingest_path(
     recursive: bool = False,
     pii_mask: bool = False,
     encoding: str = "utf-8",
+    chunk_tokens: Optional[int] = None,
+    overlap_tokens: int = 0,
+    tokenizer: Optional[str] = None,
 ) -> IngestionResult:
     """Ingest a single file or a directory tree into a SFT-compatible JSONL.
 
     Args:
         input_path: File or directory to ingest.
         output_path: Where to write the ``.jsonl`` output. Parents are created.
-        chunk_size: Soft size cap per chunk (characters).
-        overlap: Overlap window for the sliding strategy. Must satisfy
-            both ``overlap < chunk_size`` AND ``overlap <= chunk_size // 2``.
-            The half-chunk cap prevents quadratic chunk explosion: an
-            ``overlap`` of 199 with ``chunk_size`` 200 would emit roughly
-            one chunk per character. ``_chunk_sliding`` raises
+        chunk_size: Soft size cap per chunk (characters). Ignored when
+            ``chunk_tokens`` is set (a warning is logged in that case so
+            stale CLI invocations are visible).
+        overlap: Overlap window for the sliding strategy in characters.
+            Must satisfy both ``overlap < chunk_size`` AND
+            ``overlap <= chunk_size // 2``. The half-chunk cap prevents
+            quadratic chunk explosion. ``_chunk_sliding`` raises
             ``ValueError`` when either bound is violated.
         strategy: One of ``sliding`` / ``paragraph`` / ``semantic``.
         recursive: When ``input_path`` is a directory, walk subdirectories too.
         pii_mask: Replace detected PII spans with ``[REDACTED]`` before writing.
         encoding: Output encoding (default UTF-8).
+        chunk_tokens: Phase 11.5 token-aware mode. When set, chunks are
+            sized against the supplied ``tokenizer`` (in tokens), not
+            characters. Use this when the operator's downstream model has
+            a hard ``max_length`` budget and char-based sizing keeps
+            tripping it.
+        overlap_tokens: Sliding-window overlap measured in tokens. Same
+            half-window cap as the character-based ``overlap``.
+        tokenizer: HuggingFace model name resolved via :class:`AutoTokenizer`.
+            Required when ``chunk_tokens`` is set; ignored otherwise.
 
     Returns:
         :class:`IngestionResult` summarizing the run.
 
     Raises:
         FileNotFoundError: ``input_path`` does not exist.
-        ValueError: invalid chunking parameters.
+        ValueError: invalid chunking parameters or ``chunk_tokens`` set
+            without a ``tokenizer``.
         ImportError: optional extras not installed for the format being ingested.
     """
     src = Path(input_path).expanduser().resolve()
@@ -418,6 +619,20 @@ def ingest_path(
     else:
         mask_pii_fn = None
 
+    tokenizer_obj: Any = None
+    if chunk_tokens is not None:
+        if not tokenizer:
+            raise ValueError(
+                "--chunk-tokens requires --tokenizer MODEL_NAME so the audit can size chunks against the right vocab."
+            )
+        if chunk_size != 2048:
+            logger.warning(
+                "Token-aware mode active (--chunk-tokens=%d): --chunk-size=%d is ignored.",
+                chunk_tokens,
+                chunk_size,
+            )
+        tokenizer_obj = _load_tokenizer(tokenizer)
+
     files = list(_iter_input_files(src, recursive))
     if not files:
         raise FileNotFoundError(f"No supported files found at '{src}' (extensions: {', '.join(SUPPORTED_EXTENSIONS)}).")
@@ -429,6 +644,7 @@ def ingest_path(
     format_counts: dict = {}
     pii_redaction_counts: dict = {}
     notes: List[str] = []
+    pdf_dedup_state: Dict[str, int] = {}
 
     # newline="\n" pins LF on Windows. JSONL Files spec requires LF, and
     # piping through tooling (jq -c, wc -l, downstream HF dataset loaders)
@@ -442,6 +658,10 @@ def ingest_path(
                 chunk_size=chunk_size,
                 overlap=overlap,
                 mask_pii=mask_pii_fn,
+                chunk_tokens=chunk_tokens,
+                overlap_tokens=overlap_tokens,
+                tokenizer=tokenizer_obj,
+                pdf_dedup_state=pdf_dedup_state,
             )
             chunk_count += outcome.chunks_written
             total_chars += outcome.chars_written
@@ -463,6 +683,27 @@ def ingest_path(
             notes.append(f"PII masking redacted {redacted_total} span(s): {breakdown}")
         else:
             notes.append("PII masking enabled — no PII detected in this corpus")
+    pdf_lines_stripped = pdf_dedup_state.get("lines_stripped", 0)
+    if pdf_lines_stripped:
+        notes.append(
+            f"PDF header/footer dedup stripped {pdf_lines_stripped} repeated line(s) "
+            "(reduces audit near-duplicate noise)."
+        )
+
+    structured_notes: Dict[str, Any] = {
+        "files_processed": files_processed,
+        "files_skipped": files_skipped,
+        "chunk_count": chunk_count,
+        "total_chars": total_chars,
+        "strategy": strategy,
+        "format_counts": dict(format_counts),
+        "pii_redaction_counts": dict(pii_redaction_counts),
+    }
+    if pdf_lines_stripped:
+        structured_notes["pdf_header_footer_lines_stripped"] = pdf_lines_stripped
+    if chunk_tokens is not None:
+        structured_notes["chunk_tokens"] = chunk_tokens
+        structured_notes["tokenizer"] = tokenizer
 
     logger.info(
         "ingest: source=%s output=%s files=%d chunks=%d chars=%d strategy=%s",
@@ -483,6 +724,8 @@ def ingest_path(
         format_counts=format_counts,
         pii_redaction_counts=pii_redaction_counts,
         extra_notes=notes,
+        notes_structured=structured_notes,
+        pdf_header_footer_lines_stripped=pdf_lines_stripped,
     )
 
 
@@ -501,7 +744,7 @@ def summarize_result(result: IngestionResult) -> str:
     for note in result.extra_notes:
         lines.append(f"  Note          : {note}")
     lines.append("")
-    lines.append(f"Next: forgelm --data-audit {result.output_path} --output ./audit/")
+    lines.append(f"Next: forgelm audit {result.output_path} --output ./audit/")
     lines.append(
         f"Or train: forgelm --config <your.yaml>  (set data.dataset_name_or_path: {os.fspath(result.output_path)})"
     )

@@ -27,11 +27,12 @@
 - **LLM-as-Judge**: API-based (OpenAI) or local model scoring for quality assessment
 - **Auto-Revert**: Automatically discard models that fail loss, benchmark, or safety thresholds
 
-### Document Ingestion & Data Audit (v0.5.0)
+### Document Ingestion & Data Audit (v0.5.0 — polished in v0.5.1)
 - **Multi-Format Ingestion**: `forgelm ingest ./policies/ --recursive --output data/policies.jsonl` — turns raw PDF / DOCX / EPUB / TXT / Markdown into the SFT-ready JSONL the trainer accepts. Optional dep: `pip install forgelm[ingestion]`.
-- **Chunking Strategies**: `paragraph` (default; preserves boundaries) or `sliding` (fixed window with overlap).
+- **Chunking Strategies**: `paragraph` (default; preserves boundaries) or `sliding` (fixed window with overlap). Token-aware mode in v0.5.1: `--chunk-tokens 1024 --tokenizer Qwen/Qwen2.5-7B-Instruct` sizes chunks against your model's actual vocabulary.
 - **PII Masking on Ingest**: `--pii-mask` redacts emails, phones, credit cards (Luhn-validated), IBAN, and national IDs (TR / DE / FR / US-SSN) before chunks land in the JSONL.
-- **Dataset Audit**: `forgelm --data-audit data/sft.jsonl --output ./audit/` — produces `data_audit_report.json` with sample count, length distribution, top-3 language detection, simhash near-duplicate rate, cross-split leakage check, null/empty rate, and PII flag counts. CPU-only; feeds EU AI Act Article 10 governance artifact automatically when present at training time.
+- **PDF Page Header/Footer Dedup (v0.5.1)**: Lines that recur on ≥ 70 % of PDF pages (watermarks, page numbers, copyright lines) are stripped automatically — the audit's near-duplicate counts stop misfiring on long policy / book PDFs.
+- **Dataset Audit**: `forgelm audit data/sft.jsonl --output ./audit/` — produces `data_audit_report.json` with sample count, length distribution, top-3 language detection, LSH-banded near-duplicate rate (`O(n × k)` typical case, exact recall at the default Hamming threshold), cross-split leakage check, null/empty rate, and PII flag counts with **severity tiers** (critical / high / medium / low + worst-tier verdict). CPU-only; streaming JSONL reader keeps memory bounded on multi-million-row splits; feeds EU AI Act Article 10 governance artifact automatically when present at training time. Legacy `--data-audit` flag still works as a deprecation alias.
 
 ### Quickstart Layer (v0.4.5)
 - **One-Command Templates**: `forgelm quickstart customer-support` — bundled templates for SFT, code, BYOD domain expert, Turkish medical Q&A, and GRPO math reasoning. Auto-downsizes models on small GPUs.
@@ -70,10 +71,10 @@ forgelm quickstart customer-support           # render config + train + chat
 forgelm quickstart code-assistant --dry-run   # render config only
 forgelm quickstart medical-qa-tr --model your-org/your-model  # override
 
-# Have raw docs? Ingest them first (v0.5.0+)
+# Have raw docs? Ingest them first (v0.5.0+; v0.5.1 added token-aware sizing)
 pip install -e ".[ingestion]"
 forgelm ingest ./policies/ --recursive --output data/policies.jsonl
-forgelm --data-audit data/policies.jsonl --output ./audit/
+forgelm audit data/policies.jsonl --output ./audit/   # `forgelm --data-audit ...` still works as legacy alias
 
 # Or generate config interactively
 forgelm --wizard

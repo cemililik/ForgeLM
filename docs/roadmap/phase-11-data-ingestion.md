@@ -1,14 +1,14 @@
 # Phase 11: Document Ingestion & Data Audit
 
-> **Status:** ✅ **DONE** — landed on `development` for the `v0.5.0` cycle.
+> **Status:** ✅ **DONE** — shipped as `v0.5.0` (PR #11 merged to `main` 2026-04-27).
 > Modules: [`forgelm/ingestion.py`](../../forgelm/ingestion.py),
 > [`forgelm/data_audit.py`](../../forgelm/data_audit.py); CLI:
 > `forgelm ingest <path>` + `forgelm --data-audit <path>`; tests:
 > [`tests/test_ingestion.py`](../../tests/test_ingestion.py),
 > [`tests/test_data_audit.py`](../../tests/test_data_audit.py); docs:
 > [`docs/guides/ingestion.md`](../guides/ingestion.md),
-> [`docs/guides/data_audit.md`](../guides/data_audit.md). The `v0.5.0`
-> git tag and PyPI publish are the remaining release-engineering steps.
+> [`docs/guides/data_audit.md`](../guides/data_audit.md). Follow-up
+> work tracked in [Phase 11.5 backlog](phase-11-5-backlog.md).
 >
 > **Not:** Bu dosya tek bir planlanan fazı detaylandırır. Tüm fazların
 > özeti için [../roadmap.md](../roadmap.md).

@@ -82,3 +82,69 @@ class TestMergeCLI:
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == EXIT_CONFIG_ERROR
+
+
+class TestAuditSubcommand:
+    """Phase 11.5: `forgelm audit PATH` subcommand + legacy `--data-audit` alias."""
+
+    def _make_jsonl(self, path, rows):
+        with open(path, "w", encoding="utf-8") as fh:
+            for row in rows:
+                fh.write(json.dumps(row) + "\n")
+
+    def test_audit_subcommand_writes_report(self, tmp_path):
+        data_path = tmp_path / "data.jsonl"
+        self._make_jsonl(data_path, [{"text": "alpha"}, {"text": "beta"}])
+        out_dir = tmp_path / "audit"
+
+        with patch(
+            "sys.argv",
+            ["forgelm", "audit", str(data_path), "--output", str(out_dir)],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == EXIT_SUCCESS
+
+        assert (out_dir / "data_audit_report.json").is_file()
+
+    def test_audit_subcommand_json_envelope(self, tmp_path, capsys):
+        data_path = tmp_path / "data.jsonl"
+        self._make_jsonl(data_path, [{"text": "alpha"}])
+        out_dir = tmp_path / "audit"
+
+        with patch(
+            "sys.argv",
+            [
+                "forgelm",
+                "audit",
+                str(data_path),
+                "--output",
+                str(out_dir),
+                "--output-format",
+                "json",
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == EXIT_SUCCESS
+
+        envelope = json.loads(capsys.readouterr().out)
+        assert envelope["success"] is True
+        assert "pii_severity" in envelope
+        assert envelope["report_path"].endswith("data_audit_report.json")
+
+    def test_legacy_data_audit_flag_still_works(self, tmp_path):
+        data_path = tmp_path / "data.jsonl"
+        self._make_jsonl(data_path, [{"text": "legacy alias still routes here"}])
+        out_dir = tmp_path / "audit"
+
+        with patch(
+            "sys.argv",
+            ["forgelm", "--data-audit", str(data_path), "--output", str(out_dir)],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == EXIT_SUCCESS
+
+        # Same on-disk product as the subcommand path.
+        assert (out_dir / "data_audit_report.json").is_file()

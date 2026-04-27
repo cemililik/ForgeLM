@@ -129,7 +129,7 @@ forgelm --config my_config.yaml --generate-data
 
 This uses the `synthetic` config section to generate training data from a teacher model before training begins. See the [Configuration Guide](configuration.md) for all synthetic data options.
 
-### Document Ingestion (v0.5.0+)
+### Document Ingestion (v0.5.0+; token-aware in v0.5.1)
 
 Convert raw PDF / DOCX / EPUB / TXT / Markdown into SFT-ready JSONL. Optional dep: `pip install forgelm[ingestion]`. See [Ingestion Guide](../guides/ingestion.md).
 
@@ -146,24 +146,37 @@ forgelm ingest ./scan.pdf --strategy sliding --chunk-size 1024 --overlap 128 \
 
 # Mask PII before writing
 forgelm ingest ./customer_emails/ --pii-mask --output data/anon.jsonl
+
+# Token-aware chunking (v0.5.1) — sizes chunks against your model's vocab
+forgelm ingest ./policies/ --recursive --output data/policies.jsonl \
+  --chunk-tokens 1024 --tokenizer "Qwen/Qwen2.5-7B-Instruct"
 ```
 
-### Dataset Audit (v0.5.0+)
+### Dataset Audit (v0.5.0+; subcommand promoted in v0.5.1)
 
 CPU-only quality + governance audit. Produces `data_audit_report.json`. See [Audit Guide](../guides/data_audit.md).
 
 ```bash
-# Single split
-forgelm --data-audit data/sft.jsonl --output ./audit/
+# Single split (v0.5.1 subcommand)
+forgelm audit data/sft.jsonl --output ./audit/
 
 # Multi-split directory (train.jsonl / validation.jsonl / test.jsonl)
-forgelm --data-audit data/ --output ./audit/
+forgelm audit data/ --output ./audit/
+
+# Show every split (no zero-finding fold)
+forgelm audit data/ --verbose
+
+# Custom Hamming threshold for near-duplicate detection
+forgelm audit data/ --near-dup-threshold 5
 
 # Machine-readable summary on stdout
-forgelm --data-audit data/sft.jsonl --output ./audit/ --output-format json
+forgelm audit data/sft.jsonl --output ./audit/ --output-format json
+
+# Legacy alias (kept working; logs a one-line deprecation notice)
+forgelm --data-audit data/sft.jsonl --output ./audit/
 ```
 
-The audit captures: per-split sample count + length distribution, top-3 language detection, simhash near-duplicate rate, cross-split leakage (silent train-test overlap), PII flag counts (email / phone / Luhn-validated credit card / IBAN / TR-DE-FR-US national IDs).
+The audit captures: per-split sample count + length distribution, top-3 language detection, **LSH-banded** simhash near-duplicate rate (Phase 11.5; brute-force fallback at edge thresholds), cross-split leakage (silent train-test overlap), PII flag counts with **severity tiers** (`pii_severity` block grading each PII type as critical / high / medium / low and surfacing a `worst_tier` verdict).
 
 When `data_audit_report.json` is present in the trainer's `output_dir` at training time, its findings are inlined under the `data_audit` key of the EU AI Act Article 10 governance artifact automatically.
 

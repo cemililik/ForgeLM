@@ -1,10 +1,15 @@
 # Veri Seti Denetimi Rehberi
 
-`forgelm --data-audit` bir JSONL veri setini analiz eder ve kalite,
+`forgelm audit PATH` bir JSONL veri setini analiz eder ve kalite,
 governance ile PII sinyallerini kapsayan bir `data_audit_report.json`
-üretir. Faz 11; `v0.5.0`'da tanıtıldı. Trainer'ın `output_dir`'ünde
-mevcutsa, rapor EU AI Act Madde 10 veri governance artifact'ına
-otomatik olarak beslenir.
+üretir. Faz 11 (`v0.5.0`'da tanıtıldı) altyapıyı, Faz 11.5 (`v0.5.1`)
+ise top-level flag'i first-class subcommand'a yükseltti, LSH-banded
+near-duplicate tespitini, streaming JSONL okuyucusunu, PII şiddet
+katmanlarını, atomik disk yazımı ve verbose-by-default kısaltma
+politikasını ekledi.
+
+Trainer'ın `output_dir`'ünde mevcutsa, rapor EU AI Act Madde 10 veri
+governance artifact'ına otomatik olarak beslenir.
 
 ---
 
@@ -12,11 +17,21 @@ otomatik olarak beslenir.
 
 ```bash
 # Tek split (`train` olarak değerlendirilir)
-forgelm --data-audit data/sft.jsonl --output ./audit/
+forgelm audit data/sft.jsonl --output ./audit/
 
 # Çoklu split: train.jsonl / validation.jsonl / test.jsonl içeren dizin
-forgelm --data-audit data/ --output ./audit/
+forgelm audit data/ --output ./audit/
+
+# Bulgu olmayan split'leri de göster
+forgelm audit data/ --verbose
+
+# Daha geniş / dar near-duplicate eşiği
+forgelm audit data/ --near-dup-threshold 5
 ```
+
+> **Eski alias:** `forgelm --data-audit PATH` deprecation alias'ı
+> olarak korunuyor; çalışmaya devam ediyor ama bir uyarı log'lanıyor.
+> Yeni script'lerde `audit` subcommand'ını kullanın.
 
 `--output` varsayılan olarak `./audit/`'tir. Dizin yoksa oluşturulur;
 **tam** `data_audit_report.json` her zaman oraya yazılır. Stdout
@@ -157,7 +172,7 @@ işaret eden bir pointer yerine tek başına okunabilir bir doküman olur.
 
 ```bash
 # Önce denetim — uzun bir eğitim koşusuna girmeden sorunları yüzeye çıkar
-forgelm --data-audit data/policies.jsonl --output ./checkpoints/policy-run/
+forgelm audit data/policies.jsonl --output ./checkpoints/policy-run/
 
 # Eğit (governance artifact denetimi inline edecek)
 forgelm --config configs/policy-run.yaml
@@ -168,14 +183,23 @@ forgelm --config configs/policy-run.yaml
 ## CLI referansı
 
 ```text
-forgelm --data-audit PATH \
+forgelm audit PATH \
   [--output DIR] \
+  [--verbose] \
+  [--near-dup-threshold N] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```
 
 `PATH` bir `.jsonl` dosyası veya bir dizin olabilir. `--output`
-varsayılan olarak `./audit/`'tir.
+varsayılan olarak `./audit/`'tir. `--verbose`, insan-okunabilir özette
+bulgu olmayan split'leri de gösterir (varsayılan, çoklu-split
+denetimlerini kısa tutmak için tüm temiz split'leri tek bir kuyruk
+satırına katlar — diskteki JSON raporu etkilenmez). `--near-dup-threshold`
+varsayılan Hamming eşiğini (3, ≈%95 benzerlik) ezer.
+
+Eski `forgelm --data-audit PATH` flag'i deprecation alias olarak
+korunuyor; davranış aynı, sadece ek bir uyarı log'lanıyor.
 
 Üst düzey flag'tir (subcommand değil) — trainer'a dokunmadan çıkar.
 

@@ -217,8 +217,87 @@ class TestSummary:
         out = tmp_path / "out.jsonl"
         result = ingest_path(str(src), output_path=str(out), strategy="paragraph")
         rendered = summarize_result(result)
-        assert "data-audit" in rendered.lower() or "data_audit" in rendered.lower()
+        # Phase 11.5 promoted `forgelm --data-audit` to `forgelm audit` — the
+        # next-step hint should point at the subcommand. Accept either spelling
+        # while we ramp the deprecation, but prefer the new one.
+        assert "forgelm audit" in rendered or "data-audit" in rendered.lower()
         assert "Output JSONL" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Phase 11.5 — PDF header/footer dedup, structured notes, token-aware chunking
+# ---------------------------------------------------------------------------
+
+
+class TestPdfHeaderFooterDedup:
+    """Phase 11.5: repeated lines across pages get stripped."""
+
+    def test_strip_repeating_page_lines_collapses_headers(self):
+        from forgelm.ingestion import _strip_repeating_page_lines
+
+        # 4 pages with the same header + footer; body changes.
+        pages = [
+            "ACME CORP CONFIDENTIAL\n\nBody of page 1.\n\n2026-04-27",
+            "ACME CORP CONFIDENTIAL\n\nBody of page 2.\n\n2026-04-27",
+            "ACME CORP CONFIDENTIAL\n\nBody of page 3.\n\n2026-04-27",
+            "ACME CORP CONFIDENTIAL\n\nBody of page 4.\n\n2026-04-27",
+        ]
+        cleaned, stripped = _strip_repeating_page_lines(pages)
+        assert stripped == 8  # 4 headers + 4 footers
+        for page in cleaned:
+            assert "ACME CORP CONFIDENTIAL" not in page
+            assert "2026-04-27" not in page
+            assert "Body of page" in page
+
+    def test_short_doc_skipped(self):
+        from forgelm.ingestion import _strip_repeating_page_lines
+
+        # Two pages → below the 3-page minimum → return as-is.
+        pages = ["HEADER\nbody1", "HEADER\nbody2"]
+        cleaned, stripped = _strip_repeating_page_lines(pages)
+        assert stripped == 0
+        assert cleaned == pages
+
+    def test_no_repeats_passes_through(self):
+        from forgelm.ingestion import _strip_repeating_page_lines
+
+        pages = ["page one body", "page two body", "page three body"]
+        cleaned, stripped = _strip_repeating_page_lines(pages)
+        assert stripped == 0
+        assert cleaned == pages
+
+
+class TestStructuredIngestionNotes:
+    """Phase 11.5: IngestionResult.notes_structured carries machine-readable fields."""
+
+    def test_basic_run_populates_structured_notes(self, tmp_path):
+        src = _write_txt(tmp_path / "doc.txt", "alpha\n\nbeta")
+        out = tmp_path / "out.jsonl"
+        result = ingest_path(str(src), output_path=str(out), strategy="paragraph")
+        ns = result.notes_structured
+        assert ns["files_processed"] == 1
+        assert ns["files_skipped"] == 0
+        assert ns["chunk_count"] >= 1
+        assert ns["strategy"] == "paragraph"
+        assert ns["format_counts"][".txt"] == 1
+        # Fields default to empty when nothing was masked / stripped.
+        assert ns.get("pdf_header_footer_lines_stripped", 0) == 0
+        assert "tokenizer" not in ns
+
+
+class TestTokenAwareCli:
+    """Phase 11.5: --chunk-tokens requires --tokenizer."""
+
+    def test_chunk_tokens_without_tokenizer_raises(self, tmp_path):
+        src = _write_txt(tmp_path / "doc.txt", "Body text.")
+        out = tmp_path / "out.jsonl"
+        with pytest.raises(ValueError, match="--tokenizer"):
+            ingest_path(
+                str(src),
+                output_path=str(out),
+                chunk_tokens=128,
+                tokenizer=None,
+            )
 
 
 # ---------------------------------------------------------------------------

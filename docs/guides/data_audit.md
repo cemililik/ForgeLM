@@ -1,10 +1,15 @@
 # Dataset Audit Guide
 
-`forgelm --data-audit` analyzes a JSONL dataset and produces a
+`forgelm audit PATH` analyzes a JSONL dataset and produces a
 `data_audit_report.json` covering quality, governance, and PII signals.
-Phase 11; introduced in `v0.5.0`. The report feeds the EU AI Act Article 10
-data governance artifact automatically when present in the trainer's
-`output_dir`.
+Phase 11 (introduced in `v0.5.0`) shipped the underlying audit;
+Phase 11.5 (`v0.5.1`) promoted it from a top-level flag to a first-class
+subcommand and added LSH-banded near-duplicate detection, streaming
+JSONL reading, PII severity tiers, an atomic on-disk write, and a
+verbose-by-default truncation policy on the human summary.
+
+The report feeds the EU AI Act Article 10 data governance artifact
+automatically when present in the trainer's `output_dir`.
 
 ---
 
@@ -12,11 +17,21 @@ data governance artifact automatically when present in the trainer's
 
 ```bash
 # Single split (treated as 'train')
-forgelm --data-audit data/sft.jsonl --output ./audit/
+forgelm audit data/sft.jsonl --output ./audit/
 
 # Multi-split: directory containing train.jsonl / validation.jsonl / test.jsonl
-forgelm --data-audit data/ --output ./audit/
+forgelm audit data/ --output ./audit/
+
+# Show every split (including those with no findings)
+forgelm audit data/ --verbose
+
+# Tighter / wider near-duplicate threshold
+forgelm audit data/ --near-dup-threshold 5
 ```
+
+> **Legacy alias:** `forgelm --data-audit PATH` keeps working unchanged
+> as a deprecation alias and logs a one-line notice. New scripts should
+> use the `audit` subcommand. Removal targeted no earlier than `v0.7.0`.
 
 `--output` defaults to `./audit/`. The directory is created if missing;
 the **full** `data_audit_report.json` is always written there. Stdout shows
@@ -100,6 +115,32 @@ Other categories surface on regex shape alone — false positives are
 intentional. Mask with `forgelm ingest --pii-mask` (or in your own
 preprocessing) before publishing the dataset.
 
+### PII severity tiers (Phase 11.5)
+
+The flat `pii_summary` map gives compliance reviewers no guidance on
+*how bad* a finding is. Phase 11.5 adds a `pii_severity` block alongside:
+
+```json
+{
+  "pii_severity": {
+    "total": 25,
+    "by_tier": {"critical": 1, "high": 2, "medium": 18, "low": 4},
+    "by_type": {
+      "credit_card": {"count": 1, "tier": "critical"},
+      "tr_id":      {"count": 2, "tier": "high"},
+      "email":      {"count": 18, "tier": "medium"},
+      "phone":      {"count": 4, "tier": "low"}
+    },
+    "worst_tier": "critical"
+  }
+}
+```
+
+The tier table is consensus regulatory weighting (PCI-DSS for financial
+identifiers; GDPR Art. 9 + ENISA for government IDs). Pipelines that
+gate on PII severity should read `pii_severity.worst_tier` and refuse
+to publish on `critical` / `high` without explicit review.
+
 **Pattern precedence is documented.** `_PII_PATTERNS` iteration order
 governs both detection priority and mask precedence — most specific
 patterns (`email`, `iban`, `credit_card`, national IDs) are scanned
@@ -118,8 +159,24 @@ deployment, ≈95% similarity at this width). Exposes both:
 - **Within-split** pairs: `near_duplicate_pairs` per split.
 - **Cross-split** leakage: above.
 
-Quadratic in row count; suitable for datasets up to ~50K rows. Larger
-corpora need an LSH band index — out of scope for v0.5.0.
+Phase 11.5 swapped the underlying scan to **LSH banding**: pigeonhole
+chooses `bands = threshold + 1`, candidate pairs are exactly the rows
+that collide in any band-bucket, and the Hamming check only runs on
+candidates. Recall stays exact at the default threshold; cost drops from
+`O(n²)` to roughly `O(n × k)` (the `_count_leaked_rows` cross-split
+helper uses the same banded shape). The brute-force path remains as the
+fallback when the threshold is high enough that bands shrink below
+4 bits — `find_near_duplicates` returns the same result either way.
+
+Phase 11.5 also made the simhash backend pluggable:
+
+- **xxhash.xxh3_64** drives the per-token digest when the optional
+  `xxhash` dep is installed (now part of `forgelm[ingestion]`); it is
+  several times faster than BLAKE2b on short keys.
+- **BLAKE2b** is the fallback so a bare install still works.
+- A module-scope `lru_cache(maxsize=10_000)` memoises the digest at the
+  token level — Zipfian token frequency means the cache covers most of
+  a corpus's traffic with a small footprint.
 
 ---
 
@@ -166,21 +223,31 @@ forgelm --config configs/policy-run.yaml
 ## CLI reference
 
 ```text
-forgelm --data-audit PATH \
+forgelm audit PATH \
   [--output DIR] \
+  [--verbose] \
+  [--near-dup-threshold N] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```
 
 `PATH` may be a `.jsonl` file or a directory. `--output` defaults to
-`./audit/`.
-
-Top-level flag (not a subcommand) — exits without touching the trainer.
+`./audit/`. `--verbose` shows every split in the human summary even when
+it has zero findings (default folds clean splits into one tail line so
+multi-split audits stay short — has no effect on the on-disk JSON
+report). `--near-dup-threshold N` overrides the default Hamming-distance
+cutoff of 3 (≈95 % similarity).
 
 > **Note:** This matches the behavior summarised at the top of this guide:
 > `--output-format json` writes a small envelope (success flag, top-level
 > metrics, report path) to stdout. The full `data_audit_report.json` is
-> always written to `--output`. Read it from disk if you need every detail.
+> always written to `--output` via `tempfile.NamedTemporaryFile` +
+> `os.replace` — Phase 11.5 hardening so a crashed audit can never leave
+> a half-written report on disk.
+
+The legacy `forgelm --data-audit PATH` flag is preserved as a
+deprecation alias and logs a one-line notice. Behaviour is identical;
+new scripts should use the subcommand.
 
 ---
 

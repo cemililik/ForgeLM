@@ -31,13 +31,29 @@ import json
 import logging
 import os
 import re
-from collections import Counter
+import tempfile
+from collections import Counter, OrderedDict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 logger = logging.getLogger("forgelm.data_audit")
+
+
+# Phase 11.5: optional xxhash backend for the simhash digest. xxh3_64 is a
+# non-cryptographic 64-bit hash that is materially faster (typically 4-10×)
+# than ``hashlib.blake2b`` on short string keys — meaningful for audits that
+# fingerprint millions of tokens. We fall back to BLAKE2b when the dependency
+# is not present so the audit module still works against a bare install.
+try:  # pragma: no cover — exercised by the dedicated extras-skip tests
+    import xxhash as _xxhash
+
+    _HAS_XXHASH = True
+except ImportError:  # pragma: no cover
+    _xxhash = None
+    _HAS_XXHASH = False
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +62,39 @@ logger = logging.getLogger("forgelm.data_audit")
 
 
 PII_TYPES: Tuple[str, ...] = ("email", "phone", "credit_card", "iban", "tr_id", "de_id", "fr_ssn", "us_ssn")
+
+
+# Phase 11.5: PII severity grading. A flat ``{type: count}`` map gives zero
+# guidance to a compliance reviewer staring at the audit JSON — they have to
+# remember by hand that ``credit_card`` is materially worse than ``phone``.
+# The tiers below encode the consensus regulatory weighting (PCI-DSS for
+# financial; GDPR Art. 9 + ENISA for identifiers) so the audit surfaces a
+# one-glance verdict via :data:`PII_SEVERITY`. Tweak the table when local
+# law disagrees — the audit honours whatever map is loaded at call time.
+PII_SEVERITY: Dict[str, str] = {
+    # Financial / fully reversible identity theft → highest weight.
+    "credit_card": "critical",
+    "iban": "critical",
+    # Government-issued identifiers → high. Tied to a specific person and
+    # often re-used across systems; leakage is materially harder to undo
+    # than a phone or email.
+    "tr_id": "high",
+    "de_id": "high",
+    "fr_ssn": "high",
+    "us_ssn": "high",
+    # Direct contact identifiers → medium. Routinely collected, but
+    # leakage enables phishing / social engineering at scale.
+    "email": "medium",
+    # Phone numbers → low. Anchored regex (see ``_PII_PATTERNS``) keeps
+    # recall conservative; many spans are operational metadata that is
+    # not actually personally identifying.
+    "phone": "low",
+}
+
+
+PII_SEVERITY_ORDER: Tuple[str, ...] = ("critical", "high", "medium", "low")
+"""Display order — most-severe first so the operator-facing summary leads
+with the worst-case findings rather than burying them behind low tiers."""
 
 
 # Columns we treat as text payloads when computing length / language / dedup.
@@ -77,6 +126,7 @@ class AuditReport:
     splits: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     cross_split_overlap: Dict[str, Any] = field(default_factory=dict)
     pii_summary: Dict[str, int] = field(default_factory=dict)
+    pii_severity: Dict[str, Any] = field(default_factory=dict)
     near_duplicate_summary: Dict[str, Any] = field(default_factory=dict)
     notes: List[str] = field(default_factory=list)
 
@@ -249,14 +299,47 @@ def _tokenize(text: str) -> List[str]:
     return [tok.lower() for tok in _TOKEN_PATTERN.findall(text or "")]
 
 
+# Phase 11.5: per-token digest cache. Token frequency follows Zipf's law —
+# the top few thousand tokens (the / and / common stop-words / domain
+# vocabulary) dominate hits across an entire corpus. Memoising the digest
+# at this granularity collapses millions of hashes into ten thousand on a
+# typical run. lru_cache is process-wide and bounded; ``maxsize=10_000``
+# trades ~1-2 MB of cache for the throughput win.
+@lru_cache(maxsize=10_000)
+def _token_digest(token: str, bits: int = 64) -> int:
+    """Hash one tokenised word into a ``bits``-wide integer.
+
+    Backend selection (decided at import time):
+
+    * **xxhash.xxh3_64** when the optional ``xxhash`` dependency is
+      installed and ``bits == 64`` — non-cryptographic, several times
+      faster than BLAKE2b on short strings.
+    * **hashlib.blake2b** otherwise (and for non-64-bit widths, e.g. tests
+      that pin a smaller fingerprint). BLAKE2b is on the modern allowlist
+      and supports native ``digest_size`` truncation.
+
+    The choice is deterministic per-process: a corpus audited with xxhash
+    will produce different fingerprints than one audited with BLAKE2b, but
+    near-duplicate decisions stay stable across runs of the same process.
+    Operators that need cross-machine reproducibility should pin the
+    presence/absence of ``xxhash`` in their environment.
+    """
+    encoded = token.encode("utf-8")
+    if _HAS_XXHASH and bits == 64:
+        return _xxhash.xxh3_64(encoded).intdigest()
+    digest_bytes = bits // 8
+    return int.from_bytes(
+        hashlib.blake2b(encoded, digest_size=digest_bytes).digest(),
+        "big",
+    )
+
+
 def compute_simhash(text: str, *, bits: int = 64) -> int:
     """64-bit simhash over case-folded word tokens.
 
-    Uses BLAKE2b (non-cryptographic use — pure bit-mixing) with a truncated
-    digest, then per-bit majority voting weighted by token frequency to
-    produce the final fingerprint. BLAKE2b is on the modern allowlist
-    (vs. flagged MD5/SHA1) and natively supports digest_size truncation,
-    avoiding the slice we'd need with SHA-256. Empty input → ``0``.
+    Per-bit majority voting weighted by token frequency, where each
+    distinct token's hash is computed once via :func:`_token_digest`
+    (cached at module scope). Empty input → ``0``.
     """
     tokens = _tokenize(text)
     if not tokens:
@@ -266,11 +349,9 @@ def compute_simhash(text: str, *, bits: int = 64) -> int:
     for token in tokens:
         weights[token] = weights.get(token, 0) + 1
 
-    digest_bytes = bits // 8
     bit_scores = [0] * bits
     for token, weight in weights.items():
-        digest = hashlib.blake2b(token.encode("utf-8"), digest_size=digest_bytes).digest()
-        token_hash = int.from_bytes(digest, "big")
+        token_hash = _token_digest(token, bits)
         for i in range(bits):
             bit = (token_hash >> i) & 1
             bit_scores[i] += weight if bit else -weight
@@ -286,18 +367,49 @@ def hamming_distance(a: int, b: int) -> int:
     return (a ^ b).bit_count()
 
 
-def find_near_duplicates(
-    fingerprints: List[int],
-    *,
-    threshold: int = DEFAULT_NEAR_DUP_HAMMING,
-) -> List[Tuple[int, int, int]]:
-    """Pair-find rows whose simhash Hamming distance ≤ ``threshold``.
+_LSH_MIN_BAND_BITS: int = 4
+"""Minimum useful bits per LSH band. Below this the band's value space is
+so narrow (≤ 16 buckets) that almost every row collides and the index
+degrades to a brute-force scan with extra bookkeeping. We fall back to a
+linear pair walk when adaptive banding can't reach this floor."""
 
-    Returns ``[(i, j, distance), ...]`` with ``i < j``. Quadratic in the
-    number of fingerprints; intended for audit-time use on datasets up to
-    ~50 K rows. For larger datasets, an LSH band index would be required —
-    out of scope for v0.5.0.
+
+def _band_count_for_threshold(threshold: int, bits: int) -> int:
+    """Choose ``bands`` so that pigeonhole guarantees recall.
+
+    With ``bands = threshold + 1`` and a ``bits``-wide fingerprint, two
+    fingerprints differing in ``≤ threshold`` bits MUST agree on at least
+    one full band (``threshold`` differing bits spread over ``threshold + 1``
+    bands leaves at least one band intact). The caller is responsible for
+    verifying the band-bit floor; we return 0 to signal "fall back to brute
+    force" when the configured threshold leaves bands too narrow to be
+    useful as a bucket key.
     """
+    if threshold < 0:
+        return 0
+    bands = threshold + 1
+    if bits // bands < _LSH_MIN_BAND_BITS:
+        return 0
+    return bands
+
+
+def _split_into_bands(fingerprint: int, bands: int, bits: int) -> List[int]:
+    """Slice ``fingerprint`` into ``bands`` equal-width band values.
+
+    Lower bits land in band 0 to keep the slicing deterministic across
+    fingerprint widths; the band index is part of the bucket key, so there
+    is no security/avalanche concern.
+    """
+    band_bits = bits // bands
+    mask = (1 << band_bits) - 1
+    return [(fingerprint >> (i * band_bits)) & mask for i in range(bands)]
+
+
+def _find_near_duplicates_brute(
+    fingerprints: List[int],
+    threshold: int,
+) -> List[Tuple[int, int, int]]:
+    """Quadratic fallback used when LSH banding can't be configured."""
     pairs: List[Tuple[int, int, int]] = []
     for i, fp_i in enumerate(fingerprints):
         if fp_i == 0:
@@ -309,6 +421,72 @@ def find_near_duplicates(
             distance = hamming_distance(fp_i, fp_j)
             if distance <= threshold:
                 pairs.append((i, j, distance))
+    return pairs
+
+
+def find_near_duplicates(
+    fingerprints: List[int],
+    *,
+    threshold: int = DEFAULT_NEAR_DUP_HAMMING,
+    bits: int = 64,
+) -> List[Tuple[int, int, int]]:
+    """Pair-find rows whose simhash Hamming distance ≤ ``threshold``.
+
+    Returns ``[(i, j, distance), ...]`` with ``i < j``.
+
+    Uses **LSH banding** to drop the typical case from ``O(n²)`` to
+    roughly ``O(n × k)`` where ``k`` is the average bucket fan-out:
+
+    1. Each fingerprint is sliced into ``threshold + 1`` equal-width bands.
+       Pigeonhole guarantees that two fingerprints differing in at most
+       ``threshold`` bits agree on at least one full band — so candidate
+       pairs are exactly the rows that collide in any single band-bucket.
+    2. Candidates are then verified with the full Hamming distance check.
+
+    Falls back to a quadratic pair walk when ``threshold`` is high enough
+    that bands would shrink below 4 bits (effectively useless as bucket
+    keys) — at that point the index degenerates and the linear path is
+    no slower in practice while remaining exact.
+
+    Args:
+        fingerprints: Per-row simhashes (``0`` is sentinel for empty rows).
+        threshold: Hamming-distance cutoff; default 3 ≈ 95 % similarity.
+        bits: Fingerprint width in bits. Default matches
+            :func:`compute_simhash`.
+
+    Pairs are returned in row-index order to keep the output stable across
+    runs and across the brute-force / LSH paths.
+    """
+    bands = _band_count_for_threshold(threshold, bits)
+    if bands == 0:
+        return _find_near_duplicates_brute(fingerprints, threshold)
+
+    # Bucket: (band_index, band_value) -> sorted list of row indices.
+    buckets: Dict[Tuple[int, int], List[int]] = {}
+    for idx, fp in enumerate(fingerprints):
+        if fp == 0:
+            continue
+        for band_idx, band_val in enumerate(_split_into_bands(fp, bands, bits)):
+            buckets.setdefault((band_idx, band_val), []).append(idx)
+
+    seen: set = set()
+    pairs: List[Tuple[int, int, int]] = []
+    for indices in buckets.values():
+        if len(indices) < 2:
+            continue
+        for left_pos in range(len(indices)):
+            i = indices[left_pos]
+            fp_i = fingerprints[i]
+            for right_pos in range(left_pos + 1, len(indices)):
+                j = indices[right_pos]
+                if (i, j) in seen:
+                    continue
+                seen.add((i, j))
+                distance = hamming_distance(fp_i, fingerprints[j])
+                if distance <= threshold:
+                    pairs.append((i, j, distance))
+
+    pairs.sort(key=lambda triple: (triple[0], triple[1]))
     return pairs
 
 
@@ -363,36 +541,45 @@ def _extract_text_payload(row: Dict[str, Any]) -> str:
     return ""
 
 
-def _read_jsonl_split(path: Path) -> Tuple[List[Any], int, int]:
-    """Read a JSONL split tolerantly. Returns ``(rows, parse_errors, decode_errors)``.
+def _read_jsonl_split(path: Path) -> Iterator[Tuple[Any, bool, bool]]:
+    """Streaming JSONL reader. Yields ``(row, parse_error, decode_error)``.
+
+    Phase 11.5 promoted this from a buffered ``(rows, parse_errors,
+    decode_errors)`` tuple to a generator so the audit pipeline can process
+    one line at a time. RAM use on a 100 K-row split drops from O(n) raw
+    rows + O(n) text payloads (~hundreds of MB) to a handful of metric
+    aggregators plus the ``n``-element fingerprint list (8 bytes/row).
+
+    Per-line semantics are unchanged:
 
     * UTF-8 decode is permissive (``errors="replace"``) — a single mojibake
-      line never aborts the whole audit. Lines containing the U+FFFD
-      replacement char are tracked separately so the operator gets a
-      structured signal.
-    * ``json.JSONDecodeError`` is caught per line; the parser-error count
-      is returned for the audit report so silently dropping rows leaves a
-      paper trail.
-    * Returned ``rows`` may contain non-dict JSON (lists, scalars). The
-      auditor downstream knows to handle them — :func:`_extract_text_payload`
-      and :func:`_audit_split` both already guard ``isinstance(row, dict)``.
+      line never aborts the whole audit. Any line containing the U+FFFD
+      replacement char is reported via ``decode_error=True`` so the
+      operator gets a structured signal alongside the row.
+    * ``json.JSONDecodeError`` is caught per line; the offending line is
+      surfaced as ``(None, parse_error=True, decode_error=...)`` so
+      downstream aggregators can count it without the row poisoning the
+      schema / payload pipelines.
+    * Yielded rows may be non-dict JSON (lists, scalars); downstream
+      :func:`_extract_text_payload` and :func:`_audit_split` guard
+      ``isinstance(row, dict)``.
+
+    ``OSError`` from the initial ``open()`` is propagated to the caller —
+    that is the expected signal for "this split is unreachable / unreadable".
     """
-    rows: List[Any] = []
-    parse_errors = 0
-    decode_errors = 0
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
-        for line_number, line in enumerate(fh, start=1):
-            line = line.strip()
+        for line_number, raw_line in enumerate(fh, start=1):
+            line = raw_line.strip()
             if not line:
                 continue
-            if "�" in line:
-                decode_errors += 1
+            decode_error = "�" in line
             try:
-                rows.append(json.loads(line))
+                row = json.loads(line)
             except json.JSONDecodeError as exc:
-                parse_errors += 1
                 logger.warning("Skipping malformed JSONL line %d in %s: %s", line_number, path, exc)
-    return rows, parse_errors, decode_errors
+                yield None, True, decode_error
+                continue
+            yield row, False, decode_error
 
 
 _PROGRESS_INTERVAL: int = 5000
@@ -401,60 +588,137 @@ audit's silent stretch is over a few seconds. Threshold picked so smoke
 tests / quickstart audits stay quiet but real corpora surface signal."""
 
 
-def _compute_schema(rows: List[Any]) -> Tuple[List[str], List[str], int]:
-    """Inspect rows; return (column_union, drift_columns, non_object_rows).
+_LANG_SAMPLE_SIZE: int = 200
+"""How many text-bearing payloads we sample for language detection. Bounded
+so a 100 K-row corpus does not pay 100 K langdetect calls — the top-3
+distribution is well-approximated by the first ~200 detections."""
 
-    ``base_columns`` for drift is the **modal keyset** (most common shape
-    across rows). Picking rows[0] would falsely flag every other column
-    when row 0 is the outlier (header row, missing optional field,
-    non-dict junk).
+
+@dataclass
+class _StreamingAggregator:
+    """Single-pass collector for per-split audit metrics.
+
+    Owns one concern: turn the ``(row, parse_err, decode_err)`` stream
+    coming out of :func:`_read_jsonl_split` into the structured ``info``
+    dict the audit report consumes. Holding state on a dataclass keeps
+    the streaming loop in :func:`_audit_split` flat and the field roles
+    self-documenting; nothing else in the module instantiates this.
     """
-    seen_columns: Dict[str, None] = {}  # ordered set
-    keysets: List[frozenset] = []
-    non_object_rows = 0
-    for row in rows:
-        if isinstance(row, dict):
-            keys = frozenset(row.keys())
-            keysets.append(keys)
-            for col in keys:
-                seen_columns.setdefault(col, None)
-        else:
-            non_object_rows += 1
-    if keysets:
-        most_common_keyset, _ = Counter(keysets).most_common(1)[0]
+
+    sample_count: int = 0
+    parse_errors: int = 0
+    decode_errors: int = 0
+    non_object_rows: int = 0
+    null_or_empty: int = 0
+    keysets: List[frozenset] = field(default_factory=list)
+    seen_columns: "OrderedDict[str, None]" = field(default_factory=OrderedDict)
+    text_lengths: List[int] = field(default_factory=list)
+    fingerprints: List[int] = field(default_factory=list)
+    pii_counts: Dict[str, int] = field(default_factory=dict)
+    lang_sample: List[str] = field(default_factory=list)
+
+
+def _record_schema_for_dict(agg: _StreamingAggregator, row: Dict[str, Any]) -> None:
+    keys = frozenset(row.keys())
+    agg.keysets.append(keys)
+    for col in keys:
+        agg.seen_columns.setdefault(col, None)
+
+
+def _record_text_metrics(agg: _StreamingAggregator, payload: str) -> None:
+    agg.text_lengths.append(len(payload))
+    if len(agg.lang_sample) < _LANG_SAMPLE_SIZE:
+        agg.lang_sample.append(payload)
+    agg.fingerprints.append(compute_simhash(payload))
+    for kind, count in detect_pii(payload).items():
+        agg.pii_counts[kind] = agg.pii_counts.get(kind, 0) + count
+
+
+def _ingest_row(agg: _StreamingAggregator, row: Any, parse_err: bool, decode_err: bool) -> None:
+    """Fold one stream element into the aggregator. Single-concern helper."""
+    if decode_err:
+        agg.decode_errors += 1
+    if parse_err:
+        agg.parse_errors += 1
+        return
+
+    agg.sample_count += 1
+
+    if not isinstance(row, dict):
+        # Non-dict rows are valid JSON but the audit's text-payload pipeline
+        # cannot extract anything useful. Track them separately from the
+        # null/empty bucket so an operator can tell shape problems apart
+        # from missing-text problems.
+        agg.non_object_rows += 1
+        agg.null_or_empty += 1
+        agg.fingerprints.append(0)
+        return
+
+    _record_schema_for_dict(agg, row)
+    payload = _extract_text_payload(row)
+    if not payload:
+        agg.null_or_empty += 1
+        agg.fingerprints.append(0)
+        return
+    _record_text_metrics(agg, payload)
+
+
+def _aggregator_to_info(
+    split_name: str,
+    agg: _StreamingAggregator,
+    *,
+    near_dup_threshold: int,
+) -> Dict[str, Any]:
+    """Render the aggregator state as the per-split ``info`` payload."""
+    info: Dict[str, Any] = {"sample_count": agg.sample_count}
+    if agg.sample_count == 0:
+        info["near_duplicate_pairs"] = 0
+        return info
+
+    columns_list = list(agg.seen_columns)
+    if columns_list:
+        info["columns"] = columns_list
+
+    if agg.keysets:
+        most_common_keyset, _ = Counter(agg.keysets).most_common(1)[0]
         base_columns = set(most_common_keyset)
-    else:
-        base_columns = set()
-    drift_columns = [c for c in seen_columns if c not in base_columns]
-    return list(seen_columns), drift_columns, non_object_rows
+        drift_columns = [c for c in columns_list if c not in base_columns]
+        if drift_columns:
+            info["schema_drift_columns"] = drift_columns
+
+    if agg.non_object_rows:
+        info["non_object_rows"] = agg.non_object_rows
+
+    if agg.text_lengths:
+        info["text_length"] = _length_stats(agg.text_lengths)
+    info["null_or_empty_count"] = agg.null_or_empty
+    info["null_or_empty_rate"] = round(agg.null_or_empty / agg.sample_count, 4)
+
+    languages_top3 = _compute_top_languages(agg.lang_sample)
+    if languages_top3:
+        info["languages_top3"] = languages_top3
+
+    info["simhash_distinct"] = len({fp for fp in agg.fingerprints if fp != 0})
+
+    if agg.pii_counts:
+        info["pii_counts"] = dict(agg.pii_counts)
+
+    if agg.sample_count >= _PROGRESS_INTERVAL:
+        logger.info(
+            "audit/%s: scanning for near-duplicates (LSH-banded; %d rows)…",
+            split_name,
+            agg.sample_count,
+        )
+    within_pairs = find_near_duplicates(agg.fingerprints, threshold=near_dup_threshold)
+    info["near_duplicate_pairs"] = len(within_pairs)
+    return info
 
 
-def _compute_payloads(rows: List[Any]) -> Tuple[List[str], int]:
-    """Extract text-payload-or-empty for each row; return (payloads, null_or_empty_count).
-
-    Non-dict rows are silently treated as empty here — :func:`_compute_schema`
-    already exposed them under ``non_object_rows``.
-    """
-    payloads: List[str] = []
-    null_or_empty = 0
-    for row in rows:
-        if not isinstance(row, dict):
-            null_or_empty += 1
-            payloads.append("")
-            continue
-        payload = _extract_text_payload(row)
-        if not payload:
-            null_or_empty += 1
-        payloads.append(payload)
-    return payloads, null_or_empty
-
-
-def _compute_top_languages(payloads: List[str], sample_size: int = 200) -> List[Dict[str, Any]]:
-    """Top-3 languages by count, sampled to bound cost on large splits."""
-    sample = payloads[: min(sample_size, len(payloads))]
+def _compute_top_languages(sample: List[str]) -> List[Dict[str, Any]]:
+    """Top-3 languages over the ``sample`` list. Empty ``sample`` → empty list."""
     counts: Dict[str, int] = {}
-    for t in sample:
-        lang = _detect_language(t)
+    for text in sample:
+        lang = _detect_language(text)
         if lang:
             counts[lang] = counts.get(lang, 0) + 1
     if not counts:
@@ -463,85 +727,105 @@ def _compute_top_languages(payloads: List[str], sample_size: int = 200) -> List[
     return [{"code": code, "count": n} for code, n in top3]
 
 
-def _compute_fingerprints(split_name: str, payloads: List[str]) -> List[int]:
-    """Per-row simhash with operator-friendly progress logging on large splits."""
-    n_rows = len(payloads)
-    log_progress = n_rows >= _PROGRESS_INTERVAL
-    if log_progress:
-        logger.info("audit/%s: computing simhashes for %d rows…", split_name, n_rows)
-    fingerprints: List[int] = []
-    for idx, t in enumerate(payloads):
-        fingerprints.append(compute_simhash(t))
-        if log_progress and (idx + 1) % _PROGRESS_INTERVAL == 0:
-            logger.info("audit/%s: %d / %d rows fingerprinted", split_name, idx + 1, n_rows)
-    return fingerprints
-
-
-def _aggregate_pii(payloads: List[str]) -> Dict[str, int]:
-    """Sum :func:`detect_pii` flags across all payloads."""
-    counts: Dict[str, int] = {}
-    for t in payloads:
-        for kind, n in detect_pii(t).items():
-            counts[kind] = counts.get(kind, 0) + n
-    return counts
-
-
 def _audit_split(
     split_name: str,
-    rows: List[Any],
+    path: Path,
     *,
     near_dup_threshold: int = DEFAULT_NEAR_DUP_HAMMING,
-) -> Tuple[Dict[str, Any], List[int], Dict[str, int]]:
-    """Per-split metrics. Returns (info_dict, simhashes_list, pii_counts_dict).
+) -> Tuple[Dict[str, Any], List[int], Dict[str, int], int, int]:
+    """Stream a JSONL split into a metrics record.
 
-    Tolerates non-dict rows (raw arrays, scalars, etc. — anything well-formed
-    JSON but not an object). They are surfaced as ``non_object_rows`` so the
-    operator distinguishes "row dropped because it was the wrong shape" from
-    "row had an empty text payload". The function is a thin orchestrator over
-    the per-pass helpers above; each helper owns one concern and is unit-
-    testable in isolation.
+    Phase 11.5 streamed this end-to-end: the function consumes
+    :func:`_read_jsonl_split` row-by-row and folds each line straight
+    into a :class:`_StreamingAggregator`. Memory is bounded to
+    ``O(n_fingerprints + n_distinct_keysets)`` plus a 200-row language
+    sample — no list of full rows or per-row payloads is retained.
+
+    Returns:
+        ``(info_dict, fingerprints, pii_counts, parse_errors, decode_errors)``.
+        Caller (:func:`_process_split`) uses the trailing two integers to
+        annotate the split with its data-integrity counts.
     """
-    info: Dict[str, Any] = {"sample_count": len(rows)}
-    if not rows:
-        info["near_duplicate_pairs"] = 0
-        return info, [], {}
+    agg = _StreamingAggregator()
+    for row, parse_err, decode_err in _read_jsonl_split(path):
+        _ingest_row(agg, row, parse_err, decode_err)
+        if agg.sample_count and agg.sample_count % _PROGRESS_INTERVAL == 0:
+            logger.info(
+                "audit/%s: %d rows scanned (streaming)…",
+                split_name,
+                agg.sample_count,
+            )
 
-    columns, drift_columns, non_object_rows = _compute_schema(rows)
-    info["columns"] = columns
-    if drift_columns:
-        info["schema_drift_columns"] = drift_columns
-    if non_object_rows:
-        info["non_object_rows"] = non_object_rows
-
-    payloads, null_or_empty = _compute_payloads(rows)
-    info["text_length"] = _length_stats([len(t) for t in payloads if t])
-    info["null_or_empty_count"] = null_or_empty
-    info["null_or_empty_rate"] = round(null_or_empty / len(rows), 4)
-
-    languages_top3 = _compute_top_languages(payloads)
-    if languages_top3:
-        info["languages_top3"] = languages_top3
-
-    fingerprints = _compute_fingerprints(split_name, payloads)
-    info["simhash_distinct"] = len({fp for fp in fingerprints if fp != 0})
-
-    pii_counts_split = _aggregate_pii(payloads)
-    if pii_counts_split:
-        info["pii_counts"] = pii_counts_split
-
-    # Within-split near-duplicate detection lives here so info[] is fully
-    # owned by _audit_split; the orchestrator never back-fills its fields.
-    if len(rows) >= _PROGRESS_INTERVAL:
-        logger.info("audit/%s: scanning for near-duplicates (O(n²); %d rows)…", split_name, len(rows))
-    within_pairs = find_near_duplicates(fingerprints, threshold=near_dup_threshold)
-    info["near_duplicate_pairs"] = len(within_pairs)
-
-    return info, fingerprints, pii_counts_split
+    info = _aggregator_to_info(split_name, agg, near_dup_threshold=near_dup_threshold)
+    return info, list(agg.fingerprints), dict(agg.pii_counts), agg.parse_errors, agg.decode_errors
 
 
-def _count_leaked_rows(source: List[int], target: List[int], threshold: int) -> int:
-    """Rows in ``source`` whose nearest neighbour in ``target`` is within ``threshold``."""
-    return sum(1 for fp in source if any(hamming_distance(fp, other) <= threshold for other in target))
+def _build_band_index(
+    fingerprints: List[int],
+    bands: int,
+    bits: int,
+) -> Dict[Tuple[int, int], List[int]]:
+    """Bucket ``fingerprints`` by (band_index, band_value) for LSH lookups."""
+    buckets: Dict[Tuple[int, int], List[int]] = {}
+    for idx, fp in enumerate(fingerprints):
+        if fp == 0:
+            continue
+        for band_idx, band_val in enumerate(_split_into_bands(fp, bands, bits)):
+            buckets.setdefault((band_idx, band_val), []).append(idx)
+    return buckets
+
+
+def _count_leaked_rows(
+    source: List[int],
+    target: List[int],
+    threshold: int,
+    *,
+    bits: int = 64,
+) -> int:
+    """Rows in ``source`` whose nearest neighbour in ``target`` is within ``threshold``.
+
+    Uses the same LSH banding shape as :func:`find_near_duplicates` so a
+    cross-split overlap audit on a 100 K-row train + 10 K-row test no
+    longer needs the full ``100K × 10K`` Hamming sweep. Falls back to a
+    linear scan when banding cannot be configured (edge thresholds).
+    """
+    bands = _band_count_for_threshold(threshold, bits)
+    if bands == 0:
+        return sum(
+            1
+            for fp in source
+            if fp != 0 and any(other != 0 and hamming_distance(fp, other) <= threshold for other in target)
+        )
+
+    target_index = _build_band_index(target, bands, bits)
+    if not target_index:
+        return 0
+
+    leaked = 0
+    for fp in source:
+        if fp == 0:
+            continue
+        # Walk the source row's bands; verify any candidate hit. ``seen`` is
+        # local per-source-row so the early-exit short-circuits as soon as
+        # ANY target row passes the Hamming check.
+        seen: set = set()
+        matched = False
+        for band_idx, band_val in enumerate(_split_into_bands(fp, bands, bits)):
+            candidates = target_index.get((band_idx, band_val))
+            if not candidates:
+                continue
+            for j in candidates:
+                if j in seen:
+                    continue
+                seen.add(j)
+                if hamming_distance(fp, target[j]) <= threshold:
+                    matched = True
+                    break
+            if matched:
+                break
+        if matched:
+            leaked += 1
+    return leaked
 
 
 def _pair_leak_payload(
@@ -704,9 +988,21 @@ def _process_split(
     *,
     near_dup_threshold: int,
 ) -> _SplitOutcome:
-    """Read + audit one split. Tolerates per-split filesystem failures."""
+    """Stream + audit one split. Tolerates per-split filesystem failures.
+
+    The streaming :func:`_audit_split` opens ``path`` lazily inside
+    :func:`_read_jsonl_split`, so an ``OSError`` (permission denied,
+    ENOSPC, IsADirectoryError, …) bubbles up here and is converted into
+    a structured per-split error rather than aborting the whole audit.
+    Other splits in the same directory continue uninterrupted.
+    """
+    logger.info("audit: scanning split '%s' (%s)", split_name, path.name)
     try:
-        rows, parse_errors, decode_errors = _read_jsonl_split(path)
+        info, fingerprints, pii_split, parse_errors, decode_errors = _audit_split(
+            split_name,
+            path,
+            near_dup_threshold=near_dup_threshold,
+        )
     except OSError as exc:
         logger.warning("Could not read split '%s' (%s): %s — skipping.", split_name, path, exc)
         return _SplitOutcome(
@@ -718,9 +1014,6 @@ def _process_split(
             decode_errors=0,
             split_notes=[f"split '{split_name}' skipped (read failure: {exc})"],
         )
-
-    logger.info("audit: scanning split '%s' (%d rows from %s)", split_name, len(rows), path.name)
-    info, fingerprints, pii_split = _audit_split(split_name, rows, near_dup_threshold=near_dup_threshold)
 
     split_notes: List[str] = []
     # Surface JSONL hygiene metrics on the split itself so the report
@@ -744,21 +1037,77 @@ def _process_split(
         info=info,
         fingerprints=fingerprints,
         pii_split=pii_split,
-        row_count=len(rows),
+        row_count=info.get("sample_count", 0),
         parse_errors=parse_errors,
         decode_errors=decode_errors,
         split_notes=split_notes,
     )
 
 
-def _pii_summary_notes(pii_summary: Dict[str, int]) -> List[str]:
-    """Operator-actionable note (or "none flagged") for the aggregate PII counts."""
+def _build_pii_severity(pii_summary: Dict[str, int]) -> Dict[str, Any]:
+    """Aggregate PII counts into a severity-tiered breakdown.
+
+    Maps each detected category through :data:`PII_SEVERITY` and emits a
+    structured payload that compliance reviewers can parse at a glance:
+    a per-tier total, a worst-tier verdict, and a per-type breakdown so
+    nothing is lost from the underlying flat counts. Categories absent
+    from :data:`PII_SEVERITY` (forward-compat for new types) fall back to
+    ``unknown``.
+    """
+    if not pii_summary:
+        return {
+            "total": 0,
+            "by_tier": {tier: 0 for tier in PII_SEVERITY_ORDER},
+            "by_type": {},
+            "worst_tier": None,
+        }
+
+    by_tier: Dict[str, int] = {tier: 0 for tier in PII_SEVERITY_ORDER}
+    by_type: Dict[str, Dict[str, Any]] = {}
+    total = 0
+    worst_tier_idx: Optional[int] = None
+
+    for kind, count in pii_summary.items():
+        if count <= 0:
+            continue
+        tier = PII_SEVERITY.get(kind, "unknown")
+        by_type[kind] = {"count": count, "tier": tier}
+        if tier in by_tier:
+            by_tier[tier] += count
+        else:  # pragma: no cover — defensive for future PII categories
+            by_tier.setdefault(tier, 0)
+            by_tier[tier] += count
+        total += count
+        if tier in PII_SEVERITY_ORDER:
+            idx = PII_SEVERITY_ORDER.index(tier)
+            if worst_tier_idx is None or idx < worst_tier_idx:
+                worst_tier_idx = idx
+
+    worst_tier = PII_SEVERITY_ORDER[worst_tier_idx] if worst_tier_idx is not None else None
+    return {
+        "total": total,
+        "by_tier": by_tier,
+        "by_type": by_type,
+        "worst_tier": worst_tier,
+    }
+
+
+def _pii_summary_notes(pii_summary: Dict[str, int], pii_severity: Dict[str, Any]) -> List[str]:
+    """Operator-actionable note (or "none flagged") for the aggregate PII counts.
+
+    Severity-tier-aware: when a critical-tier category fires (credit card,
+    IBAN), the note leads with that verdict so it can't be missed under a
+    pile of lower-tier matches. Falls back to the original neutral message
+    when nothing is flagged or the severity payload is empty.
+    """
     if not pii_summary:
         return ["No PII flagged. (Regex-based detector — false negatives possible.)"]
     flag_total = sum(pii_summary.values())
     breakdown = ", ".join(f"{k}={v}" for k, v in sorted(pii_summary.items()))
+    worst_tier = pii_severity.get("worst_tier") if pii_severity else None
+    severity_lead = f"WORST tier: {worst_tier.upper()}. " if worst_tier else ""
     return [
-        f"PII flags surfaced ({flag_total} total: {breakdown}). "
+        f"{severity_lead}PII flags surfaced ({flag_total} total: {breakdown}). "
         "Review before publishing; mask with `forgelm ingest --pii-mask` "
         "or use `forgelm.data_audit.mask_pii` programmatically."
     ]
@@ -833,7 +1182,8 @@ def audit_dataset(
             pii_summary[kind] = pii_summary.get(kind, 0) + count
 
     cross = _cross_split_overlap(fingerprints_by_split, near_dup_threshold)
-    notes.extend(_pii_summary_notes(pii_summary))
+    pii_severity = _build_pii_severity(pii_summary)
+    notes.extend(_pii_summary_notes(pii_summary, pii_severity))
     notes.extend(_cross_split_leak_notes(cross))
 
     near_dup_total = sum(near_dup_pairs.values())
@@ -859,6 +1209,7 @@ def audit_dataset(
         splits=splits_info,
         cross_split_overlap=cross,
         pii_summary=pii_summary,
+        pii_severity=pii_severity,
         near_duplicate_summary={
             "hamming_threshold": near_dup_threshold,
             "pairs_per_split": near_dup_pairs,
@@ -869,42 +1220,153 @@ def audit_dataset(
     if output_dir:
         out_dir = Path(output_dir).expanduser().resolve()
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / "data_audit_report.json"
-        # newline="\n" pins LF on Windows so byte-exact reproducibility
-        # checksums match Linux/macOS runs (the JSONL Files spec also
-        # requires LF terminators).
-        with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
-            json.dump(asdict(report), fh, indent=2, ensure_ascii=False)
-        logger.info("Wrote audit report: %s", out_path)
+        _atomic_write_json(out_dir / "data_audit_report.json", asdict(report))
 
     return report
 
 
-def summarize_report(report: AuditReport) -> str:
-    """Render an :class:`AuditReport` as a multi-line operator-facing summary."""
+def _atomic_write_json(target: Path, payload: Dict[str, Any]) -> None:
+    """Write ``payload`` to ``target`` via tempfile + atomic rename.
+
+    Phase 11.5 hardening: previously the audit report was written with a
+    plain ``open()`` + ``json.dump``. A crash mid-write left a half-baked
+    file at the canonical path, so the next pipeline step would either
+    parse garbage or trip the "missing report" branch silently. Routing
+    through :class:`tempfile.NamedTemporaryFile` in the same directory and
+    then ``os.replace`` keeps the canonical path either fully present
+    (post-crash readers see the previous good report) or atomically
+    swapped with a complete one. ``newline="\\n"`` pins LF terminators
+    so the file is byte-identical across Windows/Linux/macOS — important
+    because the EU AI Act governance bundle inlines this exact JSON.
+    """
+    tmp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=str(target.parent),
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as fh:
+            tmp_path = Path(fh.name)
+            json.dump(payload, fh, indent=2, ensure_ascii=False)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_path, target)
+        tmp_path = None
+        logger.info("Wrote audit report: %s", target)
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            # Best-effort cleanup so a half-written .tmp doesn't litter the
+            # output dir if os.replace itself raised (rare — same FS).
+            try:
+                tmp_path.unlink()
+            except OSError:  # pragma: no cover — defensive
+                pass
+
+
+def _split_has_findings(info: Dict[str, Any]) -> bool:
+    """A split is "interesting" when any non-trivial signal is present.
+
+    Used by :func:`summarize_report` in non-verbose mode to suppress
+    splits with zero findings. The criteria stay loose on purpose —
+    operators expect to see every split that has *anything* worth
+    reviewing (errors, drift, leakage, PII, near-duplicates, decode
+    issues), and only the all-clean rows get folded into a tail summary.
+    """
+    if "error" in info:
+        return True
+    for key in (
+        "null_or_empty_count",
+        "near_duplicate_pairs",
+        "pii_counts",
+        "schema_drift_columns",
+        "non_object_rows",
+        "parse_errors",
+        "decode_errors",
+    ):
+        value = info.get(key)
+        if isinstance(value, dict) and value:
+            return True
+        if isinstance(value, list) and value:
+            return True
+        if isinstance(value, int) and value > 0:
+            return True
+    return False
+
+
+def _render_split_block(split_name: str, info: Dict[str, Any]) -> List[str]:
+    """Operator-friendly rendering of one split's metrics. One concern per call."""
+    block: List[str] = [f"  └─ {split_name}: n={info.get('sample_count', 0)}"]
+    if "error" in info:
+        block.append(f"     ERROR        : {info['error']}")
+        return block
+    text_len = info.get("text_length") or {}
+    if text_len:
+        block.append(
+            f"     length  min={text_len['min']} max={text_len['max']} mean={text_len['mean']} p95={text_len['p95']}"
+        )
+    if info.get("null_or_empty_count"):
+        block.append(f"     null/empty: {info['null_or_empty_count']} ({info['null_or_empty_rate'] * 100:.1f}%)")
+    if info.get("near_duplicate_pairs"):
+        block.append(f"     near-duplicate pairs: {info['near_duplicate_pairs']}")
+    if info.get("languages_top3"):
+        tops = ", ".join(f"{e['code']}={e['count']}" for e in info["languages_top3"])
+        block.append(f"     languages (top-3): {tops}")
+    if info.get("pii_counts"):
+        pii = ", ".join(f"{k}={v}" for k, v in sorted(info["pii_counts"].items()))
+        block.append(f"     PII             : {pii}")
+    if info.get("schema_drift_columns"):
+        block.append(f"     schema drift    : {', '.join(info['schema_drift_columns'])}")
+    return block
+
+
+def _render_pii_severity(severity: Dict[str, Any]) -> List[str]:
+    """Render the PII severity summary (or nothing when no flags fired)."""
+    if not severity or not severity.get("total"):
+        return []
+    out = [f"  PII severity   : worst tier = {severity.get('worst_tier') or 'n/a'}"]
+    by_tier = severity.get("by_tier", {})
+    nonzero = [(tier, count) for tier, count in by_tier.items() if count]
+    if nonzero:
+        breakdown = ", ".join(f"{tier}={count}" for tier, count in nonzero)
+        out.append(f"     by tier      : {breakdown}")
+    return out
+
+
+def summarize_report(report: AuditReport, *, verbose: bool = False) -> str:
+    """Render an :class:`AuditReport` as a multi-line operator-facing summary.
+
+    Default (``verbose=False``): splits with zero findings are folded into
+    a single "N split(s) clean" line. This keeps the multi-split summary
+    short on a healthy dataset while still surfacing every interesting
+    signal — error, drift, leakage, PII, decode issues, near-duplicates.
+    Pass ``verbose=True`` to print every split unconditionally.
+    """
     lines = [
         "Data audit summary",
         f"  Source        : {report.source_path}",
         f"  Total samples : {report.total_samples}",
         f"  Splits        : {', '.join(report.splits)}",
     ]
+
+    interesting: List[Tuple[str, Dict[str, Any]]] = []
+    clean: List[str] = []
     for split_name, info in report.splits.items():
-        lines.append(f"  └─ {split_name}: n={info.get('sample_count', 0)}")
-        text_len = info.get("text_length") or {}
-        if text_len:
-            lines.append(
-                f"     length  min={text_len['min']} max={text_len['max']} mean={text_len['mean']} p95={text_len['p95']}"
-            )
-        if info.get("null_or_empty_count"):
-            lines.append(f"     null/empty: {info['null_or_empty_count']} ({info['null_or_empty_rate'] * 100:.1f}%)")
-        if info.get("near_duplicate_pairs"):
-            lines.append(f"     near-duplicate pairs: {info['near_duplicate_pairs']}")
-        if info.get("languages_top3"):
-            tops = ", ".join(f"{e['code']}={e['count']}" for e in info["languages_top3"])
-            lines.append(f"     languages (top-3): {tops}")
-        if info.get("pii_counts"):
-            pii = ", ".join(f"{k}={v}" for k, v in sorted(info["pii_counts"].items()))
-            lines.append(f"     PII             : {pii}")
+        if verbose or _split_has_findings(info):
+            interesting.append((split_name, info))
+        else:
+            clean.append(split_name)
+
+    for split_name, info in interesting:
+        lines.extend(_render_split_block(split_name, info))
+
+    if clean and not verbose:
+        lines.append(f"  └─ ({len(clean)} clean split(s): {', '.join(clean)} — pass verbose=True to expand)")
+
+    lines.extend(_render_pii_severity(report.pii_severity))
 
     if report.cross_split_overlap.get("pairs"):
         lines.append("  Cross-split leakage:")
