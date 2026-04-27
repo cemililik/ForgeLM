@@ -17,6 +17,13 @@ noisy on shared CI:
 Results are written to stdout; copy the table back into
 ``docs/roadmap/phase-11-5-backlog.md`` if it has shifted materially after
 a backend / dependency / Python version change.
+
+Security note: ``random.choices`` / ``random.randint`` are used purely to
+synthesise corpus-shaped test inputs — there is no security-sensitive
+context in this script and no value derived from these calls is ever
+returned, persisted, or compared cryptographically. The ``# NOSONAR``
+suppressions on each call site annotate that explicitly so the
+SonarCloud ``python:S2245`` rule does not flag them as findings.
 """
 
 from __future__ import annotations
@@ -33,7 +40,12 @@ from forgelm import data_audit as audit_mod
 
 
 def _gen_short(n: int) -> list[str]:
-    return ["".join(random.choices(string.ascii_lowercase, k=random.randint(2, 6))) for _ in range(n)]
+    return [
+        "".join(
+            random.choices(string.ascii_lowercase, k=random.randint(2, 6))  # NOSONAR(python:S2245)
+        )
+        for _ in range(n)
+    ]
 
 
 def _gen_zipfian_english(n: int) -> list[str]:
@@ -59,23 +71,31 @@ def _gen_zipfian_english(n: int) -> list[str]:
         "not",
         "but",
     ]
-    return random.choices(base, k=n)
+    return random.choices(base, k=n)  # NOSONAR(python:S2245)
 
 
 def _gen_long(n: int) -> list[str]:
-    return ["".join(random.choices(string.ascii_lowercase, k=random.randint(40, 80))) for _ in range(n)]
+    return [
+        "".join(
+            random.choices(string.ascii_lowercase, k=random.randint(40, 80))  # NOSONAR(python:S2245)
+        )
+        for _ in range(n)
+    ]
 
 
 def _bench_raw(tokens: list[str], repeats: int = 21) -> dict:
     encoded = [t.encode("utf-8") for t in tokens]
 
     def _xxh3() -> None:
+        # Bench harness only: assigning to ``_`` documents that the
+        # return value is intentionally discarded. The hashlib path
+        # below now does the same so the two loops stay symmetrical.
         for b in encoded:
-            xxhash.xxh3_64(b).intdigest()
+            _ = xxhash.xxh3_64(b).intdigest()
 
     def _blake() -> None:
         for b in encoded:
-            int.from_bytes(hashlib.blake2b(b, digest_size=8).digest(), "big")
+            _ = int.from_bytes(hashlib.blake2b(b, digest_size=8).digest(), "big")
 
     _xxh3()
     _blake()
@@ -104,8 +124,8 @@ def _bench_compute_simhash(repeats: int = 5) -> dict:
     base = ["the", "of", "and", "a", "to", "in", "is", "for", "with", "on"]
     texts = []
     for _ in range(1000):
-        n = random.randint(50, 150)
-        texts.append(" ".join(random.choices(base, k=n)))
+        n = random.randint(50, 150)  # NOSONAR(python:S2245)
+        texts.append(" ".join(random.choices(base, k=n)))  # NOSONAR(python:S2245)
 
     audit_mod._HAS_XXHASH = True
     for t in texts:
@@ -138,7 +158,7 @@ def _bench_compute_simhash(repeats: int = 5) -> dict:
 
 
 def main() -> None:
-    random.seed(42)
+    random.seed(42)  # NOSONAR(python:S2245) — deterministic seed for reproducible bench
     print("Raw digest microbenchmark (50K hashes per round, median of 21)")
     print("-" * 70)
     for label, gen in [

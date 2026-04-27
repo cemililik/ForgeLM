@@ -433,6 +433,30 @@ def _find_near_duplicates_brute(
     return pairs
 
 
+def _bucket_pairs_within_threshold(
+    indices: List[int],
+    fingerprints: List[int],
+    threshold: int,
+    seen: set,
+) -> List[Tuple[int, int, int]]:
+    """Verify the candidate pairs in a single LSH bucket against the full
+    Hamming check, deduplicating across buckets via the shared ``seen`` set.
+    """
+    out: List[Tuple[int, int, int]] = []
+    for left_pos in range(len(indices)):
+        i = indices[left_pos]
+        fp_i = fingerprints[i]
+        for right_pos in range(left_pos + 1, len(indices)):
+            j = indices[right_pos]
+            if (i, j) in seen:
+                continue
+            seen.add((i, j))
+            distance = hamming_distance(fp_i, fingerprints[j])
+            if distance <= threshold:
+                out.append((i, j, distance))
+    return out
+
+
 def find_near_duplicates(
     fingerprints: List[int],
     *,
@@ -450,7 +474,8 @@ def find_near_duplicates(
        Pigeonhole guarantees that two fingerprints differing in at most
        ``threshold`` bits agree on at least one full band — so candidate
        pairs are exactly the rows that collide in any single band-bucket.
-    2. Candidates are then verified with the full Hamming distance check.
+    2. Candidates are then verified with the full Hamming distance check
+       (see :func:`_bucket_pairs_within_threshold`).
 
     Falls back to a quadratic pair walk when ``threshold`` is high enough
     that bands would shrink below 4 bits (effectively useless as bucket
@@ -470,30 +495,13 @@ def find_near_duplicates(
     if bands == 0:
         return _find_near_duplicates_brute(fingerprints, threshold)
 
-    # Bucket: (band_index, band_value) -> sorted list of row indices.
-    buckets: Dict[Tuple[int, int], List[int]] = {}
-    for idx, fp in enumerate(fingerprints):
-        if fp == 0:
-            continue
-        for band_idx, band_val in enumerate(_split_into_bands(fp, bands, bits)):
-            buckets.setdefault((band_idx, band_val), []).append(idx)
-
+    buckets = _build_band_index(fingerprints, bands, bits)
     seen: set = set()
     pairs: List[Tuple[int, int, int]] = []
     for indices in buckets.values():
         if len(indices) < 2:
             continue
-        for left_pos in range(len(indices)):
-            i = indices[left_pos]
-            fp_i = fingerprints[i]
-            for right_pos in range(left_pos + 1, len(indices)):
-                j = indices[right_pos]
-                if (i, j) in seen:
-                    continue
-                seen.add((i, j))
-                distance = hamming_distance(fp_i, fingerprints[j])
-                if distance <= threshold:
-                    pairs.append((i, j, distance))
+        pairs.extend(_bucket_pairs_within_threshold(indices, fingerprints, threshold, seen))
 
     pairs.sort(key=lambda triple: (triple[0], triple[1]))
     return pairs
@@ -806,6 +814,43 @@ def _build_band_index(
     return buckets
 
 
+def _count_leaked_brute(source: List[int], target: List[int], threshold: int) -> int:
+    """Linear-scan fallback used when LSH banding cannot be configured."""
+    return sum(
+        1
+        for fp in source
+        if fp != 0 and any(other != 0 and hamming_distance(fp, other) <= threshold for other in target)
+    )
+
+
+def _source_row_leaks(
+    fp: int,
+    target_index: Dict[Tuple[int, int], List[int]],
+    target: List[int],
+    threshold: int,
+    bands: int,
+    bits: int,
+) -> bool:
+    """Walk one source row's bands; return True on the first target hit.
+
+    The ``seen`` set is per-source-row: we never double-check the same
+    target index across the source row's bands, but a fresh source row
+    starts with an empty ``seen`` because its hits are independent.
+    """
+    seen: set = set()
+    for band_idx, band_val in enumerate(_split_into_bands(fp, bands, bits)):
+        candidates = target_index.get((band_idx, band_val))
+        if not candidates:
+            continue
+        for j in candidates:
+            if j in seen:
+                continue
+            seen.add(j)
+            if hamming_distance(fp, target[j]) <= threshold:
+                return True
+    return False
+
+
 def _count_leaked_rows(
     source: List[int],
     target: List[int],
@@ -817,46 +862,19 @@ def _count_leaked_rows(
 
     Uses the same LSH banding shape as :func:`find_near_duplicates` so a
     cross-split overlap audit on a 100 K-row train + 10 K-row test no
-    longer needs the full ``100K × 10K`` Hamming sweep. Falls back to a
-    linear scan when banding cannot be configured (edge thresholds).
+    longer needs the full ``100K × 10K`` Hamming sweep. Falls back to
+    :func:`_count_leaked_brute` when banding cannot be configured (edge
+    thresholds where bands shrink below 4 bits).
     """
     bands = _band_count_for_threshold(threshold, bits)
     if bands == 0:
-        return sum(
-            1
-            for fp in source
-            if fp != 0 and any(other != 0 and hamming_distance(fp, other) <= threshold for other in target)
-        )
+        return _count_leaked_brute(source, target, threshold)
 
     target_index = _build_band_index(target, bands, bits)
     if not target_index:
         return 0
 
-    leaked = 0
-    for fp in source:
-        if fp == 0:
-            continue
-        # Walk the source row's bands; verify any candidate hit. ``seen`` is
-        # local per-source-row so the early-exit short-circuits as soon as
-        # ANY target row passes the Hamming check.
-        seen: set = set()
-        matched = False
-        for band_idx, band_val in enumerate(_split_into_bands(fp, bands, bits)):
-            candidates = target_index.get((band_idx, band_val))
-            if not candidates:
-                continue
-            for j in candidates:
-                if j in seen:
-                    continue
-                seen.add(j)
-                if hamming_distance(fp, target[j]) <= threshold:
-                    matched = True
-                    break
-            if matched:
-                break
-        if matched:
-            leaked += 1
-    return leaked
+    return sum(1 for fp in source if fp != 0 and _source_row_leaks(fp, target_index, target, threshold, bands, bits))
 
 
 def _pair_leak_payload(

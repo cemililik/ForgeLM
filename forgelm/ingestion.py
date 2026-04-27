@@ -80,6 +80,33 @@ _PDF_REPEAT_MIN_PAGES: int = 3
 _PDF_REPEAT_THRESHOLD: float = 0.7
 
 
+def _repeating_edge_lines(page_lines: List[List[str]], cutoff: int) -> Tuple[set, set]:
+    """Return (repeating_first_lines, repeating_last_lines) at this pass."""
+    first_counts: Counter = Counter(lines[0] for lines in page_lines if lines)
+    last_counts: Counter = Counter(lines[-1] for lines in page_lines if lines)
+    return (
+        {ln for ln, n in first_counts.items() if n >= cutoff},
+        {ln for ln, n in last_counts.items() if n >= cutoff},
+    )
+
+
+def _pop_repeating_edges(
+    page_lines: List[List[str]],
+    repeating_firsts: set,
+    repeating_lasts: set,
+) -> int:
+    """Pop the leading / trailing repeating line from each page; return total stripped."""
+    stripped = 0
+    for lines in page_lines:
+        if lines and lines[0] in repeating_firsts:
+            lines.pop(0)
+            stripped += 1
+        if lines and lines[-1] in repeating_lasts:
+            lines.pop()
+            stripped += 1
+    return stripped
+
+
 def _strip_repeating_page_lines(pages: List[str]) -> Tuple[List[str], int]:
     """Strip leading / trailing lines that repeat across pages.
 
@@ -111,36 +138,59 @@ def _strip_repeating_page_lines(pages: List[str]) -> Tuple[List[str], int]:
     total_stripped = 0
 
     while True:
-        first_counts: Counter = Counter(lines[0] for lines in page_lines if lines)
-        last_counts: Counter = Counter(lines[-1] for lines in page_lines if lines)
-        repeating_firsts = {ln for ln, n in first_counts.items() if n >= cutoff}
-        repeating_lasts = {ln for ln, n in last_counts.items() if n >= cutoff}
+        repeating_firsts, repeating_lasts = _repeating_edge_lines(page_lines, cutoff)
         if not repeating_firsts and not repeating_lasts:
             break
-
-        stripped_this_pass = 0
-        for lines in page_lines:
-            if lines and lines[0] in repeating_firsts:
-                lines.pop(0)
-                stripped_this_pass += 1
-            if lines and lines[-1] in repeating_lasts:
-                lines.pop()
-                stripped_this_pass += 1
-        if stripped_this_pass == 0:
+        stripped = _pop_repeating_edges(page_lines, repeating_firsts, repeating_lasts)
+        if stripped == 0:
             # Edge case: the only repeating line was already alone on a
             # short page, so popping it left fewer pages than ``cutoff``
             # — break instead of looping with no work.
             break
-        total_stripped += stripped_this_pass
+        total_stripped += stripped
 
     cleaned = ["\n".join(lines) for lines in page_lines if lines]
     return cleaned, total_stripped
 
 
+def _try_pdf_decrypt(reader: Any, path: Path) -> None:
+    """Attempt empty-password decrypt for owner-encrypted PDFs; raise ValueError otherwise.
+
+    Empty-password decrypt covers the common "owner-encrypted but readable"
+    case. When that fails OR the reader still reports encrypted afterwards,
+    we surface a clear message pointing the operator to external tooling
+    (qpdf / pdftk) — wiring a CLI password flag would put credentials in
+    shell history, which is the wrong default.
+    """
+    from pypdf.errors import DependencyError, FileNotDecryptedError
+
+    try:
+        reader.decrypt("")
+    except (FileNotDecryptedError, NotImplementedError, DependencyError) as exc:
+        raise ValueError(
+            f"PDF '{path}' is encrypted. Decrypt it first (qpdf --decrypt / pdftk input_pw …) and re-run ingest."
+        ) from exc
+    if getattr(reader, "is_encrypted", False):
+        raise ValueError(f"PDF '{path}' is encrypted with a non-empty password. Decrypt externally before ingest.")
+
+
+def _read_pdf_pages(reader: Any, path: Path) -> List[str]:
+    """Extract per-page text; tolerate page-level failures with a debug log."""
+    pages: List[str] = []
+    for page in reader.pages:
+        try:
+            text = page.extract_text() or ""
+        except Exception as exc:
+            logger.debug("PDF page extraction failed for %s: %s", path, exc)
+            text = ""
+        if text.strip():
+            pages.append(text)
+    return pages
+
+
 def _extract_pdf(path: Path, *, dedup_state: Optional[Dict[str, int]] = None) -> str:
     try:
         from pypdf import PdfReader
-        from pypdf.errors import DependencyError, FileNotDecryptedError
     except ImportError as exc:  # pragma: no cover — covered by extras
         raise ImportError(
             "PDF ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
@@ -152,27 +202,9 @@ def _extract_pdf(path: Path, *, dedup_state: Optional[Dict[str, int]] = None) ->
         raise ValueError(f"Could not open PDF '{path}': {exc}") from exc
 
     if getattr(reader, "is_encrypted", False):
-        # Try empty password — common for owner-encrypted PDFs that are still
-        # readable. If the user has a password, document the recommended path
-        # (decrypt externally with qpdf / pdftk) rather than wiring a CLI flag.
-        try:
-            reader.decrypt("")
-        except (FileNotDecryptedError, NotImplementedError, DependencyError) as exc:
-            raise ValueError(
-                f"PDF '{path}' is encrypted. Decrypt it first (qpdf --decrypt / pdftk input_pw …) and re-run ingest."
-            ) from exc
-        if getattr(reader, "is_encrypted", False):
-            raise ValueError(f"PDF '{path}' is encrypted with a non-empty password. Decrypt externally before ingest.")
+        _try_pdf_decrypt(reader, path)
 
-    pages: List[str] = []
-    for page in reader.pages:
-        try:
-            text = page.extract_text() or ""
-        except Exception as exc:
-            logger.debug("PDF page extraction failed for %s: %s", path, exc)
-            text = ""
-        if text.strip():
-            pages.append(text)
+    pages = _read_pdf_pages(reader, path)
     if not pages:
         logger.warning(
             "No extractable text in '%s'. Likely a scanned PDF without a text layer; "
@@ -508,6 +540,71 @@ class _FileOutcome:
     pii_counts: Dict[str, int] = field(default_factory=dict)
 
 
+def _extract_text_for_ingest(
+    fpath: Path,
+    extractor: Callable[..., str],
+    pdf_dedup_state: Optional[Dict[str, int]],
+) -> Optional[str]:
+    """Run ``extractor`` against ``fpath``; return ``None`` to mean "skip this file".
+
+    ``ImportError`` re-propagates (missing optional extra is a *runtime*
+    failure of the dispatched feature, not a per-file skip). All other
+    exceptions log a warning and signal a skip — consistent with the
+    silently-tolerant per-file model the CLI relies on.
+    """
+    try:
+        if extractor is _extract_pdf:
+            return _extract_pdf(fpath, dedup_state=pdf_dedup_state)
+        return extractor(fpath)
+    except ImportError:
+        raise
+    except Exception as exc:
+        logger.warning("Skipping '%s' (extraction failed): %s", fpath, exc)
+        return None
+
+
+def _select_chunks_iter(
+    text: str,
+    *,
+    strategy: str,
+    chunk_size: int,
+    overlap: int,
+    chunk_tokens: Optional[int],
+    overlap_tokens: int,
+    tokenizer: Any,
+) -> Iterable[str]:
+    """Pick the token-aware or character-based chunker based on flags."""
+    if chunk_tokens and tokenizer is not None:
+        return _strategy_dispatch_tokens(
+            strategy,
+            text,
+            chunk_tokens=chunk_tokens,
+            overlap_tokens=overlap_tokens,
+            tokenizer=tokenizer,
+        )
+    return _strategy_dispatch(strategy, text, chunk_size, overlap)
+
+
+def _emit_chunk(
+    payload: str,
+    out_fh: Any,
+    outcome: _FileOutcome,
+    mask_pii: Optional[Callable[..., Any]],
+) -> None:
+    """Mask (optional), serialise, and write one chunk; update outcome counters."""
+    if mask_pii is not None:
+        # Get the masked text + per-type counts in a single pass. Counting
+        # via detect_pii beforehand would double-count spans matched by
+        # multiple patterns; mask_pii's own first-match-wins precedence
+        # gives the truthful count.
+        payload, redaction_counts = mask_pii(payload, return_counts=True)
+        for kind, count in redaction_counts.items():
+            outcome.pii_counts[kind] = outcome.pii_counts.get(kind, 0) + count
+    out_fh.write(json.dumps({"text": payload}, ensure_ascii=False) + "\n")
+    outcome.chunks_written += 1
+    outcome.chars_written += len(payload)
+
+
 def _process_one_file(
     fpath: Path,
     out_fh: Any,
@@ -536,47 +633,28 @@ def _process_one_file(
     if extractor is None:
         return _FileOutcome(file_skipped=True)
 
-    try:
-        if extractor is _extract_pdf:
-            text = _extract_pdf(fpath, dedup_state=pdf_dedup_state)
-        else:
-            text = extractor(fpath)
-    except ImportError:
-        # ImportError must propagate — missing extras are not a per-file
-        # skip. The CLI wrapper turns this into EXIT_TRAINING_ERROR +
-        # an install-hint message.
-        raise
-    except Exception as exc:
-        logger.warning("Skipping '%s' (extraction failed): %s", fpath, exc)
+    text = _extract_text_for_ingest(fpath, extractor, pdf_dedup_state)
+    if text is None:
         return _FileOutcome(file_skipped=True)
-
     if not text or not text.strip():
         logger.warning("Skipping '%s' (no extractable text).", fpath)
         return _FileOutcome(file_skipped=True)
 
     outcome = _FileOutcome(file_processed=True, extension=fpath.suffix.lower())
-    if chunk_tokens and tokenizer is not None:
-        chunks_iter = _strategy_dispatch_tokens(
-            strategy, text, chunk_tokens=chunk_tokens, overlap_tokens=overlap_tokens, tokenizer=tokenizer
-        )
-    else:
-        chunks_iter = _strategy_dispatch(strategy, text, chunk_size, overlap)
-
+    chunks_iter = _select_chunks_iter(
+        text,
+        strategy=strategy,
+        chunk_size=chunk_size,
+        overlap=overlap,
+        chunk_tokens=chunk_tokens,
+        overlap_tokens=overlap_tokens,
+        tokenizer=tokenizer,
+    )
     for chunk in chunks_iter:
         payload = chunk.strip()
         if not payload:
             continue
-        if mask_pii is not None:
-            # Get the masked text + per-type counts in a single pass.
-            # Counting via detect_pii beforehand would double-count
-            # spans matched by multiple patterns; mask_pii's own
-            # first-match-wins precedence gives the truthful count.
-            payload, redaction_counts = mask_pii(payload, return_counts=True)
-            for kind, count in redaction_counts.items():
-                outcome.pii_counts[kind] = outcome.pii_counts.get(kind, 0) + count
-        out_fh.write(json.dumps({"text": payload}, ensure_ascii=False) + "\n")
-        outcome.chunks_written += 1
-        outcome.chars_written += len(payload)
+        _emit_chunk(payload, out_fh, outcome, mask_pii)
     return outcome
 
 
