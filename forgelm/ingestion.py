@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from collections import Counter
 from dataclasses import dataclass, field
@@ -134,7 +135,10 @@ def _strip_repeating_page_lines(pages: List[str]) -> Tuple[List[str], int]:
         return pages, 0
 
     page_lines: List[List[str]] = [[ln.strip() for ln in p.splitlines() if ln.strip()] for p in pages]
-    cutoff = max(2, int(_PDF_REPEAT_THRESHOLD * len(pages)))
+    # ``math.ceil`` (not ``int``) so the 70 % rule actually fires at 70 %.
+    # Example: 5 pages × 0.7 = 3.5 → ``int`` gave 3 (60 %, too lenient);
+    # ``math.ceil`` gives 4 (80 %, ≥ 70 % as documented).
+    cutoff = max(2, math.ceil(_PDF_REPEAT_THRESHOLD * len(pages)))
     total_stripped = 0
 
     while True:
@@ -157,31 +161,54 @@ def _try_pdf_decrypt(reader: Any, path: Path) -> None:
     """Attempt empty-password decrypt for owner-encrypted PDFs; raise ValueError otherwise.
 
     Empty-password decrypt covers the common "owner-encrypted but readable"
-    case. When that fails OR the reader still reports encrypted afterwards,
+    case. When that fails OR the reader cannot honour the empty password,
     we surface a clear message pointing the operator to external tooling
     (qpdf / pdftk) — wiring a CLI password flag would put credentials in
     shell history, which is the wrong default.
+
+    Decision is made on ``reader.decrypt()``'s **return value**, not on
+    ``reader.is_encrypted``: pypdf ≥ 4.0 keeps ``is_encrypted`` reflecting
+    the original-file state even after a successful decrypt, so checking
+    that flag would reject correctly-decrypted owner-encrypted PDFs. The
+    decrypt method returns a :class:`pypdf.PasswordType` enum
+    (``IntEnum``) where ``NOT_DECRYPTED == 0`` (falsy) and
+    ``USER_PASSWORD`` / ``OWNER_PASSWORD`` are truthy.
     """
     from pypdf.errors import DependencyError, FileNotDecryptedError
 
     try:
-        reader.decrypt("")
+        result = reader.decrypt("")
     except (FileNotDecryptedError, NotImplementedError, DependencyError) as exc:
         raise ValueError(
             f"PDF '{path}' is encrypted. Decrypt it first (qpdf --decrypt / pdftk input_pw …) and re-run ingest."
         ) from exc
-    if getattr(reader, "is_encrypted", False):
+    if not result:
+        # PasswordType.NOT_DECRYPTED == 0 → empty password didn't unlock it.
         raise ValueError(f"PDF '{path}' is encrypted with a non-empty password. Decrypt externally before ingest.")
 
 
 def _read_pdf_pages(reader: Any, path: Path) -> List[str]:
-    """Extract per-page text; tolerate page-level failures with a debug log."""
+    """Extract per-page text; tolerate page-level failures with a loud warning.
+
+    Page-level extraction failure is **not** propagated as a file-level
+    error: a 500-page PDF with one malformed page should still produce
+    499 good pages. We *do* upgrade the prior debug-log to a warning
+    that names the path and page index so the operator sees in CI logs
+    exactly which page failed and can spot-check it. The post-loop
+    "no extractable text" warning still catches the all-pages-failed
+    case downstream in :func:`_extract_pdf`.
+    """
     pages: List[str] = []
-    for page in reader.pages:
+    for idx, page in enumerate(reader.pages):
         try:
             text = page.extract_text() or ""
         except Exception as exc:
-            logger.debug("PDF page extraction failed for %s: %s", path, exc)
+            logger.warning(
+                "PDF page extraction failed (file=%s, page_index=%d): %s — page skipped, run continues.",
+                path,
+                idx,
+                exc,
+            )
             text = ""
         if text.strip():
             pages.append(text)

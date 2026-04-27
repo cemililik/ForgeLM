@@ -419,6 +419,13 @@ def _offer_ingest_for_directory(directory: Path) -> Optional[str]:
     except (FileNotFoundError, ValueError) as exc:
         print(f"  Ingest failed: {exc}")
         return None
+    except (PermissionError, IsADirectoryError, OSError) as exc:
+        # Filesystem-level errors (output path not writable, source tree
+        # locked, ENOSPC, broken symlink during walk, etc.) — the operator
+        # may want to retype the output path or fix permissions and retry,
+        # so we return None to re-prompt rather than crash the wizard.
+        print(f"  Ingest failed due to filesystem error: {exc} — check permissions or output path.")
+        return None
     except ImportError as exc:
         print(f"  Ingest needs the optional 'ingestion' extra: {exc}\n  Install with: pip install 'forgelm[ingestion]'")
         return None

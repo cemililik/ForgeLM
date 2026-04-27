@@ -19,10 +19,12 @@ section below.
 pip install 'forgelm[ingestion]'
 ```
 
-The extra brings in `pypdf`, `python-docx`, `ebooklib`, `beautifulsoup4`, and
-`langdetect`. They are optional because plain text + Markdown work without
-any of them. Importing the module does not pull these in unless the matching
-extractor is exercised.
+The extra brings in `pypdf`, `python-docx`, `ebooklib`, `beautifulsoup4`,
+`langdetect`, and (since v0.5.1) the optional non-cryptographic `xxhash`
+backend used by the simhash digest. They are optional because plain text
++ Markdown work without any of them. Importing the module does not pull
+these in unless the matching extractor is exercised; `xxhash`'s absence
+silently falls back to `hashlib.blake2b`.
 
 OCR is **out of scope.** Scanned PDFs without a text layer surface a warning
 and produce zero chunks; pre-process them with Tesseract or AWS Textract

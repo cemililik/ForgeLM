@@ -1353,11 +1353,24 @@ def _split_has_findings(info: Dict[str, Any]) -> bool:
 
 
 def _render_split_block(split_name: str, info: Dict[str, Any]) -> List[str]:
-    """Operator-friendly rendering of one split's metrics. One concern per call."""
+    """Operator-friendly rendering of one split's metrics. One concern per call.
+
+    JSONL hygiene counters (``parse_errors``, ``decode_errors``,
+    ``non_object_rows``) are surfaced **before** the body metrics so a
+    malformed split is flagged at the top of the block — :func:`_split_has_findings`
+    promotes splits that carry any of these, and the operator should see the
+    reason ahead of length/PII/etc. lines that follow.
+    """
     block: List[str] = [f"  └─ {split_name}: n={info.get('sample_count', 0)}"]
     if "error" in info:
         block.append(f"     ERROR        : {info['error']}")
         return block
+    if info.get("parse_errors"):
+        block.append(f"     parse errors    : {info['parse_errors']} (malformed JSONL line(s) skipped)")
+    if info.get("decode_errors"):
+        block.append(f"     decode errors   : {info['decode_errors']} (non-UTF-8 byte(s) replaced with U+FFFD)")
+    if info.get("non_object_rows"):
+        block.append(f"     non-object rows : {info['non_object_rows']} (valid JSON but not a dict)")
     text_len = info.get("text_length") or {}
     if text_len:
         block.append(

@@ -30,6 +30,22 @@ _PUBLIC_EXIT_CODES = frozenset(
 )
 
 
+def _non_negative_int(value: str) -> int:
+    """argparse type for flags that must be ≥ 0 (e.g. --near-dup-threshold).
+
+    Raising :class:`argparse.ArgumentTypeError` lets argparse render a
+    standard "invalid value" error and exit through its usual path,
+    without us having to thread parser.error() into every call site.
+    """
+    try:
+        ivalue = int(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(f"invalid integer: {value!r}") from exc
+    if ivalue < 0:
+        raise argparse.ArgumentTypeError(f"value must be ≥ 0, got {ivalue}")
+    return ivalue
+
+
 def _get_version() -> str:
     try:
         return pkg_version("forgelm")
@@ -344,7 +360,12 @@ def _add_audit_subcommand(subparsers) -> None:
     p.add_argument(
         "--output",
         type=str,
-        default="./audit",
+        # default=SUPPRESS keeps the attribute off ``args`` when the operator
+        # doesn't pass --output, so the top-level ``--output`` (default=None)
+        # wins and ``_run_data_audit`` applies its own "./audit" fallback.
+        # Without SUPPRESS the subparser default would silently overwrite a
+        # top-level value when both forms are valid.
+        default=argparse.SUPPRESS,
         metavar="DIR",
         help="Where to write data_audit_report.json (default: ./audit/, created if missing).",
     )
@@ -359,12 +380,13 @@ def _add_audit_subcommand(subparsers) -> None:
     )
     p.add_argument(
         "--near-dup-threshold",
-        type=int,
+        type=_non_negative_int,
         default=None,
         metavar="N",
         help=(
             "Hamming-distance cutoff for the simhash near-duplicate detector. Default 3 (≈95%% "
-            "similarity). Higher values widen the recall window at the cost of more false positives."
+            "similarity). Higher values widen the recall window at the cost of more false positives. "
+            "Must be ≥ 0; negative values exit with a CLI argument error."
         ),
     )
     _add_common_subparser_flags(p, include_output_format=True)
@@ -1187,7 +1209,14 @@ def _run_ingest_cmd(args, output_format: str) -> None:
             overlap_tokens=getattr(args, "overlap_tokens", 0),
             tokenizer=getattr(args, "tokenizer", None),
         )
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, ValueError, PermissionError, IsADirectoryError, OSError) as exc:
+        # FileNotFoundError / PermissionError / IsADirectoryError are all
+        # OSError subclasses, but listed explicitly so the error class is
+        # visible to readers; OSError covers ENOSPC, broken-symlink walk
+        # failures, and locked-file open() errors that would otherwise leak
+        # through with a confusing traceback. ValueError stays first because
+        # ingest_path raises it for invalid chunking parameters before any
+        # filesystem access.
         if output_format == "json":
             print(json.dumps({"success": False, "error": str(exc)}))
         else:
@@ -1291,10 +1320,17 @@ def _run_data_audit(
 
 
 def _run_audit_cmd(args, output_format: str) -> None:
-    """Phase 11.5 dispatch for the new ``forgelm audit PATH`` subcommand."""
+    """Phase 11.5 dispatch for the new ``forgelm audit PATH`` subcommand.
+
+    The audit subparser uses ``argparse.SUPPRESS`` for ``--output``, so when
+    the operator doesn't pass it the attribute is missing from ``args`` and
+    ``getattr(..., None)`` lets the top-level ``--output`` (default=None) win.
+    ``_run_data_audit`` applies the canonical ``./audit`` fallback when both
+    end up None.
+    """
     _run_data_audit(
         args.input_path,
-        args.output,
+        getattr(args, "output", None),
         output_format,
         verbose=getattr(args, "verbose", False),
         near_dup_threshold=getattr(args, "near_dup_threshold", None),

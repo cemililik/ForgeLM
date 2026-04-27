@@ -16,7 +16,11 @@ from forgelm import ingestion, wizard
 
 
 def test_wizard_extensions_match_ingestion() -> None:
-    assert set(wizard._INGEST_SUPPORTED_EXTENSIONS) == set(ingestion.SUPPORTED_EXTENSIONS), (
+    # Verbatim sequence equality (not set equality): catches both ordering
+    # drift (e.g., ".pdf" moved after ".txt") and accidental duplicates
+    # ("." . pdf" listed twice). Both tuples are intentionally tuples of
+    # str so == compares element-by-element in order.
+    assert wizard._INGEST_SUPPORTED_EXTENSIONS == ingestion.SUPPORTED_EXTENSIONS, (
         "forgelm.wizard._INGEST_SUPPORTED_EXTENSIONS drifted from "
         "forgelm.ingestion.SUPPORTED_EXTENSIONS — keep them in sync or "
         "import directly."
