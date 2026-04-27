@@ -1,5 +1,6 @@
 # ForgeLM
 
+[![PyPI](https://img.shields.io/pypi/v/forgelm.svg)](https://pypi.org/project/forgelm/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/cemililik/ForgeLM/actions/workflows/ci.yml/badge.svg)](https://github.com/cemililik/ForgeLM/actions/workflows/ci.yml)
@@ -25,6 +26,12 @@
 - **Safety Evaluation**: Llama Guard classifier with confidence-weighted scoring, S1-S14 harm categories, severity levels, cross-run trend tracking, and auto-revert
 - **LLM-as-Judge**: API-based (OpenAI) or local model scoring for quality assessment
 - **Auto-Revert**: Automatically discard models that fail loss, benchmark, or safety thresholds
+
+### Document Ingestion & Data Audit (v0.5.0)
+- **Multi-Format Ingestion**: `forgelm ingest ./policies/ --recursive --output data/policies.jsonl` — turns raw PDF / DOCX / EPUB / TXT / Markdown into the SFT-ready JSONL the trainer accepts. Optional dep: `pip install forgelm[ingestion]`.
+- **Chunking Strategies**: `paragraph` (default; preserves boundaries) or `sliding` (fixed window with overlap).
+- **PII Masking on Ingest**: `--pii-mask` redacts emails, phones, credit cards (Luhn-validated), IBAN, and national IDs (TR / DE / FR / US-SSN) before chunks land in the JSONL.
+- **Dataset Audit**: `forgelm --data-audit data/sft.jsonl --output ./audit/` — produces `data_audit_report.json` with sample count, length distribution, top-3 language detection, simhash near-duplicate rate, cross-split leakage check, null/empty rate, and PII flag counts. CPU-only; feeds EU AI Act Article 10 governance artifact automatically when present at training time.
 
 ### Quickstart Layer (v0.4.5)
 - **One-Command Templates**: `forgelm quickstart customer-support` — bundled templates for SFT, code, BYOD domain expert, Turkish medical Q&A, and GRPO math reasoning. Auto-downsizes models on small GPUs.
@@ -63,6 +70,11 @@ forgelm quickstart customer-support           # render config + train + chat
 forgelm quickstart code-assistant --dry-run   # render config only
 forgelm quickstart medical-qa-tr --model your-org/your-model  # override
 
+# Have raw docs? Ingest them first (v0.5.0+)
+pip install -e ".[ingestion]"
+forgelm ingest ./policies/ --recursive --output data/policies.jsonl
+forgelm --data-audit data/policies.jsonl --output ./audit/
+
 # Or generate config interactively
 forgelm --wizard
 
@@ -90,6 +102,8 @@ See the [Quick Start Guide](docs/guides/quickstart.md) for a complete walkthroug
 | Guide | Description |
 |-------|-------------|
 | [Quick Start](docs/guides/quickstart.md) | First fine-tuned model in 5 minutes |
+| [Document Ingestion](docs/guides/ingestion.md) ([Türkçe](docs/guides/ingestion-tr.md)) | Raw PDF/DOCX/EPUB → SFT-ready JSONL |
+| [Dataset Audit](docs/guides/data_audit.md) ([Türkçe](docs/guides/data_audit-tr.md)) | Length, language, dedup, cross-split leakage, PII |
 | [Alignment (DPO/SimPO/KTO/GRPO)](docs/guides/alignment.md) | Complete post-training stack |
 | [CI/CD Pipeline Integration](docs/guides/cicd_pipeline.md) | GitHub Actions, GitLab CI, Docker |
 | [Enterprise Deployment](docs/guides/enterprise_deployment.md) | Docker, air-gapped, multi-GPU |
@@ -108,11 +122,24 @@ See the [Quick Start Guide](docs/guides/quickstart.md) for a complete walkthroug
 
 ## Notebooks
 
+Each notebook is runnable in Colab with a free T4 GPU.
+
+**Getting started**
 - [Quick Start — SFT Fine-Tuning](notebooks/quickstart_sft.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/quickstart_sft.ipynb)
+
+**Alignment methods** (post-SFT preference / RL)
 - [DPO Preference Alignment](notebooks/dpo_alignment.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/dpo_alignment.ipynb)
 - [KTO Binary Feedback](notebooks/kto_binary_feedback.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/kto_binary_feedback.ipynb)
 - [GRPO Reasoning RL](notebooks/grpo_reasoning.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/grpo_reasoning.ipynb)
-- [Multi-Dataset Training](notebooks/multi_dataset.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/multi_dataset.ipynb)
+
+**Advanced training**
+- [Multi-Dataset Training](notebooks/multi_dataset.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/multi_dataset.ipynb) — mix multiple datasets with configurable ratios.
+- [GaLore Memory Optimization](notebooks/galore_memory_optimization.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/galore_memory_optimization.ipynb) — full-parameter training via gradient low-rank projection (LoRA alternative).
+- [Synthetic Data Pipeline](notebooks/synthetic_data_training.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/synthetic_data_training.ipynb) — teacher-to-student distillation (API / local / pre-generated backends).
+
+**Post-training & safety**
+- [Post-Training Workflow](notebooks/post_training_workflow.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/post_training_workflow.ipynb) — end-to-end Phase 10 toolchain: `--fit-check` → `chat` → `export` (GGUF) → `deploy`.
+- [Safety Evaluation & Red-Teaming](notebooks/safety_evaluation.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/safety_evaluation.ipynb) — 140 adversarial prompts × 6 categories (Llama Guard).
 
 ---
 
@@ -137,6 +164,9 @@ pip install -e ".[eval]"         # lm-evaluation-harness benchmarks
 pip install -e ".[tracking]"     # W&B experiment tracking
 pip install -e ".[distributed]"  # DeepSpeed multi-GPU
 pip install -e ".[merging]"      # mergekit model merging
+pip install -e ".[ingestion]"    # PDF/DOCX/EPUB → JSONL + langdetect
+pip install -e ".[export]"       # GGUF export via llama-cpp-python
+pip install -e ".[chat]"         # Rich terminal rendering for `forgelm chat`
 pip install -e ".[dev]"          # pytest, ruff (development)
 ```
 
@@ -208,7 +238,7 @@ forgelm/
 
 configs/deepspeed/   # ZeRO-2, ZeRO-3, ZeRO-3+Offload presets
 notebooks/           # Colab-ready Jupyter notebooks
-tests/               # 430 passed (+34 skipped) across 30 test files
+tests/               # pytest suite spanning every module (run with `pytest tests/`)
 docs/guides/         # Quickstart, alignment, CI/CD, enterprise, safety guides
 ```
 

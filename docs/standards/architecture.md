@@ -68,7 +68,7 @@ graph TB
     CLI --> SYNTH
 ```
 
-Seventeen single-file modules. **No sub-packages inside `forgelm/`.** If a module grows past ~1000 lines and has cohesive subsections, split into `module_name/` package, but keep the public API at `forgelm.module_name.X` so imports don't break.
+Single-file modules — count tracks the table above (≈25 today across Phase 1-11). **No sub-packages inside `forgelm/`.** If a module grows past ~1000 lines and has cohesive subsections, split into `module_name/` package, but keep the public API at `forgelm.module_name.X` so imports don't break.
 
 ## Principles
 
@@ -90,6 +90,8 @@ Seventeen single-file modules. **No sub-packages inside `forgelm/`.** If a modul
 | `model_card.py` | HF-compatible README generation | Running the model |
 | `merging.py` | TIES/DARE/SLERP/linear | Training |
 | `synthetic.py` | Teacher-student distillation | General generation helpers |
+| `ingestion.py` | Raw docs (PDF/DOCX/EPUB/TXT) → SFT-ready JSONL; chunking strategies | Audit logic; trainer dispatch |
+| `data_audit.py` | Dataset quality + governance audit (length, language, simhash dedup, cross-split leakage, PII regex) | Ingestion logic; trainer dispatch |
 | `results.py` | `TrainResult` dataclass | Anything else |
 | `utils.py` | HF auth + tiny cross-cutting helpers | Business logic |
 
@@ -168,6 +170,9 @@ From [`pyproject.toml`](../../pyproject.toml):
 | `tracking` | Weights & Biases | Any |
 | `distributed` | DeepSpeed | Linux only |
 | `merging` | mergekit | Any |
+| `ingestion` | pypdf, python-docx, ebooklib, beautifulsoup4, langdetect | Any |
+| `export` | llama-cpp-python (GGUF conversion) | Linux/macOS |
+| `chat` | rich (terminal rendering) | Any |
 | `dev` | pytest, ruff | Any (contributors) |
 
 **The core install must work on all three OSes (Linux/macOS/Windows) with no Linux-only deps.** CI enforces this by running Linux + macOS matrix.

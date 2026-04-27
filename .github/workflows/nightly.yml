@@ -71,6 +71,20 @@ jobs:
             forgelm --config "/tmp/qs-$tpl.yaml" --dry-run
           done
 
+      - name: Ingestion + audit smoke test (Phase 11)
+        run: |
+          # Minimal end-to-end: TXT in → JSONL out → audit report out.
+          # Plain TXT path doesn't need the [ingestion] extra; the audit
+          # module is pure stdlib. Catches CLI wiring drift without paying
+          # for pypdf / langdetect installs.
+          mkdir -p /tmp/p11
+          echo "Article 10 governs data quality." > /tmp/p11/sample.txt
+          echo "Section two: representativeness, traceability, bias review." > /tmp/p11/sample2.txt
+          forgelm ingest /tmp/p11/ --recursive --output /tmp/p11/out.jsonl
+          test -s /tmp/p11/out.jsonl
+          forgelm --data-audit /tmp/p11/out.jsonl --output /tmp/p11/audit/
+          test -s /tmp/p11/audit/data_audit_report.json
+
   wheel-install-smoke:
     # ------------------------------------------------------------------
     # This is the only test that catches package_data globs being broken

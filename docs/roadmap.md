@@ -9,17 +9,19 @@
 | ✅ Done | [Phase 1-9](roadmap/completed-phases.md) | SOTA upgrades, evaluation, reliability, enterprise integration, ecosystem, alignment stack, safety, EU AI Act compliance (Articles 9-17 + Annex IV), advanced safety intelligence |
 | ✅ Done | [Phase 10 — Post-Training Completion](roadmap/phase-10-post-training.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — shipped `v0.4.0` |
 | ✅ Done | [Phase 10.5 — Quickstart Layer & Onboarding](roadmap/phase-12-quickstart.md) | `forgelm quickstart <template>`, 5 bundled templates with seed datasets — shipped `v0.4.5` |
-| 📋 Planned | [Phase 11 — Document Ingestion & Data Audit](roadmap/phase-11-data-ingestion.md) | PDF/DOCX/EPUB → JSONL, PII detection, near-duplicate audit → `v0.5.0` |
+| ✅ Done | [Phase 11 — Document Ingestion & Data Audit](roadmap/phase-11-data-ingestion.md) | `forgelm ingest`, `forgelm --data-audit`, PII regex + simhash dedup — landed for `v0.5.0` |
 | 📋 Planned | [Phase 13 — Pro CLI & Observability Dashboard](roadmap/phase-13-pro-cli.md) | License-gated dashboard, HPO, scheduled jobs, team config store → `v0.6.0-pro` |
 | 📋 Planned | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO chained config, pipeline provenance artifacts → `v0.5.1` |
 
-**Latest release on PyPI:** `v0.4.0` — Post-Training Completion (published 2026-04-26). Inference primitives, interactive chat REPL, GGUF export, VRAM fit advisor, and deployment config generation.
+**Latest release on PyPI:** `v0.4.5` — Quickstart Layer (published 2026-04-26). One-command bundled templates: `forgelm quickstart customer-support`. Auto-downsizes models on small GPUs, generates a config that the existing trainer accepts unchanged.
 
-**Merged to main, tag + PyPI publish pending:** `v0.4.5` — Quickstart Layer (one-command bundled templates: `forgelm quickstart customer-support`). Auto-downsizes models on small GPUs, generates a config that the existing trainer accepts unchanged. Landed via PR #9 (2026-04-26); the `v0.4.5` git tag and PyPI upload are the remaining release-engineering steps.
+**Merged on `development`, tag + PyPI publish pending:** `v0.5.0` — Document Ingestion & Data Audit (Phase 11). `forgelm ingest` turns raw PDF/DOCX/EPUB/TXT into SFT-ready JSONL; `forgelm --data-audit` produces a CPU-only dataset quality report (length distribution, near-duplicate detection, cross-split leakage, PII flags) that feeds the EU AI Act Article 10 governance artifact automatically.
 
-**Current milestone:** `v0.5.0` — Document Ingestion & Data Audit (Phase 11). PDF/DOCX/EPUB → JSONL, PII detection, near-duplicate audit.
+**Previous:** `v0.4.0` — Post-Training Completion (2026-04-26). Inference primitives, interactive chat REPL, GGUF export, VRAM fit advisor, and deployment config generation.
 
-**Current state:** 13 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5) complete. 3 phases (11, 13, 14) planned. Target `v0.5.0` release: Phase 11. Target `v0.5.1`: Phase 14.
+**Current milestone:** `v0.5.1` — Multi-Stage Pipeline Chains (Phase 14). SFT → DPO → GRPO chained config, pipeline provenance artifacts.
+
+**Current state:** 14 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11) complete. 2 phases (13, 14) planned. Target `v0.5.1`: Phase 14. `v0.6.0-pro` (Phase 13) gated on adoption metrics.
 
 ## Quick summary of what's planned
 
@@ -39,7 +41,7 @@ graph LR
 
     style P10 fill:#003300,stroke:#00ff88
     style P105 fill:#003300,stroke:#00ff88
-    style P11 fill:#002244,stroke:#00aaff
+    style P11 fill:#003300,stroke:#00ff88
     style P13 fill:#442200,stroke:#ffaa00
     style P14 fill:#002244,stroke:#00aaff
 ```
@@ -60,8 +62,9 @@ docs/
 └── roadmap/
     ├── completed-phases.md                     # Phase 1-10 archive (detailed)
     ├── phase-10-post-training.md               # Completed — v0.4.0
-    ├── phase-11-data-ingestion.md              # Planned — v0.5.0
-    ├── phase-12-quickstart.md                  # Done (Phase 10.5) — merged to main as v0.4.5; tag + PyPI publish pending
+    ├── phase-11-data-ingestion.md              # Done (Phase 11) — landed for v0.5.0; tag + PyPI publish pending
+    ├── phase-11-5-backlog.md                   # Phase 11.5 follow-up backlog (LSH index, streaming reader, OCR docs, …)
+    ├── phase-12-quickstart.md                  # Done (Phase 10.5) — shipped as v0.4.5
     ├── phase-13-pro-cli.md                     # Planned — v0.6.0-pro (gated)
     ├── phase-14-pipeline-chains.md             # Planned — v0.5.1
     ├── releases.md                             # v0.3.0 → v0.6.0 release notes

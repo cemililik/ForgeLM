@@ -84,6 +84,22 @@ data:
   dataset_name_or_path: "timdettmers/openassistant-guanaco"  # or your dataset
 ```
 
+### Option C: I have raw documents (PDFs / DOCX / EPUBs), not JSONL
+
+Run the Phase 11 ingestion + audit pipeline first, then point any of the
+options above at the resulting JSONL:
+
+```bash
+pip install -e ".[ingestion]"
+forgelm ingest ./policies/ --recursive --output data/policies.jsonl
+forgelm --data-audit data/policies.jsonl --output ./audit/
+# Now `data/policies.jsonl` is ready to plug into a config.
+```
+
+See the [Document Ingestion Guide](ingestion.md) and [Dataset Audit
+Guide](data_audit.md) for chunking strategies, PII masking, and the
+governance signals the audit surfaces.
+
 ## 3. Validate (Dry Run)
 
 ```bash
@@ -269,3 +285,11 @@ synthetic:
 - [Enterprise Deployment](enterprise_deployment.md) — Docker, offline, multi-GPU
 - [Safety & Compliance](safety_compliance.md) — EU AI Act, safety evaluation
 - [Troubleshooting](troubleshooting.md) — common issues and solutions
+
+### Runnable notebooks (Colab)
+
+- [Quick Start — SFT](../../notebooks/quickstart_sft.ipynb)
+- [Post-Training Workflow](../../notebooks/post_training_workflow.ipynb) — `--fit-check` → `chat` → `export` → `deploy`
+- [Multi-Dataset Training](../../notebooks/multi_dataset.ipynb), [GaLore Memory Optimization](../../notebooks/galore_memory_optimization.ipynb), [Synthetic Data Pipeline](../../notebooks/synthetic_data_training.ipynb)
+- [Safety Evaluation & Red-Teaming](../../notebooks/safety_evaluation.ipynb)
+- Alignment: [DPO](../../notebooks/dpo_alignment.ipynb), [KTO](../../notebooks/kto_binary_feedback.ipynb), [GRPO](../../notebooks/grpo_reasoning.ipynb)

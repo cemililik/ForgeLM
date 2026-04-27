@@ -129,6 +129,44 @@ forgelm --config my_config.yaml --generate-data
 
 This uses the `synthetic` config section to generate training data from a teacher model before training begins. See the [Configuration Guide](configuration.md) for all synthetic data options.
 
+### Document Ingestion (v0.5.0+)
+
+Convert raw PDF / DOCX / EPUB / TXT / Markdown into SFT-ready JSONL. Optional dep: `pip install forgelm[ingestion]`. See [Ingestion Guide](../guides/ingestion.md).
+
+```bash
+# Single file
+forgelm ingest ./book.epub --output data/sft.jsonl
+
+# Recursive directory walk + paragraph chunking
+forgelm ingest ./policies/ --recursive --output data/policies.jsonl
+
+# Sliding window with overlap (long technical docs)
+forgelm ingest ./scan.pdf --strategy sliding --chunk-size 1024 --overlap 128 \
+  --output data/scan.jsonl
+
+# Mask PII before writing
+forgelm ingest ./customer_emails/ --pii-mask --output data/anon.jsonl
+```
+
+### Dataset Audit (v0.5.0+)
+
+CPU-only quality + governance audit. Produces `data_audit_report.json`. See [Audit Guide](../guides/data_audit.md).
+
+```bash
+# Single split
+forgelm --data-audit data/sft.jsonl --output ./audit/
+
+# Multi-split directory (train.jsonl / validation.jsonl / test.jsonl)
+forgelm --data-audit data/ --output ./audit/
+
+# Machine-readable summary on stdout
+forgelm --data-audit data/sft.jsonl --output ./audit/ --output-format json
+```
+
+The audit captures: per-split sample count + length distribution, top-3 language detection, simhash near-duplicate rate, cross-split leakage (silent train-test overlap), PII flag counts (email / phone / Luhn-validated credit card / IBAN / TR-DE-FR-US national IDs).
+
+When `data_audit_report.json` is present in the trainer's `output_dir` at training time, its findings are inlined under the `data_audit` key of the EU AI Act Article 10 governance artifact automatically.
+
 ### Evaluation & Merging
 
 ```bash

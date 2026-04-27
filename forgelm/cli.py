@@ -8,6 +8,7 @@ import sys
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from pathlib import Path
+from typing import Optional
 
 from .config import ConfigError, ForgeConfig, load_config
 
@@ -231,6 +232,66 @@ def _add_quickstart_subcommand(subparsers) -> None:
     _add_common_subparser_flags(p, include_output_format=True)
 
 
+def _add_ingest_subcommand(subparsers) -> None:
+    p = subparsers.add_parser(
+        "ingest",
+        help="Convert raw documents (PDF / DOCX / EPUB / TXT / Markdown) into SFT-ready JSONL.",
+        description=(
+            "Walk a file or directory tree, extract text per format, chunk with the "
+            'selected strategy, and emit a {"text": ...} JSONL the trainer accepts. '
+            "OCR is out of scope — pre-process scanned PDFs externally. "
+            "Optional dependencies: pip install 'forgelm[ingestion]'."
+        ),
+    )
+    p.add_argument("input_path", help="File or directory to ingest.")
+    p.add_argument(
+        "--output",
+        type=str,
+        required=True,
+        metavar="FILE",
+        help="Destination JSONL file (parent dirs are created).",
+    )
+    p.add_argument(
+        "--chunk-size",
+        type=int,
+        default=2048,
+        metavar="N",
+        help="Soft per-chunk character cap (default: 2048).",
+    )
+    p.add_argument(
+        "--overlap",
+        type=int,
+        default=200,
+        metavar="N",
+        help="Sliding-strategy overlap window (default: 200; ignored for paragraph).",
+    )
+    p.add_argument(
+        "--strategy",
+        type=str,
+        default="paragraph",
+        choices=["sliding", "paragraph"],
+        help=(
+            "Chunking strategy (default: paragraph). 'semantic' is reserved for a "
+            "follow-up phase — it raises NotImplementedError today and is hidden "
+            "from this CLI surface to avoid runtime crashes."
+        ),
+    )
+    p.add_argument(
+        "--recursive",
+        action="store_true",
+        help=(
+            "When input_path is a directory, walk subdirectories too. "
+            "Default is shallow (top-level only) — pass --recursive to include nested files."
+        ),
+    )
+    p.add_argument(
+        "--pii-mask",
+        action="store_true",
+        help="Replace detected PII spans with [REDACTED] before writing.",
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="ForgeLM: Language Model Fine-Tuning Toolkit",
@@ -238,6 +299,7 @@ def parse_args():
         epilog=(
             "Subcommands:\n"
             "  forgelm quickstart [TEMPLATE]   Generate a config from a curated template\n"
+            "  forgelm ingest PATH             Convert raw docs (PDF/DOCX/EPUB/TXT/Markdown) → JSONL\n"
             "  forgelm chat MODEL_PATH         Interactive chat REPL\n"
             "  forgelm export MODEL_PATH       Export model to GGUF\n"
             "  forgelm deploy MODEL_PATH       Generate serving config\n"
@@ -251,6 +313,7 @@ def parse_args():
     _add_export_subcommand(subparsers)
     _add_deploy_subcommand(subparsers)
     _add_quickstart_subcommand(subparsers)
+    _add_ingest_subcommand(subparsers)
 
     # --- Top-level flags (training / config-driven mode) ---
     parser.add_argument("--config", type=str, help="Path to the YAML configuration file.")
@@ -310,6 +373,23 @@ def parse_args():
         default=None,
         metavar="OUTPUT_DIR",
         help="Export compliance artifacts (audit trail, provenance) from an existing training run.",
+    )
+    parser.add_argument(
+        "--data-audit",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Run the Phase 11 dataset audit on a JSONL file or split-keyed directory. "
+            "Writes `data_audit_report.json` under --output (default ./audit/). No training."
+        ),
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="Output directory for --data-audit / --compliance-export (default: ./audit or ./compliance).",
     )
     parser.add_argument(
         "-q",
@@ -1009,8 +1089,101 @@ def _load_quickstart_train_paths(config_path: Path) -> tuple[str, str]:
     )
 
 
+def _run_ingest_cmd(args, output_format: str) -> None:
+    """Phase 11 dispatch: raw documents → SFT-ready JSONL."""
+    from .ingestion import ingest_path, summarize_result
+
+    try:
+        result = ingest_path(
+            args.input_path,
+            output_path=args.output,
+            chunk_size=args.chunk_size,
+            overlap=args.overlap,
+            strategy=args.strategy,
+            recursive=args.recursive,
+            pii_mask=args.pii_mask,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        if output_format == "json":
+            print(json.dumps({"success": False, "error": str(exc)}))
+        else:
+            logger.error("Ingest failed: %s", exc)
+        sys.exit(EXIT_CONFIG_ERROR)
+    except ImportError as exc:
+        # Convention across subcommands (chat/export/etc.): a missing optional
+        # extra is a *runtime* failure of the dispatched feature, not a config
+        # validation failure — exit with EXIT_TRAINING_ERROR so CI/CD retry
+        # logic treats it the same way.
+        if output_format == "json":
+            print(json.dumps({"success": False, "error": str(exc)}))
+        else:
+            logger.error("%s", exc)
+        sys.exit(EXIT_TRAINING_ERROR)
+
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "output_path": str(result.output_path),
+                    "chunk_count": result.chunk_count,
+                    "files_processed": result.files_processed,
+                    "files_skipped": result.files_skipped,
+                    "total_chars": result.total_chars,
+                    "format_counts": result.format_counts,
+                    "pii_redaction_counts": result.pii_redaction_counts,
+                    "notes": result.extra_notes,
+                },
+                indent=2,
+            )
+        )
+    else:
+        print(summarize_result(result))
+
+
+def _run_data_audit(audit_input: str, output_dir: Optional[str], output_format: str) -> None:
+    """Phase 11 dispatch: dataset quality + governance audit."""
+    from .data_audit import audit_dataset, summarize_report
+
+    target = output_dir or "./audit"
+    try:
+        report = audit_dataset(audit_input, output_dir=target)
+    except OSError as exc:
+        # OSError covers FileNotFoundError / PermissionError / ENOSPC /
+        # IsADirectoryError that bubble up from _resolve_input or
+        # _read_jsonl_split when the target is unreachable BEFORE the
+        # per-split tolerance loop kicks in.
+        if output_format == "json":
+            print(json.dumps({"success": False, "error": str(exc)}))
+        else:
+            logger.error("Audit failed: %s", exc)
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    if output_format == "json":
+        # Stdout summary only — full report goes to disk under --output. A
+        # multi-split audit can grow to tens of KB of JSON which would drown
+        # downstream pipeline logs. Operators that want everything via stdout
+        # can read the file path from `report_path` and slurp it.
+        summary = {
+            "success": True,
+            "report_path": str(Path(target) / "data_audit_report.json"),
+            "generated_at": report.generated_at,
+            "source_input": report.source_input,
+            "total_samples": report.total_samples,
+            "splits": {name: info.get("sample_count", 0) for name, info in report.splits.items()},
+            "pii_summary": report.pii_summary,
+            "near_duplicate_pairs_per_split": report.near_duplicate_summary.get("pairs_per_split", {}),
+            "cross_split_leakage_pairs": list((report.cross_split_overlap.get("pairs") or {}).keys()),
+            "notes": report.notes,
+        }
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
+    else:
+        print(summarize_report(report))
+        print(f"\nReport written to: {Path(target) / 'data_audit_report.json'}")
+
+
 def _dispatch_subcommand(command: str, args) -> None:
-    """Run a Phase 10/10.5 subcommand (chat / export / deploy / quickstart) and exit."""
+    """Run a Phase 10/10.5/11 subcommand (chat / export / deploy / quickstart / ingest) and exit."""
     if command == "chat":
         # _run_chat_cmd's REPL catches KeyboardInterrupt internally for the
         # input prompt; this outer guard covers Ctrl-C during model load /
@@ -1031,6 +1204,9 @@ def _dispatch_subcommand(command: str, args) -> None:
             _run_quickstart_cmd(args, getattr(args, "output_format", "text"))
         except KeyboardInterrupt:
             pass
+        sys.exit(EXIT_SUCCESS)
+    elif command == "ingest":
+        _run_ingest_cmd(args, getattr(args, "output_format", "text"))
         sys.exit(EXIT_SUCCESS)
 
 
@@ -1174,6 +1350,16 @@ def main():
         log_level = "WARNING" if getattr(args, "quiet", False) else getattr(args, "log_level", "INFO")
         _setup_logging(log_level, json_format=json_output)
         _dispatch_subcommand(command, args)
+
+    # --data-audit operates on a JSONL file/directory only — no config needed.
+    # Run before the config-required check so operators can audit raw data
+    # without writing a YAML.
+    if getattr(args, "data_audit", None):
+        json_output = args.output_format == "json"
+        log_level = "WARNING" if args.quiet else args.log_level
+        _setup_logging(log_level, json_format=json_output)
+        _run_data_audit(args.data_audit, args.output, args.output_format)
+        sys.exit(EXIT_SUCCESS)
 
     _maybe_run_wizard(args)
 
