@@ -70,7 +70,7 @@
 - `--dry-run` validates all stages' configs before any GPU allocation.
 
 ### Delivery:
-- Target release: `v0.5.2` (after Phase 11.5 ingestion / audit polish lands).
-- No hard blockers; can start after Phase 11.5 lands.
+- Target release: `v0.5.3` (reslotted from `v0.5.2`; Phase 12 — Data Curation Maturity — now occupies `v0.5.2` as the direct continuation of the Phase 11/11.5 ingestion + audit lineage).
+- No hard blockers; can start after Phase 12 lands.
 
 ---

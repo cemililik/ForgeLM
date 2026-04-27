@@ -60,7 +60,7 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ## v0.4.5 — "Quickstart Layer" (2026-04-26)
 
-**Status:** Released — published to PyPI on 2026-04-26 ([release notes](https://github.com/cemililik/ForgeLM/releases/tag/v0.4.5)). Focus: [Phase 10.5](phase-12-quickstart.md) (Quickstart). One-command bundled templates, sample datasets, opinionated defaults — primary community growth driver.
+**Status:** Released — published to PyPI on 2026-04-26 ([release notes](https://github.com/cemililik/ForgeLM/releases/tag/v0.4.5)). Focus: [Phase 10.5](phase-10-5-quickstart.md) (Quickstart). One-command bundled templates, sample datasets, opinionated defaults — primary community growth driver.
 
 ### Features:
 1. [x] **`forgelm/quickstart.py`** — Template registry (`@dataclass(frozen=True) Template`), `auto_select_model()` GPU-aware downsizing (≥10 GB VRAM → primary model; otherwise fallback ≤2B), `run_quickstart()` end-to-end orchestrator that copies the bundled seed dataset, substitutes `model.name_or_path` and `data.dataset_name_or_path`, and writes a `configs/<template>-YYYYMMDDHHMMSS.yaml` the existing trainer accepts unchanged.
@@ -118,12 +118,29 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ---
 
-## v0.5.2 — "Pipeline Chains" (Planlandı)
+## v0.5.2 — "Data Curation Maturity" (Planned)
 
-Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. No hard blockers; starts after Phase 11.5 lands.
+**Status:** Planned. Focus: [Phase 12](phase-12-data-curation-maturity.md). Direct continuation of the Phase 11/11.5 ingestion + audit lineage — closes the four gaps surfaced by the post-`v0.5.1` competitive review (LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling).
+
+### Features:
+
+1. [ ] **MinHash LSH dedup option** — Opt-in `--dedup-method minhash --jaccard-threshold 0.85` route via `datasketch` (`[ingestion-scale]` extra) for >50K-row corpora. Default simhash + LSH banding stays untouched.
+2. [ ] **Markdown-aware splitter** — New `--strategy markdown` preserves heading hierarchy (`# H1` / `## H2`), code-block boundaries, and list-item structure; composes with token-aware mode.
+3. [ ] **Code / secrets leakage tagger** — New `secrets_summary` block in audit JSON (AWS / GCP / Azure keys, GitHub / GitLab / Slack tokens, OpenSSH / PGP headers, JWT, OpenAI keys, generic high-entropy). Ingest gains `--secrets-mask`. `[ingestion-secrets]` extra (`detect-secrets`); regex-only fallback when missing.
+4. [ ] **Heuristic quality filter** — Opt-in `--quality-filter` adds a `quality_summary` block with Gopher / C4 / RefinedWeb-style heuristics (mean-word-length, alphabetic ratio, end-of-line punctuation, repetition rate, short-paragraph ratio). ML classifiers stay deferred to Phase 13+.
+5. [ ] **DOCX / Markdown table preservation** — `_extract_docx` emits markdown table syntax instead of the current `" | "` flat join; the new markdown chunker keeps tables intact.
+6. [ ] **(Tier 2) Presidio adapter** — Optional `--pii-engine presidio` surface; `[ingestion-pii-ml]` extra. Default regex+Luhn+TC-Kimlik path stays.
+7. [ ] **(Tier 2) Croissant metadata compatibility** — Opt-in `--croissant` adds a Google Croissant-shaped subset to the audit JSON; pairs with the existing EU AI Act Article 10 governance bundle.
+8. [ ] **(Tier 3) `--all-mask` composite flag + wizard "audit first" entry point** — Skip if scope is exhausted; otherwise mirrors the Phase 11.5 ingest-first hook.
 
 ---
 
-## v0.6.0-pro — "Pro CLI" (Planlandı, gated)
+## v0.5.3 — "Pipeline Chains" (Planned)
 
-Odak: [Phase 13](phase-13-pro-cli.md). Traction doğrulamasına bağlı — `v0.5.0` için ≥1K aylık PyPI install + ≥2 ücretli destek sözleşmesi olmadan başlama.
+**Status:** Planned. Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. Reslotted from `v0.5.2` so the ingestion / audit lineage finishes uninterrupted; no hard blockers, starts after Phase 12 lands.
+
+---
+
+## v0.6.0-pro — "Pro CLI" (Planned, gated)
+
+Focus: [Phase 13](phase-13-pro-cli.md). Gated on traction validation — do not ship before `v0.5.0` reaches ≥1K monthly PyPI installs and ≥2 paying support contracts.

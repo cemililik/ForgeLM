@@ -8,11 +8,12 @@
 |-----|-----|-------|
 | ✅ Tamam | [Faz 1-9](roadmap/completed-phases.md) | SOTA iyileştirmeleri, değerlendirme, güvenilirlik, kurumsal entegrasyon, ekosistem, hizalama stack'i, güvenlik, EU AI Act uyumluluğu (Madde 9-17 + Ek IV), gelişmiş güvenlik zekası |
 | ✅ Tamam | [Faz 10 — Post-Training Tamamlama](roadmap/phase-10-post-training.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — `v0.4.0` |
-| ✅ Tamam | [Faz 10.5 — Quickstart Katmanı ve Onboarding](roadmap/phase-12-quickstart.md) | `forgelm quickstart <template>`, 5 hazır template, seed veri setleri — `v0.4.5` |
+| ✅ Tamam | [Faz 10.5 — Quickstart Katmanı ve Onboarding](roadmap/phase-10-5-quickstart.md) | `forgelm quickstart <template>`, 5 hazır template, seed veri setleri — `v0.4.5` |
 | ✅ Tamam | [Faz 11 — Doküman Yutma ve Veri Denetimi](roadmap/phase-11-data-ingestion.md) | `forgelm ingest`, `forgelm --data-audit`, PII regex + simhash dedup — `v0.5.0` çıktı |
 | ✅ Tamam | [Faz 11.5 — Yutma / Denetim Cilası](roadmap/phase-11-5-backlog.md) | LSH banding, streaming reader, `forgelm audit` subcommand, PII şiddet katmanları, wizard ingest girişi — `v0.5.1` için indi |
+| 📋 Planlandı | [Faz 12 — Veri Curation Olgunlaşması](roadmap/phase-12-data-curation-maturity.md) | MinHash LSH dedup, markdown-aware splitter, code/secrets tarama, kalite heuristic'leri, tablo yapısı koruma → `v0.5.2` |
+| 📋 Planlandı | [Faz 14 — Çok Aşamalı Pipeline Zincirleri](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO config zinciri, pipeline kaynak izleri → `v0.5.3` |
 | 📋 Planlandı | [Faz 13 — Pro CLI ve Gözlemlenebilirlik Dashboard](roadmap/phase-13-pro-cli.md) | Lisans korumalı dashboard, HPO, zamanlanmış görevler, takım config store → `v0.6.0-pro` |
-| 📋 Planlandı | [Faz 14 — Çok Aşamalı Pipeline Zincirleri](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO config zinciri, pipeline kaynak izleri → `v0.5.2` |
 
 **Development'a indi, tag + PyPI publish bekliyor:** `v0.5.1` — Yutma / Denetim Cilası (Faz 11.5). LSH bantlı near-duplicate tespiti, streaming JSONL okuyucu, token-aware chunking, PDF header/footer dedup, `forgelm audit` subcommand, PII şiddet katmanları, yapılandırılmış ingestion notları, wizard "ingest first" girişi.
 
@@ -20,9 +21,11 @@
 
 **Daha öncesi:** `v0.4.5` — Quickstart Katmanı (2026-04-26). Tek komutla hazır template'ler: `forgelm quickstart customer-support`. `v0.4.0` — Post-Training Tamamlama (2026-04-26). Inference primitif'leri, etkileşimli chat REPL, GGUF export, VRAM fit advisor, deployment config üretimi.
 
-**Güncel kilometretaşı:** `v0.5.2` — Çok Aşamalı Pipeline Zincirleri (Faz 14). SFT → DPO → GRPO zincir konfigürasyonu, pipeline kaynak izleri.
+**Güncel kilometretaşı:** `v0.5.2` — Veri Curation Olgunlaşması (Faz 12). 50K+ satır corpus için MinHash LSH dedup opsiyonu, markdown-aware splitter, code/secrets sızıntı taraması, heuristic kalite filtresi, DOCX/Markdown tablo yapısı koruma. Faz 11/11.5 ingestion + audit hattının doğal devamı; `v0.5.1` sonrası rekabet analizinin yüzeylediği boşlukları kapatır.
 
-**Güncel durum:** 15 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5) tamam. 2 faz (13, 14) planlandı. `v0.5.2`: Faz 14 (Pipeline Zincirleri). `v0.6.0-pro` (Faz 13) adoption metriklerine bağlı.
+**Sonraki:** `v0.5.3` — Çok Aşamalı Pipeline Zincirleri (Faz 14). SFT → DPO → GRPO zincir konfigürasyonu, pipeline kaynak izleri. `v0.5.2`'den kaydırıldı; ingestion/audit hattı kesintisiz tamamlansın diye.
+
+**Güncel durum:** 15 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5) tamam. 3 faz (12, 13, 14) planlandı. `v0.5.2`: Faz 12. `v0.5.3`: Faz 14. `v0.6.0-pro` (Faz 13) adoption metriklerine bağlı.
 
 ## Planlanan işlerin özeti
 
@@ -32,22 +35,25 @@ graph LR
     P10 --> P11[Faz 11<br/>Veri<br/>Yutma]
     P105 --> P11
     P11 --> P115[Faz 11.5<br/>Yutma<br/>Cilası]
-    P115 --> P13[Faz 13<br/>Pro CLI<br/>+ Dashboard]
-    P115 --> P14[Faz 14<br/>Pipeline<br/>Zincirleri]
+    P115 --> P12[Faz 12<br/>Veri Curation<br/>Olgunlaşması]
+    P12 --> P14[Faz 14<br/>Pipeline<br/>Zincirleri]
+    P14 --> P13[Faz 13<br/>Pro CLI<br/>+ Dashboard]
 
     P10 -.-> V1[v0.4.0]
     P105 -.-> V15[v0.4.5]
     P11 -.-> V2[v0.5.0]
     P115 -.-> V21[v0.5.1]
-    P14 -.-> V25[v0.5.2]
+    P12 -.-> V22[v0.5.2]
+    P14 -.-> V23[v0.5.3]
     P13 -.-> V3[v0.6.0-pro]
 
     style P10 fill:#003300,stroke:#00ff88
     style P105 fill:#003300,stroke:#00ff88
     style P11 fill:#003300,stroke:#00ff88
     style P115 fill:#003300,stroke:#00ff88
-    style P13 fill:#442200,stroke:#ffaa00
+    style P12 fill:#442200,stroke:#ffaa00
     style P14 fill:#002244,stroke:#00aaff
+    style P13 fill:#442200,stroke:#ffaa00
 ```
 
 ## Yol gösterici ilkeler
@@ -66,11 +72,12 @@ docs/
 └── roadmap/
     ├── completed-phases.md                     # Faz 1-10 arşivi (detaylı, İngilizce)
     ├── phase-10-post-training.md               # Tamamlandı — v0.4.0
+    ├── phase-10-5-quickstart.md                # Tamam (Faz 10.5) — v0.4.5 olarak yayınlandı
     ├── phase-11-data-ingestion.md              # Tamam (Faz 11) — v0.5.0 olarak çıktı
     ├── phase-11-5-backlog.md                   # Tamam (Faz 11.5) — v0.5.1 için indi; ingestion/audit cilası
-    ├── phase-12-quickstart.md                  # Tamam (Faz 10.5) — v0.4.5 olarak yayınlandı
+    ├── phase-12-data-curation-maturity.md      # Planlandı — v0.5.2; MinHash LSH, markdown splitter, secrets scan
     ├── phase-13-pro-cli.md                     # Planlandı — v0.6.0-pro (gated)
-    ├── phase-14-pipeline-chains.md             # Planlandı — v0.5.2
+    ├── phase-14-pipeline-chains.md             # Planlandı — v0.5.3 (v0.5.2'den kaydırıldı)
     ├── releases.md                             # v0.3.0 → v0.6.0 sürüm notları
     └── risks-and-decisions.md                  # Risk matrisi, fırsatlar, rekabet analizi, karar günlüğü
 ```

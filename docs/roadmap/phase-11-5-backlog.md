@@ -82,6 +82,6 @@ suite because it is wall-clock-noisy.
 
 ## What's next
 
-`v0.5.2` (Phase 14) picks up multi-stage pipeline chains. The audit and
-ingestion surface is considered stable for the foreseeable future; any
-additional ergonomics live as small follow-ups, not as their own phase.
+`v0.5.2` ([Phase 12 — Data Curation Maturity](phase-12-data-curation-maturity.md)) is the direct continuation of this lineage: MinHash LSH dedup for >50K-row corpora, markdown-aware splitter, code/secrets leakage scan, heuristic quality filter, DOCX/Markdown table preservation. Driven by the post-`v0.5.1` competitive review that compared ForgeLM's ingestion + audit against LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling.
+
+`v0.5.3` ([Phase 14 — Multi-Stage Pipeline Chains](phase-14-pipeline-chains.md)) was reslotted from `v0.5.2` so the ingestion/audit lineage finishes uninterrupted before the trainer-orchestration surface gets reshaped.

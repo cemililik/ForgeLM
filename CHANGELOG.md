@@ -127,7 +127,7 @@ Operational polish on top of `v0.5.0`'s ingestion + audit surface — no new tra
 ### Documentation
 
 - New "Option 0: One-Command Quickstart Template" section at the top of `docs/guides/quickstart.md`.
-- `docs/roadmap.md`, `docs/roadmap-tr.md`, `docs/roadmap/phase-12-quickstart.md`, `docs/roadmap/releases.md` updated to mark Phase 10.5 as Done.
+- `docs/roadmap.md`, `docs/roadmap-tr.md`, `docs/roadmap/phase-10-5-quickstart.md`, `docs/roadmap/releases.md` updated to mark Phase 10.5 as Done.
 - `README.md` quickstart section updated to lead with `forgelm quickstart`.
 
 ---
