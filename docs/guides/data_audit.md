@@ -165,7 +165,7 @@ forgelm --config configs/policy-run.yaml
 
 ## CLI reference
 
-```
+```text
 forgelm --data-audit PATH \
   [--output DIR] \
   [--output-format {text,json}] \

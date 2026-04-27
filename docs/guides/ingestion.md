@@ -158,12 +158,12 @@ forgelm quickstart domain-expert --dataset data/policies.jsonl
 
 ## CLI reference
 
-```
+```text
 forgelm ingest INPUT_PATH \
   --output FILE \
   [--chunk-size N] \
   [--overlap N] \
-  [--strategy {sliding,paragraph,semantic}] \
+  [--strategy {sliding,paragraph}] \
   [--recursive] \
   [--pii-mask] \
   [--output-format {text,json}] \

@@ -58,10 +58,10 @@ class TestSlidingChunking:
     def test_overlap_preserves_context(self):
         text = "abcdefgh"
         chunks = list(_chunk_sliding(text, chunk_size=4, overlap=2))
-        # step = 2 → "abcd", "cdef", "efgh", "gh"
-        assert chunks[0] == "abcd"
-        assert chunks[1] == "cdef"
-        assert chunks[2] == "efgh"
+        # step = 2 → ["abcd", "cdef", "efgh"]. Bug 5's early-exit guard
+        # in _chunk_sliding stops once the current window covers
+        # end-of-text, so no runt "gh" trailing chunk is emitted.
+        assert chunks == ["abcd", "cdef", "efgh"]
 
     def test_overlap_must_be_less_than_chunk(self):
         with pytest.raises(ValueError, match="overlap"):

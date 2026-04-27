@@ -386,7 +386,12 @@ def ingest_path(
         input_path: File or directory to ingest.
         output_path: Where to write the ``.jsonl`` output. Parents are created.
         chunk_size: Soft size cap per chunk (characters).
-        overlap: Overlap window for the sliding strategy. Must be < ``chunk_size``.
+        overlap: Overlap window for the sliding strategy. Must satisfy
+            both ``overlap < chunk_size`` AND ``overlap <= chunk_size // 2``.
+            The half-chunk cap prevents quadratic chunk explosion: an
+            ``overlap`` of 199 with ``chunk_size`` 200 would emit roughly
+            one chunk per character. ``_chunk_sliding`` raises
+            ``ValueError`` when either bound is violated.
         strategy: One of ``sliding`` / ``paragraph`` / ``semantic``.
         recursive: When ``input_path`` is a directory, walk subdirectories too.
         pii_mask: Replace detected PII spans with ``[REDACTED]`` before writing.
