@@ -6,7 +6,10 @@ governance ile PII sinyallerini kapsayan bir `data_audit_report.json`
 ise top-level flag'i first-class subcommand'a yükseltti, LSH-banded
 near-duplicate tespitini, streaming JSONL okuyucusunu, PII şiddet
 katmanlarını, atomik disk yazımı ve verbose-by-default kısaltma
-politikasını ekledi.
+politikasını ekledi. **Faz 12 (`v0.5.2`)** opt-in MinHash LSH dedup
+yöntemini (`--dedup-method minhash`), her zaman çalışan
+code/credential leakage taramasını (`secrets_summary`), ve opt-in
+heuristic kalite filtresini (`--quality-filter`) ekledi.
 
 Trainer'ın `output_dir`'ünde mevcutsa, rapor EU AI Act Madde 10 veri
 governance artifact'ına otomatik olarak beslenir.
@@ -25,8 +28,15 @@ forgelm audit data/ --output ./audit/
 # Bulgu olmayan split'leri de göster
 forgelm audit data/ --verbose
 
-# Daha geniş / dar near-duplicate eşiği
+# Daha geniş / dar simhash near-duplicate eşiği
 forgelm audit data/ --near-dup-threshold 5
+
+# Faz 12: 50K+ satır corpus için MinHash LSH (`[ingestion-scale]` extra)
+pip install 'forgelm[ingestion-scale]'
+forgelm audit data/large_corpus.jsonl --dedup-method minhash --jaccard-threshold 0.85
+
+# Faz 12: opt-in heuristic kalite filtresi (Gopher/C4 stili)
+forgelm audit data/ --quality-filter
 ```
 
 > **Eski alias:** `forgelm --data-audit PATH` deprecation alias'ı

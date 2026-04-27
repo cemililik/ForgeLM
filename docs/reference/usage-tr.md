@@ -69,7 +69,7 @@ forgelm --config my_config.yaml --generate-data
 
 Bu komut, eğitim başlamadan önce bir öğretmen modelden eğitim verisi üretmek için `synthetic` config bölümünü kullanır. Tüm sentetik veri seçenekleri için [Konfigürasyon Rehberi](configuration-tr.md)'ne bakın.
 
-### Doküman Yutma (v0.5.0+; v0.5.1'de token-aware mod)
+### Doküman Yutma (v0.5.0+; v0.5.1 token-aware; v0.5.2 markdown + secrets-mask)
 
 Ham PDF / DOCX / EPUB / TXT / Markdown'ı SFT'ye uygun JSONL'a dönüştürür. Opsiyonel bağımlılık: `pip install forgelm[ingestion]`. Ayrıntılar için [Doküman Yutma Rehberi](../guides/ingestion-tr.md).
 
@@ -92,7 +92,7 @@ forgelm ingest ./policies/ --recursive --output data/policies.jsonl \
   --chunk-tokens 1024 --tokenizer "Qwen/Qwen2.5-7B-Instruct"
 ```
 
-### Veri Seti Denetimi (v0.5.0+; v0.5.1'de subcommand'a yükseltildi)
+### Veri Seti Denetimi (v0.5.0+; v0.5.1 subcommand; v0.5.2 MinHash + quality + secrets)
 
 CPU-only kalite + governance denetimi. `data_audit_report.json` üretir. Ayrıntılar için [Denetim Rehberi](../guides/data_audit-tr.md).
 

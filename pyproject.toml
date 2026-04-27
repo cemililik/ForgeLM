@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "forgelm"
-version = "0.5.1rc1"
+version = "0.5.2rc1"
 description = "Config-driven LLM fine-tuning with safety evaluation, EU AI Act compliance, 6 alignment methods, and one-command bundled quickstart templates."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -93,6 +93,23 @@ ingestion = [
   "beautifulsoup4>=4.12.0,<5.0.0",
   "langdetect>=1.0.9,<2.0.0",
   "xxhash>=3.0.0,<4.0.0",
+]
+
+# Phase 12: optional MinHash LSH near-duplicate detector for >50K-row corpora.
+# Default audit path stays simhash + LSH banding; this extra unlocks
+# `forgelm audit --dedup-method minhash --jaccard-threshold 0.85` for
+# operators auditing larger datasets where MinHash's recall/precision
+# trade-off is the industry standard (NeMo Curator, Dolma, RedPajama).
+ingestion-scale = [
+  "datasketch>=1.6.0,<2.0.0",
+]
+
+# Phase 12: optional code/credential leakage scanner for SFT corpora.
+# detect-secrets is the de-facto standard; without it ForgeLM falls back
+# to a regex-only set covering ~10 common patterns (AWS, GitHub, Slack,
+# OpenAI, Google, JWT, OpenSSH/PGP private-key headers).
+ingestion-secrets = [
+  "detect-secrets>=1.5.0,<2.0.0",
 ]
 
 # Phase 10: rich terminal rendering for the forgelm chat REPL.

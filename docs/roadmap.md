@@ -11,7 +11,7 @@
 | ✅ Done | [Phase 10.5 — Quickstart Layer & Onboarding](roadmap/phase-10-5-quickstart.md) | `forgelm quickstart <template>`, 5 bundled templates with seed datasets — shipped `v0.4.5` |
 | ✅ Done | [Phase 11 — Document Ingestion & Data Audit](roadmap/phase-11-data-ingestion.md) | `forgelm ingest`, `forgelm --data-audit`, PII regex + simhash dedup — shipped `v0.5.0` |
 | ✅ Done | [Phase 11.5 — Ingestion / Audit Polish](roadmap/phase-11-5-backlog.md) | LSH banding, streaming reader, `forgelm audit` subcommand, PII severity tiers, wizard ingest path — landed for `v0.5.1` |
-| 📋 Planned | [Phase 12 — Data Curation Maturity](roadmap/phase-12-data-curation-maturity.md) | MinHash LSH dedup, markdown-aware splitter, code/secrets scan, quality heuristics, table preservation → `v0.5.2` |
+| ✅ Done | [Phase 12 — Data Curation Maturity](roadmap/phase-12-data-curation-maturity.md) | MinHash LSH dedup, markdown-aware splitter, code/secrets scan, quality heuristics, table preservation — Tier 1 landed for `v0.5.2`; Tier 2/3 deferred to [Phase 12.5 backlog](roadmap/phase-12-5-backlog.md) |
 | 📋 Planned | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO chained config, pipeline provenance artifacts → `v0.5.3` |
 | 📋 Planned | [Phase 13 — Pro CLI & Observability Dashboard](roadmap/phase-13-pro-cli.md) | License-gated dashboard, HPO, scheduled jobs, team config store → `v0.6.0-pro` |
 
@@ -21,11 +21,11 @@
 
 **Earlier:** `v0.4.5` — Quickstart Layer (2026-04-26). One-command bundled templates: `forgelm quickstart customer-support`. Auto-downsizes models on small GPUs, generates a config that the existing trainer accepts unchanged. `v0.4.0` — Post-Training Completion (2026-04-26). Inference primitives, interactive chat REPL, GGUF export, VRAM fit advisor, deployment config generation.
 
-**Current milestone:** `v0.5.2` — Data Curation Maturity (Phase 12). MinHash LSH dedup option for >50K-row corpora, markdown-aware splitter, code/secrets leakage scan, heuristic quality filter, DOCX/Markdown table preservation. Direct continuation of the Phase 11/11.5 ingestion + audit lineage; closes the gaps surfaced by the post-`v0.5.1` competitive review.
+**Merged on `development`, tag + PyPI publish pending:** `v0.5.2` — Data Curation Maturity (Phase 12). MinHash LSH dedup option for >50K-row corpora (`[ingestion-scale]` extra), markdown-aware splitter, code/secrets leakage scan + ingest-side `--secrets-mask` (`[ingestion-secrets]` extra), heuristic quality filter, DOCX/Markdown table preservation. Direct continuation of the Phase 11/11.5 ingestion + audit lineage; closes the gaps surfaced by the post-`v0.5.1` competitive review. Tier 2/3 follow-ups (Presidio adapter, Croissant metadata, `--all-mask`, wizard "audit first") deferred to [Phase 12.5 backlog](roadmap/phase-12-5-backlog.md).
 
-**Next:** `v0.5.3` — Multi-Stage Pipeline Chains (Phase 14). SFT → DPO → GRPO chained config, pipeline provenance artifacts. Reslotted from `v0.5.2` so the ingestion/audit lineage finishes uninterrupted.
+**Next:** `v0.5.3` — Multi-Stage Pipeline Chains (Phase 14). SFT → DPO → GRPO chained config, pipeline provenance artifacts. Starts after Phase 12 lands.
 
-**Current state:** 15 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5) complete. 3 phases (12, 13, 14) planned. `v0.5.2`: Phase 12. `v0.5.3`: Phase 14. `v0.6.0-pro` (Phase 13) gated on adoption metrics.
+**Current state:** 16 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12) complete. 2 phases (13, 14) planned. `v0.5.3`: Phase 14. `v0.6.0-pro` (Phase 13) gated on adoption metrics.
 
 ## Quick summary of what's planned
 
@@ -51,7 +51,7 @@ graph LR
     style P105 fill:#003300,stroke:#00ff88
     style P11 fill:#003300,stroke:#00ff88
     style P115 fill:#003300,stroke:#00ff88
-    style P12 fill:#442200,stroke:#ffaa00
+    style P12 fill:#003300,stroke:#00ff88
     style P14 fill:#002244,stroke:#00aaff
     style P13 fill:#442200,stroke:#ffaa00
 ```
@@ -75,7 +75,8 @@ docs/
     ├── phase-10-5-quickstart.md                # Done (Phase 10.5) — shipped as v0.4.5
     ├── phase-11-data-ingestion.md              # Done (Phase 11) — shipped v0.5.0
     ├── phase-11-5-backlog.md                   # Done (Phase 11.5) — landed for v0.5.1; ingestion/audit polish
-    ├── phase-12-data-curation-maturity.md      # Planned — v0.5.2; MinHash LSH, markdown splitter, secrets scan
+    ├── phase-12-data-curation-maturity.md      # Done (Phase 12 Tier 1) — landed for v0.5.2; MinHash LSH, markdown splitter, secrets scan
+    ├── phase-12-5-backlog.md                   # Phase 12.5 follow-up backlog (Presidio adapter, Croissant metadata, --all-mask, wizard audit-first)
     ├── phase-13-pro-cli.md                     # Planned — v0.6.0-pro (gated)
     ├── phase-14-pipeline-chains.md             # Planned — v0.5.3 (reslotted from v0.5.2)
     ├── releases.md                             # v0.3.0 → v0.6.0 release notes

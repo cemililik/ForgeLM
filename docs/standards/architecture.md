@@ -170,7 +170,9 @@ From [`pyproject.toml`](../../pyproject.toml):
 | `tracking` | Weights & Biases | Any |
 | `distributed` | DeepSpeed | Linux only |
 | `merging` | mergekit | Any |
-| `ingestion` | pypdf, python-docx, ebooklib, beautifulsoup4, langdetect | Any |
+| `ingestion` | pypdf, python-docx, ebooklib, beautifulsoup4, langdetect, xxhash | Any |
+| `ingestion-scale` | datasketch (MinHash LSH dedup; Phase 12, opt-in) | Any |
+| `ingestion-secrets` | detect-secrets (credential leakage scanner; Phase 12, opt-in regex fallback when missing) | Any |
 | `export` | llama-cpp-python (GGUF conversion) | Linux/macOS |
 | `chat` | rich (terminal rendering) | Any |
 | `dev` | pytest, ruff | Any (contributors) |

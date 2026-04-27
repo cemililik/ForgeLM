@@ -3,7 +3,10 @@
 Ham kurumsal külliyatı (PDF / DOCX / EPUB / TXT / Markdown) ForgeLM'in
 eğittiği SFT-uyumlu JSONL'a dönüştürün. Faz 11; `v0.5.0`'da tanıtıldı.
 Faz 11.5 (`v0.5.1`) token-aware chunking, PDF sayfa header/footer dedup
-ve yapılandırılmış ingestion notları ekledi.
+ve yapılandırılmış ingestion notları ekledi. **Faz 12 (`v0.5.2`)**
+markdown-aware splitter (`--strategy markdown`), code/credential
+leakage scrubbing (`--secrets-mask`) ve DOCX tablolarının markdown
+syntax'ı ile çıkarılmasını ekledi.
 
 > Sonrasında [`forgelm audit`](data_audit-tr.md) ile uzunluk dağılımı /
 > dil / near-duplicate / PII metriklerini yüzeye çıkarın; chunk'ları Q&A

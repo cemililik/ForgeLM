@@ -60,6 +60,7 @@ preprocessing required.
 |---|---|---|
 | `paragraph` (default) | Prose, policy docs, articles | Greedy paragraph packer; never splits a paragraph mid-sentence. |
 | `sliding` | Long technical documents, code mixed with prose | Fixed-size character window with `--overlap` for context bleed. |
+| `markdown` (Phase 12) | Markdown docs, technical wikis, READMEs | Heading-aware: chunks at `# H1` / `## H2` boundaries, keeps code-fenced blocks atomic, inlines a heading breadcrumb so SFT loss sees document context. |
 
 > Semantic / embedding-based chunking is reserved for a follow-up phase — it
 > raises `NotImplementedError` today and is intentionally hidden from the CLI
@@ -96,6 +97,30 @@ forgelm ingest ./customer_emails/ --output data/anon.jsonl --pii-mask
 Detected spans are replaced with `[REDACTED]`. Detection is regex-based —
 false positives are intentional. Audit your output afterwards with
 `forgelm audit` to verify.
+
+### Secrets masking (Phase 12)
+
+Add `--secrets-mask` to scrub credentials and tokens before chunks land
+in the JSONL — fine-tuning a model on a corpus that contains a real API
+key memorises that key in the model. Detected categories: AWS access
+keys (`AKIA…`), GitHub PATs (`ghp_…` and friends), Slack tokens, OpenAI
+API keys (`sk-…` / `sk-proj-…`), Google API keys (`AIza…`), JWTs,
+OpenSSH/RSA/DSA/EC/PGP private-key block headers, Azure storage
+connection strings.
+
+```bash
+# Standalone
+forgelm ingest ./engineering_wiki/ --output data/wiki.jsonl --secrets-mask
+
+# Combined with PII masking — secrets run first, PII second so combined
+# detectors can't double-count overlapping spans
+forgelm ingest ./mixed_corpus/ --output data/clean.jsonl --secrets-mask --pii-mask
+```
+
+Detected spans are replaced with `[REDACTED-SECRET]`. Optional extra
+`pip install 'forgelm[ingestion-secrets]'` adds `detect-secrets`'s
+plugin set on top; without it the regex-only fallback covers ~10
+common patterns and an INFO log says so.
 
 ---
 
@@ -169,17 +194,18 @@ forgelm ingest INPUT_PATH \
   [--chunk-size N | --chunk-tokens N --tokenizer MODEL_NAME] \
   [--overlap N] \
   [--overlap-tokens N] \
-  [--strategy {sliding,paragraph}] \
+  [--strategy {sliding,paragraph,markdown}] \
   [--recursive] \
   [--pii-mask] \
+  [--secrets-mask] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```
 
 `--output-format json` emits a machine-readable summary to stdout (file
-paths, chunk count, format counts, notes, and `notes_structured` —
-machine-readable `{key: value}` introduced in Phase 11.5). Useful for
-CI/CD pipelines.
+paths, chunk count, format counts, notes, `notes_structured` —
+machine-readable `{key: value}` from Phase 11.5 — and `secrets_redaction_counts`
+from Phase 12). Useful for CI/CD pipelines.
 
 ### Token-aware chunking — `--chunk-tokens` (Phase 11.5)
 
@@ -210,6 +236,43 @@ flag, no opt-out beyond "send a non-PDF". Reduces audit
 documents shorter than 3 pages. The structured-notes payload reports
 `pdf_header_footer_lines_stripped` so operators can see post-hoc that
 dedup actually did work.
+
+### Markdown-aware splitter — `--strategy markdown` (Phase 12)
+
+When the input has real markdown structure (technical wikis, README
+collections, knowledge-base exports), heading-aware chunking beats
+paragraph-greedy chunking: each chunk is a coherent section starting
+with a heading, and the parent heading path is **inlined as a
+breadcrumb** at the top of each chunk so SFT loss sees the document
+context.
+
+```bash
+forgelm ingest ./engineering_wiki/ --recursive --output data/wiki.jsonl \
+  --strategy markdown --chunk-size 4000
+```
+
+Behaviour notes:
+
+- Boundaries are markdown headings (`# H1` … `###### H6`); the chunker
+  never breaks mid-section.
+- Code-fenced blocks (` ``` `) are kept atomic — never split mid-block.
+  This means a single section containing a long code listing may exceed
+  the soft cap (mirrors the paragraph strategy's "long-paragraph on
+  its own" rule).
+- Heading-shaped lines **inside** a fenced block (`# whoami`,
+  `# noqa: E402`) are not interpreted as section boundaries.
+- Composes with token-aware mode: `--strategy markdown --chunk-tokens
+  1024 --tokenizer "Qwen/Qwen2.5-7B-Instruct"`.
+
+### DOCX table preservation (Phase 12)
+
+DOCX tables now extract as **markdown table syntax** (header row +
+`---` separator + body rows) instead of the previous `" | "`-joined
+flat line. Combined with `--strategy markdown` this keeps tables
+intact across chunks. Uneven rows are right-padded with empty cells;
+all-blank rows are dropped; the first non-empty row becomes the
+header. SFT use cases where this matters: tabular Q&A, financial
+assistants, code-with-data prompts.
 
 ---
 

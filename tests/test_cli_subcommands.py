@@ -148,3 +148,39 @@ class TestAuditSubcommand:
 
         # Same on-disk product as the subcommand path.
         assert (out_dir / "data_audit_report.json").is_file()
+
+    def test_audit_quality_filter_flag(self, tmp_path):
+        # Phase 12: --quality-filter populates quality_summary.
+        data_path = tmp_path / "data.jsonl"
+        self._make_jsonl(
+            data_path,
+            [{"text": "1234567890 !@#$%^&*()"}, {"text": "fine prose passes the heuristics."}],
+        )
+        out_dir = tmp_path / "audit"
+
+        with patch(
+            "sys.argv",
+            ["forgelm", "audit", str(data_path), "--output", str(out_dir), "--quality-filter"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == EXIT_SUCCESS
+
+        with open(out_dir / "data_audit_report.json", encoding="utf-8") as fh:
+            report = json.load(fh)
+        assert "quality_summary" in report
+        assert report["quality_summary"].get("samples_flagged", 0) >= 1
+
+    def test_audit_rejects_invalid_jaccard_threshold(self, tmp_path):
+        # Phase 12: --jaccard-threshold enforces [0.0, 1.0] at parse-time.
+        data_path = tmp_path / "data.jsonl"
+        self._make_jsonl(data_path, [{"text": "alpha"}])
+
+        with patch(
+            "sys.argv",
+            ["forgelm", "audit", str(data_path), "--jaccard-threshold", "1.5"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            # argparse error → exit code 2 (its standard convention).
+            assert exc_info.value.code == 2
