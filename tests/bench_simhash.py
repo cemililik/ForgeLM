@@ -18,18 +18,17 @@ Results are written to stdout; copy the table back into
 ``docs/roadmap/phase-11-5-backlog.md`` if it has shifted materially after
 a backend / dependency / Python version change.
 
-Security note: ``random.choices`` / ``random.randint`` are used purely to
-synthesise corpus-shaped test inputs — there is no security-sensitive
-context in this script and no value derived from these calls is ever
-returned, persisted, or compared cryptographically. The ``# NOSONAR``
-suppressions on each call site annotate that explicitly so the
-SonarCloud ``python:S2245`` rule does not flag them as findings.
+The corpus generators below are **fully deterministic**: they walk
+hand-picked vocabularies and length cycles, with no PRNG involved. We
+intentionally avoid ``random`` so SonarCloud's ``python:S2245`` rule has
+nothing to flag, and so successive runs on the same hardware produce
+byte-identical inputs (bench reproducibility was the only thing the old
+``random.seed(42)`` was buying us).
 """
 
 from __future__ import annotations
 
 import hashlib
-import random
 import statistics
 import string
 import time
@@ -38,17 +37,41 @@ import xxhash  # type: ignore  # optional; only required to run this script
 
 from forgelm import data_audit as audit_mod
 
+# ---------------------------------------------------------------------------
+# Deterministic input generators — replace the previous ``random.choices``
+# pattern. Multipliers (7, 13, 31) are small primes chosen so the per-index
+# walk through ``string.ascii_lowercase`` produces a varied-looking output
+# without needing a PRNG.
+# ---------------------------------------------------------------------------
+
+
+_ALPHABET = string.ascii_lowercase
+_ALPHABET_LEN = len(_ALPHABET)
+
+
+def _det_token(idx: int, length: int) -> str:
+    """Build one ``length``-character token from ``idx`` deterministically.
+
+    Each character index walks the alphabet via a prime-step permutation,
+    so neighbouring tokens look distinct (avoids "aaa", "bbb", … runs)
+    while remaining repeatable across runs.
+    """
+    return "".join(_ALPHABET[(idx * 7 + j * 13) % _ALPHABET_LEN] for j in range(length))
+
 
 def _gen_short(n: int) -> list[str]:
-    return [
-        "".join(
-            random.choices(string.ascii_lowercase, k=random.randint(2, 6))  # NOSONAR(python:S2245)
-        )
-        for _ in range(n)
-    ]
+    """``n`` short tokens, lengths cycling 2–6 chars."""
+    return [_det_token(i, 2 + (i % 5)) for i in range(n)]
 
 
 def _gen_zipfian_english(n: int) -> list[str]:
+    """``n`` items drawn cyclically from a small English stop-word list.
+
+    The Zipfian distribution is approximated implicitly: a corpus this
+    size hashed against a 20-token vocabulary pushes the same handful of
+    digests through ``_token_digest``, which is exactly the cache-hit
+    pattern the lru_cache is meant to absorb.
+    """
     base = [
         "the",
         "of",
@@ -71,16 +94,12 @@ def _gen_zipfian_english(n: int) -> list[str]:
         "not",
         "but",
     ]
-    return random.choices(base, k=n)  # NOSONAR(python:S2245)
+    return [base[i % len(base)] for i in range(n)]
 
 
 def _gen_long(n: int) -> list[str]:
-    return [
-        "".join(
-            random.choices(string.ascii_lowercase, k=random.randint(40, 80))  # NOSONAR(python:S2245)
-        )
-        for _ in range(n)
-    ]
+    """``n`` long tokens, lengths cycling 40–80 chars."""
+    return [_det_token(i, 40 + (i * 31 % 41)) for i in range(n)]
 
 
 def _bench_raw(tokens: list[str], repeats: int = 21) -> dict:
@@ -89,7 +108,7 @@ def _bench_raw(tokens: list[str], repeats: int = 21) -> dict:
     def _xxh3() -> None:
         # Bench harness only: assigning to ``_`` documents that the
         # return value is intentionally discarded. The hashlib path
-        # below now does the same so the two loops stay symmetrical.
+        # below does the same so the two loops stay symmetrical.
         for b in encoded:
             _ = xxhash.xxh3_64(b).intdigest()
 
@@ -123,9 +142,11 @@ def _bench_compute_simhash(repeats: int = 5) -> dict:
 
     base = ["the", "of", "and", "a", "to", "in", "is", "for", "with", "on"]
     texts = []
-    for _ in range(1000):
-        n = random.randint(50, 150)  # NOSONAR(python:S2245)
-        texts.append(" ".join(random.choices(base, k=n)))  # NOSONAR(python:S2245)
+    for i in range(1000):
+        n = 50 + (i * 17 % 101)  # cycles deterministically through 50-150
+        # Deterministic stride through the base vocab so each text packs a
+        # mixed-but-repeatable token sequence.
+        texts.append(" ".join(base[(i * 3 + j) % len(base)] for j in range(n)))
 
     audit_mod._HAS_XXHASH = True
     for t in texts:
@@ -158,7 +179,6 @@ def _bench_compute_simhash(repeats: int = 5) -> dict:
 
 
 def main() -> None:
-    random.seed(42)  # NOSONAR(python:S2245) — deterministic seed for reproducible bench
     print("Raw digest microbenchmark (50K hashes per round, median of 21)")
     print("-" * 70)
     for label, gen in [
