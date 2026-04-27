@@ -59,7 +59,7 @@
 
 5. [ ] **DOCX / Markdown table preservation**
    `_extract_docx` replaces the current `" | "` flat join with markdown table syntax:
-   ```
+   ```text
    | Header 1 | Header 2 | Header 3 |
    |---|---|---|
    | Cell A1  | Cell A2  | Cell A3  |

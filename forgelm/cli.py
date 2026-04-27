@@ -312,23 +312,27 @@ def _add_ingest_subcommand(subparsers) -> None:
     )
     p.add_argument(
         "--chunk-tokens",
-        type=int,
+        type=_non_negative_int,
         default=None,
         metavar="N",
         help=(
             "Phase 11.5 token-aware mode: size each chunk to N tokens (requires --tokenizer). "
             "When set, --chunk-size is ignored. Use this when your downstream model has a hard "
-            "max_length budget — char-based chunking commonly trips it on dense corpora."
+            "max_length budget — char-based chunking commonly trips it on dense corpora. "
+            "Must be ≥ 0; 0 is still rejected at ingest_path's own positive-int check, "
+            "but negatives now exit at parse-time with a CLI argument error."
         ),
     )
     p.add_argument(
         "--overlap-tokens",
-        type=int,
+        type=_non_negative_int,
         default=0,
         metavar="N",
         help=(
             "Sliding-window overlap measured in tokens (default: 0). Same half-window cap as "
-            "--overlap. Ignored when --chunk-tokens is not set."
+            "--overlap. Must be ≥ 0; negatives exit at parse-time. "
+            "Ignored when --chunk-tokens is not set, and the paragraph strategy logs an "
+            "info note when this is non-zero (paragraph chunks don't overlap by design)."
         ),
     )
     p.add_argument(
