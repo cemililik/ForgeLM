@@ -86,10 +86,14 @@ def _strip_repeating_page_lines(pages: List[str]) -> Tuple[List[str], int]:
     Page-level headers (company watermark, document title) and footers
     (page number text, copyright line) end up as the first / last line
     of every page after :func:`_extract_pdf` and inflate near-duplicate
-    counts during the audit. We collect the first and last non-empty
-    line of each page, find lines that recur in ≥ 70 % of pages
-    (default), and pop them from the start / end of every page until
-    the run of repetitions ends.
+    counts during the audit. We iterate: at each pass we collect the
+    first and last non-empty line of every page, find lines that recur
+    in ≥ 70 % of pages (default), and pop those from the start / end of
+    every page. The pass repeats until no more lines meet the threshold,
+    so multi-line headers (e.g. ``Line 1: company name`` followed by
+    ``Line 2: CONFIDENTIAL``) are stripped fully rather than leaving the
+    second line stranded as a new "first line" that no longer matches
+    the original count.
 
     Returns:
         ``(cleaned_pages, lines_stripped)``. Caller can roll the count
@@ -103,30 +107,34 @@ def _strip_repeating_page_lines(pages: List[str]) -> Tuple[List[str], int]:
         return pages, 0
 
     page_lines: List[List[str]] = [[ln.strip() for ln in p.splitlines() if ln.strip()] for p in pages]
-
-    first_counts: Counter = Counter(lines[0] for lines in page_lines if lines)
-    last_counts: Counter = Counter(lines[-1] for lines in page_lines if lines)
-
     cutoff = max(2, int(_PDF_REPEAT_THRESHOLD * len(pages)))
-    repeating_firsts = {ln for ln, n in first_counts.items() if n >= cutoff}
-    repeating_lasts = {ln for ln, n in last_counts.items() if n >= cutoff}
+    total_stripped = 0
 
-    if not repeating_firsts and not repeating_lasts:
-        return pages, 0
+    while True:
+        first_counts: Counter = Counter(lines[0] for lines in page_lines if lines)
+        last_counts: Counter = Counter(lines[-1] for lines in page_lines if lines)
+        repeating_firsts = {ln for ln, n in first_counts.items() if n >= cutoff}
+        repeating_lasts = {ln for ln, n in last_counts.items() if n >= cutoff}
+        if not repeating_firsts and not repeating_lasts:
+            break
 
-    cleaned: List[str] = []
-    stripped = 0
-    for lines in page_lines:
-        kept = list(lines)
-        while kept and kept[0] in repeating_firsts:
-            kept.pop(0)
-            stripped += 1
-        while kept and kept[-1] in repeating_lasts:
-            kept.pop()
-            stripped += 1
-        if kept:
-            cleaned.append("\n".join(kept))
-    return cleaned, stripped
+        stripped_this_pass = 0
+        for lines in page_lines:
+            if lines and lines[0] in repeating_firsts:
+                lines.pop(0)
+                stripped_this_pass += 1
+            if lines and lines[-1] in repeating_lasts:
+                lines.pop()
+                stripped_this_pass += 1
+        if stripped_this_pass == 0:
+            # Edge case: the only repeating line was already alone on a
+            # short page, so popping it left fewer pages than ``cutoff``
+            # — break instead of looping with no work.
+            break
+        total_stripped += stripped_this_pass
+
+    cleaned = ["\n".join(lines) for lines in page_lines if lines]
+    return cleaned, total_stripped
 
 
 def _extract_pdf(path: Path, *, dedup_state: Optional[Dict[str, int]] = None) -> str:
@@ -384,6 +392,17 @@ def _chunk_paragraph_tokens(text: str, max_tokens: int, tokenizer: Any) -> Itera
     emitted chunks can't blow past ``model.max_length``. Paragraphs that
     exceed ``max_tokens`` on their own are still emitted whole — better
     than mid-sentence splits.
+
+    Paragraph mode is **non-overlapping by design**. Sliding token-overlap
+    would slice mid-paragraph and defeat the boundary-preservation
+    invariant. Use ``--strategy sliding`` (with ``--overlap-tokens``) when
+    overlap is required; the CLI logs an info note when ``overlap_tokens``
+    is set alongside ``--strategy paragraph``.
+
+    The ``"\\n\\n"`` separator is included in the budget — most BPE
+    tokenizers map it to 1–2 tokens, so a chunk packed near the cap can
+    overflow by ~tens of tokens without this accounting. ``sep_tokens``
+    is computed once via the tokenizer and added when joining.
     """
     if max_tokens <= 0:
         raise ValueError("chunk_tokens must be positive")
@@ -391,13 +410,18 @@ def _chunk_paragraph_tokens(text: str, max_tokens: int, tokenizer: Any) -> Itera
     if not paragraphs:
         return
 
+    sep_tokens = len(tokenizer.encode("\n\n", add_special_tokens=False))
+
     current: List[str] = []
     current_tokens = 0
     for para in paragraphs:
         para_tokens = len(tokenizer.encode(para, add_special_tokens=False))
-        if current_tokens + para_tokens <= max_tokens or not current:
+        # When we already have packed paragraphs, joining adds a "\n\n"
+        # which costs ``sep_tokens`` on top of the new paragraph itself.
+        cost = para_tokens + (sep_tokens if current else 0)
+        if current_tokens + cost <= max_tokens or not current:
             current.append(para)
-            current_tokens += para_tokens
+            current_tokens += cost
         else:
             yield "\n\n".join(current)
             current = [para]
@@ -556,11 +580,20 @@ def _process_one_file(
     return outcome
 
 
+DEFAULT_CHUNK_SIZE: int = 2048
+"""Public default for the character-based chunk-size cap.
+
+Exposed so the CLI default and the library default share a single source
+of truth, and so the "did the operator pass --chunk-size explicitly?"
+detection in :func:`ingest_path` is not a magic-number compare.
+"""
+
+
 def ingest_path(
     input_path: str,
     *,
     output_path: str,
-    chunk_size: int = 2048,
+    chunk_size: Optional[int] = None,
     overlap: int = 200,
     strategy: str = "paragraph",
     recursive: bool = False,
@@ -575,9 +608,12 @@ def ingest_path(
     Args:
         input_path: File or directory to ingest.
         output_path: Where to write the ``.jsonl`` output. Parents are created.
-        chunk_size: Soft size cap per chunk (characters). Ignored when
-            ``chunk_tokens`` is set (a warning is logged in that case so
-            stale CLI invocations are visible).
+        chunk_size: Soft size cap per chunk (characters). ``None`` means
+            "use the library default" (:data:`DEFAULT_CHUNK_SIZE`). When
+            ``chunk_tokens`` is set the value is ignored, and a warning is
+            logged only when the operator passed an *explicit* ``chunk_size``
+            so stale CLI invocations are visible without spamming the
+            common case.
         overlap: Overlap window for the sliding strategy in characters.
             Must satisfy both ``overlap < chunk_size`` AND
             ``overlap <= chunk_size // 2``. The half-chunk cap prevents
@@ -593,7 +629,9 @@ def ingest_path(
             a hard ``max_length`` budget and char-based sizing keeps
             tripping it.
         overlap_tokens: Sliding-window overlap measured in tokens. Same
-            half-window cap as the character-based ``overlap``.
+            half-window cap as the character-based ``overlap``. Ignored
+            when ``strategy="paragraph"`` (paragraph chunks are
+            non-overlapping by design); a warning is logged in that case.
         tokenizer: HuggingFace model name resolved via :class:`AutoTokenizer`.
             Required when ``chunk_tokens`` is set; ignored otherwise.
 
@@ -610,6 +648,9 @@ def ingest_path(
     dst = Path(output_path).expanduser().resolve()
     dst.parent.mkdir(parents=True, exist_ok=True)
 
+    chunk_size_explicit = chunk_size is not None
+    effective_chunk_size = chunk_size if chunk_size_explicit else DEFAULT_CHUNK_SIZE
+
     if pii_mask:
         # Lazy import: PII helpers live in data_audit.py; we don't want to
         # pay the audit module's import cost when masking is off.
@@ -625,13 +666,22 @@ def ingest_path(
             raise ValueError(
                 "--chunk-tokens requires --tokenizer MODEL_NAME so the audit can size chunks against the right vocab."
             )
-        if chunk_size != 2048:
+        if chunk_size_explicit:
             logger.warning(
                 "Token-aware mode active (--chunk-tokens=%d): --chunk-size=%d is ignored.",
                 chunk_tokens,
-                chunk_size,
+                effective_chunk_size,
             )
         tokenizer_obj = _load_tokenizer(tokenizer)
+    if strategy == "paragraph" and overlap_tokens > 0:
+        # Paragraph mode is intentionally non-overlapping (paragraphs are
+        # the unit of indivisibility). Surfacing this as a one-line note
+        # keeps the operator from silently losing their --overlap-tokens.
+        logger.info(
+            "--overlap-tokens=%d is ignored for strategy='paragraph' "
+            "(paragraph chunks don't overlap by design). Use --strategy sliding for token-overlap.",
+            overlap_tokens,
+        )
 
     files = list(_iter_input_files(src, recursive))
     if not files:
@@ -655,7 +705,7 @@ def ingest_path(
                 fpath,
                 out_fh,
                 strategy=strategy,
-                chunk_size=chunk_size,
+                chunk_size=effective_chunk_size,
                 overlap=overlap,
                 mask_pii=mask_pii_fn,
                 chunk_tokens=chunk_tokens,

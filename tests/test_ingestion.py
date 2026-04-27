@@ -217,10 +217,11 @@ class TestSummary:
         out = tmp_path / "out.jsonl"
         result = ingest_path(str(src), output_path=str(out), strategy="paragraph")
         rendered = summarize_result(result)
-        # Phase 11.5 promoted `forgelm --data-audit` to `forgelm audit` — the
-        # next-step hint should point at the subcommand. Accept either spelling
-        # while we ramp the deprecation, but prefer the new one.
-        assert "forgelm audit" in rendered or "data-audit" in rendered.lower()
+        # Phase 11.5: the next-step hint must point at the new `forgelm audit`
+        # subcommand. The legacy `--data-audit` flag still works (logs a
+        # deprecation notice) but new-user docs should not lead with it.
+        assert "forgelm audit" in rendered
+        assert "forgelm --data-audit" not in rendered
         assert "Output JSONL" in rendered
 
 
@@ -265,6 +266,29 @@ class TestPdfHeaderFooterDedup:
         cleaned, stripped = _strip_repeating_page_lines(pages)
         assert stripped == 0
         assert cleaned == pages
+
+    def test_multiline_header_stripped_iteratively(self):
+        """Phase 11.5 follow-up: a 2-line header should be fully stripped.
+
+        Pre-iterative version stripped only the first line; second line
+        survived because it was never in the initial ``repeating_firsts``
+        set. The iterative pass keeps stripping until no first/last line
+        crosses the threshold.
+        """
+        from forgelm.ingestion import _strip_repeating_page_lines
+
+        pages = [
+            "ACME CORP\nCONFIDENTIAL\n\nBody of page 1.",
+            "ACME CORP\nCONFIDENTIAL\n\nBody of page 2.",
+            "ACME CORP\nCONFIDENTIAL\n\nBody of page 3.",
+            "ACME CORP\nCONFIDENTIAL\n\nBody of page 4.",
+        ]
+        cleaned, stripped = _strip_repeating_page_lines(pages)
+        assert stripped == 8  # 4 pages × 2 header lines
+        for page in cleaned:
+            assert "ACME CORP" not in page
+            assert "CONFIDENTIAL" not in page
+            assert page.startswith("Body of page")
 
 
 class TestStructuredIngestionNotes:

@@ -124,6 +124,34 @@ görmeden değiştirilir. Phone, bare digit run'ları (timestamp, log line
 numarası, ISO tarih) flag'lemesin diye kasıtlı olarak `+CC` veya
 `(area)` formatına anchored.
 
+### PII şiddet katmanları (Faz 11.5)
+
+Düz `pii_summary` haritası bir compliance reviewer'a *bulgu ne kadar
+kötü?* sorusunda sıfır rehberlik veriyor. Faz 11.5 yanına bir
+`pii_severity` bloğu ekliyor:
+
+```json
+{
+  "pii_severity": {
+    "total": 25,
+    "by_tier": {"critical": 1, "high": 2, "medium": 18, "low": 4},
+    "by_type": {
+      "credit_card": {"count": 1, "tier": "critical"},
+      "tr_id":      {"count": 2, "tier": "high"},
+      "email":      {"count": 18, "tier": "medium"},
+      "phone":      {"count": 4, "tier": "low"}
+    },
+    "worst_tier": "critical"
+  }
+}
+```
+
+Tier tablosu konsensüs regülatif ağırlıklandırmadır (finansal
+kimlikler için PCI-DSS; devlet kimlikleri için GDPR Md. 9 + ENISA).
+PII şiddetine kapılayan pipeline'lar `pii_severity.worst_tier`'i
+okumalı ve `critical` / `high`'ta açık bir review olmadan yayınlamayı
+reddetmeli.
+
 ### Near-duplicate tespiti
 
 Case-fold edilmiş kelime token'ları üzerinde 64-bit simhash, Hamming
@@ -132,9 +160,27 @@ kurulumunda kullandığı eşik, bu genişlikte ≈%95 benzerlik). Hem
 **split-içi** çiftleri (`near_duplicate_pairs` per split) hem de
 yukarıdaki **cross-split** sızıntıyı ortaya çıkarır.
 
-Satır sayısında karesel; ~50K satıra kadar olan veri setlerinde
-audit-zamanı kullanım için uygun. Daha büyük külliyatlar için LSH band
-indeksi gerekecek — `v0.5.0` kapsamı dışı.
+Faz 11.5 alttaki taramayı **LSH banding**'e geçirdi: pigeonhole
+prensibi `bands = threshold + 1` seçiyor, aday çiftler herhangi bir
+band-bucket'ında çakışan satırlardan ibaret oluyor ve Hamming kontrolü
+yalnızca adaylar üzerinde çalışıyor. Recall varsayılan eşikte tam
+korunuyor; maliyet `O(n²)`'den ~`O(n × k)`'ye düşüyor (cross-split
+`_count_leaked_rows` helper'ı da aynı banded şekli kullanıyor).
+Brute-force yolu, eşik bantları 4 bitin altına düşürecek kadar yüksek
+olduğunda fallback olarak kalıyor — `find_near_duplicates` her iki
+yolda da aynı sonucu döndürüyor.
+
+Faz 11.5 simhash backend'ini de değiştirilebilir hale getirdi:
+
+- **xxhash.xxh3_64** opsiyonel `xxhash` bağımlılığı (artık
+  `forgelm[ingestion]`'ın parçası) yüklüyse per-token digest'i bu
+  sürüyor; kısa anahtarlarda BLAKE2b'ye göre Python katmanında ~%30
+  hızlandırma sağlıyor (lru_cache devreye girince end-to-end kazanç
+  daha az; backend swap'i öncelikle ileriye dönük güvence).
+- **BLAKE2b** bare install için fallback olarak kalıyor.
+- Modül seviyesinde `lru_cache(maxsize=10_000)` digest'i token
+  seviyesinde memoize ediyor — Zipfian token frekansı sayesinde küçük
+  bir cache bile bir corpus'un trafiğinin çoğunu kapsıyor.
 
 ---
 
@@ -218,7 +264,7 @@ korunuyor; davranış aynı, sadece ek bir uyarı log'lanıyor.
 | `Audit failed: ... not found or empty` | Yol mevcut değil veya `.jsonl` yok | Yolu doğrulayın; dosya veya `train.jsonl` dizin layout'u verin |
 | Dil istatistiklerinde `"unknown (install forgelm[ingestion])"` | `langdetect` yüklü değil | `pip install 'forgelm[ingestion]'` |
 | Cross-split leakage tüm satırların %100'ünü flag'liyor | Tüm split'ler aynı içeriği barındırıyor | Yeniden karıştırın; muhtemelen aynı JSONL'i her split'e kopyaladınız |
-| Büyük veri setinde `near_duplicate_pairs` çok büyük | Simhash karesel on-binlerce satırda koştu | Önce örnekleyin; LSH index desteği takip edecek |
+| Gerçek bir corpus'ta `near_duplicate_pairs` çok büyük | Gerçekten yüksek near-duplicate oranı (boilerplate / tekrarlayan başlıklar / veri seti kalite sorunu) — Faz 11.5 LSH banding eski O(n²) taramayı O(n × k) ile değiştirdi, dolayısıyla büyük çift sayısı algoritmik gürültü değil sinyaldir | `--near-dup-threshold 1` veya 0 ile yalnızca çok-yakın eşleşmeleri tutun; PDF'lerde header/footer dedup otomatik çalışır (ingestion rehberine bakın); birkaç işaretli çift inceleyip dedupe veya kabul kararı verin |
 
 ---
 

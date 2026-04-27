@@ -386,7 +386,13 @@ def _offer_ingest_for_directory(directory: Path) -> Optional[str]:
         )
         return None
 
-    out_dir = Path("data").resolve()
+    # Anchor the default JSONL path to the source corpus's parent so the
+    # generated file lives next to the inputs by default. This avoids
+    # silent surprises when ``cwd`` differs from the source directory and
+    # keeps a paired (corpus dir / corpus.jsonl) layout that operators
+    # already use. Users that want a project-rooted ``data/`` location
+    # can still type a relative path at the prompt.
+    out_dir = (resolved.parent / "data").resolve()
     default_out = out_dir / f"{resolved.name}_ingested.jsonl"
     out_path_raw = _prompt("Output JSONL path", str(default_out))
     out_path = Path(out_path_raw).expanduser().resolve()

@@ -3,8 +3,8 @@
 Convert raw enterprise corpora (PDF / DOCX / EPUB / TXT / Markdown) into the
 SFT-ready JSONL ForgeLM trains on. Phase 11; introduced in `v0.5.0`. Phase
 11.5 (`v0.5.1`) added token-aware chunking, PDF page header/footer dedup,
-and structured ingestion notes — see [Phase 11.5 deltas](#phase-115-deltas)
-for the short list.
+and structured ingestion notes — each documented inline in the relevant
+section below.
 
 > Pair with [`forgelm audit`](data_audit.md) afterwards to surface
 > length-distribution / language / near-duplicate / PII metrics, and with
@@ -93,7 +93,7 @@ forgelm ingest ./customer_emails/ --output data/anon.jsonl --pii-mask
 
 Detected spans are replaced with `[REDACTED]`. Detection is regex-based —
 false positives are intentional. Audit your output afterwards with
-`forgelm --data-audit` to verify.
+`forgelm audit` to verify.
 
 ---
 
@@ -148,7 +148,7 @@ to catch in CI logs.
 forgelm ingest ./policies/ --recursive --output data/policies.jsonl
 
 # 2. Audit (catches near-duplicates, PII, length outliers)
-forgelm --data-audit data/policies.jsonl --output ./audit/
+forgelm audit data/policies.jsonl --output ./audit/
 
 # 3. (optional) Expand to Q&A via a teacher model
 forgelm --config configs/synth.yaml --generate-data
@@ -303,7 +303,7 @@ Pre-process with `--pii-mask` after OCR, before publishing the dataset:
 ```bash
 ocrmypdf medical_scan.pdf medical_with_text.pdf --language tur+eng
 forgelm ingest medical_with_text.pdf --output data/medical.jsonl --pii-mask
-forgelm --data-audit data/medical.jsonl --output ./audit/
+forgelm audit data/medical.jsonl --output ./audit/
 ```
 
 The audit step verifies redaction worked: any remaining PII flag in

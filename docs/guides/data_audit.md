@@ -171,12 +171,19 @@ fallback when the threshold is high enough that bands shrink below
 Phase 11.5 also made the simhash backend pluggable:
 
 - **xxhash.xxh3_64** drives the per-token digest when the optional
-  `xxhash` dep is installed (now part of `forgelm[ingestion]`); it is
-  several times faster than BLAKE2b on short keys.
+  `xxhash` dep is installed (now part of `forgelm[ingestion]`). The
+  Python-level speedup is modest — a local microbenchmark on Apple
+  Silicon / Python 3.11 measured ~1.3× on the raw per-digest cost and
+  ~1.05× end-to-end inside `compute_simhash` (the `lru_cache` below
+  absorbs most repeats). The "4-10×" figure xxhash advertises refers
+  to C-level pure-hash benchmarks; Python wrapping levels the playing
+  field. The optional dep is mostly forward-compat / parity with other
+  simhash implementations, not a throughput win.
 - **BLAKE2b** is the fallback so a bare install still works.
 - A module-scope `lru_cache(maxsize=10_000)` memoises the digest at the
   token level — Zipfian token frequency means the cache covers most of
-  a corpus's traffic with a small footprint.
+  a corpus's traffic with a small footprint, which is where most of
+  the real wall-clock improvement comes from.
 
 ---
 
@@ -212,7 +219,7 @@ The recommended workflow:
 
 ```bash
 # Audit first — surfaces issues before you commit to a long training run
-forgelm --data-audit data/policies.jsonl --output ./checkpoints/policy-run/
+forgelm audit data/policies.jsonl --output ./checkpoints/policy-run/
 
 # Train (governance artifact will inline the audit)
 forgelm --config configs/policy-run.yaml
@@ -258,7 +265,7 @@ new scripts should use the subcommand.
 | `Audit failed: ... not found or empty` | Path doesn't exist or has no `.jsonl` | Verify the path; pass a file or a `train.jsonl` directory layout |
 | `"unknown (install forgelm[ingestion])"` in language stats | `langdetect` not installed | `pip install 'forgelm[ingestion]'` |
 | Cross-split leakage flags 100% of rows | All splits contain identical content | Re-shuffle; you probably copied the same JSONL into every split |
-| `near_duplicate_pairs` enormous on a large dataset | Simhash quadratic ran for tens of thousands of rows | Sample first; LSH index support is a follow-up |
+| `near_duplicate_pairs` very large on a real corpus | Genuinely high near-duplication (boilerplate / repeated headers / dataset quality issue) — Phase 11.5 LSH banding already replaces the old O(n²) scan with O(n × k), so a large pair count is signal, not algorithmic noise | Tighten with `--near-dup-threshold 1` or 0 to keep only very-close matches; for PDFs, header/footer dedup runs automatically (see ingestion guide); inspect a few flagged pairs and decide whether to dedupe or accept |
 
 ---
 

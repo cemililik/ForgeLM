@@ -34,6 +34,30 @@ for large corpora and a cleaner CLI shape.
 | **11** | Wizard "ingest first" entry point | `_offer_ingest_for_directory` + `_prompt_dataset_path_with_ingest_offer` in [`wizard.py`](../../forgelm/wizard.py) | Both BYOD quickstart and the full 8-step wizard now offer to run `ingest` inline when the typed path is a directory of raw documents. |
 | **12** | Atomic audit-report write | `_atomic_write_json` in [`data_audit.py`](../../forgelm/data_audit.py) | Writes via `tempfile.NamedTemporaryFile` + `os.replace` so a crashed audit can never leave a half-written `data_audit_report.json` on disk. |
 
+## Measured speedups (xxhash + lru_cache hot path)
+
+Local microbenchmark on Apple Silicon, Python 3.11.2, xxhash 3.7.0
+(median of 21 runs, 50 K hashes per round; end-to-end uses 1 K texts of
+50–150 Zipfian-English tokens with the cache cleared between runs):
+
+| Scenario                                | Speedup (xxh3 vs blake2b) |
+| --------------------------------------- | ------------------------- |
+| Raw digest, short keys (2–6 chars)      | 1.31×                     |
+| Raw digest, Zipfian English (~3 chars)  | 1.34×                     |
+| Raw digest, long keys (40–80 chars)     | 1.33×                     |
+| End-to-end `compute_simhash` (cache cleared) | 1.05×                |
+
+xxhash's well-known "4–10× faster than crypto hashes" figure refers to
+C-level pure-hash benchmarks; the Python wrapping (UTF-8 encode → call →
+`intdigest`) levels the field. The bigger wall-clock win in real audits
+comes from the token-level `lru_cache` — Zipfian token frequency means
+~10 K cache slots cover the vast majority of a corpus's traffic, so a
+second pass over the same corpus runs almost entirely from cache.
+
+The benchmark script is at `tests/bench_simhash.py` (run with
+`python tests/bench_simhash.py`); it is not part of the regular `pytest`
+suite because it is wall-clock-noisy.
+
 ## Behavioural deltas worth highlighting
 
 - **Default near-duplicate detection is now LSH-banded.** Behaviour at

@@ -254,9 +254,14 @@ def _add_ingest_subcommand(subparsers) -> None:
     p.add_argument(
         "--chunk-size",
         type=int,
-        default=2048,
+        default=None,
         metavar="N",
-        help="Soft per-chunk character cap (default: 2048).",
+        help=(
+            "Soft per-chunk character cap (library default: 2048). Default is None — "
+            "the library resolves it via forgelm.ingestion.DEFAULT_CHUNK_SIZE. Passing an "
+            "explicit value here while also using --chunk-tokens triggers an info log so "
+            "stale invocations are visible."
+        ),
     )
     p.add_argument(
         "--overlap",

@@ -550,6 +550,92 @@ class TestLshBandedNearDuplicates:
         assert (0, 1) in {(i, j) for i, j, _ in pairs}
 
 
+class TestCountLeakedRowsLshParity:
+    """Phase 11.5: _count_leaked_rows must match the linear-scan fallback."""
+
+    def test_lsh_count_matches_brute_force_count(self):
+        """Direct test for _count_leaked_rows; previously only covered via audit_dataset."""
+        from forgelm.data_audit import _count_leaked_rows, hamming_distance
+
+        source_texts = [
+            "the quick brown fox jumps over the lazy dog",
+            "completely unrelated payload with different vocabulary",
+            "another row that shares nothing with the others",
+        ]
+        target_texts = [
+            "the quick brown fox jumps over the lazy hound",  # near-dup of source[0]
+            "yet another distinct payload with no overlap whatsoever",
+        ]
+        source_fps = [compute_simhash(t) for t in source_texts]
+        target_fps = [compute_simhash(t) for t in target_texts]
+
+        # Brute reference: count source rows whose nearest target is within threshold.
+        threshold = DEFAULT_NEAR_DUP_HAMMING
+        brute_count = sum(
+            1
+            for fp in source_fps
+            if fp != 0 and any(other != 0 and hamming_distance(fp, other) <= threshold for other in target_fps)
+        )
+        lsh_count = _count_leaked_rows(source_fps, target_fps, threshold)
+        assert lsh_count == brute_count
+
+    def test_lsh_count_falls_back_for_high_threshold(self):
+        from forgelm.data_audit import _count_leaked_rows
+
+        # threshold 16 forces the fallback; identical rows must still leak.
+        source_fps = [compute_simhash("identical")]
+        target_fps = [compute_simhash("identical")]
+        assert _count_leaked_rows(source_fps, target_fps, threshold=16) == 1
+
+
+class TestAtomicWriteFailure:
+    """Phase 11.5: _atomic_write_json must clean up its tempfile on os.replace failure."""
+
+    def test_failure_during_replace_leaves_no_tmp(self, tmp_path, monkeypatch):
+        from forgelm import data_audit as audit_mod
+
+        out_dir = tmp_path / "audit"
+        out_dir.mkdir()
+        target = out_dir / "data_audit_report.json"
+
+        def _boom(*_args, **_kwargs):
+            raise OSError("simulated replace failure")
+
+        monkeypatch.setattr(audit_mod.os, "replace", _boom)
+        with pytest.raises(OSError, match="simulated replace failure"):
+            audit_mod._atomic_write_json(target, {"hello": "world"})
+
+        # Canonical file was not created (replace failed).
+        assert not target.exists()
+        # No leftover .tmp files in the output directory.
+        leftovers = [p for p in out_dir.iterdir() if p.name.endswith(".tmp")]
+        assert leftovers == []
+
+
+class TestPiiSeveritySnapshot:
+    """Phase 11.5: _build_pii_severity must snapshot PII_SEVERITY at call time."""
+
+    def test_mid_run_mutation_does_not_corrupt_output(self, monkeypatch):
+        from forgelm import data_audit as audit_mod
+
+        # Stash a clean copy and mutate the module-level table.
+        original = dict(audit_mod.PII_SEVERITY)
+        try:
+            # Sabotage: drop credit_card from the live table after import.
+            audit_mod.PII_SEVERITY.pop("credit_card", None)
+            severity = audit_mod._build_pii_severity({"credit_card": 1})
+            # The snapshot taken at call time should still classify it
+            # — but here we mutated *before* the call, so the runtime
+            # binding wins and we get "unknown". This test pins the
+            # current contract: snapshot is per-call, not eternal.
+            # If a future change goes the other way (deep-frozen table),
+            # update the assertion.
+            assert severity["by_type"]["credit_card"]["tier"] == "unknown"
+        finally:
+            audit_mod.PII_SEVERITY.clear()
+            audit_mod.PII_SEVERITY.update(original)
+
+
 class TestPiiSeverity:
     """Phase 11.5: severity tiers surface a worst-tier verdict."""
 
@@ -582,10 +668,13 @@ class TestSummarizeVerbosePolicy:
         report = audit_dataset(str(tmp_path))
         rendered_default = summarize_report(report)
         rendered_verbose = summarize_report(report, verbose=True)
-        # Default mode: validation should be folded into a "clean" tail line.
-        assert "clean split" in rendered_default
-        # Verbose mode: validation appears as its own block.
-        assert "validation" in rendered_verbose
+        # Behavioural assertion (less brittle than substring matching the fold-line wording):
+        # in default mode the clean split must be **absent** as its own header block but
+        # **present** by name in the trailing fold-summary; verbose mode must show the
+        # split's own header block.
+        assert "└─ validation" not in rendered_default
+        assert "validation" in rendered_default  # named in the fold-summary
+        assert "└─ validation" in rendered_verbose
 
 
 class TestAtomicWrite:

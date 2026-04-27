@@ -152,7 +152,7 @@ görülecek kadar yüksek seslidir.
 forgelm ingest ./policies/ --recursive --output data/policies.jsonl
 
 # 2. Denetim (near-duplicate'leri, PII'yi, uzunluk aykırılarını yakalar)
-forgelm --data-audit data/policies.jsonl --output ./audit/
+forgelm audit data/policies.jsonl --output ./audit/
 
 # 3. (opsiyonel) Öğretmen modelle Q&A'ya genişletme
 forgelm --config configs/synth.yaml --generate-data
@@ -306,7 +306,7 @@ OCR'dan sonra, dataset'i yayımlamadan önce `--pii-mask` ile ön işleyin:
 ```bash
 ocrmypdf medical_scan.pdf medical_with_text.pdf --language tur+eng
 forgelm ingest medical_with_text.pdf --output data/medical.jsonl --pii-mask
-forgelm --data-audit data/medical.jsonl --output ./audit/
+forgelm audit data/medical.jsonl --output ./audit/
 ```
 
 Audit adımı redaksiyonun çalıştığını doğrular: `data_audit_report.json`'da

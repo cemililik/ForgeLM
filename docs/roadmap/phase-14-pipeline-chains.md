@@ -70,7 +70,7 @@
 - `--dry-run` validates all stages' configs before any GPU allocation.
 
 ### Delivery:
-- Target release: `v0.5.1` (after Quickstart is stable)
-- No hard blockers; can start after Phase 10 lands.
+- Target release: `v0.5.2` (after Phase 11.5 ingestion / audit polish lands).
+- No hard blockers; can start after Phase 11.5 lands.
 
 ---

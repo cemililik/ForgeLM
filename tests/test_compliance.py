@@ -294,4 +294,11 @@ class TestGovernanceAuditInlining:
             report = generate_data_governance_report(config, dataset={})
         assert "data_audit" not in report
         info_msgs = [r.message for r in caplog.records if r.levelname == "INFO"]
-        assert any("No data_audit_report.json" in m and "forgelm --data-audit" in m for m in info_msgs)
+        # Phase 11.5: hint moved from `forgelm --data-audit` (legacy) to the
+        # new `forgelm audit` subcommand. Accept either spelling so this test
+        # survives the deprecation window, but require the actionable command
+        # is named.
+        assert any(
+            "No data_audit_report.json" in m and ("forgelm audit" in m or "forgelm --data-audit" in m)
+            for m in info_msgs
+        )

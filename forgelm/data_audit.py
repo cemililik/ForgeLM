@@ -43,10 +43,16 @@ logger = logging.getLogger("forgelm.data_audit")
 
 
 # Phase 11.5: optional xxhash backend for the simhash digest. xxh3_64 is a
-# non-cryptographic 64-bit hash that is materially faster (typically 4-10×)
-# than ``hashlib.blake2b`` on short string keys — meaningful for audits that
-# fingerprint millions of tokens. We fall back to BLAKE2b when the dependency
-# is not present so the audit module still works against a bare install.
+# non-cryptographic 64-bit hash. The Python-level speedup is modest — local
+# microbenchmark (Apple Silicon, Python 3.11.2, xxhash 3.7.0) measured ~1.3×
+# on the raw per-digest cost and ~1.05× end-to-end inside compute_simhash
+# (the lru_cache below absorbs most repeats anyway). xxhash's well-known
+# "4-10× faster than crypto hashes" figure refers to C-level pure-hash
+# benchmarks; the Python wrapping (encode → call → intdigest) levels the
+# playing field. We keep xxhash as the optional backend mostly for forward
+# compatibility / parity with other simhash implementations and fall back to
+# BLAKE2b cleanly when the dependency is missing so a bare install still
+# produces identical fingerprints across releases.
 try:  # pragma: no cover — exercised by the dedicated extras-skip tests
     import xxhash as _xxhash
 
@@ -312,8 +318,11 @@ def _token_digest(token: str, bits: int = 64) -> int:
     Backend selection (decided at import time):
 
     * **xxhash.xxh3_64** when the optional ``xxhash`` dependency is
-      installed and ``bits == 64`` — non-cryptographic, several times
-      faster than BLAKE2b on short strings.
+      installed and ``bits == 64`` — non-cryptographic, marginally
+      faster on Python (~1.3× raw, ~1.05× end-to-end after the
+      ``lru_cache`` below absorbs Zipfian token repeats). Primary
+      reason to keep it is forward-compatibility with other simhash
+      implementations, not raw throughput.
     * **hashlib.blake2b** otherwise (and for non-64-bit widths, e.g. tests
       that pin a smaller fingerprint). BLAKE2b is on the modern allowlist
       and supports native ``digest_size`` truncation.
@@ -610,7 +619,11 @@ class _StreamingAggregator:
     decode_errors: int = 0
     non_object_rows: int = 0
     null_or_empty: int = 0
-    keysets: List[frozenset] = field(default_factory=list)
+    # Phase 11.5: keep a Counter of distinct keysets rather than appending
+    # one frozenset per row. On a 1 M-row split with stable schema this is
+    # 1 entry vs. 1 M identical frozensets — the .most_common(1) lookup at
+    # finalisation time is unchanged.
+    keyset_counts: "Counter[frozenset]" = field(default_factory=Counter)
     seen_columns: "OrderedDict[str, None]" = field(default_factory=OrderedDict)
     text_lengths: List[int] = field(default_factory=list)
     fingerprints: List[int] = field(default_factory=list)
@@ -620,7 +633,7 @@ class _StreamingAggregator:
 
 def _record_schema_for_dict(agg: _StreamingAggregator, row: Dict[str, Any]) -> None:
     keys = frozenset(row.keys())
-    agg.keysets.append(keys)
+    agg.keyset_counts[keys] += 1
     for col in keys:
         agg.seen_columns.setdefault(col, None)
 
@@ -646,9 +659,15 @@ def _ingest_row(agg: _StreamingAggregator, row: Any, parse_err: bool, decode_err
 
     if not isinstance(row, dict):
         # Non-dict rows are valid JSON but the audit's text-payload pipeline
-        # cannot extract anything useful. Track them separately from the
-        # null/empty bucket so an operator can tell shape problems apart
-        # from missing-text problems.
+        # cannot extract anything useful. We flag them as ``non_object_rows``
+        # (sharp shape-problem signal — distinct from "row had a text column
+        # but it was empty") AND bump ``null_or_empty`` so downstream length
+        # stats and the null_or_empty_rate treat them as unusable rows. Without
+        # the null_or_empty bump, null_or_empty_rate would silently understate
+        # corruption while length stats / fingerprints excluded them. The
+        # sentinel ``0`` fingerprint here keeps fingerprint indices aligned
+        # with row indices so the within/cross-split LSH walks skip them
+        # cleanly. Tested at tests/test_data_audit.py::TestNonDictRowTolerance.
         agg.non_object_rows += 1
         agg.null_or_empty += 1
         agg.fingerprints.append(0)
@@ -679,8 +698,8 @@ def _aggregator_to_info(
     if columns_list:
         info["columns"] = columns_list
 
-    if agg.keysets:
-        most_common_keyset, _ = Counter(agg.keysets).most_common(1)[0]
+    if agg.keyset_counts:
+        most_common_keyset, _ = agg.keyset_counts.most_common(1)[0]
         base_columns = set(most_common_keyset)
         drift_columns = [c for c in columns_list if c not in base_columns]
         if drift_columns:
@@ -737,9 +756,21 @@ def _audit_split(
 
     Phase 11.5 streamed this end-to-end: the function consumes
     :func:`_read_jsonl_split` row-by-row and folds each line straight
-    into a :class:`_StreamingAggregator`. Memory is bounded to
-    ``O(n_fingerprints + n_distinct_keysets)`` plus a 200-row language
-    sample — no list of full rows or per-row payloads is retained.
+    into a :class:`_StreamingAggregator`. Memory is dominated by:
+
+    * the per-row fingerprint list — ~28 B/row on CPython, so a 1 M-row
+      split sits around ~30 MB
+    * the per-row text-length list — same order of magnitude
+    * a fixed-size language sample (200 strings)
+    * a :class:`Counter` of distinct keysets (typically O(1) entries when
+      schema is stable; only grows with genuine schema drift)
+
+    Compared to the pre-Phase-11.5 buffered path that kept every parsed
+    row + every text payload string in RAM (hundreds of MB on 100 K rows
+    of 4 KB text), this is a large absolute reduction — but it is **not**
+    constant memory, because the fingerprints and length list still grow
+    linearly in row count. Operators that need true bounded RAM on
+    truly huge splits should sample first.
 
     Returns:
         ``(info_dict, fingerprints, pii_counts, parse_errors, decode_errors)``.
@@ -1053,16 +1084,22 @@ def _build_pii_severity(pii_summary: Dict[str, int]) -> Dict[str, Any]:
     nothing is lost from the underlying flat counts. Categories absent
     from :data:`PII_SEVERITY` (forward-compat for new types) fall back to
     ``unknown``.
+
+    A snapshot of :data:`PII_SEVERITY` is taken at call time so a
+    test or downstream caller mutating the module-level dict cannot
+    corrupt the audit output mid-run; per-call audits see a stable
+    table for the duration of their work.
     """
+    severity_table = dict(PII_SEVERITY)
     if not pii_summary:
         return {
             "total": 0,
-            "by_tier": {tier: 0 for tier in PII_SEVERITY_ORDER},
+            "by_tier": dict.fromkeys(PII_SEVERITY_ORDER, 0),
             "by_type": {},
             "worst_tier": None,
         }
 
-    by_tier: Dict[str, int] = {tier: 0 for tier in PII_SEVERITY_ORDER}
+    by_tier: Dict[str, int] = dict.fromkeys(PII_SEVERITY_ORDER, 0)
     by_type: Dict[str, Dict[str, Any]] = {}
     total = 0
     worst_tier_idx: Optional[int] = None
@@ -1070,7 +1107,7 @@ def _build_pii_severity(pii_summary: Dict[str, int]) -> Dict[str, Any]:
     for kind, count in pii_summary.items():
         if count <= 0:
             continue
-        tier = PII_SEVERITY.get(kind, "unknown")
+        tier = severity_table.get(kind, "unknown")
         by_type[kind] = {"count": count, "tier": tier}
         if tier in by_tier:
             by_tier[tier] += count
