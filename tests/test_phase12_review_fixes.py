@@ -510,6 +510,45 @@ class TestRegexLinearity:
                 f"_strip_code_fences took {elapsed_ms:.1f}ms on n={n} unclosed-fence input (possible regression)"
             )
 
+    def test_parse_md_fence_linear_on_long_runs(self):
+        # The previous ``_MARKDOWN_CODE_FENCE`` regex
+        # ``^ {0,3}(?P<fence>`{3,}|~{3,})(?P<rest>[^\n]*)$`` had two
+        # unbounded greedy quantifiers in sequence (``{3,}`` and
+        # ``[^\n]*``) over overlapping character classes — SonarCloud
+        # python:S5852 flagged it as polynomial-runtime risk. Replaced
+        # with ``_parse_md_fence`` (non-regex parser); provably O(n).
+        import time
+
+        from forgelm.ingestion import _parse_md_fence
+
+        for n in (1_000, 10_000, 100_000):
+            # Pure backtick run — worst-case shape for the old regex.
+            payload = "`" * n
+            t0 = time.perf_counter()
+            _parse_md_fence(payload)
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            assert elapsed_ms < 100, (
+                f"_parse_md_fence took {elapsed_ms:.1f}ms on n={n} pure-backtick input (possible regression)"
+            )
+
+    def test_parse_md_fence_behaviour(self):
+        # Behavioural pins so the non-regex parser stays drop-in compatible
+        # with what the previous regex returned via named groups.
+        from forgelm.ingestion import _parse_md_fence
+
+        # Opener with info string.
+        assert _parse_md_fence("```python") == ("`", 3, "python")
+        # 4-backtick opener — callers use run_len for CommonMark §4.5 close check.
+        assert _parse_md_fence("````") == ("`", 4, "")
+        # Tilde fence with 2-space indent (allowed; <4).
+        assert _parse_md_fence("  ~~~bash") == ("~", 3, "bash")
+        # 4-space indent → indented code block, not a fence.
+        assert _parse_md_fence("    ```") is None
+        # 2-char run → not a fence.
+        assert _parse_md_fence("``") is None
+        # Mismatched chars after the run — run ends at the first non-fence char.
+        assert _parse_md_fence("```~~~") == ("`", 3, "~~~")
+
 
 class TestMinHashDistinctSemantic:
     """``minhash_distinct`` must count *unique sketches*, mirroring simhash."""

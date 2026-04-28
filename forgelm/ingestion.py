@@ -508,11 +508,48 @@ _MARKDOWN_HEADING_PATTERN = re.compile(
     r"^ {0,3}(#{1,6})[ \t]+(\S(?:[^\n]*\S)?)[ \t]*$",
     re.MULTILINE,
 )
-# Code fence — backticks or tildes per CommonMark §4.5; up to 3 leading spaces.
-# Captures the **fence run** (3+ identical chars) and the **rest** of the line
-# (info string for openers, must be empty for closers) so the splitter can
-# enforce CommonMark's "close uses ≥ as many chars as open" rule.
-_MARKDOWN_CODE_FENCE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})(?P<rest>[^\n]*)$")
+# Fence detection is a non-regex parser (see ``_parse_md_fence``) — the
+# previous regex ``^ {0,3}(?P<fence>`{3,}|~{3,})(?P<rest>[^\n]*)$``
+# satisfied SonarCloud python:S5852's "two unbounded greedy quantifiers
+# in sequence" rule the same way our other markdown helpers do (state
+# machines beat regexes for multi-line / per-line markdown parsing —
+# see docs/standards/regex.md rule 6).
+
+
+def _parse_md_fence(line: str) -> Optional[Tuple[str, int, str]]:
+    """Detect a CommonMark fence line; return ``(fence_char, run_len, rest)`` or ``None``.
+
+    CommonMark §4.5: a fence is 3+ identical backticks (or tildes),
+    optionally indented up to 3 spaces. The portion after the fence run
+    is the **info string** (allowed for openers, must be empty for
+    closers — that policy is enforced by callers, not here).
+
+    Implemented as a non-regex parser so the cost is provably O(n) per
+    line. The previous regex
+    ``^ {0,3}(?P<fence>\\`{3,}|~{3,})(?P<rest>[^\\n]*)$`` had two
+    unbounded greedy quantifiers in sequence; SonarCloud python:S5852
+    flags that shape as polynomial-runtime risk even when CPython
+    handles it well in practice (regex.md rule 6).
+    """
+    leading = 0
+    for ch in line:
+        if ch != " ":
+            break
+        leading += 1
+    if leading > 3:
+        return None  # 4+ spaces: indented code block, not a fence
+    if leading >= len(line):
+        return None
+    fence_char = line[leading]
+    if fence_char not in ("`", "~"):
+        return None
+    run_end = leading
+    while run_end < len(line) and line[run_end] == fence_char:
+        run_end += 1
+    run_len = run_end - leading
+    if run_len < 3:
+        return None
+    return fence_char, run_len, line[run_end:]
 
 
 def _push_heading_onto_path(current_path: List[str], heading_line: str, level: int) -> None:
@@ -566,15 +603,13 @@ def _markdown_sections(text: str) -> List[Tuple[List[str], str]]:
     seen_heading = False
 
     for line in text.splitlines():
-        fence_match = _MARKDOWN_CODE_FENCE.match(line)
-        if fence_match:
-            fence_run = fence_match.group("fence")
-            rest = fence_match.group("rest")
-            fence_char = fence_run[0]
+        fence_info = _parse_md_fence(line)
+        if fence_info is not None:
+            fence_char, fence_len, rest = fence_info
             if open_fence is None:
                 # Opener — info string is allowed; record (char, length).
-                open_fence = (fence_char, len(fence_run))
-            elif open_fence[0] == fence_char and len(fence_run) >= open_fence[1] and not rest.strip():
+                open_fence = (fence_char, fence_len)
+            elif open_fence[0] == fence_char and fence_len >= open_fence[1] and not rest.strip():
                 # Valid close: same char, ≥ as many chars, no info string.
                 open_fence = None
             # Otherwise — mismatched char, too short, or has an info string.
