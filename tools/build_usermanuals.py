@@ -49,6 +49,7 @@ Dependencies
 
 Run this script whenever you change anything under docs/usermanuals/.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -82,7 +83,7 @@ META_FILE = SOURCE_DIR / "_meta.yaml"
 class Page:
     section_id: str
     page_id: str
-    titles: dict      # {lang: title}
+    titles: dict  # {lang: title}
 
 
 @dataclass
@@ -113,13 +114,8 @@ def load_meta() -> tuple[list, list[Section]]:
     languages = data.get("languages") or ["en"]
     sections = []
     for sec in data.get("sections", []):
-        pages = [
-            Page(section_id=sec["id"], page_id=p["id"], titles=p["title"])
-            for p in sec.get("pages", [])
-        ]
-        sections.append(
-            Section(id=sec["id"], icon=sec.get("icon", "file"), titles=sec["title"], pages=pages)
-        )
+        pages = [Page(section_id=sec["id"], page_id=p["id"], titles=p["title"]) for p in sec.get("pages", [])]
+        sections.append(Section(id=sec["id"], icon=sec.get("icon", "file"), titles=sec["title"], pages=pages))
     return languages, sections
 
 
@@ -138,6 +134,7 @@ _MERMAID_RE = re.compile(r"^```mermaid\s*\n(.*?)\n```\s*$", re.MULTILINE | re.DO
 
 def preprocess_admonitions(text: str) -> str:
     """Replace :::kind ... ::: fences with HTML callout divs."""
+
     def repl(m: re.Match) -> str:
         kind = m.group(1)
         body = m.group(2).strip()
@@ -145,6 +142,7 @@ def preprocess_admonitions(text: str) -> str:
         # markdown library will process the inner content because we use a
         # blank line above the body. Prepend a blank line just in case.
         return f'<div class="callout callout-{kind}" markdown="1">\n\n{body}\n\n</div>'
+
     return _ADMONITION_RE.sub(repl, text)
 
 
@@ -155,11 +153,13 @@ def preprocess_mermaid(text: str) -> str:
     HTML-escape it, which breaks the mermaid.js parser. Pre-extracting the block
     keeps the diagram source intact for client-side rendering.
     """
+
     def repl(m: re.Match) -> str:
         body = m.group(1)
         # markdown's md_in_html extension lets a raw <div> pass through if
         # surrounded by blank lines; the body is opaque (no markdown rendering).
-        return f"\n<div class=\"mermaid\">\n{body}\n</div>\n"
+        return f'\n<div class="mermaid">\n{body}\n</div>\n'
+
     return _MERMAID_RE.sub(repl, text)
 
 
@@ -174,7 +174,7 @@ def render_markdown(src: str) -> tuple[str, list[dict]]:
 
     md = markdown.Markdown(
         extensions=[
-            "extra",          # tables, fenced_code, attr_list, md_in_html, etc.
+            "extra",  # tables, fenced_code, attr_list, md_in_html, etc.
             "sane_lists",
             "smarty",
             "toc",
@@ -201,11 +201,13 @@ def render_markdown(src: str) -> tuple[str, list[dict]]:
 def _collect_headings(token: dict, out: list[dict], max_level: int) -> None:
     level = token.get("level", 0)
     if 2 <= level <= max_level:
-        out.append({
-            "level": level,
-            "text": token.get("name", "").strip(),
-            "id": token.get("id", ""),
-        })
+        out.append(
+            {
+                "level": level,
+                "text": token.get("name", "").strip(),
+                "id": token.get("id", ""),
+            }
+        )
     for child in token.get("children", []) or []:
         _collect_headings(child, out, max_level)
 
@@ -216,7 +218,7 @@ def parse_front_matter(src: str) -> tuple[dict, str]:
         end = src.find("\n---\n", 4)
         if end != -1:
             front = src[4:end]
-            body = src[end + 5:]
+            body = src[end + 5 :]
             try:
                 meta = yaml.safe_load(front) or {}
             except yaml.YAMLError:
@@ -226,6 +228,7 @@ def parse_front_matter(src: str) -> tuple[dict, str]:
 
 
 # ---------------------------------------------------------------------- build
+
 
 def js_string(value: str) -> str:
     """Encode a Python string for safe embedding in a JS object literal."""
@@ -269,10 +272,7 @@ def build_language(lang: str, sections: list[Section], default_lang: str) -> tup
             pages_data[key] = {
                 "html": html,
                 "headings": headings,
-                "title": front.get("title")
-                         or page.titles.get(lang)
-                         or page.titles.get(default_lang)
-                         or page.page_id,
+                "title": front.get("title") or page.titles.get(lang) or page.titles.get(default_lang) or page.page_id,
                 "description": front.get("description", ""),
                 "fallback": used_fallback,
                 "missing": False,
@@ -296,13 +296,27 @@ def serialise_data(pages: dict, lang: str) -> str:
     ]
     for key, page in sorted(pages.items()):
         parts.append(
-            "    " + js_string(key) + ": {"
-            + "title: " + js_string(page["title"]) + ", "
-            + "description: " + js_string(page["description"]) + ", "
-            + "html: " + js_string(page["html"]) + ", "
-            + "headings: " + json.dumps(page["headings"], ensure_ascii=False) + ", "
-            + "fallback: " + ("true" if page["fallback"] else "false") + ", "
-            + "missing: " + ("true" if page["missing"] else "false") + "},"
+            "    "
+            + js_string(key)
+            + ": {"
+            + "title: "
+            + js_string(page["title"])
+            + ", "
+            + "description: "
+            + js_string(page["description"])
+            + ", "
+            + "html: "
+            + js_string(page["html"])
+            + ", "
+            + "headings: "
+            + json.dumps(page["headings"], ensure_ascii=False)
+            + ", "
+            + "fallback: "
+            + ("true" if page["fallback"] else "false")
+            + ", "
+            + "missing: "
+            + ("true" if page["missing"] else "false")
+            + "},"
         )
     parts.append("  };")
     parts.append("})();")
@@ -313,15 +327,14 @@ def serialise_index(sections: list[Section], languages: list[str]) -> str:
     """Emit the navigation structure (no per-page HTML), shared across langs."""
     nav = []
     for sec in sections:
-        nav.append({
-            "id": sec.id,
-            "icon": sec.icon,
-            "titles": sec.titles,
-            "pages": [
-                {"id": p.page_id, "titles": p.titles}
-                for p in sec.pages
-            ],
-        })
+        nav.append(
+            {
+                "id": sec.id,
+                "icon": sec.icon,
+                "titles": sec.titles,
+                "pages": [{"id": p.page_id, "titles": p.titles} for p in sec.pages],
+            }
+        )
     payload = {
         "languages": languages,
         "sections": nav,
@@ -333,6 +346,7 @@ def serialise_index(sections: list[Section], languages: list[str]) -> str:
 
 
 # ---------------------------------------------------------------------- main
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
