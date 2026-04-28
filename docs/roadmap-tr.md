@@ -10,22 +10,23 @@
 | ✅ Tamam | [Faz 10 — Post-Training Tamamlama](roadmap/phase-10-post-training.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — `v0.4.0` |
 | ✅ Tamam | [Faz 10.5 — Quickstart Katmanı ve Onboarding](roadmap/phase-10-5-quickstart.md) | `forgelm quickstart <template>`, 5 hazır template, seed veri setleri — `v0.4.5` |
 | ✅ Tamam | [Faz 11 — Doküman Yutma ve Veri Denetimi](roadmap/phase-11-data-ingestion.md) | `forgelm ingest`, `forgelm --data-audit`, PII regex + simhash dedup — `v0.5.0` çıktı |
-| ✅ Tamam | [Faz 11.5 — Yutma / Denetim Cilası](roadmap/phase-11-5-backlog.md) | LSH banding, streaming reader, `forgelm audit` subcommand, PII şiddet katmanları, wizard ingest girişi — `v0.5.1` için indi |
-| ✅ Tamam | [Faz 12 — Veri Curation Olgunlaşması](roadmap/phase-12-data-curation-maturity.md) | MinHash LSH dedup, markdown-aware splitter, code/secrets tarama, kalite heuristic'leri, tablo yapısı koruma — Tier 1 `v0.5.2` için indi; Tier 2/3 [Faz 12.5 backlog](roadmap/phase-12-5-backlog.md)'a ertelendi |
+| 🟡 Birleşti | [Faz 11.5 — Yutma / Denetim Cilası](roadmap/phase-11-5-backlog.md) | LSH banding, streaming reader, `forgelm audit` subcommand, PII şiddet katmanları, wizard ingest girişi — `main`'e indi (PR #11/#12); `v0.5.1` PyPI tag'i bekliyor |
+| 🟡 Birleşti | [Faz 12 — Veri Curation Olgunlaşması](roadmap/phase-12-data-curation-maturity.md) | MinHash LSH dedup, markdown-aware splitter, code/secrets tarama, kalite heuristic'leri, tablo yapısı koruma — Tier 1 `main`'e indi (PR #13, 2026-04-29); `v0.5.2` PyPI tag'i bekliyor; Tier 2/3 [Faz 12.5 backlog](roadmap/phase-12-5-backlog.md)'a ertelendi |
+| 📋 Planlandı | [Faz 12.5 — Veri Curation Follow-up](roadmap/phase-12-5-backlog.md) | Presidio PII adapter, Croissant metadata export, `--all-mask`, wizard "audit first" akışı → `v0.5.2` tag'inden sonra |
 | 📋 Planlandı | [Faz 14 — Çok Aşamalı Pipeline Zincirleri](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO config zinciri, pipeline kaynak izleri → `v0.5.3` |
 | 📋 Planlandı | [Faz 13 — Pro CLI ve Gözlemlenebilirlik Dashboard](roadmap/phase-13-pro-cli.md) | Lisans korumalı dashboard, HPO, zamanlanmış görevler, takım config store → `v0.6.0-pro` |
 
-**Development'a indi, tag + PyPI publish bekliyor:** `v0.5.1` — Yutma / Denetim Cilası (Faz 11.5). LSH bantlı near-duplicate tespiti, streaming JSONL okuyucu, token-aware chunking, PDF header/footer dedup, `forgelm audit` subcommand, PII şiddet katmanları, yapılandırılmış ingestion notları, wizard "ingest first" girişi.
+**`main`'e indi, tag + PyPI publish bekliyor:** `v0.5.1` — Yutma / Denetim Cilası (Faz 11.5). LSH bantlı near-duplicate tespiti, streaming JSONL okuyucu, token-aware chunking, PDF header/footer dedup, `forgelm audit` subcommand, PII şiddet katmanları, yapılandırılmış ingestion notları, wizard "ingest first" girişi.
 
-**PyPI'deki son sürüm:** `v0.5.0` — Doküman Yutma ve Veri Denetimi (Faz 11), 2026-04-27'de `main`'e merge edildi. `forgelm ingest` raw PDF/DOCX/EPUB/TXT'yi SFT'ye uygun JSONL'a dönüştürür; `forgelm --data-audit` CPU-only veri kalite raporu üretir (uzunluk dağılımı, near-duplicate tespiti, cross-split sızıntı kontrolü, PII flag'leri) ve EU AI Act Madde 10 governance artifact'ına otomatik bağlanır.
+**`main`'e indi (PR #13, 2026-04-29), tag + PyPI publish bekliyor:** `v0.5.2` — Veri Curation Olgunlaşması (Faz 12). 50K+ satır corpus için MinHash LSH dedup opsiyonu (`[ingestion-scale]` extra), markdown-aware splitter, code/secrets sızıntı taraması + ingest tarafı `--secrets-mask` (`[ingestion-secrets]` extra), heuristic kalite filtresi, DOCX/Markdown tablo yapısı koruma. Faz 11/11.5 ingestion + audit hattının doğal devamı; `v0.5.1` sonrası rekabet analizinin yüzeylediği boşlukları kapatır. Tier 2/3 follow-up'ları (Presidio adapter, Croissant metadata, `--all-mask`, wizard "audit first") [Faz 12.5 backlog](roadmap/phase-12-5-backlog.md)'a ertelendi. Hardening follow-up ayrıca takipte: [#14 — webhook SSRF DNS-rebinding TOCTOU](https://github.com/cemililik/ForgeLM/issues/14).
 
-**Daha öncesi:** `v0.4.5` — Quickstart Katmanı (2026-04-26). Tek komutla hazır template'ler: `forgelm quickstart customer-support`. `v0.4.0` — Post-Training Tamamlama (2026-04-26). Inference primitif'leri, etkileşimli chat REPL, GGUF export, VRAM fit advisor, deployment config üretimi.
+**PyPI'deki son sürüm:** `v0.4.5` — Quickstart Katmanı (2026-04-26). Tek komutla hazır template'ler: `forgelm quickstart customer-support`. `v0.5.0` / `v0.5.1` / `v0.5.2` `main`'e birleştirildi ama henüz tag + publish edilmedi; bir sonraki PyPI sürümü üçünü birden (veya sırayla — release-engineering kararı) yakalar.
 
-**Development'a indi, tag + PyPI publish bekliyor:** `v0.5.2` — Veri Curation Olgunlaşması (Faz 12). 50K+ satır corpus için MinHash LSH dedup opsiyonu (`[ingestion-scale]` extra), markdown-aware splitter, code/secrets sızıntı taraması + ingest tarafı `--secrets-mask` (`[ingestion-secrets]` extra), heuristic kalite filtresi, DOCX/Markdown tablo yapısı koruma. Faz 11/11.5 ingestion + audit hattının doğal devamı; `v0.5.1` sonrası rekabet analizinin yüzeylediği boşlukları kapatır. Tier 2/3 follow-up'ları (Presidio adapter, Croissant metadata, `--all-mask`, wizard "audit first") [Faz 12.5 backlog](roadmap/phase-12-5-backlog.md)'a ertelendi.
+**Daha öncesi:** `v0.4.0` — Post-Training Tamamlama (2026-04-26). Inference primitif'leri, etkileşimli chat REPL, GGUF export, VRAM fit advisor, deployment config üretimi.
 
-**Sonraki:** `v0.5.3` — Çok Aşamalı Pipeline Zincirleri (Faz 14). SFT → DPO → GRPO zincir konfigürasyonu, pipeline kaynak izleri.
+**Sonraki:** `v0.5.3` — Çok Aşamalı Pipeline Zincirleri (Faz 14). SFT → DPO → GRPO zincir konfigürasyonu, pipeline kaynak izleri. `v0.5.2` PyPI tag'inden sonra başlar; [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14) follow-up'ını kapsar.
 
-**Güncel durum:** 16 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12) tamam. 2 faz (13, 14) planlandı. `v0.5.3`: Faz 14. `v0.6.0-pro` (Faz 13) adoption metriklerine bağlı.
+**Güncel durum:** 16 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12) tamam. 3 faz (12.5, 13, 14) planlandı. `v0.5.3`: Faz 14 (12.5 backlog'u fırsat oldukça eklenir). `v0.6.0-pro` (Faz 13) adoption metriklerine bağlı.
 
 ## Planlanan işlerin özeti
 
@@ -36,22 +37,24 @@ graph LR
     P105 --> P11
     P11 --> P115[Faz 11.5<br/>Yutma<br/>Cilası]
     P115 --> P12[Faz 12<br/>Veri Curation<br/>Olgunlaşması]
+    P12 --> P125[Faz 12.5<br/>Veri Curation<br/>Follow-up]
     P12 --> P14[Faz 14<br/>Pipeline<br/>Zincirleri]
     P14 --> P13[Faz 13<br/>Pro CLI<br/>+ Dashboard]
 
     P10 -.-> V1[v0.4.0]
     P105 -.-> V15[v0.4.5]
-    P11 -.-> V2[v0.5.0]
-    P115 -.-> V21[v0.5.1]
-    P12 -.-> V22[v0.5.2]
+    P11 -.-> V2[v0.5.0 pending]
+    P115 -.-> V21[v0.5.1 pending]
+    P12 -.-> V22[v0.5.2 pending]
     P14 -.-> V23[v0.5.3]
     P13 -.-> V3[v0.6.0-pro]
 
     style P10 fill:#003300,stroke:#00ff88
     style P105 fill:#003300,stroke:#00ff88
     style P11 fill:#003300,stroke:#00ff88
-    style P115 fill:#003300,stroke:#00ff88
-    style P12 fill:#003300,stroke:#00ff88
+    style P115 fill:#004400,stroke:#88ff88
+    style P12 fill:#004400,stroke:#88ff88
+    style P125 fill:#002244,stroke:#00aaff
     style P14 fill:#002244,stroke:#00aaff
     style P13 fill:#442200,stroke:#ffaa00
 ```

@@ -71,6 +71,6 @@
 
 ### Delivery:
 - Target release: `v0.5.3` (reslotted from `v0.5.2`; Phase 12 — Data Curation Maturity — now occupies `v0.5.2` as the direct continuation of the Phase 11/11.5 ingestion + audit lineage).
-- No hard blockers; can start after Phase 12 lands.
+- No hard blockers; Phase 12 is merged to `main` (PR #13). Starts after the `v0.5.2` PyPI tag is published.
 
 ---

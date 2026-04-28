@@ -4,6 +4,115 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+### Fixed — post-PR-#13 review-cycle batches (rounds 8-12)
+
+Inline-comment batches landing on top of PR #13 (now merged to `main`).
+Same review surface as rounds 4-7; further hardening on top of the
+`v0.5.2` content. The `v0.5.2` git tag + PyPI publish are the
+remaining release-engineering steps before this section can be
+frozen into a release.
+
+- **Audit log hardening** (`forgelm/compliance.py`) — HMAC `_hmac` field is now
+  emitted only when `FORGELM_AUDIT_SECRET` is set; without a secret, a key
+  derived solely from the public `run_id` would be forgeable, so we no longer
+  claim tamper-evidence we cannot deliver. `log_event` re-reads the chain head
+  from disk under the same `flock` so two writers sharing the same log can no
+  longer fork the chain. `_read_chain_head` refuses to derive a head from a
+  tail that does not end with `\n` (truncated last record). The oversize-
+  final-entry case is recovered by re-reading from `seek_start` without
+  skipping the partial first line.
+- **Deployer-instructions Markdown injection** (`forgelm/compliance.py::generate_deployer_instructions`) —
+  config-derived strings (`system_name`, `model.name_or_path`, fine-tuning
+  method, model location, foreseeable-misuse bullets, metric names) now go
+  through `_sanitize_md` before template substitution; pipes / backticks /
+  link syntax in any of those can no longer break out of table cells or
+  bullets in the generated Article 13 document.
+- **Quality-filter denominator** (`forgelm/data_audit.py::_build_quality_summary`) —
+  `overall_quality_score` now divides by the number of rows the filter
+  actually evaluated (text-bearing dict rows) instead of `total_samples`.
+  A corpus that's 50 % null but 100 % clean on the rest now reads `1.0`
+  instead of `0.5`.
+- **Numpy-fast-path bits guard** (`forgelm/data_audit.py::compute_simhash`) —
+  the `_compute_simhash_numpy` dispatch now also gates on `bits <= 64`;
+  without it, `np.uint64` would silently truncate digests wider than 64
+  bits.
+- **Sliding-overlap clamp** (`forgelm/ingestion.py::ingest_path`) — when
+  `--overlap` is not passed and the strategy is `sliding`, the implicit
+  `DEFAULT_SLIDING_OVERLAP` (200) is now clamped to `chunk_size // 2`. A
+  small `--chunk-size 300` used to trip `_chunk_sliding`'s
+  "overlap > chunk_size // 2" guard with the default overlap — surfacing
+  as a confusing error for a knob the user did not set.
+- **Batch-tokenizer narrow except** (`forgelm/ingestion.py::_count_section_tokens`) —
+  the bare `except Exception` around the batched `tokenizer(blocks)` call
+  is now narrowed to `(TypeError, ValueError)` (the documented
+  unsupported-batch signal); the returned `BatchEncoding` is shape-
+  validated before its `input_ids` is consumed. Real bugs (corrupted
+  input, OOM, etc.) no longer mask behind the slow per-block fallback.
+- **Webhook secret-fallback safety** (`forgelm/webhook.py`) —
+  `requests.post` now passes `allow_redirects=False` (an SSRF-pre-validated
+  URL cannot be redirected to a private destination) and the
+  `mask_secrets` `ImportError` fallback emits `[REDACTED — secrets
+  masker unavailable]` instead of the raw 512-char reason prefix.
+  See [#14](https://github.com/cemililik/ForgeLM/issues/14) for the
+  remaining DNS-rebinding TOCTOU follow-up tracked for `v0.5.3`.
+- **Trainer governance failure visibility** (`forgelm/trainer.py`) — the
+  `data_governance_report.json` export try/except now catches the full
+  `Exception` set (was `OSError` only) so non-IO failures (`TypeError`,
+  `ValueError`, `AttributeError`) still surface as
+  `compliance.governance_failed` audit events instead of crashing the
+  surrounding compliance flow. The rollup `compliance.artifacts_exported`
+  event is gated on a `governance_ok` flag so the audit chain truthfully
+  reflects which artefacts are actually on disk.
+- **Compliance manifest exception narrowing** (`forgelm/compliance.py`) —
+  the broad `except Exception` around the HF Hub `load_dataset_builder`
+  fingerprint fetch is now a tuple of realistic failure modes
+  (`ImportError`, `FileNotFoundError`, `ValueError`, `AttributeError`,
+  `ConnectionError`, `TimeoutError`).
+- **Strict messages-format validation** (`forgelm/data.py`) —
+  `_process_messages_format` now explicitly checks `isinstance(role, str)`
+  and `isinstance(content, str)` before formatting; non-string content
+  (dicts, ints) used to be silently coerced via f-string `__format__`
+  and slip through into training.
+- **Wizard ASCII regex flag** (`forgelm/wizard.py`) — `_HF_HUB_ID_RE`
+  now compiles with `re.ASCII` so the `\w` class means
+  `[A-Za-z0-9_]`. HF Hub IDs are ASCII-only, and Unicode-aware `\w`
+  would otherwise accept characters the Hub itself rejects.
+- **GGUF converter case-insensitive validation** (`forgelm/export.py`) —
+  the `FORGELM_GGUF_CONVERTER` `.py` suffix check now uses
+  `casefold()` (cross-platform: HFS+/NTFS), and `export_model()`'s
+  catch widened from `(ImportError, FileNotFoundError)` to also
+  include `ValueError` so a non-`.py` env override produces an
+  `ExportResult` instead of crashing the caller.
+- **Markdown chunker complexity refactor** (`forgelm/ingestion.py`) —
+  `_chunk_markdown_tokens` split into `_build_markdown_section_blocks`
+  (render breadcrumb + body), `_count_section_tokens` (batch tokenizer
+  call with per-block fallback), and the main chunker (greedy packing).
+  Cognitive complexity drops from 16 → ~8.
+- **Bidirectional MinHash extraction** (`forgelm/data_audit.py`) — the
+  two near-identical `a→lsh_b` / `b→lsh_a` query loops in
+  `_count_leaked_rows_minhash_bidirectional` were extracted into one
+  `_count_leaks_against_index` helper. Complexity drops from 24 → ~5;
+  the SonarCloud duplication metric on this file goes away.
+- **Streaming length digest** (`forgelm/data_audit.py`) — the per-split
+  text-length distribution is now accumulated via a bounded
+  `_LengthDigest` (Algorithm R reservoir, 100K cap) instead of an
+  unbounded `List[int]`. Audit memory on multi-million-row splits is
+  now O(1) instead of O(n).
+- **Documentation drift sweep (round N)** — five compliance-summary
+  links repointed to `../../forgelm/...`, two missing FSDP knobs
+  (`fsdp_backward_prefetch`, `fsdp_state_dict_type`) and two webhook
+  knobs (`allow_private_destinations`, `tls_ca_bundle`) added to both
+  EN and TR `configuration` reference; Pro CLI section added to
+  `README.md`; CI now runs a bilingual H2 parity check across seven
+  EN/TR doc pairs (`configuration`, `usage`, `distributed_training`,
+  `data_preparation`, `architecture`, `ingestion`, `data_audit`); test
+  count refreshed to 47 in `CONTRIBUTING.md` to match
+  `architecture.md`; secrets list aligned to the full nine families
+  in `forgelm.data_audit.SECRET_TYPES` (was missing two private-key
+  splits + Azure storage in some prose).
+- **Phase 12 fenced log block** in both `usage.md` and `usage-tr.md`
+  now uses ```` ```text ```` so markdownlint MD040 stops flagging it.
+
 ### Fixed — multi-agent master review (rounds 4-7)
 
 Multi-dimension review (business, code, compliance, documentation, performance, security) surfaced a cluster of correctness, claim/evidence, and silent-failure issues that have been swept in batches.

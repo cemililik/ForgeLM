@@ -3,14 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title data-title-en="Terms — ForgeLM" data-title-tr="Koşullar — ForgeLM">Terms — ForgeLM</title>
-  <meta name="description"
-        data-desc-en="Terms of use for the ForgeLM website and the open-source toolkit."
-        data-desc-tr="ForgeLM web sitesi ve açık kaynak toolkit'inin kullanım koşulları."
+  <title data-i18n="meta.title.terms">Terms — ForgeLM</title>
+  <meta name="description" data-i18n-attr="content:meta.desc.terms"
         content="Terms of use for the ForgeLM website and the open-source toolkit.">
   <meta name="theme-color" content="#0a0c12">
-  <meta property="og:title" content="Terms — ForgeLM">
-  <meta property="og:description" content="Terms of use for the ForgeLM website and the open-source toolkit.">
+  <meta property="og:title" data-i18n-attr="content:meta.title.terms" content="Terms — ForgeLM">
+  <meta property="og:description" data-i18n-attr="content:meta.desc.terms" content="Terms of use for the ForgeLM website.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://YOUR_DOMAIN/assets/og.png">
   <meta property="og:url" content="https://YOUR_DOMAIN/terms.html">
@@ -21,6 +19,7 @@
   <link rel="icon" href="favicon.ico">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="css/style.css">
+  <script src="js/translations.js"></script>
   <script src="js/i18n.js"></script>
 </head>
 <body>
@@ -31,17 +30,32 @@
       <span class="nav-brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l6 6-6 6"/><path d="M4 12h13"/></svg></span>
       ForgeLM
     </a>
-    <button class="nav-hamburger" aria-label="Menu" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+    <button class="nav-hamburger" data-i18n-attr="aria-label:common.btn.menu" aria-label="Menu" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
     <ul class="nav-menu">
-      <li><a href="index.html"><span class="i18n-inline" data-lang="en">Home</span><span class="i18n-inline" data-lang="tr">Ana Sayfa</span></a></li>
-      <li><a href="features.html"><span class="i18n-inline" data-lang="en">Features</span><span class="i18n-inline" data-lang="tr">Özellikler</span></a></li>
-      <li><a href="quickstart.html"><span class="i18n-inline" data-lang="en">Quickstart</span><span class="i18n-inline" data-lang="tr">Hızlı Başlangıç</span></a></li>
-      <li><a href="compliance.html"><span class="i18n-inline" data-lang="en">Compliance</span><span class="i18n-inline" data-lang="tr">Uyumluluk</span></a></li>
-      <li><a href="contact.html"><span class="i18n-inline" data-lang="en">Contact</span><span class="i18n-inline" data-lang="tr">İletişim</span></a></li>
+      <li><a href="index.html" data-i18n="common.nav.home">Home</a></li>
+      <li><a href="features.html" data-i18n="common.nav.features">Features</a></li>
+      <li><a href="quickstart.html" data-i18n="common.nav.quickstart">Quickstart</a></li>
+      <li><a href="guide.html" data-i18n="common.nav.guide">Guide</a></li>
+      <li><a href="compliance.html" data-i18n="common.nav.compliance">Compliance</a></li>
+      <li><a href="contact.html" data-i18n="common.nav.contact">Contact</a></li>
     </ul>
     <div class="nav-actions">
-      <div class="lang-toggle"><button data-set-lang="en" type="button">EN</button><button data-set-lang="tr" type="button">TR</button></div>
-      <button class="theme-toggle" aria-label="Toggle theme" type="button">
+      <div class="lang-toggle">
+        <button class="lang-toggle-btn" type="button" aria-haspopup="true" aria-expanded="false" data-i18n-attr="aria-label:common.btn.lang" aria-label="Language">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10"/><path d="M12 2a15 15 0 0 0-4 10 15 15 0 0 0 4 10"/></svg>
+          <span class="lang-toggle-current">EN</span>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <ul class="lang-toggle-menu">
+          <li><button data-set-lang="en" type="button">English</button></li>
+          <li><button data-set-lang="tr" type="button">Türkçe</button></li>
+          <li><button data-set-lang="de" type="button">Deutsch</button></li>
+          <li><button data-set-lang="fr" type="button">Français</button></li>
+          <li><button data-set-lang="es" type="button">Español</button></li>
+          <li><button data-set-lang="zh" type="button">中文</button></li>
+        </ul>
+      </div>
+      <button class="theme-toggle" type="button" data-i18n-attr="aria-label:common.btn.theme" aria-label="Toggle theme">
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
       </button>
@@ -51,107 +65,20 @@
 
 <header class="page-header">
   <div class="container container-narrow" style="padding-left:0;padding-right:0;">
-    <span class="eyebrow">
-      <span class="i18n-inline" data-lang="en">Terms</span>
-      <span class="i18n-inline" data-lang="tr">Koşullar</span>
-    </span>
-    <h1>
-      <span class="i18n-inline" data-lang="en">Terms of use</span>
-      <span class="i18n-inline" data-lang="tr">Kullanım koşulları</span>
-    </h1>
-    <p>
-      <span class="i18n-inline" data-lang="en">Plain-language terms for this website and the open-source toolkit. Apache 2.0 governs the code; this page covers the website and brand.</span>
-      <span class="i18n-inline" data-lang="tr">Bu web sitesi ve açık kaynak toolkit için açık dilde koşullar. Apache 2.0 kodu yönetir; bu sayfa web sitesini ve markayı kapsar.</span>
-    </p>
+    <span class="eyebrow" data-i18n="terms.header.eyebrow">Terms</span>
+    <h1 data-i18n="terms.header.title">Terms of use</h1>
+    <p data-i18n="terms.header.lead">Plain-language terms for this website and the open-source toolkit.</p>
   </div>
 </header>
 
 <section class="legal">
   <div class="container">
     <div class="legal-content">
-      <div class="legal-meta">
-        <span class="i18n-inline" data-lang="en"><strong>Last updated:</strong> 2026-04-28 · This is a plain-language summary, not legal advice.</span>
-        <span class="i18n-inline" data-lang="tr"><strong>Son güncelleme:</strong> 28-04-2026 · Bu hukuki tavsiye değil, açık dilde özettir.</span>
-      </div>
+      <div class="legal-meta" data-i18n-html="common.legal.last_updated"><strong>Last updated:</strong> 2026-04-28 · This is a plain-language summary, not legal advice.</div>
 
-      <!-- ENGLISH -->
-      <div class="i18n-block" data-lang="en">
+      <div data-i18n-html="terms.body">
         <h2>1. The toolkit (the code)</h2>
-        <p>The ForgeLM Python package and its source code are released under the <strong>Apache License 2.0</strong>. You can use it, modify it, embed it in commercial products, and redistribute it under the terms of that licence. The full text is at <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener">apache.org/licenses/LICENSE-2.0</a>.</p>
-        <p>The toolkit is provided <strong>"as is", without warranty of any kind</strong> — see the <em>Disclaimer of Warranty</em> and <em>Limitation of Liability</em> sections of the licence. Fine-tuning models is a real-world activity with real-world consequences (safety, accuracy, regulatory exposure); you remain responsible for the systems you build with it.</p>
-
-        <h2>2. The website (this domain)</h2>
-        <p>The website's HTML, CSS, JavaScript, copy, and graphics are also covered by Apache 2.0 unless otherwise marked. You may fork the site, but the trademark — the name <strong>"ForgeLM"</strong> and the logo — is reserved (see §3).</p>
-        <p>You may not use the site to:</p>
-        <ul>
-          <li>impersonate the project or its maintainers;</li>
-          <li>scrape it for the purpose of training a model that would compete with the toolkit's positioning without crediting it;</li>
-          <li>send spam through the contact form, attempt to reverse-engineer Formspree's anti-abuse measures, or submit malicious payloads.</li>
-        </ul>
-
-        <h2>3. Trademark</h2>
-        <p>"ForgeLM" and the forge mark are trademarks of the project. You may use the name to truthfully refer to the toolkit (e.g., "we fine-tuned with ForgeLM") and to link to this site. You may not use the name or mark in a way that suggests endorsement, official partnership, or origination by us when none exists.</p>
-
-        <h2>4. Third-party software</h2>
-        <p>ForgeLM depends on third-party libraries (HuggingFace Transformers, TRL, PEFT, bitsandbytes, Unsloth, datasketch, pypdf, etc.) — each governed by its own licence. Compatibility is documented in <code>pyproject.toml</code>.</p>
-
-        <h2>5. Models and datasets</h2>
-        <p>ForgeLM is a tool that operates on models and datasets you supply. Their licences (Llama 3 community licence, Mistral commercial terms, dataset CC-BY-NC-SA, etc.) <strong>govern your use of those artefacts</strong>, not Apache 2.0. ForgeLM does not grant you any rights in the underlying weights or training data.</p>
-
-        <h2>6. No professional advice</h2>
-        <p>Statements on this site about EU AI Act compliance, GDPR, ISO 27001, or any other regulatory regime are <strong>technical descriptions</strong>, not legal advice. The toolkit produces evidence; certification, conformity assessment, and DPIA reviews remain a sociotechnical process you must conduct with qualified counsel and (where applicable) a notified body.</p>
-
-        <h2>7. Liability</h2>
-        <p>To the maximum extent permitted by law, the project, its maintainers, and contributors are not liable for any indirect, incidental, special, consequential, or punitive damages, or for any loss of profits, revenues, data, or goodwill arising out of your use of the toolkit or the website. The Apache 2.0 limitation of liability applies in full.</p>
-
-        <h2>8. Changes</h2>
-        <p>If we update these terms, the date at the top changes. Material changes are noted in the project's <code>CHANGELOG.md</code>. Continued use of the site after a change constitutes acceptance of the updated terms.</p>
-
-        <h2>9. Governing law</h2>
-        <p>The toolkit's licence is the sole governing instrument for the code. For disputes specifically about the website's content (e.g., trademark misuse), Turkish law applies, and the courts of Istanbul are competent — without prejudice to your mandatory consumer protections in your jurisdiction of residence.</p>
-
-        <h2>10. Contact</h2>
-        <p>Questions or notices: open the <a href="contact.html">contact form</a>.</p>
-      </div>
-
-      <!-- TURKISH -->
-      <div class="i18n-block" data-lang="tr">
-        <h2>1. Toolkit (kod)</h2>
-        <p>ForgeLM Python paketi ve kaynak kodu <strong>Apache License 2.0</strong> altında yayınlanır. Bu lisansın koşulları altında kullanabilir, değiştirebilir, ticari ürünlere gömebilir ve yeniden dağıtabilirsiniz. Tam metin: <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener">apache.org/licenses/LICENSE-2.0</a>.</p>
-        <p>Toolkit <strong>"olduğu gibi", hiçbir garanti olmadan</strong> sunulur — lisansın <em>Disclaimer of Warranty</em> ve <em>Limitation of Liability</em> bölümlerine bakın. Model fine-tune etmek gerçek-dünya sonuçları olan (güvenlik, doğruluk, regülasyon ifşası) bir faaliyettir; kurduğunuz sistemlerden siz sorumlu kalırsınız.</p>
-
-        <h2>2. Web sitesi (bu domain)</h2>
-        <p>Sitenin HTML, CSS, JavaScript, metin ve grafikleri de aksi belirtilmedikçe Apache 2.0 kapsamındadır. Siteyi fork'layabilirsiniz; ancak ticari marka — <strong>"ForgeLM"</strong> adı ve logo — saklıdır (bkz. §3).</p>
-        <p>Siteyi şu amaçlarla kullanamazsınız:</p>
-        <ul>
-          <li>projeyi veya yürütücülerini taklit etmek;</li>
-          <li>toolkit'in pozisyonuyla rekabet edecek bir modeli eğitmek için kaynak göstermeden site içeriğini scrape etmek;</li>
-          <li>iletişim formunun üzerinden spam göndermek, Formspree'nin abuse-önleme önlemlerini reverse-engineer etmek veya zararlı payload göndermek.</li>
-        </ul>
-
-        <h2>3. Ticari marka</h2>
-        <p>"ForgeLM" ve forge işareti projenin ticari markasıdır. Adı toolkit'e doğru bir şekilde atıfta bulunmak için (ör. "ForgeLM ile fine-tune ettik") ve bu siteye link vermek için kullanabilirsiniz. Adı veya işareti, var olmayan bir onay, resmi iş ortaklığı veya bizden kaynaklanma izlenimi verecek şekilde kullanamazsınız.</p>
-
-        <h2>4. Üçüncü-taraf yazılım</h2>
-        <p>ForgeLM, üçüncü-taraf kütüphanelere bağımlıdır (HuggingFace Transformers, TRL, PEFT, bitsandbytes, Unsloth, datasketch, pypdf, vb.) — her biri kendi lisansıyla yönetilir. Uyumluluk <code>pyproject.toml</code>'da belgelenmiştir.</p>
-
-        <h2>5. Modeller ve veri setleri</h2>
-        <p>ForgeLM, sizin sağladığınız modeller ve veri setleri üzerinde çalışan bir araçtır. Bunların lisansları (Llama 3 community licence, Mistral commercial terms, dataset CC-BY-NC-SA vb.) <strong>bu artifact'ları kullanımınızı yönetir</strong>; Apache 2.0 değil. ForgeLM, altta yatan ağırlık veya training verisi üzerinde size hak vermez.</p>
-
-        <h2>6. Profesyonel tavsiye değildir</h2>
-        <p>Bu sitedeki EU AI Act uyumu, KVKK / GDPR, ISO 27001 veya diğer regülasyon rejimleri hakkındaki ifadeler <strong>teknik açıklamalardır</strong>, hukuki tavsiye değildir. Toolkit kanıt üretir; sertifikasyon, uygunluk değerlendirmesi ve DPIA incelemeleri, nitelikli hukuk danışmanlığı ve (uygulanabilir durumlarda) notified-body ile yürütmeniz gereken sosyo-teknik bir süreçtir.</p>
-
-        <h2>7. Sorumluluk</h2>
-        <p>Kanunun azami izin verdiği ölçüde, proje, yürütücüleri ve katkıda bulunanlar; toolkit veya sitenin kullanımından doğan herhangi bir dolaylı, arızi, özel, ardışık veya cezai tazminattan ya da kâr, gelir, veri veya itibar kaybından sorumlu değildir. Apache 2.0 sorumluluk sınırlaması tam olarak uygulanır.</p>
-
-        <h2>8. Değişiklikler</h2>
-        <p>Bu koşulları güncellersek üst taraftaki tarih değişir. Maddi değişiklikler projenin <code>CHANGELOG.md</code>'sine düşer. Bir değişiklikten sonra siteyi kullanmaya devam etmeniz, güncel koşulları kabul ettiğiniz anlamına gelir.</p>
-
-        <h2>9. Yetkili hukuk</h2>
-        <p>Toolkit'in lisansı kod için tek yönetici belgedir. Web sitesinin içeriğine özgü ihtilaflar (ör. ticari marka kötüye kullanımı) için Türkiye Cumhuriyeti hukuku uygulanır ve İstanbul mahkemeleri yetkilidir — ikamet ettiğiniz yargı bölgesindeki zorunlu tüketici koruma haklarınız saklıdır.</p>
-
-        <h2>10. İletişim</h2>
-        <p>Sorular veya bildirimler: <a href="contact.html">iletişim formunu</a> açın.</p>
+        <p>The ForgeLM Python package is released under the Apache License 2.0.</p>
       </div>
     </div>
   </div>
@@ -162,9 +89,9 @@
     <div class="footer-bottom">
       <span>&copy; 2026 ForgeLM</span>
       <span>
-        <a href="index.html"><span class="i18n-inline" data-lang="en">Home</span><span class="i18n-inline" data-lang="tr">Ana Sayfa</span></a> ·
-        <a href="privacy.html"><span class="i18n-inline" data-lang="en">Privacy</span><span class="i18n-inline" data-lang="tr">Gizlilik</span></a> ·
-        <a href="contact.html"><span class="i18n-inline" data-lang="en">Contact</span><span class="i18n-inline" data-lang="tr">İletişim</span></a>
+        <a href="index.html" data-i18n="common.footer.home">Home</a> ·
+        <a href="privacy.html" data-i18n="common.footer.privacy">Privacy</a> ·
+        <a href="contact.html" data-i18n="common.footer.contact">Contact</a>
       </span>
     </div>
   </div>

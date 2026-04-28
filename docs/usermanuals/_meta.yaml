@@ -1,0 +1,492 @@
+# ForgeLM user-manual structure.
+#
+# This file defines the navigation tree for the user guide on the website.
+# Source content lives under docs/usermanuals/<lang>/<section-id>/<page-id>.md
+# and is compiled by tools/build_usermanuals.py into site/js/usermanuals/<lang>.js.
+#
+# `id` values must be lowercase, kebab-case, ASCII — they form URL fragments
+# and filesystem paths.
+#
+# Page titles must exist for every supported language (en, tr, de, fr, es, zh).
+# If a page's source markdown is missing for a language at build time, the
+# English source is used as a fallback and the generated record is marked
+# `fallback: true` so the site can show a "translation pending" banner.
+
+languages: [en, tr, de, fr, es, zh]
+default_language: en
+
+sections:
+  - id: getting-started
+    icon: rocket
+    title:
+      en: Getting Started
+      tr: Başlarken
+      de: Erste Schritte
+      fr: Premiers pas
+      es: Primeros pasos
+      zh: 入门
+    pages:
+      - id: introduction
+        title:
+          en: Introduction
+          tr: Tanıtım
+          de: Einführung
+          fr: Introduction
+          es: Introducción
+          zh: 简介
+      - id: installation
+        title:
+          en: Installation
+          tr: Kurulum
+          de: Installation
+          fr: Installation
+          es: Instalación
+          zh: 安装
+      - id: first-run
+        title:
+          en: Your First Run
+          tr: İlk Koşunuz
+          de: Ihr erster Lauf
+          fr: Votre première exécution
+          es: Su primera ejecución
+          zh: 你的第一次运行
+      - id: project-layout
+        title:
+          en: Project Layout
+          tr: Proje Yapısı
+          de: Projektstruktur
+          fr: Structure du projet
+          es: Estructura del proyecto
+          zh: 项目结构
+
+  - id: concepts
+    icon: book
+    title:
+      en: Core Concepts
+      tr: Temel Kavramlar
+      de: Kernkonzepte
+      fr: Concepts fondamentaux
+      es: Conceptos fundamentales
+      zh: 核心概念
+    pages:
+      - id: alignment-overview
+        title:
+          en: The Alignment Stack
+          tr: Alignment Yığını
+          de: Der Alignment-Stack
+          fr: La pile d'alignement
+          es: El stack de alignment
+          zh: 对齐栈
+      - id: choosing-trainer
+        title:
+          en: Choosing a Trainer
+          tr: Trainer Seçimi
+          de: Trainer auswählen
+          fr: Choisir un trainer
+          es: Elegir un trainer
+          zh: 选择 trainer
+      - id: data-formats
+        title:
+          en: Dataset Formats
+          tr: Veri Seti Formatları
+          de: Dataset-Formate
+          fr: Formats de jeux de données
+          es: Formatos de dataset
+          zh: 数据集格式
+
+  - id: training
+    icon: cpu
+    title:
+      en: Training & Alignment
+      tr: Eğitim ve Alignment
+      de: Training & Alignment
+      fr: Entraînement et alignement
+      es: Entrenamiento y alignment
+      zh: 训练与对齐
+    pages:
+      - id: sft
+        title: { en: SFT, tr: SFT, de: SFT, fr: SFT, es: SFT, zh: SFT }
+      - id: dpo
+        title: { en: DPO, tr: DPO, de: DPO, fr: DPO, es: DPO, zh: DPO }
+      - id: simpo
+        title: { en: SimPO, tr: SimPO, de: SimPO, fr: SimPO, es: SimPO, zh: SimPO }
+      - id: kto
+        title: { en: KTO, tr: KTO, de: KTO, fr: KTO, es: KTO, zh: KTO }
+      - id: orpo
+        title: { en: ORPO, tr: ORPO, de: ORPO, fr: ORPO, es: ORPO, zh: ORPO }
+      - id: grpo
+        title: { en: GRPO, tr: GRPO, de: GRPO, fr: GRPO, es: GRPO, zh: GRPO }
+      - id: lora
+        title:
+          en: LoRA, QLoRA, DoRA
+          tr: LoRA, QLoRA, DoRA
+          de: LoRA, QLoRA, DoRA
+          fr: LoRA, QLoRA, DoRA
+          es: LoRA, QLoRA, DoRA
+          zh: LoRA, QLoRA, DoRA
+      - id: galore
+        title: { en: GaLore, tr: GaLore, de: GaLore, fr: GaLore, es: GaLore, zh: GaLore }
+      - id: long-context
+        title:
+          en: Long Context
+          tr: Uzun Bağlam
+          de: Langer Kontext
+          fr: Long contexte
+          es: Contexto largo
+          zh: 长上下文
+      - id: distributed
+        title:
+          en: Distributed Training
+          tr: Dağıtık Eğitim
+          de: Verteiltes Training
+          fr: Entraînement distribué
+          es: Entrenamiento distribuido
+          zh: 分布式训练
+
+  - id: data
+    icon: database
+    title:
+      en: Data
+      tr: Veri
+      de: Daten
+      fr: Données
+      es: Datos
+      zh: 数据
+    pages:
+      - id: ingestion
+        title:
+          en: Document Ingestion
+          tr: Doküman Ingest'i
+          de: Dokumentenaufnahme
+          fr: Ingestion de documents
+          es: Ingestión de documentos
+          zh: 文档 ingest
+      - id: audit
+        title:
+          en: Dataset Audit
+          tr: Veri Seti Denetimi
+          de: Datensatz-Audit
+          fr: Audit de jeu de données
+          es: Auditoría de dataset
+          zh: 数据集审计
+      - id: pii-masking
+        title:
+          en: PII Masking
+          tr: PII Maskeleme
+          de: PII-Maskierung
+          fr: Masquage des PII
+          es: Enmascaramiento PII
+          zh: PII 屏蔽
+      - id: secrets
+        title:
+          en: Secrets Scrubbing
+          tr: Sırların Temizlenmesi
+          de: Secrets-Bereinigung
+          fr: Nettoyage des secrets
+          es: Limpieza de secretos
+          zh: Secrets 清洗
+      - id: deduplication
+        title:
+          en: Deduplication
+          tr: Tekrar Tespiti
+          de: Deduplikation
+          fr: Déduplication
+          es: Deduplicación
+          zh: 去重
+      - id: quality-filter
+        title:
+          en: Quality Filter
+          tr: Kalite Filtresi
+          de: Qualitätsfilter
+          fr: Filtre qualité
+          es: Filtro de calidad
+          zh: 质量过滤
+      - id: language-detection
+        title:
+          en: Language Detection
+          tr: Dil Tespiti
+          de: Spracherkennung
+          fr: Détection de langue
+          es: Detección de idioma
+          zh: 语言识别
+      - id: leakage
+        title:
+          en: Cross-Split Leakage
+          tr: Split-Arası Sızıntı
+          de: Split-übergreifender Leak
+          fr: Fuite inter-split
+          es: Fuga entre splits
+          zh: Split 间泄漏
+      - id: synthetic-data
+        title:
+          en: Synthetic Data
+          tr: Sentetik Veri
+          de: Synthetische Daten
+          fr: Données synthétiques
+          es: Datos sintéticos
+          zh: 合成数据
+
+  - id: evaluation
+    icon: shield
+    title:
+      en: Evaluation & Safety
+      tr: Değerlendirme ve Güvenlik
+      de: Evaluierung & Sicherheit
+      fr: Évaluation et sécurité
+      es: Evaluación y seguridad
+      zh: 评估与安全
+    pages:
+      - id: benchmarks
+        title:
+          en: Benchmark Integration
+          tr: Benchmark Entegrasyonu
+          de: Benchmark-Integration
+          fr: Intégration de benchmark
+          es: Integración de benchmark
+          zh: Benchmark 集成
+      - id: judge
+        title:
+          en: LLM-as-Judge
+          tr: LLM-as-Judge
+          de: LLM-as-Judge
+          fr: LLM-as-judge
+          es: LLM-as-judge
+          zh: LLM-as-judge
+      - id: safety
+        title:
+          en: Llama Guard Safety
+          tr: Llama Guard Güvenliği
+          de: Llama-Guard-Sicherheit
+          fr: Sécurité Llama Guard
+          es: Seguridad Llama Guard
+          zh: Llama Guard 安全
+      - id: auto-revert
+        title:
+          en: Auto-Revert
+          tr: Otomatik Geri Alma
+          de: Auto-Rollback
+          fr: Rollback automatique
+          es: Reversión automática
+          zh: 自动回滚
+      - id: trend-tracking
+        title:
+          en: Trend Tracking
+          tr: Trend İzleme
+          de: Trend-Tracking
+          fr: Suivi de tendance
+          es: Seguimiento de tendencias
+          zh: 趋势跟踪
+
+  - id: compliance
+    icon: badge
+    title:
+      en: Compliance
+      tr: Uyumluluk
+      de: Compliance
+      fr: Conformité
+      es: Cumplimiento
+      zh: 合规
+    pages:
+      - id: overview
+        title:
+          en: Overview
+          tr: Genel Bakış
+          de: Überblick
+          fr: Vue d'ensemble
+          es: Visión general
+          zh: 概览
+      - id: annex-iv
+        title: { en: Annex IV, tr: Annex IV, de: Annex IV, fr: Annex IV, es: Annex IV, zh: Annex IV }
+      - id: audit-log
+        title:
+          en: Audit Log
+          tr: Audit Log
+          de: Audit-Log
+          fr: Log d'audit
+          es: Log de auditoría
+          zh: 审计日志
+      - id: human-oversight
+        title:
+          en: Human Oversight
+          tr: İnsan Gözetimi
+          de: Menschliche Aufsicht
+          fr: Supervision humaine
+          es: Supervisión humana
+          zh: 人工监督
+      - id: model-card
+        title:
+          en: Model Card
+          tr: Model Card
+          de: Model Card
+          fr: Model card
+          es: Model card
+          zh: Model card
+      - id: gdpr
+        title:
+          en: GDPR / KVKK
+          tr: KVKK / GDPR
+          de: DSGVO / KVKK
+          fr: RGPD / KVKK
+          es: RGPD / KVKK
+          zh: GDPR / KVKK
+
+  - id: operations
+    icon: server
+    title:
+      en: Operations
+      tr: Operasyon
+      de: Betrieb
+      fr: Exploitation
+      es: Operaciones
+      zh: 运维
+    pages:
+      - id: cicd
+        title:
+          en: CI/CD Pipelines
+          tr: CI/CD Hatları
+          de: CI/CD-Pipelines
+          fr: Pipelines CI/CD
+          es: Pipelines CI/CD
+          zh: CI/CD 流水线
+      - id: webhooks
+        title:
+          en: Webhooks
+          tr: Webhook'lar
+          de: Webhooks
+          fr: Webhooks
+          es: Webhooks
+          zh: Webhook
+      - id: experiment-tracking
+        title:
+          en: Experiment Tracking
+          tr: Deney Takibi
+          de: Experiment-Tracking
+          fr: Suivi d'expériences
+          es: Seguimiento de experimentos
+          zh: 实验跟踪
+      - id: air-gap
+        title:
+          en: Air-Gap Operation
+          tr: Air-Gap Operasyonu
+          de: Air-Gap-Betrieb
+          fr: Fonctionnement air-gap
+          es: Operación air-gap
+          zh: 气隙运行
+      - id: docker
+        title:
+          en: Docker
+          tr: Docker
+          de: Docker
+          fr: Docker
+          es: Docker
+          zh: Docker
+      - id: gpu-cost
+        title:
+          en: GPU Cost Estimation
+          tr: GPU Maliyet Tahmini
+          de: GPU-Kostenschätzung
+          fr: Estimation du coût GPU
+          es: Estimación de coste GPU
+          zh: GPU 成本估算
+      - id: vram-fit-check
+        title:
+          en: VRAM Fit-Check
+          tr: VRAM Fit-Check
+          de: VRAM-Fit-Check
+          fr: Vérification VRAM
+          es: Comprobación VRAM
+          zh: VRAM 适配检查
+      - id: troubleshooting
+        title:
+          en: Troubleshooting
+          tr: Sorun Giderme
+          de: Fehlerbehebung
+          fr: Dépannage
+          es: Solución de problemas
+          zh: 故障排除
+
+  - id: deployment
+    icon: ship
+    title:
+      en: Deployment
+      tr: Deployment
+      de: Deployment
+      fr: Déploiement
+      es: Despliegue
+      zh: 部署
+    pages:
+      - id: chat
+        title:
+          en: Interactive Chat
+          tr: İnteraktif Sohbet
+          de: Interaktiver Chat
+          fr: Chat interactif
+          es: Chat interactivo
+          zh: 交互式聊天
+      - id: gguf-export
+        title:
+          en: GGUF Export
+          tr: GGUF Export
+          de: GGUF-Export
+          fr: Export GGUF
+          es: Export GGUF
+          zh: GGUF 导出
+      - id: deploy-targets
+        title:
+          en: Deploy Targets
+          tr: Deploy Hedefleri
+          de: Deploy-Ziele
+          fr: Cibles de déploiement
+          es: Objetivos de despliegue
+          zh: 部署目标
+      - id: model-merging
+        title:
+          en: Model Merging
+          tr: Model Birleştirme
+          de: Model-Merging
+          fr: Fusion de modèles
+          es: Fusión de modelos
+          zh: 模型合并
+
+  - id: reference
+    icon: book-open
+    title:
+      en: Reference
+      tr: Referans
+      de: Referenz
+      fr: Référence
+      es: Referencia
+      zh: 参考
+    pages:
+      - id: configuration
+        title:
+          en: Configuration Reference
+          tr: Konfigürasyon Referansı
+          de: Konfigurationsreferenz
+          fr: Référence de configuration
+          es: Referencia de configuración
+          zh: 配置参考
+      - id: cli
+        title:
+          en: CLI Reference
+          tr: CLI Referansı
+          de: CLI-Referenz
+          fr: Référence CLI
+          es: Referencia CLI
+          zh: CLI 参考
+      - id: exit-codes
+        title:
+          en: Exit Codes
+          tr: Exit Kodları
+          de: Exit-Codes
+          fr: Codes de sortie
+          es: Códigos de salida
+          zh: 退出码
+      - id: yaml-templates
+        title:
+          en: YAML Templates
+          tr: YAML Şablonları
+          de: YAML-Vorlagen
+          fr: Modèles YAML
+          es: Plantillas YAML
+          zh: YAML 模板
