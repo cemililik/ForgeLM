@@ -30,6 +30,22 @@ _PUBLIC_EXIT_CODES = frozenset(
 )
 
 
+def _non_negative_int(value: str) -> int:
+    """argparse type for flags that must be ≥ 0 (e.g. --near-dup-threshold).
+
+    Raising :class:`argparse.ArgumentTypeError` lets argparse render a
+    standard "invalid value" error and exit through its usual path,
+    without us having to thread parser.error() into every call site.
+    """
+    try:
+        ivalue = int(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(f"invalid integer: {value!r}") from exc
+    if ivalue < 0:
+        raise argparse.ArgumentTypeError(f"value must be ≥ 0, got {ivalue}")
+    return ivalue
+
+
 def _get_version() -> str:
     try:
         return pkg_version("forgelm")
@@ -254,9 +270,14 @@ def _add_ingest_subcommand(subparsers) -> None:
     p.add_argument(
         "--chunk-size",
         type=int,
-        default=2048,
+        default=None,
         metavar="N",
-        help="Soft per-chunk character cap (default: 2048).",
+        help=(
+            "Soft per-chunk character cap (library default: 2048). Default is None — "
+            "the library resolves it via forgelm.ingestion.DEFAULT_CHUNK_SIZE. Passing an "
+            "explicit value here while also using --chunk-tokens triggers an info log so "
+            "stale invocations are visible."
+        ),
     )
     p.add_argument(
         "--overlap",
@@ -289,6 +310,89 @@ def _add_ingest_subcommand(subparsers) -> None:
         action="store_true",
         help="Replace detected PII spans with [REDACTED] before writing.",
     )
+    p.add_argument(
+        "--chunk-tokens",
+        type=_non_negative_int,
+        default=None,
+        metavar="N",
+        help=(
+            "Phase 11.5 token-aware mode: size each chunk to N tokens (requires --tokenizer). "
+            "When set, --chunk-size is ignored. Use this when your downstream model has a hard "
+            "max_length budget — char-based chunking commonly trips it on dense corpora. "
+            "Must be ≥ 0; 0 is still rejected at ingest_path's own positive-int check, "
+            "but negatives now exit at parse-time with a CLI argument error."
+        ),
+    )
+    p.add_argument(
+        "--overlap-tokens",
+        type=_non_negative_int,
+        default=0,
+        metavar="N",
+        help=(
+            "Sliding-window overlap measured in tokens (default: 0). Same half-window cap as "
+            "--overlap. Must be ≥ 0; negatives exit at parse-time. "
+            "Ignored when --chunk-tokens is not set, and the paragraph strategy logs an "
+            "info note when this is non-zero (paragraph chunks don't overlap by design)."
+        ),
+    )
+    p.add_argument(
+        "--tokenizer",
+        type=str,
+        default=None,
+        metavar="MODEL_NAME",
+        help="HuggingFace model name passed to AutoTokenizer.from_pretrained when --chunk-tokens is set.",
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
+def _add_audit_subcommand(subparsers) -> None:
+    p = subparsers.add_parser(
+        "audit",
+        help="Run a Phase 11/11.5 dataset audit on a JSONL file or split-keyed directory.",
+        description=(
+            "Phase 11.5: first-class audit subcommand (the legacy `--data-audit FLAG` is preserved "
+            "as a deprecation alias). Computes per-split length distribution, top-3 language detection, "
+            "near-duplicate detection (LSH-banded), cross-split overlap, and PII flags with severity "
+            "tiers — feeding the EU AI Act Article 10 governance artifact when run inside a training "
+            "output directory."
+        ),
+    )
+    p.add_argument(
+        "input_path",
+        help="JSONL file (single split) or directory containing train.jsonl / validation.jsonl / test.jsonl.",
+    )
+    p.add_argument(
+        "--output",
+        type=str,
+        # default=SUPPRESS keeps the attribute off ``args`` when the operator
+        # doesn't pass --output, so the top-level ``--output`` (default=None)
+        # wins and ``_run_data_audit`` applies its own "./audit" fallback.
+        # Without SUPPRESS the subparser default would silently overwrite a
+        # top-level value when both forms are valid.
+        default=argparse.SUPPRESS,
+        metavar="DIR",
+        help="Where to write data_audit_report.json (default: ./audit/, created if missing).",
+    )
+    p.add_argument(
+        "--verbose",
+        action="store_true",
+        help=(
+            "Show every split in the text summary, including those with zero findings. Default is "
+            "to fold zero-finding splits into a single 'N clean split(s)' line so multi-split audits "
+            "stay short. Has no effect on the on-disk JSON report."
+        ),
+    )
+    p.add_argument(
+        "--near-dup-threshold",
+        type=_non_negative_int,
+        default=None,
+        metavar="N",
+        help=(
+            "Hamming-distance cutoff for the simhash near-duplicate detector. Default 3 (≈95%% "
+            "similarity). Higher values widen the recall window at the cost of more false positives. "
+            "Must be ≥ 0; negative values exit with a CLI argument error."
+        ),
+    )
     _add_common_subparser_flags(p, include_output_format=True)
 
 
@@ -300,6 +404,7 @@ def parse_args():
             "Subcommands:\n"
             "  forgelm quickstart [TEMPLATE]   Generate a config from a curated template\n"
             "  forgelm ingest PATH             Convert raw docs (PDF/DOCX/EPUB/TXT/Markdown) → JSONL\n"
+            "  forgelm audit PATH              Run dataset audit (length/lang/PII/leakage)\n"
             "  forgelm chat MODEL_PATH         Interactive chat REPL\n"
             "  forgelm export MODEL_PATH       Export model to GGUF\n"
             "  forgelm deploy MODEL_PATH       Generate serving config\n"
@@ -314,6 +419,7 @@ def parse_args():
     _add_deploy_subcommand(subparsers)
     _add_quickstart_subcommand(subparsers)
     _add_ingest_subcommand(subparsers)
+    _add_audit_subcommand(subparsers)
 
     # --- Top-level flags (training / config-driven mode) ---
     parser.add_argument("--config", type=str, help="Path to the YAML configuration file.")
@@ -380,8 +486,9 @@ def parse_args():
         default=None,
         metavar="PATH",
         help=(
-            "Run the Phase 11 dataset audit on a JSONL file or split-keyed directory. "
-            "Writes `data_audit_report.json` under --output (default ./audit/). No training."
+            "Deprecated alias for `forgelm audit PATH` (kept so existing pipelines keep working). "
+            "Behaviour is identical; new scripts should use the subcommand. Writes "
+            "`data_audit_report.json` under --output (default ./audit/). No training."
         ),
     )
     parser.add_argument(
@@ -1102,8 +1209,18 @@ def _run_ingest_cmd(args, output_format: str) -> None:
             strategy=args.strategy,
             recursive=args.recursive,
             pii_mask=args.pii_mask,
+            chunk_tokens=getattr(args, "chunk_tokens", None),
+            overlap_tokens=getattr(args, "overlap_tokens", 0),
+            tokenizer=getattr(args, "tokenizer", None),
         )
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, ValueError, PermissionError, IsADirectoryError, OSError) as exc:
+        # FileNotFoundError / PermissionError / IsADirectoryError are all
+        # OSError subclasses, but listed explicitly so the error class is
+        # visible to readers; OSError covers ENOSPC, broken-symlink walk
+        # failures, and locked-file open() errors that would otherwise leak
+        # through with a confusing traceback. ValueError stays first because
+        # ingest_path raises it for invalid chunking parameters before any
+        # filesystem access.
         if output_format == "json":
             print(json.dumps({"success": False, "error": str(exc)}))
         else:
@@ -1132,7 +1249,9 @@ def _run_ingest_cmd(args, output_format: str) -> None:
                     "total_chars": result.total_chars,
                     "format_counts": result.format_counts,
                     "pii_redaction_counts": result.pii_redaction_counts,
+                    "pdf_header_footer_lines_stripped": result.pdf_header_footer_lines_stripped,
                     "notes": result.extra_notes,
+                    "notes_structured": result.notes_structured,
                 },
                 indent=2,
             )
@@ -1141,13 +1260,34 @@ def _run_ingest_cmd(args, output_format: str) -> None:
         print(summarize_result(result))
 
 
-def _run_data_audit(audit_input: str, output_dir: Optional[str], output_format: str) -> None:
-    """Phase 11 dispatch: dataset quality + governance audit."""
-    from .data_audit import audit_dataset, summarize_report
+def _run_data_audit(
+    audit_input: str,
+    output_dir: Optional[str],
+    output_format: str,
+    *,
+    verbose: bool = False,
+    near_dup_threshold: Optional[int] = None,
+    invoked_via_legacy_flag: bool = False,
+) -> None:
+    """Phase 11 / 11.5 dispatch: dataset quality + governance audit.
+
+    ``invoked_via_legacy_flag`` flips a one-line deprecation notice when
+    the operator reaches us through ``forgelm --data-audit`` instead of
+    the newer ``forgelm audit`` subcommand. The behaviour is identical
+    in both paths so existing CI pipelines keep working unchanged.
+    """
+    from .data_audit import DEFAULT_NEAR_DUP_HAMMING, audit_dataset, summarize_report
+
+    if invoked_via_legacy_flag:
+        logger.info(
+            "Note: `forgelm --data-audit PATH` is preserved as a deprecation alias. "
+            "New scripts should use `forgelm audit PATH` (Phase 11.5)."
+        )
 
     target = output_dir or "./audit"
+    threshold = near_dup_threshold if near_dup_threshold is not None else DEFAULT_NEAR_DUP_HAMMING
     try:
-        report = audit_dataset(audit_input, output_dir=target)
+        report = audit_dataset(audit_input, output_dir=target, near_dup_threshold=threshold)
     except OSError as exc:
         # OSError covers FileNotFoundError / PermissionError / ENOSPC /
         # IsADirectoryError that bubble up from _resolve_input or
@@ -1172,18 +1312,44 @@ def _run_data_audit(audit_input: str, output_dir: Optional[str], output_format: 
             "total_samples": report.total_samples,
             "splits": {name: info.get("sample_count", 0) for name, info in report.splits.items()},
             "pii_summary": report.pii_summary,
+            "pii_severity": report.pii_severity,
             "near_duplicate_pairs_per_split": report.near_duplicate_summary.get("pairs_per_split", {}),
             "cross_split_leakage_pairs": list((report.cross_split_overlap.get("pairs") or {}).keys()),
             "notes": report.notes,
         }
         print(json.dumps(summary, indent=2, ensure_ascii=False))
     else:
-        print(summarize_report(report))
+        print(summarize_report(report, verbose=verbose))
         print(f"\nReport written to: {Path(target) / 'data_audit_report.json'}")
 
 
+def _run_audit_cmd(args, output_format: str) -> None:
+    """Phase 11.5 dispatch for the new ``forgelm audit PATH`` subcommand.
+
+    The audit subparser uses ``argparse.SUPPRESS`` for ``--output``, so when
+    the operator doesn't pass it the attribute is missing from ``args`` and
+    ``getattr(..., None)`` lets the top-level ``--output`` (default=None) win.
+    ``_run_data_audit`` applies the canonical ``./audit`` fallback when both
+    end up None.
+    """
+    _run_data_audit(
+        args.input_path,
+        getattr(args, "output", None),
+        output_format,
+        verbose=getattr(args, "verbose", False),
+        near_dup_threshold=getattr(args, "near_dup_threshold", None),
+        invoked_via_legacy_flag=False,
+    )
+
+
 def _dispatch_subcommand(command: str, args) -> None:
-    """Run a Phase 10/10.5/11 subcommand (chat / export / deploy / quickstart / ingest) and exit."""
+    """Run a Phase 10 / 10.5 / 11 / 11.5 subcommand and exit.
+
+    Subcommands handled here: ``chat``, ``export``, ``deploy``, ``quickstart``,
+    ``ingest``, ``audit``. Each terminates the process via ``sys.exit`` after
+    its own dispatcher returns — the trainer/training code path never runs
+    when a subcommand is in play.
+    """
     if command == "chat":
         # _run_chat_cmd's REPL catches KeyboardInterrupt internally for the
         # input prompt; this outer guard covers Ctrl-C during model load /
@@ -1207,6 +1373,9 @@ def _dispatch_subcommand(command: str, args) -> None:
         sys.exit(EXIT_SUCCESS)
     elif command == "ingest":
         _run_ingest_cmd(args, getattr(args, "output_format", "text"))
+        sys.exit(EXIT_SUCCESS)
+    elif command == "audit":
+        _run_audit_cmd(args, getattr(args, "output_format", "text"))
         sys.exit(EXIT_SUCCESS)
 
 
@@ -1353,12 +1522,19 @@ def main():
 
     # --data-audit operates on a JSONL file/directory only — no config needed.
     # Run before the config-required check so operators can audit raw data
-    # without writing a YAML.
+    # without writing a YAML. Phase 11.5 promoted the same code path to
+    # `forgelm audit PATH` (a real subcommand) and surfaces a deprecation
+    # notice from inside :func:`_run_data_audit` when the legacy flag is used.
     if getattr(args, "data_audit", None):
         json_output = args.output_format == "json"
         log_level = "WARNING" if args.quiet else args.log_level
         _setup_logging(log_level, json_format=json_output)
-        _run_data_audit(args.data_audit, args.output, args.output_format)
+        _run_data_audit(
+            args.data_audit,
+            args.output,
+            args.output_format,
+            invoked_via_legacy_flag=True,
+        )
         sys.exit(EXIT_SUCCESS)
 
     _maybe_run_wizard(args)

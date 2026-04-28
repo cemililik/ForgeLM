@@ -2,10 +2,12 @@
 
 Ham kurumsal külliyatı (PDF / DOCX / EPUB / TXT / Markdown) ForgeLM'in
 eğittiği SFT-uyumlu JSONL'a dönüştürün. Faz 11; `v0.5.0`'da tanıtıldı.
+Faz 11.5 (`v0.5.1`) token-aware chunking, PDF sayfa header/footer dedup
+ve yapılandırılmış ingestion notları ekledi.
 
-> Sonrasında [`forgelm --data-audit`](data_audit-tr.md) ile uzunluk
-> dağılımı / dil / near-duplicate / PII metriklerini yüzeye çıkarın;
-> chunk'ları Q&A `messages` formuna genişletmek için
+> Sonrasında [`forgelm audit`](data_audit-tr.md) ile uzunluk dağılımı /
+> dil / near-duplicate / PII metriklerini yüzeye çıkarın; chunk'ları Q&A
+> `messages` formuna genişletmek için
 > [`forgelm --generate-data`](../reference/usage-tr.md) ile zincirleyin.
 
 ---
@@ -16,10 +18,12 @@ eğittiği SFT-uyumlu JSONL'a dönüştürün. Faz 11; `v0.5.0`'da tanıtıldı.
 pip install 'forgelm[ingestion]'
 ```
 
-Bu opsiyonel grup `pypdf`, `python-docx`, `ebooklib`, `beautifulsoup4` ve
-`langdetect`'i getirir. Düz metin + Markdown için bu paketlerin hiçbiri
-gerekmediği için opsiyonel tutuldu. Modülün kendisi import edildiğinde
-ilgili extractor çağrılmadığı sürece bu bağımlılıkları yüklemez.
+Bu opsiyonel grup `pypdf`, `python-docx`, `ebooklib`, `beautifulsoup4`,
+`langdetect` ve (Faz 11.5'ten itibaren) opsiyonel non-cryptographic
+hızlı `xxhash` backend'i getirir. Düz metin + Markdown için bu
+paketlerin hiçbiri gerekmediği için opsiyonel tutuldu. Modülün kendisi
+import edildiğinde ilgili extractor çağrılmadığı sürece bu bağımlılıkları
+yüklemez.
 
 OCR **kapsam dışındadır.** Metin katmanı olmayan taranmış PDF'ler bir
 uyarı yüzdürür ve sıfır chunk üretir; ingest etmeden önce Tesseract veya
@@ -94,7 +98,7 @@ forgelm ingest ./customer_emails/ --output data/anon.jsonl --pii-mask
 
 Tespit edilen span'ler `[REDACTED]` ile değiştirilir. Tespit regex
 tabanlıdır — false positive'ler kasıtlıdır. Sonrasında
-`forgelm --data-audit` ile çıktıyı doğrulayın.
+`forgelm audit` ile çıktıyı doğrulayın.
 
 ---
 
@@ -148,7 +152,7 @@ görülecek kadar yüksek seslidir.
 forgelm ingest ./policies/ --recursive --output data/policies.jsonl
 
 # 2. Denetim (near-duplicate'leri, PII'yi, uzunluk aykırılarını yakalar)
-forgelm --data-audit data/policies.jsonl --output ./audit/
+forgelm audit data/policies.jsonl --output ./audit/
 
 # 3. (opsiyonel) Öğretmen modelle Q&A'ya genişletme
 forgelm --config configs/synth.yaml --generate-data
@@ -164,8 +168,9 @@ forgelm quickstart domain-expert --dataset data/policies.jsonl
 ```text
 forgelm ingest INPUT_PATH \
   --output FILE \
-  [--chunk-size N] \
+  [--chunk-size N | --chunk-tokens N --tokenizer MODEL_NAME] \
   [--overlap N] \
+  [--overlap-tokens N] \
   [--strategy {sliding,paragraph}] \
   [--recursive] \
   [--pii-mask] \
@@ -174,8 +179,37 @@ forgelm ingest INPUT_PATH \
 ```
 
 `--output-format json` standart çıktıya makine-okunabilir bir özet
-yazar (dosya yolları, chunk sayısı, format sayıları, notlar). CI/CD
-pipeline'larında kullanışlı.
+yazar (dosya yolları, chunk sayısı, format sayıları, notlar ve Faz
+11.5'te eklenen `notes_structured` makine-okunabilir `{key: value}`
+yapısı). CI/CD pipeline'larında kullanışlı.
+
+### Token-aware chunking — `--chunk-tokens` (Faz 11.5)
+
+Karakter tabanlı chunking pratik ama yoğun metinde modelinizin
+`max_length` token bütçesini aşabilir. `--chunk-tokens N` ile birlikte
+`--tokenizer MODEL_NAME` geçirerek chunk'ları aynı tokenizer üzerinden
+boyutlandırabilirsiniz:
+
+```bash
+forgelm ingest ./policies/ --recursive --output data/policies.jsonl \
+  --chunk-tokens 1024 --tokenizer "Qwen/Qwen2.5-7B-Instruct"
+```
+
+`--chunk-tokens` set edildiğinde `--chunk-size` görmezden gelinir (bir
+uyarı log'lanır). `--overlap-tokens N` token cinsinden sliding overlap
+boyutudur ve `--overlap` ile aynı yarım-pencere üst sınırına tabidir.
+`--chunk-tokens` ile `--tokenizer` zorunludur — varsayılan vocab
+seçmiyoruz çünkü chunk sayısı modelden modele sessizce değişirdi.
+
+### PDF sayfa header/footer dedup (Faz 11.5)
+
+`forgelm ingest`, bir PDF'in sayfalarının ≥ %70'inde ilk veya son
+boş-olmayan satır olarak tekrarlayan satırları (şirket filigranı,
+copyright satırı, sayfa numarası vb.) chunk'lamadan önce otomatik
+olarak temizler. Açık/kapatma flag'i yok; bayrak gerektirmiyor.
+Audit'in `near_duplicate_pairs` metriğindeki gürültüyü azaltır. 3
+sayfadan kısa belgelerde devre dışı kalır. Yapılandırılmış notlar
+çıktısı `pdf_header_footer_lines_stripped` alanını taşır.
 
 ---
 
@@ -272,7 +306,7 @@ OCR'dan sonra, dataset'i yayımlamadan önce `--pii-mask` ile ön işleyin:
 ```bash
 ocrmypdf medical_scan.pdf medical_with_text.pdf --language tur+eng
 forgelm ingest medical_with_text.pdf --output data/medical.jsonl --pii-mask
-forgelm --data-audit data/medical.jsonl --output ./audit/
+forgelm audit data/medical.jsonl --output ./audit/
 ```
 
 Audit adımı redaksiyonun çalıştığını doğrular: `data_audit_report.json`'da

@@ -1,9 +1,12 @@
 # Document Ingestion Guide
 
 Convert raw enterprise corpora (PDF / DOCX / EPUB / TXT / Markdown) into the
-SFT-ready JSONL ForgeLM trains on. Phase 11; introduced in `v0.5.0`.
+SFT-ready JSONL ForgeLM trains on. Phase 11; introduced in `v0.5.0`. Phase
+11.5 (`v0.5.1`) added token-aware chunking, PDF page header/footer dedup,
+and structured ingestion notes — each documented inline in the relevant
+section below.
 
-> Pair with [`forgelm --data-audit`](data_audit.md) afterwards to surface
+> Pair with [`forgelm audit`](data_audit.md) afterwards to surface
 > length-distribution / language / near-duplicate / PII metrics, and with
 > [`forgelm --generate-data`](../reference/usage.md) if you want the chunks
 > expanded into Q&A `messages` form via a teacher model.
@@ -16,10 +19,12 @@ SFT-ready JSONL ForgeLM trains on. Phase 11; introduced in `v0.5.0`.
 pip install 'forgelm[ingestion]'
 ```
 
-The extra brings in `pypdf`, `python-docx`, `ebooklib`, `beautifulsoup4`, and
-`langdetect`. They are optional because plain text + Markdown work without
-any of them. Importing the module does not pull these in unless the matching
-extractor is exercised.
+The extra brings in `pypdf`, `python-docx`, `ebooklib`, `beautifulsoup4`,
+`langdetect`, and (since v0.5.1) the optional non-cryptographic `xxhash`
+backend used by the simhash digest. They are optional because plain text
++ Markdown work without any of them. Importing the module does not pull
+these in unless the matching extractor is exercised; `xxhash`'s absence
+silently falls back to `hashlib.blake2b`.
 
 OCR is **out of scope.** Scanned PDFs without a text layer surface a warning
 and produce zero chunks; pre-process them with Tesseract or AWS Textract
@@ -90,7 +95,7 @@ forgelm ingest ./customer_emails/ --output data/anon.jsonl --pii-mask
 
 Detected spans are replaced with `[REDACTED]`. Detection is regex-based —
 false positives are intentional. Audit your output afterwards with
-`forgelm --data-audit` to verify.
+`forgelm audit` to verify.
 
 ---
 
@@ -145,7 +150,7 @@ to catch in CI logs.
 forgelm ingest ./policies/ --recursive --output data/policies.jsonl
 
 # 2. Audit (catches near-duplicates, PII, length outliers)
-forgelm --data-audit data/policies.jsonl --output ./audit/
+forgelm audit data/policies.jsonl --output ./audit/
 
 # 3. (optional) Expand to Q&A via a teacher model
 forgelm --config configs/synth.yaml --generate-data
@@ -161,8 +166,9 @@ forgelm quickstart domain-expert --dataset data/policies.jsonl
 ```text
 forgelm ingest INPUT_PATH \
   --output FILE \
-  [--chunk-size N] \
+  [--chunk-size N | --chunk-tokens N --tokenizer MODEL_NAME] \
   [--overlap N] \
+  [--overlap-tokens N] \
   [--strategy {sliding,paragraph}] \
   [--recursive] \
   [--pii-mask] \
@@ -171,7 +177,39 @@ forgelm ingest INPUT_PATH \
 ```
 
 `--output-format json` emits a machine-readable summary to stdout (file
-paths, chunk count, format counts, notes). Useful for CI/CD pipelines.
+paths, chunk count, format counts, notes, and `notes_structured` —
+machine-readable `{key: value}` introduced in Phase 11.5). Useful for
+CI/CD pipelines.
+
+### Token-aware chunking — `--chunk-tokens` (Phase 11.5)
+
+Char-based chunking is convenient but can blow past your model's
+`max_length` token budget on dense text. Pass `--chunk-tokens N` along
+with `--tokenizer MODEL_NAME` to size chunks against the same tokenizer
+your trainer will use:
+
+```bash
+forgelm ingest ./policies/ --recursive --output data/policies.jsonl \
+  --chunk-tokens 1024 --tokenizer "Qwen/Qwen2.5-7B-Instruct"
+```
+
+`--chunk-size` is ignored when `--chunk-tokens` is set (a warning logs
+the override). `--overlap-tokens N` is the sliding-window equivalent of
+`--overlap` measured in tokens, with the same half-window cap.
+`--tokenizer` is **required** with `--chunk-tokens` — we refuse to
+pick a default vocab because the resulting chunk count would silently
+differ per-model.
+
+### PDF page-level header/footer dedup (Phase 11.5)
+
+`forgelm ingest` now strips lines that recur as the first or last
+non-empty line on ≥ 70 % of a PDF's pages — typical company watermarks,
+copyright lines, page numbers — before chunking. This is automatic; no
+flag, no opt-out beyond "send a non-PDF". Reduces audit
+`near_duplicate_pairs` noise on long policy / book PDFs. Skipped on
+documents shorter than 3 pages. The structured-notes payload reports
+`pdf_header_footer_lines_stripped` so operators can see post-hoc that
+dedup actually did work.
 
 ---
 
@@ -267,7 +305,7 @@ Pre-process with `--pii-mask` after OCR, before publishing the dataset:
 ```bash
 ocrmypdf medical_scan.pdf medical_with_text.pdf --language tur+eng
 forgelm ingest medical_with_text.pdf --output data/medical.jsonl --pii-mask
-forgelm --data-audit data/medical.jsonl --output ./audit/
+forgelm audit data/medical.jsonl --output ./audit/
 ```
 
 The audit step verifies redaction worked: any remaining PII flag in

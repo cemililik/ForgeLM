@@ -43,16 +43,31 @@ def test_byod_rejects_nonexistent_path(capsys):
     assert "Path not found or not a regular file: /no/such/file.jsonl" in captured
 
 
-def test_byod_rejects_directory(tmp_path, capsys):
-    # tmp_path itself is a directory — the BYOD loop must reject it AND hint
-    # at the Phase 11 ingestion pipeline (forgelm ingest) since a directory
-    # of raw docs is the most plausible reason a user landed here.
+def test_byod_rejects_empty_directory(tmp_path, capsys):
+    # An empty directory has no ingestible documents — the wizard's
+    # Phase 11.5 ingest-first hook surfaces a clear "no supported files"
+    # message and re-prompts. Pre-Phase-11.5 wording ("not a JSONL file")
+    # was deliberately replaced once the wizard learned to ingest inline.
     answers = _PRELUDE + [str(tmp_path), "cancel"]
     with patch("builtins.input", side_effect=_make_input(answers)):
         result = wizard._maybe_run_quickstart_template()
     assert result is None
     captured = capsys.readouterr().out
-    assert "is a directory, not a JSONL file" in captured
+    assert "doesn't contain any" in captured
+
+
+def test_byod_directory_with_docs_offers_ingest_then_cancels(tmp_path, capsys):
+    # Phase 11.5: when the directory has ingestible files, the wizard offers
+    # to run ingestion inline. We answer "no" to the offer; the decline path
+    # surfaces the manual-ingest hint with the resolved directory.
+    (tmp_path / "doc.txt").write_text("alpha\n\nbeta", encoding="utf-8")
+    # Inputs after prelude: directory path → "n" (decline ingest offer) → "cancel"
+    answers = _PRELUDE + [str(tmp_path), "n", "cancel"]
+    with patch("builtins.input", side_effect=_make_input(answers)):
+        result = wizard._maybe_run_quickstart_template()
+    assert result is None
+    captured = capsys.readouterr().out
+    assert "Skipped" in captured
     assert "forgelm ingest" in captured
 
 

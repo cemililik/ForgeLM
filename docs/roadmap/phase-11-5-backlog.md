@@ -1,44 +1,87 @@
-# Phase 11.5 — Ingestion / Audit follow-up backlog
+# Phase 11.5 — Ingestion / Audit Polish
 
-**12 items** deliberately scoped out of Phase 11 (`v0.5.0`). Tracked here
-so a future minor / patch release can pick them up in priority order.
-Each row is small enough to land as its own focused PR.
+> **Status:** ✅ Landed for the `v0.5.1` cycle. All 12 follow-ups carved
+> out of Phase 11's review backlog have shipped. Modules touched:
+> [`forgelm/data_audit.py`](../../forgelm/data_audit.py),
+> [`forgelm/ingestion.py`](../../forgelm/ingestion.py),
+> [`forgelm/cli.py`](../../forgelm/cli.py),
+> [`forgelm/wizard.py`](../../forgelm/wizard.py); CLI:
+> `forgelm audit <path>` (new subcommand, with `--data-audit` preserved
+> as deprecation alias) + token-aware `forgelm ingest` flags; tests:
+> [`tests/test_data_audit.py`](../../tests/test_data_audit.py),
+> [`tests/test_ingestion.py`](../../tests/test_ingestion.py),
+> [`tests/test_cli_subcommands.py`](../../tests/test_cli_subcommands.py),
+> [`tests/test_wizard_byod.py`](../../tests/test_wizard_byod.py).
 
-> **Recently landed** (removed from the table below; in chronological order):
->
-> 1. ebooklib `options={"ignore_ncx": True, "ignore_missing_css": True}` —
->    silences the deprecation / NCX / CSS warnings on EPUB read.
-> 2. Audit progress logging — `_audit_split` emits per-5000-row simhash
->    progress; `audit_dataset` logs each split's open + the near-duplicate
->    pairing start.
-> 3. OCR handoff documentation in
->    [`docs/guides/ingestion.md`](../guides/ingestion.md) — Tesseract
->    (via `ocrmypdf`) and AWS Textract worked recipes, plus PII redaction
->    after OCR.
->
-> Original Phase 11 review surfaced 34 findings. 19 fixes applied in PR
-> #11; 3 follow-ups landed via the items above; 12 remain (this table).
+**Goal:** Operational polish on top of `v0.5.0`'s ingestion + audit
+surface — no new training capabilities, but materially better handling
+for large corpora and a cleaner CLI shape.
 
-| # | Item | Why deferred | Effort | Impact |
-|---|---|---|---|---|
-| **1** | LSH banding for near-duplicate detection | Current implementation is `O(n²)` and documented to top out around ~50K rows. LSH bands (4 × 16-bit on the 64-bit fingerprint, hash-bucket lookup) drop average-case to `O(n × k)`. | M | Unblocks audits on 100K+ row corpora |
-| **2** | Streaming `_read_jsonl_split` | Current implementation slurps the whole split into RAM (~400 MB for 100K × 4 KB rows). A generator-based audit pipeline would allow line-at-a-time processing. | M | RAM-bounded audits on large datasets |
-| **3** | Token-aware `--chunk-size` for ingestion | Today the cap is char-based. Optional `--chunk-tokens` flag with a tokenizer arg would let operators size chunks against `model.max_length` directly. | S | Fewer surprises when sizing for tokenizer-bound models |
-| **4** | PDF page-level header / footer dedup | Repeated page headers (company watermark, page number) end up in every chunk and inflate near-duplicate counts. Common-prefix / common-suffix detection across pages would clean this. | S | Reduces audit false-positives on long PDFs |
-| **5** | Token MD5 cache in `compute_simhash` | Each row re-hashes every token. Common tokens ("the", "and") would benefit from a `functools.lru_cache`-backed memo. 2-5× speedup expected on long corpora. | XS | Faster audits |
-| **6** | xxhash backend for simhash | MD5 is fine but not optimised; xxhash is non-crypto and substantially faster. Drop-in replacement once the dep is added under the `[ingestion]` extra. | XS | Throughput |
-| **7** | `forgelm audit` as a proper subcommand | Today `--data-audit` is a top-level flag sharing `--output` with `--compliance-export`. Promoting it to a subcommand (`forgelm audit <path>`) lets each mode own its `--output` default. Breaking change — defer until 0.6.0 or wrap in alias. | S | Cleaner CLI surface |
-| **8** | PII severity tiers | Today `pii_summary` is a flat count map. Categorising into `low / medium / high / critical` (e.g. `credit_card` → critical, `phone` → low) would give compliance reviewers a one-glance verdict. | S | Compliance UX |
-| **9** | `summarize_report` truncation policy | 10-split summary spans 100+ lines. A `--verbose` flag (or default truncation showing only "issues") would help TUI navigation. | XS | Operator-facing UX |
-| **10** | Structured ingestion notes | `IngestionResult.extra_notes` is currently a free-text string list. Promoting to `{key: value}` dicts (e.g. `{"skipped_files": 3}`) would make programmatic consumption easier. | XS | Library-side UX |
-| **11** | Wizard "ingest first" entry point | Today the wizard hints at `forgelm ingest` when a directory is given as a dataset path. A first-class wizard option ("I have raw documents") routing to ingest could close the loop. | S | Onboarding UX |
-| **12** | Output-path race window | `output_dir` is `mkdir`'d then `open`'d non-atomically. Low risk in practice (operator-controlled tmp dir) but a `tempfile.NamedTemporaryFile` + atomic-rename pattern would tighten it. | XS | Defensive depth |
+## What landed
 
-## Picking up an item
+| # | Item | Where it lives | One-line takeaway |
+|---|---|---|---|
+| **1** | LSH banding for near-duplicate detection | `find_near_duplicates`, `_count_leaked_rows` in [`data_audit.py`](../../forgelm/data_audit.py) | Pigeonhole-banded LSH (default `bands = threshold + 1`). Drops within-split + cross-split scans from `O(n²)` to ~`O(n × k)`; brute-force fallback when bands shrink below 4 bits. |
+| **2** | Streaming `_read_jsonl_split` | [`data_audit.py`](../../forgelm/data_audit.py) | Reader is now a generator yielding `(row, parse_err, decode_err)`; `_audit_split` consumes it row-by-row via a `_StreamingAggregator` so RAM stays bounded on multi-million-row splits. |
+| **3** | Token-aware `--chunk-tokens` | [`ingestion.py`](../../forgelm/ingestion.py), [`cli.py`](../../forgelm/cli.py) | New `--chunk-tokens N` + `--tokenizer MODEL` flags on `forgelm ingest`. Chunks are sized via `AutoTokenizer.encode` instead of raw character counts so they line up with `model.max_length` exactly. |
+| **4** | PDF page-level header / footer dedup | `_strip_repeating_page_lines` in [`ingestion.py`](../../forgelm/ingestion.py) | Lines that recur as the first or last non-empty line on ≥ 70 % of a PDF's pages are stripped. Reduces audit near-duplicate noise on long policy / book PDFs. |
+| **5** | Token-level `lru_cache` memo | `_token_digest` in [`data_audit.py`](../../forgelm/data_audit.py) | Per-token digest is cached at module scope (`maxsize=10_000`). Distinct tokens follow Zipf, so ~10 K cache slots cover most corpus traffic. |
+| **6** | xxhash backend for simhash | `_token_digest` in [`data_audit.py`](../../forgelm/data_audit.py) | Optional `xxhash` import (added to the `[ingestion]` extra) drives the digest path when present; BLAKE2b is preserved as the fallback. |
+| **7** | `forgelm audit` proper subcommand | [`cli.py`](../../forgelm/cli.py) | New `forgelm audit PATH` (with `--verbose`, `--near-dup-threshold`, `--output`). The legacy `--data-audit FLAG` keeps working as a deprecation alias (logs a one-line notice). |
+| **8** | PII severity tiers | `PII_SEVERITY`, `_build_pii_severity` in [`data_audit.py`](../../forgelm/data_audit.py) | Audit JSON now carries `pii_severity` with `worst_tier`, `by_tier`, and `by_type`. Notes line lead with the worst tier (e.g. `WORST tier: CRITICAL`). |
+| **9** | `summarize_report` truncation policy | [`data_audit.py`](../../forgelm/data_audit.py) | Default `verbose=False` folds zero-finding splits into a single tail line. CLI exposes `--verbose` on the new `audit` subcommand for full output. |
+| **10** | Structured ingestion notes | `IngestionResult.notes_structured` in [`ingestion.py`](../../forgelm/ingestion.py) | Free-text `extra_notes` stays for humans; new `notes_structured` carries machine-readable `{key: value}` for CI/CD consumers. JSON output already exposes both. |
+| **11** | Wizard "ingest first" entry point | `_offer_ingest_for_directory` + `_prompt_dataset_path_with_ingest_offer` in [`wizard.py`](../../forgelm/wizard.py) | Both BYOD quickstart and the full 8-step wizard now offer to run `ingest` inline when the typed path is a directory of raw documents. |
+| **12** | Atomic audit-report write | `_atomic_write_json` in [`data_audit.py`](../../forgelm/data_audit.py) | Writes via `tempfile.NamedTemporaryFile` + `os.replace` so a crashed audit can never leave a half-written `data_audit_report.json` on disk. |
 
-1. Open an issue referencing the item number above.
-2. PR scope: ONE row per PR.
-3. Update this file when the row lands — strike through and link the
-   commit / PR.
-4. If a row turns out to be the wrong shape, edit it here before doing the
-   work. Stale backlog rows are worse than missing rows.
+## Measured speedups (xxhash + lru_cache hot path)
+
+Local microbenchmark on Apple Silicon, Python 3.11.2, xxhash 3.7.0
+(median of 21 runs, 50 K hashes per round; end-to-end uses 1 K texts of
+50–150 Zipfian-English tokens with the cache cleared between runs):
+
+| Scenario                                | Speedup (xxh3 vs blake2b) |
+| --------------------------------------- | ------------------------- |
+| Raw digest, short keys (2–6 chars)      | 1.31×                     |
+| Raw digest, Zipfian English (~3 chars)  | 1.34×                     |
+| Raw digest, long keys (40–80 chars)     | 1.33×                     |
+| End-to-end `compute_simhash` (cache cleared) | 1.05×                |
+
+xxhash's well-known "4–10× faster than crypto hashes" figure refers to
+C-level pure-hash benchmarks; the Python wrapping (UTF-8 encode → call →
+`intdigest`) levels the field. The bigger wall-clock win in real audits
+comes from the token-level `lru_cache` — Zipfian token frequency means
+~10 K cache slots cover the vast majority of a corpus's traffic, so a
+second pass over the same corpus runs almost entirely from cache.
+
+The benchmark script is at `tests/bench_simhash.py` (run with
+`python tests/bench_simhash.py`); it is not part of the regular `pytest`
+suite because it is wall-clock-noisy.
+
+## Behavioural deltas worth highlighting
+
+- **Default near-duplicate detection is now LSH-banded.** Behaviour at
+  the default `threshold=3` is identical to the old quadratic scan
+  (pigeonhole gives exact recall), but the cost on a 100 K row corpus
+  drops from "tens of seconds, gigabytes of comparisons" to ~seconds.
+- **Audit output JSON adds `pii_severity`.** Existing consumers that
+  read only `pii_summary` keep working — the new field is additive.
+  Pipelines that want a one-glance verdict should read
+  `pii_severity.worst_tier` and gate on `critical` / `high`.
+- **`forgelm audit PATH` is the recommended invocation.** The
+  `--data-audit` top-level flag continues to work but logs a one-line
+  deprecation notice. Plan to remove it no earlier than `v0.7.0`.
+- **`--chunk-tokens` requires `--tokenizer`.** Token-aware chunking
+  needs to know which vocab to count against; we refuse to default to a
+  hidden tokenizer because the chunk count would silently differ
+  per-model. Set both or neither.
+- **PDF dedup is opt-out by being short-doc-tolerant.** Documents
+  with fewer than 3 pages skip the dedup step entirely; the statistical
+  signal is too weak to distinguish "header" from "actual repetition"
+  on small docs.
+
+## What's next
+
+`v0.5.2` ([Phase 12 — Data Curation Maturity](phase-12-data-curation-maturity.md)) is the direct continuation of this lineage: MinHash LSH dedup for >50K-row corpora, markdown-aware splitter, code/secrets leakage scan, heuristic quality filter, DOCX/Markdown table preservation. Driven by the post-`v0.5.1` competitive review that compared ForgeLM's ingestion + audit against LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling.
+
+`v0.5.3` ([Phase 14 — Multi-Stage Pipeline Chains](phase-14-pipeline-chains.md)) was reslotted from `v0.5.2` so the ingestion/audit lineage finishes uninterrupted before the trainer-orchestration surface gets reshaped.

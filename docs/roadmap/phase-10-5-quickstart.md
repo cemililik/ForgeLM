@@ -3,7 +3,7 @@
 > **Status:** ✅ **DONE** — shipped as `v0.4.5` on 2026-04-26 (PyPI). Module: [`forgelm/quickstart.py`](../../forgelm/quickstart.py); five bundled templates under [`forgelm/templates/`](../../forgelm/templates/); CLI: `forgelm quickstart <template>`; tests: [`tests/test_quickstart.py`](../../tests/test_quickstart.py); CI smoke in [nightly.yml](../../.github/workflows/nightly.yml).
 
 > **Note:** This file details a single phase. For a summary of all phases, see [../roadmap.md](../roadmap.md).
-> **Filename:** `phase-12-quickstart.md` — name retained from the original Phase 12 ordering; content corresponds to Phase 10.5.
+> **Filename history:** Originally `phase-12-quickstart.md` (the slot Quickstart held in early planning); renamed to `phase-10-5-quickstart.md` in the v0.5.2 cycle so the filename matches the current phase number. The Phase 12 slot now belongs to [Data Curation Maturity](phase-12-data-curation-maturity.md).
 
 **Goal:** Make "my first fine-tune" a 10-minute experience. One command, one model in the end, zero YAML writing. Without sacrificing the CI/CD-native core — quickstart generates a YAML the user can later customize.
 **Estimated Effort:** Medium (1-2 months) — **Actual: 1 week**

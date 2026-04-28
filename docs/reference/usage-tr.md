@@ -69,7 +69,7 @@ forgelm --config my_config.yaml --generate-data
 
 Bu komut, eğitim başlamadan önce bir öğretmen modelden eğitim verisi üretmek için `synthetic` config bölümünü kullanır. Tüm sentetik veri seçenekleri için [Konfigürasyon Rehberi](configuration-tr.md)'ne bakın.
 
-### Doküman Yutma (v0.5.0+)
+### Doküman Yutma (v0.5.0+; v0.5.1'de token-aware mod)
 
 Ham PDF / DOCX / EPUB / TXT / Markdown'ı SFT'ye uygun JSONL'a dönüştürür. Opsiyonel bağımlılık: `pip install forgelm[ingestion]`. Ayrıntılar için [Doküman Yutma Rehberi](../guides/ingestion-tr.md).
 
@@ -86,24 +86,37 @@ forgelm ingest ./scan.pdf --strategy sliding --chunk-size 1024 --overlap 128 \
 
 # Yazmadan önce PII'yi maskele
 forgelm ingest ./customer_emails/ --pii-mask --output data/anon.jsonl
+
+# Token-aware chunking (v0.5.1) — chunk'ları modelinizin vocab'ına göre boyutlandırır
+forgelm ingest ./policies/ --recursive --output data/policies.jsonl \
+  --chunk-tokens 1024 --tokenizer "Qwen/Qwen2.5-7B-Instruct"
 ```
 
-### Veri Seti Denetimi (v0.5.0+)
+### Veri Seti Denetimi (v0.5.0+; v0.5.1'de subcommand'a yükseltildi)
 
 CPU-only kalite + governance denetimi. `data_audit_report.json` üretir. Ayrıntılar için [Denetim Rehberi](../guides/data_audit-tr.md).
 
 ```bash
-# Tek split
-forgelm --data-audit data/sft.jsonl --output ./audit/
+# Tek split (v0.5.1 subcommand)
+forgelm audit data/sft.jsonl --output ./audit/
 
 # Çoklu split (train.jsonl / validation.jsonl / test.jsonl içeren dizin)
-forgelm --data-audit data/ --output ./audit/
+forgelm audit data/ --output ./audit/
+
+# Tüm split'leri göster (bulgu olmasa bile)
+forgelm audit data/ --verbose
+
+# Özel Hamming eşiği
+forgelm audit data/ --near-dup-threshold 5
 
 # stdout'a makine-okunabilir özet
-forgelm --data-audit data/sft.jsonl --output ./audit/ --output-format json
+forgelm audit data/sft.jsonl --output ./audit/ --output-format json
+
+# Eski alias (çalışmaya devam ediyor; bir uyarı log'lanır)
+forgelm --data-audit data/sft.jsonl --output ./audit/
 ```
 
-Denetim şunları yakalar: split başına örnek sayısı + uzunluk dağılımı, top-3 dil tespiti, simhash near-duplicate oranı, cross-split sızıntı (sessiz train-test örtüşmesi), PII flag sayıları (e-posta / telefon / Luhn-doğrulanmış kredi kartı / IBAN / TR-DE-FR-US ulusal kimlikleri).
+Denetim şunları yakalar: split başına örnek sayısı + uzunluk dağılımı, top-3 dil tespiti, **LSH-banded** simhash near-duplicate oranı (Faz 11.5; uç eşiklerde brute-force fallback), cross-split sızıntı (sessiz train-test örtüşmesi), PII flag sayıları + **şiddet katmanları** (`pii_severity` bloğu her PII tipini critical / high / medium / low olarak puanlar ve bir `worst_tier` verdict yüzdürür).
 
 Trainer'ın `output_dir`'ünde `data_audit_report.json` mevcutsa, bulgular EU AI Act Madde 10 governance artifact'ında `data_audit` anahtarı altında otomatik olarak inline edilir.
 

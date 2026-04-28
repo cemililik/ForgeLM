@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
@@ -49,7 +51,14 @@ CHUNK_STRATEGIES: Tuple[str, ...] = ("sliding", "paragraph", "semantic")
 
 @dataclass
 class IngestionResult:
-    """Summary of an ``ingest_path`` run."""
+    """Summary of an ``ingest_path`` run.
+
+    Both :attr:`extra_notes` (free-text, operator-friendly) and
+    :attr:`notes_structured` (programmatic ``{key: value}``) are emitted
+    so machine-driven pipelines do not need to regex-match the prose. The
+    structured payload is stable across releases; the free-text list is
+    for human consumption and may rephrase the same facts.
+    """
 
     output_path: Path
     chunk_count: int
@@ -59,6 +68,8 @@ class IngestionResult:
     format_counts: dict = field(default_factory=dict)
     pii_redaction_counts: dict = field(default_factory=dict)
     extra_notes: List[str] = field(default_factory=list)
+    notes_structured: Dict[str, Any] = field(default_factory=dict)
+    pdf_header_footer_lines_stripped: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -66,10 +77,147 @@ class IngestionResult:
 # ---------------------------------------------------------------------------
 
 
-def _extract_pdf(path: Path) -> str:
+_PDF_REPEAT_MIN_PAGES: int = 3
+_PDF_REPEAT_THRESHOLD: float = 0.7
+
+
+def _repeating_edge_lines(page_lines: List[List[str]], cutoff: int) -> Tuple[set, set]:
+    """Return (repeating_first_lines, repeating_last_lines) at this pass."""
+    first_counts: Counter = Counter(lines[0] for lines in page_lines if lines)
+    last_counts: Counter = Counter(lines[-1] for lines in page_lines if lines)
+    return (
+        {ln for ln, n in first_counts.items() if n >= cutoff},
+        {ln for ln, n in last_counts.items() if n >= cutoff},
+    )
+
+
+def _pop_repeating_edges(
+    page_lines: List[List[str]],
+    repeating_firsts: set,
+    repeating_lasts: set,
+) -> int:
+    """Pop the leading / trailing repeating line from each page; return total stripped."""
+    stripped = 0
+    for lines in page_lines:
+        if lines and lines[0] in repeating_firsts:
+            lines.pop(0)
+            stripped += 1
+        if lines and lines[-1] in repeating_lasts:
+            lines.pop()
+            stripped += 1
+    return stripped
+
+
+def _strip_repeating_page_lines(pages: List[str]) -> Tuple[List[str], int]:
+    """Strip leading / trailing lines that repeat across pages.
+
+    Page-level headers (company watermark, document title) and footers
+    (page number text, copyright line) end up as the first / last line
+    of every page after :func:`_extract_pdf` and inflate near-duplicate
+    counts during the audit. We iterate: at each pass we collect the
+    first and last non-empty line of every page, find lines that recur
+    in ≥ 70 % of pages (default), and pop those from the start / end of
+    every page. The pass repeats until no more lines meet the threshold,
+    so multi-line headers (e.g. ``Line 1: company name`` followed by
+    ``Line 2: CONFIDENTIAL``) are stripped fully rather than leaving the
+    second line stranded as a new "first line" that no longer matches
+    the original count.
+
+    Returns:
+        ``(cleaned_pages, lines_stripped)``. Caller can roll the count
+        into structured ingestion notes for downstream visibility.
+
+    The dedup is a no-op on documents with fewer than 3 pages — the
+    statistical signal is too weak to distinguish "header" from
+    "actual repeated paragraph".
+    """
+    if len(pages) < _PDF_REPEAT_MIN_PAGES:
+        return pages, 0
+
+    page_lines: List[List[str]] = [[ln.strip() for ln in p.splitlines() if ln.strip()] for p in pages]
+    # ``math.ceil`` (not ``int``) so the 70 % rule actually fires at 70 %.
+    # Example: 5 pages × 0.7 = 3.5 → ``int`` gave 3 (60 %, too lenient);
+    # ``math.ceil`` gives 4 (80 %, ≥ 70 % as documented).
+    cutoff = max(2, math.ceil(_PDF_REPEAT_THRESHOLD * len(pages)))
+    total_stripped = 0
+
+    while True:
+        repeating_firsts, repeating_lasts = _repeating_edge_lines(page_lines, cutoff)
+        if not repeating_firsts and not repeating_lasts:
+            break
+        stripped = _pop_repeating_edges(page_lines, repeating_firsts, repeating_lasts)
+        if stripped == 0:
+            # Edge case: the only repeating line was already alone on a
+            # short page, so popping it left fewer pages than ``cutoff``
+            # — break instead of looping with no work.
+            break
+        total_stripped += stripped
+
+    cleaned = ["\n".join(lines) for lines in page_lines if lines]
+    return cleaned, total_stripped
+
+
+def _try_pdf_decrypt(reader: Any, path: Path) -> None:
+    """Attempt empty-password decrypt for owner-encrypted PDFs; raise ValueError otherwise.
+
+    Empty-password decrypt covers the common "owner-encrypted but readable"
+    case. When that fails OR the reader cannot honour the empty password,
+    we surface a clear message pointing the operator to external tooling
+    (qpdf / pdftk) — wiring a CLI password flag would put credentials in
+    shell history, which is the wrong default.
+
+    Decision is made on ``reader.decrypt()``'s **return value**, not on
+    ``reader.is_encrypted``: pypdf ≥ 4.0 keeps ``is_encrypted`` reflecting
+    the original-file state even after a successful decrypt, so checking
+    that flag would reject correctly-decrypted owner-encrypted PDFs. The
+    decrypt method returns a :class:`pypdf.PasswordType` enum
+    (``IntEnum``) where ``NOT_DECRYPTED == 0`` (falsy) and
+    ``USER_PASSWORD`` / ``OWNER_PASSWORD`` are truthy.
+    """
+    from pypdf.errors import DependencyError, FileNotDecryptedError
+
+    try:
+        result = reader.decrypt("")
+    except (FileNotDecryptedError, NotImplementedError, DependencyError) as exc:
+        raise ValueError(
+            f"PDF '{path}' is encrypted. Decrypt it first (qpdf --decrypt / pdftk input_pw …) and re-run ingest."
+        ) from exc
+    if not result:
+        # PasswordType.NOT_DECRYPTED == 0 → empty password didn't unlock it.
+        raise ValueError(f"PDF '{path}' is encrypted with a non-empty password. Decrypt externally before ingest.")
+
+
+def _read_pdf_pages(reader: Any, path: Path) -> List[str]:
+    """Extract per-page text; tolerate page-level failures with a loud warning.
+
+    Page-level extraction failure is **not** propagated as a file-level
+    error: a 500-page PDF with one malformed page should still produce
+    499 good pages. We *do* upgrade the prior debug-log to a warning
+    that names the path and page index so the operator sees in CI logs
+    exactly which page failed and can spot-check it. The post-loop
+    "no extractable text" warning still catches the all-pages-failed
+    case downstream in :func:`_extract_pdf`.
+    """
+    pages: List[str] = []
+    for idx, page in enumerate(reader.pages):
+        try:
+            text = page.extract_text() or ""
+        except Exception as exc:
+            logger.warning(
+                "PDF page extraction failed (file=%s, page_index=%d): %s — page skipped, run continues.",
+                path,
+                idx,
+                exc,
+            )
+            text = ""
+        if text.strip():
+            pages.append(text)
+    return pages
+
+
+def _extract_pdf(path: Path, *, dedup_state: Optional[Dict[str, int]] = None) -> str:
     try:
         from pypdf import PdfReader
-        from pypdf.errors import DependencyError, FileNotDecryptedError
     except ImportError as exc:  # pragma: no cover — covered by extras
         raise ImportError(
             "PDF ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
@@ -81,34 +229,23 @@ def _extract_pdf(path: Path) -> str:
         raise ValueError(f"Could not open PDF '{path}': {exc}") from exc
 
     if getattr(reader, "is_encrypted", False):
-        # Try empty password — common for owner-encrypted PDFs that are still
-        # readable. If the user has a password, document the recommended path
-        # (decrypt externally with qpdf / pdftk) rather than wiring a CLI flag.
-        try:
-            reader.decrypt("")
-        except (FileNotDecryptedError, NotImplementedError, DependencyError) as exc:
-            raise ValueError(
-                f"PDF '{path}' is encrypted. Decrypt it first (qpdf --decrypt / pdftk input_pw …) and re-run ingest."
-            ) from exc
-        if getattr(reader, "is_encrypted", False):
-            raise ValueError(f"PDF '{path}' is encrypted with a non-empty password. Decrypt externally before ingest.")
+        _try_pdf_decrypt(reader, path)
 
-    pages: List[str] = []
-    for page in reader.pages:
-        try:
-            text = page.extract_text() or ""
-        except Exception as exc:
-            logger.debug("PDF page extraction failed for %s: %s", path, exc)
-            text = ""
-        if text.strip():
-            pages.append(text)
+    pages = _read_pdf_pages(reader, path)
     if not pages:
         logger.warning(
             "No extractable text in '%s'. Likely a scanned PDF without a text layer; "
             "run OCR (Tesseract / AWS Textract) before ingest.",
             path,
         )
-    return "\n\n".join(pages)
+        return ""
+
+    cleaned_pages, stripped = _strip_repeating_page_lines(pages)
+    if dedup_state is not None and stripped:
+        # Roll into the run-level structured notes so the operator can
+        # tell post-hoc that header/footer dedup was actually doing work.
+        dedup_state["lines_stripped"] = dedup_state.get("lines_stripped", 0) + stripped
+    return "\n\n".join(cleaned_pages)
 
 
 def _extract_docx(path: Path) -> str:
@@ -271,6 +408,119 @@ def _strategy_dispatch(strategy: str, text: str, chunk_size: int, overlap: int) 
 
 
 # ---------------------------------------------------------------------------
+# Phase 11.5: token-aware chunking (--chunk-tokens)
+# ---------------------------------------------------------------------------
+
+
+def _chunk_sliding_tokens(text: str, n_tokens: int, overlap_tokens: int, tokenizer: Any) -> Iterable[str]:
+    """Sliding window measured in tokenizer tokens, not characters.
+
+    Mirrors :func:`_chunk_sliding` (overlap clamped to half of the window
+    to prevent quadratic chunk explosion) but tokens are the unit so the
+    output sizes line up with ``model.max_length`` exactly.
+    """
+    if n_tokens <= 0:
+        raise ValueError("chunk_tokens must be positive")
+    if overlap_tokens < 0 or overlap_tokens >= n_tokens:
+        raise ValueError("overlap_tokens must be in [0, chunk_tokens)")
+    if overlap_tokens > n_tokens // 2:
+        raise ValueError(
+            f"overlap_tokens ({overlap_tokens}) must be at most chunk_tokens // 2 ({n_tokens // 2}) "
+            "to avoid quadratic chunk count. Reduce --overlap-tokens or increase --chunk-tokens."
+        )
+    encoded = tokenizer.encode(text, add_special_tokens=False)
+    if not encoded:
+        return
+    step = n_tokens - overlap_tokens
+    for start in range(0, len(encoded), step):
+        ids = encoded[start : start + n_tokens]
+        if not ids:
+            return
+        decoded = tokenizer.decode(ids, skip_special_tokens=True)
+        if decoded.strip():
+            yield decoded
+        if start + n_tokens >= len(encoded):
+            return
+
+
+def _chunk_paragraph_tokens(text: str, max_tokens: int, tokenizer: Any) -> Iterable[str]:
+    """Greedy paragraph packer with a token-count cap.
+
+    Same semantics as :func:`_chunk_paragraph` (paragraphs are the unit
+    of indivisibility), but the soft cap is measured in tokens so the
+    emitted chunks can't blow past ``model.max_length``. Paragraphs that
+    exceed ``max_tokens`` on their own are still emitted whole — better
+    than mid-sentence splits.
+
+    Paragraph mode is **non-overlapping by design**. Sliding token-overlap
+    would slice mid-paragraph and defeat the boundary-preservation
+    invariant. Use ``--strategy sliding`` (with ``--overlap-tokens``) when
+    overlap is required; the CLI logs an info note when ``overlap_tokens``
+    is set alongside ``--strategy paragraph``.
+
+    The ``"\\n\\n"`` separator is included in the budget — most BPE
+    tokenizers map it to 1–2 tokens, so a chunk packed near the cap can
+    overflow by ~tens of tokens without this accounting. ``sep_tokens``
+    is computed once via the tokenizer and added when joining.
+    """
+    if max_tokens <= 0:
+        raise ValueError("chunk_tokens must be positive")
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    if not paragraphs:
+        return
+
+    sep_tokens = len(tokenizer.encode("\n\n", add_special_tokens=False))
+
+    current: List[str] = []
+    current_tokens = 0
+    for para in paragraphs:
+        para_tokens = len(tokenizer.encode(para, add_special_tokens=False))
+        # When we already have packed paragraphs, joining adds a "\n\n"
+        # which costs ``sep_tokens`` on top of the new paragraph itself.
+        cost = para_tokens + (sep_tokens if current else 0)
+        if current_tokens + cost <= max_tokens or not current:
+            current.append(para)
+            current_tokens += cost
+        else:
+            yield "\n\n".join(current)
+            current = [para]
+            current_tokens = para_tokens
+    if current:
+        yield "\n\n".join(current)
+
+
+def _strategy_dispatch_tokens(
+    strategy: str,
+    text: str,
+    *,
+    chunk_tokens: int,
+    overlap_tokens: int,
+    tokenizer: Any,
+) -> Iterable[str]:
+    if strategy == "sliding":
+        return _chunk_sliding_tokens(text, chunk_tokens, overlap_tokens, tokenizer)
+    if strategy == "paragraph":
+        return _chunk_paragraph_tokens(text, chunk_tokens, tokenizer)
+    if strategy == "semantic":
+        return _chunk_semantic(text, chunk_tokens)
+    raise ValueError(f"Unknown chunking strategy '{strategy}'. Choose from: {', '.join(CHUNK_STRATEGIES)}")
+
+
+def _load_tokenizer(model_name: str) -> Any:
+    """Resolve ``model_name`` to an HF :class:`AutoTokenizer`.
+
+    Lazy import keeps the ingestion module import-time small for users
+    who never touch token-aware chunking. ``trust_remote_code`` is
+    intentionally OFF — token-aware chunking should never need a custom
+    tokenizer class, and turning it on here would let arbitrary HF Hub
+    repos run code at ingestion time without a config audit.
+    """
+    from transformers import AutoTokenizer  # type: ignore
+
+    return AutoTokenizer.from_pretrained(model_name, use_fast=True, trust_remote_code=False)
+
+
+# ---------------------------------------------------------------------------
 # File discovery + ingestion entry point
 # ---------------------------------------------------------------------------
 
@@ -317,6 +567,71 @@ class _FileOutcome:
     pii_counts: Dict[str, int] = field(default_factory=dict)
 
 
+def _extract_text_for_ingest(
+    fpath: Path,
+    extractor: Callable[..., str],
+    pdf_dedup_state: Optional[Dict[str, int]],
+) -> Optional[str]:
+    """Run ``extractor`` against ``fpath``; return ``None`` to mean "skip this file".
+
+    ``ImportError`` re-propagates (missing optional extra is a *runtime*
+    failure of the dispatched feature, not a per-file skip). All other
+    exceptions log a warning and signal a skip — consistent with the
+    silently-tolerant per-file model the CLI relies on.
+    """
+    try:
+        if extractor is _extract_pdf:
+            return _extract_pdf(fpath, dedup_state=pdf_dedup_state)
+        return extractor(fpath)
+    except ImportError:
+        raise
+    except Exception as exc:
+        logger.warning("Skipping '%s' (extraction failed): %s", fpath, exc)
+        return None
+
+
+def _select_chunks_iter(
+    text: str,
+    *,
+    strategy: str,
+    chunk_size: int,
+    overlap: int,
+    chunk_tokens: Optional[int],
+    overlap_tokens: int,
+    tokenizer: Any,
+) -> Iterable[str]:
+    """Pick the token-aware or character-based chunker based on flags."""
+    if chunk_tokens and tokenizer is not None:
+        return _strategy_dispatch_tokens(
+            strategy,
+            text,
+            chunk_tokens=chunk_tokens,
+            overlap_tokens=overlap_tokens,
+            tokenizer=tokenizer,
+        )
+    return _strategy_dispatch(strategy, text, chunk_size, overlap)
+
+
+def _emit_chunk(
+    payload: str,
+    out_fh: Any,
+    outcome: _FileOutcome,
+    mask_pii: Optional[Callable[..., Any]],
+) -> None:
+    """Mask (optional), serialise, and write one chunk; update outcome counters."""
+    if mask_pii is not None:
+        # Get the masked text + per-type counts in a single pass. Counting
+        # via detect_pii beforehand would double-count spans matched by
+        # multiple patterns; mask_pii's own first-match-wins precedence
+        # gives the truthful count.
+        payload, redaction_counts = mask_pii(payload, return_counts=True)
+        for kind, count in redaction_counts.items():
+            outcome.pii_counts[kind] = outcome.pii_counts.get(kind, 0) + count
+    out_fh.write(json.dumps({"text": payload}, ensure_ascii=False) + "\n")
+    outcome.chunks_written += 1
+    outcome.chars_written += len(payload)
+
+
 def _process_one_file(
     fpath: Path,
     out_fh: Any,
@@ -325,8 +640,18 @@ def _process_one_file(
     chunk_size: int,
     overlap: int,
     mask_pii: Optional[Callable[..., Any]],
+    chunk_tokens: Optional[int] = None,
+    overlap_tokens: int = 0,
+    tokenizer: Any = None,
+    pdf_dedup_state: Optional[Dict[str, int]] = None,
 ) -> _FileOutcome:
     """Extract → chunk → optionally mask → emit JSONL for a single file.
+
+    ``chunk_tokens`` is honoured when set: token-aware chunking takes over
+    via :func:`_strategy_dispatch_tokens`, and ``chunk_size`` becomes a
+    fallback only when the tokenizer is missing. ``pdf_dedup_state`` is
+    threaded into :func:`_extract_pdf` so cross-page header/footer dedup
+    counts roll up into the run-level structured notes.
 
     ImportError propagates (missing optional extra is not a per-file skip).
     Any other extraction failure is logged + counted as a skip.
@@ -335,79 +660,101 @@ def _process_one_file(
     if extractor is None:
         return _FileOutcome(file_skipped=True)
 
-    try:
-        text = extractor(fpath)
-    except ImportError:
-        # ImportError must propagate — missing extras are not a per-file
-        # skip. The CLI wrapper turns this into EXIT_TRAINING_ERROR +
-        # an install-hint message.
-        raise
-    except Exception as exc:
-        logger.warning("Skipping '%s' (extraction failed): %s", fpath, exc)
+    text = _extract_text_for_ingest(fpath, extractor, pdf_dedup_state)
+    if text is None:
         return _FileOutcome(file_skipped=True)
-
     if not text or not text.strip():
         logger.warning("Skipping '%s' (no extractable text).", fpath)
         return _FileOutcome(file_skipped=True)
 
     outcome = _FileOutcome(file_processed=True, extension=fpath.suffix.lower())
-    for chunk in _strategy_dispatch(strategy, text, chunk_size, overlap):
+    chunks_iter = _select_chunks_iter(
+        text,
+        strategy=strategy,
+        chunk_size=chunk_size,
+        overlap=overlap,
+        chunk_tokens=chunk_tokens,
+        overlap_tokens=overlap_tokens,
+        tokenizer=tokenizer,
+    )
+    for chunk in chunks_iter:
         payload = chunk.strip()
         if not payload:
             continue
-        if mask_pii is not None:
-            # Get the masked text + per-type counts in a single pass.
-            # Counting via detect_pii beforehand would double-count
-            # spans matched by multiple patterns; mask_pii's own
-            # first-match-wins precedence gives the truthful count.
-            payload, redaction_counts = mask_pii(payload, return_counts=True)
-            for kind, count in redaction_counts.items():
-                outcome.pii_counts[kind] = outcome.pii_counts.get(kind, 0) + count
-        out_fh.write(json.dumps({"text": payload}, ensure_ascii=False) + "\n")
-        outcome.chunks_written += 1
-        outcome.chars_written += len(payload)
+        _emit_chunk(payload, out_fh, outcome, mask_pii)
     return outcome
+
+
+DEFAULT_CHUNK_SIZE: int = 2048
+"""Public default for the character-based chunk-size cap.
+
+Exposed so the CLI default and the library default share a single source
+of truth, and so the "did the operator pass --chunk-size explicitly?"
+detection in :func:`ingest_path` is not a magic-number compare.
+"""
 
 
 def ingest_path(
     input_path: str,
     *,
     output_path: str,
-    chunk_size: int = 2048,
+    chunk_size: Optional[int] = None,
     overlap: int = 200,
     strategy: str = "paragraph",
     recursive: bool = False,
     pii_mask: bool = False,
     encoding: str = "utf-8",
+    chunk_tokens: Optional[int] = None,
+    overlap_tokens: int = 0,
+    tokenizer: Optional[str] = None,
 ) -> IngestionResult:
     """Ingest a single file or a directory tree into a SFT-compatible JSONL.
 
     Args:
         input_path: File or directory to ingest.
         output_path: Where to write the ``.jsonl`` output. Parents are created.
-        chunk_size: Soft size cap per chunk (characters).
-        overlap: Overlap window for the sliding strategy. Must satisfy
-            both ``overlap < chunk_size`` AND ``overlap <= chunk_size // 2``.
-            The half-chunk cap prevents quadratic chunk explosion: an
-            ``overlap`` of 199 with ``chunk_size`` 200 would emit roughly
-            one chunk per character. ``_chunk_sliding`` raises
+        chunk_size: Soft size cap per chunk (characters). ``None`` means
+            "use the library default" (:data:`DEFAULT_CHUNK_SIZE`). When
+            ``chunk_tokens`` is set the value is ignored, and a warning is
+            logged only when the operator passed an *explicit* ``chunk_size``
+            so stale CLI invocations are visible without spamming the
+            common case.
+        overlap: Overlap window for the sliding strategy in characters.
+            Must satisfy both ``overlap < chunk_size`` AND
+            ``overlap <= chunk_size // 2``. The half-chunk cap prevents
+            quadratic chunk explosion. ``_chunk_sliding`` raises
             ``ValueError`` when either bound is violated.
         strategy: One of ``sliding`` / ``paragraph`` / ``semantic``.
         recursive: When ``input_path`` is a directory, walk subdirectories too.
         pii_mask: Replace detected PII spans with ``[REDACTED]`` before writing.
         encoding: Output encoding (default UTF-8).
+        chunk_tokens: Phase 11.5 token-aware mode. When set, chunks are
+            sized against the supplied ``tokenizer`` (in tokens), not
+            characters. Use this when the operator's downstream model has
+            a hard ``max_length`` budget and char-based sizing keeps
+            tripping it.
+        overlap_tokens: Sliding-window overlap measured in tokens. Same
+            half-window cap as the character-based ``overlap``. Ignored
+            when ``strategy="paragraph"`` (paragraph chunks are
+            non-overlapping by design); a warning is logged in that case.
+        tokenizer: HuggingFace model name resolved via :class:`AutoTokenizer`.
+            Required when ``chunk_tokens`` is set; ignored otherwise.
 
     Returns:
         :class:`IngestionResult` summarizing the run.
 
     Raises:
         FileNotFoundError: ``input_path`` does not exist.
-        ValueError: invalid chunking parameters.
+        ValueError: invalid chunking parameters or ``chunk_tokens`` set
+            without a ``tokenizer``.
         ImportError: optional extras not installed for the format being ingested.
     """
     src = Path(input_path).expanduser().resolve()
     dst = Path(output_path).expanduser().resolve()
     dst.parent.mkdir(parents=True, exist_ok=True)
+
+    chunk_size_explicit = chunk_size is not None
+    effective_chunk_size = chunk_size if chunk_size_explicit else DEFAULT_CHUNK_SIZE
 
     if pii_mask:
         # Lazy import: PII helpers live in data_audit.py; we don't want to
@@ -417,6 +764,29 @@ def ingest_path(
         mask_pii_fn: Optional[Callable[..., Any]] = _mask_pii
     else:
         mask_pii_fn = None
+
+    tokenizer_obj: Any = None
+    if chunk_tokens is not None:
+        if not tokenizer:
+            raise ValueError(
+                "--chunk-tokens requires --tokenizer MODEL_NAME so the audit can size chunks against the right vocab."
+            )
+        if chunk_size_explicit:
+            logger.warning(
+                "Token-aware mode active (--chunk-tokens=%d): --chunk-size=%d is ignored.",
+                chunk_tokens,
+                effective_chunk_size,
+            )
+        tokenizer_obj = _load_tokenizer(tokenizer)
+    if strategy == "paragraph" and overlap_tokens > 0:
+        # Paragraph mode is intentionally non-overlapping (paragraphs are
+        # the unit of indivisibility). Surfacing this as a one-line note
+        # keeps the operator from silently losing their --overlap-tokens.
+        logger.info(
+            "--overlap-tokens=%d is ignored for strategy='paragraph' "
+            "(paragraph chunks don't overlap by design). Use --strategy sliding for token-overlap.",
+            overlap_tokens,
+        )
 
     files = list(_iter_input_files(src, recursive))
     if not files:
@@ -429,6 +799,7 @@ def ingest_path(
     format_counts: dict = {}
     pii_redaction_counts: dict = {}
     notes: List[str] = []
+    pdf_dedup_state: Dict[str, int] = {}
 
     # newline="\n" pins LF on Windows. JSONL Files spec requires LF, and
     # piping through tooling (jq -c, wc -l, downstream HF dataset loaders)
@@ -439,9 +810,13 @@ def ingest_path(
                 fpath,
                 out_fh,
                 strategy=strategy,
-                chunk_size=chunk_size,
+                chunk_size=effective_chunk_size,
                 overlap=overlap,
                 mask_pii=mask_pii_fn,
+                chunk_tokens=chunk_tokens,
+                overlap_tokens=overlap_tokens,
+                tokenizer=tokenizer_obj,
+                pdf_dedup_state=pdf_dedup_state,
             )
             chunk_count += outcome.chunks_written
             total_chars += outcome.chars_written
@@ -463,6 +838,27 @@ def ingest_path(
             notes.append(f"PII masking redacted {redacted_total} span(s): {breakdown}")
         else:
             notes.append("PII masking enabled — no PII detected in this corpus")
+    pdf_lines_stripped = pdf_dedup_state.get("lines_stripped", 0)
+    if pdf_lines_stripped:
+        notes.append(
+            f"PDF header/footer dedup stripped {pdf_lines_stripped} repeated line(s) "
+            "(reduces audit near-duplicate noise)."
+        )
+
+    structured_notes: Dict[str, Any] = {
+        "files_processed": files_processed,
+        "files_skipped": files_skipped,
+        "chunk_count": chunk_count,
+        "total_chars": total_chars,
+        "strategy": strategy,
+        "format_counts": dict(format_counts),
+        "pii_redaction_counts": dict(pii_redaction_counts),
+    }
+    if pdf_lines_stripped:
+        structured_notes["pdf_header_footer_lines_stripped"] = pdf_lines_stripped
+    if chunk_tokens is not None:
+        structured_notes["chunk_tokens"] = chunk_tokens
+        structured_notes["tokenizer"] = tokenizer
 
     logger.info(
         "ingest: source=%s output=%s files=%d chunks=%d chars=%d strategy=%s",
@@ -483,6 +879,8 @@ def ingest_path(
         format_counts=format_counts,
         pii_redaction_counts=pii_redaction_counts,
         extra_notes=notes,
+        notes_structured=structured_notes,
+        pdf_header_footer_lines_stripped=pdf_lines_stripped,
     )
 
 
@@ -501,7 +899,7 @@ def summarize_result(result: IngestionResult) -> str:
     for note in result.extra_notes:
         lines.append(f"  Note          : {note}")
     lines.append("")
-    lines.append(f"Next: forgelm --data-audit {result.output_path} --output ./audit/")
+    lines.append(f"Next: forgelm audit {result.output_path} --output ./audit/")
     lines.append(
         f"Or train: forgelm --config <your.yaml>  (set data.dataset_name_or_path: {os.fspath(result.output_path)})"
     )

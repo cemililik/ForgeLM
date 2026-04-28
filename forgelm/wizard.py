@@ -335,6 +335,137 @@ isn't there at all.
 """
 
 
+_INGEST_SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".epub", ".txt", ".md")
+"""Extensions that the wizard's "ingest first" prompt knows how to convert.
+
+Kept in sync with :data:`forgelm.ingestion.SUPPORTED_EXTENSIONS` — duplicated
+here so the wizard's directory-scan check doesn't pay the ingestion module's
+import cost when the user is bringing a JSONL straight in."""
+
+
+def _directory_has_ingestible_files(directory: Path, recursive: bool = True) -> bool:
+    """True if ``directory`` contains at least one file the ingester can read."""
+    pattern = "**/*" if recursive else "*"
+    for entry in directory.glob(pattern):
+        if entry.is_file() and entry.suffix.lower() in _INGEST_SUPPORTED_EXTENSIONS:
+            return True
+    return False
+
+
+def _offer_ingest_for_directory(directory: Path) -> Optional[str]:
+    """Phase 11.5 wizard hook: convert a directory of raw docs into JSONL inline.
+
+    Replaces the previous "you must run forgelm ingest first" hint with an
+    actionable, in-wizard step. If the directory has no ingestible files,
+    we surface the original guidance and let the caller re-prompt; otherwise
+    we offer to run :func:`forgelm.ingestion.ingest_path` directly and feed
+    the resulting JSONL straight back into the wizard's BYOD path.
+
+    Returns:
+        The absolute path to the produced JSONL on success, or ``None`` when
+        the operator declines / cancels / ingestion fails (the caller treats
+        ``None`` as "re-prompt for a different dataset path").
+    """
+    resolved = directory.expanduser().resolve()
+    if not _directory_has_ingestible_files(resolved):
+        print(
+            f"  '{resolved}' is a directory, but it doesn't contain any "
+            f"{', '.join(_INGEST_SUPPORTED_EXTENSIONS)} files. "
+            "Pass a JSONL file or a directory with ingestible documents."
+        )
+        return None
+
+    if not _prompt_yes_no(
+        f"\n  '{resolved}' is a directory of raw documents. Run ingestion now and use the resulting JSONL?",
+        default=True,
+    ):
+        print(
+            "  Skipped — to ingest manually:\n"
+            f"      forgelm ingest {resolved} --recursive --output data/from_docs.jsonl\n"
+            "  Then re-run the wizard with the resulting JSONL path."
+        )
+        return None
+
+    # Anchor the default JSONL path to the source corpus's parent so the
+    # generated file lives next to the inputs by default. This avoids
+    # silent surprises when ``cwd`` differs from the source directory and
+    # keeps a paired (corpus dir / corpus.jsonl) layout that operators
+    # already use. Users that want a project-rooted ``data/`` location
+    # can still type a relative path at the prompt.
+    out_dir = (resolved.parent / "data").resolve()
+    default_out = out_dir / f"{resolved.name}_ingested.jsonl"
+    out_path_raw = _prompt("Output JSONL path", str(default_out))
+    out_path = Path(out_path_raw).expanduser().resolve()
+
+    pii_mask = _prompt_yes_no(
+        "Mask detected PII (emails, phones, IDs) before writing? Recommended for shared corpora.",
+        default=False,
+    )
+
+    try:
+        from .ingestion import ingest_path
+    except ImportError as exc:  # pragma: no cover — extras-skip path
+        print(f"  ingestion subsystem unavailable: {exc}")
+        return None
+
+    print(f"\n  Running ingest on '{resolved}' (this may take a moment for large corpora)…")
+    try:
+        result = ingest_path(
+            str(resolved),
+            output_path=str(out_path),
+            recursive=True,
+            pii_mask=pii_mask,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"  Ingest failed: {exc}")
+        return None
+    except (PermissionError, IsADirectoryError, OSError) as exc:
+        # Filesystem-level errors (output path not writable, source tree
+        # locked, ENOSPC, broken symlink during walk, etc.) — the operator
+        # may want to retype the output path or fix permissions and retry,
+        # so we return None to re-prompt rather than crash the wizard.
+        print(f"  Ingest failed due to filesystem error: {exc} — check permissions or output path.")
+        return None
+    except ImportError as exc:
+        print(f"  Ingest needs the optional 'ingestion' extra: {exc}\n  Install with: pip install 'forgelm[ingestion]'")
+        return None
+
+    if result.chunk_count == 0:
+        print(
+            "  Ingestion produced 0 chunks — the directory had no extractable text. "
+            "Pass a JSONL file or a directory with text-bearing documents."
+        )
+        return None
+
+    print(f"  Ingest complete: {result.chunk_count} chunk(s) from {result.files_processed} file(s) → {out_path}")
+    return str(out_path)
+
+
+def _prompt_dataset_path_with_ingest_offer(question: str) -> str:
+    """Prompt for a dataset path; auto-offer ingestion when the user gives a directory.
+
+    Used by the full 8-step wizard's Step 5. Mirrors the BYOD path's
+    behaviour: a typed directory triggers the Phase 11.5 "ingest first"
+    helper, which produces a JSONL the wizard can use directly. Hub IDs
+    and JSONL paths flow through unchanged.
+    """
+    while True:
+        raw = _prompt(question, "").strip()
+        if not raw:
+            print("  A dataset reference is required.")
+            continue
+        candidate = Path(raw).expanduser()
+        if candidate.is_dir():
+            ingested = _offer_ingest_for_directory(candidate)
+            if ingested is None:
+                continue
+            return ingested
+        # Files / Hub IDs / non-existent paths are returned verbatim. The
+        # trainer's data loader will fail later if the path is bogus —
+        # consistent with the wizard's pre-Phase-11.5 behaviour.
+        return raw
+
+
 def _validate_local_jsonl(raw_path: str):
     """Validate a user-supplied JSONL path.
 
@@ -342,19 +473,22 @@ def _validate_local_jsonl(raw_path: str):
         - The absolute path string when the file exists and parses as JSONL.
         - ``_BYOD_LOCAL_NOT_FOUND`` when the path doesn't exist on disk
           (caller may fall back to HF Hub ID semantics).
-        - ``None`` when the file exists but either is a directory, fails
-          JSONL parsing, or otherwise can't be loaded. ``None`` signals
-          "re-prompt"; the validation message is already printed.
+        - ``None`` when the file exists but either is a directory the user
+          declined to ingest, fails JSONL parsing, or otherwise can't be
+          loaded. ``None`` signals "re-prompt"; the validation message is
+          already printed.
+
+    Phase 11.5: when the path resolves to a directory of raw documents,
+    we now offer to run ingestion inline instead of just printing a hint.
+    On acceptance the produced JSONL path is returned as if the user had
+    typed it directly.
     """
     resolved = Path(raw_path).expanduser()
     if resolved.is_dir():
-        print(
-            f"  '{resolved}' is a directory, not a JSONL file. If it contains raw documents "
-            "(PDF/DOCX/EPUB/TXT), convert it first:\n"
-            f"      forgelm ingest {resolved} --recursive --output data/from_docs.jsonl\n"
-            "  Then re-run the wizard with the resulting JSONL path."
-        )
-        return None
+        ingested = _offer_ingest_for_directory(resolved)
+        if ingested is None:
+            return None
+        return ingested
     if not resolved.is_file():
         return _BYOD_LOCAL_NOT_FOUND
     try:
@@ -572,7 +706,9 @@ def _run_full_wizard() -> Optional[str]:
 
     # Step 5: Dataset
     print("\n[5/8] Dataset")
-    dataset_path = _prompt("HuggingFace dataset name or local file path")
+    dataset_path = _prompt_dataset_path_with_ingest_offer(
+        "HuggingFace dataset name or local file path (or directory of raw documents)",
+    )
 
     # Step 6: Training Parameters
     print("\n[6/8] Training Parameters")

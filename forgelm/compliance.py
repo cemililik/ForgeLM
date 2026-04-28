@@ -147,7 +147,7 @@ def _maybe_inline_audit_report(config: Any) -> Optional[Dict[str, Any]]:
         logger.info(
             "No data_audit_report.json at %s — governance report will lack the "
             "Article 10 data-quality section. Run "
-            "`forgelm --data-audit <dataset> --output %s` before training to populate it.",
+            "`forgelm audit <dataset> --output %s` before training to populate it.",
             audit_path,
             output_dir,
         )
