@@ -65,9 +65,16 @@ def _process_text_format(examples: dict, clean_text: bool, add_eos: bool, eos_to
 
 
 def _process_messages_format(examples: dict, add_eos: bool, eos_token: str) -> dict:
-    """Modern conversational format (messages column)."""
+    """Modern conversational format (messages column).
+
+    Raises ``ValueError`` on a malformed row so the trainer fails loud
+    rather than silently producing empty training strings — the previous
+    behaviour was to catch ``Exception`` and substitute ``""``, which
+    masked schema bugs (missing ``role`` / ``content`` keys, non-string
+    payloads) until the model trained on a corpus of empty rows.
+    """
     texts = []
-    for msg_list in examples["messages"]:
+    for idx, msg_list in enumerate(examples["messages"]):
         try:
             # apply_chat_template is not available here (no tokenizer reference);
             # use fallback formatting — callers that need chat templates should
@@ -75,8 +82,16 @@ def _process_messages_format(examples: dict, add_eos: bool, eos_token: str) -> d
             formatted_text = "".join(f"[{m['role'].upper()}]\n{m['content']}\n" for m in msg_list)
             if add_eos and eos_token:
                 formatted_text += eos_token
-        except Exception:
-            formatted_text = ""
+        except (KeyError, TypeError, AttributeError) as e:
+            # KeyError: missing 'role' or 'content'; TypeError: msg_list not
+            # iterable / m not subscriptable; AttributeError: role not str.
+            # Each is a real schema bug — surface it with row index so the
+            # operator can locate the broken record in their JSONL.
+            raise ValueError(
+                f"Malformed messages-format row at index {idx}: {e}. "
+                "Each row's 'messages' column must be a list of "
+                "{'role': str, 'content': str} dicts."
+            ) from e
         texts.append(formatted_text)
     return {"text": texts}
 

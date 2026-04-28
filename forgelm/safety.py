@@ -115,13 +115,18 @@ def _release_model_from_gpu(model: Any) -> None:
 
     try:
         model.cpu()
-    except Exception:
-        pass
+    except RuntimeError as e:
+        # CUDA OOM during transfer / device-side asserts. Not fatal —
+        # the safety pass can still proceed on the existing device — but
+        # the operator deserves to know that the cleanup didn't run.
+        logger.warning("Could not move fine-tuned model to CPU before safety eval: %s", e)
     gc.collect()
     try:
         torch.cuda.empty_cache()
-    except Exception:
-        pass
+    except RuntimeError as e:
+        # `empty_cache` raises on driver / CUDA-init failures only. Same
+        # rationale: log loud, do not abort the surrounding safety pass.
+        logger.warning("Could not empty CUDA cache before safety eval: %s", e)
     logger.info(
         "Fine-tuned model moved to CPU before loading safety classifier. "
         "If OOM occurs, reduce classifier model size or increase available VRAM."

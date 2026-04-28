@@ -3,7 +3,7 @@ import os
 from typing import Any, Dict, List, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 logger = logging.getLogger("forgelm.config")
 
@@ -33,7 +33,7 @@ class MergeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
-    method: str = "ties"  # "ties", "dare", "slerp", "linear"
+    method: Literal["ties", "dare", "slerp", "linear"] = "ties"
     models: List[Dict[str, Any]] = []  # list of {path, weight} dicts
     output_dir: str = "./merged_model"
 
@@ -44,7 +44,7 @@ class ModelConfig(BaseModel):
     name_or_path: str
     max_length: int = 2048
     load_in_4bit: bool = True
-    backend: str = "transformers"  # Can also be "unsloth"
+    backend: Literal["transformers", "unsloth"] = "transformers"
     trust_remote_code: bool = False  # Security: disabled by default for enterprise safety
     offline: bool = False  # Air-gapped mode: no HF Hub calls, local models/datasets only
     moe: Optional[MoeConfig] = None  # MoE-specific settings
@@ -108,7 +108,7 @@ class TrainingConfig(BaseModel):
     output_dir: str = "./checkpoints"
     final_model_dir: str = "final_model"
     merge_adapters: bool = False
-    trainer_type: str = "sft"  # "sft", "orpo", "dpo", "simpo", "kto", "grpo"
+    trainer_type: Literal["sft", "orpo", "dpo", "simpo", "kto", "grpo"] = "sft"
     max_steps: int = -1  # -1 = use num_train_epochs; positive value overrides epochs
     num_train_epochs: int = 3
     per_device_train_batch_size: int = 4
@@ -180,7 +180,7 @@ class DistributedConfig(BaseModel):
     # --- DeepSpeed ---
     deepspeed_config: Optional[str] = None  # path to DS JSON or preset name: "zero2", "zero3", "zero3_offload"
     # --- FSDP ---
-    fsdp_strategy: str = "full_shard"  # "full_shard", "shard_grad_op", "no_shard", "hybrid_shard"
+    fsdp_strategy: Literal["full_shard", "shard_grad_op", "no_shard", "hybrid_shard"] = "full_shard"
     fsdp_auto_wrap: bool = True  # auto wrap transformer layers
     fsdp_offload: bool = False  # offload parameters to CPU
     fsdp_backward_prefetch: str = "backward_pre"  # "backward_pre" or "backward_post"
@@ -286,7 +286,7 @@ class RiskAssessmentConfig(BaseModel):
 
     intended_use: str = ""
     foreseeable_misuse: List[str] = []
-    risk_category: str = "minimal-risk"  # "high-risk", "limited-risk", "minimal-risk"
+    risk_category: Literal["high-risk", "limited-risk", "minimal-risk"] = "minimal-risk"
     mitigation_measures: List[str] = []
     vulnerable_groups_considered: bool = False
 
@@ -299,7 +299,7 @@ class MonitoringConfig(BaseModel):
     enabled: bool = False
     endpoint: str = ""  # monitoring system webhook URL
     endpoint_env: Optional[str] = None  # env var name for endpoint URL
-    metrics_export: str = "none"  # "none", "prometheus", "datadog", "custom_webhook"
+    metrics_export: Literal["none", "prometheus", "datadog", "custom_webhook"] = "none"
     alert_on_drift: bool = True
     check_interval_hours: int = 24
 
@@ -462,14 +462,6 @@ class ForgeConfig(BaseModel):
                 "for detailed EU AI Act compliance documentation."
             )
 
-    def _validate_trainer_type(self) -> None:
-        valid_trainers = {"sft", "orpo", "dpo", "simpo", "kto", "grpo"}
-        if self.training.trainer_type not in valid_trainers:
-            raise ValueError(
-                f"Invalid trainer_type: '{self.training.trainer_type}'. "
-                f"Must be one of: {', '.join(sorted(valid_trainers))}"
-            )
-
     def _validate_galore(self) -> None:
         if not self.training.galore_enabled:
             return
@@ -523,7 +515,10 @@ class ForgeConfig(BaseModel):
     def _validate_consistency(self):
         self._warn_general_consistency()
         self._warn_high_risk_compliance()
-        self._validate_trainer_type()
+        # `trainer_type` validation now lives in TrainingConfig.trainer_type's
+        # `Literal[...]` annotation — Pydantic raises ValidationError on
+        # construction with the field name and the allowed values, so the
+        # bespoke `_validate_trainer_type` runtime check became redundant.
         self._validate_galore()
         self._validate_distributed()
         return self
@@ -551,7 +546,14 @@ def load_config(config_path: str) -> ForgeConfig:
 
     try:
         config = ForgeConfig(**yaml_data)
-    except Exception as e:
+    except ValidationError as e:
+        # Pydantic's ValidationError lists field path + violation per error;
+        # preserve the structured detail by passing str(e) — the previous
+        # bare-Exception catch lost line/column info from custom validators.
+        raise ConfigError(f"Configuration validation failed:\n{e}") from e
+    except (TypeError, ValueError) as e:
+        # Defensive: a custom @model_validator can raise plain ValueError
+        # / TypeError outside Pydantic's wrapper. Same message shape.
         raise ConfigError(f"Configuration validation failed: {e}") from e
 
     return config

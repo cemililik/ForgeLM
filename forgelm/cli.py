@@ -10,6 +10,9 @@ from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import Optional
 
+import yaml
+from pydantic import ValidationError
+
 from .config import ConfigError, ForgeConfig, load_config
 
 # Module name used both for the package logger and as the `python -m`
@@ -1500,16 +1503,31 @@ def _maybe_run_wizard(args) -> None:
 
 
 def _load_config_or_exit(config_path: str, json_output: bool):
-    """Load config and translate exceptions into the right exit code."""
+    """Load config and translate exceptions into the right exit code.
+
+    Catches concrete classes so Pydantic / YAML errors keep their
+    line-and-column information. The previous version's bare
+    ``except Exception`` swallowed the structured detail Pydantic
+    returns and replaced it with ``Unexpected error:`` — making
+    "trainer_type misspelled" indistinguishable from "YAML truncated".
+    """
     try:
         logger.info("Loading configuration from %s...", config_path)
         return load_config(config_path)
     except FileNotFoundError as e:
         msg = f"Config file not found: {e}"
     except ConfigError as e:
+        # Already a translated error from forgelm.config.load_config —
+        # preserve message verbatim.
         msg = str(e)
-    except Exception as e:
-        msg = f"Unexpected error: {e}"
+    except yaml.YAMLError as e:
+        msg = f"Invalid YAML syntax in {config_path}: {e}"
+    except ValidationError as e:
+        # Pydantic ValidationError's str() lists field path + reason
+        # for each error — keep that structured detail.
+        msg = f"Configuration validation failed:\n{e}"
+    except OSError as e:
+        msg = f"Could not read config file {config_path}: {e}"
     if json_output:
         print(json.dumps({"success": False, "error": msg}))
     else:
