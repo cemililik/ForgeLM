@@ -210,12 +210,19 @@ forgelm ingest INPUT_PATH \
   [--chunk-size N | --chunk-tokens N --tokenizer MODEL_NAME] \
   [--overlap N] \
   [--overlap-tokens N] \
-  [--strategy {sliding,paragraph}] \
+  [--strategy {sliding,paragraph,markdown}] \
   [--recursive] \
   [--pii-mask] \
+  [--secrets-mask] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```
+
+`--strategy markdown` (Faz 12) heading-aware splitter'ı seçer; her
+chunk'ın başına heading breadcrumb'ı inline eder. `--secrets-mask`
+(Faz 12) AWS / GitHub / Slack / OpenAI / Google / JWT / OpenSSH /
+PGP / Azure credential span'lerini chunk'lar JSONL'a inmeden önce
+`[REDACTED-SECRET]` ile değiştirir.
 
 `--output-format json` standart çıktıya makine-okunabilir bir özet
 yazar (dosya yolları, chunk sayısı, format sayıları, notlar ve Faz

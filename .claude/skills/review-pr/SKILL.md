@@ -17,9 +17,9 @@ Do **not** use for:
 - Making the changes yourself (that's a different task)
 - Deciding whether to merge (human maintainer call)
 
-## The six-question review
+## The seven-question review
 
-Go through these **in order**. If any answer is "no" or "unclear," block the PR.
+Go through these **in order**. If any answer is "no" or "unclear," block the PR. Question 7 fires only when a regex changes; the other six apply to every PR.
 
 ### 1. Does it match the architecture?
 

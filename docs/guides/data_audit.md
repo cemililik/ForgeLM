@@ -262,8 +262,14 @@ python -c "from forgelm.data_audit import mask_secrets; \
 forgelm ingest ./policies/ --recursive --output data/policies.jsonl --secrets-mask
 ```
 
-Optional: install `[ingestion-secrets]` to layer `detect-secrets`'s
-plugin set on top of the regex fallback.
+Optional / forward-compatibility: the `[ingestion-secrets]` extra
+declares a `detect-secrets>=1.5.0` dependency that is **reserved for a
+follow-up release**. As of v0.5.2 the audit's
+`forgelm.data_audit.detect_secrets()` relies solely on the regex set
+above; installing the extra today does not change audit behaviour. The
+extra exists so operators who pin `forgelm[ingestion-secrets]` in
+their requirements file are forward-compatible when the integration
+lands.
 
 ### Heuristic quality filter (Phase 12, opt-in)
 

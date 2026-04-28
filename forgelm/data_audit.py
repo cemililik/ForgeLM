@@ -778,24 +778,28 @@ _SECRET_PATTERNS: Dict[str, re.Pattern] = {
     # AWS access key IDs follow AKIA / ASIA + 16 uppercase alphanum.
     "aws_access_key": re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
     # GitHub fine-grained / classic PAT prefixes (see GitHub token-format docs).
-    "github_token": re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_\w{20,}"),
+    # ``re.ASCII`` because GitHub tokens are strictly ASCII — Python's default
+    # ``\w`` is Unicode-aware, which would otherwise let non-ASCII chars leak
+    # into the match universe (regex.md rule 1).
+    "github_token": re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_\w{20,}", flags=re.ASCII),
     # Slack bot / user / app / config tokens.
     "slack_token": re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
     # OpenAI API keys (legacy ``sk-…`` and project-scoped ``sk-proj-…``).
-    # ``[\w-]`` per docs/standards/regex.md rule 1 (``\w`` covers
-    # ``[A-Za-z0-9_]``; we keep the ``-`` outside the shorthand).
-    "openai_api_key": re.compile(r"\bsk-(?:proj-)?[\w-]{20,}\b"),
+    # ``[\w-]`` + ``re.ASCII`` keeps ``\w`` ASCII-bounded.
+    "openai_api_key": re.compile(r"\bsk-(?:proj-)?[\w-]{20,}\b", flags=re.ASCII),
     # Google API keys (Maps, Cloud, etc.).
-    "google_api_key": re.compile(r"\bAIza[\w-]{35}\b"),
+    "google_api_key": re.compile(r"\bAIza[\w-]{35}\b", flags=re.ASCII),
     # JSON Web Tokens — header.payload.sig. We anchor the header segment
     # on the base64url prefix of the canonical JWT header keys (``alg`` /
     # ``typ`` / ``kid`` / ``cty`` / ``enc``) and require minimum lengths
     # on payload + signature, so generic ``eyJ.eyJ.X``-shaped strings in
     # prose don't false-positive. This still catches >99 % of real JWTs.
+    # ``re.ASCII`` because base64url is ASCII-only.
     "jwt": re.compile(
         r"\beyJ(?:hbGc|0eXA|raWQ|jdHk|lbmM|hcGk)[\w-]{10,}"
         r"\.eyJ[\w-]{10,}"
-        r"\.[\w-]{15,}\b"
+        r"\.[\w-]{15,}\b",
+        flags=re.ASCII,
     ),
     # Private-key blocks — full PEM/PGP envelope (BEGIN through END inclusive)
     # so ``mask_secrets`` redacts the entire block, not just the header line.
@@ -893,40 +897,46 @@ _WORD_PATTERN = re.compile(r"\b[\w']+\b", re.UNICODE)
 _PUNCT_END_PATTERN = re.compile(r"[.!?…\"'\)\]][ \t]*$")
 
 
-def _is_code_fence_open(line: str) -> Optional[str]:
-    """Return ``"`"`` / ``"~"`` if ``line`` opens a CommonMark fence, else ``None``.
+def _is_code_fence_open(line: str) -> Optional[Tuple[str, int]]:
+    """Return ``(fence_char, run_length)`` if ``line`` opens a CommonMark fence, else ``None``.
 
     CommonMark §4.5: an opening fence is 3+ identical backticks (or
     tildes), optionally indented by up to 3 spaces, possibly followed by
-    an info string. We don't need to validate the info string further —
-    its only role is to opt the next lines into "code" rendering.
+    an info string. We capture the **run length** because a valid
+    closing fence must use at least as many fence characters as the
+    opener — a 4-backtick block is *not* closed by a 3-backtick line.
     """
     stripped = line.lstrip(" ")
     if len(line) - len(stripped) > 3:
         return None  # 4+ spaces: indented code block, not a fence
     if stripped.startswith("```"):
-        return "`"
+        run = len(stripped) - len(stripped.lstrip("`"))
+        return ("`", run)
     if stripped.startswith("~~~"):
-        return "~"
+        run = len(stripped) - len(stripped.lstrip("~"))
+        return ("~", run)
     return None
 
 
-def _is_code_fence_close(line: str, fence_char: str) -> bool:
-    """Return ``True`` when ``line`` is a valid CommonMark close for ``fence_char``.
+def _is_code_fence_close(line: str, fence_char: str, min_run: int) -> bool:
+    """Return ``True`` when ``line`` is a valid CommonMark close for ``(fence_char, min_run)``.
 
-    Stricter than ``_is_code_fence_open``: the closing fence may **not**
-    carry an info string — only the fence run + optional trailing
-    whitespace. ``~~~bash`` opens a tilde block but does **not** close
-    one, so a stray info-string line inside a tilde block isn't
-    misread as the close.
+    Stricter than ``_is_code_fence_open``:
+
+    1. The closing fence may **not** carry an info string — only the
+       fence run + optional trailing whitespace. ``~~~bash`` opens a
+       tilde block but does **not** close one.
+    2. Per CommonMark §4.5, the close must use **at least as many**
+       fence characters as the opener, so a ``\\`\\`\\``\\``` block
+       (4 backticks) is not closed by a ``\\`\\`\\``` line (3 backticks).
     """
     stripped = line.lstrip(" ")
     if len(line) - len(stripped) > 3:
         return False
     body = stripped.rstrip(" \t\r\n")
-    if len(body) < 3 or any(ch != fence_char for ch in body):
+    if len(body) < min_run:
         return False
-    return True
+    return all(ch == fence_char for ch in body)
 
 
 def _strip_code_fences(text: str) -> str:
@@ -940,28 +950,30 @@ def _strip_code_fences(text: str) -> str:
     risk — and the same line-walker pattern is already used in
     :func:`forgelm.ingestion._markdown_sections`, so we use it here too.
 
-    Behaviour matches the old regex bit-for-bit on the test fixtures:
-    a fully-closed fence is replaced by the surrounding line breaks
-    (``intro\\n…block…\\nouter`` → ``intro\\n\\nouter``); an *unclosed*
-    fence is left untouched (regex would have failed to match, so
-    ``re.sub`` returned the original input).
+    Tracks the **opening fence char + run length** per CommonMark §4.5
+    so a 4-backtick opener isn't prematurely closed by a 3-backtick line.
+    Behaviour matches the old regex bit-for-bit on the standard test
+    fixtures: a fully-closed fence is replaced by the surrounding line
+    breaks (``intro\\n…block…\\nouter`` → ``intro\\n\\nouter``); an
+    *unclosed* fence is left untouched.
     """
     out: List[str] = []
-    open_fence: Optional[str] = None  # ``"`"`` or ``"~"`` while inside a block
+    open_fence: Optional[Tuple[str, int]] = None  # (char, min_close_length) while in block
     block_buffer: List[str] = []  # accumulates an in-progress block
 
     for line in text.splitlines(keepends=True):
         if open_fence is None:
-            fence_char = _is_code_fence_open(line)
-            if fence_char is not None:
-                open_fence = fence_char
+            fence_info = _is_code_fence_open(line)
+            if fence_info is not None:
+                open_fence = fence_info
                 block_buffer = [line]  # buffer in case the block is unclosed
             else:
                 out.append(line)
             continue
         # Inside an active block: buffer the line, then check for close.
         block_buffer.append(line)
-        if _is_code_fence_close(line, open_fence):
+        fence_char, min_run = open_fence
+        if _is_code_fence_close(line, fence_char, min_run):
             # The regex consumed BEGIN through CLOSE inclusive but stopped
             # before the trailing ``\n`` — preserve that newline so the
             # surrounding lines aren't glued together.

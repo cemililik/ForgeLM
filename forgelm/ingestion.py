@@ -509,7 +509,10 @@ _MARKDOWN_HEADING_PATTERN = re.compile(
     re.MULTILINE,
 )
 # Code fence — backticks or tildes per CommonMark §4.5; up to 3 leading spaces.
-_MARKDOWN_CODE_FENCE = re.compile(r"^ {0,3}(?:```|~~~)")
+# Captures the **fence run** (3+ identical chars) and the **rest** of the line
+# (info string for openers, must be empty for closers) so the splitter can
+# enforce CommonMark's "close uses ≥ as many chars as open" rule.
+_MARKDOWN_CODE_FENCE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})(?P<rest>[^\n]*)$")
 
 
 def _push_heading_onto_path(current_path: List[str], heading_line: str, level: int) -> None:
@@ -544,28 +547,41 @@ def _markdown_sections(text: str) -> List[Tuple[List[str], str]]:
 
     Code fences (``` ``` ``` or ``~~~``) are detected *line-wise* so a
     heading-shaped line **inside** a code block is not interpreted as a
-    heading. CommonMark requires the closing fence to use the same
-    character as the opening one, so we track the opening fence
-    character and only close on a matching fence — a stray ``\\`\\`\\``` inside
-    a ``~~~`` block (or vice-versa) does not toggle state.
+    heading. Per CommonMark §4.5 the closing fence must:
+
+    1. use the same character as the opener (``\\`\\`\\``` does not close
+       a ``~~~`` block, and vice-versa);
+    2. have at least as many fence characters as the opener (a
+       ``\\`\\`\\``\\``` block of 4 backticks is *not* closed by a
+       ``\\`\\`\\``` line of 3);
+    3. contain no info string after the run — only the fence chars
+       themselves, optionally followed by whitespace.
+
+    All three rules are enforced here.
     """
     sections: List[Tuple[List[str], List[str]]] = []
     current_path: List[str] = []
     current_lines: List[str] = []
-    open_fence_char: Optional[str] = None  # None = not in a code block
+    open_fence: Optional[Tuple[str, int]] = None  # (char, run_length) while in block
     seen_heading = False
 
     for line in text.splitlines():
         fence_match = _MARKDOWN_CODE_FENCE.match(line)
         if fence_match:
-            fence_char = "`" if "`" in fence_match.group(0) else "~"
-            if open_fence_char is None:
-                open_fence_char = fence_char
-            elif open_fence_char == fence_char:
-                open_fence_char = None
+            fence_run = fence_match.group("fence")
+            rest = fence_match.group("rest")
+            fence_char = fence_run[0]
+            if open_fence is None:
+                # Opener — info string is allowed; record (char, length).
+                open_fence = (fence_char, len(fence_run))
+            elif open_fence[0] == fence_char and len(fence_run) >= open_fence[1] and not rest.strip():
+                # Valid close: same char, ≥ as many chars, no info string.
+                open_fence = None
+            # Otherwise — mismatched char, too short, or has an info string.
+            # Treat as content; do not toggle.
             current_lines.append(line)
             continue
-        if open_fence_char is not None:
+        if open_fence is not None:
             current_lines.append(line)
             continue
         match = _MARKDOWN_HEADING_PATTERN.match(line)

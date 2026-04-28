@@ -333,6 +333,70 @@ class TestTildeFenceRecognised:
         assert "more body" in body
 
 
+class TestFenceRunLengthRule:
+    """CommonMark §4.5: a close fence must use ≥ as many chars as the open."""
+
+    def test_four_backtick_block_not_closed_by_three(self):
+        # The 3-backtick line inside the 4-backtick block must NOT close it.
+        # Therefore the heading after the inner ``\`\`\`\`` (which IS a valid
+        # close) is the only heading split. Pre-fix this regressed: a 3-tick
+        # close prematurely terminated the 4-tick block, splitting the inner
+        # ``# nested heading`` as a real heading.
+        text = (
+            "# Outer\n\n"
+            "intro\n\n"
+            "````\n"
+            "```\n"
+            "# nested heading inside 4-tick block — must NOT split\n"
+            "```\n"
+            "````\n\n"
+            "outer body continues."
+        )
+        sections = _markdown_sections(text)
+        assert len(sections) == 1, f"expected 1 section, got {len(sections)}: {[s[0] for s in sections]}"
+        body = sections[0][1]
+        assert "nested heading inside 4-tick block" in body
+        assert "outer body continues" in body
+
+    def test_strip_code_fences_respects_length_rule(self):
+        # Same shape exercised against the audit-side stripper. The 3-tick
+        # line in the middle is content; only the matching 4-tick line closes.
+        from forgelm.data_audit import _strip_code_fences
+
+        text = (
+            "before\n"
+            "````\n"
+            "```\n"  # NOT a close — too short
+            "still inside\n"
+            "````\n"  # actual close — same length as open
+            "after"
+        )
+        result = _strip_code_fences(text)
+        # Block fully removed, surrounding lines preserved.
+        assert "still inside" not in result
+        assert "before" in result
+        assert "after" in result
+
+    def test_close_with_info_string_does_not_close(self):
+        # CommonMark: closing fence may NOT carry an info string.
+        # ``~~~bash`` opens a tilde block; another ``~~~bash`` line inside
+        # it is content (info string disqualifies it from being a close),
+        # so the block stays open until ``~~~`` (no info) is seen.
+        from forgelm.data_audit import _strip_code_fences
+
+        text = (
+            "before\n"
+            "~~~bash\n"
+            "~~~bash\n"  # info string → not a close, treated as content
+            "still inside\n"
+            "~~~\n"  # no info string → valid close
+            "after"
+        )
+        result = _strip_code_fences(text)
+        assert "still inside" not in result
+        assert "after" in result
+
+
 class TestPrivateKeyFullBlock:
     """``mask_secrets`` redacts the entire PEM/PGP envelope, not just BEGIN."""
 
@@ -450,12 +514,12 @@ class TestRegexLinearity:
 class TestMinHashDistinctSemantic:
     """``minhash_distinct`` must count *unique sketches*, mirroring simhash."""
 
-    def test_duplicate_rows_produce_one_distinct(self):
+    def test_duplicate_rows_produce_one_distinct(self, tmp_path):
         # Two identical rows + one unrelated row → 2 distinct simhash
         # fingerprints. MinHash should report the same shape.
+        # Uses pytest's ``tmp_path`` fixture so we don't mutate the repo
+        # tree and parallel pytest runs don't collide on a shared name.
         import importlib
-        import json
-        from pathlib import Path
 
         if importlib.util.find_spec("datasketch") is None:  # type: ignore[attr-defined]
             import pytest
@@ -464,23 +528,18 @@ class TestMinHashDistinctSemantic:
 
         from forgelm.data_audit import audit_dataset
 
-        path = Path(__file__).parent / "_minhash_distinct_tmp"
-        path.mkdir(exist_ok=True)
-        try:
-            jsonl = path / "x.jsonl"
-            with open(jsonl, "w", encoding="utf-8") as fh:
-                for row in [
-                    {"text": "alpha beta gamma delta epsilon zeta"},
-                    {"text": "alpha beta gamma delta epsilon zeta"},
-                    {"text": "completely unrelated payload tokens"},
-                ]:
-                    fh.write(json.dumps(row) + "\n")
-            report = audit_dataset(str(jsonl), dedup_method="minhash")
-            train_info = report.splits["train"]
-            # 2 distinct sketches: one for the duplicate pair, one for the
-            # unrelated row. Pre-fix this returned 3 (count of non-empty rows).
-            assert train_info["minhash_distinct"] == 2
-        finally:
-            for f in path.iterdir():
-                f.unlink()
-            path.rmdir()
+        path = tmp_path / "minhash_distinct"
+        path.mkdir()
+        jsonl = path / "x.jsonl"
+        with open(jsonl, "w", encoding="utf-8") as fh:
+            for row in [
+                {"text": "alpha beta gamma delta epsilon zeta"},
+                {"text": "alpha beta gamma delta epsilon zeta"},
+                {"text": "completely unrelated payload tokens"},
+            ]:
+                fh.write(json.dumps(row) + "\n")
+        report = audit_dataset(str(jsonl), dedup_method="minhash")
+        train_info = report.splits["train"]
+        # 2 distinct sketches: one for the duplicate pair, one for the
+        # unrelated row. Pre-fix this returned 3 (count of non-empty rows).
+        assert train_info["minhash_distinct"] == 2

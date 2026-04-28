@@ -8,19 +8,41 @@
 
 These come straight from real findings on the ForgeLM codebase. If a new regex breaks one, fix the regex (or fail review).
 
-### 1. No `[A-Za-z0-9_]`; use `\w`
+### 1. `\w` is Unicode by default — pick the right form for your input
 
-`[A-Za-z0-9_]` and `\w` mean the same thing in Python's default regex flavour. Use the shorter form — SonarCloud `python:S6353` flags the verbose alternative every time.
+In Python, `\w` is **not** the same as `[A-Za-z0-9_]`. By default `\w` matches the full Unicode `\p{Word}` class — every letter in every script (`ş`, `é`, `中`, `Ω`, …) plus all Unicode digits. `[A-Za-z0-9_]` is strictly ASCII.
 
 ```python
-# WRONG — Sonar flagged this in forgelm/data_audit.py (Phase 12 review round 2)
-"github_token": re.compile(r"\b(?:ghp|gho)_[A-Za-z0-9_]{20,}\b"),
-
-# RIGHT
-"github_token": re.compile(r"\b(?:ghp|gho)_\w{20,}"),
+import re
+re.findall(r"\w+",          "ünicode türkçe")  # ['ünicode', 'türkçe']
+re.findall(r"\w+",          "ünicode türkçe", re.ASCII)  # ['nicode', 't', 'rk', 'e']
+re.findall(r"[A-Za-z0-9_]+", "ünicode türkçe")  # ['nicode', 't', 'rk', 'e']
 ```
 
-If you actually need to exclude underscore (rare), use `[A-Za-z0-9]` (no `_`). Document why.
+**Rule of thumb:**
+
+| Input shape | Use |
+|---|---|
+| Tokens / credentials / IDs whose grammar is ASCII-only (AWS keys, GitHub PATs, JWTs, base64) | `\w` **with** `flags=re.ASCII`, or the explicit `[A-Za-z0-9_]` |
+| Natural-language text where any script counts (PII regex on Turkish names, multilingual prose) | bare `\w` (Unicode-aware) |
+| Mixed identifier + free text | be explicit — pick one and document why |
+
+Sonar `python:S6353` only fires on bare `[A-Za-z0-9_]` — but if you adopt `\w`, **say what you mean about Unicode**. The two failure modes are (a) `[A-Za-z0-9_]` rejecting a legitimate Turkish customer name in PII detection, and (b) bare `\w` matching `é` inside a token regex that should reject malformed inputs.
+
+```python
+# RIGHT for an ASCII-only credential — explicit re.ASCII flag.
+# The standard's recommendation is the shorthand, but only with the flag
+# so Unicode word chars don't leak into the match universe.
+"github_token": re.compile(r"\b(?:ghp|gho)_\w{20,}", flags=re.ASCII),
+
+# RIGHT for prose where Turkish / French / etc. should match.
+_WORD_PATTERN = re.compile(r"\b[\w']+\b", re.UNICODE)  # explicit, intentional
+
+# ALSO RIGHT — explicit ASCII class without flag, no ambiguity.
+"github_token_v2": re.compile(r"\b(?:ghp|gho)_[A-Za-z0-9_]{20,}"),
+```
+
+If you genuinely need to exclude underscore (rare), use `[A-Za-z0-9]` and document why.
 
 ### 2. No single-char character classes; use the character
 

@@ -4,6 +4,76 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+### Fixed — round 3 review (post-`69ee6ab`)
+
+Round-3 review caught two real correctness bugs (Unicode `\w` in
+secret regexes, fence-length rule violation in markdown / code-fence
+tracking) plus a handful of doc / fixture parity issues. All applied.
+
+- **`re.ASCII` flag on secret regexes** (`forgelm/data_audit.py`) —
+  Last commit changed `[A-Za-z0-9_-]` → `[\w-]` in `github_token` /
+  `openai_api_key` / `google_api_key` / `jwt`, but Python's default
+  `\w` is **Unicode-aware** (matches `ünicode`, `türkçe`, …), which
+  would broaden the match universe to include non-ASCII chars that
+  real credentials never contain. Added `flags=re.ASCII` to all four
+  patterns so `\w` is restricted to ASCII. Patterns that already use
+  explicit ASCII character classes (`aws_access_key`, `slack_token`,
+  the explicit `[A-Z0-9]` ones) are unchanged.
+- **`regex.md` Rule 1 corrected** — Previous wording stated
+  `[A-Za-z0-9_]` and `\w` are equivalent in Python. They are not.
+  Rewrote the rule with a side-by-side example showing the Unicode /
+  ASCII divergence, plus a decision table: ASCII-only inputs → `\w`
+  with `re.ASCII` (or explicit class), natural-language inputs →
+  bare `\w` (Unicode-aware), mixed → be explicit.
+- **CommonMark fence-length rule enforced** (`forgelm/data_audit.py`
+  + `forgelm/ingestion.py`) — CommonMark §4.5 requires the closing
+  fence to use **at least as many** fence characters as the opener.
+  Both `_strip_code_fences` and `_markdown_sections` previously
+  tracked only the fence character, so a 4-backtick opener (` ```` `)
+  was prematurely closed by a 3-backtick line. `_is_code_fence_open`
+  now returns `(char, run_length)`; `_is_code_fence_close` accepts
+  the minimum run-length and rejects shorter closes. The markdown
+  splitter's `_MARKDOWN_CODE_FENCE` regex captures the fence run
+  (`(?P<fence>...)`) and the rest of the line (`(?P<rest>...)`) so
+  the splitter can also enforce "no info string on close" alongside
+  the length rule. All three CommonMark §4.5 close-side rules
+  (matching char + run length ≥ open + no info string) now hold.
+- **`data_audit.md` reframes `[ingestion-secrets]`** — The doc
+  previously implied installing the extra layered `detect-secrets`
+  on top of the regex fallback. The current code does not invoke
+  `detect-secrets` at all. Reworded as forward-compatibility:
+  installing the extra is safe to pin in requirements files but
+  doesn't change audit behaviour today.
+- **`README` clarifies `semantic` chunking strategy** — Listed as
+  reserved/planned: the implementation raises `NotImplementedError`
+  and the CLI hides it from `--strategy` choices. Previous wording
+  implied it was available at runtime.
+- **`ingestion-tr.md` CLI synopsis adds Phase 12 flags** —
+  `--strategy markdown` and `--secrets-mask` now appear in the
+  options block; short Turkish description for each.
+- **`review-pr` skill heading updated** — "The six-question review"
+  → "The seven-question review" to match the regex-check question
+  added in the previous commit.
+- **`data_curation.ipynb` fixture credentials fragmented** —
+  `deploy_runbook.txt` fixture now builds `AKIA…` / `ghp_…` strings
+  at runtime from inert fragments (same convention as
+  `tests/test_data_audit_phase12.py::FAKE_AWS_KEY`). Repo-wide
+  secret scanners no longer flag the notebook source.
+- **`data_curation.ipynb` MinHash install uses the project extra** —
+  `pip install 'datasketch>=1.6.0,<2.0.0'` →
+  `pip install 'forgelm[ingestion-scale]==0.5.2'` so the recipe
+  matches the install hint baked into
+  `forgelm.data_audit._require_datasketch`.
+- **`TestMinHashDistinctSemantic` uses pytest's `tmp_path`** — Was
+  creating a directory under `tests/` which mutated the repo and
+  broke parallel pytest runs. Now uses the standard `tmp_path`
+  fixture; no manual cleanup needed.
+- **3 new fence-length regression tests** in
+  `tests/test_phase12_review_fixes.py::TestFenceRunLengthRule`:
+  4-backtick block not closed by 3 backticks; `_strip_code_fences`
+  respects the length rule; close lines with info strings are
+  treated as content (CommonMark §4.5 conformance).
+
 ### Added — Regex hygiene standard
 
 - **New standard `docs/standards/regex.md`** — codifies 8 hard rules absorbed from Phase 11/11.5/12 review cycles (no `[A-Za-z0-9_]` shorthand, no single-char character classes, bound your quantifiers, no two competing quantifiers over the same class, no `\s` under MULTILINE, no `.*?` + back-reference + DOTALL, anchored `^` / `$`, no leading `^.*`). Each rule cites the concrete review finding that produced it. Includes a ReDoS-exposure budget (10K-char pathological-input benchmark must stay ≤ 10ms) and test fixture hygiene rules (build credential-shaped strings from inert fragments at runtime). Linked from `coding.md`, `code-review.md`, the `review-pr` skill, and `CLAUDE.md`'s "read before editing" entry point.
