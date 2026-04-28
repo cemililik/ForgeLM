@@ -10,6 +10,9 @@ from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import Optional
 
+import yaml
+from pydantic import ValidationError
+
 from .config import ConfigError, ForgeConfig, load_config
 
 # Module name used both for the package logger and as the `python -m`
@@ -282,19 +285,24 @@ def _add_ingest_subcommand(subparsers) -> None:
     p.add_argument(
         "--overlap",
         type=int,
-        default=200,
+        default=None,
         metavar="N",
-        help="Sliding-strategy overlap window (default: 200; ignored for paragraph).",
+        help=(
+            "Sliding-strategy overlap window (default: 200 when --strategy sliding; "
+            "must be 0 / unset for paragraph or markdown — they're non-overlapping by design)."
+        ),
     )
     p.add_argument(
         "--strategy",
         type=str,
         default="paragraph",
-        choices=["sliding", "paragraph"],
+        choices=["sliding", "paragraph", "markdown"],
         help=(
-            "Chunking strategy (default: paragraph). 'semantic' is reserved for a "
-            "follow-up phase — it raises NotImplementedError today and is hidden "
-            "from this CLI surface to avoid runtime crashes."
+            "Chunking strategy (default: paragraph). Phase 12 added 'markdown' — "
+            "heading-aware splitter that preserves '# H1' / '## H2' boundaries and "
+            "keeps code-fenced blocks atomic. 'semantic' is reserved for a follow-up "
+            "phase — it raises NotImplementedError today and is hidden from this CLI "
+            "surface to avoid runtime crashes."
         ),
     )
     p.add_argument(
@@ -309,6 +317,17 @@ def _add_ingest_subcommand(subparsers) -> None:
         "--pii-mask",
         action="store_true",
         help="Replace detected PII spans with [REDACTED] before writing.",
+    )
+    p.add_argument(
+        "--secrets-mask",
+        action="store_true",
+        help=(
+            "Phase 12: replace detected credential/secret spans (AWS / GitHub / "
+            "Slack / OpenAI / Google / JWT / OpenSSH / PGP / Azure storage) with "
+            "[REDACTED-SECRET] before chunks land in the JSONL. Runs before "
+            "--pii-mask when both are set so secrets are scrubbed under the "
+            "stronger label first."
+        ),
     )
     p.add_argument(
         "--chunk-tokens",
@@ -345,16 +364,36 @@ def _add_ingest_subcommand(subparsers) -> None:
     _add_common_subparser_flags(p, include_output_format=True)
 
 
+def _non_negative_float(value: str) -> float:
+    """argparse type for ``--jaccard-threshold`` and similar floats.
+
+    Mirrors :func:`_non_negative_int` (raises ``ArgumentTypeError`` so
+    argparse owns the error path). Phase 12 uses this for the MinHash
+    Jaccard threshold which must lie in ``[0.0, 1.0]`` — values outside
+    that range surface a clear error rather than producing nonsensical
+    duplicate counts.
+    """
+    try:
+        fvalue = float(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(f"invalid float: {value!r}") from exc
+    if fvalue < 0.0 or fvalue > 1.0:
+        raise argparse.ArgumentTypeError(f"value must be in [0.0, 1.0], got {fvalue}")
+    return fvalue
+
+
 def _add_audit_subcommand(subparsers) -> None:
     p = subparsers.add_parser(
         "audit",
-        help="Run a Phase 11/11.5 dataset audit on a JSONL file or split-keyed directory.",
+        help="Run a Phase 11/11.5/12 dataset audit on a JSONL file or split-keyed directory.",
         description=(
             "Phase 11.5: first-class audit subcommand (the legacy `--data-audit FLAG` is preserved "
             "as a deprecation alias). Computes per-split length distribution, top-3 language detection, "
             "near-duplicate detection (LSH-banded), cross-split overlap, and PII flags with severity "
             "tiers — feeding the EU AI Act Article 10 governance artifact when run inside a training "
-            "output directory."
+            "output directory. Phase 12 added: --dedup-method minhash for MinHash LSH, --quality-filter "
+            "for Gopher/C4-style heuristics, and an always-on secrets scan that surfaces "
+            "credential/key leakage in the audit report."
         ),
     )
     p.add_argument(
@@ -390,7 +429,40 @@ def _add_audit_subcommand(subparsers) -> None:
         help=(
             "Hamming-distance cutoff for the simhash near-duplicate detector. Default 3 (≈95%% "
             "similarity). Higher values widen the recall window at the cost of more false positives. "
-            "Must be ≥ 0; negative values exit with a CLI argument error."
+            "Must be ≥ 0; negative values exit with a CLI argument error. "
+            "Ignored when --dedup-method=minhash."
+        ),
+    )
+    p.add_argument(
+        "--dedup-method",
+        type=str,
+        default="simhash",
+        choices=["simhash", "minhash"],
+        help=(
+            "Phase 12: near-duplicate detection method. Default 'simhash' (Phase 11.5 LSH-banded "
+            "path; exact recall at the default threshold). 'minhash' opts into LSH-banded MinHash "
+            "via the optional 'forgelm[ingestion-scale]' extra (datasketch) — industry standard "
+            "for >50K-row corpora. Method choice surfaces under near_duplicate_summary.method."
+        ),
+    )
+    p.add_argument(
+        "--jaccard-threshold",
+        type=_non_negative_float,
+        default=None,
+        metavar="X",
+        help=(
+            "Phase 12: Jaccard-similarity threshold for --dedup-method=minhash (default 0.85). "
+            "Must lie in [0.0, 1.0]; ignored when --dedup-method=simhash."
+        ),
+    )
+    p.add_argument(
+        "--quality-filter",
+        action="store_true",
+        help=(
+            "Phase 12 opt-in: run heuristic quality checks (mean word length, alphabetic-character "
+            "ratio, end-of-line punctuation ratio, repeated-line ratio, short-paragraph ratio). "
+            "Findings appear under quality_summary in the audit JSON. ML-based classifiers are "
+            "deferred to Phase 13+."
         ),
     )
     _add_common_subparser_flags(p, include_output_format=True)
@@ -478,7 +550,11 @@ def parse_args():
         type=str,
         default=None,
         metavar="OUTPUT_DIR",
-        help="Export compliance artifacts (audit trail, provenance) from an existing training run.",
+        help=(
+            "Export EU AI Act compliance artifacts (audit trail, data provenance, Annex IV docs) "
+            "to OUTPUT_DIR from the given config. Run after training so the manifest is complete; "
+            "standalone use produces artifacts with empty metrics."
+        ),
     )
     parser.add_argument(
         "--data-audit",
@@ -486,9 +562,10 @@ def parse_args():
         default=None,
         metavar="PATH",
         help=(
-            "Deprecated alias for `forgelm audit PATH` (kept so existing pipelines keep working). "
-            "Behaviour is identical; new scripts should use the subcommand. Writes "
-            "`data_audit_report.json` under --output (default ./audit/). No training."
+            "DEPRECATED — alias for `forgelm audit PATH` (kept so existing pipelines keep "
+            "working). Scheduled for removal in v0.7.0. Behaviour is identical; new scripts "
+            "should use the subcommand. Writes `data_audit_report.json` under --output "
+            "(default ./audit/). No training."
         ),
     )
     parser.add_argument(
@@ -747,7 +824,7 @@ def _run_compliance_export(config: ForgeConfig, output_dir: str, output_format: 
             logger.info("  %s", f)
 
 
-def _resolve_resume_checkpoint(checkpoint_dir: str, resume_arg: str) -> str | None:
+def _resolve_resume_checkpoint(checkpoint_dir: str, resume_arg: str) -> Optional[str]:
     """Resolve the checkpoint path for --resume."""
     if resume_arg != "auto":
         if not os.path.isdir(resume_arg):
@@ -1209,6 +1286,7 @@ def _run_ingest_cmd(args, output_format: str) -> None:
             strategy=args.strategy,
             recursive=args.recursive,
             pii_mask=args.pii_mask,
+            secrets_mask=getattr(args, "secrets_mask", False),
             chunk_tokens=getattr(args, "chunk_tokens", None),
             overlap_tokens=getattr(args, "overlap_tokens", 0),
             tokenizer=getattr(args, "tokenizer", None),
@@ -1249,6 +1327,7 @@ def _run_ingest_cmd(args, output_format: str) -> None:
                     "total_chars": result.total_chars,
                     "format_counts": result.format_counts,
                     "pii_redaction_counts": result.pii_redaction_counts,
+                    "secrets_redaction_counts": result.secrets_redaction_counts,
                     "pdf_header_footer_lines_stripped": result.pdf_header_footer_lines_stripped,
                     "notes": result.extra_notes,
                     "notes_structured": result.notes_structured,
@@ -1267,27 +1346,44 @@ def _run_data_audit(
     *,
     verbose: bool = False,
     near_dup_threshold: Optional[int] = None,
+    dedup_method: str = "simhash",
+    minhash_jaccard: Optional[float] = None,
+    enable_quality_filter: bool = False,
     invoked_via_legacy_flag: bool = False,
 ) -> None:
-    """Phase 11 / 11.5 dispatch: dataset quality + governance audit.
+    """Phase 11 / 11.5 / 12 dispatch: dataset quality + governance audit.
 
     ``invoked_via_legacy_flag`` flips a one-line deprecation notice when
     the operator reaches us through ``forgelm --data-audit`` instead of
     the newer ``forgelm audit`` subcommand. The behaviour is identical
     in both paths so existing CI pipelines keep working unchanged.
     """
-    from .data_audit import DEFAULT_NEAR_DUP_HAMMING, audit_dataset, summarize_report
+    from .data_audit import (
+        DEFAULT_MINHASH_JACCARD,
+        DEFAULT_NEAR_DUP_HAMMING,
+        audit_dataset,
+        summarize_report,
+    )
 
     if invoked_via_legacy_flag:
-        logger.info(
-            "Note: `forgelm --data-audit PATH` is preserved as a deprecation alias. "
-            "New scripts should use `forgelm audit PATH` (Phase 11.5)."
+        logger.warning(
+            "Deprecation: `forgelm --data-audit PATH` is preserved as an alias and is "
+            "scheduled for removal in v0.7.0. Migrate to `forgelm audit PATH` "
+            "(Phase 11.5+) — same behaviour, same output."
         )
 
     target = output_dir or "./audit"
     threshold = near_dup_threshold if near_dup_threshold is not None else DEFAULT_NEAR_DUP_HAMMING
+    jaccard = minhash_jaccard if minhash_jaccard is not None else DEFAULT_MINHASH_JACCARD
     try:
-        report = audit_dataset(audit_input, output_dir=target, near_dup_threshold=threshold)
+        report = audit_dataset(
+            audit_input,
+            output_dir=target,
+            near_dup_threshold=threshold,
+            dedup_method=dedup_method,
+            minhash_jaccard=jaccard,
+            enable_quality_filter=enable_quality_filter,
+        )
     except OSError as exc:
         # OSError covers FileNotFoundError / PermissionError / ENOSPC /
         # IsADirectoryError that bubble up from _resolve_input or
@@ -1298,6 +1394,16 @@ def _run_data_audit(
         else:
             logger.error("Audit failed: %s", exc)
         sys.exit(EXIT_CONFIG_ERROR)
+    except ImportError as exc:
+        # Phase 12: --dedup-method=minhash needs the optional 'ingestion-scale'
+        # extra. Treat the same way other subcommands handle missing extras —
+        # EXIT_TRAINING_ERROR rather than EXIT_CONFIG_ERROR so CI/CD retry
+        # logic distinguishes "config invalid" from "extras missing".
+        if output_format == "json":
+            print(json.dumps({"success": False, "error": str(exc)}))
+        else:
+            logger.error("%s", exc)
+        sys.exit(EXIT_TRAINING_ERROR)
 
     if output_format == "json":
         # Stdout summary only — full report goes to disk under --output. A
@@ -1313,7 +1419,14 @@ def _run_data_audit(
             "splits": {name: info.get("sample_count", 0) for name, info in report.splits.items()},
             "pii_summary": report.pii_summary,
             "pii_severity": report.pii_severity,
+            "secrets_summary": report.secrets_summary,
+            "quality_summary": report.quality_summary,
+            # Pre-Phase-12 envelope key — kept verbatim so v0.5.1 consumers
+            # (e.g. ``jq '.near_duplicate_pairs_per_split.train'``) keep working.
+            # The richer ``near_duplicate_summary`` below carries the same
+            # data plus method/threshold metadata.
             "near_duplicate_pairs_per_split": report.near_duplicate_summary.get("pairs_per_split", {}),
+            "near_duplicate_summary": report.near_duplicate_summary,
             "cross_split_leakage_pairs": list((report.cross_split_overlap.get("pairs") or {}).keys()),
             "notes": report.notes,
         }
@@ -1324,7 +1437,7 @@ def _run_data_audit(
 
 
 def _run_audit_cmd(args, output_format: str) -> None:
-    """Phase 11.5 dispatch for the new ``forgelm audit PATH`` subcommand.
+    """Phase 11.5 / 12 dispatch for the ``forgelm audit PATH`` subcommand.
 
     The audit subparser uses ``argparse.SUPPRESS`` for ``--output``, so when
     the operator doesn't pass it the attribute is missing from ``args`` and
@@ -1338,6 +1451,9 @@ def _run_audit_cmd(args, output_format: str) -> None:
         output_format,
         verbose=getattr(args, "verbose", False),
         near_dup_threshold=getattr(args, "near_dup_threshold", None),
+        dedup_method=getattr(args, "dedup_method", "simhash"),
+        minhash_jaccard=getattr(args, "jaccard_threshold", None),
+        enable_quality_filter=getattr(args, "quality_filter", False),
         invoked_via_legacy_flag=False,
     )
 
@@ -1393,16 +1509,31 @@ def _maybe_run_wizard(args) -> None:
 
 
 def _load_config_or_exit(config_path: str, json_output: bool):
-    """Load config and translate exceptions into the right exit code."""
+    """Load config and translate exceptions into the right exit code.
+
+    Catches concrete classes so Pydantic / YAML errors keep their
+    line-and-column information. The previous version's bare
+    ``except Exception`` swallowed the structured detail Pydantic
+    returns and replaced it with ``Unexpected error:`` — making
+    "trainer_type misspelled" indistinguishable from "YAML truncated".
+    """
     try:
         logger.info("Loading configuration from %s...", config_path)
         return load_config(config_path)
     except FileNotFoundError as e:
         msg = f"Config file not found: {e}"
     except ConfigError as e:
+        # Already a translated error from forgelm.config.load_config —
+        # preserve message verbatim.
         msg = str(e)
-    except Exception as e:
-        msg = f"Unexpected error: {e}"
+    except yaml.YAMLError as e:
+        msg = f"Invalid YAML syntax in {config_path}: {e}"
+    except ValidationError as e:
+        # Pydantic ValidationError's str() lists field path + reason
+        # for each error — keep that structured detail.
+        msg = f"Configuration validation failed:\n{e}"
+    except OSError as e:
+        msg = f"Could not read config file {config_path}: {e}"
     if json_output:
         print(json.dumps({"success": False, "error": msg}))
     else:

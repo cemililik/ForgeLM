@@ -99,6 +99,18 @@ In order of priority:
 - Are drive-by reformats included that obscure the real diff? (Reject those.)
 - Is it a minimum viable implementation, or has scope crept?
 
+### 7. Does any regex change pass [regex.md](regex.md)?
+
+Trigger: any new or modified `re.compile` / `re.match` / `re.sub` / `re.findall` / `re.split` call. Phase 11/11.5/12 review cycles burned ~10 review iterations on regex correctness — this section exists to spend zero on the next one.
+
+- No `[A-Za-z0-9_]` (use `\w`); no single-char classes `[ ]` / `[\.]`.
+- Quantifiers bounded where the spec allows it (`{1,6}` not `+`).
+- No two competing unbounded `*` / `+` / `*?` / `+?` over the same character class.
+- No `.*?` + back-reference + `re.DOTALL` (replace with a state machine — see `forgelm/data_audit.py::_strip_code_fences`).
+- `\s` is `[ \t\n\r\f\v]` — under `re.MULTILINE`, prefer `[ \t]` to keep newlines out of the way.
+- Operator-controlled input → 10K-char pathological-input wall-clock benchmark must stay ≤ 10ms.
+- Test fixtures with credential-shaped strings built from inert fragments (see `tests/test_data_audit_phase12.py::FAKE_AWS_KEY`).
+
 ## Comment etiquette
 
 For reviewers:

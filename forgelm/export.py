@@ -83,8 +83,23 @@ def _find_converter_script() -> str:
     """
     env_override = os.environ.get("FORGELM_GGUF_CONVERTER")
     if env_override:
+        # Validate: must be an existing .py file. The override is operator-
+        # controlled; a non-.py path would be passed as cmd[1] to the Python
+        # interpreter — accepting arbitrary executables here would let any
+        # process that can write env vars escalate privileges.
+        # Use casefold() so case-variations like CONVERTER.PY are accepted on
+        # case-insensitive filesystems (Windows, macOS HFS+).
+        if not env_override.casefold().endswith(".py"):
+            raise ValueError(
+                f"FORGELM_GGUF_CONVERTER must point to a Python (.py) script, "
+                f"got: '{env_override}'. The converter is always a Python file; "
+                "arbitrary executables are not accepted."
+            )
         if os.path.isfile(env_override):
-            logger.debug("Using GGUF converter from FORGELM_GGUF_CONVERTER: %s", env_override)
+            logger.warning(
+                "GGUF converter overridden via FORGELM_GGUF_CONVERTER: %s — ensure this path is from a trusted source.",
+                env_override,
+            )
             return env_override
         raise FileNotFoundError(f"FORGELM_GGUF_CONVERTER is set to '{env_override}' but the file does not exist.")
 
@@ -355,7 +370,11 @@ def export_model(
 
     try:
         converter = _find_converter_script()
-    except (ImportError, FileNotFoundError) as e:
+    except (ImportError, FileNotFoundError, ValueError) as e:
+        # ValueError is raised when FORGELM_GGUF_CONVERTER points at a non-.py
+        # path — surface it through the same ExportResult contract as the
+        # other "could not locate converter" failures so callers don't have
+        # to special-case env-var validation errors.
         return ExportResult(success=False, format=fmt, quant=quant, error=str(e))
 
     # Merge adapter if requested

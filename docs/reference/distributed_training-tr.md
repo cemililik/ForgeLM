@@ -146,3 +146,49 @@ docker run --gpus all \
 ```
 
 > **Not**: `--shm-size=16g` çoklu GPU eğitimi için önemlidir. PyTorch, süreçler arası iletişim için paylaşılan bellek kullanır ve Docker'ın varsayılan paylaşılan belleği (64MB) yetersizdir.
+
+## Çok Düğümlü Eğitim
+
+Birden fazla makine üzerinde eğitim için `torchrun`'ı düğüm yapılandırmasıyla kullanın:
+
+```bash
+# Düğüm 0 (master)
+torchrun \
+  --nproc_per_node=4 \
+  --nnodes=2 \
+  --node_rank=0 \
+  --master_addr=192.168.1.100 \
+  --master_port=29500 \
+  -m forgelm.cli --config my_config.yaml
+
+# Düğüm 1
+torchrun \
+  --nproc_per_node=4 \
+  --nnodes=2 \
+  --node_rank=1 \
+  --master_addr=192.168.1.100 \
+  --master_port=29500 \
+  -m forgelm.cli --config my_config.yaml
+```
+
+## Sorun Giderme
+
+### "CUDA out of memory"
+- ZeRO-3 veya CPU offload'lu ZeRO-3 deneyin
+- `per_device_train_batch_size` değerini düşürün
+- Efektif batch boyutunu korumak için `gradient_accumulation_steps` değerini artırın
+
+### "NCCL error" veya "timeout"
+- Tüm GPU'ların görünür olduğunu doğrulayın: `nvidia-smi`
+- Tanı için `NCCL_DEBUG=INFO` ortam değişkenini kontrol edin
+- Zaman aşımını artırın: `export NCCL_TIMEOUT=1800`
+
+### "DeepSpeed not found"
+```bash
+pip install forgelm[distributed]
+```
+
+### ZeRO-3 ile yavaş eğitim
+- ZeRO-3 daha yüksek iletişim yüküne sahiptir — bu beklenen bir durumdur
+- Model GPU belleğine sığıyorsa ZeRO-2'yi değerlendirin
+- DeepSpeed yapılandırmasında `overlap_comm: true` etkinleştirin (ön ayarlarda varsayılan)

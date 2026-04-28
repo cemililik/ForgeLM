@@ -4,6 +4,7 @@ import shutil
 import tarfile
 import time
 import uuid
+from typing import Optional
 
 from huggingface_hub import login
 
@@ -16,7 +17,7 @@ _HF_TOKEN_PATHS = [
 ]
 
 
-def setup_authentication(token: str = None) -> None:
+def setup_authentication(token: Optional[str] = None) -> None:
     """Configures Hugging Face authentication."""
     hf_token = token or os.getenv("HUGGINGFACE_TOKEN")
 

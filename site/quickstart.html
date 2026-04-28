@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-title-en="Quickstart — ForgeLM" data-title-tr="Hızlı Başlangıç — ForgeLM">Quickstart — ForgeLM</title>
+  <meta name="description"
+        data-desc-en="From pip install to a fine-tuned model in five steps."
+        data-desc-tr="pip install'tan fine-tuned modele beş adım."
+        content="From pip install to a fine-tuned model in five steps.">
+  <meta name="theme-color" content="#0a0c12">
+  <meta property="og:title" content="Quickstart — ForgeLM">
+  <meta property="og:description" content="From pip install to a fine-tuned model in five steps.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://YOUR_DOMAIN/assets/og.png">
+  <meta property="og:url" content="https://YOUR_DOMAIN/quickstart.html">
+  <meta property="og:locale" content="en_US">
+  <link rel="canonical" href="https://YOUR_DOMAIN/quickstart.html">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="icon" href="favicon.ico">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/i18n.js"></script>
+</head>
+<body>
+
+<nav class="navbar" role="navigation" aria-label="Main">
+  <div class="container">
+    <a href="index.html" class="nav-brand">
+      <span class="nav-brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l6 6-6 6"/><path d="M4 12h13"/></svg></span>
+      ForgeLM
+    </a>
+    <button class="nav-hamburger" aria-label="Menu" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+    <ul class="nav-menu">
+      <li><a href="index.html"><span class="i18n-inline" data-lang="en">Home</span><span class="i18n-inline" data-lang="tr">Ana Sayfa</span></a></li>
+      <li><a href="features.html"><span class="i18n-inline" data-lang="en">Features</span><span class="i18n-inline" data-lang="tr">Özellikler</span></a></li>
+      <li><a href="quickstart.html" class="active"><span class="i18n-inline" data-lang="en">Quickstart</span><span class="i18n-inline" data-lang="tr">Hızlı Başlangıç</span></a></li>
+      <li><a href="compliance.html"><span class="i18n-inline" data-lang="en">Compliance</span><span class="i18n-inline" data-lang="tr">Uyumluluk</span></a></li>
+      <li><a href="contact.html"><span class="i18n-inline" data-lang="en">Contact</span><span class="i18n-inline" data-lang="tr">İletişim</span></a></li>
+    </ul>
+    <div class="nav-actions">
+      <div class="lang-toggle"><button data-set-lang="en" type="button">EN</button><button data-set-lang="tr" type="button">TR</button></div>
+      <button class="theme-toggle" aria-label="Toggle theme" type="button">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<header class="page-header">
+  <div class="container">
+    <span class="eyebrow">
+      <span class="i18n-inline" data-lang="en">From zero to fine-tuned</span>
+      <span class="i18n-inline" data-lang="tr">Sıfırdan fine-tune'a</span>
+    </span>
+    <h1>
+      <span class="i18n-inline" data-lang="en">Five steps. <span class="text-gradient">No notebook.</span></span>
+      <span class="i18n-inline" data-lang="tr">Beş adım. <span class="text-gradient">Notebook yok.</span></span>
+    </h1>
+    <p>
+      <span class="i18n-inline" data-lang="en">Install, pick a template (or bring your own data), validate, train, deploy. The whole loop fits in an afternoon on a single GPU.</span>
+      <span class="i18n-inline" data-lang="tr">Kur, bir şablon seç (veya kendi verinizi getir), doğrula, eğit, deploy et. Tüm döngü tek bir GPU'da bir öğleden sonraya sığar.</span>
+    </p>
+  </div>
+</header>
+
+<section>
+  <div class="container">
+
+    <div class="steps">
+      <!-- Step 1 -->
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h3>
+            <span class="i18n-inline" data-lang="en">Install</span>
+            <span class="i18n-inline" data-lang="tr">Kur</span>
+          </h3>
+          <p>
+            <span class="i18n-inline" data-lang="en">Python 3.10+ on Linux or macOS. The base install gives you the trainer; extras unlock ingestion, GGUF export, and large-corpus deduplication.</span>
+            <span class="i18n-inline" data-lang="tr">Linux veya macOS üzerinde Python 3.10+. Temel kurulum trainer'ı verir; ekstralar ingest, GGUF export ve büyük-corpus dedup'ı açar.</span>
+          </p>
+          <div class="code-block">
+            <div class="code-block-header">
+              <span class="lang">terminal</span>
+              <button class="copy-btn" type="button">copy</button>
+            </div>
+            <pre class="code-block-body"><span class="prompt">$</span> pip install forgelm
+
+<span class="comment"># or with extras (pick what you need)</span>
+<span class="prompt">$</span> pip install <span class="string">'forgelm[ingestion]'</span>          <span class="comment"># PDF/DOCX/EPUB ingest</span>
+<span class="prompt">$</span> pip install <span class="string">'forgelm[ingestion-scale]'</span>    <span class="comment"># MinHash LSH for &gt;50K rows</span>
+<span class="prompt">$</span> pip install <span class="string">'forgelm[export]'</span>             <span class="comment"># GGUF export</span>
+</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h3>
+            <span class="i18n-inline" data-lang="en">Pick a template — or bring your own YAML</span>
+            <span class="i18n-inline" data-lang="tr">Bir şablon seçin — veya kendi YAML'ınızı getirin</span>
+          </h3>
+          <p>
+            <span class="i18n-inline" data-lang="en">Bundled templates ship as YAML for SFT, customer support, code copilot, BYOD domain expert, Turkish medical Q&amp;A, and GRPO math reasoning. Each runs on a single 12 GB GPU out of the box.</span>
+            <span class="i18n-inline" data-lang="tr">Yerleşik şablonlar SFT, müşteri destek, kod copilot, BYOD alan uzmanı, Türkçe medikal Q&amp;A ve GRPO matematik akıl yürütmesi için YAML olarak gelir. Her biri tek bir 12 GB GPU'da kutudan çıktığı gibi çalışır.</span>
+          </p>
+          <div class="code-block">
+            <div class="code-block-header">
+              <span class="lang">terminal</span>
+              <button class="copy-btn" type="button">copy</button>
+            </div>
+            <pre class="code-block-body"><span class="prompt">$</span> forgelm quickstart <span class="flag">--list</span>
+<span class="out">  customer-support     Multi-turn helpful + safe (SFT + DPO)</span>
+<span class="out">  code-assistant       Code-completion fine-tune (SFT + ORPO)</span>
+<span class="out">  byod-domain-expert   PDF/DOCX corpus → domain Q&A (SFT)</span>
+<span class="out">  medical-qa-tr        Turkish medical Q&A (SFT)</span>
+<span class="out">  math-reasoning       Step-by-step reasoning (GRPO)</span>
+
+<span class="prompt">$</span> forgelm quickstart customer-support <span class="flag">--dry-run</span>
+<span class="comment"># renders configs/quickstart-customer-support.yaml — open it, edit it, own it.</span>
+</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h3>
+            <span class="i18n-inline" data-lang="en">Audit your data first</span>
+            <span class="i18n-inline" data-lang="tr">Önce verinizi denetleyin</span>
+          </h3>
+          <p>
+            <span class="i18n-inline" data-lang="en">A leaky train/test split or a credential leaked into your dataset is the most expensive bug you can ship to production. Run the audit before training — it's CPU-only and finishes in seconds on tens of thousands of rows.</span>
+            <span class="i18n-inline" data-lang="tr">Sızdıran bir train/test ayrımı veya veri setinize sızmış bir kredensiyel, üretime gönderebileceğiniz en pahalı bug. Eğitimden önce denetimi koşturun — CPU-only ve on binlerce satırda saniyeler içinde biter.</span>
+          </p>
+          <div class="code-block">
+            <div class="code-block-header">
+              <span class="lang">terminal</span>
+              <button class="copy-btn" type="button">copy</button>
+            </div>
+            <pre class="code-block-body"><span class="comment"># have raw documents? Ingest first.</span>
+<span class="prompt">$</span> forgelm ingest ./policies/ <span class="flag">--recursive</span> <span class="flag">--strategy</span> markdown \
+    <span class="flag">--secrets-mask</span> <span class="flag">--pii-mask</span> <span class="flag">--output</span> data/policies.jsonl
+
+<span class="comment"># then audit (PII / secrets / leakage / quality / language).</span>
+<span class="prompt">$</span> forgelm audit data/policies.jsonl <span class="flag">--output</span> ./audit/
+
+<span class="prompt">$</span> jq <span class="string">'.pii_summary, .near_duplicate_pairs, .cross_split_overlap'</span> \
+     ./audit/data_audit_report.json
+</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <h3>
+            <span class="i18n-inline" data-lang="en">Validate, fit-check, then train</span>
+            <span class="i18n-inline" data-lang="tr">Doğrula, fit-check, sonra eğit</span>
+          </h3>
+          <p>
+            <span class="i18n-inline" data-lang="en"><code>--dry-run</code> proves the YAML is valid and every referenced file exists. <code>--fit-check</code> tells you whether your VRAM budget will hold before you spend hours discovering it won't.</span>
+            <span class="i18n-inline" data-lang="tr"><code>--dry-run</code> YAML'ın geçerli olduğunu ve referans verilen her dosyanın var olduğunu kanıtlar. <code>--fit-check</code>, VRAM bütçenizin tutacağını size saatler harcamadan söyler.</span>
+          </p>
+          <div class="code-block">
+            <div class="code-block-header">
+              <span class="lang">terminal</span>
+              <button class="copy-btn" type="button">copy</button>
+            </div>
+            <pre class="code-block-body"><span class="prompt">$</span> forgelm <span class="flag">--config</span> configs/quickstart-customer-support.yaml <span class="flag">--dry-run</span>
+<span class="ok">✓</span> <span class="out">config validates</span>
+<span class="ok">✓</span> <span class="out">datasets reachable</span>
+<span class="ok">✓</span> <span class="out">tokenizer downloadable</span>
+
+<span class="prompt">$</span> forgelm <span class="flag">--config</span> configs/quickstart-customer-support.yaml <span class="flag">--fit-check</span>
+<span class="ok">FITS</span>  <span class="out">est. peak 11.4 GB / 12 GB available</span>
+
+<span class="prompt">$</span> forgelm <span class="flag">--config</span> configs/quickstart-customer-support.yaml
+<span class="comment"># …45 minutes later…</span>
+<span class="ok">✔</span> <span class="out">finished, exit 0 — checkpoints/customer-support/</span>
+</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 5 -->
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-content">
+          <h3>
+            <span class="i18n-inline" data-lang="en">Chat, export, deploy</span>
+            <span class="i18n-inline" data-lang="tr">Sohbet et, export et, deploy et</span>
+          </h3>
+          <p>
+            <span class="i18n-inline" data-lang="en">Sanity-check the model in the streaming REPL, then quantize for local inference (GGUF), or generate a deployment config for vLLM / Ollama / TGI / HuggingFace Endpoints.</span>
+            <span class="i18n-inline" data-lang="tr">Modeli akışlı REPL'de sanity-check edin, sonra yerel inference için kuantize edin (GGUF) veya vLLM / Ollama / TGI / HuggingFace Endpoints için bir deployment config'i üretin.</span>
+          </p>
+          <div class="code-block">
+            <div class="code-block-header">
+              <span class="lang">terminal</span>
+              <button class="copy-btn" type="button">copy</button>
+            </div>
+            <pre class="code-block-body"><span class="prompt">$</span> forgelm chat ./checkpoints/customer-support
+<span class="out">forgelm&gt; how do I cancel my subscription?</span>
+<span class="out">…streaming response…</span>
+
+<span class="prompt">$</span> forgelm export ./checkpoints/customer-support \
+    <span class="flag">--output</span> model.gguf <span class="flag">--quant</span> q4_k_m
+
+<span class="prompt">$</span> forgelm deploy ./checkpoints/customer-support \
+    <span class="flag">--target</span> ollama <span class="flag">--output</span> ./Modelfile
+
+<span class="ok">✔</span> <span class="out">Modelfile written. Run: ollama create my-bot -f ./Modelfile</span>
+</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Wizard hint -->
+    <div class="container-narrow" style="margin-top: 4rem; padding: 0;">
+      <div class="cta-card" style="padding: 2rem;">
+        <h2 style="font-size: 1.4rem; margin-bottom:0.5rem;">
+          <span class="i18n-inline" data-lang="en">Prefer a guided wizard?</span>
+          <span class="i18n-inline" data-lang="tr">Rehberli sihirbaz mı tercih edersiniz?</span>
+        </h2>
+        <p style="font-size: 0.95rem; margin-bottom:1.2rem;">
+          <span class="i18n-inline" data-lang="en"><code>forgelm --wizard</code> walks through trainer choice, model, dataset, LoRA rank, evaluation gates — and writes a YAML you can hand-edit afterward. Same code paths, same schema.</span>
+          <span class="i18n-inline" data-lang="tr"><code>forgelm --wizard</code> trainer seçimi, model, veri seti, LoRA rank, değerlendirme kapıları arasında gezdirir — ve sonradan elle düzenleyebileceğiniz bir YAML yazar. Aynı kod yolları, aynı şema.</span>
+        </p>
+        <div class="cta-actions">
+          <a href="https://github.com/cemililik/ForgeLM#quick-start" target="_blank" rel="noopener" class="btn btn-secondary">
+            <span class="i18n-inline" data-lang="en">README quickstart</span>
+            <span class="i18n-inline" data-lang="tr">README hızlı başlangıç</span>
+          </a>
+          <a href="features.html" class="btn btn-ghost">
+            <span class="i18n-inline" data-lang="en">Browse all features</span>
+            <span class="i18n-inline" data-lang="tr">Tüm özellikleri gez</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-bottom">
+      <span>&copy; 2026 ForgeLM</span>
+      <span>
+        <a href="index.html"><span class="i18n-inline" data-lang="en">Home</span><span class="i18n-inline" data-lang="tr">Ana Sayfa</span></a> ·
+        <a href="privacy.html"><span class="i18n-inline" data-lang="en">Privacy</span><span class="i18n-inline" data-lang="tr">Gizlilik</span></a> ·
+        <a href="terms.html"><span class="i18n-inline" data-lang="en">Terms</span><span class="i18n-inline" data-lang="tr">Koşullar</span></a> ·
+        <a href="contact.html"><span class="i18n-inline" data-lang="en">Contact</span><span class="i18n-inline" data-lang="tr">İletişim</span></a>
+      </span>
+    </div>
+  </div>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

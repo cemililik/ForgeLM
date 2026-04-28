@@ -71,22 +71,34 @@ ForgeLM automated checks:
 - Dataset fingerprinting (SHA-256 hash, size, timestamp)
 - Format validation per trainer type (SFT, DPO, KTO, GRPO)
 - Text cleaning (`clean_text: true`)
-- **Audit pipeline (`forgelm --data-audit <jsonl>`, v0.5.0+)** — produces
-  `data_audit_report.json` with per-split sample counts, length distribution,
-  top-3 language detection, simhash near-duplicate rate, cross-split
-  leakage check, and PII flag counts (email / phone / Luhn-validated credit
-  card / IBAN / TR–DE–FR–US national IDs). The report is auto-inlined into
-  the EU AI Act Article 10 governance artifact when present in the trainer's
-  `output_dir` — operators must run the audit **before** training to keep
-  the bundle self-contained.
-- **Ingestion pipeline (`forgelm ingest`, v0.5.0+)** — turns raw PDF / DOCX /
-  EPUB / TXT / Markdown into SFT-ready JSONL with optional `--pii-mask` to
-  redact detected PII spans before chunks reach storage.
+- **Audit pipeline (`forgelm audit <jsonl>`, v0.5.1+; legacy
+  `forgelm --data-audit` still works)** — produces
+  `data_audit_report.json` with per-split sample counts, length
+  distribution, top-3 language detection, simhash near-duplicate rate
+  (or **MinHash LSH** in v0.5.2 via `--dedup-method minhash` for
+  >50K-row corpora), cross-split leakage check, PII flag counts
+  (email / phone / Luhn-validated credit card / IBAN /
+  TR–DE–FR–US national IDs) with **severity tiers** (v0.5.1) and
+  always-on **secrets/credentials scan** (v0.5.2 — AWS / GitHub /
+  Slack / OpenAI / Google / JWT / private-key headers). Optional
+  **heuristic quality filter** (`--quality-filter`, v0.5.2) adds a
+  `quality_summary` block. The report is auto-inlined into the EU AI
+  Act Article 10 governance artifact when present in the trainer's
+  `output_dir` — operators must run the audit **before** training to
+  keep the bundle self-contained.
+- **Ingestion pipeline (`forgelm ingest`, v0.5.0+; v0.5.2 added
+  markdown-aware splitter + DOCX→markdown table preservation +
+  `--secrets-mask`)** — turns raw PDF / DOCX / EPUB / TXT / Markdown
+  into SFT-ready JSONL with optional `--pii-mask` and (v0.5.2)
+  `--secrets-mask` to redact detected PII / credential spans before
+  chunks reach storage.
 
 Manual checks:
-- [ ] Run `forgelm --data-audit` and review `data_audit_report.json` for:
+- [ ] Run `forgelm audit` and review `data_audit_report.json` for:
   cross-split leakage > 0%, near-duplicate rate, unexpected language mix,
-  PII flag counts.
+  PII flag counts, **`secrets_summary` (v0.5.2 — any non-zero count is
+  a stop-the-line event; remediate before training)**, and
+  `quality_summary` if `--quality-filter` was used.
 - [ ] Sample review: inspect 50+ random examples.
 - [ ] Verify label correctness (for preference/KTO data).
 

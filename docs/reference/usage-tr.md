@@ -60,6 +60,47 @@ forgelm --config my_config.yaml --resume ./checkpoints/checkpoint-500
 forgelm --config my_config.yaml --offline              # İzole mod (HF Hub yok)
 ```
 
+### VRAM Fit Check
+
+Eğitim öncesi config'inizin GPU belleğine sığıp sığmayacağını tahmin edin:
+
+```bash
+# Metin çıktı (insan-okunabilir verdict)
+forgelm --config my_config.yaml --fit-check
+
+# JSON çıktı (CI/CD pipeline'ları için)
+forgelm --config my_config.yaml --fit-check --output-format json
+```
+
+Çıktı: tahmini tepe VRAM, kullanılabilir VRAM (GPU varsa), verdict (`FITS` / `TIGHT` / `OOM` / `UNKNOWN`) ve sıralı öneriler. GPU yoksa hipotetik moda düşer.
+
+### Eğitim Sonrası: Chat, Export, Deploy
+
+Eğitim sonrasında, fine-tuned modelinizle CLI'dan doğrudan etkileşime geçin ve dağıtın. Bu alt-komutlar `--config` olmadan çalışır.
+
+```bash
+# İnteraktif chat REPL (varsayılan: streaming)
+forgelm chat ./checkpoints/final_model
+forgelm chat ./checkpoints/final_model --adapter ./adapter
+forgelm chat ./checkpoints/final_model --system "Yardımcı bir asistansın." --temperature 0.8
+
+# GGUF'a export (Ollama, LM Studio, llama.cpp için)
+# Gerekli: pip install forgelm[export]
+forgelm export ./checkpoints/final_model --output model.gguf --quant q4_k_m
+forgelm export ./checkpoints/final_model --output model.gguf --quant q8_0 --adapter ./adapter
+
+# Deployment config dosyaları üret
+forgelm deploy ./checkpoints/final_model --target ollama --output ./Modelfile
+forgelm deploy ./checkpoints/final_model --target vllm --output ./vllm_config.yaml
+forgelm deploy ./checkpoints/final_model --target tgi --output ./docker-compose.yaml
+forgelm deploy ./checkpoints/final_model --target hf-endpoints --output ./endpoint.json
+forgelm deploy ./checkpoints/final_model --target ollama --output ./Modelfile --system "Kısa konuş."
+```
+
+**Chat slash komutları:** `/reset`, `/save [file]`, `/temperature N`, `/system [prompt]`, `/help`, `/exit`
+
+**Export kuantizasyon seviyeleri:** `q2_k`, `q3_k_m`, `q4_k_m` (önerilen), `q5_k_m`, `q8_0`, `f16`
+
 ### Sentetik Veri Üretimi
 
 ```bash
@@ -69,7 +110,7 @@ forgelm --config my_config.yaml --generate-data
 
 Bu komut, eğitim başlamadan önce bir öğretmen modelden eğitim verisi üretmek için `synthetic` config bölümünü kullanır. Tüm sentetik veri seçenekleri için [Konfigürasyon Rehberi](configuration-tr.md)'ne bakın.
 
-### Doküman Yutma (v0.5.0+; v0.5.1'de token-aware mod)
+### Doküman Yutma (v0.5.0+; v0.5.1 token-aware; v0.5.2 markdown + secrets-mask)
 
 Ham PDF / DOCX / EPUB / TXT / Markdown'ı SFT'ye uygun JSONL'a dönüştürür. Opsiyonel bağımlılık: `pip install forgelm[ingestion]`. Ayrıntılar için [Doküman Yutma Rehberi](../guides/ingestion-tr.md).
 
@@ -90,9 +131,20 @@ forgelm ingest ./customer_emails/ --pii-mask --output data/anon.jsonl
 # Token-aware chunking (v0.5.1) — chunk'ları modelinizin vocab'ına göre boyutlandırır
 forgelm ingest ./policies/ --recursive --output data/policies.jsonl \
   --chunk-tokens 1024 --tokenizer "Qwen/Qwen2.5-7B-Instruct"
+
+# v0.5.2: teknik wiki / README'ler için markdown-aware splitter
+forgelm ingest ./engineering_wiki/ --recursive --strategy markdown \
+  --output data/wiki.jsonl
+
+# v0.5.2: chunk'lar JSONL'a inmeden önce credential'ları temizle
+forgelm ingest ./mixed_corpus/ --secrets-mask --output data/clean.jsonl
+
+# v0.5.2: secrets + PII maskelemeyi birleştir (önce secrets, sonra PII —
+# örtüşen span'ler iki kez sayılmasın)
+forgelm ingest ./mixed_corpus/ --secrets-mask --pii-mask --output data/scrubbed.jsonl
 ```
 
-### Veri Seti Denetimi (v0.5.0+; v0.5.1'de subcommand'a yükseltildi)
+### Veri Seti Denetimi (v0.5.0+; v0.5.1 subcommand; v0.5.2 MinHash + quality + secrets)
 
 CPU-only kalite + governance denetimi. `data_audit_report.json` üretir. Ayrıntılar için [Denetim Rehberi](../guides/data_audit-tr.md).
 
@@ -109,6 +161,13 @@ forgelm audit data/ --verbose
 # Özel Hamming eşiği
 forgelm audit data/ --near-dup-threshold 5
 
+# v0.5.2: >50K satırlık korpuslar için MinHash LSH dedup
+# Önce extra'yı kurun:  pip install forgelm[ingestion-scale]
+forgelm audit data/large_corpus.jsonl --dedup-method minhash --jaccard-threshold 0.85
+
+# v0.5.2: opt-in heuristik kalite filtresi (Gopher/C4 stili)
+forgelm audit data/ --quality-filter
+
 # stdout'a makine-okunabilir özet
 forgelm audit data/sft.jsonl --output ./audit/ --output-format json
 
@@ -116,7 +175,7 @@ forgelm audit data/sft.jsonl --output ./audit/ --output-format json
 forgelm --data-audit data/sft.jsonl --output ./audit/
 ```
 
-Denetim şunları yakalar: split başına örnek sayısı + uzunluk dağılımı, top-3 dil tespiti, **LSH-banded** simhash near-duplicate oranı (Faz 11.5; uç eşiklerde brute-force fallback), cross-split sızıntı (sessiz train-test örtüşmesi), PII flag sayıları + **şiddet katmanları** (`pii_severity` bloğu her PII tipini critical / high / medium / low olarak puanlar ve bir `worst_tier` verdict yüzdürür).
+Denetim şunları yakalar: split başına örnek sayısı + uzunluk dağılımı, top-3 dil tespiti, **LSH-banded** simhash near-duplicate oranı (Faz 11.5; uç eşiklerde brute-force fallback; v0.5.2 opsiyonel **MinHash LSH** yolu ekledi), cross-split sızıntı (sessiz train-test örtüşmesi), PII flag sayıları + **şiddet katmanları** (`pii_severity` bloğu her PII tipini critical / high / medium / low olarak puanlar ve bir `worst_tier` verdict yüzdürür), her zaman açık **credentials/secrets taraması** (`secrets_summary` — `forgelm.data_audit.SECRET_TYPES`'ta tanımlı dokuz aile: `aws_access_key`, `github_token`, `slack_token`, `openai_api_key`, `google_api_key`, `jwt`, `openssh_private_key` (tam BEGIN…END bloğu), `pgp_private_key` (tam BEGIN…END bloğu), `azure_storage_key`), ve opt-in **heuristik kalite filtresi** (`--quality-filter`, `quality_summary` bloğu üretir).
 
 Trainer'ın `output_dir`'ünde `data_audit_report.json` mevcutsa, bulgular EU AI Act Madde 10 governance artifact'ında `data_audit` anahtarı altında otomatik olarak inline edilir.
 
@@ -161,7 +220,21 @@ checkpoints/
 └── benchmark/                       # Benchmark sonuçları
 ```
 
-## GaLore (Bellek Verimli Tam Parametre Eğitimi)
+## Günlükler ve İzleme
+
+ForgeLM yapılandırılmış formatta stderr'e log yazar:
+```text
+2026-03-24 10:30:00 [INFO] forgelm.trainer: Starting training...
+2026-03-24 11:45:00 [WARNING] forgelm.trainer: eval_steps (200) is larger than dataset (50 samples).
+```
+
+### TensorBoard
+
+```bash
+tensorboard --logdir=./checkpoints/runs/
+```
+
+### GaLore (Bellek Verimli Tam Parametre Eğitimi)
 
 GaLore, LoRA'ya alternatif olarak optimizer seviyesinde bellek optimizasyonu sağlar ve gradient düşük rank projeksiyonu ile tam parametre eğitimine olanak tanır:
 
@@ -176,7 +249,7 @@ training:
   galore_target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 ```
 
-## Uzun Bağlam Eğitimi
+### Uzun Bağlam Eğitimi
 
 RoPE ölçekleme, NEFTune gürültü enjeksiyonu, kayan pencere dikkat ve örnek paketleme ile genişletilmiş bağlam penceresi desteğini etkinleştirin:
 
@@ -188,7 +261,7 @@ training:
   sample_packing: true                # Kısa örnekleri tam uzunluklu dizilere paketle
 ```
 
-## GPU Maliyet Tahmini
+### GPU Maliyet Tahmini
 
 ForgeLM GPU modelinizi otomatik algılar (18 GPU modeli desteklenir) ve eğitim çalışması başına tahmini maliyeti takip eder. Çıktı JSON sonuçlarına, webhook bildirimlerine ve model kartlarına dahil edilir:
 
@@ -205,6 +278,24 @@ GPU Maliyet Tahmini:
 ```yaml
 training:
   gpu_cost_per_hour: 3.00  # GPU-saat başına USD
+```
+
+### W&B
+
+```yaml
+training:
+  report_to: "wandb"
+  run_name: "my-experiment"
+```
+
+### Webhook Bildirimleri
+
+```yaml
+webhook:
+  url_env: "FORGELM_WEBHOOK_URL"
+  notify_on_start: true
+  notify_on_success: true
+  notify_on_failure: true
 ```
 
 ## Docker

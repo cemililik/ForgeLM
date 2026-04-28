@@ -260,7 +260,7 @@ checkpoints/compliance/
 ├── data_provenance.json             # Article 10: dataset fingerprints and lineage
 ├── risk_assessment.json             # Article 9: risk classification
 ├── data_governance_report.json      # Article 10: data quality and governance
-├── annex_iv_technical_documentation.md  # Annex IV: complete technical docs
+├── annex_iv_metadata.json               # Annex IV: provider, purpose, risk classification
 ├── deployer_instructions.md         # Article 13: transparency for deployers
 ├── model_integrity.json             # Article 15: SHA-256 artifact hashes
 └── audit_log.jsonl                  # Article 12: tamper-evident append-only log

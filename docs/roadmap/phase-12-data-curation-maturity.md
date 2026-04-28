@@ -1,10 +1,12 @@
 # Phase 12: Data Curation Maturity
 
+> **Status:** ✅ **Tier 1 DONE** — landed on `development` for the `v0.5.2` cycle. All five must-have tasks shipped: MinHash LSH dedup option (`[ingestion-scale]` extra via `datasketch`), markdown-aware splitter (`--strategy markdown`), code/secrets leakage tagger (`[ingestion-secrets]` extra via `detect-secrets` with regex fallback), heuristic quality filter (`--quality-filter`), DOCX/Markdown table preservation. Tier 2 (Presidio adapter, Croissant metadata) and Tier 3 (`--all-mask` composite, wizard "audit first" hook) are deferred to a follow-up **Phase 12.5** backlog file (analogous to Phase 11.5 → `phase-11-5-backlog.md`). Modules: [`forgelm/data_audit.py`](../../forgelm/data_audit.py), [`forgelm/ingestion.py`](../../forgelm/ingestion.py), [`forgelm/cli.py`](../../forgelm/cli.py); tests: [`tests/test_data_audit_phase12.py`](../../tests/test_data_audit_phase12.py), [`tests/test_ingestion_phase12.py`](../../tests/test_ingestion_phase12.py); CLI tests added in [`tests/test_cli_subcommands.py`](../../tests/test_cli_subcommands.py).
+
 > **Not:** Bu dosya tek bir planlanan fazı detaylandırır. Tüm fazların özeti için [../roadmap.md](../roadmap.md). Phase 11 + 11.5 built the ingestion / audit lineage (Phase 11 → `v0.5.0`, Phase 11.5 → `v0.5.1`); this phase moves the same lineage from **enterprise-acceptable** to **enterprise-competitive**.
 
 **Goal:** Mature ForgeLM's `forgelm ingest` + `forgelm audit` layer along three axes — **scale** (LSH-based near-duplicate detection beyond ~50K rows, large-corpus throughput), **security** (code/secret leakage scanning + optional ML-based PII), and **quality** (markdown-aware chunking + heuristic quality filters + table structure preservation). The competitive review that followed Phase 11.5 (see `docs/roadmap/phase-11-5-backlog.md` "Measured speedups" section + the 2026-04-27 ingestion-comparison synthesis) lists the exact gaps this phase closes.
 
-**Estimated Effort:** Medium (4-6 weeks)
+**Estimated Effort:** Medium (4-6 weeks) — **Actual: ~1 day** (single-author implementation, leveraging the streaming aggregator + tier-mapped pattern from Phase 11.5).
 **Priority:** High — answers the enterprise demand surfaced after the `v0.5.0` PyPI launch; sequences naturally with Phase 14 (Multi-Stage Pipeline Chains), which is reslotted to `v0.5.3`.
 
 > **Context:** Phase 11 shipped multi-format extraction (PDF/DOCX/EPUB/TXT/MD) + paragraph/sliding chunkers; Phase 11.5 added token-aware chunking, PDF page-level header/footer dedup, the `forgelm audit` subcommand, PII severity tiers, LSH-banded simhash dedup, and atomic JSON writes. The cross-tool comparison (LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling) found ForgeLM **uncontested** in the *fine-tuning + compliance* niche but **behind** in four concrete areas: (1) MinHash LSH dedup for >50K-row corpora, (2) heading-preserving markdown chunking, (3) code / credential leakage scanning, (4) DOCX/PDF table structure preservation. This phase closes those four. Layout-aware PDF parsing (Marker/Docling delegation) and embedding-based semantic dedup are **deliberately deferred to Phase 13+** — adding either would require runtime ML dependencies that conflict with `docs/marketing/strategy/05-yapmayacaklarimiz.md` ("we don't write our own quantization / VLM") and the air-gapped reproducibility guarantees Annex IV depends on.
@@ -13,7 +15,7 @@
 
 ### Tier 1 — Must-have (Phase 12's thesis)
 
-1. [ ] **MinHash LSH dedup option** (`[ingestion-scale]` extra, `datasketch>=1.6.0,<2.0.0`)
+1. [x] **MinHash LSH dedup option** (`[ingestion-scale]` extra, `datasketch>=1.6.0,<2.0.0`)
    `find_near_duplicates` and `_count_leaked_rows` keep simhash + LSH banding as the **default**; an opt-in `--dedup-method minhash --jaccard-threshold 0.85` route delegates to [datasketch](https://github.com/ekzhu/datasketch) `MinHashLSH`. Simhash is ideal up to ~50K rows; MinHash LSH is the industry standard above that scale (NeMo Curator, Dolma, RedPajama all use it). Surface contract:
    ```bash
    forgelm audit data/large_corpus.jsonl --dedup-method minhash --jaccard-threshold 0.85
@@ -22,12 +24,12 @@
    # Programmatic:
    forgelm.data_audit.audit_dataset(..., dedup_method="minhash", minhash_jaccard=0.85)
    ```
-   `cross_split_overlap` and `near_duplicate_pairs` share the same method parameter. Audit JSON gains `near_duplicate_summary.method: "minhash" | "simhash"`; older reports keep producing `simhash` (the default) byte-identically.
+   `cross_split_overlap` and `near_duplicate_pairs` share the same method parameter. Audit JSON gains `near_duplicate_summary.method: "minhash" | "simhash"`; default-method audits stay **schema-additive** (older parsers reading `pairs_per_split` keep working unchanged) — the on-disk JSON is *not* byte-identical because `near_duplicate_summary.method` and `cross_split_overlap.method` are now always present alongside the existing fields.
 
-2. [ ] **Markdown-aware splitter** (new third strategy: `--strategy markdown`)
+2. [x] **Markdown-aware splitter** (new third strategy: `--strategy markdown`)
    `_chunk_markdown(text, max_chars_or_tokens, ...)` parses heading hierarchy (`# H1` / `## H2` / `### H3`); breaks chunks at heading boundaries; inlines the heading path **into the chunk body** (`# H1 / ## H2\n\n…`) rather than as a separate metadata field — output stays `{"text": "..."}` JSONL so SFT loss benefits from the heading signal. Code-block (` ``` `) and list-item boundaries are preserved (no mid-code-block splits). Composes with token-aware mode: `--strategy markdown --chunk-tokens 1024 --tokenizer Qwen/Qwen2.5-7B-Instruct`. Existing `paragraph` and `sliding` behaviour stays byte-identical.
 
-3. [ ] **Code / secrets leakage tagger** (`[ingestion-secrets]` extra, `detect-secrets>=1.5.0,<2.0.0`)
+3. [x] **Code / secrets leakage tagger** (`[ingestion-secrets]` extra, `detect-secrets>=1.5.0,<2.0.0`)
    Audit gains a `secrets_summary` block: AWS / GCP / Azure access keys, GitHub / GitLab / Slack tokens, OpenSSH / PGP private-key headers, JWT, OpenAI API keys (`sk-…`), generic high-entropy strings. Audit JSON shape:
    ```json
    {
@@ -40,16 +42,18 @@
    ```
    Ingest side: `--secrets-mask` flag mirrors `--pii-mask`'s helper pattern, replacing detected spans with `[REDACTED-SECRET]`. The `detect-secrets` package is optional; without it a regex-only fallback set (~10 common patterns) runs and an INFO log says *"install `forgelm[ingestion-secrets]` for full coverage"*. Compliance angle is **critical** — credentials leaked into an SFT corpus are memorised by the trained model; Phase 12 is the first line of defence for this risk class.
 
-4. [ ] **Heuristic quality filter** (audit-side, opt-in `forgelm audit --quality-filter`)
-   Classic Gopher / C4 / RefinedWeb heuristics: mean-word-length (flag if outside 3-12 chars), alphabetic-character ratio (< 70 % → flag), end-of-line punctuation ratio (< 50 % → flag), repeated-line ratio (top-3 lines covering > 30 % of corpus → flag), short-paragraph ratio (< 5 words covering > 50 % → flag). Opt-in default-off; new `quality_summary`:
+4. [x] **Heuristic quality filter** (audit-side, opt-in `forgelm audit --quality-filter`)
+   Classic Gopher / C4 / RefinedWeb heuristics: mean-word-length (flag if outside 3-12 chars), alphabetic-character ratio (< 70 % → flag), end-of-line punctuation ratio (< 50 % → flag), repeated-line ratio (top-3 distinct lines covering > 30 % of non-empty lines → flag), short-paragraph ratio (`\n\n`-separated blocks with < 5 words, > 50 % of total → flag). Markdown fenced code blocks are stripped before heuristics run so legitimate code rows don't trip the prose-oriented checks. Opt-in default-off; new `quality_summary`:
    ```json
    {
      "quality_summary": {
        "samples_flagged": 47,
        "by_check": {
          "low_alpha_ratio": 12,
-         "high_repetition": 8,
-         "short_paragraphs": 27
+         "low_punct_endings": 8,
+         "abnormal_mean_word_length": 3,
+         "short_paragraphs": 27,
+         "repeated_lines": 5
        },
        "overall_quality_score": 0.94
      }
@@ -57,7 +61,7 @@
    ```
    ML-based classifiers (NeMo Curator's fastText / DeBERTa quality model) are **out of scope** — deferred to Phase 13+ (model dependency, non-deterministic, reproducibility risk).
 
-5. [ ] **DOCX / Markdown table preservation**
+5. [x] **DOCX / Markdown table preservation**
    `_extract_docx` replaces the current `" | "` flat join with markdown table syntax:
    ```text
    | Header 1 | Header 2 | Header 3 |
@@ -93,7 +97,7 @@
 
 ## Requirements
 
-- **Backward compatibility**: `forgelm ingest` and `forgelm audit` must produce byte-identical output with default flags. v0.5.1 audit consumers must parse v0.5.2 reports without changes; new fields (`secrets_summary`, `quality_summary`, `near_duplicate_summary.method`) are additive only.
+- **Backward compatibility**: Default-flag `forgelm ingest` and `forgelm audit` outputs are **schema-additive** with v0.5.1 (older parsers keep working) — they are *not* byte-identical because new always-on fields (`secrets_summary`, `near_duplicate_summary.method`, `cross_split_overlap.method`) are now part of every report. v0.5.1 audit consumers must parse v0.5.2 reports without changes; the stdout JSON envelope retains the v0.5.1 `near_duplicate_pairs_per_split` key alongside the richer `near_duplicate_summary`.
 - **Optional extras**: Every new heavy dependency (`datasketch`, `detect-secrets`, `presidio-analyzer`) goes under `pyproject.toml` `[project.optional-dependencies]` with the `ImportError` + install-hint pattern from `docs/standards/architecture.md` §3.
 - **Determinism**: Every new path (MinHash, markdown chunker, secrets scan, quality heuristics) preserves the fixed-input → fixed-output contract. Annex IV reproducibility guarantee.
 - **CLI**: All new flags appear in `forgelm audit --help` and `forgelm ingest --help`; `--output-format json` envelope is additive.

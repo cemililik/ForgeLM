@@ -12,6 +12,7 @@
 |---|---|---|
 | [coding.md](coding.md) | Python style, type hints, docstrings, naming | Any `.py` change |
 | [architecture.md](architecture.md) | Module boundaries, config flow, optional deps | New modules, refactors |
+| [regex.md](regex.md) | Regex hygiene, ReDoS exposure, fixture fragmentation | Any `re.compile` / `re.sub` change |
 | [error-handling.md](error-handling.md) | Exceptions, exit codes, user-facing messages | Any error path work |
 | [logging-observability.md](logging-observability.md) | Loggers, structured events, webhooks, audit log | Anything that emits output |
 | [testing.md](testing.md) | Test layout, fixtures, coverage, CI gates | Every feature PR |

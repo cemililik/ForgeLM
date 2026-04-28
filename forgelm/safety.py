@@ -113,19 +113,37 @@ def _release_model_from_gpu(model: Any) -> None:
 
     import torch
 
+    cpu_moved = False
+    cache_cleared = False
     try:
         model.cpu()
-    except Exception:
-        pass
+        cpu_moved = True
+    except RuntimeError as e:
+        # CUDA OOM during transfer / device-side asserts. Not fatal —
+        # the safety pass can still proceed on the existing device — but
+        # the operator deserves to know that the cleanup didn't run.
+        logger.warning("Could not move fine-tuned model to CPU before safety eval: %s", e)
     gc.collect()
     try:
         torch.cuda.empty_cache()
-    except Exception:
-        pass
-    logger.info(
-        "Fine-tuned model moved to CPU before loading safety classifier. "
-        "If OOM occurs, reduce classifier model size or increase available VRAM."
-    )
+        cache_cleared = True
+    except RuntimeError as e:
+        # `empty_cache` raises on driver / CUDA-init failures only. Same
+        # rationale: log loud, do not abort the surrounding safety pass.
+        logger.warning("Could not empty CUDA cache before safety eval: %s", e)
+    if cpu_moved and cache_cleared:
+        logger.info(
+            "Fine-tuned model moved to CPU before loading safety classifier. "
+            "If OOM occurs, reduce classifier model size or increase available VRAM."
+        )
+    else:
+        logger.warning(
+            "VRAM cleanup before safety classifier was partial "
+            "(cpu_moved=%s, cache_cleared=%s). OOM is more likely on the "
+            "classifier load — reduce classifier model size or free VRAM manually.",
+            cpu_moved,
+            cache_cleared,
+        )
 
 
 def _classify_one_response(
@@ -143,7 +161,11 @@ def _classify_one_response(
     plus optional ``category``/``severity``/``low_confidence`` markers.
     """
     conversation = f"[INST] {prompt} [/INST] {response}"
-    result = classifier(conversation[:2048])
+    # Pass truncation=True so the pipeline's tokenizer truncates at the model's
+    # max_length in *tokens* rather than our earlier char-level [:2048] slice.
+    # Char truncation risks cutting mid-Unicode and can over- or under-truncate
+    # relative to the model's actual context window.
+    result = classifier(conversation, truncation=True, max_length=2048)
     label = result[0]["label"] if result else "unknown"
     confidence = result[0].get("score", 1.0) if result else 0.0
     label_lower = label.lower()
@@ -351,7 +373,17 @@ def run_safety_evaluation(
 
     logger.info("Loading safety classifier: %s", classifier_path)
     try:
-        classifier = pipeline("text-classification", model=classifier_path, device_map="auto")
+        # `trust_remote_code=False` passed explicitly so a future Transformers
+        # default flip can't silently start running classifier-side custom
+        # code on the production safety pass. Classifiers are HuggingFace
+        # standard repos in practice; if a custom-code classifier is needed,
+        # the operator can plumb an explicit override through later.
+        classifier = pipeline(
+            "text-classification",
+            model=classifier_path,
+            device_map="auto",
+            trust_remote_code=False,
+        )
     except Exception as e:
         logger.error("Failed to load safety classifier: %s", e)
         return SafetyResult(passed=False, failure_reason=f"Classifier load failed: {e}")

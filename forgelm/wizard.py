@@ -44,8 +44,13 @@ _PREFERENCE_COLUMNS_HINT = "Columns: prompt, chosen, rejected"
 
 # HF Hub dataset IDs look like "<org>/<name>" — exactly one slash, with the
 # allowed character set used by the Hub. We accept these BYOD inputs without
-# touching the local filesystem; the trainer resolves them at runtime.
-_HF_HUB_ID_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+# touching the local filesystem; the trainer resolves them at runtime. The
+# Hub allows usernames + repo names up to 96 chars each, so we bound the
+# repeats per docs/standards/regex.md rule 3 (defence-in-depth, no behaviour
+# change vs. ``+``). re.ASCII forces ``\w`` to mean ``[A-Za-z0-9_]`` — Hub IDs
+# are ASCII-only, and Unicode-aware ``\w`` would silently accept characters
+# the Hub itself rejects.
+_HF_HUB_ID_RE = re.compile(r"^[\w.-]{1,96}/[\w.-]{1,96}$", flags=re.ASCII)
 
 
 def _prompt(question: str, default: str = "") -> str:
@@ -206,8 +211,10 @@ def _save_config_to_file(config: dict, requested_filename: str) -> str:
         with open(requested_filename, "w") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
         print(f"\n  Config saved to: {requested_filename}")
+        logger.info("Wizard config saved to %s", requested_filename)
         return requested_filename
     except OSError as e:
+        logger.error("Could not save wizard config to %s: %s", requested_filename, e)
         print(f"\n  Error: Could not save config to {requested_filename}: {e}")
 
     # Pick a fallback that's guaranteed different from the path that just failed
@@ -221,8 +228,10 @@ def _save_config_to_file(config: dict, requested_filename: str) -> str:
         with open(fallback, "w") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
         print(f"  Saved to fallback location: {fallback}")
+        logger.info("Wizard config saved to fallback location %s", fallback)
         return fallback
     except OSError as e:
+        logger.error("Fallback wizard config save also failed (%s): %s", fallback, e)
         print(f"  Fallback save also failed ({fallback}): {e}")
         raise
 

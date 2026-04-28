@@ -199,8 +199,13 @@ training:
 
 | Alan | Tip | Varsayılan | Açıklama |
 |------|-----|-----------|----------|
-| `strategy` | string | `null` | `"deepspeed"` veya `"fsdp"` |
-| `deepspeed_config` | string | `null` | Ön ayar: `"zero2"`, `"zero3"`, `"zero3_offload"` |
+| `strategy` | string | `null` | `"deepspeed"` veya `"fsdp"` (null = tek GPU) |
+| `deepspeed_config` | string | `null` | Ön ayar (`"zero2"`, `"zero3"`, `"zero3_offload"`) veya JSON yolu |
+| `fsdp_strategy` | string | `"full_shard"` | `"full_shard"`, `"shard_grad_op"`, `"hybrid_shard"`, `"no_shard"` |
+| `fsdp_auto_wrap` | bool | `true` | Transformer katmanlarını otomatik sar |
+| `fsdp_offload` | bool | `false` | Parametreleri CPU'ya taşı |
+| `fsdp_backward_prefetch` | string | `"backward_pre"` | `"backward_pre"` veya `"backward_post"` |
+| `fsdp_state_dict_type` | string | `"FULL_STATE_DICT"` | `"FULL_STATE_DICT"` veya `"SHARDED_STATE_DICT"` |
 
 ## `synthetic` (İsteğe bağlı — Sentetik Veri Üretimi)
 
@@ -229,6 +234,26 @@ training:
 
 | Alan | Tip | Varsayılan | Açıklama |
 |------|-----|-----------|----------|
-| `url` | string | `null` | Webhook URL |
-| `url_env` | string | `null` | URL'yi içeren ortam değişkeni |
+| `url` | string | `null` | Webhook hedef URL |
+| `url_env` | string | `null` | URL'yi içeren ortam değişkeni adı |
+| `notify_on_start` | bool | `true` | Eğitim başlangıcında bildir |
+| `notify_on_success` | bool | `true` | Başarıda bildir |
+| `notify_on_failure` | bool | `true` | Hata durumunda bildir |
 | `timeout` | int | `5` | HTTP istek zaman aşımı (saniye) |
+| `allow_private_destinations` | bool | `false` | RFC1918 / loopback / link-local hedeflere webhook gönderimine izin verir (cluster içi Slack proxy, on-prem Teams gateway gibi). Varsayılan yalnızca genel internet — SSRF koruması |
+| `tls_ca_bundle` | string | `null` | `requests`'e `verify=` olarak iletilen özel CA bundle yolu (örn. kurumsal MITM CA). Boşsa `certifi` paketinin gömülü deposu kullanılır |
+
+## `merge` (İsteğe bağlı)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `enabled` | bool | `false` | Model birleştirmeyi etkinleştir |
+| `method` | string | `"ties"` | `"ties"`, `"dare"`, `"slerp"`, `"linear"` |
+| `models` | list | `[]` | `{path, weight}` sözlük listesi |
+| `output_dir` | string | `"./merged_model"` | Çıktı dizini |
+
+## `auth` (İsteğe bağlı)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `hf_token` | string | `null` | HuggingFace tokeni (tercih: `HUGGINGFACE_TOKEN` ortam değişkeni) |

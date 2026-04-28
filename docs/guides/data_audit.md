@@ -1,12 +1,16 @@
 # Dataset Audit Guide
 
 `forgelm audit PATH` analyzes a JSONL dataset and produces a
-`data_audit_report.json` covering quality, governance, and PII signals.
-Phase 11 (introduced in `v0.5.0`) shipped the underlying audit;
-Phase 11.5 (`v0.5.1`) promoted it from a top-level flag to a first-class
-subcommand and added LSH-banded near-duplicate detection, streaming
-JSONL reading, PII severity tiers, an atomic on-disk write, and a
-verbose-by-default truncation policy on the human summary.
+`data_audit_report.json` covering quality, governance, PII, and (Phase 12
+onwards) credential-leakage and heuristic-quality signals. Phase 11
+(`v0.5.0`) shipped the underlying audit; Phase 11.5 (`v0.5.1`) promoted
+it from a top-level flag to a first-class subcommand and added
+LSH-banded near-duplicate detection, streaming JSONL reading, PII
+severity tiers, atomic on-disk write, and a verbose-by-default
+truncation policy. **Phase 12 (`v0.5.2`)** added an opt-in MinHash LSH
+dedup method (`--dedup-method minhash`), a code/credential leakage scan
+that runs always-on (`secrets_summary`), and an opt-in heuristic
+quality filter (`--quality-filter`).
 
 The report feeds the EU AI Act Article 10 data governance artifact
 automatically when present in the trainer's `output_dir`.
@@ -25,8 +29,15 @@ forgelm audit data/ --output ./audit/
 # Show every split (including those with no findings)
 forgelm audit data/ --verbose
 
-# Tighter / wider near-duplicate threshold
+# Tighter / wider simhash near-duplicate threshold
 forgelm audit data/ --near-dup-threshold 5
+
+# Phase 12: MinHash LSH dedup for >50K-row corpora (needs `[ingestion-scale]` extra)
+pip install 'forgelm[ingestion-scale]'
+forgelm audit data/large_corpus.jsonl --dedup-method minhash --jaccard-threshold 0.85
+
+# Phase 12: opt-in heuristic quality filter (Gopher/C4 style)
+forgelm audit data/ --quality-filter
 ```
 
 > **Legacy alias:** `forgelm --data-audit PATH` keeps working unchanged
@@ -185,6 +196,127 @@ Phase 11.5 also made the simhash backend pluggable:
   a corpus's traffic with a small footprint, which is where most of
   the real wall-clock improvement comes from.
 
+### MinHash LSH dedup (Phase 12)
+
+For corpora above ~50K rows, simhash + LSH banding starts to feel its
+edge: the band-bucket fan-out grows and false-positive checks dominate
+the wall clock. Phase 12 adds an opt-in **MinHash LSH** path via the
+optional `[ingestion-scale]` extra (the `datasketch` package). Surface:
+
+```bash
+pip install 'forgelm[ingestion-scale]'
+forgelm audit data/large_corpus.jsonl \
+  --dedup-method minhash --jaccard-threshold 0.85
+```
+
+```python
+from forgelm.data_audit import audit_dataset
+audit_dataset("data/large_corpus.jsonl",
+              dedup_method="minhash", minhash_jaccard=0.85)
+```
+
+The two methods are **not interchangeable on identical thresholds** —
+simhash at Hamming distance ≤ 3 ≈ MinHash at Jaccard ≥ 0.85 in
+practice, but the underlying definitions of "similar" differ. MinHash
+is approximate (permutation noise; default `num_perm=128`), so the same
+pair can be flagged at slightly different similarity scores between
+runs of MinHash itself when `num_perm` changes. Pin `num_perm` if you
+need cross-run determinism. The audit JSON gains a
+`near_duplicate_summary.method` field that records which path ran and
+a `near_duplicate_summary.pairs_per_split` mapping that mirrors the
+per-split pair counts. Older consumers reading the per-split count
+directly — `splits.<name>.near_duplicate_pairs` (e.g.
+`jq '.splits.train.near_duplicate_pairs' data_audit_report.json`) —
+continue to work unchanged; the new summary block is purely additive.
+
+### Code / secret leakage tagger (Phase 12, always-on)
+
+Audit now scans every row for credentials and tokens that should never
+have entered an SFT corpus — fine-tuning on text that contains a real
+API key memorises that key in the model. The detector uses a narrow
+prefix-anchored regex set (false-positive rate intentionally low) and
+emits a `secrets_summary` block alongside `pii_summary`:
+
+```json
+{
+  "secrets_summary": {
+    "aws_access_key": 1,
+    "github_token": 2,
+    "openai_api_key": 1
+  }
+}
+```
+
+Coverage: AWS access keys (`AKIA…` / `ASIA…`), GitHub PATs (`ghp_`,
+`gho_`, `ghs_`, `ghu_`, `ghr_`, `github_pat_`), Slack tokens (`xox[baprs]-`),
+OpenAI API keys (`sk-…` and project-scoped `sk-proj-…`), Google API
+keys (`AIza…`), JSON Web Tokens (anchored on the `eyJ`-encoded JSON
+header), OpenSSH / RSA / DSA / EC / PGP private-key blocks (full
+`BEGIN…END` envelope — `mask_secrets()` redacts the entire key block,
+not just the header line), and Azure storage connection strings.
+
+Operator-side, two paths to scrub these out before training:
+
+```bash
+# Pre-process: rewrite the JSONL after the fact via the helper API
+python -c "from forgelm.data_audit import mask_secrets; \
+  print(mask_secrets(open('data.jsonl').read()))" > data_clean.jsonl
+
+# Or scrub during ingest (Phase 12; before chunks ever land in JSONL)
+forgelm ingest ./policies/ --recursive --output data/policies.jsonl --secrets-mask
+```
+
+Optional / forward-compatibility: the `[ingestion-secrets]` extra
+declares a `detect-secrets>=1.5.0` dependency that is **reserved for a
+follow-up release**. As of v0.5.2 the audit's
+`forgelm.data_audit.detect_secrets()` relies solely on the regex set
+above; installing the extra today does not change audit behaviour. The
+extra exists so operators who pin `forgelm[ingestion-secrets]` in
+their requirements file are forward-compatible when the integration
+lands.
+
+### Heuristic quality filter (Phase 12, opt-in)
+
+`forgelm audit --quality-filter` runs Gopher / C4 / RefinedWeb-style
+heuristics per row and surfaces a `quality_summary` block:
+
+```json
+{
+  "quality_summary": {
+    "samples_flagged": 47,
+    "by_check": {
+      "low_alpha_ratio": 12,
+      "low_punct_endings": 8,
+      "abnormal_mean_word_length": 3,
+      "short_paragraphs": 27,
+      "repeated_lines": 5
+    },
+    "overall_quality_score": 0.94
+  }
+}
+```
+
+Checks (all conservative; no row is silently dropped):
+
+- `low_alpha_ratio` — < 70 % of non-whitespace chars are letters.
+- `low_punct_endings` — < 50 % of non-empty lines end with punctuation.
+- `abnormal_mean_word_length` — outside the 3-12 char window.
+- `short_paragraphs` — > 50 % of `\n\n`-separated blocks have < 5 words.
+- `repeated_lines` — top-3 actually-repeating lines (count ≥ 2) cover
+  > 30 % of all non-empty lines. Catches boilerplate (headers, footers,
+  repeated disclaimers) that bloats training without adding signal.
+
+Markdown fenced code blocks (```` ``` ```` and ``~~~``) are stripped
+before applying these heuristics — code legitimately has low alpha
+ratio, missing end-of-line punctuation, and short paragraphs, so
+applying prose checks to fenced code would produce false flags on
+legitimate code-instruction SFT corpora. Pure-code rows surface zero
+flags rather than being flagged on shape grounds.
+
+ML-based quality classifiers (fastText / DeBERTa style) are deliberately
+**out of scope**; a deterministic regex/length/structure pipeline keeps
+the audit reproducible (Annex IV requirement) and bare-install-friendly.
+
 ---
 
 ## Layout requirements
@@ -234,6 +366,9 @@ forgelm audit PATH \
   [--output DIR] \
   [--verbose] \
   [--near-dup-threshold N] \
+  [--dedup-method {simhash,minhash}] \
+  [--jaccard-threshold X] \
+  [--quality-filter] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```
@@ -242,8 +377,14 @@ forgelm audit PATH \
 `./audit/`. `--verbose` shows every split in the human summary even when
 it has zero findings (default folds clean splits into one tail line so
 multi-split audits stay short — has no effect on the on-disk JSON
-report). `--near-dup-threshold N` overrides the default Hamming-distance
-cutoff of 3 (≈95 % similarity).
+report). `--near-dup-threshold N` overrides the default simhash
+Hamming-distance cutoff of 3 (≈95 % similarity); ignored when
+`--dedup-method=minhash`. `--dedup-method` (Phase 12) selects the
+near-duplicate engine — `simhash` (default) or `minhash` (needs
+`[ingestion-scale]` extra; `--jaccard-threshold` controls the cutoff,
+default 0.85). `--quality-filter` (Phase 12) opts into the heuristic
+quality scoring. The credential/secrets scan is **always on** — there
+is no flag to disable it.
 
 > **Note:** This matches the behavior summarised at the top of this guide:
 > `--output-format json` writes a small envelope (success flag, top-level

@@ -78,10 +78,10 @@ forgelm/
 ├── webhook.py       # Notifications
 └── utils.py         # Auth & checkpoints
 
-tests/               # 22+ test files, 297+ tests
-notebooks/           # 5 Colab notebooks
+tests/               # 47 test files
+notebooks/           # 10 Colab notebooks
 configs/deepspeed/   # ZeRO presets
-docs/guides/         # 6 user guides
+docs/guides/         # user guides
 ```
 
 ### Running Tests
@@ -122,7 +122,7 @@ Configuration is in `pyproject.toml` under `[tool.ruff]`.
 - **Keep it simple.** ForgeLM's strength is simplicity. Don't add complexity unless necessary.
 - **Config-driven.** New features should be configurable via YAML. No hardcoded behavior.
 - **Optional dependencies.** Heavy dependencies go in optional groups: `pip install forgelm[feature]`.
-- **Tests required.** Every new feature or bugfix needs a test. We have 297+ tests — keep it growing.
+- **Tests required.** Every new feature or bugfix needs a test. Keep coverage growing.
 - **Ruff clean.** CI will reject code that doesn't pass `ruff check`.
 - **No secrets.** Never commit tokens, API keys, or credentials. Use env vars.
 

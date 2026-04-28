@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from datasets import DatasetDict, concatenate_datasets, load_dataset
 from transformers import PreTrainedTokenizer
@@ -65,18 +65,52 @@ def _process_text_format(examples: dict, clean_text: bool, add_eos: bool, eos_to
 
 
 def _process_messages_format(examples: dict, add_eos: bool, eos_token: str) -> dict:
-    """Modern conversational format (messages column)."""
+    """Modern conversational format (messages column).
+
+    Raises ``ValueError`` on a malformed row so the trainer fails loud
+    rather than silently producing empty training strings — the previous
+    behaviour was to catch ``Exception`` and substitute ``""``, which
+    masked schema bugs (missing ``role`` / ``content`` keys, non-string
+    payloads) until the model trained on a corpus of empty rows.
+    """
     texts = []
-    for msg_list in examples["messages"]:
+    for idx, msg_list in enumerate(examples["messages"]):
         try:
             # apply_chat_template is not available here (no tokenizer reference);
             # use fallback formatting — callers that need chat templates should
             # pass a tokenizer-aware processor instead.
-            formatted_text = "".join(f"[{m['role'].upper()}]\n{m['content']}\n" for m in msg_list)
+            chunks: List[str] = []
+            for m in msg_list:
+                role = m.get("role")
+                content = m.get("content")
+                # f-strings silently coerce non-string content via __str__ /
+                # __format__, which would mask a schema bug (e.g. content
+                # accidentally a dict / int) all the way through training.
+                # Validate explicitly so the row is rejected loudly here.
+                if not isinstance(role, str):
+                    raise ValueError(
+                        f"Malformed messages-format row at index {idx}: "
+                        f"'role' must be a string, got {type(role).__name__}."
+                    )
+                if not isinstance(content, str):
+                    raise ValueError(
+                        f"Malformed messages-format row at index {idx}: "
+                        f"'content' must be a string, got {type(content).__name__}."
+                    )
+                chunks.append(f"[{role.upper()}]\n{content}\n")
+            formatted_text = "".join(chunks)
             if add_eos and eos_token:
                 formatted_text += eos_token
-        except Exception:
-            formatted_text = ""
+        except (KeyError, TypeError, AttributeError) as e:
+            # KeyError: missing 'role' or 'content'; TypeError: msg_list not
+            # iterable / m not subscriptable; AttributeError: role not str.
+            # Each is a real schema bug — surface it with row index so the
+            # operator can locate the broken record in their JSONL.
+            raise ValueError(
+                f"Malformed messages-format row at index {idx}: {e}. "
+                "Each row's 'messages' column must be a list of "
+                "{'role': str, 'content': str} dicts."
+            ) from e
         texts.append(formatted_text)
     return {"text": texts}
 

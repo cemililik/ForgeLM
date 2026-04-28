@@ -3,7 +3,10 @@
 Ham kurumsal külliyatı (PDF / DOCX / EPUB / TXT / Markdown) ForgeLM'in
 eğittiği SFT-uyumlu JSONL'a dönüştürün. Faz 11; `v0.5.0`'da tanıtıldı.
 Faz 11.5 (`v0.5.1`) token-aware chunking, PDF sayfa header/footer dedup
-ve yapılandırılmış ingestion notları ekledi.
+ve yapılandırılmış ingestion notları ekledi. **Faz 12 (`v0.5.2`)**
+markdown-aware splitter (`--strategy markdown`), code/credential
+leakage scrubbing (`--secrets-mask`) ve DOCX tablolarının markdown
+syntax'ı ile çıkarılmasını ekledi.
 
 > Sonrasında [`forgelm audit`](data_audit-tr.md) ile uzunluk dağılımı /
 > dil / near-duplicate / PII metriklerini yüzeye çıkarın; chunk'ları Q&A
@@ -38,6 +41,12 @@ forgelm ingest ./book.epub --output data/sft.jsonl
 forgelm ingest ./policies/ --recursive --output data/policies.jsonl
 forgelm ingest ./scan.pdf --strategy sliding --chunk-size 1024 --overlap 128 \
   --output data/scan.jsonl
+
+# Faz 12 — heading-aware splitter + secrets/PII maskeleme tek pass
+forgelm ingest ./engineering_wiki/ --recursive \
+  --strategy markdown --chunk-size 600 \
+  --secrets-mask --pii-mask \
+  --output data/wiki.jsonl
 ```
 
 Çıktı satır başına bir chunk:
@@ -60,6 +69,7 @@ gerekmez.
 |---|---|---|
 | `paragraph` (varsayılan) | Düz yazı, politika dokümanları, makaleler | Açgözlü paragraf paketleyici; bir paragrafı asla yarıda bölmez. |
 | `sliding` | Uzun teknik dokümanlar, prose ile karışık kod | Sabit boyutlu karakter penceresi + bağlam taşıması için `--overlap`. |
+| `markdown` (Faz 12) | Heading hiyerarşili dokümanlar (rehberler, README, wiki sayfaları) | Heading sınırlarında böler; fenced kod bloklarını (` ``` ` veya `~~~`) atomik tutar; her chunk'ın başına heading **breadcrumb**'ını inline eder ki SFT loss doküman bağlamını görsün. Non-overlapping (sections are atomic). |
 
 > Embedding tabanlı semantik chunking takip eden bir faza ayrılmıştır —
 > bugün `NotImplementedError` raise eder ve runtime crash'i önlemek için
@@ -99,6 +109,35 @@ forgelm ingest ./customer_emails/ --output data/anon.jsonl --pii-mask
 Tespit edilen span'ler `[REDACTED]` ile değiştirilir. Tespit regex
 tabanlıdır — false positive'ler kasıtlıdır. Sonrasında
 `forgelm audit` ile çıktıyı doğrulayın.
+
+---
+
+## Yazma sırasında secrets/credential maskeleme (Faz 12)
+
+`--secrets-mask` chunk'lar JSONL'a inmeden önce credentials ve token'ları
+temizler — gerçek bir API anahtarı içeren metin üzerinde fine-tune
+etmek o anahtarı modelin içine ezberletir.
+
+```bash
+# Tek başına
+forgelm ingest ./engineering_wiki/ --output data/wiki.jsonl --secrets-mask
+
+# PII maskelemesiyle kombine — secrets önce, PII sonra çalışır ki
+# birleşik detector'lar örtüşen span'leri çift saymasın
+forgelm ingest ./mixed_corpus/ --output data/clean.jsonl --secrets-mask --pii-mask
+```
+
+Detector dar bir prefix-anchored regex seti kullanır (false-positive
+oranı bilerek düşük): AWS access key'leri, GitHub PAT'ler, Slack
+token'ları, OpenAI API key'leri, Google API key'leri, JSON Web
+Token'lar (kanonik header alphabet'ine anchored), tam OpenSSH / RSA /
+DSA / EC / PGP private-key blokları (BEGIN'den END'e kadar tüm
+gövde redact edilir) ve Azure storage connection string'leri. Tespit
+edilen span'ler `[REDACTED-SECRET]` ile değiştirilir.
+
+İsteğe bağlı `[ingestion-secrets]` extra'sı ileriki bir release için
+ayrılmıştır — mevcut sürüm `detect-secrets` paketini çağırmaz; yalnızca
+yukarıdaki regex seti çalışır.
 
 ---
 
@@ -171,17 +210,27 @@ forgelm ingest INPUT_PATH \
   [--chunk-size N | --chunk-tokens N --tokenizer MODEL_NAME] \
   [--overlap N] \
   [--overlap-tokens N] \
-  [--strategy {sliding,paragraph}] \
+  [--strategy {sliding,paragraph,markdown}] \
   [--recursive] \
   [--pii-mask] \
+  [--secrets-mask] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```
 
+`--strategy markdown` (Faz 12) heading-aware splitter'ı seçer; her
+chunk'ın başına heading breadcrumb'ı inline eder. `--secrets-mask`
+(Faz 12) AWS / GitHub / Slack / OpenAI / Google / JWT / OpenSSH /
+PGP / Azure credential span'lerini chunk'lar JSONL'a inmeden önce
+`[REDACTED-SECRET]` ile değiştirir.
+
 `--output-format json` standart çıktıya makine-okunabilir bir özet
-yazar (dosya yolları, chunk sayısı, format sayıları, notlar ve Faz
-11.5'te eklenen `notes_structured` makine-okunabilir `{key: value}`
-yapısı). CI/CD pipeline'larında kullanışlı.
+yazar: dosya yolları, chunk sayısı, format sayıları, notlar, Faz
+11.5'te eklenen `notes_structured` (makine-okunabilir `{key: value}`
+yapısı) ve Faz 12'de eklenen `secrets_redaction_counts` (`--secrets-mask`
+çalıştığında her secret tipinden kaç span'in `[REDACTED-SECRET]` ile
+değiştirildiğini sayan `{secret_type: count}` haritası). CI/CD
+pipeline'larında kullanışlı.
 
 ### Token-aware chunking — `--chunk-tokens` (Faz 11.5)
 
@@ -227,8 +276,25 @@ sayfadan kısa belgelerde devre dışı kalır. Yapılandırılmış notlar
 ## Sınırlamalar
 
 - **OCR:** Kapsam dışı. Harici araçlar kullanın — aşağıdaki örneklere bakın.
-- **Tablolar / şekiller:** PDF/DOCX tablolarındaki hücreler düz metin olarak
-  satır-major düzende düzleştirilir. Görsel yapı kaybolur.
+- **Tablolar / şekiller:** Faz 12'den (`v0.5.2`) itibaren `_extract_docx()`
+  DOCX tablolarını **Markdown tablo syntax'ına** (header + `---` ayraç +
+  body satırları) **chunking stratejisi çalışmadan önce, extraction
+  aşamasında** dönüştürür — yani tüm stratejiler render edilmiş
+  Markdown'ı görür, satır-major düzleştirilmiş bir string'i değil.
+  Strateji daha sonra chunk sınırlarının nereye düşeceğini seçer:
+  `_markdown_sections()` **yalnızca heading satırlarında** ayırma yapar
+  (heading-bilen, tablo-bilen değil). `--strategy markdown` altında
+  `_chunk_markdown()` (ve token-bilen ikizi `_chunk_markdown_tokens()`)
+  her section'ı bölünmez bir birim olarak korur — bütçeyi aşan bir
+  section tek parça (tek chunk) olarak yayınlanır, ortadan
+  bölünmez; içindeki tablo, ne kadar büyük olursa olsun section ile
+  birlikte taşınır. Büyük bir tabloyu bölmek tablo-bilinçli bir chunker
+  veya ayrı bir tablo-splitting aşaması gerektirir; bunların ikisi de
+  bugün bağlı değildir. `paragraph` / `sliding` stratejilerinde
+  chunker tablo yapısından habersizdir ve paragraf / pencere sınırlarına
+  göre çalıştığı için hücre ortasından satır kesebilir. PDF tabloları
+  her durumda düzleştirilmiş kalır (PDF tarafında extraction-time tablo
+  parser'ı bağlı değil).
 - **Metadata:** başlık / yazar / sayfa numarası düşürülür — yalnızca gövde
   metni JSONL'a iner.
 - **Encoding:** non-UTF-8 girdi `errors="replace"` ile okunur; binary

@@ -259,7 +259,7 @@ graph LR
      system_version: "2.1.0"
      risk_classification: "high-risk"  # "high-risk", "limited-risk", "minimal-risk"
    ```
-   Auto-generate: `annex_iv_technical_documentation.md` combining this metadata + training params + data provenance + evaluation results + safety scores. This is the single most impactful compliance artifact.
+   Auto-generate: `annex_iv_metadata.json` capturing provider identity, intended purpose, risk classification, and system version. A richer Markdown technical-documentation generator that stitches in training params + data provenance + evaluation results is planned for v0.5.3.
 
 2. [x] **Structured Audit Event Log (Art. 12)**
    Replace scattered Python logging with a machine-readable JSON event log. Every decision point in the pipeline emits a structured event:
@@ -345,7 +345,7 @@ graph LR
    ```bash
    forgelm --config job.yaml --export-bundle ./audit_bundle.zip
    ```
-   Includes: annex_iv_technical_documentation.md, compliance_report.json, data_provenance.json, data_governance_report.json, risk_assessment.json, model_integrity.json, deployer_instructions.md, audit_log.jsonl, model_card.md, safety_results.json, benchmark_results.json.
+   Includes: annex_iv_metadata.json, compliance_report.json, data_provenance.json, data_governance_report.json, risk_assessment.json, model_integrity.json, deployer_instructions.md, audit_log.jsonl, model_card.md, safety_results.json, benchmark_results.json.
 
 #### Tier 3: Organizational / Long-term
 

@@ -28,32 +28,42 @@ forgelm --config job.yaml
 
 ```
 ForgeLM/
-├── forgelm/                  # Çekirdek Python Paketi (17 modül)
+├── forgelm/                  # Çekirdek Python Paketi (26 modül)
 │   ├── __init__.py           # Hızlı CLI başlatma için lazy import
-│   ├── cli.py                # 13+ CLI flag ve 6 mod
-│   ├── config.py             # 19+ Pydantic config modeli
+│   ├── cli.py                # CLI giriş noktası ve mod yönlendirici
+│   ├── config.py             # 19 Pydantic config modeli
 │   ├── data.py               # Veri yükleme (SFT/DPO/KTO/GRPO/multimodal)
+│   ├── data_audit.py         # Denetim pipeline'ı (uzunluk/dil/dedup/sızıntı/PII/sır)
+│   ├── ingestion.py          # Ham doküman → SFT JSONL (PDF/DOCX/EPUB/TXT/Markdown)
 │   ├── model.py              # Model + LoRA/DoRA/PiSSA + MoE algılama
 │   ├── trainer.py            # Eğitim orkestrasyonu (6 trainer tipi)
+│   ├── inference.py          # Paylaşılan çıkarım ilkelleri (yükleme/üretme/akış)
+│   ├── chat.py               # Etkileşimli terminal REPL
+│   ├── export.py             # GGUF dışa aktarma (llama-cpp-python)
+│   ├── fit_check.py          # Ön uçuş VRAM tahmincisi
+│   ├── deploy.py             # Dağıtım config üreteci (Ollama/vLLM/TGI/HF Endpoints)
 │   ├── results.py            # TrainResult dataclass
 │   ├── benchmark.py          # lm-evaluation-harness entegrasyonu
-│   ├── safety.py             # Güvenlik değerlendirme (confidence, kategori, ciddiyet, trend)
+│   ├── safety.py             # Güvenlik değerlendirme (Llama Guard, S1-S14)
 │   ├── judge.py              # LLM-Hakim (API + yerel)
 │   ├── compliance.py         # EU AI Act uyumluluk + AuditLogger + kaynak takibi
 │   ├── model_card.py         # HF uyumlu model kartı üretimi
 │   ├── merging.py            # Model birleştirme (TIES/DARE/SLERP/linear)
 │   ├── synthetic.py          # Sentetik veri üretimi (öğretmen→öğrenci)
+│   ├── grpo_rewards.py       # Yerleşik GRPO format/uzunluk ödül şekillendiricileri
+│   ├── quickstart.py         # Tek komutlu hazır şablonlar
 │   ├── wizard.py             # Etkileşimli yapılandırma sihirbazı
-│   ├── webhook.py            # Webhook bildirimleri
+│   ├── webhook.py            # Webhook bildirimleri (Slack/Teams)
 │   └── utils.py              # Kimlik doğrulama + checkpoint yönetimi
+├── forgelm/templates/        # Quickstart şablon paketleri (config.yaml + tohum veri)
 ├── configs/
 │   ├── deepspeed/            # ZeRO-2, ZeRO-3, ZeRO-3+Offload ön ayarları
 │   └── safety_prompts/       # Yerleşik adversarial prompt kütüphanesi (140 prompt, 6 kategori)
-├── notebooks/                # 5 Colab-uyumlu Jupyter notebook
-├── tests/                    # 240+ birim test, 20+ test dosyası
+├── notebooks/                # 10 Colab-uyumlu Jupyter notebook
+├── tests/                    # 800+ birim test, 47 test dosyası
 ├── docs/
-│   ├── guides/               # 6 kullanıcı rehberi
-│   └── qms/                  # EU AI Act QMS SOP şablonları (5 doküman)
+│   ├── guides/               # Kullanıcı rehberleri (ingest, audit, alignment, CI/CD, …)
+│   └── qms/                  # EU AI Act QMS SOP şablonları
 ├── Dockerfile                # Çok aşamalı Docker yapısı
 ├── docker-compose.yaml       # Eğitim + TensorBoard servisleri
 └── config_template.yaml      # Açıklamalı config örneği

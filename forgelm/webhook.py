@@ -1,12 +1,60 @@
+import ipaddress
 import json
 import logging
 import os
+import socket
 from typing import Dict, Optional
 from urllib.parse import urlparse
 
 import requests
 
 logger = logging.getLogger("forgelm.webhook")
+
+
+def _is_private_destination(host: str) -> bool:
+    """Return ``True`` if ``host`` resolves to a private / loopback / link-local IP.
+
+    Used as the SSRF guard: webhook URLs are operator-controlled but the
+    process running them often has elevated network access (cloud metadata
+    services on 169.254.169.254, internal RFC1918 management UIs, etc.).
+    A misconfigured or attacker-controlled config should not trick the
+    trainer into sending its run summary to those destinations without
+    explicit operator opt-in (``webhook.allow_private_destinations``).
+    """
+    if not host:
+        return False
+    # Allow already-IP hostnames (literal in URL) to be checked directly so a
+    # config like `https://10.0.0.5/hook` is caught even with no DNS at all.
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None:
+        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
+    try:
+        # Pre-resolve so a hostname that points at a private IP still trips.
+        addrinfo = socket.getaddrinfo(host, None)
+    except (socket.gaierror, UnicodeError):
+        # DNS failure → not a private destination by our definition. Let
+        # `requests` produce its natural ConnectionError downstream so the
+        # operator gets the real "could not resolve host" message instead
+        # of an SSRF-shaped refusal that hides the typo.
+        return False
+    for _family, _type, _proto, _canon, sockaddr in addrinfo:
+        ip_str = sockaddr[0]
+        try:
+            resolved = ipaddress.ip_address(ip_str)
+        except ValueError:
+            continue
+        if (
+            resolved.is_private
+            or resolved.is_loopback
+            or resolved.is_link_local
+            or resolved.is_reserved
+            or resolved.is_multicast
+        ):
+            return True
+    return False
 
 
 class WebhookNotifier:
@@ -48,14 +96,60 @@ class WebhookNotifier:
         return f"{parts.scheme}://{host}{first_segment}"
 
     def _post_payload(self, url: str, payload: dict, event: str) -> None:
-        """POST *payload* to *url* and log any transport / HTTP errors."""
+        """POST *payload* to *url* and log any transport / HTTP errors.
+
+        Hardened:
+
+        - SSRF guard: refuses non-loopback private / link-local destinations
+          unless ``webhook.allow_private_destinations`` is explicitly true.
+        - TLS: passes ``verify=True`` to ``requests.post`` so an attacker on
+          the egress path can't strip cert validation by setting
+          ``verify=False`` somewhere upstream. Operator can supply a custom
+          CA bundle via ``webhook.tls_ca_bundle`` (forwarded as ``verify``).
+        - Timeout floor: refuses ``timeout < 1`` since ``requests`` honours
+          ``0`` as "block forever, no timeout" — hangs the trainer on a
+          dead webhook.
+        """
         masked_url = self._mask(url)
+
+        # SSRF guard — runs before the request so an internal-IP webhook
+        # never receives the payload.
+        if not getattr(self.config, "allow_private_destinations", False):
+            host = urlparse(url).hostname or ""
+            if _is_private_destination(host):
+                logger.warning(
+                    "Refusing to post webhook for event '%s' to private/loopback destination "
+                    "(url=%s). Set webhook.allow_private_destinations=true to opt in.",
+                    event,
+                    masked_url,
+                )
+                return
+
+        # Resolve TLS verify setting. Default True (strict); allow operator
+        # to point at a custom CA bundle.
+        verify = getattr(self.config, "tls_ca_bundle", None) or True
+
+        # Timeout floor — refuse 0/None which `requests` treats as
+        # "no timeout".
+        timeout = getattr(self.config, "timeout", 5)
+        if not isinstance(timeout, (int, float)) or timeout < 1:
+            logger.warning(
+                "Webhook timeout=%r is below the 1s floor; clamping to 5s.",
+                timeout,
+            )
+            timeout = 5
+
         try:
             resp = requests.post(
                 url,
                 data=json.dumps(payload),
                 headers={"Content-Type": "application/json"},
-                timeout=getattr(self.config, "timeout", 5),
+                timeout=timeout,
+                verify=verify,
+                # Disable redirect-following: the URL was SSRF-validated
+                # against the resolved IP literal up-front, but a 30x to a
+                # private destination would bypass that check entirely.
+                allow_redirects=False,
             )
             if not resp.ok:
                 # Don't log resp.text — receivers sometimes echo the payload
@@ -134,13 +228,37 @@ class WebhookNotifier:
             )
 
     def notify_failure(self, run_name: str, reason: str) -> None:
-        if self.config and self.config.notify_on_failure:
-            self._send(
-                event="training.failure",
-                run_name=run_name,
-                status="failed",
-                title=f"Training Failed: {run_name}",
-                text=f"The training job encountered an error or evaluation failed.\n\nReason: {reason}",
-                color="#ff0000",
-                reason=reason,
-            )
+        """Post a training-failure notification.
+
+        ``reason`` is whatever the trainer caught on the failure path —
+        typically an exception ``str()`` that may carry filesystem paths,
+        configured webhook URLs, or token-shaped strings from a stack
+        trace. Run it through :func:`forgelm.data_audit.mask_secrets` so
+        AWS / GitHub / Slack / OpenAI / Google / JWT / private-key blocks
+        / Azure storage strings are redacted before the payload leaves
+        the process.
+        """
+        if not (self.config and self.config.notify_on_failure):
+            return
+        try:
+            from .data_audit import mask_secrets
+
+            masked_reason = mask_secrets(reason)
+        except ImportError:
+            # data_audit imports stay light enough that this should not
+            # happen in practice; if it ever does, refuse to ship the raw
+            # reason because we cannot guarantee credentials/tokens have
+            # been scrubbed. A redacted placeholder is far less useful
+            # than a masked stack trace, but it's the only safe fallback.
+            masked_reason = "[REDACTED — secrets masker unavailable]"
+        if isinstance(masked_reason, str) and len(masked_reason) > 2048:
+            masked_reason = masked_reason[:2048] + "… (truncated)"
+        self._send(
+            event="training.failure",
+            run_name=run_name,
+            status="failed",
+            title=f"Training Failed: {run_name}",
+            text=f"The training job encountered an error or evaluation failed.\n\nReason: {masked_reason}",
+            color="#ff0000",
+            reason=masked_reason,
+        )

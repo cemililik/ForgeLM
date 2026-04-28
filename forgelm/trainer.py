@@ -364,7 +364,7 @@ class ForgeTrainer:
         else:
             logger.warning("Unknown distributed strategy: %s. Ignoring.", dist_cfg.strategy)
 
-    def _resolve_deepspeed_config(self, config_ref: str = None) -> str:
+    def _resolve_deepspeed_config(self, config_ref: Optional[str] = None) -> str:
         """Resolve a DeepSpeed config reference to a file path.
 
         Accepts:
@@ -1173,9 +1173,30 @@ class ForgeTrainer:
         )
 
     def _export_compliance_if_needed(self, metrics: Dict[str, float], result: TrainResult) -> None:
-        """Export compliance artifacts if evaluation config is present."""
+        """Export compliance artifacts if evaluation config is present.
+
+        Produces three sibling files under ``<checkpoint_dir>/compliance/``:
+
+        - ``training_manifest.json`` — Article 11 / Annex IV technical doc.
+        - ``annex_iv_metadata.json`` — flat-key Annex IV index.
+        - ``data_governance_report.json`` — Article 10 data-governance evidence
+          (per-split sample counts, schema, length distribution; inlines the
+          ``data_audit_report.json`` produced by ``forgelm audit`` when it
+          lives next to the trainer's ``output_dir``).
+
+        The governance report had been implemented and unit-tested but never
+        wired into a production caller; the Article 10 evidence shipped only
+        when an operator generated it by hand. It is now a sibling of the
+        Article 11 manifest by default.
+        """
         try:
-            from .compliance import export_compliance_artifacts, generate_training_manifest
+            import json
+
+            from .compliance import (
+                export_compliance_artifacts,
+                generate_data_governance_report,
+                generate_training_manifest,
+            )
 
             # Convert result objects to dicts for JSON serialization
             safety_dict = None
@@ -1211,7 +1232,35 @@ class ForgeTrainer:
             self.config.training.gradient_accumulation_steps = _saved_ga
             compliance_dir = os.path.join(self.checkpoint_dir, "compliance")
             export_compliance_artifacts(manifest, compliance_dir)
-            self.audit.log_event("compliance.artifacts_exported", directory=compliance_dir)
+
+            # Article 10: data governance report. Best-effort — if it fails,
+            # log loudly but do not abort the run; the Article 11 manifest
+            # has already been written and is the load-bearing artefact.
+            governance_ok = False
+            try:
+                governance = generate_data_governance_report(self.config, self.dataset)
+                gov_path = os.path.join(compliance_dir, "data_governance_report.json")
+                with open(gov_path, "w", encoding="utf-8") as fh:
+                    json.dump(governance, fh, indent=2)
+                self.audit.log_event("compliance.governance_exported", path=gov_path)
+                governance_ok = True
+            except Exception as e:  # noqa: BLE001 — best-effort; broad catch keeps the audit trail honest
+                # OSError covers filesystem failures, but the governance
+                # report can also fail with TypeError (config schema drift),
+                # ValueError (dataset shape), AttributeError (mocked deps in
+                # tests), etc.  Any of those still represent a failed
+                # Article 10 export and must be recorded as such — the
+                # narrower OSError-only catch let those propagate and
+                # crash the surrounding compliance flow.
+                logger.warning("Could not write data_governance_report.json: %s", e)
+                self.audit.log_event("compliance.governance_failed", reason=str(e))
+
+            # Only emit the rollup "all artefacts exported" event when both
+            # the Article 11 manifest export and the Article 10 governance
+            # report succeeded, so the audit chain truthfully reflects which
+            # artefacts are actually on disk.
+            if governance_ok:
+                self.audit.log_event("compliance.artifacts_exported", directory=compliance_dir)
         except Exception as e:
             logger.warning("Failed to export compliance artifacts: %s", e)
 

@@ -5,9 +5,20 @@ Keep imports lightweight so `python -m forgelm.cli --help` and config parsing wo
 without requiring heavy ML dependencies (torch/transformers).
 """
 
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+
 from .config import ConfigError, ForgeConfig, load_config
 
-__version__ = "0.5.0rc1"
+# Single-source the version from the installed distribution metadata so the
+# runtime `__version__`, `pyproject.toml`, and the compliance manifest stamp
+# can never drift apart. Mirrors the `cli._get_version()` resolution path.
+# `0.0.0+dev` covers the rare path where the package is imported without
+# being installed (raw source checkout under `PYTHONPATH=.`).
+try:
+    __version__ = _pkg_version("forgelm")
+except PackageNotFoundError:  # pragma: no cover — uninstalled-source path
+    __version__ = "0.0.0+dev"
 
 __all__ = [
     "load_config",

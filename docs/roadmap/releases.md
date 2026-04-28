@@ -118,20 +118,24 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ---
 
-## v0.5.2 — "Data Curation Maturity" (Planned)
+## v0.5.2 — "Data Curation Maturity"
 
-**Status:** Planned. Focus: [Phase 12](phase-12-data-curation-maturity.md). Direct continuation of the Phase 11/11.5 ingestion + audit lineage — closes the four gaps surfaced by the post-`v0.5.1` competitive review (LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling).
+**Status:** Tier 1 merged on `development`. The `v0.5.2` git tag and PyPI publish are the remaining release-engineering steps. Focus: [Phase 12](phase-12-data-curation-maturity.md). Direct continuation of the Phase 11/11.5 ingestion + audit lineage — closes the four gaps surfaced by the post-`v0.5.1` competitive review (LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling).
 
-### Features:
+### Tier 1 features (shipped):
 
-1. [ ] **MinHash LSH dedup option** — Opt-in `--dedup-method minhash --jaccard-threshold 0.85` route via `datasketch` (`[ingestion-scale]` extra) for >50K-row corpora. Default simhash + LSH banding stays untouched.
-2. [ ] **Markdown-aware splitter** — New `--strategy markdown` preserves heading hierarchy (`# H1` / `## H2`), code-block boundaries, and list-item structure; composes with token-aware mode.
-3. [ ] **Code / secrets leakage tagger** — New `secrets_summary` block in audit JSON (AWS / GCP / Azure keys, GitHub / GitLab / Slack tokens, OpenSSH / PGP headers, JWT, OpenAI keys, generic high-entropy). Ingest gains `--secrets-mask`. `[ingestion-secrets]` extra (`detect-secrets`); regex-only fallback when missing.
-4. [ ] **Heuristic quality filter** — Opt-in `--quality-filter` adds a `quality_summary` block with Gopher / C4 / RefinedWeb-style heuristics (mean-word-length, alphabetic ratio, end-of-line punctuation, repetition rate, short-paragraph ratio). ML classifiers stay deferred to Phase 13+.
-5. [ ] **DOCX / Markdown table preservation** — `_extract_docx` emits markdown table syntax instead of the current `" | "` flat join; the new markdown chunker keeps tables intact.
-6. [ ] **(Tier 2) Presidio adapter** — Optional `--pii-engine presidio` surface; `[ingestion-pii-ml]` extra. Default regex+Luhn+TC-Kimlik path stays.
-7. [ ] **(Tier 2) Croissant metadata compatibility** — Opt-in `--croissant` adds a Google Croissant-shaped subset to the audit JSON; pairs with the existing EU AI Act Article 10 governance bundle.
-8. [ ] **(Tier 3) `--all-mask` composite flag + wizard "audit first" entry point** — Skip if scope is exhausted; otherwise mirrors the Phase 11.5 ingest-first hook.
+1. [x] **MinHash LSH dedup option** — Opt-in `--dedup-method minhash --jaccard-threshold 0.85` route via `datasketch` (`[ingestion-scale]` extra) for >50K-row corpora. Default simhash + LSH banding stays untouched.
+2. [x] **Markdown-aware splitter** — New `--strategy markdown` preserves heading hierarchy (`# H1` / `## H2`), code-block boundaries, and inlines a heading breadcrumb so SFT loss sees document context.
+3. [x] **Code / secrets leakage tagger** — New `secrets_summary` block in audit JSON (AWS / GitHub / Slack / OpenAI / Google / JWT / OpenSSH / PGP / Azure storage). Ingest gains `--secrets-mask` (mask order: secrets → PII so combined detectors don't double-count). `[ingestion-secrets]` extra (`detect-secrets`); regex-only fallback when missing.
+4. [x] **Heuristic quality filter** — Opt-in `--quality-filter` adds a `quality_summary` block with Gopher / C4 / RefinedWeb-style heuristics (mean-word-length, alphabetic ratio, end-of-line punctuation, short-paragraph ratio). ML classifiers stay deferred to Phase 13+.
+5. [x] **DOCX / Markdown table preservation** — `_extract_docx` emits markdown table syntax (header + separator + body rows) instead of the previous `" | "` flat join; uneven rows padded; all-blank rows trimmed; the new markdown chunker keeps these blocks intact across chunks.
+
+### Tier 2/3 (deferred to [Phase 12.5 backlog](phase-12-5-backlog.md)):
+
+- Presidio adapter (`--pii-engine presidio` + `[ingestion-pii-ml]` extra).
+- Croissant metadata compatibility (audit JSON `--croissant` flag).
+- `forgelm ingest --all-mask` composite flag.
+- Wizard "audit first" entry point (mirrors Phase 11.5's ingest-first hook).
 
 ---
 

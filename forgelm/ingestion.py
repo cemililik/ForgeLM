@@ -30,6 +30,7 @@ import json
 import logging
 import math
 import os
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -46,7 +47,18 @@ logger = logging.getLogger("forgelm.ingestion")
 SUPPORTED_EXTENSIONS: Tuple[str, ...] = (".pdf", ".docx", ".epub", ".txt", ".md")
 
 
-CHUNK_STRATEGIES: Tuple[str, ...] = ("sliding", "paragraph", "semantic")
+CHUNK_STRATEGIES: Tuple[str, ...] = ("sliding", "paragraph", "markdown", "semantic")
+
+# Validation messages — pinned as module constants so ruff / SonarCloud
+# don't flag the duplicated string literal across the four chunkers below.
+_CHUNK_TOKENS_POSITIVE_MSG: str = "chunk_tokens must be positive"
+_CHUNK_SIZE_POSITIVE_MSG: str = "max_chunk_size must be positive"
+_MARKDOWN_OVERLAP_UNSUPPORTED_MSG: str = (
+    "overlap / overlap_tokens is not supported for --strategy markdown "
+    "(sections are atomic; an overlap would slice mid-section and break "
+    "the heading-breadcrumb invariant). Use --strategy sliding for "
+    "overlapping windows."
+)
 
 
 @dataclass
@@ -65,8 +77,9 @@ class IngestionResult:
     files_processed: int
     files_skipped: int
     total_chars: int
-    format_counts: dict = field(default_factory=dict)
-    pii_redaction_counts: dict = field(default_factory=dict)
+    format_counts: Dict[str, int] = field(default_factory=dict)
+    pii_redaction_counts: Dict[str, int] = field(default_factory=dict)
+    secrets_redaction_counts: Dict[str, int] = field(default_factory=dict)
     extra_notes: List[str] = field(default_factory=list)
     notes_structured: Dict[str, Any] = field(default_factory=dict)
     pdf_header_footer_lines_stripped: int = 0
@@ -248,25 +261,106 @@ def _extract_pdf(path: Path, *, dedup_state: Optional[Dict[str, int]] = None) ->
     return "\n\n".join(cleaned_pages)
 
 
+def _escape_md_cell(text: Optional[str]) -> str:
+    """Escape ``|`` and ``\\`` so cell text is safe inside a markdown row.
+
+    Newlines collapse to spaces — a multi-line cell can't be expressed
+    inside one markdown table row. Empty / ``None`` returns ``""``.
+    """
+    if not text:
+        return ""
+    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ").replace("\r", " ").strip()
+
+
+def _docx_table_to_markdown(table: Any) -> str:
+    """Phase 12: render a python-docx ``Table`` as a markdown-table block.
+
+    The previous behaviour was to flatten every row to ``" | "`` and lose
+    the header/separator distinction. The markdown form keeps the
+    header-row signal intact, which matters for SFT use cases (tabular
+    Q&A, financial assistant, code-with-data) where a "first row is the
+    header" cue is meaningful for the model.
+
+    Empty rows / empty trailing cells are stripped; rows with mismatched
+    column counts (rare; usually a merged-cell artefact) are padded
+    with empty cells so the markdown stays well-formed. The first
+    non-empty row is treated as the header (no heuristic — that's what
+    DOCX authors mean when they put a row in the table's first slot).
+
+    Cell text containing markdown structural characters (``|`` and ``\\``)
+    is escaped per CommonMark — otherwise a cell value like ``a|b`` would
+    be parsed as two extra columns by downstream tokenisers / renderers.
+    Newlines inside cells are collapsed to spaces (a multi-line cell
+    can't be expressed in a single markdown table row).
+    """
+    rows: List[List[str]] = []
+    for row in table.rows:
+        cells = [_escape_md_cell(cell.text) for cell in row.cells]
+        # Trim purely-empty rows; a row of all blanks is usually a layout artefact.
+        if any(cells):
+            rows.append(cells)
+    if not rows:
+        return ""
+
+    width = max(len(r) for r in rows)
+    rows = [r + [""] * (width - len(r)) for r in rows]
+
+    header = rows[0]
+    body = rows[1:]
+    header_line = "| " + " | ".join(header) + " |"
+    separator_line = "|" + "|".join("---" for _ in range(width)) + "|"
+    body_lines = ["| " + " | ".join(row) + " |" for row in body]
+
+    return "\n".join([header_line, separator_line, *body_lines])
+
+
+def _iter_docx_blocks(doc: Any) -> Iterable[Any]:
+    """Yield block-level elements (paragraphs + tables) in document order.
+
+    ``python-docx``'s ``doc.paragraphs`` and ``doc.tables`` collections lose
+    the relative ordering of headings → tables → paragraphs that authors
+    rely on. Walking the underlying ``<w:body>`` XML in document order
+    preserves layout — critical for tabular Q&A and policy manuals where
+    the table is supposed to appear *after* the paragraph that introduces
+    it, not at the end of the file.
+    """
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    body = doc.element.body
+    for child in body.iterchildren():
+        if child.tag == qn("w:p"):
+            yield Paragraph(child, doc)
+        elif child.tag == qn("w:tbl"):
+            yield Table(child, doc)
+
+
 def _extract_docx(path: Path) -> str:
     try:
         from docx import Document
+        from docx.table import Table
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "DOCX ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
         ) from exc
 
     doc = Document(str(path))
-    blocks: List[str] = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
-
-    # Tables — flatten cell text in row-major order so the structure isn't
-    # lost outright. Matches the "DOCX tables are flattened to plain text"
-    # behavior promised in docs/guides/ingestion.md. Empty cells skipped.
-    for table in doc.tables:
-        for row in table.rows:
-            row_cells = [cell.text.strip() for cell in row.cells if cell.text and cell.text.strip()]
-            if row_cells:
-                blocks.append(" | ".join(row_cells))
+    # Phase 12: render tables as markdown so SFT models see the header /
+    # separator / body structure rather than a single ``|``-joined line.
+    # Walking the body in document order keeps tables next to the
+    # paragraphs that introduce them — appending all paragraphs first
+    # and all tables last (the previous behaviour) reordered content.
+    blocks: List[str] = []
+    for element in _iter_docx_blocks(doc):
+        if isinstance(element, Table):
+            rendered = _docx_table_to_markdown(element)
+            if rendered:
+                blocks.append(rendered)
+        else:
+            text = element.text
+            if text and text.strip():
+                blocks.append(text)
 
     return "\n\n".join(blocks)
 
@@ -370,7 +464,7 @@ def _chunk_paragraph(text: str, max_chunk_size: int) -> Iterable[str]:
     intact so SFT examples don't start mid-thought.
     """
     if max_chunk_size <= 0:
-        raise ValueError("max_chunk_size must be positive")
+        raise ValueError(_CHUNK_SIZE_POSITIVE_MSG)
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     if not paragraphs:
         return
@@ -397,11 +491,342 @@ def _chunk_semantic(text: str, chunk_size: int) -> Iterable[str]:
     )
 
 
+# ---------------------------------------------------------------------------
+# Phase 12: markdown-aware splitter (heading + code-block boundary preserving)
+# ---------------------------------------------------------------------------
+
+
+# CommonMark allows 0-3 leading spaces before an ATX heading marker; 4+
+# spaces would make the line an indented code block instead. The body
+# capture is anchored on **non-whitespace** at both ends — without those
+# anchors, the lazy ``(.+?)`` and greedy ``[ \t]*$`` tails compete for
+# trailing whitespace, giving the engine O(n²) splits to try on a line
+# like ``# x \t \t … \tx`` (~100 ms at n=2000 in CPython, blocking the
+# ingest pipeline). The negated ``[^\n]*`` middle stays linear because
+# it can't overlap with the anchoring ``\S`` on either side.
+_MARKDOWN_HEADING_PATTERN = re.compile(
+    r"^ {0,3}(#{1,6})[ \t]+(\S(?:[^\n]*\S)?)[ \t]*$",
+    re.MULTILINE,
+)
+# Fence detection is a non-regex parser (see ``_parse_md_fence``) — the
+# previous regex ``^ {0,3}(?P<fence>`{3,}|~{3,})(?P<rest>[^\n]*)$``
+# satisfied SonarCloud python:S5852's "two unbounded greedy quantifiers
+# in sequence" rule the same way our other markdown helpers do (state
+# machines beat regexes for multi-line / per-line markdown parsing —
+# see docs/standards/regex.md rule 6).
+
+
+def _parse_md_fence(line: str) -> Optional[Tuple[str, int, str]]:
+    """Detect a CommonMark fence line; return ``(fence_char, run_len, rest)`` or ``None``.
+
+    CommonMark §4.5: a fence is 3+ identical backticks (or tildes),
+    optionally indented up to 3 spaces. The portion after the fence run
+    is the **info string** (allowed for openers, must be empty for
+    closers — that policy is enforced by callers, not here).
+
+    Implemented as a non-regex parser so the cost is provably O(n) per
+    line. The previous regex
+    ``^ {0,3}(?P<fence>\\`{3,}|~{3,})(?P<rest>[^\\n]*)$`` had two
+    unbounded greedy quantifiers in sequence; SonarCloud python:S5852
+    flags that shape as polynomial-runtime risk even when CPython
+    handles it well in practice (regex.md rule 6).
+    """
+    leading = 0
+    for ch in line:
+        if ch != " ":
+            break
+        leading += 1
+    if leading > 3:
+        return None  # 4+ spaces: indented code block, not a fence
+    if leading >= len(line):
+        return None
+    fence_char = line[leading]
+    if fence_char not in ("`", "~"):
+        return None
+    run_end = leading
+    while run_end < len(line) and line[run_end] == fence_char:
+        run_end += 1
+    run_len = run_end - leading
+    if run_len < 3:
+        return None
+    rest = line[run_end:]
+    # CommonMark §4.5: backtick info strings cannot contain backticks
+    # (otherwise the run would be ambiguous with the closing fence).
+    # Tilde fences have no such restriction.
+    if fence_char == "`" and "`" in rest:
+        return None
+    return fence_char, run_len, rest
+
+
+def _push_heading_onto_path(current_path: List[str], heading_line: str, level: int) -> None:
+    """Pop deeper-or-equal levels off ``current_path`` then push ``heading_line``."""
+    while current_path:
+        last_level = len(current_path[-1].split(maxsplit=1)[0])
+        if last_level >= level:
+            current_path.pop()
+        else:
+            break
+    current_path.append(heading_line)
+
+
+def _trim_blank_edges(lines: List[str]) -> List[str]:
+    """Strip leading/trailing whitespace-only lines; preserve internal blanks."""
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return lines
+
+
+def _advance_fence_state(
+    open_fence: Optional[Tuple[str, int]],
+    fence_info: Tuple[str, int, str],
+) -> Optional[Tuple[str, int]]:
+    """Return the new ``open_fence`` after seeing a fence-shaped line.
+
+    Per CommonMark §4.5 the closing fence must (1) use the same character
+    as the opener, (2) have at least as many fence characters as the
+    opener, and (3) carry no info string. A line that fails any of those
+    while inside a block is treated as content — caller still appends it
+    but the state does not toggle.
+    """
+    fence_char, fence_len, rest = fence_info
+    if open_fence is None:
+        # Opener — info string is allowed; record (char, length).
+        return (fence_char, fence_len)
+    if open_fence[0] == fence_char and fence_len >= open_fence[1] and not rest.strip():
+        # Valid close: same char, ≥ as many chars, no info string.
+        return None
+    # Mismatched char, too short, or has an info string — block stays open.
+    return open_fence
+
+
+def _flush_section(
+    sections: List[Tuple[List[str], List[str]]],
+    current_path: List[str],
+    current_lines: List[str],
+    seen_heading: bool,
+) -> None:
+    """Append the current section to ``sections`` if it carries any content."""
+    if seen_heading or current_lines:
+        sections.append((list(current_path), current_lines))
+
+
+def _render_sections(
+    sections: List[Tuple[List[str], List[str]]],
+) -> List[Tuple[List[str], str]]:
+    """Trim blank edges and join each section's body lines into a single string."""
+    rendered: List[Tuple[List[str], str]] = []
+    for path, body_lines in sections:
+        trimmed = _trim_blank_edges(body_lines)
+        if trimmed:
+            rendered.append((path, "\n".join(trimmed)))
+    return rendered
+
+
+def _markdown_sections(text: str) -> List[Tuple[List[str], str]]:
+    """Split a markdown document into ``(heading_path, body)`` sections.
+
+    A section starts at any heading line (``# H1`` … ``###### H6``) and
+    runs until the next same-or-higher-level heading. Each section's
+    ``heading_path`` is the chain of enclosing headings — e.g. a
+    section opened by ``## Background`` inside a document whose first
+    heading was ``# Project Notes`` carries
+    ``["# Project Notes", "## Background"]``.
+
+    Code fences (``` ``` ``` or ``~~~``) are detected *line-wise* so a
+    heading-shaped line **inside** a code block is not interpreted as a
+    heading. The CommonMark §4.5 closing-fence rules live in
+    :func:`_advance_fence_state`.
+    """
+    sections: List[Tuple[List[str], List[str]]] = []
+    current_path: List[str] = []
+    current_lines: List[str] = []
+    open_fence: Optional[Tuple[str, int]] = None
+    seen_heading = False
+
+    for line in text.splitlines():
+        fence_info = _parse_md_fence(line)
+        if fence_info is not None:
+            open_fence = _advance_fence_state(open_fence, fence_info)
+            current_lines.append(line)
+            continue
+        if open_fence is not None:
+            current_lines.append(line)
+            continue
+        match = _MARKDOWN_HEADING_PATTERN.match(line)
+        if not match:
+            current_lines.append(line)
+            continue
+        _flush_section(sections, current_path, current_lines, seen_heading)
+        heading_text = match.group(0).strip()
+        _push_heading_onto_path(current_path, heading_text, level=len(match.group(1)))
+        current_lines = [heading_text]
+        seen_heading = True
+
+    _flush_section(sections, current_path, current_lines, seen_heading)
+    return _render_sections(sections)
+
+
+def _heading_breadcrumb(path: List[str], current_heading: str) -> str:
+    """Render the breadcrumb that precedes a section's body in a chunk.
+
+    When a section's heading itself is in ``path[-1]``, including the
+    full path with the section heading at the end would print the
+    heading twice. ``current_heading`` is the section's own heading
+    line; we prepend the *parents* (``path[:-1]``) and let the section
+    body lead with its own heading.
+    """
+    parents = [p for p in path if p != current_heading]
+    if not parents:
+        return ""
+    return "\n".join(parents) + "\n\n"
+
+
+def _chunk_markdown(text: str, max_chunk_size: int) -> Iterable[str]:
+    """Heading-aware chunker — Phase 12 third strategy.
+
+    Each chunk is one or more contiguous markdown sections (heading +
+    body) packed greedily up to ``max_chunk_size`` characters. Section
+    boundaries are heading lines; chunks never split mid-section unless
+    a single section already exceeds the cap, in which case it is
+    emitted whole (mirrors :func:`_chunk_paragraph`'s "long-paragraph
+    on its own" rule).
+
+    Each chunk inlines its enclosing-heading **breadcrumb** at the top
+    so the SFT loss sees the document context. For example:
+
+        # Project Notes / ## Background
+
+        ## Background
+
+        body of the section here…
+
+    Code-fenced blocks (``` ``` ```) are kept atomic — never split
+    mid-block — because slicing through a code fence produces invalid
+    markdown that confuses downstream tokenisers and the model.
+
+    Markdown mode emits **non-overlapping** chunks by design — sections
+    are the unit of indivisibility, and an overlap would slice
+    mid-section and break the heading-breadcrumb invariant. Use
+    ``--strategy sliding`` if you need overlapping windows.
+    """
+    if max_chunk_size <= 0:
+        raise ValueError(_CHUNK_SIZE_POSITIVE_MSG)
+    sections = _markdown_sections(text)
+    if not sections:
+        return
+
+    current: List[str] = []
+    current_len = 0
+    for path, body in sections:
+        breadcrumb = _heading_breadcrumb(path, path[-1] if path else "")
+        section_block = breadcrumb + body if breadcrumb else body
+        section_len = len(section_block)
+        if current_len + section_len + 2 <= max_chunk_size or not current:
+            current.append(section_block)
+            current_len += section_len + 2
+        else:
+            yield "\n\n".join(current)
+            current = [section_block]
+            current_len = section_len
+    if current:
+        yield "\n\n".join(current)
+
+
+def _build_markdown_section_blocks(sections: List[Tuple[List[str], str]]) -> List[str]:
+    """Render each (heading-path, body) pair into a single text block.
+
+    Pre-built so the tokenizer can be called once on the full list rather
+    than per-section. Empty heading paths fall back to the body alone.
+    """
+    blocks: List[str] = []
+    for path, body in sections:
+        breadcrumb = _heading_breadcrumb(path, path[-1] if path else "")
+        blocks.append(breadcrumb + body if breadcrumb else body)
+    return blocks
+
+
+def _count_section_tokens(section_blocks: List[str], tokenizer: Any) -> List[int]:
+    """Return per-block token counts using a single batch call when possible.
+
+    Per-section ``tokenizer.encode()`` called N times used to dominate the
+    cost for long documents; the batch call amortises Python-level overhead
+    and lets the tokenizer process the list in one pass.  Falls back to
+    per-block encoding *only* for tokenizers that genuinely don't accept
+    list input — any other failure is re-raised so real bugs (corrupted
+    input, OOM, etc.) aren't silently masked behind the slow path.
+    """
+    try:
+        batch_enc = tokenizer(section_blocks, add_special_tokens=False)
+    except (TypeError, ValueError):
+        # Old / minimal tokenizer APIs raise TypeError ("expected str, got
+        # list") or ValueError ("text input must be of type str") when
+        # handed a list. That's the documented batching-unsupported
+        # signal — fall back to per-block encoding.
+        return [len(tokenizer.encode(block, add_special_tokens=False)) for block in section_blocks]
+    # Validate the result shape before trusting it: HuggingFace tokenizers
+    # return a BatchEncoding (mapping) whose ``input_ids`` is a list of
+    # token-id sequences with length == len(section_blocks).  A different
+    # shape means the tokenizer accepted the call but produced something
+    # we cannot interpret — re-raise instead of silently miscounting.
+    try:
+        ids_list = batch_enc["input_ids"]
+    except (KeyError, TypeError) as e:
+        raise TypeError(
+            f"Batch tokenizer returned an unexpected shape (no 'input_ids' key): {type(batch_enc).__name__}"
+        ) from e
+    if not hasattr(ids_list, "__len__") or len(ids_list) != len(section_blocks):
+        raise ValueError(
+            f"Batch tokenizer returned {len(ids_list) if hasattr(ids_list, '__len__') else '?'} "
+            f"sequences for {len(section_blocks)} input blocks; refusing to silently miscount."
+        )
+    return [len(ids) for ids in ids_list]
+
+
+def _chunk_markdown_tokens(text: str, max_tokens: int, tokenizer: Any) -> Iterable[str]:
+    """Token-aware twin of :func:`_chunk_markdown`. Same semantics, token cap.
+
+    Like the character-mode twin, this strategy is **non-overlapping** —
+    section boundaries are atomic. Non-zero ``overlap_tokens`` is
+    rejected with a ``ValueError`` by :func:`_strategy_dispatch_tokens`
+    *before* this function is called (see ``_MARKDOWN_OVERLAP_UNSUPPORTED_MSG``);
+    callers therefore never reach this body with a meaningful overlap.
+    """
+    if max_tokens <= 0:
+        raise ValueError(_CHUNK_TOKENS_POSITIVE_MSG)
+    sections = _markdown_sections(text)
+    if not sections:
+        return
+
+    sep_tokens = len(tokenizer.encode("\n\n", add_special_tokens=False))
+    section_blocks = _build_markdown_section_blocks(sections)
+    section_token_counts = _count_section_tokens(section_blocks, tokenizer)
+
+    current: List[str] = []
+    current_tokens = 0
+    for section_block, section_tokens in zip(section_blocks, section_token_counts):
+        cost = section_tokens + (sep_tokens if current else 0)
+        if current_tokens + cost <= max_tokens or not current:
+            current.append(section_block)
+            current_tokens += cost
+        else:
+            yield "\n\n".join(current)
+            current = [section_block]
+            current_tokens = section_tokens
+    if current:
+        yield "\n\n".join(current)
+
+
 def _strategy_dispatch(strategy: str, text: str, chunk_size: int, overlap: int) -> Iterable[str]:
     if strategy == "sliding":
         return _chunk_sliding(text, chunk_size, overlap)
     if strategy == "paragraph":
         return _chunk_paragraph(text, chunk_size)
+    if strategy == "markdown":
+        if overlap:
+            raise ValueError(_MARKDOWN_OVERLAP_UNSUPPORTED_MSG)
+        return _chunk_markdown(text, chunk_size)
     if strategy == "semantic":
         return _chunk_semantic(text, chunk_size)
     raise ValueError(f"Unknown chunking strategy '{strategy}'. Choose from: {', '.join(CHUNK_STRATEGIES)}")
@@ -420,7 +845,7 @@ def _chunk_sliding_tokens(text: str, n_tokens: int, overlap_tokens: int, tokeniz
     output sizes line up with ``model.max_length`` exactly.
     """
     if n_tokens <= 0:
-        raise ValueError("chunk_tokens must be positive")
+        raise ValueError(_CHUNK_TOKENS_POSITIVE_MSG)
     if overlap_tokens < 0 or overlap_tokens >= n_tokens:
         raise ValueError("overlap_tokens must be in [0, chunk_tokens)")
     if overlap_tokens > n_tokens // 2:
@@ -464,7 +889,7 @@ def _chunk_paragraph_tokens(text: str, max_tokens: int, tokenizer: Any) -> Itera
     is computed once via the tokenizer and added when joining.
     """
     if max_tokens <= 0:
-        raise ValueError("chunk_tokens must be positive")
+        raise ValueError(_CHUNK_TOKENS_POSITIVE_MSG)
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     if not paragraphs:
         return
@@ -501,6 +926,10 @@ def _strategy_dispatch_tokens(
         return _chunk_sliding_tokens(text, chunk_tokens, overlap_tokens, tokenizer)
     if strategy == "paragraph":
         return _chunk_paragraph_tokens(text, chunk_tokens, tokenizer)
+    if strategy == "markdown":
+        if overlap_tokens:
+            raise ValueError(_MARKDOWN_OVERLAP_UNSUPPORTED_MSG)
+        return _chunk_markdown_tokens(text, chunk_tokens, tokenizer)
     if strategy == "semantic":
         return _chunk_semantic(text, chunk_tokens)
     raise ValueError(f"Unknown chunking strategy '{strategy}'. Choose from: {', '.join(CHUNK_STRATEGIES)}")
@@ -551,6 +980,12 @@ def describe_strategies() -> List[Tuple[str, str]]:
     return [
         ("sliding", "Fixed-size character window with overlap. Predictable, coarse."),
         ("paragraph", "Greedy paragraph packer; never splits a paragraph. Preserves boundaries."),
+        (
+            "markdown",
+            "Heading-aware splitter (Phase 12). Chunks at # / ## / ### boundaries, "
+            "keeps code-fenced blocks atomic, inlines a heading breadcrumb so SFT "
+            "loss sees document context.",
+        ),
         ("semantic", "Embedding-clustered (NotImplementedError today; planned for a follow-up phase)."),
     ]
 
@@ -565,6 +1000,7 @@ class _FileOutcome:
     file_skipped: bool = False
     extension: Optional[str] = None
     pii_counts: Dict[str, int] = field(default_factory=dict)
+    secrets_counts: Dict[str, int] = field(default_factory=dict)
 
 
 def _extract_text_for_ingest(
@@ -617,8 +1053,24 @@ def _emit_chunk(
     out_fh: Any,
     outcome: _FileOutcome,
     mask_pii: Optional[Callable[..., Any]],
+    mask_secrets: Optional[Callable[..., Any]] = None,
 ) -> None:
-    """Mask (optional), serialise, and write one chunk; update outcome counters."""
+    """Mask (optional), serialise, and write one chunk; update outcome counters.
+
+    Mask order is **secrets first, PII second** when both are enabled.
+    This is a **defensive ordering**: today's regex sets do not produce
+    measurable cross-detector overlap on the test fixtures we ship, but
+    secrets are higher-severity than PII (a leaked AWS key in training
+    data is unrecoverable; a phone number is recoverable via opt-out
+    flows), so when ordering matters at all it should favour the secrets
+    pass. Future PII / secret regex additions could legitimately overlap
+    (e.g. an Azure connection-string substring resembling an IBAN); this
+    ordering future-proofs against that case without operator action.
+    """
+    if mask_secrets is not None:
+        payload, secret_counts = mask_secrets(payload, return_counts=True)
+        for kind, count in secret_counts.items():
+            outcome.secrets_counts[kind] = outcome.secrets_counts.get(kind, 0) + count
     if mask_pii is not None:
         # Get the masked text + per-type counts in a single pass. Counting
         # via detect_pii beforehand would double-count spans matched by
@@ -640,6 +1092,7 @@ def _process_one_file(
     chunk_size: int,
     overlap: int,
     mask_pii: Optional[Callable[..., Any]],
+    mask_secrets: Optional[Callable[..., Any]] = None,
     chunk_tokens: Optional[int] = None,
     overlap_tokens: int = 0,
     tokenizer: Any = None,
@@ -681,7 +1134,7 @@ def _process_one_file(
         payload = chunk.strip()
         if not payload:
             continue
-        _emit_chunk(payload, out_fh, outcome, mask_pii)
+        _emit_chunk(payload, out_fh, outcome, mask_pii, mask_secrets=mask_secrets)
     return outcome
 
 
@@ -694,15 +1147,19 @@ detection in :func:`ingest_path` is not a magic-number compare.
 """
 
 
+DEFAULT_SLIDING_OVERLAP: int = 200
+
+
 def ingest_path(
     input_path: str,
     *,
     output_path: str,
     chunk_size: Optional[int] = None,
-    overlap: int = 200,
+    overlap: Optional[int] = None,
     strategy: str = "paragraph",
     recursive: bool = False,
     pii_mask: bool = False,
+    secrets_mask: bool = False,
     encoding: str = "utf-8",
     chunk_tokens: Optional[int] = None,
     overlap_tokens: int = 0,
@@ -724,9 +1181,17 @@ def ingest_path(
             ``overlap <= chunk_size // 2``. The half-chunk cap prevents
             quadratic chunk explosion. ``_chunk_sliding`` raises
             ``ValueError`` when either bound is violated.
-        strategy: One of ``sliding`` / ``paragraph`` / ``semantic``.
+        strategy: One of ``sliding`` / ``paragraph`` / ``markdown`` / ``semantic``.
+            Phase 12 added ``markdown`` — heading-aware splitter that
+            preserves heading hierarchy and code-block boundaries.
         recursive: When ``input_path`` is a directory, walk subdirectories too.
         pii_mask: Replace detected PII spans with ``[REDACTED]`` before writing.
+        secrets_mask: Phase 12 — replace detected credential/secret spans
+            (AWS / GitHub / Slack / OpenAI / Google / JWT / OpenSSH / PGP /
+            Azure storage) with ``[REDACTED-SECRET]`` before chunks land
+            in the JSONL. Runs *before* PII masking when both are enabled
+            so secrets matched by both detectors are scrubbed under the
+            stronger label first.
         encoding: Output encoding (default UTF-8).
         chunk_tokens: Phase 11.5 token-aware mode. When set, chunks are
             sized against the supplied ``tokenizer`` (in tokens), not
@@ -756,6 +1221,20 @@ def ingest_path(
     chunk_size_explicit = chunk_size is not None
     effective_chunk_size = chunk_size if chunk_size_explicit else DEFAULT_CHUNK_SIZE
 
+    # Resolve ``overlap``: only the sliding strategy needs a non-zero default.
+    # Paragraph and markdown are non-overlapping by design — we keep
+    # ``overlap=None`` flowing into the dispatcher so the default doesn't
+    # spuriously trigger the markdown overlap-rejected validator. For
+    # sliding, clamp the implicit default to ``effective_chunk_size // 2``
+    # so a small ``--chunk-size`` (e.g. 300) doesn't trip ``_chunk_sliding``'s
+    # "overlap > chunk_size // 2" guard with the default 200, which would
+    # surface as a confusing error for a knob the user didn't even set.
+    if overlap is None:
+        if strategy == "sliding":
+            overlap = min(DEFAULT_SLIDING_OVERLAP, max(0, effective_chunk_size // 2))
+        else:
+            overlap = 0
+
     if pii_mask:
         # Lazy import: PII helpers live in data_audit.py; we don't want to
         # pay the audit module's import cost when masking is off.
@@ -764,6 +1243,17 @@ def ingest_path(
         mask_pii_fn: Optional[Callable[..., Any]] = _mask_pii
     else:
         mask_pii_fn = None
+
+    if secrets_mask:
+        # Phase 12: same lazy-import pattern as ``mask_pii``. The secrets
+        # detector lives in ``data_audit`` because the same regex set is
+        # used by ``forgelm audit --secrets-mask`` (audit-side reporting)
+        # and by ingest-side scrubbing here.
+        from .data_audit import mask_secrets as _mask_secrets
+
+        mask_secrets_fn: Optional[Callable[..., Any]] = _mask_secrets
+    else:
+        mask_secrets_fn = None
 
     tokenizer_obj: Any = None
     if chunk_tokens is not None:
@@ -796,8 +1286,9 @@ def ingest_path(
     files_processed = 0
     files_skipped = 0
     total_chars = 0
-    format_counts: dict = {}
-    pii_redaction_counts: dict = {}
+    format_counts: Dict[str, int] = {}
+    pii_redaction_counts: Dict[str, int] = {}
+    secrets_redaction_counts: Dict[str, int] = {}
     notes: List[str] = []
     pdf_dedup_state: Dict[str, int] = {}
 
@@ -813,6 +1304,7 @@ def ingest_path(
                 chunk_size=effective_chunk_size,
                 overlap=overlap,
                 mask_pii=mask_pii_fn,
+                mask_secrets=mask_secrets_fn,
                 chunk_tokens=chunk_tokens,
                 overlap_tokens=overlap_tokens,
                 tokenizer=tokenizer_obj,
@@ -828,6 +1320,8 @@ def ingest_path(
                 files_skipped += 1
             for kind, count in outcome.pii_counts.items():
                 pii_redaction_counts[kind] = pii_redaction_counts.get(kind, 0) + count
+            for kind, count in outcome.secrets_counts.items():
+                secrets_redaction_counts[kind] = secrets_redaction_counts.get(kind, 0) + count
 
     if files_skipped:
         notes.append(f"skipped {files_skipped} file(s) — see warnings above")
@@ -838,6 +1332,13 @@ def ingest_path(
             notes.append(f"PII masking redacted {redacted_total} span(s): {breakdown}")
         else:
             notes.append("PII masking enabled — no PII detected in this corpus")
+    if secrets_mask:
+        if secrets_redaction_counts:
+            secret_total = sum(secrets_redaction_counts.values())
+            breakdown = ", ".join(f"{k}={v}" for k, v in sorted(secrets_redaction_counts.items()))
+            notes.append(f"Secrets masking redacted {secret_total} credential span(s): {breakdown}")
+        else:
+            notes.append("Secrets masking enabled — no credentials detected in this corpus")
     pdf_lines_stripped = pdf_dedup_state.get("lines_stripped", 0)
     if pdf_lines_stripped:
         notes.append(
@@ -853,6 +1354,7 @@ def ingest_path(
         "strategy": strategy,
         "format_counts": dict(format_counts),
         "pii_redaction_counts": dict(pii_redaction_counts),
+        "secrets_redaction_counts": dict(secrets_redaction_counts),
     }
     if pdf_lines_stripped:
         structured_notes["pdf_header_footer_lines_stripped"] = pdf_lines_stripped
@@ -878,6 +1380,7 @@ def ingest_path(
         total_chars=total_chars,
         format_counts=format_counts,
         pii_redaction_counts=pii_redaction_counts,
+        secrets_redaction_counts=secrets_redaction_counts,
         extra_notes=notes,
         notes_structured=structured_notes,
         pdf_header_footer_lines_stripped=pdf_lines_stripped,

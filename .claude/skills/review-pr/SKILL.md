@@ -17,9 +17,9 @@ Do **not** use for:
 - Making the changes yourself (that's a different task)
 - Deciding whether to merge (human maintainer call)
 
-## The six-question review
+## The seven-question review
 
-Go through these **in order**. If any answer is "no" or "unclear," block the PR.
+Go through these **in order**. If any answer is "no" or "unclear," block the PR. Question 7 fires only when a regex changes; the other six apply to every PR.
 
 ### 1. Does it match the architecture?
 
@@ -87,6 +87,24 @@ Check against [docs/standards/documentation.md](../../../docs/standards/document
 - [ ] `config_template.yaml` updated if new required config field
 - [ ] No broken links (relative paths resolve)
 - [ ] Bilingual mirrors structurally aligned (H2 count + order match)
+
+### 7. Does any new / modified regex pass [regex.md](../../../docs/standards/regex.md)?
+
+**Trigger:** any change to `re.compile`, `re.match`, `re.sub`, `re.findall`, `re.split`. Phase 11/11.5/12 review cycles burned ~10 iterations on regex correctness — this skill exists to spend zero on the next PR.
+
+Run `git diff --unified=0 origin/main..HEAD -- '*.py' | grep -E '^\+.*re\.(compile|match|search|sub|findall|split|fullmatch)'` to surface the deltas, then for each:
+
+- [ ] No `[A-Za-z0-9_]` (Sonar `python:S6353`); use `\w`.
+- [ ] No single-char character classes `[ ]`, `[\.]`, `[\\]` (Sonar `python:S6328`); use the bare character.
+- [ ] Quantifiers bounded where the spec allows it (`{1,6}` for ATX heading depth, not `+`).
+- [ ] **No two unbounded `*` / `+` / `*?` / `+?` competing for the same character class.** This is the #1 ReDoS shape we keep hitting (`[ \t]+(.+?)[ \t]*$` → 100ms at n=2000). Anchor on `\S` at body boundaries: `[ \t]+(\S(?:[^\n]*\S)?)[ \t]*$`.
+- [ ] No `.*?` + back-reference + `re.DOTALL` (Sonar `python:S5852`); replace with a state machine — see [`forgelm/data_audit.py::_strip_code_fences`](../../../forgelm/data_audit.py) and [`forgelm/ingestion.py::_markdown_sections`](../../../forgelm/ingestion.py).
+- [ ] `\s` under `re.MULTILINE` → prefer `[ \t]` (no newline ambiguity).
+- [ ] Operator-controlled input → 10K-char pathological-input wall-clock benchmark stays ≤ 10ms.
+- [ ] Test fixtures with credential-shaped strings built from inert fragments (see `FAKE_AWS_KEY` / `FAKE_GH_TOKEN` in `tests/test_data_audit_phase12.py`).
+- [ ] PEM / PGP block markers inside regex source split via concatenation (`r"-----" + r"BEGIN " + r"..."`) so repo-wide secret scanners don't false-positive.
+
+If the regex runs on operator-controlled input, **paste the pathological-input benchmark output into the PR description** so reviewers see the linearity proof.
 
 ## Scope and hygiene
 

@@ -25,7 +25,6 @@ jobs:
 
       - name: Ruff format check
         run: ruff format --check .
-        continue-on-error: true  # warn but don't block
 
   # --- Job 2: Test (matrix across Python versions) ---
   test:
@@ -145,6 +144,33 @@ jobs:
           python -c "
           from forgelm.synthetic import SyntheticDataGenerator
           print('synthetic.py import: OK')
+          "
+
+      - name: Bilingual doc H2 parity check
+        run: |
+          python -c "
+          import re, sys
+          pairs = [
+              ('docs/reference/configuration.md',       'docs/reference/configuration-tr.md'),
+              ('docs/reference/usage.md',               'docs/reference/usage-tr.md'),
+              ('docs/reference/distributed_training.md','docs/reference/distributed_training-tr.md'),
+              ('docs/reference/data_preparation.md',    'docs/reference/data_preparation-tr.md'),
+              ('docs/reference/architecture.md',        'docs/reference/architecture-tr.md'),
+              ('docs/guides/ingestion.md',              'docs/guides/ingestion-tr.md'),
+              ('docs/guides/data_audit.md',             'docs/guides/data_audit-tr.md'),
+          ]
+          failed = False
+          for en, tr in pairs:
+              with open(en) as f:
+                  en_count = sum(1 for line in f if re.match(r'^## ', line))
+              with open(tr) as f:
+                  tr_count = sum(1 for line in f if re.match(r'^## ', line))
+              status = 'OK' if en_count == tr_count else 'FAIL'
+              print(f'{status}: {en} ({en_count} H2) vs {tr} ({tr_count} H2)')
+              if en_count != tr_count:
+                  failed = True
+          if failed:
+              sys.exit(1)
           "
 
       - name: License check

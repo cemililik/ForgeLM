@@ -30,7 +30,7 @@ ForgeLM, LLM ince ayarını (fine-tuning) **güvenli, denetlenebilir ve tekrarla
 - **EU AI Act Madde 9-17 + Ek IV** — her madde yapılandırılmış bir çıktı dosyasına karşılık gelir:
   - Mad. 9 Risk Değerlendirmesi → `risk_assessment.json`
   - Mad. 10 Veri Yönetişimi → `data_governance_report.json`
-  - Mad. 11 Teknik Dokümantasyon → `annex_iv_technical_documentation.md`
+  - Mad. 11 Teknik Dokümantasyon → `annex_iv_metadata.json`
   - Mad. 12 Kayıt Tutma → `audit_log.jsonl`
   - Mad. 13 Şeffaflık → `deployer_instructions.md`
   - Mad. 14 İnsan Gözetimi → `require_human_approval: true` + çıkış kodu 4
@@ -43,7 +43,7 @@ ForgeLM, LLM ince ayarını (fine-tuning) **güvenli, denetlenebilir ve tekrarla
 ForgeLM'in temel mimari kimliği: bir YAML dosyası bir eğitim çalışmasını eksiksiz tanımlar. Python kodu gerekmez, ortam değişkeni aranmaz, notebook durumu yok.
 
 - **Tek YAML girer, ince ayarlı model + compliance kanıtları çıkar** — deterministik ve sürüm kontrollü
-- **Anlamlı çıkış kodları** pipeline orkestrasyonu için: 0 (başarı), 1 (eğitim hatası), 2 (değerlendirme hatası), 3 (güvenlik hatası), 4 (insan onayı bekleniyor)
+- **Anlamlı çıkış kodları** pipeline orkestrasyonu için: 0 (başarı), 1 (config/doğrulama hatası), 2 (eğitim hatası), 3 (değerlendirme/güvenlik hatası), 4 (insan onayı bekleniyor)
 - **`--dry-run`**: GPU tahsis etmeden config, veri ve model yüklemeyi tam olarak doğrular
 - **Yapılandırılmış JSON çıktı**: tüm değerlendirme ve compliance adımlarında aşağı akış sistemlerince parse edilebilir
 - **Docker-native**: GPU ve CPU için resmi çok aşamalı imajlar; çevrimdışı/izole (air-gapped) mod desteklenir

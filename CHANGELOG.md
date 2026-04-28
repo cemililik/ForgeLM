@@ -4,6 +4,199 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+### Fixed — multi-agent master review (rounds 4-7)
+
+Multi-dimension review (business, code, compliance, documentation, performance, security) surfaced a cluster of correctness, claim/evidence, and silent-failure issues that have been swept in batches.
+
+- **Version drift** — `forgelm.__version__` was hard-coded to `0.5.0rc1` in [`forgelm/__init__.py`](forgelm/__init__.py) while `pyproject.toml` declared `0.5.2rc1`. The literal is now derived from the installed distribution via `importlib.metadata.version("forgelm")` (with a `0.0.0+dev` fallback for raw source checkouts), and `compliance._get_version()` follows the same resolution path so audit / Annex IV manifests stamp the correct producer version.
+- **Audit log integrity** (`forgelm/compliance.py::AuditLogger`) — `_load_last_hash` previously re-rooted the chain to `"genesis"` on any read failure with only a `logger.debug` message; `log_event` advanced `_prev_hash` *before* the file write and swallowed write failures with `logger.warning`. Both paths now distinguish file-missing from file-unreadable, raise on real I/O errors, and only advance the hash chain after a successful write.
+- **`compute_dataset_fingerprint` TOCTOU** — `@lru_cache(maxsize=32)` keyed on the path string only would return stale fingerprints when the file was rewritten in place. Cache dropped; symlinks resolved before hashing; `os.stat()` now captured atomically alongside the SHA-256 stream so size/mtime cannot drift between the two reads.
+- **`generate_data_governance_report` wiring** — defined and tested but never called from production code. Now invoked by `_export_compliance_if_needed` so `data_governance_report.json` actually lands in the trainer's `output_dir` per EU AI Act Article 10.
+- **Silent-failure sweep** — replaced `except Exception:` swallows with concrete-class catches + log + raise/sentinel: `data.py::_process_messages_format` (catches malformed message rows by exception class, raises an explicit `ValueError`), `safety.py::_release_model_from_gpu` (`RuntimeError`/`OOM` only), `cli.py::_load_config_or_exit` (split `yaml.YAMLError` + `pydantic.ValidationError` for clearer error messages), `config.py::ForgeConfig.load_config` (specific Pydantic / YAML branches).
+- **Pydantic schema discipline** — six bare-`str` fields (`trainer_type`, `merge.method`, `model.backend`, `distributed.fsdp_strategy`, `risk_assessment.risk_category`, `monitoring.metrics_export`) converted to `Literal[...]` so JSON Schema / IDE auto-complete surfaces the allowed values; redundant runtime validators dropped.
+- **Webhook hardening** — `forgelm/webhook.py` now refuses non-loopback private destinations without explicit opt-in (`webhook.allow_private_destinations`), runs the failure-reason payload through `mask_secrets`, passes `verify=True` explicitly to `requests.post`, and rejects `timeout < 1`.
+- **Performance** — `forgelm/trainer.py` lazy-imports `torch` / `transformers` / `trl` into method bodies, dropping CLI cold-start cost by ~700-1500 ms on `forgelm audit` and `forgelm --help`. Audit's `agg.minhashes` is no longer copied via `list(...)` before LSH (saves ~1 GB on 1M-row splits).
+- **Documentation** — refreshed module / test / notebook counts in `CONTRIBUTING.md` and `docs/reference/architecture.md`; added `forgelm/templates/` to the directory layout. Removed `forgelm chat --safety` from `usage.md` (flag does not exist in `cli.py`). `coverage.fail_under` in `docs/standards/testing.md` now matches `pyproject.toml` (40, not 25).
+
+### Fixed — round 3.5 review (`_MARKDOWN_CODE_FENCE` regex → non-regex parser)
+
+SonarCloud `python:S5852` flagged `_MARKDOWN_CODE_FENCE` (`forgelm/ingestion.py` L515) — the regex `^ {0,3}(?P<fence>` `` ` ``{3,}|~{3,})(?P<rest>[^\n]*)$` had **two unbounded greedy quantifiers in sequence over overlapping character classes** (the fence run is `` ` `` / `~`; the `rest` capture's `[^\n]` includes both fence chars), the textbook polynomial-runtime shape per regex.md rule 4.
+
+- Empirically linear in CPython (50K-char pure-backtick run = 16 μs), but the static analyser can't prove that — and we already use non-regex line walkers everywhere else for markdown parsing (regex.md rule 6).
+- Replaced with `_parse_md_fence(line)` — a non-regex parser that returns `(fence_char, run_length, rest_after_run)` or `None`. Provably O(n) per line; 100K-char pure-backtick run measures ~10 μs.
+- `_markdown_sections` updated to use the helper directly (no behavioural change — the helper returns the same tuple shape the regex's named groups did).
+- 2 new regression tests in `tests/test_phase12_review_fixes.py::TestRegexLinearity` — `test_parse_md_fence_linear_on_long_runs` (≤ 100 ms cap on N=100K) + `test_parse_md_fence_behaviour` (pinned outputs for opener with info string, 4-char fence, 2-space indent, 4-space indent → None, sub-3-char run → None, mismatched chars after run).
+
+### Fixed — round 3 review (post-`69ee6ab`)
+
+Round-3 review caught two real correctness bugs (Unicode `\w` in
+secret regexes, fence-length rule violation in markdown / code-fence
+tracking) plus a handful of doc / fixture parity issues. All applied.
+
+- **`re.ASCII` flag on secret regexes** (`forgelm/data_audit.py`) —
+  Last commit changed `[A-Za-z0-9_-]` → `[\w-]` in `github_token` /
+  `openai_api_key` / `google_api_key` / `jwt`, but Python's default
+  `\w` is **Unicode-aware** (matches `ünicode`, `türkçe`, …), which
+  would broaden the match universe to include non-ASCII chars that
+  real credentials never contain. Added `flags=re.ASCII` to all four
+  patterns so `\w` is restricted to ASCII. Patterns that already use
+  explicit ASCII character classes (`aws_access_key`, `slack_token`,
+  the explicit `[A-Z0-9]` ones) are unchanged.
+- **`regex.md` Rule 1 corrected** — Previous wording stated
+  `[A-Za-z0-9_]` and `\w` are equivalent in Python. They are not.
+  Rewrote the rule with a side-by-side example showing the Unicode /
+  ASCII divergence, plus a decision table: ASCII-only inputs → `\w`
+  with `re.ASCII` (or explicit class), natural-language inputs →
+  bare `\w` (Unicode-aware), mixed → be explicit.
+- **CommonMark fence-length rule enforced** (`forgelm/data_audit.py`
+  + `forgelm/ingestion.py`) — CommonMark §4.5 requires the closing
+  fence to use **at least as many** fence characters as the opener.
+  Both `_strip_code_fences` and `_markdown_sections` previously
+  tracked only the fence character, so a 4-backtick opener (` ```` `)
+  was prematurely closed by a 3-backtick line. `_is_code_fence_open`
+  now returns `(char, run_length)`; `_is_code_fence_close` accepts
+  the minimum run-length and rejects shorter closes. The markdown
+  splitter's `_MARKDOWN_CODE_FENCE` regex captures the fence run
+  (`(?P<fence>...)`) and the rest of the line (`(?P<rest>...)`) so
+  the splitter can also enforce "no info string on close" alongside
+  the length rule. All three CommonMark §4.5 close-side rules
+  (matching char + run length ≥ open + no info string) now hold.
+- **`data_audit.md` reframes `[ingestion-secrets]`** — The doc
+  previously implied installing the extra layered `detect-secrets`
+  on top of the regex fallback. The current code does not invoke
+  `detect-secrets` at all. Reworded as forward-compatibility:
+  installing the extra is safe to pin in requirements files but
+  doesn't change audit behaviour today.
+- **`README` clarifies `semantic` chunking strategy** — Listed as
+  reserved/planned: the implementation raises `NotImplementedError`
+  and the CLI hides it from `--strategy` choices. Previous wording
+  implied it was available at runtime.
+- **`ingestion-tr.md` CLI synopsis adds Phase 12 flags** —
+  `--strategy markdown` and `--secrets-mask` now appear in the
+  options block; short Turkish description for each.
+- **`review-pr` skill heading updated** — "The six-question review"
+  → "The seven-question review" to match the regex-check question
+  added in the previous commit.
+- **`data_curation.ipynb` fixture credentials fragmented** —
+  `deploy_runbook.txt` fixture now builds `AKIA…` / `ghp_…` strings
+  at runtime from inert fragments (same convention as
+  `tests/test_data_audit_phase12.py::FAKE_AWS_KEY`). Repo-wide
+  secret scanners no longer flag the notebook source.
+- **`data_curation.ipynb` MinHash install uses the project extra** —
+  `pip install 'datasketch>=1.6.0,<2.0.0'` →
+  `pip install 'forgelm[ingestion-scale]==0.5.2'` so the recipe
+  matches the install hint baked into
+  `forgelm.data_audit._require_datasketch`.
+- **`TestMinHashDistinctSemantic` uses pytest's `tmp_path`** — Was
+  creating a directory under `tests/` which mutated the repo and
+  broke parallel pytest runs. Now uses the standard `tmp_path`
+  fixture; no manual cleanup needed.
+- **3 new fence-length regression tests** in
+  `tests/test_phase12_review_fixes.py::TestFenceRunLengthRule`:
+  4-backtick block not closed by 3 backticks; `_strip_code_fences`
+  respects the length rule; close lines with info strings are
+  treated as content (CommonMark §4.5 conformance).
+
+### Added — Regex hygiene standard
+
+- **New standard `docs/standards/regex.md`** — codifies 8 hard rules absorbed from Phase 11/11.5/12 review cycles (no `[A-Za-z0-9_]` shorthand, no single-char character classes, bound your quantifiers, no two competing quantifiers over the same class, no `\s` under MULTILINE, no `.*?` + back-reference + DOTALL, anchored `^` / `$`, no leading `^.*`). Each rule cites the concrete review finding that produced it. Includes a ReDoS-exposure budget (10K-char pathological-input benchmark must stay ≤ 10ms) and test fixture hygiene rules (build credential-shaped strings from inert fragments at runtime). Linked from `coding.md`, `code-review.md`, the `review-pr` skill, and `CLAUDE.md`'s "read before editing" entry point.
+- **`code-review.md` checklist gains a regex section** — explicit `git diff` recipe to surface modified `re.compile` / `re.match` / `re.sub` calls + per-regex audit checklist.
+- **`review-pr` skill gains a regex check** — same checklist, applied during self-review before opening a PR.
+
+### Fixed — Phase 12 review cycle round 2.5 (post-`30ef590`)
+
+Round-2.5 review surfaced two confirmed ReDoS shapes that the earlier rounds missed; the regex hygiene sweep above also caught a handful of style-only deviations across the codebase.
+
+- **ReDoS confirmed in `_MARKDOWN_HEADING_PATTERN`** (`forgelm/ingestion.py`) — Old pattern `[ \t]+(.+?)[ \t]*$` had three quantifiers competing for trailing whitespace; pathological input `"# a" + " \t" * n + "x"` ran in O(n²) time (100ms at n=2000, 600ms at n=5000, 2.1s at n=10000 measured in CPython 3.11). Replaced with a non-whitespace anchor on the body capture: `[ \t]+(\S(?:[^\n]*\S)?)[ \t]*$`. Result: linear (10μs at n=10000 — 200000× speedup).
+- **`_CODE_FENCE_BLOCK` regex replaced with state machine** (`forgelm/data_audit.py`) — Old form used `.*?` + back-reference + `re.DOTALL`, which SonarCloud `python:S5852` flags as a polynomial-runtime risk even though it benchmarks linearly in CPython. Replaced with a per-line state machine (`_strip_code_fences` + `_is_code_fence_open` + `_is_code_fence_close`) that is provably O(n) and matches the same line-walker pattern as `_markdown_sections`. Behaviour pinned bit-for-bit on 7 fixtures.
+- **`[A-Za-z0-9_-]` → `[\w-]`** in `openai_api_key`, `google_api_key`, `jwt` (3 places) regexes per regex.md rule 1.
+- **`\s*$` → `[ \t]*$`** in `_PUNCT_END_PATTERN` (callers pre-split into single lines, so the `\s` newline-overlap is dead weight) per regex.md rule 5.
+- **Bounded `_HF_HUB_ID_RE`** (`forgelm/wizard.py`) — `[A-Za-z0-9._-]+` → `[\w.-]{1,96}` (HF Hub username + repo name max length) per regex.md rule 3 — defence-in-depth, no behaviour change for well-formed HF IDs.
+
+### ReDoS regression tests
+
+- **New `TestRegexLinearity` class in `tests/test_phase12_review_fixes.py`** — pinned 1-second wall-clock cap on N=10000 pathological inputs for both `_MARKDOWN_HEADING_PATTERN` and `_strip_code_fences`. A real ReDoS would blow far past the threshold; a slow CI host won't false-positive.
+- **Empirical sweep over all 25 forgelm regexes** confirmed linear scaling under 50K-character adversarial input. Slowest pattern (`openssh_private_key`, full-block PEM) measures 0.5ms — ~10μs/KB. The sweep is reproducible via the snippet documented in regex.md.
+
+### Fixed — Phase 12 review cycle round 2 (post-`bf8ca82`)
+
+Second-round review of the Phase 12 commit surfaced 22 findings spanning correctness, regex coverage, code-smell hygiene, type widening, and documentation parity. All addressed.
+
+- **Private-key blocks redacted in full** (`forgelm/data_audit.py`) — Old `openssh_private_key` / `pgp_private_key` regexes only matched the `BEGIN` header line, so `mask_secrets` left the entire base64 body + `END` line in clear text. Now both patterns match the full PEM/PGP envelope (BEGIN through matching END inclusive) under `re.DOTALL`. The literal block markers are split across `r"-----" + r"BEGIN " + r"..."` concatenations to keep repo-wide secret scanners (gitleaks / trufflehog) silent.
+- **Fenced code blocks recognise tildes too** (`forgelm/data_audit.py` + `forgelm/ingestion.py`) — `_CODE_FENCE_BLOCK` (audit's quality-filter strip) and `_MARKDOWN_CODE_FENCE` (ingest's markdown splitter) only matched triple-backtick fences; CommonMark §4.5 also allows `~~~`. Both now recognise either fence character with up to 3 leading spaces. The markdown splitter additionally tracks the *opening* fence character so a stray `\`\`\`` inside a `~~~` block (or vice-versa) doesn't toggle state.
+- **DOCX block order preserved** (`forgelm/ingestion.py`: `_iter_docx_blocks`) — `_extract_docx` previously appended every paragraph followed by every table, reordering content. New helper walks `doc.element.body` in source order, dispatches on `<w:p>` vs. `<w:tbl>`, and renders each block in place.
+- **Markdown overlap rejected explicitly** — `_strategy_dispatch` and `_strategy_dispatch_tokens` raise `ValueError` when `--strategy markdown` is combined with a non-zero overlap, rather than silently dropping it. To keep the CLI's historical default `--overlap 200` from spuriously tripping the validator on a `--strategy markdown` invocation that didn't ask for overlap, `--overlap`'s argparse default is now `None`; `ingest_path` resolves that sentinel to `200` for the sliding strategy and `0` for paragraph / markdown.
+- **`minhash_distinct` counts unique sketches** (`forgelm/data_audit.py`) — Previously returned the count of non-empty rows, breaking parity with `simhash_distinct` (which is *unique fingerprints*). Now hashes each MinHash via `m.hashvalues.tobytes()` and counts the distinct set, matching simhash semantics.
+- **`_row_quality_flags` typed `Optional[str]`** — The function already accepted `None` at runtime; the signature now reflects that and the test's `# type: ignore[arg-type]` suppression is gone.
+- **Cognitive-complexity refactors** — `_row_quality_flags` (CCN 22 → ≤ 10 via per-check helpers `_check_low_alpha_ratio` / `_check_low_punct_endings` / `_check_abnormal_mean_word_length` / `_check_short_paragraphs` / `_check_repeated_lines`); `find_near_duplicates_minhash` (CCN 21 → ≤ 10 via `_build_minhash_lsh` + `_emit_minhash_pair`); `audit_dataset` (CCN 21 → ≤ 12 via `_fold_outcome_into_summary` + `_build_quality_summary` + `_build_near_duplicate_summary`).
+- **Regex / lint code-smells** — `[A-Za-z0-9_]` → `\w` in the GitHub PAT pattern; `[ ]{0,3}` → ` {0,3}` (single-char class collapsed) in markdown patterns; `\s` → `[ \t]` in heading pattern (mitigates the polynomial-backtracking concern SonarCloud flagged); duplicate `"chunk_tokens must be positive"` / `"max_chunk_size must be positive"` literal strings extracted to module constants `_CHUNK_TOKENS_POSITIVE_MSG` / `_CHUNK_SIZE_POSITIVE_MSG`; `_MARKDOWN_OVERLAP_UNSUPPORTED_MSG` constant for the new validator; comprehension `["| " + " | ".join(c for c in row) + " |"]` simplified to `["| " + " | ".join(row) + " |"]`.
+- **Documentation parity** — `docs/guides/data_audit.md` quality-filter bullet list and JSON example now include `repeated_lines` and a note about code-fence stripping. `docs/guides/ingestion-tr.md` mirrors the EN guide's chunking-strategies table (markdown row added) and gains a new "secrets/credential masking (Faz 12)" section. `CHANGELOG`'s Phase 12 entry no longer overstates the `[ingestion-secrets]` extra: the regex set is the sole detection backend in v0.5.2, and the `detect-secrets` package is reserved for a follow-up release. `README` separates "From PyPI" and "From a local clone" install blocks so copy-paste users don't hit `-e .` confusion.
+- **Test fixtures fragmented** — All hardcoded credential / JWT literals in `tests/test_data_audit_phase12.py`, `tests/test_ingestion_phase12.py`, and `tests/test_phase12_review_fixes.py` now built at runtime from inert string fragments (e.g. `"AKIA" + "IOSFODNN7" + "EXAMPLE"`). The regex still has to match the canonical shape, but no full literal credential lives in the source tree — silences gitleaks / trufflehog scans of the repo without changing behaviour.
+- **5 new round-2 regression tests** (`tests/test_phase12_review_fixes.py`) — `TestTildeFenceRecognised` (~~~-fenced code blocks block heading splits), `TestPrivateKeyFullBlock` (full PEM body redaction), `TestMarkdownOverlapValidation` (rejection on explicit non-zero overlap; default-overlap pass-through), `TestMinHashDistinctSemantic` (unique-sketches semantic).
+- **Notebook ruff format** — `notebooks/post_training_workflow.ipynb` reformatted to satisfy `ruff format --check` in CI; `notebooks/data_curation.ipynb` install line pinned to `forgelm[ingestion]==0.5.2` rather than the moving `main` branch.
+
+### Fixed — Phase 12 review cycle (post-`2f5722a`)
+
+Round-1 review of the Phase 12 commit surfaced four critical regressions / bugs and several lower-severity issues. All addressed before tagging `v0.5.2`. No new functionality; only correctness, honesty, and parity fixes.
+
+- **JSON envelope back-compat** (`forgelm/cli.py`) — `_run_data_audit`'s stdout JSON envelope dropped the v0.5.1 `near_duplicate_pairs_per_split` top-level key when the richer `near_duplicate_summary` block was added. Pre-Phase-12 CI consumers (`jq '.near_duplicate_pairs_per_split.train'`) would have started getting `null`. Restored as an additive key alongside the new one. Plan / CHANGELOG language updated from *"byte-identical default report"* to *"schema-additive"* — older parsers keep working, but on-disk JSON is no longer byte-identical because `secrets_summary`, `near_duplicate_summary.method`, and `cross_split_overlap.method` are now always present.
+- **Quality filter completes the planned check set** (`forgelm/data_audit.py`) — Plan promised five Gopher / C4 / RefinedWeb-style heuristics; v0.5.2 shipped four. Added the missing `repeated_lines` check (top-3 actually-repeating distinct lines covering > 30 % of non-empty lines flag the row — pinned on count ≥ 2 so short all-unique documents don't false-positive). Surfaces in `quality_summary.by_check.repeated_lines`.
+- **Quality filter respects fenced markdown code** (`forgelm/data_audit.py`: `_strip_code_fences`) — Code blocks legitimately have low alpha ratio + missing end-of-line punctuation + short paragraphs and tripped every prose heuristic, polluting the `quality_summary` on legitimate code-instruct corpora. `_row_quality_flags` now strips fenced ``` … ``` blocks before applying the heuristics; pure-code rows return `[]` instead of being flagged on shape grounds.
+- **DOCX table cells escape `|` and `\`** (`forgelm/ingestion.py`: `_escape_md_cell`) — `_docx_table_to_markdown` joined cell text directly into a markdown table row, so a cell containing `a|b` was parsed by downstream tokenisers as two extra columns. Now escapes `|` → `\|` and `\` → `\\` per CommonMark, and collapses embedded newlines to spaces (markdown tables can't carry multi-line cells).
+- **JWT regex narrowed** (`forgelm/data_audit.py`) — Old pattern `\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b` false-positived on prose like `eyJfoo.eyJbar.baz`. Anchored on the canonical JWT header alphabet (`alg` / `typ` / `kid` / `cty` / `enc` / `api`'s base64url prefixes — `hbGc`, `0eXA`, `raWQ`, `jdHk`, `lbmM`, `hcGk`) plus minimum lengths on payload and signature. Real JWTs (including the original test fixture) still match; arbitrary `eyJ.eyJ.X`-shaped prose does not.
+- **MinHash docstring honest about the metric** (`forgelm/data_audit.py`) — `compute_minhash` previously claimed it surfaces "the same class of near-duplicates" as simhash. The two use different similarity metrics (set-Jaccard over distinct tokens vs. frequency-weighted bit-cosine) and disagree on documents with high token-frequency variance. Docstring rewritten to make the divergence explicit. Roadmap "byte-identical" wording corrected in the same spirit.
+- **CommonMark indented headings recognised** (`forgelm/ingestion.py`) — `_MARKDOWN_HEADING_PATTERN` and `_MARKDOWN_CODE_FENCE` allow up to 3 leading spaces per CommonMark §4.2; 4+ spaces still fall through as indented code blocks (correctly *not* split as headings).
+- **Cog complexity restored to ≤ 15** — `_aggregator_to_info` (split into `_populate_schema_block` / `_populate_optional_findings` / `_within_split_pairs`) and `_markdown_sections` (split into `_push_heading_onto_path` / `_trim_blank_edges`) factored to stay under the Phase 11.5 ceiling.
+- **Defensive lazy import in `compute_minhash`** — Empty input now returns `None` without paying the `_require_datasketch()` raise path. Same effect for `_count_leaked_rows_minhash` when the entire target list is empty (LSH-construction skipped).
+- **Mask-order rationale honest** (`forgelm/ingestion.py`: `_emit_chunk`) — Old docstring claimed today's regex sets overlap; in practice the shipped fixtures show no overlap. Rewritten to describe the ordering as *defensive* (favour secrets when ordering matters at all; future-proof against new PII / secret regexes that may overlap, e.g. Azure connection strings vs. IBANs).
+- **Markdown chunkers document the no-overlap contract** — `_chunk_markdown` and `_chunk_markdown_tokens` docstrings explicitly state that `--overlap` / `--overlap-tokens` are silently ignored when `--strategy markdown` is selected (sections are atomic; overlapping would slice mid-section and break the breadcrumb invariant).
+- **Type hints tightened** — `IngestionResult.format_counts` / `pii_redaction_counts` / `secrets_redaction_counts` and the local counters in `ingest_path` typed as `Dict[str, int]` instead of bare `dict`.
+- **Turkish documentation parity** (`docs/guides/data_audit-tr.md`) — Three Phase 12 H3 sections (MinHash LSH, Code/secret tagger, Heuristic quality filter) were missing from the TR mirror; added at the same detail level as the EN guide.
+- **18 regression tests** (`tests/test_phase12_review_fixes.py`) — One class per finding, pinning the fixes against re-introduction. Covers the JSON envelope shape, `repeated_lines` detection on real boilerplate vs. all-unique short docs, DOCX `|` / `\` / newline escaping, JWT header-alphabet anchors with the prose-shape false-positive, code-fence stripping in the quality filter, the token-aware markdown chunker (previously untested), and CommonMark 0-3-space indented headings.
+
+### Added — Phase 12 (Data Curation Maturity, targeting v0.5.2)
+
+Direct continuation of the Phase 11 / 11.5 ingestion + audit lineage. Closes the four concrete gaps surfaced by the post-`v0.5.1` competitive review (LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling). Tier 1 (5 must-have tasks) shipped; Tier 2/3 (Presidio adapter, Croissant metadata, `--all-mask`, wizard "audit first") deferred to a [Phase 12.5 backlog](docs/roadmap/phase-12-5-backlog.md).
+
+- **MinHash LSH dedup option** (`forgelm/data_audit.py`: `compute_minhash`, `find_near_duplicates_minhash`, `_count_leaked_rows_minhash`) — Opt-in `--dedup-method minhash --jaccard-threshold 0.85` route via the optional `[ingestion-scale]` extra (`datasketch>=1.6.0`). Default simhash + LSH banding from Phase 11.5 stays untouched and remains the only method that runs without an optional dependency. `audit_dataset(...)` API gains `dedup_method`, `minhash_jaccard`, `minhash_num_perm` parameters; `near_duplicate_summary.method` records which path ran. Cross-split overlap + within-split duplicate scan share the same method flag. MinHash is approximate (permutation noise; default `num_perm=128`) — pin `num_perm` for cross-run determinism.
+- **Markdown-aware splitter** (`forgelm/ingestion.py`: `_chunk_markdown`, `_chunk_markdown_tokens`, `_markdown_sections`, `_heading_breadcrumb`) — New `--strategy markdown` parses heading hierarchy (`# H1` … `###### H6`), keeps code-fenced blocks atomic (heading-shaped lines inside ```` ``` ```` blocks are not interpreted as section boundaries), and inlines a heading **breadcrumb** at the top of each chunk so SFT loss sees the document context. Composes with the Phase 11.5 token-aware mode (`--chunk-tokens` + `--tokenizer`).
+- **Code / secret leakage tagger** (`forgelm/data_audit.py`: `detect_secrets`, `mask_secrets`, `_SECRET_PATTERNS`) — Always-on audit-side scan with a **prefix-anchored regex set** (the sole detection backend in this release) covering AWS access keys (`AKIA…` / `ASIA…`), GitHub PATs (`ghp_`, `gho_`, `ghs_`, `ghu_`, `ghr_`, `github_pat_`), Slack tokens, OpenAI API keys (`sk-…` / `sk-proj-…`), Google API keys, JWTs anchored on canonical header alphabet, full OpenSSH / RSA / DSA / EC / PGP private-key blocks (BEGIN through END inclusive — `mask_secrets` redacts the entire block, not just the header line), and Azure storage connection strings. Adds a `secrets_summary` block alongside `pii_summary`. Ingest side: `forgelm ingest --secrets-mask` rewrites detected spans with `[REDACTED-SECRET]`; runs **before** PII masking as a defensive ordering so future overlapping detectors (PII vs secret regex) can't double-count. The optional `[ingestion-secrets]` extra (`detect-secrets>=1.5.0`) is reserved for a follow-up release — the current code does **not** invoke the `detect-secrets` package (its plugin model assumes file paths, not streaming chunks); install only as forward-compatibility for the eventual integration.
+- **Heuristic quality filter** (`forgelm/data_audit.py`: `_row_quality_flags`, `_QUALITY_CHECKS`) — Opt-in `forgelm audit --quality-filter` runs Gopher / C4 / RefinedWeb-style checks per row: `low_alpha_ratio` (< 70 % letters among non-whitespace), `low_punct_endings` (< 50 % of non-empty lines end with punctuation), `abnormal_mean_word_length` (outside 3–12 chars), `short_paragraphs` (> 50 % of `\n\n`-blocks have < 5 words). Surfaces `quality_summary` with per-check counts, `samples_flagged`, and `overall_quality_score`. ML-based classifiers (fastText / DeBERTa) deliberately out of scope — keeps the audit deterministic for Annex IV reproducibility.
+- **DOCX / Markdown table preservation** (`forgelm/ingestion.py`: `_docx_table_to_markdown`) — `_extract_docx` now renders tables as markdown table syntax (header row + `---` separator + body rows) instead of the previous `" | "`-joined flat line. Uneven rows are right-padded with empty cells; all-blank rows are dropped; the first non-empty row becomes the header (no heuristic — that's the convention DOCX authors use). Combined with `--strategy markdown` the table block stays intact across chunks.
+
+### Public API additions
+
+- `AuditReport` gains `secrets_summary: Dict[str, int]` and `quality_summary: Dict[str, Any]` fields (additive — Phase 11/11.5 consumers reading just `pii_summary` / `near_duplicate_summary` keep working).
+- `IngestionResult` gains `secrets_redaction_counts: dict` field.
+- `audit_dataset(...)` accepts `dedup_method`, `minhash_jaccard`, `minhash_num_perm`, `enable_quality_filter` keyword arguments.
+- `ingest_path(...)` accepts `secrets_mask: bool` keyword argument.
+- New constants: `DEDUP_METHODS`, `DEFAULT_MINHASH_JACCARD`, `DEFAULT_MINHASH_NUM_PERM`, `SECRET_TYPES`.
+
+### CLI additions
+
+- `forgelm ingest`: `--strategy markdown`, `--secrets-mask`.
+- `forgelm audit`: `--dedup-method {simhash,minhash}`, `--jaccard-threshold X` (validated to `[0.0, 1.0]` at parse time), `--quality-filter`.
+- New argparse type helper `_non_negative_float` (mirrors `_non_negative_int`'s pattern).
+- `_run_data_audit` now distinguishes `EXIT_CONFIG_ERROR` (filesystem/path errors) from `EXIT_TRAINING_ERROR` (missing `[ingestion-scale]` extra when `--dedup-method=minhash` was requested).
+
+### `pyproject.toml`
+
+- New extras: `[ingestion-scale]` (`datasketch>=1.6.0,<2.0.0`), `[ingestion-secrets]` (`detect-secrets>=1.5.0,<2.0.0`).
+- Version bump `0.5.1rc1 → 0.5.2rc1`.
+
+### Tests
+
+- `tests/test_data_audit_phase12.py` — 18 new tests across `TestSecretsDetection`, `TestSecretsMasking`, `TestAuditPicksUpSecrets`, `TestQualityFilterPerRow`, `TestQualityFilterEnabled`, `TestMinHashLshDedup` (skipped without `datasketch`), `TestMinHashMissingExtra`.
+- `tests/test_ingestion_phase12.py` — 13 new tests across `TestMarkdownSections`, `TestChunkMarkdown`, `TestMarkdownStrategyExposed`, `TestDocxTableToMarkdown`, `TestSecretsMaskIngest`.
+- `tests/test_cli_subcommands.py` — `test_audit_quality_filter_flag`, `test_audit_rejects_invalid_jaccard_threshold` added to `TestAuditSubcommand`.
+
+### Changed (no behavioural delta unless noted)
+
+- `_StreamingAggregator` gains `minhashes`, `secrets_counts`, `quality_flags_counts`, `quality_samples_flagged`, `dedup_method`, `minhash_num_perm`, `enable_quality_filter` fields. Field rename: `_SplitOutcome.fingerprints` → `_SplitOutcome.signatures` (the same field carries simhash ints OR MinHash instances, depending on method).
+- `_audit_split(...)` now returns `(info, signatures, pii_split, parse_errors, decode_errors)` where `signatures` is method-dependent. `_process_split` and `audit_dataset` were updated in lockstep.
+- `_pair_leak_payload` and `_cross_split_overlap` switched to keyword-only `dedup_method` parameter and dispatch on it (simhash → Hamming; minhash → Jaccard).
+- `describe_strategies()` now lists `markdown` alongside `sliding` / `paragraph` / `semantic`.
+
 ### Added — Phase 11.5 (Ingestion / Audit Polish, targeting v0.5.1)
 
 Operational polish on top of `v0.5.0`'s ingestion + audit surface — no new training capabilities, but materially better handling for large corpora and a cleaner CLI shape. All 12 follow-ups carved out of Phase 11's review backlog.
@@ -62,6 +255,67 @@ Operational polish on top of `v0.5.0`'s ingestion + audit surface — no new tra
 - **Tests** — `tests/test_ingestion.py` (TXT path + chunking strategies; PDF round-trip skips when `pypdf` missing) and `tests/test_data_audit.py` (PII regex + Luhn / TC Kimlik validators, simhash properties, end-to-end audit on file + split-keyed directory layouts, governance integration). All GPU/network-free.
 
 - **Documentation** — new guides at `docs/guides/ingestion.md` and `docs/guides/data_audit.md`; README feature section, CLI epilog, install matrix, and roadmap status updated.
+
+---
+
+## [0.5.2] — 2026-04-28
+
+**Theme:** "Data Curation Maturity" (Phase 12 Tier 1) — direct continuation of the Phase 11 / 11.5 ingestion + audit lineage. Closes the four gaps surfaced by the post-`v0.5.1` competitive review (LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling). Tier 2/3 items (Presidio adapter, Croissant metadata, `--all-mask`, wizard "audit first") deferred to [Phase 12.5 backlog](docs/roadmap/phase-12-5-backlog.md).
+
+### Added
+
+- **MinHash LSH dedup option** — opt-in `--dedup-method minhash --jaccard-threshold 0.85` route via `datasketch` (`[ingestion-scale]` extra) for >50K-row corpora. Default simhash + LSH banding stays untouched.
+- **Markdown-aware splitter** — new `--strategy markdown` preserves heading hierarchy (`# H1` / `## H2`), keeps fenced code blocks atomic, and inlines a heading breadcrumb so SFT loss sees document context.
+- **Code / secrets leakage tagger** — new `secrets_summary` block in audit JSON (AWS / GitHub / Slack / OpenAI / Google / JWT / OpenSSH / PGP / Azure storage). Ingest gains `--secrets-mask` (mask order: secrets → PII so combined detectors don't double-count). `[ingestion-secrets]` extra is reserved for a follow-up release; the regex-only fallback is what runs today.
+- **Heuristic quality filter** — opt-in `--quality-filter` adds a `quality_summary` block with Gopher / C4 / RefinedWeb-style heuristics (mean-word-length, alphabetic ratio, end-of-line punctuation, short-paragraph ratio, repeated lines). ML classifiers stay deferred to Phase 13+.
+- **DOCX table preservation** — `_extract_docx` emits Markdown table syntax (header + `---` separator + body rows) at extraction time, **before any chunking strategy runs**, instead of the previous `" | "` flat join. Uneven rows padded; all-blank rows trimmed.
+- **`secrets_redaction_counts`** — added to the `--output-format json` envelope of `forgelm ingest` for CI/CD consumers; `{secret_type: count}` map of redacted spans.
+
+### Changed / Fixed (review-cycle hardening)
+
+- **Regex hygiene standard** ([`docs/standards/regex.md`](docs/standards/regex.md)) — codified 8 hard rules distilled from Phase 11 / 11.5 / 12 review cycles (Unicode-aware `\w`, no single-char classes, bounded quantifiers, no two competing unbounded greedy quantifiers, no `\s` under MULTILINE, no `.*?` + back-reference + DOTALL, intentional ASCII-only classes permitted with `re.ASCII`). The 8th rule covers `^.*` anti-pattern.
+- **Replaced `_MARKDOWN_CODE_FENCE` regex with `_parse_md_fence`** — non-regex per-line parser; provably O(n). The previous regex had two unbounded greedy quantifiers in sequence over overlapping character classes (SonarCloud `python:S5852`).
+- **`_strip_code_fences`** in `data_audit.py` rewritten as a per-line state machine; tracks the opening fence's run length per CommonMark §4.5 so a 4-backtick opener isn't prematurely closed by a 3-backtick line.
+- **`_markdown_sections` complexity refactor** — extracted `_advance_fence_state`, `_flush_section`, `_render_sections` helpers so the dispatch loop reads top-down (cognitive complexity below SonarCloud's 15-line threshold).
+- **`_parse_md_fence`** — now rejects backtick fence openers whose info string contains a backtick (CommonMark §4.5).
+- **MinHash knob validation** — `audit_dataset` validates `minhash_jaccard ∈ [0.0, 1.0]` and `minhash_num_perm > 0` at the API boundary.
+- **`re.ASCII` flag** on secret regexes (`github_token` / `openai_api_key` / `google_api_key` / `jwt`) so `\w` is restricted to ASCII; full BEGIN…END envelope matching for OpenSSH / RSA / DSA / EC / PGP private-key blocks.
+- **Documentation drift sweep** — multiple rounds of EN ↔ TR mirror sync (`data_audit-tr.md`, `ingestion-tr.md`, `regex.md`, `data_audit.md`); legacy JSON-key documentation now references the actual `splits.<name>.near_duplicate_pairs` path.
+- **ReDoS regression tests** — `tests/test_phase12_review_fixes.py` adds linearity benchmarks at 1K / 5K / 10K (median of 5 runs) for `_MARKDOWN_HEADING_PATTERN`, `_strip_code_fences`, and `_parse_md_fence`.
+
+---
+
+## [0.5.1] — 2026-04-27
+
+**Theme:** "Ingestion / Audit Polish" (Phase 11.5) — operational polish on top of `v0.5.0`'s ingestion + audit surface. No new training capabilities, but materially better handling for large corpora and a cleaner CLI shape.
+
+### Added
+
+- **`forgelm audit` subcommand** — promoted from the `--data-audit` top-level flag; first-class subcommand with its own `--output` default. The flag is preserved as a deprecation alias.
+- **LSH-banded near-duplicate detection** — replaces the `O(n²)` pair scan inside each split (and across splits) with locality-sensitive-hashing bands (4 × 16-bit on the 64-bit fingerprint). Drops average-case to `O(n × k)` and unblocks audits on 100K+ row corpora.
+- **Streaming `_read_jsonl_split`** — JSONL reader yields rows lazily; per-split aggregator stays generator-based until simhash collection. Bounds memory on multi-million-row splits.
+- **Token-aware `--chunk-tokens`** — optional ingestion flag that sizes chunks against an HF tokenizer instead of raw character counts.
+- **PDF page-level header / footer dedup** — repeated page headers (company watermark, page number) used to inflate near-duplicate counts; common-prefix / common-suffix detection across pages strips them automatically.
+- **PII severity tiers** — audit output adds a `pii_severity` block grading each PII type as `low / medium / high / critical` (e.g. `credit_card` → critical, `phone` → low) so compliance reviewers get a one-glance verdict.
+- **`summarize_report` truncation policy** — multi-split summaries get a `verbose=False` default that suppresses zero-finding splits.
+- **Structured ingestion notes** — `IngestionResult.extra_notes` keeps the human-readable list but gains a parallel `notes_structured: {key: value}` map for programmatic consumers.
+- **Wizard "ingest first" entry point** — first-class wizard option that routes to `forgelm ingest`, surfaces a JSONL path, and folds it back into the BYOD prompt.
+- **xxhash backend for simhash + token-level memo** — drop-in faster non-crypto digest path (BLAKE2b kept as fallback). Token-level `lru_cache` memoizes repeat tokens for a 2–5× speedup on long corpora.
+- **Atomic audit report write** — `data_audit_report.json` is written via `tempfile.NamedTemporaryFile` + atomic rename so a crashed audit never leaves a half-written report on disk.
+
+---
+
+## [0.5.0] — 2026-04-27
+
+**Theme:** "Document Ingestion & Data Audit" (Phase 11). Bridges raw enterprise corpora to ForgeLM's training data format and surfaces governance signals before training.
+
+### Added
+
+- **`forgelm/ingestion.py` + `forgelm ingest` subcommand** — multi-format document → JSONL pipeline with `paragraph` (default) and `sliding` chunking strategies, recursive directory walk, optional `--pii-mask`. Supported extensions: `.pdf` (`pypdf`), `.docx` (`python-docx`), `.epub` (`ebooklib` + `beautifulsoup4`), `.txt`, `.md`. Output is `{"text": ...}` JSONL recognised by ForgeLM's data loader as pre-formatted SFT input. OCR is intentionally out of scope; scanned PDFs warn and produce zero chunks.
+- **`forgelm/data_audit.py` + `forgelm --data-audit` flag** — per-split metrics (sample count, column schema, length distribution `min/max/mean/p50/p95`, top-3 language detection, null/empty rate), 64-bit simhash near-duplicate detection within each split, cross-split overlap report (catches train/test leakage), PII regex with Luhn-validated credit cards and TC Kimlik checksum-validated TR IDs.
+- **EU AI Act Article 10 integration** — `generate_data_governance_report` inlines `data_audit_report.json` under the `data_audit` key when present in the trainer's `output_dir`.
+- **`pyproject.toml` `[ingestion]` extra** — `pypdf`, `python-docx`, `ebooklib`, `beautifulsoup4`, `langdetect`. Cross-platform; no native compilation. Plain TXT / Markdown ingestion + the audit module work without installing the extra (PII regex, simhash, length stats are pure stdlib).
+- **Tests + docs** — `tests/test_ingestion.py` and `tests/test_data_audit.py` (54 tests; PDF round-trip skips when `pypdf` missing). New guides: `docs/guides/ingestion.md`, `docs/guides/data_audit.md`. README feature section, install matrix, and roadmap status updated.
 
 ---
 

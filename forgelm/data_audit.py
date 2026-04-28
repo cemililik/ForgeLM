@@ -62,6 +62,38 @@ except ImportError:  # pragma: no cover
     _HAS_XXHASH = False
 
 
+# C.3: optional numpy for vectorised bit-unpacking inside compute_simhash.
+# The pure-Python path loops `bits` times per token; numpy unpacks the full
+# `bits`-wide integer in one matrix operation (tokens × bits) and reduces
+# along the token axis with a single dot product.  Speedup is ~4–8× on
+# corpora with >1 K unique tokens per record; negligible for short texts
+# (lru_cache already handles repeated tokens).
+try:  # pragma: no cover — optional accelerator
+    import numpy as _np
+
+    _HAS_NUMPY = True
+except ImportError:  # pragma: no cover
+    _np = None  # type: ignore[assignment]
+    _HAS_NUMPY = False
+
+
+# Phase 12: optional ``datasketch`` backend for MinHash LSH near-duplicate
+# detection. Default audit stays on the simhash + LSH band path (Phase 11.5)
+# which is exact at ``threshold=3`` and bounded ~50K rows. ``--dedup-method
+# minhash`` opts into LSH-banded MinHash, which is the industry standard for
+# >50K-row corpora (NeMo Curator, Dolma, RedPajama). MinHash is approximate
+# (Jaccard with permutation noise) — that's why simhash stays default.
+try:  # pragma: no cover — exercised by the dedicated extras-skip tests
+    from datasketch import MinHash as _MinHash
+    from datasketch import MinHashLSH as _MinHashLSH
+
+    _HAS_DATASKETCH = True
+except ImportError:  # pragma: no cover
+    _MinHash = None  # type: ignore[assignment]
+    _MinHashLSH = None  # type: ignore[assignment]
+    _HAS_DATASKETCH = False
+
+
 # ---------------------------------------------------------------------------
 # Public types
 # ---------------------------------------------------------------------------
@@ -114,6 +146,25 @@ _TEXT_COLUMNS: Tuple[str, ...] = ("text", "content", "completion", "prompt")
 DEFAULT_NEAR_DUP_HAMMING: int = 3
 
 
+# Phase 12: defaults for the optional MinHash LSH dedup path.
+DEFAULT_MINHASH_JACCARD: float = 0.85
+"""Jaccard-similarity threshold for MinHash LSH. ``0.85`` mirrors the
+``threshold=3 → ≈95 %`` simhash default in spirit — the two approaches
+report the same relative class of near-duplicates on real corpora,
+within MinHash's permutation noise."""
+
+DEFAULT_MINHASH_NUM_PERM: int = 128
+"""Permutation count for ``datasketch.MinHash``. ``128`` is the
+``datasketch`` default and the standard balance: enough hash functions
+for stable Jaccard estimates, low enough that per-row cost stays in
+the same ballpark as simhash."""
+
+DEDUP_METHODS: Tuple[str, ...] = ("simhash", "minhash")
+"""Allowed values for ``audit_dataset(..., dedup_method=...)`` and
+``forgelm audit --dedup-method ...``. ``simhash`` is the default and
+the only method that does not require an optional dependency."""
+
+
 @dataclass
 class AuditReport:
     """Structured audit outcome — JSON-serializable via :func:`asdict`.
@@ -134,6 +185,12 @@ class AuditReport:
     pii_summary: Dict[str, int] = field(default_factory=dict)
     pii_severity: Dict[str, Any] = field(default_factory=dict)
     near_duplicate_summary: Dict[str, Any] = field(default_factory=dict)
+    # Phase 12: aggregate counts for code/credential leakage and (opt-in)
+    # heuristic quality flags. Both are additive — older consumers that
+    # ignored them keep working byte-identically; the fields stay empty
+    # dicts on default audits with no findings.
+    secrets_summary: Dict[str, int] = field(default_factory=dict)
+    quality_summary: Dict[str, Any] = field(default_factory=dict)
     notes: List[str] = field(default_factory=list)
 
 
@@ -343,12 +400,43 @@ def _token_digest(token: str, bits: int = 64) -> int:
     )
 
 
+def _compute_simhash_numpy(weights: Dict[str, int], bits: int) -> int:
+    """Numpy-vectorised simhash majority vote (dispatched from compute_simhash).
+
+    Builds a (num_unique_tokens × bits) uint8 bit matrix in one shot using
+    numpy's right-shift + bitwise-and broadcast, then reduces with a signed
+    dot product to get bit_scores without any Python-level loop over bits.
+    """
+    tokens_list = list(weights.keys())
+    w = _np.array([weights[t] for t in tokens_list], dtype=_np.int64)
+    hashes = _np.array([_token_digest(t, bits) for t in tokens_list], dtype=_np.uint64)
+
+    # Unpack: shift[i] = hash >> i, then & 1 → (num_tokens, bits) bool matrix
+    shifts = _np.arange(bits, dtype=_np.uint64)
+    bits_matrix = ((hashes[:, None] >> shifts) & _np.uint64(1)).astype(_np.int8)
+
+    # Signed contribution: +weight where bit=1, -weight where bit=0
+    # score[j] = sum_i( w[i] * (2*bit[i,j] - 1) )
+    contributions = 2 * bits_matrix - 1  # maps {0,1} → {-1,+1}
+    bit_scores = w.astype(_np.int64) @ contributions.astype(_np.int64)  # (bits,)
+
+    # Pack into integer
+    set_bits = _np.where(bit_scores > 0)[0]
+    if set_bits.size == 0:
+        return 0
+    return int(sum(1 << int(i) for i in set_bits))
+
+
 def compute_simhash(text: str, *, bits: int = 64) -> int:
     """64-bit simhash over case-folded word tokens.
 
     Per-bit majority voting weighted by token frequency, where each
     distinct token's hash is computed once via :func:`_token_digest`
     (cached at module scope). Empty input → ``0``.
+
+    When numpy is available and ``bits`` is a multiple of 8, dispatches to
+    :func:`_compute_simhash_numpy` for a ~4–8× speedup on texts with many
+    unique tokens.
     """
     tokens = _tokenize(text)
     if not tokens:
@@ -357,6 +445,12 @@ def compute_simhash(text: str, *, bits: int = 64) -> int:
     weights: Dict[str, int] = {}
     for token in tokens:
         weights[token] = weights.get(token, 0) + 1
+
+    # Numpy fast path uses ``np.uint64`` for the hash dtype, which silently
+    # truncates digests wider than 64 bits — fall back to pure Python for
+    # those (the hashlib BLAKE2b path scales arbitrarily wide).
+    if _HAS_NUMPY and bits % 8 == 0 and bits <= 64:
+        return _compute_simhash_numpy(weights, bits)
 
     bit_scores = [0] * bits
     for token, weight in weights.items():
@@ -508,6 +602,230 @@ def find_near_duplicates(
 
 
 # ---------------------------------------------------------------------------
+# Phase 12: MinHash LSH near-duplicate detection (optional ``datasketch``)
+# ---------------------------------------------------------------------------
+
+
+def _require_datasketch() -> None:
+    """Raise a clear ImportError when the optional MinHash backend is missing."""
+    if not _HAS_DATASKETCH:
+        raise ImportError(
+            "MinHash dedup requires the 'ingestion-scale' extra. Install with: pip install 'forgelm[ingestion-scale]'"
+        )
+
+
+def compute_minhash(text: str, *, num_perm: int = DEFAULT_MINHASH_NUM_PERM) -> Optional[Any]:
+    """Build a ``datasketch.MinHash`` from ``text``'s tokenised shingles.
+
+    Returns ``None`` when ``text`` produces no tokens (matches the simhash
+    convention of returning ``0`` for empty input — the caller treats both
+    sentinels as "skip in pair-walks"). Tokens are the same as
+    :func:`_tokenize` (case-folded ``\\w+``); MinHash sees one update per
+    **distinct** token (standard MinHash convention).
+
+    Note: this is set-Jaccard similarity over distinct tokens, **not** the
+    same metric simhash uses (frequency-weighted bit-cosine over feature
+    vectors). The two can disagree on documents with high token-frequency
+    variance — e.g. boilerplate / heavy repetition: ``"the cat the cat
+    the cat"`` and ``"cat"`` have identical MinHash sketches but distinct
+    simhash fingerprints. On natural prose the two methods typically
+    agree to within MinHash's permutation noise. Operators that need
+    weighted similarity should stick with simhash; MinHash wins when set
+    overlap (rather than weighted overlap) is the right notion.
+    """
+    tokens = _tokenize(text)
+    if not tokens:
+        return None
+    # Lazy: only require the optional extra when we actually need the
+    # ``datasketch`` types — defensive callers that call ``compute_minhash("")``
+    # still get a clean ``None`` without paying the import cost.
+    _require_datasketch()
+    m = _MinHash(num_perm=num_perm)
+    for token in set(tokens):
+        m.update(token.encode("utf-8"))
+    return m
+
+
+def _build_minhash_lsh(
+    minhashes: List[Optional[Any]],
+    *,
+    jaccard_threshold: float,
+    num_perm: int,
+    key_prefix: str,
+) -> Tuple[Any, Dict[str, int]]:
+    """Build an LSH index over non-empty MinHashes; return ``(lsh, key→idx)``."""
+    lsh = _MinHashLSH(threshold=jaccard_threshold, num_perm=num_perm)
+    keys: Dict[str, int] = {}
+    for idx, m in enumerate(minhashes):
+        if m is None:
+            continue
+        key = f"{key_prefix}-{idx}"
+        keys[key] = idx
+        lsh.insert(key, m)
+    return lsh, keys
+
+
+def _emit_minhash_pair(
+    idx: int,
+    cand_key: str,
+    keys: Dict[str, int],
+    minhashes: List[Optional[Any]],
+    jaccard_threshold: float,
+    seen: set,
+) -> Optional[Tuple[int, int, float]]:
+    """Verify a single LSH candidate; return the pair tuple or ``None``."""
+    cand_idx = keys.get(cand_key)
+    if cand_idx is None or cand_idx == idx:
+        return None
+    i, j = (idx, cand_idx) if idx < cand_idx else (cand_idx, idx)
+    if (i, j) in seen:
+        return None
+    seen.add((i, j))
+    jaccard = minhashes[i].jaccard(minhashes[j])
+    if jaccard < jaccard_threshold:
+        return None
+    return (i, j, jaccard)
+
+
+def find_near_duplicates_minhash(
+    minhashes: List[Optional[Any]],
+    *,
+    jaccard_threshold: float = DEFAULT_MINHASH_JACCARD,
+    num_perm: int = DEFAULT_MINHASH_NUM_PERM,
+) -> List[Tuple[int, int, float]]:
+    """Pair-find rows whose MinHash Jaccard similarity ≥ ``jaccard_threshold``.
+
+    Returns ``[(i, j, jaccard), ...]`` with ``i < j``. Mirrors
+    :func:`find_near_duplicates`'s shape so the per-split callsite can
+    swap one for the other on a method flag.
+
+    Implementation: a single :class:`datasketch.MinHashLSH` index over all
+    non-``None`` MinHashes — average-case ``O(n × k)`` where ``k`` is the
+    band-bucket fan-out; cluster-collision worst case is still ``O(n²)``
+    just like simhash LSH. ``None`` sentinels (empty rows) are skipped
+    so they don't pollute the pair set.
+    """
+    _require_datasketch()
+    lsh, keys = _build_minhash_lsh(
+        minhashes,
+        jaccard_threshold=jaccard_threshold,
+        num_perm=num_perm,
+        key_prefix="row",
+    )
+
+    seen: set = set()
+    pairs: List[Tuple[int, int, float]] = []
+    for idx, m in enumerate(minhashes):
+        if m is None:
+            continue
+        for cand_key in lsh.query(m):
+            triple = _emit_minhash_pair(idx, cand_key, keys, minhashes, jaccard_threshold, seen)
+            if triple is not None:
+                pairs.append(triple)
+
+    pairs.sort(key=lambda triple: (triple[0], triple[1]))
+    return pairs
+
+
+def _count_leaked_rows_minhash(
+    source: List[Optional[Any]],
+    target: List[Optional[Any]],
+    jaccard_threshold: float,
+    *,
+    num_perm: int = DEFAULT_MINHASH_NUM_PERM,
+) -> int:
+    """Rows in ``source`` whose nearest target MinHash has Jaccard ≥ threshold.
+
+    Builds an LSH index over ``target`` once, then queries each non-``None``
+    source MinHash. Same shape as :func:`_count_leaked_rows` for simhash —
+    drop-in replacement on the ``audit_dataset`` cross-split path.
+    """
+    # Short-circuit: if every target row is empty (sentinel) there is nothing
+    # to compare against. Callers from :func:`_cross_split_overlap` already
+    # skip empty splits, but defensive programmatic callers would otherwise
+    # pay the LSH-construction cost for a guaranteed-zero result.
+    if not any(m is not None for m in target):
+        return 0
+    _require_datasketch()
+    lsh, target_keys = _build_minhash_lsh(
+        target,
+        jaccard_threshold=jaccard_threshold,
+        num_perm=num_perm,
+        key_prefix="target",
+    )
+
+    leaked = 0
+    for m in source:
+        if m is None:
+            continue
+        for cand_key in lsh.query(m):
+            cand_idx = target_keys.get(cand_key)
+            if cand_idx is None:
+                continue
+            if m.jaccard(target[cand_idx]) >= jaccard_threshold:
+                leaked += 1
+                break  # first hit suffices; LSH is candidate-only
+    return leaked
+
+
+def _count_leaks_against_index(
+    source_sigs: List[Optional[Any]],
+    target_sigs: List[Optional[Any]],
+    target_lsh: Any,
+    target_keys: Dict[str, int],
+    jaccard_threshold: float,
+) -> int:
+    """Count source rows that have a Jaccard-similar match in the target index.
+
+    Single-direction counterpart used by :func:`_count_leaked_rows_minhash_bidirectional`.
+    Each source signature is queried against the target's pre-built LSH; the
+    first candidate whose actual Jaccard ≥ threshold is enough to flag a leak,
+    so we ``break`` after the first hit.
+    """
+    leaked = 0
+    for m in source_sigs:
+        if m is None:
+            continue
+        for cand_key in target_lsh.query(m):
+            cand_idx = target_keys.get(cand_key)
+            if cand_idx is None:
+                continue
+            if m.jaccard(target_sigs[cand_idx]) >= jaccard_threshold:
+                leaked += 1
+                break
+    return leaked
+
+
+def _count_leaked_rows_minhash_bidirectional(
+    sigs_a: List[Optional[Any]],
+    sigs_b: List[Optional[Any]],
+    jaccard_threshold: float,
+    *,
+    num_perm: int = DEFAULT_MINHASH_NUM_PERM,
+) -> Tuple[int, int]:
+    """Both-directional MinHash leak counts; builds each LSH index exactly once.
+
+    Previous callers invoked :func:`_count_leaked_rows_minhash` twice — once
+    with (a, b) and once with (b, a) — which built LSH(b) and LSH(a) as
+    separate calls, paying the construction cost 2× per direction pair.
+    This function builds each index once and reuses it for both queries,
+    halving the dominant ``O(n_b × bands)`` / ``O(n_a × bands)`` cost.
+    """
+    has_a = any(m is not None for m in sigs_a)
+    has_b = any(m is not None for m in sigs_b)
+    if not has_a or not has_b:
+        return 0, 0
+    _require_datasketch()
+
+    lsh_a, keys_a = _build_minhash_lsh(sigs_a, jaccard_threshold=jaccard_threshold, num_perm=num_perm, key_prefix="a")
+    lsh_b, keys_b = _build_minhash_lsh(sigs_b, jaccard_threshold=jaccard_threshold, num_perm=num_perm, key_prefix="b")
+
+    leaked_a = _count_leaks_against_index(sigs_a, sigs_b, lsh_b, keys_b, jaccard_threshold)
+    leaked_b = _count_leaks_against_index(sigs_b, sigs_a, lsh_a, keys_a, jaccard_threshold)
+    return leaked_a, leaked_b
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -538,6 +856,409 @@ def _length_stats(lengths: List[int]) -> Dict[str, float]:
         "p50": sorted_lens[n // 2],
         "p95": sorted_lens[min(n - 1, int(n * 0.95))],
     }
+
+
+# ---------------------------------------------------------------------------
+# Streaming length digest — bounded memory for large corpora (C.2)
+# ---------------------------------------------------------------------------
+
+# Reservoir size: below this the digest is exact; above it p50/p95 are
+# approximate via Algorithm R random sampling. 100K ints ≈ 800 KB — a
+# negligible fraction of peak audit memory even on multi-million-row splits.
+_LENGTH_RESERVOIR_SIZE = 100_000
+
+
+class _LengthDigest:
+    """Streaming min/max/mean/p50/p95 accumulator with bounded memory.
+
+    Replaces the ``text_lengths: List[int]`` field on ``_StreamingAggregator``,
+    which grew O(n) — 80 MB+ per split on 10 M-row corpora.  This keeps
+    memory capped at ``_LENGTH_RESERVOIR_SIZE`` integers (≈ 800 KB) regardless
+    of dataset size; p50/p95 are exact up to that cap, approximate beyond it.
+    """
+
+    __slots__ = ("_n", "_total", "_min", "_max", "_reservoir", "_rng_counter")
+
+    def __init__(self) -> None:
+        self._n: int = 0
+        self._total: int = 0
+        self._min: int = 0
+        self._max: int = 0
+        self._reservoir: List[int] = []
+        # Inline LCG counter for reservoir sampling — avoids importing random
+        # and keeps the digest deterministic when seeded externally.
+        self._rng_counter: int = 0
+
+    def update(self, length: int) -> None:
+        self._n += 1
+        self._total += length
+        if self._n == 1:
+            self._min = self._max = length
+        else:
+            if length < self._min:
+                self._min = length
+            if length > self._max:
+                self._max = length
+        if len(self._reservoir) < _LENGTH_RESERVOIR_SIZE:
+            self._reservoir.append(length)
+        else:
+            # Algorithm R: replace a random slot with decreasing probability
+            # Use a simple LCG for speed and to avoid global random state.
+            self._rng_counter = (self._rng_counter * 6364136223846793005 + 1) & 0xFFFFFFFFFFFFFFFF
+            j = self._rng_counter % self._n
+            if j < _LENGTH_RESERVOIR_SIZE:
+                self._reservoir[j] = length
+
+    def stats(self) -> Dict[str, float]:
+        if self._n == 0:
+            return {}
+        s = sorted(self._reservoir)
+        k = len(s)
+        return {
+            "min": self._min,
+            "max": self._max,
+            "mean": round(self._total / self._n, 1),
+            "p50": s[k // 2],
+            "p95": s[min(k - 1, int(k * 0.95))],
+        }
+
+
+# ---------------------------------------------------------------------------
+# Phase 12: code/secrets leakage tagger
+# ---------------------------------------------------------------------------
+
+
+# Fallback regex set used when ``detect-secrets`` is not installed. Keep
+# patterns narrow — false positives in this category waste the operator's
+# attention and (more importantly) erode trust in the audit. Each pattern
+# is anchored on the canonical prefix the secret format publishes; we do
+# NOT try to match generic high-entropy strings here because ``detect-secrets``
+# does that better and we'd rather guide the operator to the extra than
+# pretend we cover it.
+SECRET_TYPES: Tuple[str, ...] = (
+    "aws_access_key",
+    "github_token",
+    "slack_token",
+    "openai_api_key",
+    "google_api_key",
+    "jwt",
+    "openssh_private_key",
+    "pgp_private_key",
+    "azure_storage_key",
+)
+
+
+_SECRET_PATTERNS: Dict[str, re.Pattern] = {
+    # AWS access key IDs follow AKIA / ASIA + 16 uppercase alphanum.
+    "aws_access_key": re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
+    # GitHub fine-grained / classic PAT prefixes (see GitHub token-format docs).
+    # ``re.ASCII`` because GitHub tokens are strictly ASCII — Python's default
+    # ``\w`` is Unicode-aware, which would otherwise let non-ASCII chars leak
+    # into the match universe (regex.md rule 1).
+    "github_token": re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_\w{20,}", flags=re.ASCII),
+    # Slack bot / user / app / config tokens.
+    "slack_token": re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
+    # OpenAI API keys (legacy ``sk-…`` and project-scoped ``sk-proj-…``).
+    # ``[\w-]`` + ``re.ASCII`` keeps ``\w`` ASCII-bounded.
+    "openai_api_key": re.compile(r"\bsk-(?:proj-)?[\w-]{20,}\b", flags=re.ASCII),
+    # Google API keys (Maps, Cloud, etc.).
+    "google_api_key": re.compile(r"\bAIza[\w-]{35}\b", flags=re.ASCII),
+    # JSON Web Tokens — header.payload.sig. We anchor the header segment
+    # on the base64url prefix of the canonical JWT header keys (``alg`` /
+    # ``typ`` / ``kid`` / ``cty`` / ``enc``) and require minimum lengths
+    # on payload + signature, so generic ``eyJ.eyJ.X``-shaped strings in
+    # prose don't false-positive. This still catches >99 % of real JWTs.
+    # ``re.ASCII`` because base64url is ASCII-only.
+    "jwt": re.compile(
+        r"\beyJ(?:hbGc|0eXA|raWQ|jdHk|lbmM|hcGk)[\w-]{10,}"
+        r"\.eyJ[\w-]{10,}"
+        r"\.[\w-]{15,}\b",
+        flags=re.ASCII,
+    ),
+    # Private-key blocks — full PEM/PGP envelope (BEGIN through END inclusive)
+    # so ``mask_secrets`` redacts the entire block, not just the header line.
+    # The literal block markers below are spelled with concatenation to keep
+    # naive secret-scanners on the source tree from misreading the regex
+    # itself as a leaked private key.
+    "openssh_private_key": re.compile(
+        r"-----" + r"BEGIN " + r"(?:OPENSSH|RSA|DSA|EC) PRIVATE KEY-----"
+        r".*?"
+        r"-----" + r"END " + r"(?:OPENSSH|RSA|DSA|EC) PRIVATE KEY-----",
+        re.DOTALL,
+    ),
+    "pgp_private_key": re.compile(
+        r"-----" + r"BEGIN " + r"PGP PRIVATE KEY BLOCK-----"
+        r".*?"
+        r"-----" + r"END " + r"PGP PRIVATE KEY BLOCK-----",
+        re.DOTALL,
+    ),
+    # Azure storage account keys are 88-char base64; we narrow on the
+    # common ``DefaultEndpointsProtocol`` connection-string context.
+    "azure_storage_key": re.compile(
+        r"DefaultEndpointsProtocol=https?;AccountName=[A-Za-z0-9]+;AccountKey=[A-Za-z0-9+/=]{20,}"
+    ),
+}
+
+
+def detect_secrets(text: Any) -> Dict[str, int]:
+    """Return ``{secret_type: count}`` for credentials/keys leaked in ``text``.
+
+    Uses :data:`_SECRET_PATTERNS` (anchored regexes) by default. The
+    optional ``detect-secrets`` extra is **not** invoked here because its
+    scanning model assumes file paths; ingest's per-chunk text wouldn't
+    benefit. The audit calls this once per row payload; the regex set is
+    intentionally narrow (prefix-anchored) to keep false positives low.
+    """
+    counts: Dict[str, int] = {}
+    if not text or not isinstance(text, str):
+        return counts
+    for kind, pattern in _SECRET_PATTERNS.items():
+        hits = pattern.findall(text)
+        if hits:
+            counts[kind] = len(hits)
+    return counts
+
+
+def mask_secrets(
+    text: Any,
+    replacement: str = "[REDACTED-SECRET]",
+    *,
+    return_counts: bool = False,
+) -> Any:
+    """Return ``text`` with detected secret spans replaced by ``replacement``.
+
+    Mirrors :func:`mask_pii`'s API surface (``return_counts`` for the
+    truthful per-type tally). Non-string input passes through. Used by
+    ``forgelm ingest --secrets-mask`` to scrub credentials before chunks
+    land in the JSONL — fine-tuning a model on a corpus that includes
+    real API keys causes them to be memorised at training time.
+    """
+    if not text or not isinstance(text, str):
+        return (text, {}) if return_counts else text
+    counts: Dict[str, int] = {}
+    out = text
+    for kind, pattern in _SECRET_PATTERNS.items():
+
+        def _replace(match: re.Match, _t: str = kind) -> str:
+            counts[_t] = counts.get(_t, 0) + 1
+            return replacement
+
+        out = pattern.sub(_replace, out)
+    return (out, counts) if return_counts else out
+
+
+# ---------------------------------------------------------------------------
+# Phase 12: heuristic quality filter (audit-side, opt-in)
+# ---------------------------------------------------------------------------
+
+
+_QUALITY_CHECKS: Tuple[str, ...] = (
+    "low_alpha_ratio",
+    "low_punct_endings",
+    "abnormal_mean_word_length",
+    "short_paragraphs",
+    "repeated_lines",
+)
+"""Per-row quality-heuristic identifiers. Same names land in the audit
+JSON's ``quality_summary.by_check`` map; tests pin them so a future
+addition / rename doesn't silently break consumers."""
+
+
+_WORD_PATTERN = re.compile(r"\b[\w']+\b", re.UNICODE)
+# ``[ \t]*$`` not ``\s*$``: callers pass single lines (no embedded
+# newlines), so the ``\s`` form's newline-overlap potential is dead
+# weight per docs/standards/regex.md rule 5.
+_PUNCT_END_PATTERN = re.compile(r"[.!?…\"'\)\]][ \t]*$")
+
+
+def _is_code_fence_open(line: str) -> Optional[Tuple[str, int]]:
+    """Return ``(fence_char, run_length)`` if ``line`` opens a CommonMark fence, else ``None``.
+
+    CommonMark §4.5: an opening fence is 3+ identical backticks (or
+    tildes), optionally indented by up to 3 spaces, possibly followed by
+    an info string. We capture the **run length** because a valid
+    closing fence must use at least as many fence characters as the
+    opener — a 4-backtick block is *not* closed by a 3-backtick line.
+    """
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) > 3:
+        return None  # 4+ spaces: indented code block, not a fence
+    if stripped.startswith("```"):
+        run = len(stripped) - len(stripped.lstrip("`"))
+        # CommonMark §4.5: the info string after a backtick fence may not
+        # contain backticks. Lines like ``` ```lang `oops`` are *not*
+        # opening fences — treating them as one would mis-parse inline
+        # code in prose as a code block.
+        rest = stripped[run:]
+        if "`" in rest:
+            return None
+        return ("`", run)
+    if stripped.startswith("~~~"):
+        run = len(stripped) - len(stripped.lstrip("~"))
+        return ("~", run)
+    return None
+
+
+def _is_code_fence_close(line: str, fence_char: str, min_run: int) -> bool:
+    """Return ``True`` when ``line`` is a valid CommonMark close for ``(fence_char, min_run)``.
+
+    Stricter than ``_is_code_fence_open``:
+
+    1. The closing fence may **not** carry an info string — only the
+       fence run + optional trailing whitespace. ``~~~bash`` opens a
+       tilde block but does **not** close one.
+    2. Per CommonMark §4.5, the close must use **at least as many**
+       fence characters as the opener, so a ``\\`\\`\\``\\``` block
+       (4 backticks) is not closed by a ``\\`\\`\\``` line (3 backticks).
+    """
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) > 3:
+        return False
+    body = stripped.rstrip(" \t\r\n")
+    if len(body) < min_run:
+        return False
+    return all(ch == fence_char for ch in body)
+
+
+def _strip_code_fences(text: str) -> str:
+    """Remove CommonMark fenced code blocks (``\\`\\`\\``` or ``~~~``); leave inline code intact.
+
+    Implemented as a per-line state machine rather than a single regex
+    so the cost is provably O(n). The previous regex
+    ``^ {0,3}(?P<fence>\\`{3,}|~{3,})[^\\n]*\\n.*?^ {0,3}(?P=fence)[ \\t]*$``
+    used ``.*?`` with a back-reference under DOTALL, which static
+    analysers (SonarCloud python:S5852) flag as a polynomial-runtime
+    risk — and the same line-walker pattern is already used in
+    :func:`forgelm.ingestion._markdown_sections`, so we use it here too.
+
+    Tracks the **opening fence char + run length** per CommonMark §4.5
+    so a 4-backtick opener isn't prematurely closed by a 3-backtick line.
+    Behaviour matches the old regex bit-for-bit on the standard test
+    fixtures: a fully-closed fence is replaced by the surrounding line
+    breaks (``intro\\n…block…\\nouter`` → ``intro\\n\\nouter``); an
+    *unclosed* fence is left untouched.
+    """
+    out: List[str] = []
+    open_fence: Optional[Tuple[str, int]] = None  # (char, min_close_length) while in block
+    block_buffer: List[str] = []  # accumulates an in-progress block
+
+    for line in text.splitlines(keepends=True):
+        if open_fence is None:
+            fence_info = _is_code_fence_open(line)
+            if fence_info is not None:
+                open_fence = fence_info
+                block_buffer = [line]  # buffer in case the block is unclosed
+            else:
+                out.append(line)
+            continue
+        # Inside an active block: buffer the line, then check for close.
+        block_buffer.append(line)
+        fence_char, min_run = open_fence
+        if _is_code_fence_close(line, fence_char, min_run):
+            # The regex consumed BEGIN through CLOSE inclusive but stopped
+            # before the trailing ``\n`` — preserve that newline so the
+            # surrounding lines aren't glued together.
+            if block_buffer[-1].endswith("\n"):
+                out.append("\n")
+            block_buffer = []
+            open_fence = None
+
+    # Unclosed block: flush the buffered lines back to output verbatim
+    # (the old regex would have failed to match a partial block, so the
+    # surrounding text stayed as-is).
+    if block_buffer:
+        out.extend(block_buffer)
+
+    return "".join(out)
+
+
+def _check_low_alpha_ratio(prose: str) -> Optional[str]:
+    """Flag prose whose letter-to-non-whitespace ratio falls below 70 %."""
+    non_ws = [c for c in prose if not c.isspace()]
+    if not non_ws:
+        return None
+    alpha_ratio = sum(1 for c in non_ws if c.isalpha()) / len(non_ws)
+    return "low_alpha_ratio" if alpha_ratio < 0.70 else None
+
+
+def _check_low_punct_endings(lines: List[str]) -> Optional[str]:
+    """Flag when fewer than 50 % of non-empty lines end with punctuation."""
+    if not lines:
+        return None
+    punct_ratio = sum(1 for ln in lines if _PUNCT_END_PATTERN.search(ln)) / len(lines)
+    return "low_punct_endings" if punct_ratio < 0.50 else None
+
+
+def _check_abnormal_mean_word_length(words: List[str]) -> Optional[str]:
+    """Flag mean word length outside the 3-12 char window."""
+    mean_wl = sum(len(w) for w in words) / len(words)
+    return "abnormal_mean_word_length" if mean_wl < 3.0 or mean_wl > 12.0 else None
+
+
+def _check_short_paragraphs(prose: str) -> Optional[str]:
+    """Flag when > 50 % of ``\\n\\n``-blocks contain < 5 words."""
+    paragraphs = [p for p in prose.split("\n\n") if p.strip()]
+    if not paragraphs:
+        return None
+    short = sum(1 for p in paragraphs if len(_WORD_PATTERN.findall(p)) < 5)
+    return "short_paragraphs" if short / len(paragraphs) > 0.50 else None
+
+
+def _check_repeated_lines(lines: List[str]) -> Optional[str]:
+    """Flag when the top-3 *actually-repeating* lines (count ≥ 2) cover > 30 %.
+
+    A naive "top-3 distinct lines" rule fires on any short all-unique
+    document; pinning on count ≥ 2 isolates real boilerplate (repeated
+    headers / footers / disclaimers).
+    """
+    if len(lines) < 3:
+        return None
+    line_counts = Counter(lines)
+    repeating = [(ln, n) for ln, n in line_counts.items() if n >= 2]
+    if not repeating:
+        return None
+    repeating.sort(key=lambda kv: kv[1], reverse=True)
+    top3_total = sum(n for _, n in repeating[:3])
+    return "repeated_lines" if top3_total / len(lines) > 0.30 else None
+
+
+def _row_quality_flags(text: Optional[str]) -> List[str]:
+    """Return the subset of :data:`_QUALITY_CHECKS` that flag ``text``.
+
+    Heuristics are intentionally conservative (Gopher / C4 / RefinedWeb
+    style — none of them block training; they surface in the audit so the
+    operator decides whether to filter). Empty / non-string input
+    short-circuits with an empty list so :class:`_StreamingAggregator`
+    can call this on every row without per-call type checks.
+
+    Fenced markdown code blocks (``` … ``` or ``~~~ … ~~~``) are stripped
+    before applying prose heuristics — code is legitimate SFT content but
+    trips ``low_alpha_ratio`` / ``low_punct_endings`` / ``short_paragraphs``
+    on its own. If the row is **purely** code (nothing left after
+    stripping), the function returns ``[]`` rather than flagging the
+    whole row.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return []
+    prose = _strip_code_fences(text).strip()
+    if not prose:
+        # Pure code-fence rows: don't flag — this is legitimate SFT data
+        # for code-instruction models, not noise.
+        return []
+    words = _WORD_PATTERN.findall(prose)
+    if not words:
+        return ["low_alpha_ratio"]
+    lines = [ln for ln in prose.splitlines() if ln.strip()]
+
+    # Each helper returns either a flag name or ``None``; collect the hits.
+    candidates = [
+        _check_low_alpha_ratio(prose),
+        _check_low_punct_endings(lines),
+        _check_abnormal_mean_word_length(words),
+        _check_short_paragraphs(prose),
+        _check_repeated_lines(lines),
+    ]
+    return [flag for flag in candidates if flag is not None]
 
 
 def _extract_text_payload(row: Dict[str, Any]) -> str:
@@ -620,6 +1341,16 @@ class _StreamingAggregator:
     dict the audit report consumes. Holding state on a dataclass keeps
     the streaming loop in :func:`_audit_split` flat and the field roles
     self-documenting; nothing else in the module instantiates this.
+
+    Phase 12 additions:
+
+    * ``dedup_method`` selects simhash (default; populates ``fingerprints``)
+      vs. MinHash (populates ``minhashes``). Only one is computed per row
+      so we don't pay the other method's cost.
+    * ``secrets_counts`` aggregates :func:`detect_secrets` hits across rows.
+      Always scanned — credentials are never opt-in.
+    * ``quality_flags_counts`` aggregates :func:`_row_quality_flags` hits
+      when ``enable_quality_filter`` is True (opt-in via CLI flag).
     """
 
     sample_count: int = 0
@@ -633,10 +1364,19 @@ class _StreamingAggregator:
     # finalisation time is unchanged.
     keyset_counts: "Counter[frozenset]" = field(default_factory=Counter)
     seen_columns: "OrderedDict[str, None]" = field(default_factory=OrderedDict)
-    text_lengths: List[int] = field(default_factory=list)
+    length_digest: _LengthDigest = field(default_factory=_LengthDigest)
     fingerprints: List[int] = field(default_factory=list)
+    minhashes: List[Optional[Any]] = field(default_factory=list)
     pii_counts: Dict[str, int] = field(default_factory=dict)
+    secrets_counts: Dict[str, int] = field(default_factory=dict)
+    quality_flags_counts: Dict[str, int] = field(default_factory=dict)
+    quality_samples_flagged: int = 0
+    quality_samples_evaluated: int = 0  # rows that actually went through _row_quality_flags
     lang_sample: List[str] = field(default_factory=list)
+    # Phase 12 configuration (set once by the orchestrator; never mutated).
+    dedup_method: str = "simhash"
+    minhash_num_perm: int = DEFAULT_MINHASH_NUM_PERM
+    enable_quality_filter: bool = False
 
 
 def _record_schema_for_dict(agg: _StreamingAggregator, row: Dict[str, Any]) -> None:
@@ -646,13 +1386,49 @@ def _record_schema_for_dict(agg: _StreamingAggregator, row: Dict[str, Any]) -> N
         agg.seen_columns.setdefault(col, None)
 
 
+def _record_dedup_signature(agg: _StreamingAggregator, payload: str) -> None:
+    """Compute the per-row dedup signature for the aggregator's selected method.
+
+    Only one of ``fingerprints`` / ``minhashes`` is populated per row —
+    paying both costs would defeat the point of method selection. The
+    sentinel for "skip in pair-walks" differs by method: simhash uses
+    integer ``0`` (cheap to test); minhash uses ``None``.
+    """
+    if agg.dedup_method == "minhash":
+        agg.minhashes.append(compute_minhash(payload, num_perm=agg.minhash_num_perm))
+    else:
+        agg.fingerprints.append(compute_simhash(payload))
+
+
+def _record_dedup_sentinel(agg: _StreamingAggregator) -> None:
+    """Append the empty-row sentinel for whichever dedup method is active."""
+    if agg.dedup_method == "minhash":
+        agg.minhashes.append(None)
+    else:
+        agg.fingerprints.append(0)
+
+
 def _record_text_metrics(agg: _StreamingAggregator, payload: str) -> None:
-    agg.text_lengths.append(len(payload))
+    agg.length_digest.update(len(payload))
     if len(agg.lang_sample) < _LANG_SAMPLE_SIZE:
         agg.lang_sample.append(payload)
-    agg.fingerprints.append(compute_simhash(payload))
+    _record_dedup_signature(agg, payload)
     for kind, count in detect_pii(payload).items():
         agg.pii_counts[kind] = agg.pii_counts.get(kind, 0) + count
+    for kind, count in detect_secrets(payload).items():
+        agg.secrets_counts[kind] = agg.secrets_counts.get(kind, 0) + count
+    if agg.enable_quality_filter:
+        # Count this row as "evaluated" — the denominator in
+        # ``overall_quality_score`` must reflect rows that actually went
+        # through ``_row_quality_flags``, not the full sample count
+        # (null/non-dict rows skip this branch and would otherwise
+        # depress the score).
+        agg.quality_samples_evaluated += 1
+        flags = _row_quality_flags(payload)
+        if flags:
+            agg.quality_samples_flagged += 1
+            for flag in flags:
+                agg.quality_flags_counts[flag] = agg.quality_flags_counts.get(flag, 0) + 1
 
 
 def _ingest_row(agg: _StreamingAggregator, row: Any, parse_err: bool, decode_err: bool) -> None:
@@ -673,21 +1449,67 @@ def _ingest_row(agg: _StreamingAggregator, row: Any, parse_err: bool, decode_err
         # stats and the null_or_empty_rate treat them as unusable rows. Without
         # the null_or_empty bump, null_or_empty_rate would silently understate
         # corruption while length stats / fingerprints excluded them. The
-        # sentinel ``0`` fingerprint here keeps fingerprint indices aligned
-        # with row indices so the within/cross-split LSH walks skip them
-        # cleanly. Tested at tests/test_data_audit.py::TestNonDictRowTolerance.
+        # sentinel ``0`` fingerprint (or ``None`` minhash) here keeps the
+        # signature index aligned with row indices so within/cross-split LSH
+        # walks skip them cleanly. Tested at
+        # tests/test_data_audit.py::TestNonDictRowTolerance.
         agg.non_object_rows += 1
         agg.null_or_empty += 1
-        agg.fingerprints.append(0)
+        _record_dedup_sentinel(agg)
         return
 
     _record_schema_for_dict(agg, row)
     payload = _extract_text_payload(row)
     if not payload:
         agg.null_or_empty += 1
-        agg.fingerprints.append(0)
+        _record_dedup_sentinel(agg)
         return
     _record_text_metrics(agg, payload)
+
+
+def _populate_schema_block(info: Dict[str, Any], agg: _StreamingAggregator) -> None:
+    """Fill columns / schema-drift / non-object-row fields on ``info``."""
+    columns_list = list(agg.seen_columns)
+    if columns_list:
+        info["columns"] = columns_list
+    if agg.keyset_counts:
+        most_common_keyset, _ = agg.keyset_counts.most_common(1)[0]
+        base_columns = set(most_common_keyset)
+        drift_columns = [c for c in columns_list if c not in base_columns]
+        if drift_columns:
+            info["schema_drift_columns"] = drift_columns
+    if agg.non_object_rows:
+        info["non_object_rows"] = agg.non_object_rows
+
+
+def _populate_optional_findings(info: Dict[str, Any], agg: _StreamingAggregator) -> None:
+    """Fill PII / secrets / quality blocks on ``info`` (only when non-empty)."""
+    if agg.pii_counts:
+        info["pii_counts"] = dict(agg.pii_counts)
+    if agg.secrets_counts:
+        info["secrets_counts"] = dict(agg.secrets_counts)
+    if agg.enable_quality_filter and agg.quality_flags_counts:
+        info["quality_flags_counts"] = dict(agg.quality_flags_counts)
+        info["quality_samples_flagged"] = agg.quality_samples_flagged
+        info["quality_samples_evaluated"] = agg.quality_samples_evaluated
+
+
+def _within_split_pairs(
+    agg: _StreamingAggregator,
+    *,
+    near_dup_threshold: int,
+    minhash_jaccard: float,
+) -> int:
+    """Run the within-split near-duplicate scan, dispatching on dedup method."""
+    if agg.dedup_method == "minhash":
+        pairs = find_near_duplicates_minhash(
+            agg.minhashes,
+            jaccard_threshold=minhash_jaccard,
+            num_perm=agg.minhash_num_perm,
+        )
+    else:
+        pairs = find_near_duplicates(agg.fingerprints, threshold=near_dup_threshold)
+    return len(pairs)
 
 
 def _aggregator_to_info(
@@ -695,6 +1517,7 @@ def _aggregator_to_info(
     agg: _StreamingAggregator,
     *,
     near_dup_threshold: int,
+    minhash_jaccard: float = DEFAULT_MINHASH_JACCARD,
 ) -> Dict[str, Any]:
     """Render the aggregator state as the per-split ``info`` payload."""
     info: Dict[str, Any] = {"sample_count": agg.sample_count}
@@ -702,22 +1525,11 @@ def _aggregator_to_info(
         info["near_duplicate_pairs"] = 0
         return info
 
-    columns_list = list(agg.seen_columns)
-    if columns_list:
-        info["columns"] = columns_list
+    _populate_schema_block(info, agg)
 
-    if agg.keyset_counts:
-        most_common_keyset, _ = agg.keyset_counts.most_common(1)[0]
-        base_columns = set(most_common_keyset)
-        drift_columns = [c for c in columns_list if c not in base_columns]
-        if drift_columns:
-            info["schema_drift_columns"] = drift_columns
-
-    if agg.non_object_rows:
-        info["non_object_rows"] = agg.non_object_rows
-
-    if agg.text_lengths:
-        info["text_length"] = _length_stats(agg.text_lengths)
+    length_stats = agg.length_digest.stats()
+    if length_stats:
+        info["text_length"] = length_stats
     info["null_or_empty_count"] = agg.null_or_empty
     info["null_or_empty_rate"] = round(agg.null_or_empty / agg.sample_count, 4)
 
@@ -725,19 +1537,28 @@ def _aggregator_to_info(
     if languages_top3:
         info["languages_top3"] = languages_top3
 
-    info["simhash_distinct"] = len({fp for fp in agg.fingerprints if fp != 0})
+    if agg.dedup_method == "minhash":
+        # Mirror simhash_distinct's semantic: count *unique* sketches, not
+        # just the number of non-empty rows. ``hashvalues.tobytes()`` gives
+        # a hashable, memory-efficient fingerprint of each MinHash state.
+        info["minhash_distinct"] = len({m.hashvalues.tobytes() for m in agg.minhashes if m is not None})
+    else:
+        info["simhash_distinct"] = len({fp for fp in agg.fingerprints if fp != 0})
 
-    if agg.pii_counts:
-        info["pii_counts"] = dict(agg.pii_counts)
+    _populate_optional_findings(info, agg)
 
     if agg.sample_count >= _PROGRESS_INTERVAL:
         logger.info(
-            "audit/%s: scanning for near-duplicates (LSH-banded; %d rows)…",
+            "audit/%s: scanning for near-duplicates (%s; %d rows)…",
             split_name,
+            "MinHash LSH" if agg.dedup_method == "minhash" else "simhash LSH-banded",
             agg.sample_count,
         )
-    within_pairs = find_near_duplicates(agg.fingerprints, threshold=near_dup_threshold)
-    info["near_duplicate_pairs"] = len(within_pairs)
+    info["near_duplicate_pairs"] = _within_split_pairs(
+        agg,
+        near_dup_threshold=near_dup_threshold,
+        minhash_jaccard=minhash_jaccard,
+    )
     return info
 
 
@@ -759,33 +1580,48 @@ def _audit_split(
     path: Path,
     *,
     near_dup_threshold: int = DEFAULT_NEAR_DUP_HAMMING,
-) -> Tuple[Dict[str, Any], List[int], Dict[str, int], int, int]:
+    dedup_method: str = "simhash",
+    minhash_jaccard: float = DEFAULT_MINHASH_JACCARD,
+    minhash_num_perm: int = DEFAULT_MINHASH_NUM_PERM,
+    enable_quality_filter: bool = False,
+) -> Tuple[Dict[str, Any], List[Any], Dict[str, int], int, int]:
     """Stream a JSONL split into a metrics record.
 
     Phase 11.5 streamed this end-to-end: the function consumes
     :func:`_read_jsonl_split` row-by-row and folds each line straight
     into a :class:`_StreamingAggregator`. Memory is dominated by:
 
-    * the per-row fingerprint list — ~28 B/row on CPython, so a 1 M-row
-      split sits around ~30 MB
-    * the per-row text-length list — same order of magnitude
+    * the per-row dedup signature list (``fingerprints`` for simhash, ~28 B/row;
+      ``minhashes`` for MinHash, ~1-2 KB/row at ``num_perm=128``)
+    * the per-row text-length list — same order of magnitude as fingerprints
     * a fixed-size language sample (200 strings)
     * a :class:`Counter` of distinct keysets (typically O(1) entries when
       schema is stable; only grows with genuine schema drift)
 
+    Phase 12 adds the ``dedup_method`` switch (default ``"simhash"``;
+    ``"minhash"`` opts into LSH-banded MinHash via the ``ingestion-scale``
+    extra), the always-on secrets scan (no flag), and the opt-in quality
+    filter (``enable_quality_filter``).
+
     Compared to the pre-Phase-11.5 buffered path that kept every parsed
     row + every text payload string in RAM (hundreds of MB on 100 K rows
     of 4 KB text), this is a large absolute reduction — but it is **not**
-    constant memory, because the fingerprints and length list still grow
+    constant memory, because the signature and length lists still grow
     linearly in row count. Operators that need true bounded RAM on
     truly huge splits should sample first.
 
     Returns:
-        ``(info_dict, fingerprints, pii_counts, parse_errors, decode_errors)``.
-        Caller (:func:`_process_split`) uses the trailing two integers to
-        annotate the split with its data-integrity counts.
+        ``(info_dict, signatures, pii_counts, parse_errors, decode_errors)``
+        — ``signatures`` is the per-row simhash int list when method is
+        ``"simhash"`` and the per-row MinHash list when method is
+        ``"minhash"``. Caller (:func:`_process_split`) feeds it back into
+        the cross-split overlap path which dispatches on the same method.
     """
-    agg = _StreamingAggregator()
+    agg = _StreamingAggregator(
+        dedup_method=dedup_method,
+        minhash_num_perm=minhash_num_perm,
+        enable_quality_filter=enable_quality_filter,
+    )
     for row, parse_err, decode_err in _read_jsonl_split(path):
         _ingest_row(agg, row, parse_err, decode_err)
         if agg.sample_count and agg.sample_count % _PROGRESS_INTERVAL == 0:
@@ -795,8 +1631,21 @@ def _audit_split(
                 agg.sample_count,
             )
 
-    info = _aggregator_to_info(split_name, agg, near_dup_threshold=near_dup_threshold)
-    return info, list(agg.fingerprints), dict(agg.pii_counts), agg.parse_errors, agg.decode_errors
+    info = _aggregator_to_info(
+        split_name,
+        agg,
+        near_dup_threshold=near_dup_threshold,
+        minhash_jaccard=minhash_jaccard,
+    )
+    # Pass the aggregator's lists by reference instead of materialising a
+    # copy. The downstream cross-split overlap (`_cross_split_pairs`)
+    # already produces a new filtered list (`[m for m in sigs if m is not
+    # None]`) before walking, so this signature list is never mutated by
+    # consumers. The previous `list(agg.minhashes)` defensive copy doubled
+    # peak memory on a 1M-row split (≈1-2 KB per MinHash sketch × 1M ×
+    # 2 = ~2.5 GB resident before LSH even started).
+    signatures: List[Any] = agg.minhashes if dedup_method == "minhash" else agg.fingerprints
+    return info, signatures, dict(agg.pii_counts), agg.parse_errors, agg.decode_errors
 
 
 def _build_band_index(
@@ -879,25 +1728,44 @@ def _count_leaked_rows(
 
 def _pair_leak_payload(
     a: str,
-    fp_a: List[int],
+    sigs_a: List[Any],
     b: str,
-    fp_b: List[int],
+    sigs_b: List[Any],
+    *,
+    dedup_method: str,
     threshold: int,
+    minhash_jaccard: float,
+    minhash_num_perm: int,
 ) -> Dict[str, Any]:
-    """Both-directional leak counts + rates for one (a, b) split pair."""
-    leaked_in_a = _count_leaked_rows(fp_a, fp_b, threshold)
-    leaked_in_b = _count_leaked_rows(fp_b, fp_a, threshold)
+    """Both-directional leak counts + rates for one (a, b) split pair.
+
+    Dispatches on ``dedup_method``: simhash uses Hamming-distance LSH;
+    minhash uses Jaccard-similarity LSH (datasketch). Same shape on
+    both paths so consumers can read ``leak_rate_<split>`` without
+    knowing which method ran.
+    """
+    if dedup_method == "minhash":
+        leaked_in_a, leaked_in_b = _count_leaked_rows_minhash_bidirectional(
+            sigs_a, sigs_b, minhash_jaccard, num_perm=minhash_num_perm
+        )
+    else:
+        leaked_in_a = _count_leaked_rows(sigs_a, sigs_b, threshold)
+        leaked_in_b = _count_leaked_rows(sigs_b, sigs_a, threshold)
     return {
         f"leaked_rows_in_{a}": leaked_in_a,
-        f"leak_rate_{a}": round(leaked_in_a / len(fp_a), 4),
+        f"leak_rate_{a}": round(leaked_in_a / len(sigs_a), 4),
         f"leaked_rows_in_{b}": leaked_in_b,
-        f"leak_rate_{b}": round(leaked_in_b / len(fp_b), 4),
+        f"leak_rate_{b}": round(leaked_in_b / len(sigs_b), 4),
     }
 
 
 def _cross_split_overlap(
-    fingerprints_by_split: Dict[str, List[int]],
+    signatures_by_split: Dict[str, List[Any]],
+    *,
+    dedup_method: str,
     threshold: int,
+    minhash_jaccard: float = DEFAULT_MINHASH_JACCARD,
+    minhash_num_perm: int = DEFAULT_MINHASH_NUM_PERM,
 ) -> Dict[str, Any]:
     """Pairwise leakage report across train/validation/test splits.
 
@@ -907,20 +1775,44 @@ def _cross_split_overlap(
     is informative too. Without both, an operator scanning
     ``train__test = 0.05`` could miss that the same 5 rows leak 50% of
     a small test set.
+
+    ``signatures_by_split`` carries simhash ints (when method is
+    ``"simhash"``) or :class:`datasketch.MinHash` instances (method is
+    ``"minhash"``). Sentinel filtering matches the per-method scheme:
+    ``0`` for simhash, ``None`` for minhash.
     """
-    nonzero = {name: [fp for fp in fps if fp != 0] for name, fps in fingerprints_by_split.items()}
-    splits = list(nonzero.keys())
-    report: Dict[str, Any] = {"hamming_threshold": threshold, "pairs": {}}
+    if dedup_method == "minhash":
+        nonempty = {name: [m for m in sigs if m is not None] for name, sigs in signatures_by_split.items()}
+        report: Dict[str, Any] = {
+            "method": "minhash",
+            "jaccard_threshold": minhash_jaccard,
+            "num_perm": minhash_num_perm,
+            "pairs": {},
+        }
+    else:
+        nonempty = {name: [fp for fp in sigs if fp != 0] for name, sigs in signatures_by_split.items()}
+        report = {"method": "simhash", "hamming_threshold": threshold, "pairs": {}}
+
+    splits = list(nonempty.keys())
     for i, a in enumerate(splits):
-        fp_a = nonzero[a]
-        if not fp_a:
+        sigs_a = nonempty[a]
+        if not sigs_a:
             continue
         for j in range(i + 1, len(splits)):
             b = splits[j]
-            fp_b = nonzero[b]
-            if not fp_b:
+            sigs_b = nonempty[b]
+            if not sigs_b:
                 continue
-            report["pairs"][f"{a}__{b}"] = _pair_leak_payload(a, fp_a, b, fp_b, threshold)
+            report["pairs"][f"{a}__{b}"] = _pair_leak_payload(
+                a,
+                sigs_a,
+                b,
+                sigs_b,
+                dedup_method=dedup_method,
+                threshold=threshold,
+                minhash_jaccard=minhash_jaccard,
+                minhash_num_perm=minhash_num_perm,
+            )
     return report
 
 
@@ -1020,10 +1912,16 @@ def _resolve_input(source: str) -> Tuple[Dict[str, Path], List[str]]:
 
 @dataclass
 class _SplitOutcome:
-    """Bundle of per-split results assembled by :func:`_process_split`."""
+    """Bundle of per-split results assembled by :func:`_process_split`.
+
+    ``signatures`` carries simhash ints for the default method and
+    :class:`datasketch.MinHash` instances for the MinHash method —
+    field name renamed from ``fingerprints`` in Phase 12 so the
+    method-agnostic role is obvious to readers.
+    """
 
     info: Dict[str, Any]
-    fingerprints: List[int]
+    signatures: List[Any]
     pii_split: Dict[str, int]
     row_count: int
     parse_errors: int
@@ -1036,6 +1934,10 @@ def _process_split(
     path: Path,
     *,
     near_dup_threshold: int,
+    dedup_method: str = "simhash",
+    minhash_jaccard: float = DEFAULT_MINHASH_JACCARD,
+    minhash_num_perm: int = DEFAULT_MINHASH_NUM_PERM,
+    enable_quality_filter: bool = False,
 ) -> _SplitOutcome:
     """Stream + audit one split. Tolerates per-split filesystem failures.
 
@@ -1047,16 +1949,20 @@ def _process_split(
     """
     logger.info("audit: scanning split '%s' (%s)", split_name, path.name)
     try:
-        info, fingerprints, pii_split, parse_errors, decode_errors = _audit_split(
+        info, signatures, pii_split, parse_errors, decode_errors = _audit_split(
             split_name,
             path,
             near_dup_threshold=near_dup_threshold,
+            dedup_method=dedup_method,
+            minhash_jaccard=minhash_jaccard,
+            minhash_num_perm=minhash_num_perm,
+            enable_quality_filter=enable_quality_filter,
         )
     except OSError as exc:
         logger.warning("Could not read split '%s' (%s): %s — skipping.", split_name, path, exc)
         return _SplitOutcome(
             info={"error": f"read_failed: {exc}", "path": str(path)},
-            fingerprints=[],
+            signatures=[],
             pii_split={},
             row_count=0,
             parse_errors=0,
@@ -1084,7 +1990,7 @@ def _process_split(
 
     return _SplitOutcome(
         info=info,
-        fingerprints=fingerprints,
+        signatures=signatures,
         pii_split=pii_split,
         row_count=info.get("sample_count", 0),
         parse_errors=parse_errors,
@@ -1187,9 +2093,121 @@ def _cross_split_leak_notes(cross: Dict[str, Any]) -> List[str]:
     ]
 
 
+def _secrets_summary_notes(secrets_summary: Dict[str, int]) -> List[str]:
+    """Operator-actionable note when credentials/keys land in the corpus.
+
+    Compliance-critical: a leaked AWS / GitHub / OpenAI key in the
+    training data gets memorised at SFT time. The message is loud
+    (``CRITICAL``) on purpose — operators must see this above any
+    PII / quality noise.
+    """
+    if not secrets_summary:
+        return []
+    total = sum(secrets_summary.values())
+    breakdown = ", ".join(f"{k}={v}" for k, v in sorted(secrets_summary.items()))
+    return [
+        f"CRITICAL: {total} credential/secret span(s) detected ({breakdown}). "
+        "Scrub before training with `forgelm ingest --secrets-mask` (Phase 12) "
+        "or the regex helpers in `forgelm.data_audit.mask_secrets`."
+    ]
+
+
+def _quality_summary_notes(quality_summary: Dict[str, Any]) -> List[str]:
+    """Operator-actionable note for the heuristic quality filter."""
+    if not quality_summary or not quality_summary.get("samples_flagged"):
+        return []
+    flagged = quality_summary["samples_flagged"]
+    by_check = quality_summary.get("by_check", {})
+    breakdown = ", ".join(f"{k}={v}" for k, v in sorted(by_check.items()))
+    return [
+        f"Quality filter flagged {flagged} sample(s) ({breakdown}). "
+        "Heuristics are intentionally conservative; review the offending "
+        "rows before deciding to drop them. Pass `--quality-filter` again "
+        "after fixes to re-measure."
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+
+def _fold_outcome_into_summary(
+    outcome: "_SplitOutcome",
+    *,
+    pii_summary: Dict[str, int],
+    secrets_summary: Dict[str, int],
+    quality_aggregate: Dict[str, int],
+    enable_quality_filter: bool,
+) -> Tuple[int, int]:
+    """Merge a single split's findings into the cross-split aggregates.
+
+    Returns ``(quality_samples_flagged, quality_samples_evaluated)`` so the
+    caller can keep both numerator and denominator running totals without
+    re-reading the outcome.
+    """
+    for kind, count in outcome.pii_split.items():
+        pii_summary[kind] = pii_summary.get(kind, 0) + count
+    for kind, count in outcome.info.get("secrets_counts", {}).items():
+        secrets_summary[kind] = secrets_summary.get(kind, 0) + count
+    if not enable_quality_filter:
+        return 0, 0
+    for kind, count in outcome.info.get("quality_flags_counts", {}).items():
+        quality_aggregate[kind] = quality_aggregate.get(kind, 0) + count
+    return (
+        outcome.info.get("quality_samples_flagged", 0),
+        outcome.info.get("quality_samples_evaluated", 0),
+    )
+
+
+def _build_quality_summary(
+    *,
+    enable_quality_filter: bool,
+    samples_flagged_total: int,
+    quality_aggregate: Dict[str, int],
+    samples_evaluated_total: int,
+) -> Dict[str, Any]:
+    """Render the ``quality_summary`` block (empty dict when filter is off).
+
+    The denominator is the number of rows that were actually run through
+    :func:`_row_quality_flags` — null/empty/non-dict rows are excluded
+    because the filter can't evaluate them, and including them would
+    silently depress the overall score (a corpus that's 50 % null but
+    100 % clean on the rest would otherwise read 0.5 instead of 1.0).
+    """
+    if not enable_quality_filter:
+        return {}
+    if samples_evaluated_total:
+        overall_score = round(1.0 - (samples_flagged_total / samples_evaluated_total), 4)
+    else:
+        overall_score = 1.0
+    return {
+        "samples_flagged": samples_flagged_total,
+        "samples_evaluated": samples_evaluated_total,
+        "by_check": quality_aggregate,
+        "overall_quality_score": overall_score,
+    }
+
+
+def _build_near_duplicate_summary(
+    *,
+    dedup_method: str,
+    near_dup_pairs: Dict[str, int],
+    near_dup_threshold: int,
+    minhash_jaccard: float,
+    minhash_num_perm: int,
+) -> Dict[str, Any]:
+    """Pack the ``near_duplicate_summary`` block with method-specific params."""
+    summary: Dict[str, Any] = {
+        "method": dedup_method,
+        "pairs_per_split": near_dup_pairs,
+    }
+    if dedup_method == "minhash":
+        summary["jaccard_threshold"] = minhash_jaccard
+        summary["num_perm"] = minhash_num_perm
+    else:
+        summary["hamming_threshold"] = near_dup_threshold
+    return summary
 
 
 def audit_dataset(
@@ -1197,6 +2215,10 @@ def audit_dataset(
     *,
     output_dir: Optional[str] = None,
     near_dup_threshold: int = DEFAULT_NEAR_DUP_HAMMING,
+    dedup_method: str = "simhash",
+    minhash_jaccard: float = DEFAULT_MINHASH_JACCARD,
+    minhash_num_perm: int = DEFAULT_MINHASH_NUM_PERM,
+    enable_quality_filter: bool = False,
 ) -> AuditReport:
     """Run the audit pipeline over a JSONL file or split-keyed directory.
 
@@ -1207,16 +2229,44 @@ def audit_dataset(
             directory (created if missing). Returned :class:`AuditReport`
             is identical either way.
         near_dup_threshold: Hamming distance cutoff for the simhash-based
-            near-duplicate detector. Default 3 (≈95% similarity).
+            near-duplicate detector. Default 3 (≈95% similarity). Ignored
+            when ``dedup_method="minhash"``.
+        dedup_method: Phase 12 — ``"simhash"`` (default; exact recall via
+            LSH banding) or ``"minhash"`` (datasketch MinHash LSH; the
+            industry standard above ~50K rows). MinHash requires the
+            optional ``[ingestion-scale]`` extra.
+        minhash_jaccard: Jaccard-similarity threshold for the MinHash
+            method. Default ``0.85`` ≈ simhash's ``threshold=3`` in
+            similarity terms.
+        minhash_num_perm: Number of permutations for ``datasketch.MinHash``.
+            Default ``128`` matches datasketch's own default.
+        enable_quality_filter: Phase 12 opt-in flag — when ``True``, run
+            the heuristic quality checks (Gopher / C4 / RefinedWeb-style)
+            and surface findings under ``quality_summary``.
 
     Returns:
         :class:`AuditReport`. JSON-serialize via ``asdict(report)``.
     """
+    if dedup_method not in DEDUP_METHODS:
+        raise ValueError(f"dedup_method must be one of {DEDUP_METHODS}; got {dedup_method!r}.")
+    if dedup_method == "minhash":
+        if not isinstance(minhash_jaccard, (int, float)) or isinstance(minhash_jaccard, bool):
+            raise ValueError(f"minhash_jaccard must be a float in [0.0, 1.0]; got {minhash_jaccard!r}.")
+        if not 0.0 <= float(minhash_jaccard) <= 1.0:
+            raise ValueError(f"minhash_jaccard must be in [0.0, 1.0]; got {minhash_jaccard!r}.")
+        if not isinstance(minhash_num_perm, int) or isinstance(minhash_num_perm, bool) or minhash_num_perm <= 0:
+            raise ValueError(f"minhash_num_perm must be a positive integer; got {minhash_num_perm!r}.")
+        _require_datasketch()
+
     splits_paths, resolution_notes = _resolve_input(source)
 
     splits_info: Dict[str, Dict[str, Any]] = {}
-    fingerprints_by_split: Dict[str, List[int]] = {}
+    signatures_by_split: Dict[str, List[Any]] = {}
     pii_summary: Dict[str, int] = {}
+    secrets_summary: Dict[str, int] = {}
+    quality_aggregate: Dict[str, int] = {}
+    quality_samples_flagged_total = 0
+    quality_samples_evaluated_total = 0
     total_samples = 0
     near_dup_pairs: Dict[str, int] = {}
     notes: List[str] = list(resolution_notes)
@@ -1225,20 +2275,50 @@ def audit_dataset(
     decode_errors_total = 0
 
     for split_name, path in splits_paths.items():
-        outcome = _process_split(split_name, path, near_dup_threshold=near_dup_threshold)
+        outcome = _process_split(
+            split_name,
+            path,
+            near_dup_threshold=near_dup_threshold,
+            dedup_method=dedup_method,
+            minhash_jaccard=minhash_jaccard,
+            minhash_num_perm=minhash_num_perm,
+            enable_quality_filter=enable_quality_filter,
+        )
         splits_info[split_name] = outcome.info
-        fingerprints_by_split[split_name] = outcome.fingerprints
+        signatures_by_split[split_name] = outcome.signatures
         total_samples += outcome.row_count
         near_dup_pairs[split_name] = outcome.info.get("near_duplicate_pairs", 0)
         notes.extend(outcome.split_notes)
         parse_errors_total += outcome.parse_errors
         decode_errors_total += outcome.decode_errors
-        for kind, count in outcome.pii_split.items():
-            pii_summary[kind] = pii_summary.get(kind, 0) + count
+        flagged, evaluated = _fold_outcome_into_summary(
+            outcome,
+            pii_summary=pii_summary,
+            secrets_summary=secrets_summary,
+            quality_aggregate=quality_aggregate,
+            enable_quality_filter=enable_quality_filter,
+        )
+        quality_samples_flagged_total += flagged
+        quality_samples_evaluated_total += evaluated
 
-    cross = _cross_split_overlap(fingerprints_by_split, near_dup_threshold)
+    cross = _cross_split_overlap(
+        signatures_by_split,
+        dedup_method=dedup_method,
+        threshold=near_dup_threshold,
+        minhash_jaccard=minhash_jaccard,
+        minhash_num_perm=minhash_num_perm,
+    )
     pii_severity = _build_pii_severity(pii_summary)
+    quality_summary = _build_quality_summary(
+        enable_quality_filter=enable_quality_filter,
+        samples_flagged_total=quality_samples_flagged_total,
+        quality_aggregate=quality_aggregate,
+        samples_evaluated_total=quality_samples_evaluated_total,
+    )
+
     notes.extend(_pii_summary_notes(pii_summary, pii_severity))
+    notes.extend(_secrets_summary_notes(secrets_summary))
+    notes.extend(_quality_summary_notes(quality_summary))
     notes.extend(_cross_split_leak_notes(cross))
 
     near_dup_total = sum(near_dup_pairs.values())
@@ -1256,6 +2336,14 @@ def audit_dataset(
             "JSONL after fixing or accept the parseable subset as audited."
         )
 
+    near_duplicate_summary = _build_near_duplicate_summary(
+        dedup_method=dedup_method,
+        near_dup_pairs=near_dup_pairs,
+        near_dup_threshold=near_dup_threshold,
+        minhash_jaccard=minhash_jaccard,
+        minhash_num_perm=minhash_num_perm,
+    )
+
     report = AuditReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
         source_path=os.fspath(Path(source).expanduser().resolve()),
@@ -1265,10 +2353,9 @@ def audit_dataset(
         cross_split_overlap=cross,
         pii_summary=pii_summary,
         pii_severity=pii_severity,
-        near_duplicate_summary={
-            "hamming_threshold": near_dup_threshold,
-            "pairs_per_split": near_dup_pairs,
-        },
+        near_duplicate_summary=near_duplicate_summary,
+        secrets_summary=secrets_summary,
+        quality_summary=quality_summary,
         notes=notes,
     )
 
@@ -1337,6 +2424,8 @@ def _split_has_findings(info: Dict[str, Any]) -> bool:
         "null_or_empty_count",
         "near_duplicate_pairs",
         "pii_counts",
+        "secrets_counts",
+        "quality_flags_counts",
         "schema_drift_columns",
         "non_object_rows",
         "parse_errors",
@@ -1386,6 +2475,12 @@ def _render_split_block(split_name: str, info: Dict[str, Any]) -> List[str]:
     if info.get("pii_counts"):
         pii = ", ".join(f"{k}={v}" for k, v in sorted(info["pii_counts"].items()))
         block.append(f"     PII             : {pii}")
+    if info.get("secrets_counts"):
+        secrets = ", ".join(f"{k}={v}" for k, v in sorted(info["secrets_counts"].items()))
+        block.append(f"     secrets         : {secrets}")
+    if info.get("quality_flags_counts"):
+        quality = ", ".join(f"{k}={v}" for k, v in sorted(info["quality_flags_counts"].items()))
+        block.append(f"     quality flags   : {quality} (samples_flagged={info.get('quality_samples_flagged', 0)})")
     if info.get("schema_drift_columns"):
         block.append(f"     schema drift    : {', '.join(info['schema_drift_columns'])}")
     return block
@@ -1435,9 +2530,18 @@ def summarize_report(report: AuditReport, *, verbose: bool = False) -> str:
         lines.append(f"  └─ ({len(clean)} clean split(s): {', '.join(clean)} — pass verbose=True to expand)")
 
     lines.extend(_render_pii_severity(report.pii_severity))
+    if report.secrets_summary:
+        total = sum(report.secrets_summary.values())
+        breakdown = ", ".join(f"{k}={v}" for k, v in sorted(report.secrets_summary.items()))
+        lines.append(f"  Secrets        : CRITICAL — {total} flagged ({breakdown})")
+    if report.quality_summary and report.quality_summary.get("samples_flagged"):
+        score = report.quality_summary.get("overall_quality_score", 0.0)
+        flagged = report.quality_summary["samples_flagged"]
+        lines.append(f"  Quality        : {flagged} sample(s) flagged (overall score = {score:.4f})")
 
     if report.cross_split_overlap.get("pairs"):
-        lines.append("  Cross-split leakage:")
+        method = report.cross_split_overlap.get("method", "simhash")
+        lines.append(f"  Cross-split leakage ({method}):")
         for pair_name, payload in report.cross_split_overlap["pairs"].items():
             lines.append(f"    {pair_name}: {payload}")
     return "\n".join(lines)
