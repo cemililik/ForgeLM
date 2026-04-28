@@ -750,12 +750,26 @@ def _chunk_markdown_tokens(text: str, max_tokens: int, tokenizer: Any) -> Iterab
         return
 
     sep_tokens = len(tokenizer.encode("\n\n", add_special_tokens=False))
-    current: List[str] = []
-    current_tokens = 0
+
+    # Build all section blocks first, then count tokens in a single batch call.
+    # Per-section tokenizer.encode() called N times was the dominant cost for
+    # long documents (many sections); batch tokenization amortises the Python
+    # call overhead and lets the tokenizer process the list in one pass.
+    section_blocks: List[str] = []
     for path, body in sections:
         breadcrumb = _heading_breadcrumb(path, path[-1] if path else "")
-        section_block = breadcrumb + body if breadcrumb else body
-        section_tokens = len(tokenizer.encode(section_block, add_special_tokens=False))
+        section_blocks.append(breadcrumb + body if breadcrumb else body)
+
+    try:
+        batch_enc = tokenizer(section_blocks, add_special_tokens=False)
+        section_token_counts = [len(ids) for ids in batch_enc["input_ids"]]
+    except Exception:
+        # Fallback for tokenizers that don't support batch-list input
+        section_token_counts = [len(tokenizer.encode(block, add_special_tokens=False)) for block in section_blocks]
+
+    current: List[str] = []
+    current_tokens = 0
+    for section_block, section_tokens in zip(section_blocks, section_token_counts):
         cost = section_tokens + (sep_tokens if current else 0)
         if current_tokens + cost <= max_tokens or not current:
             current.append(section_block)
