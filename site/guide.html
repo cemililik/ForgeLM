@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-i18n="meta.title.guide">User Guide — ForgeLM</title>
+  <meta name="description" data-i18n-attr="content:meta.desc.guide"
+        content="Comprehensive ForgeLM user guide — every feature, every parameter, with copy-pasteable examples.">
+  <meta name="theme-color" content="#0a0c12">
+  <meta property="og:title" data-i18n-attr="content:meta.title.guide" content="User Guide — ForgeLM">
+  <meta property="og:description" data-i18n-attr="content:meta.desc.guide" content="The complete ForgeLM user guide.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://YOUR_DOMAIN/assets/og.png">
+  <meta property="og:url" content="https://YOUR_DOMAIN/guide.html">
+  <meta property="og:locale" content="en_US">
+  <link rel="canonical" href="https://YOUR_DOMAIN/guide.html">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="icon" href="favicon.ico">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/translations.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/usermanuals/_index.js"></script>
+  <script src="js/usermanuals/en.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.4/dist/mermaid.min.js"
+          integrity="sha384-fGOpyux4znQZ+n4tUrYReB2Ulu6K1MtBxIkbHauU09YM1hvCyA5oX9JUc1hRkDEr"
+          crossorigin="anonymous"
+          referrerpolicy="no-referrer"></script>
+</head>
+<body>
+
+<!-- Reading progress bar -->
+<progress class="guide-progress" id="guide-progress" max="100" value="0" aria-label="Reading progress" data-i18n-attr="aria-label:guide.progress.label">0</progress>
+
+<nav class="navbar" role="navigation" aria-label="Main">
+  <div class="container">
+    <a href="index.html" class="nav-brand">
+      <span class="nav-brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l6 6-6 6"/><path d="M4 12h13"/></svg></span>
+      ForgeLM
+    </a>
+    <button class="nav-hamburger" data-i18n-attr="aria-label:common.btn.menu" aria-label="Menu" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+    <ul class="nav-menu">
+      <li><a href="index.html" data-i18n="common.nav.home">Home</a></li>
+      <li><a href="features.html" data-i18n="common.nav.features">Features</a></li>
+      <li><a href="quickstart.html" data-i18n="common.nav.quickstart">Quickstart</a></li>
+      <li><a href="guide.html" class="active" data-i18n="common.nav.guide">Guide</a></li>
+      <li><a href="compliance.html" data-i18n="common.nav.compliance">Compliance</a></li>
+      <li><a href="contact.html" data-i18n="common.nav.contact">Contact</a></li>
+    </ul>
+    <div class="nav-actions">
+      <div class="lang-toggle">
+        <button class="lang-toggle-btn" type="button" aria-haspopup="true" aria-expanded="false" data-i18n-attr="aria-label:common.btn.lang" aria-label="Language">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10"/><path d="M12 2a15 15 0 0 0-4 10 15 15 0 0 0 4 10"/></svg>
+          <span class="lang-toggle-current">EN</span>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <ul class="lang-toggle-menu">
+          <li><button data-set-lang="en" type="button">English</button></li>
+          <li><button data-set-lang="tr" type="button">Türkçe</button></li>
+          <li><button data-set-lang="de" type="button">Deutsch</button></li>
+          <li><button data-set-lang="fr" type="button">Français</button></li>
+          <li><button data-set-lang="es" type="button">Español</button></li>
+          <li><button data-set-lang="zh" type="button">中文</button></li>
+        </ul>
+      </div>
+      <button class="theme-toggle" type="button" data-i18n-attr="aria-label:common.btn.theme" aria-label="Toggle theme">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<!-- Mobile sticky bar with hamburger for sidebar + crumb -->
+<div class="guide-mobile-bar">
+  <button id="guide-mobile-toggle" type="button" aria-label="Open guide navigation">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    <span data-i18n="guide.mobile.menu">Menu</span>
+  </button>
+  <span class="crumb" id="guide-mobile-crumb"></span>
+</div>
+
+<!-- 3-column shell -->
+<div class="guide-layout">
+
+  <!-- Left rail: sections + pages -->
+  <aside class="guide-sidebar" id="guide-sidebar" aria-label="Guide sections" data-i18n-attr="aria-label:guide.sidebar.label">
+    <div class="guide-sidebar-search-wrap">
+      <input
+        type="search"
+        id="guide-search-trigger"
+        class="guide-sidebar-search"
+        readonly
+        placeholder="Search the guide…"
+        data-i18n-attr="placeholder:guide.search.placeholder">
+      <span class="guide-sidebar-kbd">⌘K</span>
+    </div>
+    <nav id="guide-nav" aria-label="User guide"></nav>
+  </aside>
+
+  <!-- Main content -->
+  <main class="guide-content" id="guide-content"></main>
+
+  <!-- Right rail: on-this-page TOC -->
+  <aside class="guide-toc" id="guide-toc" aria-label="On this page"></aside>
+
+</div>
+
+<!-- Search overlay (Cmd+K) -->
+<dialog class="guide-search-overlay" id="guide-search-overlay" aria-label="Search the guide" data-i18n-attr="aria-label:guide.search.label">
+  <div class="guide-search-modal">
+    <input
+      type="search"
+      id="guide-search-input"
+      class="guide-search-input"
+      placeholder="Search the guide…"
+      data-i18n-attr="placeholder:guide.search.placeholder"
+      aria-label="Search">
+    <ul id="guide-search-results" class="guide-search-results"></ul>
+    <div class="guide-search-footer">
+      <span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n="guide.search.kbd_navigate">to navigate</span></span>
+      <span><kbd>↵</kbd> <span data-i18n="guide.search.kbd_select">to open</span></span>
+      <span><kbd>esc</kbd> <span data-i18n="guide.search.kbd_close">to close</span></span>
+    </div>
+  </div>
+</dialog>
+
+<!-- Footer (compact for guide) -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-bottom">
+      <span>&copy; 2026 ForgeLM</span>
+      <span>
+        <a href="index.html" data-i18n="common.footer.home">Home</a> ·
+        <a href="privacy.html" data-i18n="common.footer.privacy">Privacy</a> ·
+        <a href="terms.html" data-i18n="common.footer.terms">Terms</a> ·
+        <a href="contact.html" data-i18n="common.footer.contact">Contact</a>
+      </span>
+    </div>
+  </div>
+</footer>
+
+<script src="js/main.js"></script>
+<script src="js/guide.js"></script>
+</body>
+</html>

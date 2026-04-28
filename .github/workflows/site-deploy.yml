@@ -1,0 +1,87 @@
+name: Deploy site
+
+# Build the user-manual content from docs/usermanuals/ and deploy the
+# static `site/` directory to GitHub Pages.
+#
+# Trigger matrix
+# --------------
+#   * push to main on any path under site/, docs/usermanuals/, or
+#     tools/build_usermanuals.py — site is rebuilt and republished.
+#   * workflow_dispatch — manual rebuild button in the Actions UI.
+#
+# Pre-requisites in the repository settings
+# -----------------------------------------
+#   Settings → Pages → Build and deployment → Source: "GitHub Actions"
+#
+# Why a build job
+# ---------------
+#   The site uses generated content under site/js/usermanuals/, compiled
+#   from markdown sources in docs/usermanuals/. The generated files are
+#   gitignored, so they have to be produced fresh on every deploy.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/usermanuals/**"
+      - "tools/build_usermanuals.py"
+      - ".github/workflows/site-deploy.yml"
+  workflow_dispatch:
+
+# Only one Pages deployment can run at a time per ref. Cancel-in-progress
+# is intentionally false — we want the most recent commit to win, but
+# without dropping an in-flight one mid-deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+# Workflow-level permissions are intentionally not declared. Each job below
+# requests only the scopes it needs (least privilege), per Sonar
+# githubactions:S8233 / S8264.
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: pip install markdown pyyaml
+
+      - name: Compile user-manual markdown to JS
+        run: python3 tools/build_usermanuals.py
+
+      - name: Verify the generated tree
+        run: |
+          test -f site/js/usermanuals/_index.js
+          test -f site/js/usermanuals/en.js
+          for lang in en tr de fr es zh; do
+            test -f "site/js/usermanuals/${lang}.js" || { echo "missing ${lang}.js"; exit 1; }
+          done
+
+      - uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

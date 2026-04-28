@@ -1,0 +1,48 @@
+name: Validate user-manuals
+
+# On pull requests that touch the user-manual sources or the build tool,
+# verify the build script can compile every markdown file without errors
+# and that every page declared in `_meta.yaml` has at least an English
+# source. Catches structural problems before they hit main.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/usermanuals/**"
+      - "tools/build_usermanuals.py"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install markdown pyyaml
+
+      - name: Build user-manuals
+        run: python3 tools/build_usermanuals.py
+
+      - name: Smoke-test that core pages have English content
+        # If somebody renamed a section in _meta.yaml without moving the
+        # markdown source, the build silently falls back to a placeholder.
+        # Fail the build instead so the PR author notices.
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, re
+          src = pathlib.Path("site/js/usermanuals/en.js").read_text(encoding="utf-8")
+          # Each "missing": true entry is a page whose markdown source
+          # could not be found at all (no English fallback even).
+          missing = re.findall(r'"([^"]+)":\s*\{[^{}]*"missing":\s*true', src)
+          if missing:
+              print("ERROR: pages declared in _meta.yaml but missing markdown:")
+              for m in sorted(set(missing)):
+                  print(f"  - {m}")
+              raise SystemExit(1)
+          print("OK — every declared page has an English source.")
+          PY
