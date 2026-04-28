@@ -263,6 +263,20 @@ docs/guides/          # Quickstart, ingestion, audit, alignment, CI/CD, enterpri
 
 ---
 
+## Pro CLI (planned — v0.6.0-pro)
+
+A paid tier built on top of the OSS core. Every Pro feature ships with a documented OSS workaround — Pro is for convenience and scale, not gatekeeping.
+
+- `forgelm pro dashboard` — local-first experiment browser (run list, metric comparisons, config diffs, artifact browser) backed by your existing `checkpoints/` and `audit_log.jsonl`
+- HPO via Optuna — `hpo:` config block spawns N subordinate training runs and emits a best-config YAML
+- Scheduled training jobs — cron-style `schedule:` field with a daemon runner
+- Team config store — `forgelm pro team push/pull` for shared golden-config patterns
+- Live GPU cost estimation — real-time spot pricing from RunPod, Lambda Labs, vast.ai
+
+Gated by adoption signal from v0.5.x — will not start before ≥1 K monthly PyPI installs. See [docs/roadmap/phase-13-pro-cli.md](docs/roadmap/phase-13-pro-cli.md).
+
+---
+
 ## License
 
 [Apache License 2.0](LICENSE)
