@@ -49,6 +49,17 @@ SUPPORTED_EXTENSIONS: Tuple[str, ...] = (".pdf", ".docx", ".epub", ".txt", ".md"
 
 CHUNK_STRATEGIES: Tuple[str, ...] = ("sliding", "paragraph", "markdown", "semantic")
 
+# Validation messages — pinned as module constants so ruff / SonarCloud
+# don't flag the duplicated string literal across the four chunkers below.
+_CHUNK_TOKENS_POSITIVE_MSG: str = "chunk_tokens must be positive"
+_CHUNK_SIZE_POSITIVE_MSG: str = "max_chunk_size must be positive"
+_MARKDOWN_OVERLAP_UNSUPPORTED_MSG: str = (
+    "overlap / overlap_tokens is not supported for --strategy markdown "
+    "(sections are atomic; an overlap would slice mid-section and break "
+    "the heading-breadcrumb invariant). Use --strategy sliding for "
+    "overlapping windows."
+)
+
 
 @dataclass
 class IngestionResult:
@@ -298,30 +309,58 @@ def _docx_table_to_markdown(table: Any) -> str:
     body = rows[1:]
     header_line = "| " + " | ".join(header) + " |"
     separator_line = "|" + "|".join("---" for _ in range(width)) + "|"
-    body_lines = ["| " + " | ".join(c for c in row) + " |" for row in body]
+    body_lines = ["| " + " | ".join(row) + " |" for row in body]
 
     return "\n".join([header_line, separator_line, *body_lines])
+
+
+def _iter_docx_blocks(doc: Any) -> Iterable[Any]:
+    """Yield block-level elements (paragraphs + tables) in document order.
+
+    ``python-docx``'s ``doc.paragraphs`` and ``doc.tables`` collections lose
+    the relative ordering of headings → tables → paragraphs that authors
+    rely on. Walking the underlying ``<w:body>`` XML in document order
+    preserves layout — critical for tabular Q&A and policy manuals where
+    the table is supposed to appear *after* the paragraph that introduces
+    it, not at the end of the file.
+    """
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    body = doc.element.body
+    for child in body.iterchildren():
+        if child.tag == qn("w:p"):
+            yield Paragraph(child, doc)
+        elif child.tag == qn("w:tbl"):
+            yield Table(child, doc)
 
 
 def _extract_docx(path: Path) -> str:
     try:
         from docx import Document
+        from docx.table import Table
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "DOCX ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
         ) from exc
 
     doc = Document(str(path))
-    blocks: List[str] = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
-
     # Phase 12: render tables as markdown so SFT models see the header /
     # separator / body structure rather than a single ``|``-joined line.
-    # Aligns with the markdown-aware splitter (``--strategy markdown``)
-    # which keeps these blocks intact across chunks.
-    for table in doc.tables:
-        rendered = _docx_table_to_markdown(table)
-        if rendered:
-            blocks.append(rendered)
+    # Walking the body in document order keeps tables next to the
+    # paragraphs that introduce them — appending all paragraphs first
+    # and all tables last (the previous behaviour) reordered content.
+    blocks: List[str] = []
+    for element in _iter_docx_blocks(doc):
+        if isinstance(element, Table):
+            rendered = _docx_table_to_markdown(element)
+            if rendered:
+                blocks.append(rendered)
+        else:
+            text = element.text
+            if text and text.strip():
+                blocks.append(text)
 
     return "\n\n".join(blocks)
 
@@ -425,7 +464,7 @@ def _chunk_paragraph(text: str, max_chunk_size: int) -> Iterable[str]:
     intact so SFT examples don't start mid-thought.
     """
     if max_chunk_size <= 0:
-        raise ValueError("max_chunk_size must be positive")
+        raise ValueError(_CHUNK_SIZE_POSITIVE_MSG)
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     if not paragraphs:
         return
@@ -458,9 +497,14 @@ def _chunk_semantic(text: str, chunk_size: int) -> Iterable[str]:
 
 
 # CommonMark allows 0-3 leading spaces before an ATX heading marker; 4+
-# spaces would make the line an indented code block instead.
-_MARKDOWN_HEADING_PATTERN = re.compile(r"^[ ]{0,3}(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
-_MARKDOWN_CODE_FENCE = re.compile(r"^[ ]{0,3}```")
+# spaces would make the line an indented code block instead. We use ``[ \t]``
+# explicitly (instead of ``\s``) to avoid the catastrophic-backtracking risk
+# that ``\s+(.+?)\s*$`` carries when ``.`` overlaps with ``\s`` on
+# pathological inputs — and to keep the per-line semantic clear under
+# ``re.MULTILINE`` (no newline ambiguity).
+_MARKDOWN_HEADING_PATTERN = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*$", re.MULTILINE)
+# Code fence — backticks or tildes per CommonMark §4.5; up to 3 leading spaces.
+_MARKDOWN_CODE_FENCE = re.compile(r"^ {0,3}(?:```|~~~)")
 
 
 def _push_heading_onto_path(current_path: List[str], heading_line: str, level: int) -> None:
@@ -493,23 +537,30 @@ def _markdown_sections(text: str) -> List[Tuple[List[str], str]]:
     heading was ``# Project Notes`` carries
     ``["# Project Notes", "## Background"]``.
 
-    Code fences (``` ``` ```) are detected *line-wise* so a heading-shaped
-    line **inside** a code block is not interpreted as a heading. This
-    matters for documents that include shell prompts (``# whoami``) or
-    Python comments inside fenced blocks.
+    Code fences (``` ``` ``` or ``~~~``) are detected *line-wise* so a
+    heading-shaped line **inside** a code block is not interpreted as a
+    heading. CommonMark requires the closing fence to use the same
+    character as the opening one, so we track the opening fence
+    character and only close on a matching fence — a stray ``\\`\\`\\``` inside
+    a ``~~~`` block (or vice-versa) does not toggle state.
     """
     sections: List[Tuple[List[str], List[str]]] = []
     current_path: List[str] = []
     current_lines: List[str] = []
-    in_code_block = False
+    open_fence_char: Optional[str] = None  # None = not in a code block
     seen_heading = False
 
     for line in text.splitlines():
-        if _MARKDOWN_CODE_FENCE.match(line):
-            in_code_block = not in_code_block
+        fence_match = _MARKDOWN_CODE_FENCE.match(line)
+        if fence_match:
+            fence_char = "`" if "`" in fence_match.group(0) else "~"
+            if open_fence_char is None:
+                open_fence_char = fence_char
+            elif open_fence_char == fence_char:
+                open_fence_char = None
             current_lines.append(line)
             continue
-        if in_code_block:
+        if open_fence_char is not None:
             current_lines.append(line)
             continue
         match = _MARKDOWN_HEADING_PATTERN.match(line)
@@ -580,7 +631,7 @@ def _chunk_markdown(text: str, max_chunk_size: int) -> Iterable[str]:
     ``--strategy sliding`` if you need overlapping windows.
     """
     if max_chunk_size <= 0:
-        raise ValueError("max_chunk_size must be positive")
+        raise ValueError(_CHUNK_SIZE_POSITIVE_MSG)
     sections = _markdown_sections(text)
     if not sections:
         return
@@ -610,7 +661,7 @@ def _chunk_markdown_tokens(text: str, max_tokens: int, tokenizer: Any) -> Iterab
     ignored when ``--strategy markdown`` is selected.
     """
     if max_tokens <= 0:
-        raise ValueError("chunk_tokens must be positive")
+        raise ValueError(_CHUNK_TOKENS_POSITIVE_MSG)
     sections = _markdown_sections(text)
     if not sections:
         return
@@ -640,6 +691,8 @@ def _strategy_dispatch(strategy: str, text: str, chunk_size: int, overlap: int) 
     if strategy == "paragraph":
         return _chunk_paragraph(text, chunk_size)
     if strategy == "markdown":
+        if overlap:
+            raise ValueError(_MARKDOWN_OVERLAP_UNSUPPORTED_MSG)
         return _chunk_markdown(text, chunk_size)
     if strategy == "semantic":
         return _chunk_semantic(text, chunk_size)
@@ -659,7 +712,7 @@ def _chunk_sliding_tokens(text: str, n_tokens: int, overlap_tokens: int, tokeniz
     output sizes line up with ``model.max_length`` exactly.
     """
     if n_tokens <= 0:
-        raise ValueError("chunk_tokens must be positive")
+        raise ValueError(_CHUNK_TOKENS_POSITIVE_MSG)
     if overlap_tokens < 0 or overlap_tokens >= n_tokens:
         raise ValueError("overlap_tokens must be in [0, chunk_tokens)")
     if overlap_tokens > n_tokens // 2:
@@ -703,7 +756,7 @@ def _chunk_paragraph_tokens(text: str, max_tokens: int, tokenizer: Any) -> Itera
     is computed once via the tokenizer and added when joining.
     """
     if max_tokens <= 0:
-        raise ValueError("chunk_tokens must be positive")
+        raise ValueError(_CHUNK_TOKENS_POSITIVE_MSG)
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     if not paragraphs:
         return
@@ -741,6 +794,8 @@ def _strategy_dispatch_tokens(
     if strategy == "paragraph":
         return _chunk_paragraph_tokens(text, chunk_tokens, tokenizer)
     if strategy == "markdown":
+        if overlap_tokens:
+            raise ValueError(_MARKDOWN_OVERLAP_UNSUPPORTED_MSG)
         return _chunk_markdown_tokens(text, chunk_tokens, tokenizer)
     if strategy == "semantic":
         return _chunk_semantic(text, chunk_tokens)
@@ -959,12 +1014,15 @@ detection in :func:`ingest_path` is not a magic-number compare.
 """
 
 
+DEFAULT_SLIDING_OVERLAP: int = 200
+
+
 def ingest_path(
     input_path: str,
     *,
     output_path: str,
     chunk_size: Optional[int] = None,
-    overlap: int = 200,
+    overlap: Optional[int] = None,
     strategy: str = "paragraph",
     recursive: bool = False,
     pii_mask: bool = False,
@@ -1029,6 +1087,13 @@ def ingest_path(
 
     chunk_size_explicit = chunk_size is not None
     effective_chunk_size = chunk_size if chunk_size_explicit else DEFAULT_CHUNK_SIZE
+
+    # Resolve ``overlap``: only the sliding strategy needs a non-zero default.
+    # Paragraph and markdown are non-overlapping by design — we keep
+    # ``overlap=None`` flowing into the dispatcher so the default doesn't
+    # spuriously trigger the markdown overlap-rejected validator.
+    if overlap is None:
+        overlap = DEFAULT_SLIDING_OVERLAP if strategy == "sliding" else 0
 
     if pii_mask:
         # Lazy import: PII helpers live in data_audit.py; we don't want to

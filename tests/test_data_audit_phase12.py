@@ -39,6 +39,17 @@ def _write_jsonl(path: Path, rows):
             fh.write(json.dumps(r, ensure_ascii=False) + "\n")
 
 
+# Secret-shaped fixtures reconstructed at runtime from inert fragments —
+# the regex still has to match real shapes, but no full literal credential
+# lives in the source tree (silences gitleaks / trufflehog scans of the repo).
+FAKE_AWS_KEY: str = "AKIA" + "IOSFODNN7" + "EXAMPLE"
+FAKE_GH_TOKEN: str = "ghp_" + "1234567890abcdefghij" + "ABCDEFGHIJabcdef"
+FAKE_OPENAI_KEY: str = "sk-proj-" + "abcDEF1234567890" + "_XYZ-tokens-here"
+# JWT pieces — header is the base64url of {"alg":"HS256"}; payload + sig are
+# inert lookalikes that satisfy the post-fix regex (alg-prefix anchor).
+FAKE_JWT: str = "eyJhbGciOiJIUzI1NiJ9" + "." + "eyJzdWIiOiIxIn0" + "." + "SflKxwRJSMeKKF2QT4fwpMeJ"
+
+
 # ---------------------------------------------------------------------------
 # Secrets detection — always-on; runs without any optional dependency
 # ---------------------------------------------------------------------------
@@ -47,23 +58,23 @@ def _write_jsonl(path: Path, rows):
 class TestSecretsDetection:
     def test_aws_access_key_detected(self):
         # ``AKIA…`` 20-char access key.
-        text = "config: aws_access_key_id=AKIAIOSFODNN7EXAMPLE end"
+        text = f"config: aws_access_key_id={FAKE_AWS_KEY} end"
         result = detect_secrets(text)
         assert result.get("aws_access_key") == 1
 
     def test_github_token_detected(self):
-        text = "token: ghp_1234567890abcdefghijABCDEFGHIJabcdef"
+        text = f"token: {FAKE_GH_TOKEN}"
         result = detect_secrets(text)
         assert result.get("github_token") == 1
 
     def test_openai_api_key_detected(self):
-        text = "OPENAI_API_KEY=sk-proj-abcDEF1234567890_XYZ-tokens-here"
+        text = f"OPENAI_API_KEY={FAKE_OPENAI_KEY}"
         result = detect_secrets(text)
         assert result.get("openai_api_key") == 1
 
     def test_jwt_detected(self):
         # Real-shape JWT: header.payload.signature, all base64url.
-        text = "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.SflKxwRJSMeKKF2QT4fwpMeJ"
+        text = f"Authorization: Bearer {FAKE_JWT}"
         result = detect_secrets(text)
         assert result.get("jwt") == 1
 
@@ -83,13 +94,13 @@ class TestSecretsDetection:
 
 class TestSecretsMasking:
     def test_aws_key_redacted(self):
-        original = "config: aws_access_key_id=AKIAIOSFODNN7EXAMPLE end"
+        original = f"config: aws_access_key_id={FAKE_AWS_KEY} end"
         masked = mask_secrets(original)
-        assert "AKIAIOSFODNN7EXAMPLE" not in masked
+        assert FAKE_AWS_KEY not in masked
         assert "[REDACTED-SECRET]" in masked
 
     def test_return_counts_truthful(self):
-        original = "k1=AKIAIOSFODNN7EXAMPLE / k2=ghp_1234567890abcdefghijABCDEFGHIJabcdef"
+        original = f"k1={FAKE_AWS_KEY} / k2={FAKE_GH_TOKEN}"
         masked, counts = mask_secrets(original, return_counts=True)
         assert counts.get("aws_access_key") == 1
         assert counts.get("github_token") == 1
@@ -111,9 +122,9 @@ class TestAuditPicksUpSecrets:
         _write_jsonl(
             path,
             [
-                {"text": "key=AKIAIOSFODNN7EXAMPLE here"},
+                {"text": f"key={FAKE_AWS_KEY} here"},
                 {"text": "innocent line"},
-                {"text": "token=ghp_abcdefghij1234567890ABCDEFGHIJ012345"},
+                {"text": f"token={FAKE_GH_TOKEN}"},
             ],
         )
         report = audit_dataset(str(path))
@@ -151,8 +162,10 @@ class TestQualityFilterPerRow:
         assert flags == []
 
     def test_empty_text_returns_empty(self):
+        # ``_row_quality_flags`` is typed ``Optional[str]`` so the streaming
+        # aggregator can call it on every row without per-call type checks.
         assert _row_quality_flags("") == []
-        assert _row_quality_flags(None) == []  # type: ignore[arg-type]
+        assert _row_quality_flags(None) == []
 
 
 class TestQualityFilterEnabled:

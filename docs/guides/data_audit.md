@@ -278,7 +278,8 @@ heuristics per row and surfaces a `quality_summary` block:
       "low_alpha_ratio": 12,
       "low_punct_endings": 8,
       "abnormal_mean_word_length": 3,
-      "short_paragraphs": 27
+      "short_paragraphs": 27,
+      "repeated_lines": 5
     },
     "overall_quality_score": 0.94
   }
@@ -291,6 +292,16 @@ Checks (all conservative; no row is silently dropped):
 - `low_punct_endings` — < 50 % of non-empty lines end with punctuation.
 - `abnormal_mean_word_length` — outside the 3-12 char window.
 - `short_paragraphs` — > 50 % of `\n\n`-separated blocks have < 5 words.
+- `repeated_lines` — top-3 actually-repeating lines (count ≥ 2) cover
+  > 30 % of all non-empty lines. Catches boilerplate (headers, footers,
+  repeated disclaimers) that bloats training without adding signal.
+
+Markdown fenced code blocks (```` ``` ```` and ``~~~``) are stripped
+before applying these heuristics — code legitimately has low alpha
+ratio, missing end-of-line punctuation, and short paragraphs, so
+applying prose checks to fenced code would produce false flags on
+legitimate code-instruction SFT corpora. Pure-code rows surface zero
+flags rather than being flagged on shape grounds.
 
 ML-based quality classifiers (fastText / DeBERTa style) are deliberately
 **out of scope**; a deterministic regex/length/structure pipeline keeps

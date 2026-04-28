@@ -282,9 +282,12 @@ def _add_ingest_subcommand(subparsers) -> None:
     p.add_argument(
         "--overlap",
         type=int,
-        default=200,
+        default=None,
         metavar="N",
-        help="Sliding-strategy overlap window (default: 200; ignored for paragraph).",
+        help=(
+            "Sliding-strategy overlap window (default: 200 when --strategy sliding; "
+            "must be 0 / unset for paragraph or markdown — they're non-overlapping by design)."
+        ),
     )
     p.add_argument(
         "--strategy",

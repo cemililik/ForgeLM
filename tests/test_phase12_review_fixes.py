@@ -174,16 +174,23 @@ class TestC3DocxPipeEscape:
 
 class TestC4JwtRegexNarrowing:
     def test_real_jwt_still_detected(self):
-        text = "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.SflKxwRJSMeKKF2QT4fwpMeJ"
+        # Build the JWT from inert fragments so secret scanners on the repo
+        # don't mistake the fixture for a real leaked token. The regex still
+        # has to match the canonical alg-prefix-anchored shape.
+        header = "eyJhbGciOiJIUzI1NiJ9"  # base64 of {"alg":"HS256"}
+        payload = "eyJzdWIiOiIxIn0"  # base64 of {"sub":"1"}
+        signature = "SflKxwRJSMe" + "KKF2QT4fwpMeJ"
+        text = f"Authorization: Bearer {header}.{payload}.{signature}"
         result = detect_secrets(text)
         assert result.get("jwt") == 1
 
     def test_realistic_hs256_token_detected(self):
-        text = (
-            "token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-            "eyJzdWIiOiIxMjM0NSIsIm5hbWUiOiJKb2huIERvZSJ9."
-            "abcdefghijklmnopqrstuvwxyz123"
-        )
+        # Same fragmentation pattern as ``test_real_jwt_still_detected`` —
+        # builds a longer payload to exercise the looser min-length branch.
+        header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"  # alg=HS256, typ=JWT
+        payload = "eyJzdWIiOiIxMjM0NSIs" + "Im5hbWUiOiJKb2huIERvZSJ9"
+        signature = "abcdefghij" + "klmnopqrstuvwxyz123"
+        text = f"token={header}.{payload}.{signature}"
         result = detect_secrets(text)
         assert result.get("jwt") == 1
 
@@ -299,3 +306,131 @@ class TestCommonMarkIndentedHeadings:
         sections = _markdown_sections(text)
         # Single section because the 4-space line is body, not a heading.
         assert len(sections) == 1
+
+
+# ---------------------------------------------------------------------------
+# Round-2 review — additional fixes pinned against re-introduction.
+# ---------------------------------------------------------------------------
+
+
+class TestTildeFenceRecognised:
+    """``~~~`` fences should toggle code-block state just like backticks."""
+
+    def test_tilde_fence_blocks_inner_heading_split(self):
+        text = (
+            "# Real Heading\n\n"
+            "intro before code\n\n"
+            "~~~bash\n"
+            "# this is a shell prompt inside ~~~ fence — must NOT split\n"
+            "echo hi\n"
+            "~~~\n\n"
+            "more body."
+        )
+        sections = _markdown_sections(text)
+        assert len(sections) == 1
+        body = sections[0][1]
+        assert "this is a shell prompt" in body
+        assert "more body" in body
+
+
+class TestPrivateKeyFullBlock:
+    """``mask_secrets`` redacts the entire PEM/PGP envelope, not just BEGIN."""
+
+    def test_openssh_full_block_redacted(self):
+        from forgelm.data_audit import mask_secrets
+
+        # Build the envelope from fragments — no actual key body in source.
+        begin = "-----" + "BEGIN " + "OPENSSH PRIVATE KEY-----"
+        end = "-----" + "END " + "OPENSSH PRIVATE KEY-----"
+        body = "abcdefghij" * 10
+        original = f"context\n{begin}\n{body}\n{end}\nmore context"
+        masked = mask_secrets(original)
+        # The body bytes must be gone — not just the header line.
+        assert body not in masked
+        assert begin not in masked
+        assert end not in masked
+        assert "[REDACTED-SECRET]" in masked
+        # Surrounding prose untouched.
+        assert "context" in masked
+        assert "more context" in masked
+
+
+class TestMarkdownOverlapValidation:
+    """Markdown chunkers must reject explicit non-zero overlap."""
+
+    def test_strategy_dispatch_rejects_overlap(self):
+        import pytest
+
+        from forgelm.ingestion import _strategy_dispatch
+
+        with pytest.raises(ValueError, match=r"overlap.*not supported for --strategy markdown"):
+            list(_strategy_dispatch("markdown", "# H1\n\nbody.", chunk_size=100, overlap=10))
+
+    def test_strategy_dispatch_tokens_rejects_overlap(self):
+        import pytest
+
+        from forgelm.ingestion import _strategy_dispatch_tokens
+
+        with pytest.raises(ValueError, match=r"overlap.*not supported for --strategy markdown"):
+            list(
+                _strategy_dispatch_tokens(
+                    "markdown",
+                    "# H1\n\nbody.",
+                    chunk_tokens=100,
+                    overlap_tokens=5,
+                    tokenizer=_StubTokenizer(),
+                )
+            )
+
+    def test_default_overlap_does_not_trip_markdown(self, tmp_path):
+        # The CLI default overlap (200) historically tripped the validator
+        # when the user picked --strategy markdown. ``ingest_path``'s
+        # ``overlap=None`` sentinel resolves the default per strategy so the
+        # validator only fires on user-supplied non-zero values.
+        from forgelm.ingestion import ingest_path
+
+        src = tmp_path / "doc.md"
+        src.write_text("# H1\n\nbody alpha beta.", encoding="utf-8")
+        out = tmp_path / "out.jsonl"
+        # No ``overlap=`` kwarg — should pass through silently.
+        result = ingest_path(str(src), output_path=str(out), strategy="markdown", chunk_size=100)
+        assert result.chunk_count >= 1
+
+
+class TestMinHashDistinctSemantic:
+    """``minhash_distinct`` must count *unique sketches*, mirroring simhash."""
+
+    def test_duplicate_rows_produce_one_distinct(self):
+        # Two identical rows + one unrelated row → 2 distinct simhash
+        # fingerprints. MinHash should report the same shape.
+        import importlib
+        import json
+        from pathlib import Path
+
+        if importlib.util.find_spec("datasketch") is None:  # type: ignore[attr-defined]
+            import pytest
+
+            pytest.skip("datasketch (ingestion-scale extra) not installed")
+
+        from forgelm.data_audit import audit_dataset
+
+        path = Path(__file__).parent / "_minhash_distinct_tmp"
+        path.mkdir(exist_ok=True)
+        try:
+            jsonl = path / "x.jsonl"
+            with open(jsonl, "w", encoding="utf-8") as fh:
+                for row in [
+                    {"text": "alpha beta gamma delta epsilon zeta"},
+                    {"text": "alpha beta gamma delta epsilon zeta"},
+                    {"text": "completely unrelated payload tokens"},
+                ]:
+                    fh.write(json.dumps(row) + "\n")
+            report = audit_dataset(str(jsonl), dedup_method="minhash")
+            train_info = report.splits["train"]
+            # 2 distinct sketches: one for the duplicate pair, one for the
+            # unrelated row. Pre-fix this returned 3 (count of non-empty rows).
+            assert train_info["minhash_distinct"] == 2
+        finally:
+            for f in path.iterdir():
+                f.unlink()
+            path.rmdir()

@@ -41,6 +41,12 @@ forgelm ingest ./book.epub --output data/sft.jsonl
 forgelm ingest ./policies/ --recursive --output data/policies.jsonl
 forgelm ingest ./scan.pdf --strategy sliding --chunk-size 1024 --overlap 128 \
   --output data/scan.jsonl
+
+# Faz 12 — heading-aware splitter + secrets/PII maskeleme tek pass
+forgelm ingest ./engineering_wiki/ --recursive \
+  --strategy markdown --chunk-size 600 \
+  --secrets-mask --pii-mask \
+  --output data/wiki.jsonl
 ```
 
 Çıktı satır başına bir chunk:
@@ -63,6 +69,7 @@ gerekmez.
 |---|---|---|
 | `paragraph` (varsayılan) | Düz yazı, politika dokümanları, makaleler | Açgözlü paragraf paketleyici; bir paragrafı asla yarıda bölmez. |
 | `sliding` | Uzun teknik dokümanlar, prose ile karışık kod | Sabit boyutlu karakter penceresi + bağlam taşıması için `--overlap`. |
+| `markdown` (Faz 12) | Heading hiyerarşili dokümanlar (rehberler, README, wiki sayfaları) | Heading sınırlarında böler; fenced kod bloklarını (` ``` ` veya `~~~`) atomik tutar; her chunk'ın başına heading **breadcrumb**'ını inline eder ki SFT loss doküman bağlamını görsün. Non-overlapping (sections are atomic). |
 
 > Embedding tabanlı semantik chunking takip eden bir faza ayrılmıştır —
 > bugün `NotImplementedError` raise eder ve runtime crash'i önlemek için
@@ -102,6 +109,35 @@ forgelm ingest ./customer_emails/ --output data/anon.jsonl --pii-mask
 Tespit edilen span'ler `[REDACTED]` ile değiştirilir. Tespit regex
 tabanlıdır — false positive'ler kasıtlıdır. Sonrasında
 `forgelm audit` ile çıktıyı doğrulayın.
+
+---
+
+## Yazma sırasında secrets/credential maskeleme (Faz 12)
+
+`--secrets-mask` chunk'lar JSONL'a inmeden önce credentials ve token'ları
+temizler — gerçek bir API anahtarı içeren metin üzerinde fine-tune
+etmek o anahtarı modelin içine ezberletir.
+
+```bash
+# Tek başına
+forgelm ingest ./engineering_wiki/ --output data/wiki.jsonl --secrets-mask
+
+# PII maskelemesiyle kombine — secrets önce, PII sonra çalışır ki
+# birleşik detector'lar örtüşen span'leri çift saymasın
+forgelm ingest ./mixed_corpus/ --output data/clean.jsonl --secrets-mask --pii-mask
+```
+
+Detector dar bir prefix-anchored regex seti kullanır (false-positive
+oranı bilerek düşük): AWS access key'leri, GitHub PAT'ler, Slack
+token'ları, OpenAI API key'leri, Google API key'leri, JSON Web
+Token'lar (kanonik header alphabet'ine anchored), tam OpenSSH / RSA /
+DSA / EC / PGP private-key blokları (BEGIN'den END'e kadar tüm
+gövde redact edilir) ve Azure storage connection string'leri. Tespit
+edilen span'ler `[REDACTED-SECRET]` ile değiştirilir.
+
+İsteğe bağlı `[ingestion-secrets]` extra'sı ileriki bir release için
+ayrılmıştır — mevcut sürüm `detect-secrets` paketini çağırmaz; yalnızca
+yukarıdaki regex seti çalışır.
 
 ---
 

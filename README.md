@@ -160,19 +160,27 @@ pip install -e .
 
 ### Optional Dependencies
 
+From PyPI (most users):
+
 ```bash
-pip install -e ".[qlora]"        # 4-bit quantization (Linux)
-pip install -e ".[unsloth]"      # Unsloth backend (Linux)
-pip install -e ".[eval]"         # lm-evaluation-harness benchmarks
-pip install -e ".[tracking]"     # W&B experiment tracking
-pip install -e ".[distributed]"  # DeepSpeed multi-GPU
-pip install -e ".[merging]"      # mergekit model merging
-pip install -e ".[ingestion]"         # PDF/DOCX/EPUB/Markdown → JSONL + langdetect + xxhash
-pip install -e ".[ingestion-scale]"   # MinHash LSH dedup (datasketch) for >50K-row corpora
-pip install -e ".[ingestion-secrets]" # detect-secrets plugin set on top of the regex fallback
-pip install -e ".[export]"            # GGUF export via llama-cpp-python
-pip install -e ".[chat]"              # Rich terminal rendering for `forgelm chat`
-pip install -e ".[dev]"               # pytest, ruff (development)
+pip install "forgelm[qlora]"             # 4-bit quantization (Linux)
+pip install "forgelm[unsloth]"           # Unsloth backend (Linux)
+pip install "forgelm[eval]"              # lm-evaluation-harness benchmarks
+pip install "forgelm[tracking]"          # W&B experiment tracking
+pip install "forgelm[distributed]"       # DeepSpeed multi-GPU
+pip install "forgelm[merging]"           # mergekit model merging
+pip install "forgelm[ingestion]"         # PDF/DOCX/EPUB/Markdown → JSONL + langdetect + xxhash
+pip install "forgelm[ingestion-scale]"   # MinHash LSH dedup (datasketch) for >50K-row corpora
+pip install "forgelm[ingestion-secrets]" # Reserved for follow-up: detect-secrets bridge (no-op today)
+pip install "forgelm[export]"            # GGUF export via llama-cpp-python
+pip install "forgelm[chat]"              # Rich terminal rendering for `forgelm chat`
+```
+
+From a local clone (contributors):
+
+```bash
+pip install -e ".[ingestion,eval,tracking]"  # Editable install, multiple extras
+pip install -e ".[dev]"                      # pytest, ruff (development)
 ```
 
 ---

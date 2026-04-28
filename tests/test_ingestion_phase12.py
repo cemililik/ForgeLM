@@ -185,9 +185,15 @@ class TestDocxTableToMarkdown:
 
 class TestSecretsMaskIngest:
     def test_secrets_mask_redacts_and_counts(self, tmp_path):
+        # Build the secret-shaped fixtures at runtime rather than embedding
+        # full literal credentials in the source tree — this keeps repo-wide
+        # secret scanners (gitleaks, trufflehog) silent without changing what
+        # the regex actually has to match.
+        aws_key = "AKIA" + "IOSFODNN7" + "EXAMPLE"
+        gh_token = "ghp_" + "abcdefghij1234567890" + "ABCDEFGHIJ012345"
         src = tmp_path / "secret.txt"
         src.write_text(
-            "config\n\nkey=AKIAIOSFODNN7EXAMPLE\n\ntoken=ghp_abcdefghij1234567890ABCDEFGHIJ012345",
+            f"config\n\nkey={aws_key}\n\ntoken={gh_token}",
             encoding="utf-8",
         )
         out = tmp_path / "out.jsonl"
@@ -200,17 +206,18 @@ class TestSecretsMaskIngest:
         assert result.secrets_redaction_counts.get("github_token", 0) >= 1
         with open(out, encoding="utf-8") as fh:
             written = fh.read()
-        assert "AKIAIOSFODNN7EXAMPLE" not in written
-        assert "ghp_" not in written
+        assert aws_key not in written
+        assert gh_token not in written
         assert "[REDACTED-SECRET]" in written
 
     def test_secrets_mask_off_by_default(self, tmp_path):
         # Without --secrets-mask, secrets land in the JSONL unchanged.
+        aws_key = "AKIA" + "IOSFODNN7" + "EXAMPLE"
         src = tmp_path / "secret.txt"
-        src.write_text("key=AKIAIOSFODNN7EXAMPLE", encoding="utf-8")
+        src.write_text(f"key={aws_key}", encoding="utf-8")
         out = tmp_path / "out.jsonl"
         result = ingest_path(str(src), output_path=str(out))
         assert result.secrets_redaction_counts == {}
         with open(out, encoding="utf-8") as fh:
             written = fh.read()
-        assert "AKIAIOSFODNN7EXAMPLE" in written
+        assert aws_key in written

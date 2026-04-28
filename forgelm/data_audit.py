@@ -594,6 +594,47 @@ def compute_minhash(text: str, *, num_perm: int = DEFAULT_MINHASH_NUM_PERM) -> O
     return m
 
 
+def _build_minhash_lsh(
+    minhashes: List[Optional[Any]],
+    *,
+    jaccard_threshold: float,
+    num_perm: int,
+    key_prefix: str,
+) -> Tuple[Any, Dict[str, int]]:
+    """Build an LSH index over non-empty MinHashes; return ``(lsh, key→idx)``."""
+    lsh = _MinHashLSH(threshold=jaccard_threshold, num_perm=num_perm)
+    keys: Dict[str, int] = {}
+    for idx, m in enumerate(minhashes):
+        if m is None:
+            continue
+        key = f"{key_prefix}-{idx}"
+        keys[key] = idx
+        lsh.insert(key, m)
+    return lsh, keys
+
+
+def _emit_minhash_pair(
+    idx: int,
+    cand_key: str,
+    keys: Dict[str, int],
+    minhashes: List[Optional[Any]],
+    jaccard_threshold: float,
+    seen: set,
+) -> Optional[Tuple[int, int, float]]:
+    """Verify a single LSH candidate; return the pair tuple or ``None``."""
+    cand_idx = keys.get(cand_key)
+    if cand_idx is None or cand_idx == idx:
+        return None
+    i, j = (idx, cand_idx) if idx < cand_idx else (cand_idx, idx)
+    if (i, j) in seen:
+        return None
+    seen.add((i, j))
+    jaccard = minhashes[i].jaccard(minhashes[j])
+    if jaccard < jaccard_threshold:
+        return None
+    return (i, j, jaccard)
+
+
 def find_near_duplicates_minhash(
     minhashes: List[Optional[Any]],
     *,
@@ -613,14 +654,12 @@ def find_near_duplicates_minhash(
     so they don't pollute the pair set.
     """
     _require_datasketch()
-    lsh = _MinHashLSH(threshold=jaccard_threshold, num_perm=num_perm)
-    keys: Dict[str, int] = {}
-    for idx, m in enumerate(minhashes):
-        if m is None:
-            continue
-        key = f"row-{idx}"
-        keys[key] = idx
-        lsh.insert(key, m)
+    lsh, keys = _build_minhash_lsh(
+        minhashes,
+        jaccard_threshold=jaccard_threshold,
+        num_perm=num_perm,
+        key_prefix="row",
+    )
 
     seen: set = set()
     pairs: List[Tuple[int, int, float]] = []
@@ -628,16 +667,9 @@ def find_near_duplicates_minhash(
         if m is None:
             continue
         for cand_key in lsh.query(m):
-            cand_idx = keys.get(cand_key)
-            if cand_idx is None or cand_idx == idx:
-                continue
-            i, j = (idx, cand_idx) if idx < cand_idx else (cand_idx, idx)
-            if (i, j) in seen:
-                continue
-            seen.add((i, j))
-            jaccard = minhashes[i].jaccard(minhashes[j])
-            if jaccard >= jaccard_threshold:
-                pairs.append((i, j, jaccard))
+            triple = _emit_minhash_pair(idx, cand_key, keys, minhashes, jaccard_threshold, seen)
+            if triple is not None:
+                pairs.append(triple)
 
     pairs.sort(key=lambda triple: (triple[0], triple[1]))
     return pairs
@@ -663,14 +695,12 @@ def _count_leaked_rows_minhash(
     if not any(m is not None for m in target):
         return 0
     _require_datasketch()
-    lsh = _MinHashLSH(threshold=jaccard_threshold, num_perm=num_perm)
-    target_keys: Dict[str, int] = {}
-    for idx, m in enumerate(target):
-        if m is None:
-            continue
-        key = f"target-{idx}"
-        target_keys[key] = idx
-        lsh.insert(key, m)
+    lsh, target_keys = _build_minhash_lsh(
+        target,
+        jaccard_threshold=jaccard_threshold,
+        num_perm=num_perm,
+        key_prefix="target",
+    )
 
     leaked = 0
     for m in source:
@@ -748,7 +778,7 @@ _SECRET_PATTERNS: Dict[str, re.Pattern] = {
     # AWS access key IDs follow AKIA / ASIA + 16 uppercase alphanum.
     "aws_access_key": re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
     # GitHub fine-grained / classic PAT prefixes (see GitHub token-format docs).
-    "github_token": re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}\b"),
+    "github_token": re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_\w{20,}"),
     # Slack bot / user / app / config tokens.
     "slack_token": re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
     # OpenAI API keys (legacy ``sk-…`` and project-scoped ``sk-proj-…``).
@@ -765,9 +795,23 @@ _SECRET_PATTERNS: Dict[str, re.Pattern] = {
         r"\.eyJ[A-Za-z0-9_-]{10,}"
         r"\.[A-Za-z0-9_-]{15,}\b"
     ),
-    # Private-key block headers cover OpenSSH, RSA, DSA, EC, etc.
-    "openssh_private_key": re.compile(r"-----BEGIN (?:OPENSSH|RSA|DSA|EC) PRIVATE KEY-----"),
-    "pgp_private_key": re.compile(r"-----BEGIN PGP PRIVATE KEY BLOCK-----"),
+    # Private-key blocks — full PEM/PGP envelope (BEGIN through END inclusive)
+    # so ``mask_secrets`` redacts the entire block, not just the header line.
+    # The literal block markers below are spelled with concatenation to keep
+    # naive secret-scanners on the source tree from misreading the regex
+    # itself as a leaked private key.
+    "openssh_private_key": re.compile(
+        r"-----" + r"BEGIN " + r"(?:OPENSSH|RSA|DSA|EC) PRIVATE KEY-----"
+        r".*?"
+        r"-----" + r"END " + r"(?:OPENSSH|RSA|DSA|EC) PRIVATE KEY-----",
+        re.DOTALL,
+    ),
+    "pgp_private_key": re.compile(
+        r"-----" + r"BEGIN " + r"PGP PRIVATE KEY BLOCK-----"
+        r".*?"
+        r"-----" + r"END " + r"PGP PRIVATE KEY BLOCK-----",
+        re.DOTALL,
+    ),
     # Azure storage account keys are 88-char base64; we narrow on the
     # common ``DefaultEndpointsProtocol`` connection-string context.
     "azure_storage_key": re.compile(
@@ -842,20 +886,74 @@ addition / rename doesn't silently break consumers."""
 
 _WORD_PATTERN = re.compile(r"\b[\w']+\b", re.UNICODE)
 _PUNCT_END_PATTERN = re.compile(r"[.!?…\"'\)\]]\s*$")
-# Match an entire fenced code block (``` … ```) on its own line. We strip
-# these before applying prose heuristics because code legitimately has
-# low alpha ratio, missing end-of-line punctuation, and short paragraphs —
-# applying prose checks to fenced code produces false flags on legitimate
-# code-instruction SFT corpora.
-_CODE_FENCE_BLOCK = re.compile(r"^```[^\n]*\n.*?^```\s*$", re.MULTILINE | re.DOTALL)
+# Match an entire CommonMark fenced code block. CommonMark §4.5 allows the
+# fence to be 3+ backticks **or** 3+ tildes, with up to 3 leading spaces of
+# indentation. The closing fence must use the same character as the opening
+# one, captured via the ``fence`` named group + ``(?P=fence)`` back-reference.
+# We strip these before applying prose heuristics because code legitimately
+# has low alpha ratio, missing end-of-line punctuation, and short paragraphs.
+_CODE_FENCE_BLOCK = re.compile(
+    r"^ {0,3}(?P<fence>`{3,}|~{3,})[^\n]*\n.*?^ {0,3}(?P=fence)[ \t]*$",
+    re.MULTILINE | re.DOTALL,
+)
 
 
 def _strip_code_fences(text: str) -> str:
-    """Remove fenced ``` … ``` blocks; leave inline code (``…``) intact."""
+    """Remove CommonMark fenced code blocks (``\\`\\`\\``` or ``~~~``); leave inline code intact."""
     return _CODE_FENCE_BLOCK.sub("", text)
 
 
-def _row_quality_flags(text: str) -> List[str]:
+def _check_low_alpha_ratio(prose: str) -> Optional[str]:
+    """Flag prose whose letter-to-non-whitespace ratio falls below 70 %."""
+    non_ws = [c for c in prose if not c.isspace()]
+    if not non_ws:
+        return None
+    alpha_ratio = sum(1 for c in non_ws if c.isalpha()) / len(non_ws)
+    return "low_alpha_ratio" if alpha_ratio < 0.70 else None
+
+
+def _check_low_punct_endings(lines: List[str]) -> Optional[str]:
+    """Flag when fewer than 50 % of non-empty lines end with punctuation."""
+    if not lines:
+        return None
+    punct_ratio = sum(1 for ln in lines if _PUNCT_END_PATTERN.search(ln)) / len(lines)
+    return "low_punct_endings" if punct_ratio < 0.50 else None
+
+
+def _check_abnormal_mean_word_length(words: List[str]) -> Optional[str]:
+    """Flag mean word length outside the 3-12 char window."""
+    mean_wl = sum(len(w) for w in words) / len(words)
+    return "abnormal_mean_word_length" if mean_wl < 3.0 or mean_wl > 12.0 else None
+
+
+def _check_short_paragraphs(prose: str) -> Optional[str]:
+    """Flag when > 50 % of ``\\n\\n``-blocks contain < 5 words."""
+    paragraphs = [p for p in prose.split("\n\n") if p.strip()]
+    if not paragraphs:
+        return None
+    short = sum(1 for p in paragraphs if len(_WORD_PATTERN.findall(p)) < 5)
+    return "short_paragraphs" if short / len(paragraphs) > 0.50 else None
+
+
+def _check_repeated_lines(lines: List[str]) -> Optional[str]:
+    """Flag when the top-3 *actually-repeating* lines (count ≥ 2) cover > 30 %.
+
+    A naive "top-3 distinct lines" rule fires on any short all-unique
+    document; pinning on count ≥ 2 isolates real boilerplate (repeated
+    headers / footers / disclaimers).
+    """
+    if len(lines) < 3:
+        return None
+    line_counts = Counter(lines)
+    repeating = [(ln, n) for ln, n in line_counts.items() if n >= 2]
+    if not repeating:
+        return None
+    repeating.sort(key=lambda kv: kv[1], reverse=True)
+    top3_total = sum(n for _, n in repeating[:3])
+    return "repeated_lines" if top3_total / len(lines) > 0.30 else None
+
+
+def _row_quality_flags(text: Optional[str]) -> List[str]:
     """Return the subset of :data:`_QUALITY_CHECKS` that flag ``text``.
 
     Heuristics are intentionally conservative (Gopher / C4 / RefinedWeb
@@ -864,11 +962,12 @@ def _row_quality_flags(text: str) -> List[str]:
     short-circuits with an empty list so :class:`_StreamingAggregator`
     can call this on every row without per-call type checks.
 
-    Fenced markdown code blocks (``` … ```) are stripped before applying
-    prose heuristics — code is legitimate SFT content but trips
-    ``low_alpha_ratio`` / ``low_punct_endings`` / ``short_paragraphs`` on
-    its own. If the row is **purely** code (nothing left after stripping),
-    the function returns ``[]`` rather than flagging the whole row.
+    Fenced markdown code blocks (``` … ``` or ``~~~ … ~~~``) are stripped
+    before applying prose heuristics — code is legitimate SFT content but
+    trips ``low_alpha_ratio`` / ``low_punct_endings`` / ``short_paragraphs``
+    on its own. If the row is **purely** code (nothing left after
+    stripping), the function returns ``[]`` rather than flagging the
+    whole row.
     """
     if not isinstance(text, str) or not text.strip():
         return []
@@ -880,52 +979,17 @@ def _row_quality_flags(text: str) -> List[str]:
     words = _WORD_PATTERN.findall(prose)
     if not words:
         return ["low_alpha_ratio"]
-    flags: List[str] = []
-
-    # Alphabetic-character ratio: < 70 % of non-whitespace chars are letters.
-    non_ws = [c for c in prose if not c.isspace()]
-    if non_ws:
-        alpha_ratio = sum(1 for c in non_ws if c.isalpha()) / len(non_ws)
-        if alpha_ratio < 0.70:
-            flags.append("low_alpha_ratio")
-
-    # End-of-line punctuation: ≥ 50 % of non-empty lines should close
-    # with a punctuation mark. Sub-50 % suggests fragmented / OCR junk.
     lines = [ln for ln in prose.splitlines() if ln.strip()]
-    if lines:
-        punct_ratio = sum(1 for ln in lines if _PUNCT_END_PATTERN.search(ln)) / len(lines)
-        if punct_ratio < 0.50:
-            flags.append("low_punct_endings")
 
-    # Mean word length outside 3-12 chars (incl. punctuation-stripped).
-    mean_wl = sum(len(w) for w in words) / len(words)
-    if mean_wl < 3.0 or mean_wl > 12.0:
-        flags.append("abnormal_mean_word_length")
-
-    # Short paragraphs: paragraph defined as a "\n\n"-separated block;
-    # > 50 % of paragraphs with < 5 words → flag.
-    paragraphs = [p for p in prose.split("\n\n") if p.strip()]
-    if paragraphs:
-        short = sum(1 for p in paragraphs if len(_WORD_PATTERN.findall(p)) < 5)
-        if short / len(paragraphs) > 0.50:
-            flags.append("short_paragraphs")
-
-    # Repeated-line ratio: only count lines that **actually repeat** (count
-    # ≥ 2). The top-3 such lines covering > 30 % of all non-empty lines →
-    # flag. A naïve "top-3 distinct lines" rule fires on any short
-    # all-unique document; pinning on count ≥ 2 isolates real boilerplate
-    # (repeated headers / footers / disclaimers) which is what this
-    # heuristic exists to catch.
-    if lines and len(lines) >= 3:
-        line_counts = Counter(lines)
-        repeating = [(ln, n) for ln, n in line_counts.items() if n >= 2]
-        if repeating:
-            repeating.sort(key=lambda kv: kv[1], reverse=True)
-            top3_total = sum(n for _, n in repeating[:3])
-            if top3_total / len(lines) > 0.30:
-                flags.append("repeated_lines")
-
-    return flags
+    # Each helper returns either a flag name or ``None``; collect the hits.
+    candidates = [
+        _check_low_alpha_ratio(prose),
+        _check_low_punct_endings(lines),
+        _check_abnormal_mean_word_length(words),
+        _check_short_paragraphs(prose),
+        _check_repeated_lines(lines),
+    ]
+    return [flag for flag in candidates if flag is not None]
 
 
 def _extract_text_payload(row: Dict[str, Any]) -> str:
@@ -1196,7 +1260,10 @@ def _aggregator_to_info(
         info["languages_top3"] = languages_top3
 
     if agg.dedup_method == "minhash":
-        info["minhash_distinct"] = sum(1 for m in agg.minhashes if m is not None)
+        # Mirror simhash_distinct's semantic: count *unique* sketches, not
+        # just the number of non-empty rows. ``hashvalues.tobytes()`` gives
+        # a hashable, memory-efficient fingerprint of each MinHash state.
+        info["minhash_distinct"] = len({m.hashvalues.tobytes() for m in agg.minhashes if m is not None})
     else:
         info["simhash_distinct"] = len({fp for fp in agg.fingerprints if fp != 0})
 
@@ -1779,6 +1846,69 @@ def _quality_summary_notes(quality_summary: Dict[str, Any]) -> List[str]:
 # ---------------------------------------------------------------------------
 
 
+def _fold_outcome_into_summary(
+    outcome: "_SplitOutcome",
+    *,
+    pii_summary: Dict[str, int],
+    secrets_summary: Dict[str, int],
+    quality_aggregate: Dict[str, int],
+    enable_quality_filter: bool,
+) -> int:
+    """Merge a single split's findings into the cross-split aggregates.
+
+    Returns the split's ``quality_samples_flagged`` count so the caller can
+    keep a running total without re-reading the outcome.
+    """
+    for kind, count in outcome.pii_split.items():
+        pii_summary[kind] = pii_summary.get(kind, 0) + count
+    for kind, count in outcome.info.get("secrets_counts", {}).items():
+        secrets_summary[kind] = secrets_summary.get(kind, 0) + count
+    if not enable_quality_filter:
+        return 0
+    for kind, count in outcome.info.get("quality_flags_counts", {}).items():
+        quality_aggregate[kind] = quality_aggregate.get(kind, 0) + count
+    return outcome.info.get("quality_samples_flagged", 0)
+
+
+def _build_quality_summary(
+    *,
+    enable_quality_filter: bool,
+    samples_flagged_total: int,
+    quality_aggregate: Dict[str, int],
+    total_samples: int,
+) -> Dict[str, Any]:
+    """Render the ``quality_summary`` block (empty dict when filter is off)."""
+    if not enable_quality_filter:
+        return {}
+    overall_score = round(1.0 - (samples_flagged_total / total_samples), 4) if total_samples else 1.0
+    return {
+        "samples_flagged": samples_flagged_total,
+        "by_check": quality_aggregate,
+        "overall_quality_score": overall_score,
+    }
+
+
+def _build_near_duplicate_summary(
+    *,
+    dedup_method: str,
+    near_dup_pairs: Dict[str, int],
+    near_dup_threshold: int,
+    minhash_jaccard: float,
+    minhash_num_perm: int,
+) -> Dict[str, Any]:
+    """Pack the ``near_duplicate_summary`` block with method-specific params."""
+    summary: Dict[str, Any] = {
+        "method": dedup_method,
+        "pairs_per_split": near_dup_pairs,
+    }
+    if dedup_method == "minhash":
+        summary["jaccard_threshold"] = minhash_jaccard
+        summary["num_perm"] = minhash_num_perm
+    else:
+        summary["hamming_threshold"] = near_dup_threshold
+    return summary
+
+
 def audit_dataset(
     source: str,
     *,
@@ -1853,14 +1983,13 @@ def audit_dataset(
         notes.extend(outcome.split_notes)
         parse_errors_total += outcome.parse_errors
         decode_errors_total += outcome.decode_errors
-        for kind, count in outcome.pii_split.items():
-            pii_summary[kind] = pii_summary.get(kind, 0) + count
-        for kind, count in outcome.info.get("secrets_counts", {}).items():
-            secrets_summary[kind] = secrets_summary.get(kind, 0) + count
-        if enable_quality_filter:
-            for kind, count in outcome.info.get("quality_flags_counts", {}).items():
-                quality_aggregate[kind] = quality_aggregate.get(kind, 0) + count
-            quality_samples_flagged_total += outcome.info.get("quality_samples_flagged", 0)
+        quality_samples_flagged_total += _fold_outcome_into_summary(
+            outcome,
+            pii_summary=pii_summary,
+            secrets_summary=secrets_summary,
+            quality_aggregate=quality_aggregate,
+            enable_quality_filter=enable_quality_filter,
+        )
 
     cross = _cross_split_overlap(
         signatures_by_split,
@@ -1870,16 +1999,12 @@ def audit_dataset(
         minhash_num_perm=minhash_num_perm,
     )
     pii_severity = _build_pii_severity(pii_summary)
-
-    quality_summary: Dict[str, Any] = {}
-    if enable_quality_filter:
-        quality_summary = {
-            "samples_flagged": quality_samples_flagged_total,
-            "by_check": quality_aggregate,
-            "overall_quality_score": (
-                round(1.0 - (quality_samples_flagged_total / total_samples), 4) if total_samples else 1.0
-            ),
-        }
+    quality_summary = _build_quality_summary(
+        enable_quality_filter=enable_quality_filter,
+        samples_flagged_total=quality_samples_flagged_total,
+        quality_aggregate=quality_aggregate,
+        total_samples=total_samples,
+    )
 
     notes.extend(_pii_summary_notes(pii_summary, pii_severity))
     notes.extend(_secrets_summary_notes(secrets_summary))
@@ -1901,15 +2026,13 @@ def audit_dataset(
             "JSONL after fixing or accept the parseable subset as audited."
         )
 
-    near_duplicate_summary: Dict[str, Any] = {
-        "method": dedup_method,
-        "pairs_per_split": near_dup_pairs,
-    }
-    if dedup_method == "minhash":
-        near_duplicate_summary["jaccard_threshold"] = minhash_jaccard
-        near_duplicate_summary["num_perm"] = minhash_num_perm
-    else:
-        near_duplicate_summary["hamming_threshold"] = near_dup_threshold
+    near_duplicate_summary = _build_near_duplicate_summary(
+        dedup_method=dedup_method,
+        near_dup_pairs=near_dup_pairs,
+        near_dup_threshold=near_dup_threshold,
+        minhash_jaccard=minhash_jaccard,
+        minhash_num_perm=minhash_num_perm,
+    )
 
     report = AuditReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
