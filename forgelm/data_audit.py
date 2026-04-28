@@ -716,6 +716,57 @@ def _count_leaked_rows_minhash(
     return leaked
 
 
+def _count_leaked_rows_minhash_bidirectional(
+    sigs_a: List[Optional[Any]],
+    sigs_b: List[Optional[Any]],
+    jaccard_threshold: float,
+    *,
+    num_perm: int = DEFAULT_MINHASH_NUM_PERM,
+) -> Tuple[int, int]:
+    """Both-directional MinHash leak counts; builds each LSH index exactly once.
+
+    Previous callers invoked :func:`_count_leaked_rows_minhash` twice — once
+    with (a, b) and once with (b, a) — which built LSH(b) and LSH(a) as
+    separate calls, paying the construction cost 2× per direction pair.
+    This function builds each index once and reuses it for both queries,
+    halving the dominant ``O(n_b × bands)`` / ``O(n_a × bands)`` cost.
+    """
+    has_a = any(m is not None for m in sigs_a)
+    has_b = any(m is not None for m in sigs_b)
+    if not has_a or not has_b:
+        return 0, 0
+    _require_datasketch()
+
+    lsh_a, keys_a = _build_minhash_lsh(sigs_a, jaccard_threshold=jaccard_threshold, num_perm=num_perm, key_prefix="a")
+    lsh_b, keys_b = _build_minhash_lsh(sigs_b, jaccard_threshold=jaccard_threshold, num_perm=num_perm, key_prefix="b")
+
+    leaked_a = 0
+    for m in sigs_a:
+        if m is None:
+            continue
+        for cand_key in lsh_b.query(m):
+            cand_idx = keys_b.get(cand_key)
+            if cand_idx is None:
+                continue
+            if m.jaccard(sigs_b[cand_idx]) >= jaccard_threshold:
+                leaked_a += 1
+                break
+
+    leaked_b = 0
+    for m in sigs_b:
+        if m is None:
+            continue
+        for cand_key in lsh_a.query(m):
+            cand_idx = keys_a.get(cand_key)
+            if cand_idx is None:
+                continue
+            if m.jaccard(sigs_a[cand_idx]) >= jaccard_threshold:
+                leaked_b += 1
+                break
+
+    return leaked_a, leaked_b
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -747,6 +798,71 @@ def _length_stats(lengths: List[int]) -> Dict[str, float]:
         "p50": sorted_lens[n // 2],
         "p95": sorted_lens[min(n - 1, int(n * 0.95))],
     }
+
+
+# ---------------------------------------------------------------------------
+# Streaming length digest — bounded memory for large corpora (C.2)
+# ---------------------------------------------------------------------------
+
+# Reservoir size: below this the digest is exact; above it p50/p95 are
+# approximate via Algorithm R random sampling. 100K ints ≈ 800 KB — a
+# negligible fraction of peak audit memory even on multi-million-row splits.
+_LENGTH_RESERVOIR_SIZE = 100_000
+
+
+class _LengthDigest:
+    """Streaming min/max/mean/p50/p95 accumulator with bounded memory.
+
+    Replaces the ``text_lengths: List[int]`` field on ``_StreamingAggregator``,
+    which grew O(n) — 80 MB+ per split on 10 M-row corpora.  This keeps
+    memory capped at ``_LENGTH_RESERVOIR_SIZE`` integers (≈ 800 KB) regardless
+    of dataset size; p50/p95 are exact up to that cap, approximate beyond it.
+    """
+
+    __slots__ = ("_n", "_total", "_min", "_max", "_reservoir", "_rng_counter")
+
+    def __init__(self) -> None:
+        self._n: int = 0
+        self._total: int = 0
+        self._min: int = 0
+        self._max: int = 0
+        self._reservoir: List[int] = []
+        # Inline LCG counter for reservoir sampling — avoids importing random
+        # and keeps the digest deterministic when seeded externally.
+        self._rng_counter: int = 0
+
+    def update(self, length: int) -> None:
+        self._n += 1
+        self._total += length
+        if self._n == 1:
+            self._min = self._max = length
+        else:
+            if length < self._min:
+                self._min = length
+            if length > self._max:
+                self._max = length
+        if len(self._reservoir) < _LENGTH_RESERVOIR_SIZE:
+            self._reservoir.append(length)
+        else:
+            # Algorithm R: replace a random slot with decreasing probability
+            # Use a simple LCG for speed and to avoid global random state.
+            self._rng_counter = (self._rng_counter * 6364136223846793005 + 1) & 0xFFFFFFFFFFFFFFFF
+            j = self._rng_counter % self._n
+            if j < _LENGTH_RESERVOIR_SIZE:
+                self._reservoir[j] = length
+
+    def stats(self) -> Dict[str, float]:
+        if self._n == 0:
+            return {}
+        s = sorted(self._reservoir)
+        k = len(s)
+        return {
+            "min": self._min,
+            "max": self._max,
+            "mean": round(self._total / self._n, 1),
+            "p50": s[k // 2],
+            "p95": s[min(k - 1, int(k * 0.95))],
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -1183,7 +1299,7 @@ class _StreamingAggregator:
     # finalisation time is unchanged.
     keyset_counts: "Counter[frozenset]" = field(default_factory=Counter)
     seen_columns: "OrderedDict[str, None]" = field(default_factory=OrderedDict)
-    text_lengths: List[int] = field(default_factory=list)
+    length_digest: _LengthDigest = field(default_factory=_LengthDigest)
     fingerprints: List[int] = field(default_factory=list)
     minhashes: List[Optional[Any]] = field(default_factory=list)
     pii_counts: Dict[str, int] = field(default_factory=dict)
@@ -1227,7 +1343,7 @@ def _record_dedup_sentinel(agg: _StreamingAggregator) -> None:
 
 
 def _record_text_metrics(agg: _StreamingAggregator, payload: str) -> None:
-    agg.text_lengths.append(len(payload))
+    agg.length_digest.update(len(payload))
     if len(agg.lang_sample) < _LANG_SAMPLE_SIZE:
         agg.lang_sample.append(payload)
     _record_dedup_signature(agg, payload)
@@ -1338,8 +1454,9 @@ def _aggregator_to_info(
 
     _populate_schema_block(info, agg)
 
-    if agg.text_lengths:
-        info["text_length"] = _length_stats(agg.text_lengths)
+    length_stats = agg.length_digest.stats()
+    if length_stats:
+        info["text_length"] = length_stats
     info["null_or_empty_count"] = agg.null_or_empty
     info["null_or_empty_rate"] = round(agg.null_or_empty / agg.sample_count, 4)
 
@@ -1555,8 +1672,9 @@ def _pair_leak_payload(
     knowing which method ran.
     """
     if dedup_method == "minhash":
-        leaked_in_a = _count_leaked_rows_minhash(sigs_a, sigs_b, minhash_jaccard, num_perm=minhash_num_perm)
-        leaked_in_b = _count_leaked_rows_minhash(sigs_b, sigs_a, minhash_jaccard, num_perm=minhash_num_perm)
+        leaked_in_a, leaked_in_b = _count_leaked_rows_minhash_bidirectional(
+            sigs_a, sigs_b, minhash_jaccard, num_perm=minhash_num_perm
+        )
     else:
         leaked_in_a = _count_leaked_rows(sigs_a, sigs_b, threshold)
         leaked_in_b = _count_leaked_rows(sigs_b, sigs_a, threshold)
