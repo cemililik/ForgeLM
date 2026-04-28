@@ -273,8 +273,12 @@ sayfadan kısa belgelerde devre dışı kalır. Yapılandırılmış notlar
 ## Sınırlamalar
 
 - **OCR:** Kapsam dışı. Harici araçlar kullanın — aşağıdaki örneklere bakın.
-- **Tablolar / şekiller:** PDF/DOCX tablolarındaki hücreler düz metin olarak
-  satır-major düzende düzleştirilir. Görsel yapı kaybolur.
+- **Tablolar / şekiller:** Faz 12'den (`v0.5.2`) itibaren `--strategy markdown`
+  ile DOCX tabloları **Markdown tablo syntax'ına** (header + `---` ayraç +
+  body satırları) dönüştürülür ve chunk sınırları arasında bütünlüğünü korur.
+  Diğer stratejilerde (`paragraph`, `sliding`) ve bu sürümden önceki
+  versiyonlarda tablolar düz metin olarak satır-major düzende düzleştirilir;
+  görsel yapı kaybolur. PDF tabloları her durumda düzleştirilmiş kalır.
 - **Metadata:** başlık / yazar / sayfa numarası düşürülür — yalnızca gövde
   metni JSONL'a iner.
 - **Encoding:** non-UTF-8 girdi `errors="replace"` ile okunur; binary

@@ -2037,6 +2037,12 @@ def audit_dataset(
     if dedup_method not in DEDUP_METHODS:
         raise ValueError(f"dedup_method must be one of {DEDUP_METHODS}; got {dedup_method!r}.")
     if dedup_method == "minhash":
+        if not isinstance(minhash_jaccard, (int, float)) or isinstance(minhash_jaccard, bool):
+            raise ValueError(f"minhash_jaccard must be a float in [0.0, 1.0]; got {minhash_jaccard!r}.")
+        if not 0.0 <= float(minhash_jaccard) <= 1.0:
+            raise ValueError(f"minhash_jaccard must be in [0.0, 1.0]; got {minhash_jaccard!r}.")
+        if not isinstance(minhash_num_perm, int) or isinstance(minhash_num_perm, bool) or minhash_num_perm <= 0:
+            raise ValueError(f"minhash_num_perm must be a positive integer; got {minhash_num_perm!r}.")
         _require_datasketch()
 
     splits_paths, resolution_notes = _resolve_input(source)

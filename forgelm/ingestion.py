@@ -549,7 +549,13 @@ def _parse_md_fence(line: str) -> Optional[Tuple[str, int, str]]:
     run_len = run_end - leading
     if run_len < 3:
         return None
-    return fence_char, run_len, line[run_end:]
+    rest = line[run_end:]
+    # CommonMark §4.5: backtick info strings cannot contain backticks
+    # (otherwise the run would be ambiguous with the closing fence).
+    # Tilde fences have no such restriction.
+    if fence_char == "`" and "`" in rest:
+        return None
+    return fence_char, run_len, rest
 
 
 def _push_heading_onto_path(current_path: List[str], heading_line: str, level: int) -> None:
@@ -572,6 +578,52 @@ def _trim_blank_edges(lines: List[str]) -> List[str]:
     return lines
 
 
+def _advance_fence_state(
+    open_fence: Optional[Tuple[str, int]],
+    fence_info: Tuple[str, int, str],
+) -> Optional[Tuple[str, int]]:
+    """Return the new ``open_fence`` after seeing a fence-shaped line.
+
+    Per CommonMark §4.5 the closing fence must (1) use the same character
+    as the opener, (2) have at least as many fence characters as the
+    opener, and (3) carry no info string. A line that fails any of those
+    while inside a block is treated as content — caller still appends it
+    but the state does not toggle.
+    """
+    fence_char, fence_len, rest = fence_info
+    if open_fence is None:
+        # Opener — info string is allowed; record (char, length).
+        return (fence_char, fence_len)
+    if open_fence[0] == fence_char and fence_len >= open_fence[1] and not rest.strip():
+        # Valid close: same char, ≥ as many chars, no info string.
+        return None
+    # Mismatched char, too short, or has an info string — block stays open.
+    return open_fence
+
+
+def _flush_section(
+    sections: List[Tuple[List[str], List[str]]],
+    current_path: List[str],
+    current_lines: List[str],
+    seen_heading: bool,
+) -> None:
+    """Append the current section to ``sections`` if it carries any content."""
+    if seen_heading or current_lines:
+        sections.append((list(current_path), current_lines))
+
+
+def _render_sections(
+    sections: List[Tuple[List[str], List[str]]],
+) -> List[Tuple[List[str], str]]:
+    """Trim blank edges and join each section's body lines into a single string."""
+    rendered: List[Tuple[List[str], str]] = []
+    for path, body_lines in sections:
+        trimmed = _trim_blank_edges(body_lines)
+        if trimmed:
+            rendered.append((path, "\n".join(trimmed)))
+    return rendered
+
+
 def _markdown_sections(text: str) -> List[Tuple[List[str], str]]:
     """Split a markdown document into ``(heading_path, body)`` sections.
 
@@ -584,36 +636,19 @@ def _markdown_sections(text: str) -> List[Tuple[List[str], str]]:
 
     Code fences (``` ``` ``` or ``~~~``) are detected *line-wise* so a
     heading-shaped line **inside** a code block is not interpreted as a
-    heading. Per CommonMark §4.5 the closing fence must:
-
-    1. use the same character as the opener (``\\`\\`\\``` does not close
-       a ``~~~`` block, and vice-versa);
-    2. have at least as many fence characters as the opener (a
-       ``\\`\\`\\``\\``` block of 4 backticks is *not* closed by a
-       ``\\`\\`\\``` line of 3);
-    3. contain no info string after the run — only the fence chars
-       themselves, optionally followed by whitespace.
-
-    All three rules are enforced here.
+    heading. The CommonMark §4.5 closing-fence rules live in
+    :func:`_advance_fence_state`.
     """
     sections: List[Tuple[List[str], List[str]]] = []
     current_path: List[str] = []
     current_lines: List[str] = []
-    open_fence: Optional[Tuple[str, int]] = None  # (char, run_length) while in block
+    open_fence: Optional[Tuple[str, int]] = None
     seen_heading = False
 
     for line in text.splitlines():
         fence_info = _parse_md_fence(line)
         if fence_info is not None:
-            fence_char, fence_len, rest = fence_info
-            if open_fence is None:
-                # Opener — info string is allowed; record (char, length).
-                open_fence = (fence_char, fence_len)
-            elif open_fence[0] == fence_char and fence_len >= open_fence[1] and not rest.strip():
-                # Valid close: same char, ≥ as many chars, no info string.
-                open_fence = None
-            # Otherwise — mismatched char, too short, or has an info string.
-            # Treat as content; do not toggle.
+            open_fence = _advance_fence_state(open_fence, fence_info)
             current_lines.append(line)
             continue
         if open_fence is not None:
@@ -623,24 +658,14 @@ def _markdown_sections(text: str) -> List[Tuple[List[str], str]]:
         if not match:
             current_lines.append(line)
             continue
-        # Heading boundary: flush prior section, then push this heading.
-        if seen_heading or current_lines:
-            sections.append((list(current_path), current_lines))
+        _flush_section(sections, current_path, current_lines, seen_heading)
         heading_text = match.group(0).strip()
         _push_heading_onto_path(current_path, heading_text, level=len(match.group(1)))
         current_lines = [heading_text]
         seen_heading = True
 
-    if current_lines or seen_heading:
-        sections.append((list(current_path), current_lines))
-
-    # Convert each section's lines list into a single string for emit.
-    rendered: List[Tuple[List[str], str]] = []
-    for path, body_lines in sections:
-        trimmed = _trim_blank_edges(body_lines)
-        if trimmed:
-            rendered.append((path, "\n".join(trimmed)))
-    return rendered
+    _flush_section(sections, current_path, current_lines, seen_heading)
+    return _render_sections(sections)
 
 
 def _heading_breadcrumb(path: List[str], current_heading: str) -> str:

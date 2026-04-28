@@ -290,7 +290,12 @@ assistants, code-with-data prompts.
 ## Limitations
 
 - **OCR:** out of scope. Use external tooling — see the worked example below.
-- **Tables / figures:** PDF/DOCX tables are flattened to plain text. Structure is lost.
+- **Tables / figures:** Since Phase 12 (`v0.5.2`), DOCX tables emit as
+  **Markdown table syntax** (header + `---` separator + body rows) when
+  `--strategy markdown` is used and stay intact across chunk boundaries.
+  With other strategies (`paragraph`, `sliding`) and on older versions, tables
+  are flattened to plain text in row-major order and visual structure is lost.
+  PDF tables remain flattened in all cases.
 - **Metadata:** title / author / page numbers are dropped — only body text reaches the JSONL.
 - **Encoding:** non-UTF-8 input is read with `errors="replace"`; binary noise becomes Unicode replacement characters.
 - **Semantic chunking:** raises `NotImplementedError` until embedding support lands in a follow-up phase.

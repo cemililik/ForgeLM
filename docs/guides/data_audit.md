@@ -248,8 +248,9 @@ Coverage: AWS access keys (`AKIA…` / `ASIA…`), GitHub PATs (`ghp_`,
 `gho_`, `ghs_`, `ghu_`, `ghr_`, `github_pat_`), Slack tokens (`xox[baprs]-`),
 OpenAI API keys (`sk-…` and project-scoped `sk-proj-…`), Google API
 keys (`AIza…`), JSON Web Tokens (anchored on the `eyJ`-encoded JSON
-header), OpenSSH / RSA / DSA / EC / PGP private-key block headers, and
-Azure storage connection strings.
+header), OpenSSH / RSA / DSA / EC / PGP private-key blocks (full
+`BEGIN…END` envelope — `mask_secrets()` redacts the entire key block,
+not just the header line), and Azure storage connection strings.
 
 Operator-side, two paths to scrub these out before training:
 

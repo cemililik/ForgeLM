@@ -478,17 +478,22 @@ class TestRegexLinearity:
         # Old pattern: ``[ \t]+(.+?)[ \t]*$`` had three greedy/lazy
         # quantifiers competing for trailing whitespace. New pattern
         # anchors on \S so the engine has no ambiguity.
+        # Median over 5 samples keeps shared-CI noise from false-positiving.
+        import statistics
         import time
 
         from forgelm.ingestion import _MARKDOWN_HEADING_PATTERN
 
         for n in (1_000, 5_000, 10_000):
             payload = "# a" + " \t" * n + "x"
-            t0 = time.perf_counter()
-            _MARKDOWN_HEADING_PATTERN.match(payload)
-            elapsed_ms = (time.perf_counter() - t0) * 1000
+            samples = []
+            for _ in range(5):
+                t0 = time.perf_counter()
+                _MARKDOWN_HEADING_PATTERN.match(payload)
+                samples.append((time.perf_counter() - t0) * 1000)
+            elapsed_ms = statistics.median(samples)
             assert elapsed_ms < 1000, (
-                f"heading regex took {elapsed_ms:.1f}ms on n={n} pathological input (possible ReDoS regression)"
+                f"heading regex took median {elapsed_ms:.1f}ms on n={n} pathological input (possible ReDoS regression)"
             )
 
     def test_strip_code_fences_linear_on_unclosed_blocks(self):
@@ -497,17 +502,21 @@ class TestRegexLinearity:
         # fences and no close ever — old regex went linear-ish in CPython
         # but SonarCloud flagged the polynomial-runtime risk; the walker
         # is provably O(n) and silences the analyser.
+        import statistics
         import time
 
         from forgelm.data_audit import _strip_code_fences
 
         for n in (1_000, 5_000, 10_000):
             payload = "```\nx\n" * n + "no close ever"
-            t0 = time.perf_counter()
-            _strip_code_fences(payload)
-            elapsed_ms = (time.perf_counter() - t0) * 1000
+            samples = []
+            for _ in range(5):
+                t0 = time.perf_counter()
+                _strip_code_fences(payload)
+                samples.append((time.perf_counter() - t0) * 1000)
+            elapsed_ms = statistics.median(samples)
             assert elapsed_ms < 1000, (
-                f"_strip_code_fences took {elapsed_ms:.1f}ms on n={n} unclosed-fence input (possible regression)"
+                f"_strip_code_fences took median {elapsed_ms:.1f}ms on n={n} unclosed-fence input (possible regression)"
             )
 
     def test_parse_md_fence_linear_on_long_runs(self):
@@ -517,6 +526,7 @@ class TestRegexLinearity:
         # ``[^\n]*``) over overlapping character classes — SonarCloud
         # python:S5852 flagged it as polynomial-runtime risk. Replaced
         # with ``_parse_md_fence`` (non-regex parser); provably O(n).
+        import statistics
         import time
 
         from forgelm.ingestion import _parse_md_fence
@@ -524,11 +534,14 @@ class TestRegexLinearity:
         for n in (1_000, 10_000, 100_000):
             # Pure backtick run — worst-case shape for the old regex.
             payload = "`" * n
-            t0 = time.perf_counter()
-            _parse_md_fence(payload)
-            elapsed_ms = (time.perf_counter() - t0) * 1000
+            samples = []
+            for _ in range(5):
+                t0 = time.perf_counter()
+                _parse_md_fence(payload)
+                samples.append((time.perf_counter() - t0) * 1000)
+            elapsed_ms = statistics.median(samples)
             assert elapsed_ms < 100, (
-                f"_parse_md_fence took {elapsed_ms:.1f}ms on n={n} pure-backtick input (possible regression)"
+                f"_parse_md_fence took median {elapsed_ms:.1f}ms on n={n} pure-backtick input (possible regression)"
             )
 
     def test_parse_md_fence_behaviour(self):

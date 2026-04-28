@@ -248,7 +248,9 @@ scoped `sk-proj-…`), Google API anahtarları (`AIza…`), JSON Web
 Token'lar (`eyJ` ile encode edilmiş JSON başlığına anchored —
 sadece `alg`/`typ`/`kid` gibi kanonik header anahtarlarına bağlı, böylece
 prosa false-positive üretmiyor), OpenSSH / RSA / DSA / EC / PGP
-private-key blok başlıkları ve Azure storage connection string'leri.
+özel anahtar blokları (tam `BEGIN…END` zarfı — `mask_secrets()`
+yalnızca header satırını değil, anahtar bloğunun tamamını redakte
+eder) ve Azure storage connection string'leri.
 
 Operatör tarafında, eğitim öncesi temizlik için iki yol:
 
