@@ -364,7 +364,15 @@ class WebhookConfig(BaseModel):
     notify_on_start: bool = True
     notify_on_success: bool = True
     notify_on_failure: bool = True
-    timeout: int = 5  # HTTP request timeout in seconds
+    timeout: int = 5  # HTTP request timeout in seconds (clamped to ≥ 1s by the notifier)
+    # SSRF guard — webhooks default to public-internet destinations only.
+    # Operators that genuinely target an internal monitoring endpoint
+    # (in-cluster Slack proxy, on-prem Teams gateway) must opt in.
+    allow_private_destinations: bool = False
+    # Optional path to a custom CA bundle forwarded as `requests`'s
+    # `verify=` argument (e.g. corporate MITM CA on regulated estates).
+    # When unset, `requests` uses its bundled certifi CA store.
+    tls_ca_bundle: Optional[str] = None
 
 
 class AuthConfig(BaseModel):

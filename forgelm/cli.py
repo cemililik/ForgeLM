@@ -558,9 +558,10 @@ def parse_args():
         default=None,
         metavar="PATH",
         help=(
-            "Deprecated alias for `forgelm audit PATH` (kept so existing pipelines keep working). "
-            "Behaviour is identical; new scripts should use the subcommand. Writes "
-            "`data_audit_report.json` under --output (default ./audit/). No training."
+            "DEPRECATED — alias for `forgelm audit PATH` (kept so existing pipelines keep "
+            "working). Scheduled for removal in v0.7.0. Behaviour is identical; new scripts "
+            "should use the subcommand. Writes `data_audit_report.json` under --output "
+            "(default ./audit/). No training."
         ),
     )
     parser.add_argument(
@@ -819,7 +820,7 @@ def _run_compliance_export(config: ForgeConfig, output_dir: str, output_format: 
             logger.info("  %s", f)
 
 
-def _resolve_resume_checkpoint(checkpoint_dir: str, resume_arg: str) -> str | None:
+def _resolve_resume_checkpoint(checkpoint_dir: str, resume_arg: str) -> Optional[str]:
     """Resolve the checkpoint path for --resume."""
     if resume_arg != "auto":
         if not os.path.isdir(resume_arg):
@@ -1361,9 +1362,10 @@ def _run_data_audit(
     )
 
     if invoked_via_legacy_flag:
-        logger.info(
-            "Note: `forgelm --data-audit PATH` is preserved as a deprecation alias. "
-            "New scripts should use `forgelm audit PATH` (Phase 11.5)."
+        logger.warning(
+            "Deprecation: `forgelm --data-audit PATH` is preserved as an alias and is "
+            "scheduled for removal in v0.7.0. Migrate to `forgelm audit PATH` "
+            "(Phase 11.5+) — same behaviour, same output."
         )
 
     target = output_dir or "./audit"

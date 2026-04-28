@@ -356,7 +356,17 @@ def run_safety_evaluation(
 
     logger.info("Loading safety classifier: %s", classifier_path)
     try:
-        classifier = pipeline("text-classification", model=classifier_path, device_map="auto")
+        # `trust_remote_code=False` passed explicitly so a future Transformers
+        # default flip can't silently start running classifier-side custom
+        # code on the production safety pass. Classifiers are HuggingFace
+        # standard repos in practice; if a custom-code classifier is needed,
+        # the operator can plumb an explicit override through later.
+        classifier = pipeline(
+            "text-classification",
+            model=classifier_path,
+            device_map="auto",
+            trust_remote_code=False,
+        )
     except Exception as e:
         logger.error("Failed to load safety classifier: %s", e)
         return SafetyResult(passed=False, failure_reason=f"Classifier load failed: {e}")

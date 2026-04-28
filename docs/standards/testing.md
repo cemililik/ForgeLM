@@ -103,10 +103,10 @@ From [`pyproject.toml`](../../pyproject.toml):
 
 ```toml
 [tool.coverage.report]
-fail_under = 25
+fail_under = 40
 ```
 
-**25% is the floor, not the target.** Current repo sits well above it. Rules:
+**40% is the floor, not the target.** Current repo sits well above it. The floor was raised from `25` to `40` during Phase 11/11.5 review cycles once the audit / ingest module suite landed; the standard is now in lock-step with the toml. Rules:
 
 1. Every new module starts at or above the overall floor.
 2. Public API (non-underscore functions) has coverage.
