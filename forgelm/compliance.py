@@ -14,7 +14,6 @@ import os
 import uuid
 import zipfile
 from datetime import datetime, timezone
-from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("forgelm.compliance")
@@ -37,7 +36,14 @@ class AuditLogger:
         self._prev_hash = self._load_last_hash()
 
     def _load_last_hash(self) -> str:
-        """Read the last line hash from an existing log file to restore chain continuity."""
+        """Read the last line hash from an existing log file to restore chain continuity.
+
+        Distinguishes "no file" (legitimate first run, returns ``"genesis"``)
+        from "file exists but unreadable" (filesystem error or corrupt log,
+        raises ``OSError``). The previous version swallowed any exception
+        with ``logger.debug`` and silently re-rooted the chain — invisible
+        at default INFO log level, undetectable downstream.
+        """
         if not os.path.isfile(self.log_path):
             return "genesis"
         try:
@@ -48,12 +54,24 @@ class AuditLogger:
                     return "genesis"
                 f.seek(max(0, size - 4096))
                 tail = f.read()
-                lines = [ln for ln in tail.decode("utf-8", errors="replace").splitlines() if ln.strip()]
-                if lines:
-                    last_line = lines[-1].encode("utf-8")
-                    return hashlib.sha256(last_line).hexdigest()
-        except Exception as e:
-            logger.debug("Could not restore audit hash chain: %s", e)
+        except OSError as e:
+            # Real I/O failure — surface loudly. A silent re-root would
+            # break the Article 12 record-keeping contract: a downstream
+            # verifier cannot tell a missing chain head from a corrupt one.
+            raise OSError(
+                f"Audit log exists at {self.log_path!r} but could not be read: {e}. "
+                "Refusing to silently re-root the hash chain."
+            ) from e
+        try:
+            lines = [ln for ln in tail.decode("utf-8").splitlines() if ln.strip()]
+        except UnicodeDecodeError as e:
+            raise ValueError(
+                f"Audit log {self.log_path!r} contains non-UTF-8 data — likely corrupt: {e}. "
+                "Refusing to silently re-root the hash chain."
+            ) from e
+        if lines:
+            last_line = lines[-1].encode("utf-8")
+            return hashlib.sha256(last_line).hexdigest()
         return "genesis"
 
     def log_event(self, event: str, **details) -> None:
@@ -61,6 +79,12 @@ class AuditLogger:
 
         Each entry includes the SHA-256 hash of the previous entry,
         creating a hash chain that detects modifications or deletions.
+
+        Hash advancement is **post-write**: ``self._prev_hash`` is only
+        updated after the line has been successfully appended. The previous
+        version advanced the hash before the write and swallowed the write
+        failure with ``logger.warning`` — leaving an in-memory chain that
+        looked valid but a log file with a missing entry.
         """
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -70,13 +94,19 @@ class AuditLogger:
             "prev_hash": self._prev_hash,
             **details,
         }
+        entry_json = json.dumps(entry, default=str)
         try:
-            entry_json = json.dumps(entry, default=str)
-            self._prev_hash = hashlib.sha256(entry_json.encode()).hexdigest()
             with open(self.log_path, "a") as f:
                 f.write(entry_json + "\n")
-        except Exception as e:
-            logger.warning("Failed to write audit log entry: %s", e)
+        except OSError as e:
+            # Article 12 record-keeping is a load-bearing artefact; a write
+            # failure must surface to the caller, not be quietly swallowed.
+            raise OSError(
+                f"Failed to write audit event {event!r} to {self.log_path!r}: {e}. "
+                "The hash chain has NOT been advanced — retry or fail the run."
+            ) from e
+        # Only advance the chain after the write succeeded.
+        self._prev_hash = hashlib.sha256(entry_json.encode()).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -234,21 +264,51 @@ def generate_model_integrity(final_path: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=32)
 def compute_dataset_fingerprint(dataset_path: str) -> Dict[str, Any]:
-    """Compute a fingerprint for a dataset file or directory."""
+    """Compute a fingerprint for a dataset file or directory.
+
+    The previous version was decorated with ``@lru_cache(maxsize=32)`` keyed
+    only on the path string. Three problems compounded:
+
+    1. **TOCTOU**: a long-running process that audits the same path twice
+       (training restart, multi-stage pipeline) would return the *first*
+       fingerprint even after the file had been rewritten — silently
+       producing stale Article 10 evidence.
+    2. **No symlink resolution**: ``./data.jsonl`` and a symlink to it
+       hashed independently; mutating the target invalidated only one
+       cache entry.
+    3. **Non-atomic stat + read**: ``os.stat()`` and the subsequent open
+       read could race a concurrent writer, producing a (size, mtime,
+       sha256) triple where the size belonged to one revision and the
+       hash to another.
+
+    The cache is dropped (cost is dominated by the file read anyway, and
+    a per-process memo would still suffer the staleness problem); symlinks
+    are resolved before hashing; ``stat`` is captured from the same open
+    file descriptor as the SHA-256 stream so the triple is consistent.
+    """
     fingerprint = {
         "path": dataset_path,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
     if os.path.isfile(dataset_path):
-        stat = os.stat(dataset_path)
-        fingerprint["size_bytes"] = stat.st_size
-        fingerprint["modified"] = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+        # Resolve symlinks: the artefact we attest to is the resolved file,
+        # not the link. Preserve the original path so the caller can still
+        # see what they passed.
+        resolved = os.path.realpath(dataset_path)
+        if resolved != dataset_path:
+            fingerprint["resolved_path"] = resolved
 
         sha256 = hashlib.sha256()
-        with open(dataset_path, "rb") as f:
+        with open(resolved, "rb") as f:
+            # Capture stat from the open fd so size/mtime cannot drift from
+            # the byte stream we are hashing — a concurrent writer would
+            # surface as an inconsistent fingerprint downstream rather than
+            # a silent partial read.
+            stat = os.fstat(f.fileno())
+            fingerprint["size_bytes"] = stat.st_size
+            fingerprint["modified"] = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
             for chunk in iter(lambda: f.read(8192), b""):
                 sha256.update(chunk)
         fingerprint["sha256"] = sha256.hexdigest()
