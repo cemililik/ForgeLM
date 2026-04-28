@@ -359,7 +359,7 @@
     var scroll = window.pageYOffset || document.documentElement.scrollTop;
     var max = (document.documentElement.scrollHeight || document.body.scrollHeight) - window.innerHeight;
     var pct = max > 0 ? (scroll / max) * 100 : 0;
-    bar.style.width = pct.toFixed(1) + '%';
+    bar.value = pct;
   }
 
   /* ──────────────────────────────────────────── search */
@@ -394,15 +394,24 @@
       if (e.target === overlay) closeSearch();
     });
 
+    // <dialog> closes natively on ESC and fires 'close' — keep state in sync
+    // so the global keydown handler doesn't think the search is still open.
+    overlay.addEventListener('close', function () { state.searchOpen = false; });
+    overlay.addEventListener('cancel', function () { state.searchOpen = false; });
+
     input.addEventListener('input', function () { runSearch(input.value); });
   }
 
   function openSearch() {
-    state.searchOpen = true;
     var overlay = document.getElementById('guide-search-overlay');
     var input = document.getElementById('guide-search-input');
     if (!overlay || !input) return;
-    overlay.classList.add('open');
+    state.searchOpen = true;
+    if (typeof overlay.showModal === 'function' && !overlay.open) {
+      overlay.showModal();
+    } else {
+      overlay.setAttribute('open', '');
+    }
     input.value = '';
     runSearch('');
     setTimeout(function () { input.focus(); }, 30);
@@ -411,7 +420,12 @@
   function closeSearch() {
     state.searchOpen = false;
     var overlay = document.getElementById('guide-search-overlay');
-    if (overlay) overlay.classList.remove('open');
+    if (!overlay) return;
+    if (typeof overlay.close === 'function' && overlay.open) {
+      overlay.close();
+    } else {
+      overlay.removeAttribute('open');
+    }
   }
 
   function runSearch(query) {

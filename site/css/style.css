@@ -1408,16 +1408,30 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
    from site/js/usermanuals/<lang>.js (built from docs/usermanuals/).
    =============================================================== */
 
-/* Reading-progress bar at the top of the viewport */
+/* Reading-progress bar at the top of the viewport.
+   Native <progress> element so it carries accessible semantics; we strip the
+   default chrome and paint our own gradient for the determinate value. */
 .guide-progress {
   position: fixed;
   top: 0; left: 0;
+  width: 100%;
   height: 2px;
-  width: 0%;
-  background: linear-gradient(90deg, var(--ember), var(--steel));
   z-index: 200;
-  transition: width 0.08s linear;
   pointer-events: none;
+  border: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+}
+.guide-progress::-webkit-progress-bar { background: transparent; }
+.guide-progress::-webkit-progress-value {
+  background: linear-gradient(90deg, var(--ember), var(--steel));
+  transition: inline-size 0.08s linear;
+}
+.guide-progress::-moz-progress-bar {
+  background: linear-gradient(90deg, var(--ember), var(--steel));
+  transition: inline-size 0.08s linear;
 }
 
 /* The 3-column shell. Padding-top accounts for the fixed 64px navbar. */
@@ -1774,12 +1788,15 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
 }
 
 .callout-info {
-  background: rgba(192,132,252,.06);
+  /* Lighter tint + brighter foreground keep the AA contrast threshold against
+     the dark page background; darker palette derivations were flagged by
+     Sonar css:S7924. */
+  background: rgba(216,180,254,.08);
   border-color: var(--code-fn);
-  color: var(--text-secondary);
+  color: var(--text);
 }
 .callout-info > p:first-child::before {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c084fc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M12 16v-4M12 8h.01'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23d8b4fe' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M12 16v-4M12 8h.01'/></svg>");
 }
 
 .callout-pill {
@@ -1911,20 +1928,34 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
 }
 .guide-edit svg { width: 14px; height: 14px; }
 
-/* ── Search overlay (Cmd+K) ─────────────────────────────── */
+/* ── Search overlay (Cmd+K) ─────────────────────────────────────────────
+   Native <dialog> for accessibility (focus trap + ESC handling + a11y tree
+   semantics come from the element itself). The dialog spans the viewport so
+   the inner .guide-search-modal can stay as the visible centered panel. */
 .guide-search-overlay {
-  display: none;
-  position: fixed;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
   inset: 0;
-  background: rgba(0,0,0,.5);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: transparent;
+  color: inherit;
   z-index: 300;
+}
+.guide-search-overlay[open] {
+  display: flex;
   align-items: flex-start;
   justify-content: center;
   padding-top: 12vh;
 }
-.guide-search-overlay.open { display: flex; }
+.guide-search-overlay::backdrop {
+  background: rgba(0,0,0,.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
 .guide-search-modal {
   width: min(620px, 92vw);
   background: var(--bg-card);

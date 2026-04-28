@@ -121,46 +121,92 @@ def load_meta() -> tuple[list, list[Section]]:
 
 # ---------------------------------------------------------------------- markdown
 
-# Match :::kind ... ::: blocks (kind in note|tip|warn|danger|info).
-_ADMONITION_RE = re.compile(
-    r"^:::(note|tip|warn|danger|info)\s*\n(.*?)\n:::\s*$",
-    re.MULTILINE | re.DOTALL,
-)
+# The admonition + mermaid preprocessors used to be regexes of the shape
+# `^FENCE.*?FENCE$` with re.MULTILINE | re.DOTALL. Sonar's python:S5852 flags
+# any `.*?` + DOTALL combination as ReDoS-prone. Per docs/standards/regex.md
+# rule 6, we replace such regexes with O(n) per-line state machines — same
+# semantics, provably linear, and the pattern lives elsewhere in the repo
+# (forgelm/data_audit.py::_strip_code_fences, forgelm/ingestion.py).
 
-# Match ```mermaid ... ``` fenced code blocks (preserved verbatim for
-# client-side rendering by the mermaid.js library).
-_MERMAID_RE = re.compile(r"^```mermaid\s*\n(.*?)\n```\s*$", re.MULTILINE | re.DOTALL)
+_ADMONITION_KINDS = ("note", "tip", "warn", "danger", "info")
 
 
 def preprocess_admonitions(text: str) -> str:
-    """Replace :::kind ... ::: fences with HTML callout divs."""
+    """Replace ``:::kind`` … ``:::`` fences with HTML callout divs.
 
-    def repl(m: re.Match) -> str:
-        kind = m.group(1)
-        body = m.group(2).strip()
-        # Render body as markdown by leaving it raw for the main pass — the
-        # markdown library will process the inner content because we use a
-        # blank line above the body. Prepend a blank line just in case.
-        return f'<div class="callout callout-{kind}" markdown="1">\n\n{body}\n\n</div>'
+    Behaviour matches the previous regex implementation: an opening line
+    ``:::kind`` (where kind ∈ note|tip|warn|danger|info) starts a block; the
+    next standalone ``:::`` line closes it. Bodies are rendered through
+    markdown via the wrapping ``<div markdown="1">``.
+    """
+    out: list[str] = []
+    open_kind: str | None = None
+    body_lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.rstrip()
+        if open_kind is None:
+            if stripped.startswith(":::") and stripped[3:].strip() in _ADMONITION_KINDS:
+                open_kind = stripped[3:].strip()
+                body_lines = []
+                continue
+            out.append(line)
+        else:
+            if stripped == ":::":
+                body = "\n".join(body_lines).strip()
+                out.append(f'<div class="callout callout-{open_kind}" markdown="1">')
+                out.append("")
+                out.append(body)
+                out.append("")
+                out.append("</div>")
+                open_kind = None
+                body_lines = []
+                continue
+            body_lines.append(line)
 
-    return _ADMONITION_RE.sub(repl, text)
+    # Unterminated block: keep the original lines untouched so the markdown
+    # library can render them as plain text and the author sees the bad block.
+    if open_kind is not None:
+        out.append(f":::{open_kind}")
+        out.extend(body_lines)
+
+    return "\n".join(out)
 
 
 def preprocess_mermaid(text: str) -> str:
-    """Replace ```mermaid ... ``` fences with raw <div class="mermaid"> blocks.
+    """Replace ```` ```mermaid ```` fences with raw ``<div class="mermaid">`` blocks.
 
-    The markdown processor would otherwise wrap the content in <pre><code> and
-    HTML-escape it, which breaks the mermaid.js parser. Pre-extracting the block
-    keeps the diagram source intact for client-side rendering.
+    The markdown processor would otherwise wrap the content in ``<pre><code>``
+    and HTML-escape it, which breaks the mermaid.js parser. Pre-extracting the
+    block keeps the diagram source intact for client-side rendering.
     """
+    out: list[str] = []
+    in_block = False
+    body_lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.rstrip()
+        if not in_block:
+            if stripped == "```mermaid":
+                in_block = True
+                body_lines = []
+                continue
+            out.append(line)
+        else:
+            if stripped == "```":
+                out.append("")
+                out.append('<div class="mermaid">')
+                out.extend(body_lines)
+                out.append("</div>")
+                out.append("")
+                in_block = False
+                body_lines = []
+                continue
+            body_lines.append(line)
 
-    def repl(m: re.Match) -> str:
-        body = m.group(1)
-        # markdown's md_in_html extension lets a raw <div> pass through if
-        # surrounded by blank lines; the body is opaque (no markdown rendering).
-        return f'\n<div class="mermaid">\n{body}\n</div>\n'
+    if in_block:
+        out.append("```mermaid")
+        out.extend(body_lines)
 
-    return _MERMAID_RE.sub(repl, text)
+    return "\n".join(out)
 
 
 def render_markdown(src: str) -> tuple[str, list[dict]]:
@@ -348,6 +394,41 @@ def serialise_index(sections: list[Section], languages: list[str]) -> str:
 # ---------------------------------------------------------------------- main
 
 
+def _render_outputs(languages: list, sections: list[Section], default_lang: str) -> dict[Path, str]:
+    """Render the full set of output files keyed by absolute path."""
+    written: dict[Path, str] = {}
+    for lang in languages:
+        pages, ok, fb = build_language(lang, sections, default_lang)
+        out_path = OUTPUT_DIR / f"{lang}.js"
+        written[out_path] = serialise_data(pages, lang)
+        marker = "✓" if fb == 0 else "fallbacks=" + str(fb)
+        print(f"  {lang}: {ok} pages translated, {marker}")
+    written[OUTPUT_DIR / "_index.js"] = serialise_index(sections, languages)
+    return written
+
+
+def _check_stale(written: dict[Path, str]) -> int:
+    """Compare in-memory output against on-disk files. Return CI exit code."""
+    stale = [
+        path.relative_to(REPO_ROOT)
+        for path, content in written.items()
+        if not path.exists() or path.read_text(encoding="utf-8") != content
+    ]
+    if stale:
+        print("\nstale generated files (run tools/build_usermanuals.py):")
+        for s in stale:
+            print(f"  - {s}")
+        return 1
+    print("\nall generated files are up to date.")
+    return 0
+
+
+def _write_outputs(written: dict[Path, str]) -> None:
+    for path, content in written.items():
+        path.write_text(content, encoding="utf-8")
+        print(f"  wrote {path.relative_to(REPO_ROOT)} ({len(content):,} bytes)")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     parser.add_argument(
@@ -362,38 +443,12 @@ def main() -> int:
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    written: dict[Path, str] = {}
-
-    # Per-language data files.
-    for lang in languages:
-        pages, ok, fb = build_language(lang, sections, default_lang)
-        out_path = OUTPUT_DIR / f"{lang}.js"
-        written[out_path] = serialise_data(pages, lang)
-        marker = "✓" if fb == 0 else "fallbacks=" + str(fb)
-        print(f"  {lang}: {ok} pages translated, {marker}")
-
-    # Shared navigation index.
-    index_path = OUTPUT_DIR / "_index.js"
-    written[index_path] = serialise_index(sections, languages)
+    written = _render_outputs(languages, sections, default_lang)
 
     if args.check:
-        stale = []
-        for path, content in written.items():
-            if not path.exists() or path.read_text(encoding="utf-8") != content:
-                stale.append(path.relative_to(REPO_ROOT))
-        if stale:
-            print("\nstale generated files (run tools/build_usermanuals.py):")
-            for s in stale:
-                print(f"  - {s}")
-            return 1
-        print("\nall generated files are up to date.")
-        return 0
+        return _check_stale(written)
 
-    for path, content in written.items():
-        path.write_text(content, encoding="utf-8")
-        rel = path.relative_to(REPO_ROOT)
-        print(f"  wrote {rel} ({len(content):,} bytes)")
-
+    _write_outputs(written)
     return 0
 
 

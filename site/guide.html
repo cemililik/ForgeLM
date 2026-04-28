@@ -23,12 +23,15 @@
   <script src="js/i18n.js"></script>
   <script src="js/usermanuals/_index.js"></script>
   <script src="js/usermanuals/en.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.4/dist/mermaid.min.js"
+          integrity="sha384-fGOpyux4znQZ+n4tUrYReB2Ulu6K1MtBxIkbHauU09YM1hvCyA5oX9JUc1hRkDEr"
+          crossorigin="anonymous"
+          referrerpolicy="no-referrer"></script>
 </head>
 <body>
 
 <!-- Reading progress bar -->
-<div class="guide-progress" id="guide-progress" role="progressbar" aria-label="Reading progress"></div>
+<progress class="guide-progress" id="guide-progress" max="100" value="0" aria-label="Reading progress" data-i18n-attr="aria-label:guide.progress.label">0</progress>
 
 <nav class="navbar" role="navigation" aria-label="Main">
   <div class="container">
@@ -47,12 +50,12 @@
     </ul>
     <div class="nav-actions">
       <div class="lang-toggle">
-        <button class="lang-toggle-btn" type="button" aria-haspopup="listbox" aria-expanded="false" data-i18n-attr="aria-label:common.btn.lang" aria-label="Language">
+        <button class="lang-toggle-btn" type="button" aria-haspopup="true" aria-expanded="false" data-i18n-attr="aria-label:common.btn.lang" aria-label="Language">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10"/><path d="M12 2a15 15 0 0 0-4 10 15 15 0 0 0 4 10"/></svg>
           <span class="lang-toggle-current">EN</span>
           <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
-        <ul class="lang-toggle-menu" role="listbox">
+        <ul class="lang-toggle-menu">
           <li><button data-set-lang="en" type="button">English</button></li>
           <li><button data-set-lang="tr" type="button">Türkçe</button></li>
           <li><button data-set-lang="de" type="button">Deutsch</button></li>
@@ -82,7 +85,7 @@
 <div class="guide-layout">
 
   <!-- Left rail: sections + pages -->
-  <aside class="guide-sidebar" id="guide-sidebar">
+  <aside class="guide-sidebar" id="guide-sidebar" aria-label="Guide sections" data-i18n-attr="aria-label:guide.sidebar.label">
     <div class="guide-sidebar-search-wrap">
       <input
         type="search"
@@ -105,7 +108,7 @@
 </div>
 
 <!-- Search overlay (Cmd+K) -->
-<div class="guide-search-overlay" id="guide-search-overlay" role="dialog" aria-modal="true" aria-label="Search the guide">
+<dialog class="guide-search-overlay" id="guide-search-overlay" aria-label="Search the guide" data-i18n-attr="aria-label:guide.search.label">
   <div class="guide-search-modal">
     <input
       type="search"
@@ -121,7 +124,7 @@
       <span><kbd>esc</kbd> <span data-i18n="guide.search.kbd_close">to close</span></span>
     </div>
   </div>
-</div>
+</dialog>
 
 <!-- Footer (compact for guide) -->
 <footer class="footer">

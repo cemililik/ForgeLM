@@ -29,12 +29,6 @@ on:
       - ".github/workflows/site-deploy.yml"
   workflow_dispatch:
 
-# Pages deployments expect these permissions on the runner.
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
 # Only one Pages deployment can run at a time per ref. Cancel-in-progress
 # is intentionally false — we want the most recent commit to win, but
 # without dropping an in-flight one mid-deploy.
@@ -42,9 +36,15 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# Workflow-level permissions are intentionally not declared. Each job below
+# requests only the scopes it needs (least privilege), per Sonar
+# githubactions:S8233 / S8264.
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v5
 
@@ -76,6 +76,9 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
