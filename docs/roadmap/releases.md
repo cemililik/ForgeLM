@@ -100,7 +100,7 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ## v0.5.1 — "Ingestion / Audit Polish"
 
-**Status:** Merged on `development`. Focus: [Phase 11.5](phase-11-5-backlog.md). Operational polish on top of `v0.5.0`'s ingestion + audit surface — no new training capabilities, but materially better handling for large corpora and a cleaner CLI shape.
+**Status:** Merged on `main` (carried in via Phase 11/12 PRs). The `v0.5.1` git tag and PyPI publish are the remaining release-engineering steps. Focus: [Phase 11.5](phase-11-5-backlog.md). Operational polish on top of `v0.5.0`'s ingestion + audit surface — no new training capabilities, but materially better handling for large corpora and a cleaner CLI shape.
 
 ### Features:
 
@@ -120,7 +120,7 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ## v0.5.2 — "Data Curation Maturity"
 
-**Status:** Tier 1 merged on `development`. The `v0.5.2` git tag and PyPI publish are the remaining release-engineering steps. Focus: [Phase 12](phase-12-data-curation-maturity.md). Direct continuation of the Phase 11/11.5 ingestion + audit lineage — closes the four gaps surfaced by the post-`v0.5.1` competitive review (LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling).
+**Status:** Tier 1 merged on `main` via PR #13 (2026-04-29). The `v0.5.2` git tag and PyPI publish are the remaining release-engineering steps. One hardening follow-up tracked outside the release: [#14 — webhook SSRF DNS-rebinding TOCTOU](https://github.com/cemililik/ForgeLM/issues/14) (defence-in-depth on top of the existing `allow_private_destinations: false` default). Focus: [Phase 12](phase-12-data-curation-maturity.md). Direct continuation of the Phase 11/11.5 ingestion + audit lineage — closes the four gaps surfaced by the post-`v0.5.1` competitive review (LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling).
 
 ### Tier 1 features (shipped):
 
@@ -141,7 +141,7 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ## v0.5.3 — "Pipeline Chains" (Planned)
 
-**Status:** Planned. Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. Reslotted from `v0.5.2` so the ingestion / audit lineage finishes uninterrupted; no hard blockers, starts after Phase 12 lands.
+**Status:** Planned. Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. Reslotted from `v0.5.2` so the ingestion / audit lineage finishes uninterrupted; no hard blockers, starts after the `v0.5.2` PyPI tag is published. Folds in [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14) (defence-in-depth on top of the existing `allow_private_destinations: false` default).
 
 ---
 
