@@ -25,7 +25,6 @@ jobs:
 
       - name: Ruff format check
         run: ruff format --check .
-        continue-on-error: true  # warn but don't block
 
   # --- Job 2: Test (matrix across Python versions) ---
   test:

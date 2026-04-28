@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 import yaml
+from conftest import minimal_config as _minimal_config
 
 from forgelm.cli import (
     EXIT_CONFIG_ERROR,
@@ -14,17 +15,6 @@ from forgelm.cli import (
     main,
 )
 from forgelm.config import ForgeConfig
-
-
-def _minimal_config(**overrides):
-    data = {
-        "model": {"name_or_path": "org/model"},
-        "lora": {},
-        "training": {},
-        "data": {"dataset_name_or_path": "org/dataset"},
-    }
-    data.update(overrides)
-    return data
 
 
 class TestComplianceExportCLI:

@@ -95,8 +95,7 @@ def _find_converter_script() -> str:
             )
         if os.path.isfile(env_override):
             logger.warning(
-                "GGUF converter overridden via FORGELM_GGUF_CONVERTER: %s — "
-                "ensure this path is from a trusted source.",
+                "GGUF converter overridden via FORGELM_GGUF_CONVERTER: %s — ensure this path is from a trusted source.",
                 env_override,
             )
             return env_override

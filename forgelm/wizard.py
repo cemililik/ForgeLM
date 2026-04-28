@@ -209,8 +209,10 @@ def _save_config_to_file(config: dict, requested_filename: str) -> str:
         with open(requested_filename, "w") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
         print(f"\n  Config saved to: {requested_filename}")
+        logger.info("Wizard config saved to %s", requested_filename)
         return requested_filename
     except OSError as e:
+        logger.error("Could not save wizard config to %s: %s", requested_filename, e)
         print(f"\n  Error: Could not save config to {requested_filename}: {e}")
 
     # Pick a fallback that's guaranteed different from the path that just failed
@@ -224,8 +226,10 @@ def _save_config_to_file(config: dict, requested_filename: str) -> str:
         with open(fallback, "w") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
         print(f"  Saved to fallback location: {fallback}")
+        logger.info("Wizard config saved to fallback location %s", fallback)
         return fallback
     except OSError as e:
+        logger.error("Fallback wizard config save also failed (%s): %s", fallback, e)
         print(f"  Fallback save also failed ({fallback}): {e}")
         raise
 

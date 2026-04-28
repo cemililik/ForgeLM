@@ -4,6 +4,7 @@ import json
 import os
 
 import yaml
+from conftest import minimal_config as _minimal_config
 
 from forgelm.compliance import (
     AuditLogger,
@@ -19,18 +20,6 @@ from forgelm.config import (
     RiskAssessmentConfig,
     load_config,
 )
-
-
-def _minimal_config(**overrides):
-    data = {
-        "model": {"name_or_path": "org/model"},
-        "lora": {},
-        "training": {},
-        "data": {"dataset_name_or_path": "org/dataset"},
-    }
-    data.update(overrides)
-    return data
-
 
 # --- Config Models ---
 

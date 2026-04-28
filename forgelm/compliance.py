@@ -28,11 +28,13 @@ try:
         _fcntl.flock(f, _fcntl.LOCK_UN)
 
 except ImportError:  # pragma: no cover — Windows path
+
     def _flock_ex(f) -> None:  # type: ignore[misc]
         pass
 
     def _flock_un(f) -> None:  # type: ignore[misc]
         pass
+
 
 logger = logging.getLogger("forgelm.compliance")
 
@@ -177,9 +179,7 @@ class AuditLogger:
         # Compute HMAC over the entry without the _hmac tag so the tag can
         # be stripped before verification without invalidating the hash chain.
         entry_json_for_hmac = json.dumps(entry, default=str)
-        entry["_hmac"] = _hmac_module.new(
-            self._hmac_key, entry_json_for_hmac.encode(), hashlib.sha256
-        ).hexdigest()
+        entry["_hmac"] = _hmac_module.new(self._hmac_key, entry_json_for_hmac.encode(), hashlib.sha256).hexdigest()
         entry_json = json.dumps(entry, default=str)
 
         try:
@@ -346,6 +346,8 @@ def generate_model_integrity(final_path: str) -> Dict[str, Any]:
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
         futures = [ex.submit(_hash_file, fp, rp) for fp, rp in file_pairs]
+        # as_completed yields in completion order (non-deterministic); the
+        # explicit sort below restores a stable, diff-friendly artifact list.
         integrity["artifacts"] = [f.result() for f in concurrent.futures.as_completed(futures)]
 
     integrity["artifacts"].sort(key=lambda x: x["file"])
@@ -530,7 +532,6 @@ def generate_training_manifest(
 # ---------------------------------------------------------------------------
 # Art. 13: Deployer Instructions
 # ---------------------------------------------------------------------------
-
 
 
 # CommonMark special characters that must be backslash-escaped when embedding
