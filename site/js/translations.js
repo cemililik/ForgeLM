@@ -22,6 +22,7 @@
     "common.nav.home":         "Home",
     "common.nav.features":     "Features",
     "common.nav.quickstart":   "Quickstart",
+    "common.nav.guide":        "Guide",
     "common.nav.compliance":   "Compliance",
     "common.nav.contact":      "Contact",
     "common.btn.menu":         "Menu",
@@ -48,6 +49,7 @@
     "common.nav.home":         "Ana Sayfa",
     "common.nav.features":     "Özellikler",
     "common.nav.quickstart":   "Hızlı Başlangıç",
+    "common.nav.guide":        "Rehber",
     "common.nav.compliance":   "Uyumluluk",
     "common.nav.contact":      "İletişim",
     "common.btn.menu":         "Menü",
@@ -74,6 +76,7 @@
     "common.nav.home":         "Startseite",
     "common.nav.features":     "Funktionen",
     "common.nav.quickstart":   "Schnellstart",
+    "common.nav.guide":        "Handbuch",
     "common.nav.compliance":   "Compliance",
     "common.nav.contact":      "Kontakt",
     "common.btn.menu":         "Menü",
@@ -100,6 +103,7 @@
     "common.nav.home":         "Accueil",
     "common.nav.features":     "Fonctionnalités",
     "common.nav.quickstart":   "Démarrage rapide",
+    "common.nav.guide":        "Guide",
     "common.nav.compliance":   "Conformité",
     "common.nav.contact":      "Contact",
     "common.btn.menu":         "Menu",
@@ -126,6 +130,7 @@
     "common.nav.home":         "Inicio",
     "common.nav.features":     "Características",
     "common.nav.quickstart":   "Inicio rápido",
+    "common.nav.guide":        "Guía",
     "common.nav.compliance":   "Cumplimiento",
     "common.nav.contact":      "Contacto",
     "common.btn.menu":         "Menú",
@@ -152,6 +157,7 @@
     "common.nav.home":         "首页",
     "common.nav.features":     "功能",
     "common.nav.quickstart":   "快速开始",
+    "common.nav.guide":        "指南",
     "common.nav.compliance":   "合规",
     "common.nav.contact":      "联系",
     "common.btn.menu":         "菜单",
@@ -175,6 +181,104 @@
   };
 
   /* ── Page-specific blocks below extend each language with Object.assign. ── */
+
+  /* ── Guide chrome (sidebar, breadcrumbs, search, prev/next) ──────────── */
+  Object.assign(T.en, {
+    "meta.title.guide":       "User Guide — ForgeLM",
+    "meta.desc.guide":        "Comprehensive ForgeLM user guide — every feature, every parameter, with copy-pasteable examples.",
+    "guide.title":            "Guide",
+    "guide.toc.title":        "On this page",
+    "guide.search.placeholder":"Search the guide…",
+    "guide.search.empty":     "No matches.",
+    "guide.search.kbd_navigate":"to navigate",
+    "guide.search.kbd_select":"to open",
+    "guide.search.kbd_close": "to close",
+    "guide.prev":             "Previous",
+    "guide.next":             "Next",
+    "guide.edit":             "Edit this page on GitHub",
+    "guide.fallback.banner":  "This page has not been translated yet — showing English.",
+    "guide.mobile.menu":      "Menu"
+  });
+  Object.assign(T.tr, {
+    "meta.title.guide":       "Kullanım Rehberi — ForgeLM",
+    "meta.desc.guide":        "Kapsamlı ForgeLM kullanım rehberi — her özellik, her parametre, kopyala-yapıştır örnekleriyle.",
+    "guide.title":            "Rehber",
+    "guide.toc.title":        "Bu sayfada",
+    "guide.search.placeholder":"Rehberde ara…",
+    "guide.search.empty":     "Eşleşme yok.",
+    "guide.search.kbd_navigate":"gezinmek için",
+    "guide.search.kbd_select":"açmak için",
+    "guide.search.kbd_close": "kapatmak için",
+    "guide.prev":             "Önceki",
+    "guide.next":             "Sonraki",
+    "guide.edit":             "Bu sayfayı GitHub'da düzenle",
+    "guide.fallback.banner":  "Bu sayfa henüz çevrilmedi — İngilizce gösteriliyor.",
+    "guide.mobile.menu":      "Menü"
+  });
+  Object.assign(T.de, {
+    "meta.title.guide":       "Benutzerhandbuch — ForgeLM",
+    "meta.desc.guide":        "Umfassendes ForgeLM-Benutzerhandbuch — jede Funktion, jeder Parameter, mit kopierbaren Beispielen.",
+    "guide.title":            "Handbuch",
+    "guide.toc.title":        "Auf dieser Seite",
+    "guide.search.placeholder":"Im Handbuch suchen…",
+    "guide.search.empty":     "Keine Treffer.",
+    "guide.search.kbd_navigate":"zum Navigieren",
+    "guide.search.kbd_select":"zum Öffnen",
+    "guide.search.kbd_close": "zum Schließen",
+    "guide.prev":             "Vorherige",
+    "guide.next":             "Nächste",
+    "guide.edit":             "Diese Seite auf GitHub bearbeiten",
+    "guide.fallback.banner":  "Diese Seite wurde noch nicht übersetzt — zeige Englisch.",
+    "guide.mobile.menu":      "Menü"
+  });
+  Object.assign(T.fr, {
+    "meta.title.guide":       "Guide utilisateur — ForgeLM",
+    "meta.desc.guide":        "Guide utilisateur ForgeLM complet — chaque fonctionnalité, chaque paramètre, avec des exemples copiables.",
+    "guide.title":            "Guide",
+    "guide.toc.title":        "Sur cette page",
+    "guide.search.placeholder":"Rechercher dans le guide…",
+    "guide.search.empty":     "Aucun résultat.",
+    "guide.search.kbd_navigate":"pour naviguer",
+    "guide.search.kbd_select":"pour ouvrir",
+    "guide.search.kbd_close": "pour fermer",
+    "guide.prev":             "Précédent",
+    "guide.next":             "Suivant",
+    "guide.edit":             "Modifier cette page sur GitHub",
+    "guide.fallback.banner":  "Cette page n'a pas encore été traduite — affichage en anglais.",
+    "guide.mobile.menu":      "Menu"
+  });
+  Object.assign(T.es, {
+    "meta.title.guide":       "Guía de usuario — ForgeLM",
+    "meta.desc.guide":        "Guía de usuario completa de ForgeLM — cada característica, cada parámetro, con ejemplos copiables.",
+    "guide.title":            "Guía",
+    "guide.toc.title":        "En esta página",
+    "guide.search.placeholder":"Buscar en la guía…",
+    "guide.search.empty":     "Sin resultados.",
+    "guide.search.kbd_navigate":"para navegar",
+    "guide.search.kbd_select":"para abrir",
+    "guide.search.kbd_close": "para cerrar",
+    "guide.prev":             "Anterior",
+    "guide.next":             "Siguiente",
+    "guide.edit":             "Editar esta página en GitHub",
+    "guide.fallback.banner":  "Esta página aún no está traducida — mostrando inglés.",
+    "guide.mobile.menu":      "Menú"
+  });
+  Object.assign(T.zh, {
+    "meta.title.guide":       "用户指南 — ForgeLM",
+    "meta.desc.guide":        "完整的 ForgeLM 用户指南 — 每个功能、每个参数,附可复制的示例。",
+    "guide.title":            "指南",
+    "guide.toc.title":        "本页内容",
+    "guide.search.placeholder":"在指南中搜索…",
+    "guide.search.empty":     "无匹配结果。",
+    "guide.search.kbd_navigate":"导航",
+    "guide.search.kbd_select":"打开",
+    "guide.search.kbd_close": "关闭",
+    "guide.prev":             "上一页",
+    "guide.next":             "下一页",
+    "guide.edit":             "在 GitHub 上编辑本页",
+    "guide.fallback.banner":  "此页面尚未翻译 — 显示英文版本。",
+    "guide.mobile.menu":      "菜单"
+  });
 
   /* ── Home page (index.html) ──────────────────────────────── */
   Object.assign(T.en, {

@@ -3,14 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title data-title-en="Privacy — ForgeLM" data-title-tr="Gizlilik — ForgeLM">Privacy — ForgeLM</title>
-  <meta name="description"
-        data-desc-en="What ForgeLM collects (almost nothing) and how the contact form is handled."
-        data-desc-tr="ForgeLM'in topladıkları (neredeyse hiçbir şey) ve iletişim formunun nasıl işlendiği."
+  <title data-i18n="meta.title.privacy">Privacy — ForgeLM</title>
+  <meta name="description" data-i18n-attr="content:meta.desc.privacy"
         content="What ForgeLM collects (almost nothing) and how the contact form is handled.">
   <meta name="theme-color" content="#0a0c12">
-  <meta property="og:title" content="Privacy — ForgeLM">
-  <meta property="og:description" content="What ForgeLM collects (almost nothing) and how the contact form is handled.">
+  <meta property="og:title" data-i18n-attr="content:meta.title.privacy" content="Privacy — ForgeLM">
+  <meta property="og:description" data-i18n-attr="content:meta.desc.privacy" content="What ForgeLM collects (almost nothing).">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://YOUR_DOMAIN/assets/og.png">
   <meta property="og:url" content="https://YOUR_DOMAIN/privacy.html">
@@ -21,6 +19,7 @@
   <link rel="icon" href="favicon.ico">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="css/style.css">
+  <script src="js/translations.js"></script>
   <script src="js/i18n.js"></script>
 </head>
 <body>
@@ -31,17 +30,32 @@
       <span class="nav-brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l6 6-6 6"/><path d="M4 12h13"/></svg></span>
       ForgeLM
     </a>
-    <button class="nav-hamburger" aria-label="Menu" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+    <button class="nav-hamburger" data-i18n-attr="aria-label:common.btn.menu" aria-label="Menu" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
     <ul class="nav-menu">
-      <li><a href="index.html"><span class="i18n-inline" data-lang="en">Home</span><span class="i18n-inline" data-lang="tr">Ana Sayfa</span></a></li>
-      <li><a href="features.html"><span class="i18n-inline" data-lang="en">Features</span><span class="i18n-inline" data-lang="tr">Özellikler</span></a></li>
-      <li><a href="quickstart.html"><span class="i18n-inline" data-lang="en">Quickstart</span><span class="i18n-inline" data-lang="tr">Hızlı Başlangıç</span></a></li>
-      <li><a href="compliance.html"><span class="i18n-inline" data-lang="en">Compliance</span><span class="i18n-inline" data-lang="tr">Uyumluluk</span></a></li>
-      <li><a href="contact.html"><span class="i18n-inline" data-lang="en">Contact</span><span class="i18n-inline" data-lang="tr">İletişim</span></a></li>
+      <li><a href="index.html" data-i18n="common.nav.home">Home</a></li>
+      <li><a href="features.html" data-i18n="common.nav.features">Features</a></li>
+      <li><a href="quickstart.html" data-i18n="common.nav.quickstart">Quickstart</a></li>
+      <li><a href="guide.html" data-i18n="common.nav.guide">Guide</a></li>
+      <li><a href="compliance.html" data-i18n="common.nav.compliance">Compliance</a></li>
+      <li><a href="contact.html" data-i18n="common.nav.contact">Contact</a></li>
     </ul>
     <div class="nav-actions">
-      <div class="lang-toggle"><button data-set-lang="en" type="button">EN</button><button data-set-lang="tr" type="button">TR</button></div>
-      <button class="theme-toggle" aria-label="Toggle theme" type="button">
+      <div class="lang-toggle">
+        <button class="lang-toggle-btn" type="button" aria-haspopup="listbox" aria-expanded="false" data-i18n-attr="aria-label:common.btn.lang" aria-label="Language">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10"/><path d="M12 2a15 15 0 0 0-4 10 15 15 0 0 0 4 10"/></svg>
+          <span class="lang-toggle-current">EN</span>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <ul class="lang-toggle-menu" role="listbox">
+          <li><button data-set-lang="en" type="button">English</button></li>
+          <li><button data-set-lang="tr" type="button">Türkçe</button></li>
+          <li><button data-set-lang="de" type="button">Deutsch</button></li>
+          <li><button data-set-lang="fr" type="button">Français</button></li>
+          <li><button data-set-lang="es" type="button">Español</button></li>
+          <li><button data-set-lang="zh" type="button">中文</button></li>
+        </ul>
+      </div>
+      <button class="theme-toggle" type="button" data-i18n-attr="aria-label:common.btn.theme" aria-label="Toggle theme">
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
       </button>
@@ -51,117 +65,20 @@
 
 <header class="page-header">
   <div class="container container-narrow" style="padding-left:0;padding-right:0;">
-    <span class="eyebrow">
-      <span class="i18n-inline" data-lang="en">Privacy</span>
-      <span class="i18n-inline" data-lang="tr">Gizlilik</span>
-    </span>
-    <h1>
-      <span class="i18n-inline" data-lang="en">Privacy policy</span>
-      <span class="i18n-inline" data-lang="tr">Gizlilik politikası</span>
-    </h1>
-    <p>
-      <span class="i18n-inline" data-lang="en">ForgeLM is open-source software you run on your own infrastructure. This page covers what this <em>website</em> does — not the toolkit itself.</span>
-      <span class="i18n-inline" data-lang="tr">ForgeLM, kendi altyapınızda çalıştırdığınız açık kaynaklı bir yazılımdır. Bu sayfa <em>web sitesinin</em> ne yaptığını açıklar — toolkit'i değil.</span>
-    </p>
+    <span class="eyebrow" data-i18n="privacy.header.eyebrow">Privacy</span>
+    <h1 data-i18n="privacy.header.title">Privacy policy</h1>
+    <p data-i18n-html="privacy.header.lead">ForgeLM is open-source software you run on your own infrastructure.</p>
   </div>
 </header>
 
 <section class="legal">
   <div class="container">
     <div class="legal-content">
-      <div class="legal-meta">
-        <span class="i18n-inline" data-lang="en"><strong>Last updated:</strong> 2026-04-28 · This is a plain-language summary, not legal advice.</span>
-        <span class="i18n-inline" data-lang="tr"><strong>Son güncelleme:</strong> 28-04-2026 · Bu hukuki tavsiye değil, açık dilde özettir.</span>
-      </div>
+      <div class="legal-meta" data-i18n-html="common.legal.last_updated"><strong>Last updated:</strong> 2026-04-28 · This is a plain-language summary, not legal advice.</div>
 
-      <!-- ENGLISH -->
-      <div class="i18n-block" data-lang="en">
+      <div data-i18n-html="privacy.body">
         <h2>Short version</h2>
-        <p>This site is static HTML. We do not run analytics, tracking pixels, advertising trackers, A/B tests, fingerprinting, or any third-party telemetry. The only network call you make from this site goes to <strong>Formspree</strong> when you submit the contact form — and only then.</p>
-
-        <h2>What we collect</h2>
-        <h3>From normal browsing</h3>
-        <p>Nothing. No cookies are set. Two values are stored in <code>localStorage</code> on your device:</p>
-        <ul>
-          <li><code>forgelm-lang</code> — your chosen interface language (<code>en</code> or <code>tr</code>).</li>
-          <li><code>forgelm-theme</code> — your chosen colour theme (<code>dark</code> or <code>light</code>).</li>
-        </ul>
-        <p>Both stay on your device and are never transmitted. Clearing your browser storage removes them.</p>
-
-        <h3>From the contact form</h3>
-        <p>When you submit the form on the Contact page, the values you typed (name, email, organisation, topic, subject, message) are sent to Formspree, which forwards them to the project maintainer. Formspree's privacy practices are governed by their own policy at <a href="https://formspree.io/legal/privacy-policy" target="_blank" rel="noopener">formspree.io/legal/privacy-policy</a>.</p>
-        <p>Your email is used <strong>only</strong> to reply to your message. We do not add it to a mailing list, do not share it with third parties, and do not retain it after the conversation is resolved.</p>
-
-        <h2>Hosting</h2>
-        <p>This site is served as static files. Your browser will exchange standard request headers (User-Agent, Accept-Language, IP address) with whichever CDN / web server hosts the files; that exchange is governed by the hosting provider's privacy practices and is not under ForgeLM's control. We do not log this traffic ourselves.</p>
-
-        <h2>Third-party assets</h2>
-        <p>The site loads:</p>
-        <ul>
-          <li><a href="https://fonts.googleapis.com" target="_blank" rel="noopener">Google Fonts</a> — the <em>Inter</em> and <em>JetBrains Mono</em> typefaces. Google may log requests as described in their privacy policy.</li>
-          <li><a href="https://formspree.io" target="_blank" rel="noopener">Formspree</a> — only when you submit the contact form, as described above.</li>
-        </ul>
-        <p>Nothing else is loaded from a third party. There is no Google Analytics, no Facebook pixel, no Hotjar, no Mixpanel, no whatever-the-current-tracker is.</p>
-
-        <h2>Children</h2>
-        <p>This site is aimed at developers, ML engineers, and compliance professionals. It is not directed at children under 16.</p>
-
-        <h2>Your rights (GDPR / KVKK)</h2>
-        <p>If you believe we hold personal data about you and you want it accessed, corrected, or deleted, write to us via the contact form (or <a href="https://github.com/cemililik/ForgeLM/issues" target="_blank" rel="noopener">GitHub Issues</a>) and we will respond within 30 days. Because the only personal data we hold is what you sent in the contact form, deletion is straightforward: we delete the email thread.</p>
-
-        <h2>The toolkit itself</h2>
-        <p>The <strong>ForgeLM</strong> Python package — installed via <code>pip install forgelm</code> — does not phone home. It does not collect telemetry, does not send usage data anywhere, and works offline (air-gap-capable). Models, datasets, and tokenizers you reference in your YAML config are downloaded only at your explicit request and only from sources you specify.</p>
-
-        <h2>Changes</h2>
-        <p>If we update this page, the date at the top changes. Material changes are noted in the project's <code>CHANGELOG.md</code>.</p>
-
-        <h2>Questions</h2>
-        <p>Open the <a href="contact.html">contact form</a> or a <a href="https://github.com/cemililik/ForgeLM/discussions" target="_blank" rel="noopener">GitHub Discussion</a>.</p>
-      </div>
-
-      <!-- TURKISH -->
-      <div class="i18n-block" data-lang="tr">
-        <h2>Kısa versiyon</h2>
-        <p>Bu site statik HTML'dir. Analitik, izleme pixel'i, reklam takipçisi, A/B test, fingerprinting veya üçüncü-taraf telemetri çalıştırmıyoruz. Bu siteden yaptığınız tek ağ çağrısı, iletişim formunu gönderdiğinizde <strong>Formspree</strong>'ye gider — yalnızca o anda.</p>
-
-        <h2>Neler topluyoruz</h2>
-        <h3>Normal gezinmeden</h3>
-        <p>Hiçbir şey. Hiçbir cookie set edilmez. Cihazınızda yalnızca iki değer <code>localStorage</code>'a yazılır:</p>
-        <ul>
-          <li><code>forgelm-lang</code> — seçtiğiniz arayüz dili (<code>en</code> veya <code>tr</code>).</li>
-          <li><code>forgelm-theme</code> — seçtiğiniz renk teması (<code>dark</code> veya <code>light</code>).</li>
-        </ul>
-        <p>İkisi de cihazınızda kalır ve hiçbir yere iletilmez. Tarayıcı depolamasını temizlemek bunları siler.</p>
-
-        <h3>İletişim formundan</h3>
-        <p>İletişim sayfasındaki formu gönderdiğinizde girdiğiniz değerler (isim, e-posta, organizasyon, konu başlığı, konu, mesaj) Formspree'ye gönderilir; Formspree de bunları proje yürütücüsüne iletir. Formspree'nin gizlilik uygulamaları kendi politikasıyla yönetilir: <a href="https://formspree.io/legal/privacy-policy" target="_blank" rel="noopener">formspree.io/legal/privacy-policy</a>.</p>
-        <p>E-postanız <strong>yalnızca</strong> mesajınıza cevap vermek için kullanılır. Mailing listesine eklenmez, üçüncü taraflarla paylaşılmaz, görüşme sona erdikten sonra saklanmaz.</p>
-
-        <h2>Hosting</h2>
-        <p>Site statik dosya olarak servis edilir. Tarayıcınız, dosyaları barındıran CDN / web sunucusuyla standart istek header'larını (User-Agent, Accept-Language, IP) takas eder; bu takas hosting sağlayıcısının gizlilik uygulamalarıyla yönetilir ve ForgeLM'in kontrolünde değildir. Bu trafiği biz kendimiz loglamıyoruz.</p>
-
-        <h2>Üçüncü-taraf varlıklar</h2>
-        <p>Site şunları yükler:</p>
-        <ul>
-          <li><a href="https://fonts.googleapis.com" target="_blank" rel="noopener">Google Fonts</a> — <em>Inter</em> ve <em>JetBrains Mono</em> yazıtipleri. Google istekleri kendi gizlilik politikasında açıklandığı gibi loglayabilir.</li>
-          <li><a href="https://formspree.io" target="_blank" rel="noopener">Formspree</a> — yalnızca iletişim formunu gönderdiğinizde, yukarıda açıklandığı gibi.</li>
-        </ul>
-        <p>Üçüncü taraftan başka hiçbir şey yüklenmez. Google Analytics yok, Facebook pixel yok, Hotjar yok, Mixpanel yok, güncel-takipçi-her-neyse yok.</p>
-
-        <h2>Çocuklar</h2>
-        <p>Bu site geliştiricilere, ML mühendislerine ve compliance profesyonellerine yöneliktir. 16 yaş altındaki çocukları hedeflemez.</p>
-
-        <h2>Haklarınız (KVKK / GDPR)</h2>
-        <p>Hakkınızda kişisel veri tuttuğumuzu düşünüyor ve erişim, düzeltme veya silme istiyorsanız iletişim formundan (veya <a href="https://github.com/cemililik/ForgeLM/issues" target="_blank" rel="noopener">GitHub Issues</a> üzerinden) bize yazın; 30 gün içinde döneriz. Tuttuğumuz tek kişisel veri iletişim formundan gönderdikleriniz olduğu için silme kolay: e-posta thread'ini sileriz.</p>
-
-        <h2>Toolkit'in kendisi</h2>
-        <p><code>pip install forgelm</code> ile kurulan <strong>ForgeLM</strong> Python paketi eve telefon etmez. Telemetri toplamaz, kullanım verisi göndermez, offline çalışır (air-gap uyumlu). YAML konfigürasyonunuzda referans verdiğiniz modeller, veri setleri ve tokenizer'lar yalnızca açık talebinizle ve yalnızca sizin belirttiğiniz kaynaklardan indirilir.</p>
-
-        <h2>Değişiklikler</h2>
-        <p>Bu sayfayı güncellersek yukarıdaki tarih değişir. Maddi değişiklikler projenin <code>CHANGELOG.md</code>'sine düşer.</p>
-
-        <h2>Sorular</h2>
-        <p><a href="contact.html">İletişim formunu</a> veya bir <a href="https://github.com/cemililik/ForgeLM/discussions" target="_blank" rel="noopener">GitHub Discussion</a>'ı açın.</p>
+        <p>This site is static HTML.</p>
       </div>
     </div>
   </div>
@@ -172,9 +89,9 @@
     <div class="footer-bottom">
       <span>&copy; 2026 ForgeLM</span>
       <span>
-        <a href="index.html"><span class="i18n-inline" data-lang="en">Home</span><span class="i18n-inline" data-lang="tr">Ana Sayfa</span></a> ·
-        <a href="terms.html"><span class="i18n-inline" data-lang="en">Terms</span><span class="i18n-inline" data-lang="tr">Koşullar</span></a> ·
-        <a href="contact.html"><span class="i18n-inline" data-lang="en">Contact</span><span class="i18n-inline" data-lang="tr">İletişim</span></a>
+        <a href="index.html" data-i18n="common.footer.home">Home</a> ·
+        <a href="terms.html" data-i18n="common.footer.terms">Terms</a> ·
+        <a href="contact.html" data-i18n="common.footer.contact">Contact</a>
       </span>
     </div>
   </div>

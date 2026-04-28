@@ -3,14 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title data-title-en="Compliance — ForgeLM" data-title-tr="Uyumluluk — ForgeLM">Compliance — ForgeLM</title>
-  <meta name="description"
-        data-desc-en="EU AI Act compliance, Annex IV technical documentation, audit trail, human oversight — wired into ForgeLM."
-        data-desc-tr="EU AI Act uyumu, Annex IV teknik dokümantasyonu, denetim kaydı, insan gözetimi — ForgeLM'e bağlı."
+  <title data-i18n="meta.title.compliance">Compliance — ForgeLM</title>
+  <meta name="description" data-i18n-attr="content:meta.desc.compliance"
         content="EU AI Act compliance, Annex IV technical documentation, audit trail, human oversight — wired into ForgeLM.">
   <meta name="theme-color" content="#0a0c12">
-  <meta property="og:title" content="Compliance — ForgeLM">
-  <meta property="og:description" content="EU AI Act compliance, Annex IV technical documentation, audit trail, human oversight — wired into ForgeLM.">
+  <meta property="og:title" data-i18n-attr="content:meta.title.compliance" content="Compliance — ForgeLM">
+  <meta property="og:description" data-i18n-attr="content:meta.desc.compliance" content="EU AI Act compliance wired into ForgeLM.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://YOUR_DOMAIN/assets/og.png">
   <meta property="og:url" content="https://YOUR_DOMAIN/compliance.html">
@@ -21,6 +19,7 @@
   <link rel="icon" href="favicon.ico">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="css/style.css">
+  <script src="js/translations.js"></script>
   <script src="js/i18n.js"></script>
 </head>
 <body>
@@ -31,17 +30,32 @@
       <span class="nav-brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l6 6-6 6"/><path d="M4 12h13"/></svg></span>
       ForgeLM
     </a>
-    <button class="nav-hamburger" aria-label="Menu" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+    <button class="nav-hamburger" data-i18n-attr="aria-label:common.btn.menu" aria-label="Menu" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
     <ul class="nav-menu">
-      <li><a href="index.html"><span class="i18n-inline" data-lang="en">Home</span><span class="i18n-inline" data-lang="tr">Ana Sayfa</span></a></li>
-      <li><a href="features.html"><span class="i18n-inline" data-lang="en">Features</span><span class="i18n-inline" data-lang="tr">Özellikler</span></a></li>
-      <li><a href="quickstart.html"><span class="i18n-inline" data-lang="en">Quickstart</span><span class="i18n-inline" data-lang="tr">Hızlı Başlangıç</span></a></li>
-      <li><a href="compliance.html" class="active"><span class="i18n-inline" data-lang="en">Compliance</span><span class="i18n-inline" data-lang="tr">Uyumluluk</span></a></li>
-      <li><a href="contact.html"><span class="i18n-inline" data-lang="en">Contact</span><span class="i18n-inline" data-lang="tr">İletişim</span></a></li>
+      <li><a href="index.html" data-i18n="common.nav.home">Home</a></li>
+      <li><a href="features.html" data-i18n="common.nav.features">Features</a></li>
+      <li><a href="quickstart.html" data-i18n="common.nav.quickstart">Quickstart</a></li>
+      <li><a href="guide.html" data-i18n="common.nav.guide">Guide</a></li>
+      <li><a href="compliance.html" class="active" data-i18n="common.nav.compliance">Compliance</a></li>
+      <li><a href="contact.html" data-i18n="common.nav.contact">Contact</a></li>
     </ul>
     <div class="nav-actions">
-      <div class="lang-toggle"><button data-set-lang="en" type="button">EN</button><button data-set-lang="tr" type="button">TR</button></div>
-      <button class="theme-toggle" aria-label="Toggle theme" type="button">
+      <div class="lang-toggle">
+        <button class="lang-toggle-btn" type="button" aria-haspopup="listbox" aria-expanded="false" data-i18n-attr="aria-label:common.btn.lang" aria-label="Language">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10"/><path d="M12 2a15 15 0 0 0-4 10 15 15 0 0 0 4 10"/></svg>
+          <span class="lang-toggle-current">EN</span>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <ul class="lang-toggle-menu" role="listbox">
+          <li><button data-set-lang="en" type="button">English</button></li>
+          <li><button data-set-lang="tr" type="button">Türkçe</button></li>
+          <li><button data-set-lang="de" type="button">Deutsch</button></li>
+          <li><button data-set-lang="fr" type="button">Français</button></li>
+          <li><button data-set-lang="es" type="button">Español</button></li>
+          <li><button data-set-lang="zh" type="button">中文</button></li>
+        </ul>
+      </div>
+      <button class="theme-toggle" type="button" data-i18n-attr="aria-label:common.btn.theme" aria-label="Toggle theme">
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
       </button>
@@ -51,18 +65,9 @@
 
 <header class="page-header">
   <div class="container">
-    <span class="eyebrow">
-      <span class="i18n-inline" data-lang="en">EU AI Act · Article 9-17 · Annex IV</span>
-      <span class="i18n-inline" data-lang="tr">EU AI Act · Madde 9-17 · Annex IV</span>
-    </span>
-    <h1>
-      <span class="i18n-inline" data-lang="en">Compliance is shipped, <span class="text-gradient">not promised.</span></span>
-      <span class="i18n-inline" data-lang="tr">Uyumluluk vaadi değil, <span class="text-gradient">ürünleştirilmiş.</span></span>
-    </h1>
-    <p>
-      <span class="i18n-inline" data-lang="en">ForgeLM was built for teams that have to defend their training pipeline to a regulator, not just a CTO. Every run produces the artifacts you need to demonstrate provenance, governance, and oversight.</span>
-      <span class="i18n-inline" data-lang="tr">ForgeLM, eğitim hatlarını sadece bir CTO'ya değil, bir regülatöre savunması gereken ekipler için yapıldı. Her koşu, kanıt zinciri, yönetişim ve gözetimi göstermek için ihtiyacınız olan artifact'ları üretir.</span>
-    </p>
+    <span class="eyebrow" data-i18n="compliance.header.eyebrow">EU AI Act · Article 9-17 · Annex IV</span>
+    <h1 data-i18n-html="compliance.header.title">Compliance is shipped, <span class="text-gradient">not promised.</span></h1>
+    <p data-i18n="compliance.header.lead">ForgeLM was built for teams that have to defend their training pipeline to a regulator.</p>
   </div>
 </header>
 
@@ -70,100 +75,73 @@
 <section>
   <div class="container">
     <div class="section-header">
-      <span class="eyebrow">
-        <span class="i18n-inline" data-lang="en">Article-by-article mapping</span>
-        <span class="i18n-inline" data-lang="tr">Madde-madde eşleme</span>
-      </span>
-      <h2>
-        <span class="i18n-inline" data-lang="en">Where each obligation lives in the code</span>
-        <span class="i18n-inline" data-lang="tr">Her yükümlülüğün kodda nerede yaşadığı</span>
-      </h2>
-      <p>
-        <span class="i18n-inline" data-lang="en">Each card maps a Regulation (EU) 2024/1689 article to the ForgeLM module that fulfils it. Open the GitHub link to see the implementation.</span>
-        <span class="i18n-inline" data-lang="tr">Her kart, Regulation (EU) 2024/1689 maddesini onu yerine getiren ForgeLM modülüne eşler. Uygulamayı görmek için GitHub linkini açın.</span>
-      </p>
+      <span class="eyebrow" data-i18n="compliance.mapping.eyebrow">Article-by-article mapping</span>
+      <h2 data-i18n="compliance.mapping.title">Where each obligation lives in the code</h2>
+      <p data-i18n="compliance.mapping.lead">Each card maps a Regulation (EU) 2024/1689 article to the ForgeLM module that fulfils it.</p>
     </div>
 
     <div class="articles-grid">
       <article class="article-card">
         <span class="article-num">Article 9</span>
-        <h3><span class="i18n-inline" data-lang="en">Risk management</span><span class="i18n-inline" data-lang="tr">Risk yönetimi</span></h3>
-        <p><span class="i18n-inline" data-lang="en">A continuous, iterative process: identify foreseeable risks, evaluate, mitigate. Auto-revert on threshold breach is the technical mitigation; trend tracking is the monitoring loop.</span><span class="i18n-inline" data-lang="tr">Sürekli, iteratif süreç: öngörülebilir riskleri tanımla, değerlendir, azalt. Eşik aşımında otomatik geri alma teknik mitigasyon; trend izleme monitoring döngüsü.</span></p>
-        <div class="article-evidence">
-          <b>forgelm/safety.py</b> · <b>forgelm/compliance.py</b>
-        </div>
+        <h3 data-i18n="compliance.art9.title">Risk management</h3>
+        <p data-i18n="compliance.art9.body">A continuous, iterative process: identify foreseeable risks, evaluate, mitigate.</p>
+        <div class="article-evidence"><b>forgelm/safety.py</b> · <b>forgelm/compliance.py</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">Article 10</span>
-        <h3><span class="i18n-inline" data-lang="en">Data &amp; data governance</span><span class="i18n-inline" data-lang="tr">Veri ve veri yönetimi</span></h3>
-        <p><span class="i18n-inline" data-lang="en">Quality, relevance, representativeness criteria. Bias detection, PII redaction, cross-split leakage gate. Every audit report becomes a Article 10 evidence document.</span><span class="i18n-inline" data-lang="tr">Kalite, uygunluk, temsiliyet kriterleri. Bias tespiti, PII redaksiyonu, split-arası sızıntı kapısı. Her audit raporu Madde 10 kanıt belgesi olur.</span></p>
-        <div class="article-evidence">
-          <b>forgelm/data_audit.py</b> · <b>forgelm/ingestion.py</b>
-        </div>
+        <h3 data-i18n-html="compliance.art10.title">Data &amp; data governance</h3>
+        <p data-i18n="compliance.art10.body">Quality, relevance, representativeness criteria. Bias detection, PII redaction.</p>
+        <div class="article-evidence"><b>forgelm/data_audit.py</b> · <b>forgelm/ingestion.py</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">Article 11</span>
-        <h3><span class="i18n-inline" data-lang="en">Technical documentation</span><span class="i18n-inline" data-lang="tr">Teknik dokümantasyon</span></h3>
-        <p><span class="i18n-inline" data-lang="en">Annex IV's eight required sections — auto-populated from the run: general description, detailed system, monitoring, risk management, lifecycle, standards, declaration, post-market.</span><span class="i18n-inline" data-lang="tr">Annex IV'ün sekiz zorunlu bölümü — koşudan otomatik doldurulur: genel açıklama, detay sistem, izleme, risk yönetimi, yaşam döngüsü, standartlar, beyan, post-market.</span></p>
-        <div class="article-evidence">
-          <b>artifacts/annex_iv.json</b>
-        </div>
+        <h3 data-i18n="compliance.art11.title">Technical documentation</h3>
+        <p data-i18n="compliance.art11.body">Annex IV's eight required sections — auto-populated from the run.</p>
+        <div class="article-evidence"><b>artifacts/annex_iv.json</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">Article 12</span>
-        <h3><span class="i18n-inline" data-lang="en">Record-keeping (logs)</span><span class="i18n-inline" data-lang="tr">Kayıt tutma (loglar)</span></h3>
-        <p><span class="i18n-inline" data-lang="en">Append-only event log over training start, eval gates, auto-revert decisions, model export. SHA-256 over each artifact for tamper-evidence.</span><span class="i18n-inline" data-lang="tr">Eğitim başlangıcı, eval kapıları, otomatik geri alma kararları, model export üzerinde append-only event log. Her artifact üzerinde tamper-evidence için SHA-256.</span></p>
-        <div class="article-evidence">
-          <b>forgelm/compliance.py</b> · <b>artifacts/audit_log.jsonl</b>
-        </div>
+        <h3 data-i18n="compliance.art12.title">Record-keeping (logs)</h3>
+        <p data-i18n="compliance.art12.body">Append-only event log over training start, eval gates, auto-revert decisions.</p>
+        <div class="article-evidence"><b>forgelm/compliance.py</b> · <b>artifacts/audit_log.jsonl</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">Article 13</span>
-        <h3><span class="i18n-inline" data-lang="en">Transparency</span><span class="i18n-inline" data-lang="tr">Şeffaflık</span></h3>
-        <p><span class="i18n-inline" data-lang="en">Auto-generated model card lists capabilities, intended use, training data summary, evaluation results, known limitations. Drop-in for HuggingFace Hub README.</span><span class="i18n-inline" data-lang="tr">Otomatik üretilen model card; yetenekleri, amaçlanan kullanımı, eğitim veri özetini, değerlendirme sonuçlarını, bilinen sınırlamaları listeler. HuggingFace Hub README için drop-in.</span></p>
-        <div class="article-evidence">
-          <b>--model-card</b> · <b>output_dir/README.md</b>
-        </div>
+        <h3 data-i18n="compliance.art13.title">Transparency</h3>
+        <p data-i18n="compliance.art13.body">Auto-generated model card lists capabilities, intended use, training data summary.</p>
+        <div class="article-evidence"><b>--model-card</b> · <b>output_dir/README.md</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">Article 14</span>
-        <h3><span class="i18n-inline" data-lang="en">Human oversight</span><span class="i18n-inline" data-lang="tr">İnsan gözetimi</span></h3>
-        <p><span class="i18n-inline" data-lang="en">Optional <code>compliance.human_approval: true</code> blocks model promotion until a human signs off. Webhook to your incident tool; signed approval lands in the audit log.</span><span class="i18n-inline" data-lang="tr">Opsiyonel <code>compliance.human_approval: true</code> bir insan onaylayana kadar model promosyonunu durdurur. Incident aracınıza webhook; imzalı onay audit log'a düşer.</span></p>
-        <div class="article-evidence">
-          <b>compliance.human_approval</b>
-        </div>
+        <h3 data-i18n="compliance.art14.title">Human oversight</h3>
+        <p data-i18n-html="compliance.art14.body">Optional <code>compliance.human_approval: true</code> blocks model promotion until a human signs off.</p>
+        <div class="article-evidence"><b>compliance.human_approval</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">Article 15</span>
-        <h3><span class="i18n-inline" data-lang="en">Accuracy &amp; robustness</span><span class="i18n-inline" data-lang="tr">Doğruluk ve sağlamlık</span></h3>
-        <p><span class="i18n-inline" data-lang="en">Benchmark gates per-task floor; if the post-train number drops below the floor, the run fails (exit 3). Cybersecurity: secrets / PII at ingest, dependency CVE awareness.</span><span class="i18n-inline" data-lang="tr">Görev başı taban için benchmark kapısı; post-train sayısı tabanın altına düşerse koşu başarısız (exit 3). Siber güvenlik: ingest'te sırlar / PII, bağımlılık CVE farkındalığı.</span></p>
-        <div class="article-evidence">
-          <b>forgelm/benchmark.py</b>
-        </div>
+        <h3 data-i18n-html="compliance.art15.title">Accuracy &amp; robustness</h3>
+        <p data-i18n="compliance.art15.body">Benchmark gates per-task floor; if the post-train number drops below the floor, the run fails (exit 3).</p>
+        <div class="article-evidence"><b>forgelm/benchmark.py</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">Article 16-17</span>
-        <h3><span class="i18n-inline" data-lang="en">Conformity &amp; QMS</span><span class="i18n-inline" data-lang="tr">Uygunluk ve QMS</span></h3>
-        <p><span class="i18n-inline" data-lang="en">QMS SOPs in <code>docs/qms/</code> cover release, incident response, data-source onboarding. Conformity declaration template generated from the run's Annex IV.</span><span class="i18n-inline" data-lang="tr"><code>docs/qms/</code>'deki QMS SOP'ları sürüm yönetimi, incident response, veri kaynağı onboarding'i kapsar. Uygunluk beyanı şablonu koşunun Annex IV'ünden üretilir.</span></p>
-        <div class="article-evidence">
-          <b>docs/qms/</b>
-        </div>
+        <h3 data-i18n-html="compliance.art1617.title">Conformity &amp; QMS</h3>
+        <p data-i18n-html="compliance.art1617.body">QMS SOPs in <code>docs/qms/</code> cover release, incident response, data-source onboarding.</p>
+        <div class="article-evidence"><b>docs/qms/</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">GDPR</span>
-        <h3><span class="i18n-inline" data-lang="en">PII redaction at ingest</span><span class="i18n-inline" data-lang="tr">Ingest'te PII redaksiyonu</span></h3>
-        <p><span class="i18n-inline" data-lang="en"><code>--pii-mask</code> redacts emails, phones, credit cards (Luhn), IBAN, national IDs (TR/DE/FR/US-SSN) before chunks land in JSONL — Article 5(1)(c) data minimisation enforced upstream.</span><span class="i18n-inline" data-lang="tr"><code>--pii-mask</code> chunk'lar JSONL'a düşmeden e-posta, telefon, kredi kartı (Luhn), IBAN, ulusal kimlik (TR/DE/FR/US-SSN) maskeler — Madde 5(1)(c) data minimisation upstream'de uygulanır.</span></p>
-        <div class="article-evidence">
-          <b>forgelm/data_audit.py::mask_pii</b>
-        </div>
+        <h3 data-i18n="compliance.gdpr.title">PII redaction at ingest</h3>
+        <p data-i18n-html="compliance.gdpr.body"><code>--pii-mask</code> redacts emails, phones, credit cards, IBAN, national IDs before chunks land in JSONL.</p>
+        <div class="article-evidence"><b>forgelm/data_audit.py::mask_pii</b></div>
       </article>
     </div>
   </div>
@@ -173,25 +151,16 @@
 <section style="background: var(--bg-alt);">
   <div class="container">
     <div class="section-header">
-      <span class="eyebrow">
-        <span class="i18n-inline" data-lang="en">What you get on disk</span>
-        <span class="i18n-inline" data-lang="tr">Diskte ne elde edersiniz</span>
-      </span>
-      <h2>
-        <span class="i18n-inline" data-lang="en">A run's compliance footprint</span>
-        <span class="i18n-inline" data-lang="tr">Bir koşunun uyumluluk ayak izi</span>
-      </h2>
-      <p>
-        <span class="i18n-inline" data-lang="en">After every successful (or failed) run, this is what lands in your output directory.</span>
-        <span class="i18n-inline" data-lang="tr">Her başarılı (veya başarısız) koşudan sonra çıktı dizininize bunlar düşer.</span>
-      </p>
+      <span class="eyebrow" data-i18n="compliance.artifact.eyebrow">What you get on disk</span>
+      <h2 data-i18n="compliance.artifact.title">A run's compliance footprint</h2>
+      <p data-i18n="compliance.artifact.lead">After every successful (or failed) run, this is what lands in your output directory.</p>
     </div>
 
     <div class="container-narrow" style="padding:0;">
       <div class="code-block">
         <div class="code-block-header">
           <span class="lang">checkpoints/policy-bot/</span>
-          <button class="copy-btn" type="button">copy</button>
+          <button class="copy-btn" type="button" data-i18n="common.copy.idle">copy</button>
         </div>
         <pre class="code-block-body">artifacts/
 ├── annex_iv.json              <span class="comment"># Article 11 technical documentation</span>
@@ -214,38 +183,17 @@ checkpoints/                   <span class="comment"># PEFT adapter or merged we
 <section>
   <div class="container container-narrow">
     <div class="section-header">
-      <span class="eyebrow">
-        <span class="i18n-inline" data-lang="en">Honest limits</span>
-        <span class="i18n-inline" data-lang="tr">Dürüst sınırlar</span>
-      </span>
-      <h2>
-        <span class="i18n-inline" data-lang="en">What ForgeLM does <em>not</em> claim</span>
-        <span class="i18n-inline" data-lang="tr">ForgeLM'in iddia <em>etmediği</em> şeyler</span>
-      </h2>
+      <span class="eyebrow" data-i18n="compliance.limits.eyebrow">Honest limits</span>
+      <h2 data-i18n-html="compliance.limits.title">What ForgeLM does <em>not</em> claim</h2>
     </div>
 
     <div class="legal-content" style="margin-top:1rem;">
-      <p>
-        <span class="i18n-inline" data-lang="en">Compliance is a sociotechnical discipline; software can prepare evidence but cannot certify a system on your behalf. ForgeLM is honest about where the line is:</span>
-        <span class="i18n-inline" data-lang="tr">Uyumluluk sosyo-teknik bir disiplindir; yazılım kanıt hazırlayabilir ama sizin adınıza bir sistemi sertifikalandıramaz. ForgeLM çizginin nerede olduğu konusunda dürüst:</span>
-      </p>
+      <p data-i18n="compliance.limits.intro">Compliance is a sociotechnical discipline; software can prepare evidence but cannot certify a system on your behalf.</p>
       <ul>
-        <li>
-          <span class="i18n-inline" data-lang="en">ForgeLM <strong>generates</strong> Annex IV-style technical documentation from a run. It does not <strong>certify</strong> your system as a high-risk AI system under the AI Act — that is a notified-body or self-assessment activity outside the scope of any toolkit.</span>
-          <span class="i18n-inline" data-lang="tr">ForgeLM, bir koşudan Annex IV tarzı teknik dokümantasyon <strong>üretir</strong>. Sisteminizi AI Act kapsamında bir yüksek-riskli AI sistemi olarak <strong>sertifikalandırmaz</strong> — bu, herhangi bir toolkit'in kapsamı dışındaki bir notified-body veya öz-değerlendirme faaliyetidir.</span>
-        </li>
-        <li>
-          <span class="i18n-inline" data-lang="en">The audit log is append-only by convention and SHA-256-anchored — but tamper-evidence requires you to ship the log to a separate, write-once store (S3 Object Lock, ledger DB, etc.). The toolkit can produce the artefact; chain-of-custody is your operational responsibility.</span>
-          <span class="i18n-inline" data-lang="tr">Audit log konvansiyonel olarak append-only ve SHA-256-anchored — ancak tamper-evidence için log'u ayrı, write-once bir depoya (S3 Object Lock, ledger DB, vb.) göndermeniz gerekir. Toolkit artifact'ı üretebilir; chain-of-custody operasyonel sorumluluğunuzdur.</span>
-        </li>
-        <li>
-          <span class="i18n-inline" data-lang="en">The PII / secrets regex sets are conservative by design — they prefer false-negatives over false-positives so prose isn't accidentally redacted. For a high-stakes corpus, pair them with a manual review before training.</span>
-          <span class="i18n-inline" data-lang="tr">PII / sırlar regex setleri tasarım gereği muhafazakar — proza kazara redakte edilmesin diye false-negative'ları false-positive'lara tercih eder. Yüksek riskli bir corpus için eğitimden önce manuel inceleme ile birlikte kullanın.</span>
-        </li>
-        <li>
-          <span class="i18n-inline" data-lang="en">Llama Guard's S1-S14 categories are an opinionated taxonomy. They are useful, but not a substitute for a domain-specific safety policy. Bring your own classifier when the deployed surface needs it.</span>
-          <span class="i18n-inline" data-lang="tr">Llama Guard'ın S1-S14 kategorileri görüş bildiren bir taksonomidir. Yararlı, ama alana özgü bir güvenlik politikasının yerine geçemez. Üretim yüzeyiniz gerektiriyorsa kendi sınıflandırıcınızı getirin.</span>
-        </li>
+        <li data-i18n-html="compliance.limits.li1">ForgeLM <strong>generates</strong> Annex IV-style technical documentation from a run.</li>
+        <li data-i18n-html="compliance.limits.li2">The audit log is append-only by convention and SHA-256-anchored.</li>
+        <li data-i18n-html="compliance.limits.li3">The PII / secrets regex sets are conservative by design.</li>
+        <li data-i18n-html="compliance.limits.li4">Llama Guard's S1-S14 categories are an opinionated taxonomy.</li>
       </ul>
     </div>
   </div>
@@ -254,23 +202,11 @@ checkpoints/                   <span class="comment"># PEFT adapter or merged we
 <section class="cta">
   <div class="container">
     <div class="cta-card">
-      <h2>
-        <span class="i18n-inline" data-lang="en">Want a deeper look?</span>
-        <span class="i18n-inline" data-lang="tr">Daha derin bir bakış ister misiniz?</span>
-      </h2>
-      <p>
-        <span class="i18n-inline" data-lang="en">The compliance module, audit log schema, and Annex IV generator are all in <code>forgelm/compliance.py</code>. Read the source — it's the most honest documentation we ship.</span>
-        <span class="i18n-inline" data-lang="tr">Uyumluluk modülü, audit log şeması ve Annex IV jeneratörünün hepsi <code>forgelm/compliance.py</code>'da. Kaynağı okuyun — gönderdiğimiz en dürüst dokümantasyon.</span>
-      </p>
+      <h2 data-i18n="compliance.cta.title">Want a deeper look?</h2>
+      <p data-i18n-html="compliance.cta.body">The compliance module, audit log schema, and Annex IV generator are all in <code>forgelm/compliance.py</code>.</p>
       <div class="cta-actions">
-        <a href="https://github.com/cemililik/ForgeLM/blob/main/forgelm/compliance.py" target="_blank" rel="noopener" class="btn btn-primary">
-          <span class="i18n-inline" data-lang="en">View compliance.py</span>
-          <span class="i18n-inline" data-lang="tr">compliance.py'a göz at</span>
-        </a>
-        <a href="contact.html" class="btn btn-ghost">
-          <span class="i18n-inline" data-lang="en">Talk to us</span>
-          <span class="i18n-inline" data-lang="tr">Bize ulaşın</span>
-        </a>
+        <a href="https://github.com/cemililik/ForgeLM/blob/main/forgelm/compliance.py" target="_blank" rel="noopener" class="btn btn-primary" data-i18n="compliance.cta.btn1">View compliance.py</a>
+        <a href="contact.html" class="btn btn-ghost" data-i18n="compliance.cta.btn2">Talk to us</a>
       </div>
     </div>
   </div>
@@ -281,10 +217,10 @@ checkpoints/                   <span class="comment"># PEFT adapter or merged we
     <div class="footer-bottom">
       <span>&copy; 2026 ForgeLM</span>
       <span>
-        <a href="index.html"><span class="i18n-inline" data-lang="en">Home</span><span class="i18n-inline" data-lang="tr">Ana Sayfa</span></a> ·
-        <a href="privacy.html"><span class="i18n-inline" data-lang="en">Privacy</span><span class="i18n-inline" data-lang="tr">Gizlilik</span></a> ·
-        <a href="terms.html"><span class="i18n-inline" data-lang="en">Terms</span><span class="i18n-inline" data-lang="tr">Koşullar</span></a> ·
-        <a href="contact.html"><span class="i18n-inline" data-lang="en">Contact</span><span class="i18n-inline" data-lang="tr">İletişim</span></a>
+        <a href="index.html" data-i18n="common.footer.home">Home</a> ·
+        <a href="privacy.html" data-i18n="common.footer.privacy">Privacy</a> ·
+        <a href="terms.html" data-i18n="common.footer.terms">Terms</a> ·
+        <a href="contact.html" data-i18n="common.footer.contact">Contact</a>
       </span>
     </div>
   </div>

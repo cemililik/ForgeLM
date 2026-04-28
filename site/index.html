@@ -3,15 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title data-title-en="ForgeLM — Config-driven LLM fine-tuning toolkit"
-         data-title-tr="ForgeLM — Konfigürasyon odaklı LLM fine-tuning araç seti">ForgeLM — Config-driven LLM fine-tuning toolkit</title>
-  <meta name="description"
-        data-desc-en="ForgeLM is a YAML-driven, enterprise-ready LLM fine-tuning toolkit. SFT, DPO, SimPO, KTO, ORPO, GRPO — with safety evaluation, EU AI Act compliance, and CI/CD-native design."
-        data-desc-tr="ForgeLM, YAML temelli kurumsal seviyede LLM fine-tuning araç setidir. SFT, DPO, SimPO, KTO, ORPO, GRPO — güvenlik değerlendirmesi, EU AI Act uyumu ve CI/CD-yerli tasarımıyla."
-        content="ForgeLM is a YAML-driven, enterprise-ready LLM fine-tuning toolkit. SFT, DPO, SimPO, KTO, ORPO, GRPO — with safety evaluation, EU AI Act compliance, and CI/CD-native design.">
+  <title data-i18n="meta.title.home">ForgeLM — Config-driven LLM fine-tuning toolkit</title>
+  <meta name="description" data-i18n-attr="content:meta.desc.home"
+        content="ForgeLM is a YAML-driven, enterprise-ready LLM fine-tuning toolkit. SFT, DPO, SimPO, KTO, ORPO, GRPO — with safety evaluation, EU AI Act compliance, and CI/CD-integrated design.">
   <meta name="theme-color" content="#0a0c12">
-  <meta property="og:title" content="ForgeLM — Config-driven LLM fine-tuning toolkit">
-  <meta property="og:description" content="YAML in. Fine-tuned model + compliance artifacts out. Built for CI/CD, not notebooks.">
+  <meta property="og:title" data-i18n-attr="content:meta.title.home" content="ForgeLM — Config-driven LLM fine-tuning toolkit">
+  <meta property="og:description" data-i18n-attr="content:meta.desc.home" content="ForgeLM is a YAML-driven, enterprise-ready LLM fine-tuning toolkit.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://YOUR_DOMAIN/assets/og.png">
   <meta property="og:url" content="https://YOUR_DOMAIN/">
@@ -22,6 +19,7 @@
   <link rel="icon" href="favicon.ico">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="css/style.css">
+  <script src="js/translations.js"></script>
   <script src="js/i18n.js"></script>
 </head>
 <body>
@@ -39,25 +37,36 @@
       ForgeLM
     </a>
 
-    <button class="nav-hamburger" aria-label="Menu" aria-expanded="false">
+    <button class="nav-hamburger" data-i18n-attr="aria-label:common.btn.menu" aria-label="Menu" aria-expanded="false">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
     </button>
 
     <ul class="nav-menu">
-      <li><a href="index.html" class="active"><span class="i18n-inline" data-lang="en">Home</span><span class="i18n-inline" data-lang="tr">Ana Sayfa</span></a></li>
-      <li><a href="features.html"><span class="i18n-inline" data-lang="en">Features</span><span class="i18n-inline" data-lang="tr">Özellikler</span></a></li>
-      <li><a href="quickstart.html"><span class="i18n-inline" data-lang="en">Quickstart</span><span class="i18n-inline" data-lang="tr">Hızlı Başlangıç</span></a></li>
-      <li><a href="compliance.html"><span class="i18n-inline" data-lang="en">Compliance</span><span class="i18n-inline" data-lang="tr">Uyumluluk</span></a></li>
-      <li><a href="contact.html"><span class="i18n-inline" data-lang="en">Contact</span><span class="i18n-inline" data-lang="tr">İletişim</span></a></li>
+      <li><a href="index.html" class="active" data-i18n="common.nav.home">Home</a></li>
+      <li><a href="features.html" data-i18n="common.nav.features">Features</a></li>
+      <li><a href="quickstart.html" data-i18n="common.nav.quickstart">Quickstart</a></li>
+      <li><a href="guide.html" data-i18n="common.nav.guide">Guide</a></li>
+      <li><a href="compliance.html" data-i18n="common.nav.compliance">Compliance</a></li>
+      <li><a href="contact.html" data-i18n="common.nav.contact">Contact</a></li>
     </ul>
 
     <div class="nav-actions">
-      <fieldset class="lang-toggle">
-        <legend class="sr-only">Language</legend>
-        <button data-set-lang="en" type="button">EN</button>
-        <button data-set-lang="tr" type="button">TR</button>
-      </fieldset>
-      <button class="theme-toggle" aria-label="Toggle theme" type="button">
+      <div class="lang-toggle">
+        <button class="lang-toggle-btn" type="button" aria-haspopup="listbox" aria-expanded="false" data-i18n-attr="aria-label:common.btn.lang" aria-label="Language">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10"/><path d="M12 2a15 15 0 0 0-4 10 15 15 0 0 0 4 10"/></svg>
+          <span class="lang-toggle-current">EN</span>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <ul class="lang-toggle-menu" role="listbox">
+          <li><button data-set-lang="en" type="button">English</button></li>
+          <li><button data-set-lang="tr" type="button">Türkçe</button></li>
+          <li><button data-set-lang="de" type="button">Deutsch</button></li>
+          <li><button data-set-lang="fr" type="button">Français</button></li>
+          <li><button data-set-lang="es" type="button">Español</button></li>
+          <li><button data-set-lang="zh" type="button">中文</button></li>
+        </ul>
+      </div>
+      <button class="theme-toggle" type="button" data-i18n-attr="aria-label:common.btn.theme" aria-label="Toggle theme">
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
       </button>
@@ -75,46 +84,33 @@
     <div>
       <span class="hero-badge">
         <span class="dot"></span>
-        <span class="i18n-inline" data-lang="en">Open source · Apache 2.0 · v0.5.2</span>
-        <span class="i18n-inline" data-lang="tr">Açık kaynak · Apache 2.0 · v0.5.2</span>
+        <span data-i18n="home.hero.badge">Open source · Apache 2.0 · v0.5.2</span>
       </span>
 
-      <h1>
-        <span class="i18n-inline" data-lang="en">YAML in.<br><span class="text-gradient">Fine-tuned model</span> out.</span>
-        <span class="i18n-inline" data-lang="tr">YAML gir.<br><span class="text-gradient">Fine-tuned model</span> al.</span>
-      </h1>
+      <h1 data-i18n-html="home.hero.title">YAML in.<br><span class="text-gradient">Fine-tuned model</span> out.</h1>
 
-      <p class="hero-lead">
-        <span class="i18n-inline" data-lang="en">ForgeLM is the config-driven LLM fine-tuning toolkit for teams that ship into regulated environments. The full alignment stack — SFT, DPO, SimPO, KTO, ORPO, GRPO — with integrated safety evaluation, EU AI Act audit trails, and auto-revert on quality regression.</span>
-        <span class="i18n-inline" data-lang="tr">ForgeLM, regülasyonlu ortamlara üretim çıkaran ekipler için konfigürasyon odaklı LLM fine-tuning araç setidir. Tam alignment yığını — SFT, DPO, SimPO, KTO, ORPO, GRPO — entegre güvenlik değerlendirmesi, EU AI Act denetim kayıtları ve kalite regresyonunda otomatik geri alma ile.</span>
-      </p>
+      <p class="hero-lead" data-i18n="home.hero.lead">ForgeLM is the config-driven LLM fine-tuning toolkit for teams that ship into regulated environments.</p>
 
       <div class="hero-actions">
         <a href="quickstart.html" class="btn btn-primary">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          <span class="i18n-inline" data-lang="en">Get started</span>
-          <span class="i18n-inline" data-lang="tr">Hemen başla</span>
+          <span data-i18n="home.hero.cta1">Get started</span>
         </a>
         <a href="https://github.com/cemililik/ForgeLM" target="_blank" rel="noopener" class="btn btn-secondary">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-          <span class="i18n-inline" data-lang="en">View on GitHub</span>
-          <span class="i18n-inline" data-lang="tr">GitHub'da incele</span>
+          <span data-i18n="home.hero.cta2">View on GitHub</span>
         </a>
       </div>
 
       <div class="hero-meta">
         <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          <span class="i18n-inline" data-lang="en">EU AI Act ready</span>
-          <span class="i18n-inline" data-lang="tr">EU AI Act uyumlu</span></span>
+          <span data-i18n="home.hero.meta1">EU AI Act ready</span></span>
         <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          <span class="i18n-inline" data-lang="en">CPU-friendly audit</span>
-          <span class="i18n-inline" data-lang="tr">CPU dostu denetim</span></span>
+          <span data-i18n="home.hero.meta2">CPU-friendly audit</span></span>
         <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          <span class="i18n-inline" data-lang="en">Air-gap capable</span>
-          <span class="i18n-inline" data-lang="tr">Air-gap hazır</span></span>
+          <span data-i18n="home.hero.meta3">Air-gap capable</span></span>
         <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          <span class="i18n-inline" data-lang="en">CI/CD-native</span>
-          <span class="i18n-inline" data-lang="tr">CI/CD-yerli</span></span>
+          <span data-i18n="home.hero.meta4">CI/CD integrated</span></span>
       </div>
     </div>
 
@@ -151,31 +147,19 @@
     <div class="stats-grid">
       <div>
         <div class="stat-value">6</div>
-        <div class="stat-label">
-          <span class="i18n-inline" data-lang="en">Trainer types</span>
-          <span class="i18n-inline" data-lang="tr">Trainer türü</span>
-        </div>
+        <div class="stat-label" data-i18n="home.stats.trainers">Trainer types</div>
       </div>
       <div>
         <div class="stat-value">18</div>
-        <div class="stat-label">
-          <span class="i18n-inline" data-lang="en">GPU profiles auto-detected</span>
-          <span class="i18n-inline" data-lang="tr">Otomatik algılanan GPU profili</span>
-        </div>
+        <div class="stat-label" data-i18n="home.stats.gpus">GPU profiles auto-detected</div>
       </div>
       <div>
         <div class="stat-value">5</div>
-        <div class="stat-label">
-          <span class="i18n-inline" data-lang="en">Ingest formats</span>
-          <span class="i18n-inline" data-lang="tr">Ingest formatı</span>
-        </div>
+        <div class="stat-label" data-i18n="home.stats.formats">Ingest formats</div>
       </div>
       <div>
         <div class="stat-value">100%</div>
-        <div class="stat-label">
-          <span class="i18n-inline" data-lang="en">Config-driven, declarative</span>
-          <span class="i18n-inline" data-lang="tr">Konfigürasyon odaklı, deklaratif</span>
-        </div>
+        <div class="stat-label" data-i18n="home.stats.declarative">Config-driven, declarative</div>
       </div>
     </div>
   </div>
@@ -185,68 +169,41 @@
 <section class="pipeline">
   <div class="container">
     <div class="section-header">
-      <span class="eyebrow">
-        <span class="i18n-inline" data-lang="en">The complete alignment stack</span>
-        <span class="i18n-inline" data-lang="tr">Eksiksiz alignment yığını</span>
-      </span>
-      <h2>
-        <span class="i18n-inline" data-lang="en">From base model to production-ready</span>
-        <span class="i18n-inline" data-lang="tr">Temel modelden üretime hazır modele</span>
-      </h2>
-      <p>
-        <span class="i18n-inline" data-lang="en">Six post-training paradigms behind one declarative interface. Pick what your task needs; ForgeLM handles the wiring.</span>
-        <span class="i18n-inline" data-lang="tr">Altı post-training paradigması tek bir deklaratif arayüzün arkasında. Görevinizin ihtiyacını seçin; bağlantıyı ForgeLM kurar.</span>
-      </p>
+      <span class="eyebrow" data-i18n="home.pipeline.eyebrow">The complete alignment stack</span>
+      <h2 data-i18n="home.pipeline.title">From base model to production-ready</h2>
+      <p data-i18n="home.pipeline.lead">Six post-training paradigms behind one declarative interface.</p>
     </div>
 
     <div class="pipeline-flow">
       <div class="pipeline-stage">
         <div class="stage-num">01</div>
         <h3>SFT</h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">Supervised fine-tuning on instruction pairs</span>
-          <span class="i18n-inline" data-lang="tr">Talimat çifti üzerinde denetimli fine-tuning</span>
-        </p>
+        <p data-i18n="home.pipeline.sft">Supervised fine-tuning on instruction pairs</p>
       </div>
       <div class="pipeline-stage">
         <div class="stage-num">02</div>
         <h3>DPO</h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">Direct Preference Optimization on chosen/rejected pairs</span>
-          <span class="i18n-inline" data-lang="tr">Tercih edilen / reddedilen çiftler üzerinde direkt tercih optimizasyonu</span>
-        </p>
+        <p data-i18n="home.pipeline.dpo">Direct Preference Optimization on chosen/rejected pairs</p>
       </div>
       <div class="pipeline-stage">
         <div class="stage-num">03</div>
         <h3>SimPO</h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">Reference-free preference learning, lower memory</span>
-          <span class="i18n-inline" data-lang="tr">Referans modelsiz tercih öğrenmesi, düşük bellek</span>
-        </p>
+        <p data-i18n="home.pipeline.simpo">Reference-free preference learning, lower memory</p>
       </div>
       <div class="pipeline-stage">
         <div class="stage-num">04</div>
         <h3>KTO</h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">Kahneman-Tversky on binary feedback signals</span>
-          <span class="i18n-inline" data-lang="tr">İkili geri bildirim sinyallerinde Kahneman-Tversky</span>
-        </p>
+        <p data-i18n="home.pipeline.kto">Kahneman-Tversky on binary feedback signals</p>
       </div>
       <div class="pipeline-stage">
         <div class="stage-num">05</div>
         <h3>ORPO</h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">Odds Ratio Preference Optimization, single pass</span>
-          <span class="i18n-inline" data-lang="tr">Odds-Ratio tercih optimizasyonu, tek geçişli</span>
-        </p>
+        <p data-i18n="home.pipeline.orpo">Odds Ratio Preference Optimization, single pass</p>
       </div>
       <div class="pipeline-stage">
         <div class="stage-num">06</div>
         <h3>GRPO</h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">Group Relative Policy Optimization for reasoning RL</span>
-          <span class="i18n-inline" data-lang="tr">Akıl yürütme RL için grup-göreli politika optimizasyonu</span>
-        </p>
+        <p data-i18n="home.pipeline.grpo">Group Relative Policy Optimization for reasoning RL</p>
       </div>
     </div>
   </div>
@@ -256,18 +213,9 @@
 <section>
   <div class="container">
     <div class="section-header">
-      <span class="eyebrow">
-        <span class="i18n-inline" data-lang="en">Why ForgeLM</span>
-        <span class="i18n-inline" data-lang="tr">Neden ForgeLM</span>
-      </span>
-      <h2>
-        <span class="i18n-inline" data-lang="en">Built for the path to production</span>
-        <span class="i18n-inline" data-lang="tr">Üretime giden yol için tasarlandı</span>
-      </h2>
-      <p>
-        <span class="i18n-inline" data-lang="en">Three things separate ForgeLM from notebook-first frameworks.</span>
-        <span class="i18n-inline" data-lang="tr">ForgeLM'i notebook merkezli framework'lerden ayıran üç şey.</span>
-      </p>
+      <span class="eyebrow" data-i18n="home.why.eyebrow">Why ForgeLM</span>
+      <h2 data-i18n="home.why.title">Built for the path to production</h2>
+      <p data-i18n="home.why.lead">Three things separate ForgeLM from notebook-first frameworks.</p>
     </div>
 
     <div class="features-grid">
@@ -275,14 +223,8 @@
         <div class="feature-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
         </div>
-        <h3>
-          <span class="i18n-inline" data-lang="en">Declarative, not imperative</span>
-          <span class="i18n-inline" data-lang="tr">Deklaratif, imperatif değil</span>
-        </h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">Your run is a YAML file under version control. Pydantic validates every field. <code>--dry-run</code> proves the config will load before you spend GPU hours.</span>
-          <span class="i18n-inline" data-lang="tr">Koşunuz versiyon kontrollü bir YAML dosyası. Pydantic her alanı doğrular. <code>--dry-run</code> GPU saatleri harcamadan konfigürasyonun yükleneceğini kanıtlar.</span>
-        </p>
+        <h3 data-i18n="home.why.declarative.title">Declarative, not imperative</h3>
+        <p data-i18n-html="home.why.declarative.body">Your run is a YAML file under version control.</p>
         <div class="feature-tags">
           <span class="feature-tag">YAML</span>
           <span class="feature-tag">Pydantic</span>
@@ -294,14 +236,8 @@
         <div class="feature-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
         </div>
-        <h3>
-          <span class="i18n-inline" data-lang="en">Compliance is shipped, not promised</span>
-          <span class="i18n-inline" data-lang="tr">Uyumluluk vaadi değil ürün</span>
-        </h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">Every run emits an Annex IV artifact tracing data → training → evaluation → safety. Article 9 risk assessment, Article 10 data governance, Article 12 record-keeping — wired in.</span>
-          <span class="i18n-inline" data-lang="tr">Her koşu, veri → eğitim → değerlendirme → güvenlik izini çıkaran bir Annex IV artifact'ı üretir. Article 9 risk değerlendirmesi, Article 10 veri yönetimi, Article 12 kayıt tutma — bağlandı.</span>
-        </p>
+        <h3 data-i18n="home.why.compliance.title">Compliance is shipped, not promised</h3>
+        <p data-i18n="home.why.compliance.body">Every run emits an Annex IV artifact.</p>
         <div class="feature-tags">
           <span class="feature-tag">Annex IV</span>
           <span class="feature-tag">Article 9-17</span>
@@ -313,14 +249,8 @@
         <div class="feature-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M9 14l2 2 4-4"/></svg>
         </div>
-        <h3>
-          <span class="i18n-inline" data-lang="en">Auto-revert on regression</span>
-          <span class="i18n-inline" data-lang="tr">Regresyonda otomatik geri alma</span>
-        </h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">When a benchmark drops below the floor or Llama Guard flags a critical category, ForgeLM rolls back to the last-good checkpoint and emits a structured incident record. CI/CD-native exit codes (0/1/2/3/4) for pipeline gating.</span>
-          <span class="i18n-inline" data-lang="tr">Bir benchmark tabanın altına düşerse veya Llama Guard kritik bir kategoriyi flagleyince ForgeLM son-iyi checkpoint'e döner ve yapılandırılmış bir olay kaydı üretir. Pipeline kapısı için CI/CD-yerli exit kodları (0/1/2/3/4).</span>
-        </p>
+        <h3 data-i18n="home.why.autorevert.title">Auto-revert on regression</h3>
+        <p data-i18n="home.why.autorevert.body">When a benchmark drops below the floor, ForgeLM rolls back.</p>
         <div class="feature-tags">
           <span class="feature-tag">Llama Guard</span>
           <span class="feature-tag">exit codes</span>
@@ -335,33 +265,16 @@
 <section style="background: var(--bg-alt);">
   <div class="container">
     <div class="section-header">
-      <span class="eyebrow">
-        <span class="i18n-inline" data-lang="en">Capabilities</span>
-        <span class="i18n-inline" data-lang="tr">Yetenekler</span>
-      </span>
-      <h2>
-        <span class="i18n-inline" data-lang="en">Everything the modern post-training stack needs</span>
-        <span class="i18n-inline" data-lang="tr">Modern post-training yığınının ihtiyacı olan her şey</span>
-      </h2>
-      <p>
-        <span class="i18n-inline" data-lang="en">From data ingestion through evaluation to deployment artifacts — without notebook ceremony.</span>
-        <span class="i18n-inline" data-lang="tr">Veri ingest'inden değerlendirmeye, deployment artifact'larına kadar — notebook seremonisi olmadan.</span>
-      </p>
+      <span class="eyebrow" data-i18n="home.cap.eyebrow">Capabilities</span>
+      <h2 data-i18n="home.cap.title">Everything the modern post-training stack needs</h2>
+      <p data-i18n="home.cap.lead">From data ingestion through evaluation to deployment artifacts.</p>
     </div>
 
     <div class="features-grid">
       <article class="feature-card">
-        <div class="feature-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
-        </div>
-        <h3>
-          <span class="i18n-inline" data-lang="en">Document ingestion</span>
-          <span class="i18n-inline" data-lang="tr">Doküman ingest'i</span>
-        </h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">PDF, DOCX, EPUB, TXT, Markdown → SFT-ready JSONL. Markdown-aware splitter, DOCX table preservation, PDF header/footer dedup.</span>
-          <span class="i18n-inline" data-lang="tr">PDF, DOCX, EPUB, TXT, Markdown → SFT-hazır JSONL. Markdown-bilen splitter, DOCX tablo koruması, PDF header/footer dedup.</span>
-        </p>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg></div>
+        <h3 data-i18n="home.cap.docs.title">Document ingestion</h3>
+        <p data-i18n="home.cap.docs.body">PDF, DOCX, EPUB, TXT, Markdown → SFT-ready JSONL.</p>
         <div class="feature-tags">
           <span class="feature-tag">forgelm ingest</span>
           <span class="feature-tag">--strategy markdown</span>
@@ -369,17 +282,9 @@
       </article>
 
       <article class="feature-card">
-        <div class="feature-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10"/><path d="M12 2a15 15 0 0 0-4 10 15 15 0 0 0 4 10"/></svg>
-        </div>
-        <h3>
-          <span class="i18n-inline" data-lang="en">Dataset audit</span>
-          <span class="i18n-inline" data-lang="tr">Veri seti denetimi</span>
-        </h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">PII / secrets / cross-split leakage / language detect / near-duplicate (simhash + MinHash LSH) / quality filter — all CPU-only and streaming.</span>
-          <span class="i18n-inline" data-lang="tr">PII / sırlar / split-arası sızıntı / dil tespiti / near-duplicate (simhash + MinHash LSH) / kalite filtresi — tamamen CPU tabanlı ve akış halinde.</span>
-        </p>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10"/><path d="M12 2a15 15 0 0 0-4 10 15 15 0 0 0 4 10"/></svg></div>
+        <h3 data-i18n="home.cap.audit.title">Dataset audit</h3>
+        <p data-i18n="home.cap.audit.body">PII, secrets, leakage, language detect, near-duplicates.</p>
         <div class="feature-tags">
           <span class="feature-tag">forgelm audit</span>
           <span class="feature-tag">streaming</span>
@@ -387,17 +292,9 @@
       </article>
 
       <article class="feature-card">
-        <div class="feature-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-        </div>
-        <h3>
-          <span class="i18n-inline" data-lang="en">QLoRA + DoRA + GaLore</span>
-          <span class="i18n-inline" data-lang="tr">QLoRA + DoRA + GaLore</span>
-        </h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">4-bit NF4 quantization with PEFT adapters. PiSSA / rsLoRA / DoRA variants. GaLore for full-parameter on a single GPU.</span>
-          <span class="i18n-inline" data-lang="tr">PEFT adapter'larıyla 4-bit NF4 kuantizasyon. PiSSA / rsLoRA / DoRA varyantları. Tek GPU'da full-parameter için GaLore.</span>
-        </p>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
+        <h3 data-i18n="home.cap.qlora.title">QLoRA + DoRA + GaLore</h3>
+        <p data-i18n="home.cap.qlora.body">4-bit NF4 quantization with PEFT adapters.</p>
         <div class="feature-tags">
           <span class="feature-tag">QLoRA</span>
           <span class="feature-tag">DoRA</span>
@@ -406,17 +303,9 @@
       </article>
 
       <article class="feature-card">
-        <div class="feature-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        </div>
-        <h3>
-          <span class="i18n-inline" data-lang="en">Safety evaluation</span>
-          <span class="i18n-inline" data-lang="tr">Güvenlik değerlendirmesi</span>
-        </h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">Llama Guard with confidence-weighted scoring across S1–S14 harm categories, severity tiers, cross-run trend tracking, and auto-revert on regression.</span>
-          <span class="i18n-inline" data-lang="tr">S1–S14 zarar kategorilerinde güven-ağırlıklı skorlama, ciddiyet katmanları, koşular arası trend izleme ve regresyonda otomatik geri alma.</span>
-        </p>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+        <h3 data-i18n="home.cap.safety.title">Safety evaluation</h3>
+        <p data-i18n="home.cap.safety.body">Llama Guard with confidence-weighted scoring.</p>
         <div class="feature-tags">
           <span class="feature-tag">Llama Guard</span>
           <span class="feature-tag">S1-S14</span>
@@ -424,17 +313,9 @@
       </article>
 
       <article class="feature-card">
-        <div class="feature-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-        </div>
-        <h3>
-          <span class="i18n-inline" data-lang="en">Benchmarking</span>
-          <span class="i18n-inline" data-lang="tr">Benchmark</span>
-        </h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">Plug-in <code>lm-evaluation-harness</code> tasks. LLM-as-judge with OpenAI or local model. Floors per task; auto-revert if any drops.</span>
-          <span class="i18n-inline" data-lang="tr"><code>lm-evaluation-harness</code> entegrasyonu. OpenAI veya yerel modelle LLM-as-judge. Görev bazlı tabanlar; biri düşerse otomatik geri alma.</span>
-        </p>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
+        <h3 data-i18n="home.cap.bench.title">Benchmarking</h3>
+        <p data-i18n-html="home.cap.bench.body">Plug-in <code>lm-evaluation-harness</code> tasks.</p>
         <div class="feature-tags">
           <span class="feature-tag">lm-eval-harness</span>
           <span class="feature-tag">judge</span>
@@ -442,17 +323,9 @@
       </article>
 
       <article class="feature-card">
-        <div class="feature-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
-        </div>
-        <h3>
-          <span class="i18n-inline" data-lang="en">Distributed training</span>
-          <span class="i18n-inline" data-lang="tr">Dağıtık eğitim</span>
-        </h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">DeepSpeed ZeRO-2 / ZeRO-3 presets, FSDP, multi-GPU configs. MoE support (Qwen3, Mixtral, DeepSeek).</span>
-          <span class="i18n-inline" data-lang="tr">DeepSpeed ZeRO-2 / ZeRO-3 hazır ayarlar, FSDP, çoklu-GPU konfigürasyonu. MoE desteği (Qwen3, Mixtral, DeepSeek).</span>
-        </p>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg></div>
+        <h3 data-i18n="home.cap.dist.title">Distributed training</h3>
+        <p data-i18n="home.cap.dist.body">DeepSpeed ZeRO presets, FSDP, multi-GPU configs.</p>
         <div class="feature-tags">
           <span class="feature-tag">DeepSpeed</span>
           <span class="feature-tag">FSDP</span>
@@ -461,51 +334,27 @@
       </article>
 
       <article class="feature-card">
-        <div class="feature-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-        </div>
-        <h3>
-          <span class="i18n-inline" data-lang="en">VRAM fit-check</span>
-          <span class="i18n-inline" data-lang="tr">VRAM fit-check</span>
-        </h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">Pre-flight memory estimator. <code>FITS / TIGHT / OOM / UNKNOWN</code> verdict with concrete recommendations before you submit a long job.</span>
-          <span class="i18n-inline" data-lang="tr">Uçuş öncesi bellek tahmincisi. Uzun işi göndermeden önce <code>FITS / TIGHT / OOM / UNKNOWN</code> verdict'i ve somut öneriler.</span>
-        </p>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg></div>
+        <h3 data-i18n="home.cap.vram.title">VRAM fit-check</h3>
+        <p data-i18n-html="home.cap.vram.body">Pre-flight memory estimator.</p>
         <div class="feature-tags">
           <span class="feature-tag">--fit-check</span>
         </div>
       </article>
 
       <article class="feature-card">
-        <div class="feature-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        </div>
-        <h3>
-          <span class="i18n-inline" data-lang="en">Interactive chat</span>
-          <span class="i18n-inline" data-lang="tr">İnteraktif sohbet</span>
-        </h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">Streaming REPL with <code>/reset</code>, <code>/save</code>, <code>/temperature</code>, <code>/system</code> commands and optional safety routing.</span>
-          <span class="i18n-inline" data-lang="tr"><code>/reset</code>, <code>/save</code>, <code>/temperature</code>, <code>/system</code> komutları ve opsiyonel güvenlik routing'i ile akışlı REPL.</span>
-        </p>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <h3 data-i18n="home.cap.chat.title">Interactive chat</h3>
+        <p data-i18n-html="home.cap.chat.body">Streaming REPL with safety routing.</p>
         <div class="feature-tags">
           <span class="feature-tag">forgelm chat</span>
         </div>
       </article>
 
       <article class="feature-card">
-        <div class="feature-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-        </div>
-        <h3>
-          <span class="i18n-inline" data-lang="en">Export &amp; deploy</span>
-          <span class="i18n-inline" data-lang="tr">Export ve deploy</span>
-        </h3>
-        <p>
-          <span class="i18n-inline" data-lang="en">GGUF export with 6 quant levels and SHA-256 manifest. Generate Ollama / vLLM / TGI / HF-Endpoints deployment configs in one command.</span>
-          <span class="i18n-inline" data-lang="tr">6 kuantizasyon seviyesi ve SHA-256 manifest ile GGUF export. Tek komutta Ollama / vLLM / TGI / HF-Endpoints deployment config üret.</span>
-        </p>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
+        <h3 data-i18n-html="home.cap.export.title">Export &amp; deploy</h3>
+        <p data-i18n="home.cap.export.body">GGUF export with 6 quant levels.</p>
         <div class="feature-tags">
           <span class="feature-tag">GGUF</span>
           <span class="feature-tag">deploy</span>
@@ -515,8 +364,7 @@
 
     <div style="text-align:center; margin-top: 2rem;">
       <a href="features.html" class="btn btn-ghost">
-        <span class="i18n-inline" data-lang="en">See the full feature matrix</span>
-        <span class="i18n-inline" data-lang="tr">Tüm özellik matrisini gör</span>
+        <span data-i18n="home.cap.see_all">See the full feature matrix</span>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
       </a>
     </div>
@@ -527,25 +375,16 @@
 <section>
   <div class="container">
     <div class="section-header">
-      <span class="eyebrow">
-        <span class="i18n-inline" data-lang="en">A real config — not a screenshot</span>
-        <span class="i18n-inline" data-lang="tr">Gerçek bir konfigürasyon — ekran görüntüsü değil</span>
-      </span>
-      <h2>
-        <span class="i18n-inline" data-lang="en">One YAML, end-to-end run</span>
-        <span class="i18n-inline" data-lang="tr">Bir YAML, uçtan uca koşu</span>
-      </h2>
-      <p>
-        <span class="i18n-inline" data-lang="en">A SFT → DPO run with safety eval, benchmark gate, and Annex IV export. Copy this, change the names, and you have a reproducible training pipeline.</span>
-        <span class="i18n-inline" data-lang="tr">Güvenlik değerlendirmesi, benchmark kapısı ve Annex IV export ile bir SFT → DPO koşusu. Bunu kopyalayın, isimleri değiştirin — yeniden üretilebilir bir eğitim hattınız hazır.</span>
-      </p>
+      <span class="eyebrow" data-i18n="home.yaml.eyebrow">A real config — not a screenshot</span>
+      <h2 data-i18n="home.yaml.title">One YAML, end-to-end run</h2>
+      <p data-i18n="home.yaml.lead">A SFT → DPO run with safety eval, benchmark gate, and Annex IV export.</p>
     </div>
 
     <div class="container-narrow" style="padding:0;">
       <div class="code-block">
         <div class="code-block-header">
           <span class="lang">configs/policy-bot.yaml</span>
-          <button class="copy-btn" type="button">copy</button>
+          <button class="copy-btn" type="button" data-i18n="common.copy.idle">copy</button>
         </div>
         <pre class="code-block-body"><span class="key">model</span>:
   <span class="key">name_or_path</span>: <span class="string">"Qwen/Qwen2.5-7B-Instruct"</span>
@@ -591,7 +430,7 @@
       <div class="code-block">
         <div class="code-block-header">
           <span class="lang">terminal</span>
-          <button class="copy-btn" type="button">copy</button>
+          <button class="copy-btn" type="button" data-i18n="common.copy.idle">copy</button>
         </div>
         <pre class="code-block-body"><span class="prompt">$</span> forgelm <span class="flag">--config</span> configs/policy-bot.yaml <span class="flag">--dry-run</span>   <span class="comment"># validate</span>
 <span class="prompt">$</span> forgelm <span class="flag">--config</span> configs/policy-bot.yaml <span class="flag">--fit-check</span>  <span class="comment"># VRAM check</span>
@@ -606,14 +445,8 @@
 <section style="background: var(--bg-alt);">
   <div class="container">
     <div class="section-header">
-      <span class="eyebrow">
-        <span class="i18n-inline" data-lang="en">Built for these workflows</span>
-        <span class="i18n-inline" data-lang="tr">Bu iş akışları için tasarlandı</span>
-      </span>
-      <h2>
-        <span class="i18n-inline" data-lang="en">Use cases that actually ship</span>
-        <span class="i18n-inline" data-lang="tr">Gerçekten üretime çıkan kullanım senaryoları</span>
-      </h2>
+      <span class="eyebrow" data-i18n="home.uses.eyebrow">Built for these workflows</span>
+      <h2 data-i18n="home.uses.title">Use cases that actually ship</h2>
     </div>
 
     <div class="use-cases-grid">
@@ -622,14 +455,8 @@
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         </div>
         <div>
-          <h3>
-            <span class="i18n-inline" data-lang="en">Domain expert from policy PDFs</span>
-            <span class="i18n-inline" data-lang="tr">Politika PDF'lerinden alan uzmanı</span>
-          </h3>
-          <p>
-            <span class="i18n-inline" data-lang="en">Drop your regulatory corpus into <code>forgelm ingest</code>, audit it, and SFT a model that answers in your domain's voice — with PII redacted at ingest, before training.</span>
-            <span class="i18n-inline" data-lang="tr">Regülasyon korpusunuzu <code>forgelm ingest</code>'e bırakın, denetleyin ve alanınızın diliyle cevap veren bir modeli SFT'leyin — PII ingest sırasında, eğitimden önce maskelenir.</span>
-          </p>
+          <h3 data-i18n="home.use.domain.title">Domain expert from policy PDFs</h3>
+          <p data-i18n-html="home.use.domain.body">Drop your regulatory corpus into <code>forgelm ingest</code>.</p>
           <span class="use-case-tag">forgelm quickstart byod</span>
         </div>
       </div>
@@ -639,14 +466,8 @@
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         </div>
         <div>
-          <h3>
-            <span class="i18n-inline" data-lang="en">Customer support assistant</span>
-            <span class="i18n-inline" data-lang="tr">Müşteri destek asistanı</span>
-          </h3>
-          <p>
-            <span class="i18n-inline" data-lang="en">SFT on past tickets, DPO on agent thumbs-up/down feedback, Llama Guard safety routing, auto-revert if helpfulness drops. Ship to vLLM with one command.</span>
-            <span class="i18n-inline" data-lang="tr">Geçmiş ticket'larda SFT, agent thumbs-up/down geri bildirimde DPO, Llama Guard güvenlik routing'i, yardımseverlik düşerse otomatik geri alma. Tek komutla vLLM'e gönderim.</span>
-          </p>
+          <h3 data-i18n="home.use.support.title">Customer support assistant</h3>
+          <p data-i18n="home.use.support.body">SFT on past tickets, DPO on agent feedback.</p>
           <span class="use-case-tag">forgelm quickstart customer-support</span>
         </div>
       </div>
@@ -656,14 +477,8 @@
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
         </div>
         <div>
-          <h3>
-            <span class="i18n-inline" data-lang="en">Code copilot fine-tune</span>
-            <span class="i18n-inline" data-lang="tr">Kod copilot fine-tune</span>
-          </h3>
-          <p>
-            <span class="i18n-inline" data-lang="en">Multi-dataset mix (your repo + open code), SFT + ORPO, GGUF export at q4_k_m for local inference. Synthetic data pipeline distils a teacher into your student.</span>
-            <span class="i18n-inline" data-lang="tr">Çoklu veri seti karışımı (kendi repo'nuz + açık kod), SFT + ORPO, yerel inference için q4_k_m'de GGUF export. Sentetik veri hattı bir öğretmeni öğrencinize damıtır.</span>
-          </p>
+          <h3 data-i18n="home.use.code.title">Code copilot fine-tune</h3>
+          <p data-i18n="home.use.code.body">Multi-dataset mix, SFT + ORPO, GGUF export.</p>
           <span class="use-case-tag">forgelm quickstart code-assistant</span>
         </div>
       </div>
@@ -673,14 +488,8 @@
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
         </div>
         <div>
-          <h3>
-            <span class="i18n-inline" data-lang="en">Reasoning RL with GRPO</span>
-            <span class="i18n-inline" data-lang="tr">GRPO ile akıl yürütme RL</span>
-          </h3>
-          <p>
-            <span class="i18n-inline" data-lang="en">Built-in format/length shaping rewards or your own reward function. Group-relative policy optimization without writing a single training-loop line.</span>
-            <span class="i18n-inline" data-lang="tr">Yerleşik format/uzunluk ödülleri veya kendi reward fonksiyonunuz. Tek bir training loop satırı yazmadan grup-göreli politika optimizasyonu.</span>
-          </p>
+          <h3 data-i18n="home.use.reasoning.title">Reasoning RL with GRPO</h3>
+          <p data-i18n="home.use.reasoning.body">Built-in shaping rewards or your own reward function.</p>
           <span class="use-case-tag">forgelm quickstart math-reasoning</span>
         </div>
       </div>
@@ -692,23 +501,11 @@
 <section class="cta">
   <div class="container">
     <div class="cta-card">
-      <h2>
-        <span class="i18n-inline" data-lang="en">Ship your next fine-tune in <span class="text-gradient">an afternoon.</span></span>
-        <span class="i18n-inline" data-lang="tr">Bir sonraki fine-tune'u <span class="text-gradient">bir öğleden sonrasında</span> gönderin.</span>
-      </h2>
-      <p>
-        <span class="i18n-inline" data-lang="en">Pick a template, point it at your data, watch the audit report go green, and let ForgeLM forge the rest.</span>
-        <span class="i18n-inline" data-lang="tr">Bir şablon seçin, verilerinize yönlendirin, denetim raporu yeşile dönsün — kalanını ForgeLM dövsün.</span>
-      </p>
+      <h2 data-i18n-html="home.cta.title">Ship your next fine-tune in <span class="text-gradient">an afternoon.</span></h2>
+      <p data-i18n="home.cta.body">Pick a template, point it at your data, watch the audit report go green.</p>
       <div class="cta-actions">
-        <a href="quickstart.html" class="btn btn-primary">
-          <span class="i18n-inline" data-lang="en">Quickstart in 5 minutes</span>
-          <span class="i18n-inline" data-lang="tr">5 dakikada hızlı başlangıç</span>
-        </a>
-        <a href="https://github.com/cemililik/ForgeLM" target="_blank" rel="noopener" class="btn btn-ghost">
-          <span class="i18n-inline" data-lang="en">Star on GitHub</span>
-          <span class="i18n-inline" data-lang="tr">GitHub'da yıldızla</span>
-        </a>
+        <a href="quickstart.html" class="btn btn-primary" data-i18n="home.cta.btn1">Quickstart in 5 minutes</a>
+        <a href="https://github.com/cemililik/ForgeLM" target="_blank" rel="noopener" class="btn btn-ghost" data-i18n="home.cta.btn2">Star on GitHub</a>
       </div>
     </div>
   </div>
@@ -727,38 +524,35 @@
           </span>
           ForgeLM
         </div>
-        <p class="footer-desc">
-          <span class="i18n-inline" data-lang="en">Config-driven LLM fine-tuning toolkit. YAML in, fine-tuned model + compliance artifacts out.</span>
-          <span class="i18n-inline" data-lang="tr">Konfigürasyon odaklı LLM fine-tuning araç seti. YAML gir, fine-tuned model ve uyumluluk artifact'ları al.</span>
-        </p>
+        <p class="footer-desc" data-i18n="common.footer.brand_desc">Config-driven LLM fine-tuning toolkit.</p>
       </div>
 
       <div class="footer-col">
-        <h4><span class="i18n-inline" data-lang="en">Product</span><span class="i18n-inline" data-lang="tr">Ürün</span></h4>
+        <h4 data-i18n="common.footer.product">Product</h4>
         <ul>
-          <li><a href="features.html"><span class="i18n-inline" data-lang="en">Features</span><span class="i18n-inline" data-lang="tr">Özellikler</span></a></li>
-          <li><a href="quickstart.html"><span class="i18n-inline" data-lang="en">Quickstart</span><span class="i18n-inline" data-lang="tr">Hızlı Başlangıç</span></a></li>
-          <li><a href="compliance.html"><span class="i18n-inline" data-lang="en">Compliance</span><span class="i18n-inline" data-lang="tr">Uyumluluk</span></a></li>
+          <li><a href="features.html" data-i18n="common.nav.features">Features</a></li>
+          <li><a href="quickstart.html" data-i18n="common.nav.quickstart">Quickstart</a></li>
+          <li><a href="compliance.html" data-i18n="common.nav.compliance">Compliance</a></li>
           <li><a href="https://pypi.org/project/forgelm/" target="_blank" rel="noopener">PyPI</a></li>
         </ul>
       </div>
 
       <div class="footer-col">
-        <h4><span class="i18n-inline" data-lang="en">Community</span><span class="i18n-inline" data-lang="tr">Topluluk</span></h4>
+        <h4 data-i18n="common.footer.community">Community</h4>
         <ul>
           <li><a href="https://github.com/cemililik/ForgeLM" target="_blank" rel="noopener">GitHub</a></li>
-          <li><a href="https://github.com/cemililik/ForgeLM/issues" target="_blank" rel="noopener"><span class="i18n-inline" data-lang="en">Issues</span><span class="i18n-inline" data-lang="tr">Sorunlar</span></a></li>
-          <li><a href="https://github.com/cemililik/ForgeLM/discussions" target="_blank" rel="noopener"><span class="i18n-inline" data-lang="en">Discussions</span><span class="i18n-inline" data-lang="tr">Tartışmalar</span></a></li>
-          <li><a href="https://github.com/cemililik/ForgeLM/releases" target="_blank" rel="noopener"><span class="i18n-inline" data-lang="en">Releases</span><span class="i18n-inline" data-lang="tr">Sürümler</span></a></li>
+          <li><a href="https://github.com/cemililik/ForgeLM/issues" target="_blank" rel="noopener" data-i18n="common.footer.issues">Issues</a></li>
+          <li><a href="https://github.com/cemililik/ForgeLM/discussions" target="_blank" rel="noopener" data-i18n="common.footer.discussions">Discussions</a></li>
+          <li><a href="https://github.com/cemililik/ForgeLM/releases" target="_blank" rel="noopener" data-i18n="common.footer.releases">Releases</a></li>
         </ul>
       </div>
 
       <div class="footer-col">
-        <h4><span class="i18n-inline" data-lang="en">Legal</span><span class="i18n-inline" data-lang="tr">Yasal</span></h4>
+        <h4 data-i18n="common.footer.legal">Legal</h4>
         <ul>
-          <li><a href="privacy.html"><span class="i18n-inline" data-lang="en">Privacy</span><span class="i18n-inline" data-lang="tr">Gizlilik</span></a></li>
-          <li><a href="terms.html"><span class="i18n-inline" data-lang="en">Terms</span><span class="i18n-inline" data-lang="tr">Koşullar</span></a></li>
-          <li><a href="contact.html"><span class="i18n-inline" data-lang="en">Contact</span><span class="i18n-inline" data-lang="tr">İletişim</span></a></li>
+          <li><a href="privacy.html" data-i18n="common.footer.privacy">Privacy</a></li>
+          <li><a href="terms.html" data-i18n="common.footer.terms">Terms</a></li>
+          <li><a href="contact.html" data-i18n="common.footer.contact">Contact</a></li>
           <li><a href="https://opensource.org/licenses/Apache-2.0" target="_blank" rel="noopener">Apache 2.0</a></li>
         </ul>
       </div>
@@ -766,10 +560,7 @@
 
     <div class="footer-bottom">
       <span>&copy; 2026 ForgeLM</span>
-      <span>
-        <span class="i18n-inline" data-lang="en">Built for teams that ship into regulated environments.</span>
-        <span class="i18n-inline" data-lang="tr">Regülasyonlu ortamlara üretim çıkaran ekipler için yapıldı.</span>
-      </span>
+      <span data-i18n="common.footer.tagline">Built for teams that ship into regulated environments.</span>
     </div>
   </div>
 </footer>
