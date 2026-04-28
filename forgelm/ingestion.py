@@ -753,13 +753,35 @@ def _count_section_tokens(section_blocks: List[str], tokenizer: Any) -> List[int
     Per-section ``tokenizer.encode()`` called N times used to dominate the
     cost for long documents; the batch call amortises Python-level overhead
     and lets the tokenizer process the list in one pass.  Falls back to
-    per-block encoding for tokenizers that don't accept list input.
+    per-block encoding *only* for tokenizers that genuinely don't accept
+    list input — any other failure is re-raised so real bugs (corrupted
+    input, OOM, etc.) aren't silently masked behind the slow path.
     """
     try:
         batch_enc = tokenizer(section_blocks, add_special_tokens=False)
-        return [len(ids) for ids in batch_enc["input_ids"]]
-    except Exception:
+    except (TypeError, ValueError):
+        # Old / minimal tokenizer APIs raise TypeError ("expected str, got
+        # list") or ValueError ("text input must be of type str") when
+        # handed a list. That's the documented batching-unsupported
+        # signal — fall back to per-block encoding.
         return [len(tokenizer.encode(block, add_special_tokens=False)) for block in section_blocks]
+    # Validate the result shape before trusting it: HuggingFace tokenizers
+    # return a BatchEncoding (mapping) whose ``input_ids`` is a list of
+    # token-id sequences with length == len(section_blocks).  A different
+    # shape means the tokenizer accepted the call but produced something
+    # we cannot interpret — re-raise instead of silently miscounting.
+    try:
+        ids_list = batch_enc["input_ids"]
+    except (KeyError, TypeError) as e:
+        raise TypeError(
+            f"Batch tokenizer returned an unexpected shape (no 'input_ids' key): {type(batch_enc).__name__}"
+        ) from e
+    if not hasattr(ids_list, "__len__") or len(ids_list) != len(section_blocks):
+        raise ValueError(
+            f"Batch tokenizer returned {len(ids_list) if hasattr(ids_list, '__len__') else '?'} "
+            f"sequences for {len(section_blocks)} input blocks; refusing to silently miscount."
+        )
+    return [len(ids) for ids in ids_list]
 
 
 def _chunk_markdown_tokens(text: str, max_tokens: int, tokenizer: Any) -> Iterable[str]:

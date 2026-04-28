@@ -475,26 +475,45 @@ class TestRegexLinearity:
     past it.
     """
 
+    # The three tests below verify *linear* scaling with input size, not
+    # absolute wall-clock. Absolute thresholds (``elapsed_ms < 1000``) are
+    # flaky on shared CI under load; a growth-ratio check is independent of
+    # the host's nominal speed. ``_LINEAR_SCALE_TOLERANCE`` allows the
+    # measured cost to grow up to 3× the input ratio before we flag it as
+    # super-linear — generous enough to absorb cache warm-up + GC noise on
+    # small inputs, tight enough to catch O(n²) ReDoS regressions.
+    _LINEAR_SCALE_TOLERANCE = 3
+
+    def _measure_median_ms(self, fn, payload, samples=5):
+        import statistics
+        import time
+
+        observations = []
+        for _ in range(samples):
+            t0 = time.perf_counter()
+            fn(payload)
+            observations.append((time.perf_counter() - t0) * 1000)
+        return statistics.median(observations)
+
     def test_heading_pattern_linear_on_pathological_whitespace(self):
         # Old pattern: ``[ \t]+(.+?)[ \t]*$`` had three greedy/lazy
         # quantifiers competing for trailing whitespace. New pattern
         # anchors on \S so the engine has no ambiguity.
-        # Median over 5 samples keeps shared-CI noise from false-positiving.
-        import statistics
-        import time
-
         from forgelm.ingestion import _MARKDOWN_HEADING_PATTERN
 
-        for n in (1_000, 5_000, 10_000):
-            payload = "# a" + " \t" * n + "x"
-            samples = []
-            for _ in range(5):
-                t0 = time.perf_counter()
-                _MARKDOWN_HEADING_PATTERN.match(payload)
-                samples.append((time.perf_counter() - t0) * 1000)
-            elapsed_ms = statistics.median(samples)
-            assert elapsed_ms < 1000, (
-                f"heading regex took median {elapsed_ms:.1f}ms on n={n} pathological input (possible ReDoS regression)"
+        sizes = (1_000, 5_000, 10_000)
+        timings = {n: self._measure_median_ms(_MARKDOWN_HEADING_PATTERN.match, "# a" + " \t" * n + "x") for n in sizes}
+        smallest = sizes[0]
+        # Floor the baseline at 0.001 ms so a sub-microsecond measurement
+        # (which is below the perf_counter resolution on some hosts)
+        # doesn't make the ratio explode.
+        baseline = max(timings[smallest], 0.001)
+        for n in sizes[1:]:
+            ratio = timings[n] / baseline
+            allowed = (n / smallest) * self._LINEAR_SCALE_TOLERANCE
+            assert ratio <= allowed, (
+                f"heading regex grew {ratio:.1f}× from n={smallest} to n={n} "
+                f"(allowed {allowed:.1f}×); possible ReDoS regression. timings_ms={timings}"
             )
 
     def test_strip_code_fences_linear_on_unclosed_blocks(self):
@@ -503,21 +522,18 @@ class TestRegexLinearity:
         # fences and no close ever — old regex went linear-ish in CPython
         # but SonarCloud flagged the polynomial-runtime risk; the walker
         # is provably O(n) and silences the analyser.
-        import statistics
-        import time
-
         from forgelm.data_audit import _strip_code_fences
 
-        for n in (1_000, 5_000, 10_000):
-            payload = "```\nx\n" * n + "no close ever"
-            samples = []
-            for _ in range(5):
-                t0 = time.perf_counter()
-                _strip_code_fences(payload)
-                samples.append((time.perf_counter() - t0) * 1000)
-            elapsed_ms = statistics.median(samples)
-            assert elapsed_ms < 1000, (
-                f"_strip_code_fences took median {elapsed_ms:.1f}ms on n={n} unclosed-fence input (possible regression)"
+        sizes = (1_000, 5_000, 10_000)
+        timings = {n: self._measure_median_ms(_strip_code_fences, "```\nx\n" * n + "no close ever") for n in sizes}
+        smallest = sizes[0]
+        baseline = max(timings[smallest], 0.001)
+        for n in sizes[1:]:
+            ratio = timings[n] / baseline
+            allowed = (n / smallest) * self._LINEAR_SCALE_TOLERANCE
+            assert ratio <= allowed, (
+                f"_strip_code_fences grew {ratio:.1f}× from n={smallest} to n={n} "
+                f"(allowed {allowed:.1f}×); possible regression. timings_ms={timings}"
             )
 
     def test_parse_md_fence_linear_on_long_runs(self):
@@ -527,22 +543,19 @@ class TestRegexLinearity:
         # ``[^\n]*``) over overlapping character classes — SonarCloud
         # python:S5852 flagged it as polynomial-runtime risk. Replaced
         # with ``_parse_md_fence`` (non-regex parser); provably O(n).
-        import statistics
-        import time
-
         from forgelm.ingestion import _parse_md_fence
 
-        for n in (1_000, 10_000, 100_000):
-            # Pure backtick run — worst-case shape for the old regex.
-            payload = "`" * n
-            samples = []
-            for _ in range(5):
-                t0 = time.perf_counter()
-                _parse_md_fence(payload)
-                samples.append((time.perf_counter() - t0) * 1000)
-            elapsed_ms = statistics.median(samples)
-            assert elapsed_ms < 100, (
-                f"_parse_md_fence took median {elapsed_ms:.1f}ms on n={n} pure-backtick input (possible regression)"
+        sizes = (1_000, 10_000, 100_000)
+        # Pure backtick run — worst-case shape for the old regex.
+        timings = {n: self._measure_median_ms(_parse_md_fence, "`" * n) for n in sizes}
+        smallest = sizes[0]
+        baseline = max(timings[smallest], 0.001)
+        for n in sizes[1:]:
+            ratio = timings[n] / baseline
+            allowed = (n / smallest) * self._LINEAR_SCALE_TOLERANCE
+            assert ratio <= allowed, (
+                f"_parse_md_fence grew {ratio:.1f}× from n={smallest} to n={n} "
+                f"(allowed {allowed:.1f}×); possible regression. timings_ms={timings}"
             )
 
     def test_parse_md_fence_behaviour(self):

@@ -1371,6 +1371,7 @@ class _StreamingAggregator:
     secrets_counts: Dict[str, int] = field(default_factory=dict)
     quality_flags_counts: Dict[str, int] = field(default_factory=dict)
     quality_samples_flagged: int = 0
+    quality_samples_evaluated: int = 0  # rows that actually went through _row_quality_flags
     lang_sample: List[str] = field(default_factory=list)
     # Phase 12 configuration (set once by the orchestrator; never mutated).
     dedup_method: str = "simhash"
@@ -1417,6 +1418,12 @@ def _record_text_metrics(agg: _StreamingAggregator, payload: str) -> None:
     for kind, count in detect_secrets(payload).items():
         agg.secrets_counts[kind] = agg.secrets_counts.get(kind, 0) + count
     if agg.enable_quality_filter:
+        # Count this row as "evaluated" — the denominator in
+        # ``overall_quality_score`` must reflect rows that actually went
+        # through ``_row_quality_flags``, not the full sample count
+        # (null/non-dict rows skip this branch and would otherwise
+        # depress the score).
+        agg.quality_samples_evaluated += 1
         flags = _row_quality_flags(payload)
         if flags:
             agg.quality_samples_flagged += 1
@@ -1484,6 +1491,7 @@ def _populate_optional_findings(info: Dict[str, Any], agg: _StreamingAggregator)
     if agg.enable_quality_filter and agg.quality_flags_counts:
         info["quality_flags_counts"] = dict(agg.quality_flags_counts)
         info["quality_samples_flagged"] = agg.quality_samples_flagged
+        info["quality_samples_evaluated"] = agg.quality_samples_evaluated
 
 
 def _within_split_pairs(
@@ -2131,21 +2139,25 @@ def _fold_outcome_into_summary(
     secrets_summary: Dict[str, int],
     quality_aggregate: Dict[str, int],
     enable_quality_filter: bool,
-) -> int:
+) -> Tuple[int, int]:
     """Merge a single split's findings into the cross-split aggregates.
 
-    Returns the split's ``quality_samples_flagged`` count so the caller can
-    keep a running total without re-reading the outcome.
+    Returns ``(quality_samples_flagged, quality_samples_evaluated)`` so the
+    caller can keep both numerator and denominator running totals without
+    re-reading the outcome.
     """
     for kind, count in outcome.pii_split.items():
         pii_summary[kind] = pii_summary.get(kind, 0) + count
     for kind, count in outcome.info.get("secrets_counts", {}).items():
         secrets_summary[kind] = secrets_summary.get(kind, 0) + count
     if not enable_quality_filter:
-        return 0
+        return 0, 0
     for kind, count in outcome.info.get("quality_flags_counts", {}).items():
         quality_aggregate[kind] = quality_aggregate.get(kind, 0) + count
-    return outcome.info.get("quality_samples_flagged", 0)
+    return (
+        outcome.info.get("quality_samples_flagged", 0),
+        outcome.info.get("quality_samples_evaluated", 0),
+    )
 
 
 def _build_quality_summary(
@@ -2153,14 +2165,25 @@ def _build_quality_summary(
     enable_quality_filter: bool,
     samples_flagged_total: int,
     quality_aggregate: Dict[str, int],
-    total_samples: int,
+    samples_evaluated_total: int,
 ) -> Dict[str, Any]:
-    """Render the ``quality_summary`` block (empty dict when filter is off)."""
+    """Render the ``quality_summary`` block (empty dict when filter is off).
+
+    The denominator is the number of rows that were actually run through
+    :func:`_row_quality_flags` — null/empty/non-dict rows are excluded
+    because the filter can't evaluate them, and including them would
+    silently depress the overall score (a corpus that's 50 % null but
+    100 % clean on the rest would otherwise read 0.5 instead of 1.0).
+    """
     if not enable_quality_filter:
         return {}
-    overall_score = round(1.0 - (samples_flagged_total / total_samples), 4) if total_samples else 1.0
+    if samples_evaluated_total:
+        overall_score = round(1.0 - (samples_flagged_total / samples_evaluated_total), 4)
+    else:
+        overall_score = 1.0
     return {
         "samples_flagged": samples_flagged_total,
+        "samples_evaluated": samples_evaluated_total,
         "by_check": quality_aggregate,
         "overall_quality_score": overall_score,
     }
@@ -2243,6 +2266,7 @@ def audit_dataset(
     secrets_summary: Dict[str, int] = {}
     quality_aggregate: Dict[str, int] = {}
     quality_samples_flagged_total = 0
+    quality_samples_evaluated_total = 0
     total_samples = 0
     near_dup_pairs: Dict[str, int] = {}
     notes: List[str] = list(resolution_notes)
@@ -2267,13 +2291,15 @@ def audit_dataset(
         notes.extend(outcome.split_notes)
         parse_errors_total += outcome.parse_errors
         decode_errors_total += outcome.decode_errors
-        quality_samples_flagged_total += _fold_outcome_into_summary(
+        flagged, evaluated = _fold_outcome_into_summary(
             outcome,
             pii_summary=pii_summary,
             secrets_summary=secrets_summary,
             quality_aggregate=quality_aggregate,
             enable_quality_filter=enable_quality_filter,
         )
+        quality_samples_flagged_total += flagged
+        quality_samples_evaluated_total += evaluated
 
     cross = _cross_split_overlap(
         signatures_by_split,
@@ -2287,7 +2313,7 @@ def audit_dataset(
         enable_quality_filter=enable_quality_filter,
         samples_flagged_total=quality_samples_flagged_total,
         quality_aggregate=quality_aggregate,
-        total_samples=total_samples,
+        samples_evaluated_total=quality_samples_evaluated_total,
     )
 
     notes.extend(_pii_summary_notes(pii_summary, pii_severity))

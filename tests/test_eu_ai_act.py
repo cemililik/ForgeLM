@@ -221,7 +221,10 @@ class TestDeployerInstructions:
         content = open(doc_path).read()
         assert "TestCo" in content
         assert "Customer support" in content
-        assert "eval_loss" in content
+        # Metric names go through _sanitize_md, which CommonMark-escapes the
+        # underscore. Stripping backslashes recovers the human-readable form
+        # for the test (renderers do the same when displaying the document).
+        assert "eval_loss" in content.replace("\\", "")
 
     def test_without_compliance_config(self, tmp_path):
         config = ForgeConfig(**_minimal_config())

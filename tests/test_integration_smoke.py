@@ -321,11 +321,16 @@ class TestDeployerInstructionsIntegration:
         doc_path = generate_deployer_instructions(cfg, {"eval_loss": 0.5, "safety/safe_ratio": 0.97}, final_path)
 
         content = open(doc_path).read()
-        assert "Test Corp" in content
-        assert "Customer Support Bot" in content
-        assert "insurance claims" in content
-        assert "medical" in content.lower()  # foreseeable misuse
-        assert "eval_loss" in content
+        # Metric names + bullet bodies + table values are CommonMark-escaped
+        # by ``_sanitize_md`` so config-derived strings cannot inject pipes,
+        # headings, or links. Stripping backslashes recovers the
+        # human-readable form for these substring assertions.
+        plain = content.replace("\\", "")
+        assert "Test Corp" in plain
+        assert "Customer Support Bot" in plain
+        assert "insurance claims" in plain
+        assert "medical" in plain.lower()  # foreseeable misuse
+        assert "eval_loss" in plain
         assert "Human Oversight" in content
         assert "Incident Reporting" in content
 

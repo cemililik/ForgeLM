@@ -54,13 +54,67 @@ class AuditLogger:
         self.log_path = os.path.join(output_dir, "audit_log.jsonl")
         self._manifest_path = self.log_path + ".manifest.json"
         self.operator = os.getenv("FORGELM_OPERATOR", os.getenv("USER", "unknown"))
-        # Per-run HMAC key: SHA-256(operator_secret || run_id). The secret is
-        # optional — when absent the HMAC degrades to a keyed fingerprint of
-        # the run_id, which still catches single-field tampering even without
-        # a shared secret between writer and verifier.
-        secret = os.getenv("FORGELM_AUDIT_SECRET", "").encode()
-        self._hmac_key: bytes = hashlib.sha256(secret + self.run_id.encode()).digest()
+        # Per-run HMAC key: SHA-256(operator_secret || run_id).  The secret is
+        # required for tamper-evident HMACs because ``run_id`` is part of the
+        # public log header — without a non-empty secret an attacker who can
+        # rewrite the file knows the key and could re-sign forged entries.
+        # When the secret is missing we therefore disable HMAC emission
+        # entirely (the SHA-256 hash chain is still written; only the
+        # per-line authenticator drops out) so we never claim
+        # tamper-evidence we cannot deliver.
+        raw_secret = os.getenv("FORGELM_AUDIT_SECRET", "")
+        if raw_secret:
+            self._hmac_key: Optional[bytes] = hashlib.sha256(raw_secret.encode() + self.run_id.encode()).digest()
+        else:
+            self._hmac_key = None
         self._prev_hash = self._load_last_hash()
+
+    def _read_chain_head(self, fh) -> str:
+        """Compute the SHA-256 of the last newline-terminated entry in *fh*.
+
+        Pure helper that operates on an already-open binary file handle. Used
+        by both :meth:`_load_last_hash` (init path, opens its own handle) and
+        :meth:`log_event` (write path, re-reads under the same flock to
+        defeat the multi-writer fork race documented in the class docstring).
+
+        Returns ``"genesis"`` when the file is empty.
+        """
+        fh.seek(0, 2)
+        size = fh.tell()
+        if size == 0:
+            return "genesis"
+        seek_start = max(0, size - 4096)
+        fh.seek(seek_start)
+        # When the seek lands mid-line, the first newline-bounded chunk
+        # would be a partial entry — skip it so every line we parse is whole.
+        if seek_start > 0:
+            fh.readline()
+        tail = fh.read()
+        try:
+            lines = [ln for ln in tail.decode("utf-8").splitlines() if ln.strip()]
+        except UnicodeDecodeError as e:
+            raise ValueError(
+                f"Audit log {self.log_path!r} contains non-UTF-8 data — likely corrupt: {e}. "
+                "Refusing to silently re-root the hash chain."
+            ) from e
+        if lines:
+            return hashlib.sha256(lines[-1].encode("utf-8")).hexdigest()
+        # Empty after skipping the partial-first-line means the final entry
+        # itself exceeds the 4 KiB tail window. Re-read from ``seek_start``
+        # without skipping so we still recover the (oversized) last record.
+        if seek_start > 0:
+            fh.seek(seek_start)
+            tail = fh.read()
+            try:
+                lines = [ln for ln in tail.decode("utf-8").splitlines() if ln.strip()]
+            except UnicodeDecodeError as e:
+                raise ValueError(
+                    f"Audit log {self.log_path!r} contains non-UTF-8 data — likely corrupt: {e}. "
+                    "Refusing to silently re-root the hash chain."
+                ) from e
+            if lines:
+                return hashlib.sha256(lines[-1].encode("utf-8")).hexdigest()
+        return "genesis"
 
     def _load_last_hash(self) -> str:
         """Read the last line hash from an existing log file to restore chain continuity.
@@ -75,21 +129,7 @@ class AuditLogger:
             return "genesis"
         try:
             with open(self.log_path, "rb") as f:
-                f.seek(0, 2)
-                size = f.tell()
-                if size == 0:
-                    return "genesis"
-                seek_start = max(0, size - 4096)
-                f.seek(seek_start)
-                # When the seek lands mid-line, the first newline-bounded chunk
-                # we'd see is a partial entry. ``splitlines()`` keeps it as
-                # element [0]; with a single oversize entry > 4096 B it would
-                # also become element [-1] and we'd hash a truncated body.
-                # Skip past the partial first line so every line we parse is
-                # whole.
-                if seek_start > 0:
-                    f.readline()
-                tail = f.read()
+                return self._read_chain_head(f)
         except OSError as e:
             # Real I/O failure — surface loudly. A silent re-root would
             # break the Article 12 record-keeping contract: a downstream
@@ -98,17 +138,6 @@ class AuditLogger:
                 f"Audit log exists at {self.log_path!r} but could not be read: {e}. "
                 "Refusing to silently re-root the hash chain."
             ) from e
-        try:
-            lines = [ln for ln in tail.decode("utf-8").splitlines() if ln.strip()]
-        except UnicodeDecodeError as e:
-            raise ValueError(
-                f"Audit log {self.log_path!r} contains non-UTF-8 data — likely corrupt: {e}. "
-                "Refusing to silently re-root the hash chain."
-            ) from e
-        if lines:
-            last_line = lines[-1].encode("utf-8")
-            return hashlib.sha256(last_line).hexdigest()
-        return "genesis"
 
     def _check_genesis_manifest(self) -> None:
         """Warn if the manifest exists but the log was truncated back to genesis.
@@ -163,39 +192,58 @@ class AuditLogger:
 
         - **flock**: ``LOCK_EX`` around the write prevents interleaved
           lines from concurrent trainers sharing the same output directory.
-        - **HMAC**: each line carries ``_hmac`` — SHA-256(HMAC-key, line_without_hmac)
-          where the key is derived from ``run_id`` and an optional
-          ``FORGELM_AUDIT_SECRET`` env var. Lets a verifier detect
-          single-field edits even without a full chain re-walk.
+          The chain head is re-read from disk *under the lock* so two
+          writers sharing the same log file cannot both append against a
+          stale ``self._prev_hash`` (which would silently fork the chain).
+        - **HMAC**: when ``FORGELM_AUDIT_SECRET`` is set, each line carries
+          ``_hmac`` — SHA-256(HMAC-key, line_without_hmac) where the key is
+          derived from ``run_id`` + the secret. Without a secret the field
+          is omitted entirely (a key derived solely from the public
+          ``run_id`` would be forgeable, so we don't claim authentication
+          we cannot deliver). The SHA-256 chain still detects modification.
         - **Post-write hash advancement**: ``self._prev_hash`` is updated
           only after the line lands on disk so a write failure leaves the
           chain intact for a retry.
         - **Genesis manifest**: on the first write to a new log, pins the
           first-entry hash in a sidecar file so log truncation is detectable.
         """
-        is_genesis = self._prev_hash == "genesis"
-        if is_genesis:
+        if self._prev_hash == "genesis":
             self._check_genesis_manifest()
 
-        entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "run_id": self.run_id,
-            "operator": self.operator,
-            "event": event,
-            "prev_hash": self._prev_hash,
-            **details,
-        }
-        # Compute HMAC over the entry without the _hmac tag so the tag can
-        # be stripped before verification without invalidating the hash chain.
-        entry_json_for_hmac = json.dumps(entry, default=str)
-        entry["_hmac"] = _hmac_module.new(self._hmac_key, entry_json_for_hmac.encode(), hashlib.sha256).hexdigest()
-        entry_json = json.dumps(entry, default=str)
-
         try:
-            with open(self.log_path, "a") as f:
+            # Open in "a+" so we can both read the existing tail (under
+            # lock) and append to the same handle.
+            with open(self.log_path, "a+b") as f:
                 _flock_ex(f)
                 try:
-                    f.write(entry_json + "\n")
+                    prev_hash = self._read_chain_head(f)
+                    is_genesis = prev_hash == "genesis"
+
+                    entry = {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "run_id": self.run_id,
+                        "operator": self.operator,
+                        "event": event,
+                        "prev_hash": prev_hash,
+                        **details,
+                    }
+                    # Compute HMAC over the entry without the _hmac tag so
+                    # the tag can be stripped before verification without
+                    # invalidating the hash chain. Skip when no secret is
+                    # configured — see class docstring.
+                    if self._hmac_key is not None:
+                        entry_json_for_hmac = json.dumps(entry, default=str)
+                        entry["_hmac"] = _hmac_module.new(
+                            self._hmac_key,
+                            entry_json_for_hmac.encode(),
+                            hashlib.sha256,
+                        ).hexdigest()
+                    entry_json = json.dumps(entry, default=str)
+
+                    f.seek(0, 2)
+                    f.write((entry_json + "\n").encode("utf-8"))
+                    f.flush()
+                    new_hash = hashlib.sha256(entry_json.encode()).hexdigest()
                 finally:
                     _flock_un(f)
         except OSError as e:
@@ -205,8 +253,6 @@ class AuditLogger:
                 f"Failed to write audit event {event!r} to {self.log_path!r}: {e}. "
                 "The hash chain has NOT been advanced — retry or fail the run."
             ) from e
-        # Only advance the chain after the write succeeded.
-        new_hash = hashlib.sha256(entry_json.encode()).hexdigest()
         if is_genesis:
             self._write_genesis_manifest(new_hash)
         self._prev_hash = new_hash
@@ -589,7 +635,15 @@ def generate_deployer_instructions(config: Any, metrics: Dict[str, float], final
     provider = _sanitize_md(comp_cfg.provider_name if comp_cfg else "")
     purpose = _sanitize_md(comp_cfg.intended_purpose if comp_cfg else "")
     limitations = _sanitize_md(comp_cfg.known_limitations if comp_cfg else "")
-    system_name = comp_cfg.system_name if comp_cfg else config.model.name_or_path.split("/")[-1]
+    # Every field below is interpolated into Markdown table cells, headings,
+    # or bullet bodies — push each through ``_sanitize_md`` so config-derived
+    # strings cannot inject pipes, headings, code spans, or links into the
+    # generated document.
+    raw_system_name = comp_cfg.system_name if comp_cfg else config.model.name_or_path.split("/")[-1]
+    system_name = _sanitize_md(raw_system_name)
+    base_model = _sanitize_md(config.model.name_or_path)
+    fine_tuning_method = _sanitize_md(_describe_adapter_method(config))
+    model_location = _sanitize_md(final_path)
 
     content = f"""# Deployer Instructions — {system_name}
 
@@ -602,9 +656,9 @@ def generate_deployer_instructions(config: Any, metrics: Dict[str, float], final
 |-------|-------|
 | System Name | {system_name} |
 | Provider | {provider} |
-| Base Model | {config.model.name_or_path} |
-| Fine-Tuning Method | {_describe_adapter_method(config)} |
-| Model Location | {final_path} |
+| Base Model | {base_model} |
+| Fine-Tuning Method | {fine_tuning_method} |
+| Model Location | {model_location} |
 
 ## 2. Intended Purpose
 
@@ -618,7 +672,7 @@ def generate_deployer_instructions(config: Any, metrics: Dict[str, float], final
 """
     if risk_cfg and risk_cfg.foreseeable_misuse:
         for misuse in risk_cfg.foreseeable_misuse:
-            content += f"- {misuse}\n"
+            content += f"- {_sanitize_md(misuse)}\n"
     else:
         content += "- Use cases not covered by the intended purpose above\n"
 
@@ -630,7 +684,7 @@ def generate_deployer_instructions(config: Any, metrics: Dict[str, float], final
 """
     for k, v in sorted(metrics.items()):
         if isinstance(v, float):
-            content += f"| {k} | {v:.4f} |\n"
+            content += f"| {_sanitize_md(k)} | {v:.4f} |\n"
 
     content += """
 ## 5. Human Oversight Requirements
