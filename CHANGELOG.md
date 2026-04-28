@@ -32,7 +32,7 @@ frozen into a release.
   actually evaluated (text-bearing dict rows) instead of `total_samples`.
   A corpus that's 50 % null but 100 % clean on the rest now reads `1.0`
   instead of `0.5`.
-- **Numpy-fast-path bits guard** (`forgelm/data_audit.py::compute_simhash`) —
+- **NumPy-fast-path bits guard** (`forgelm/data_audit.py::compute_simhash`) —
   the `_compute_simhash_numpy` dispatch now also gates on `bits <= 64`;
   without it, `np.uint64` would silently truncate digests wider than 64
   bits.
