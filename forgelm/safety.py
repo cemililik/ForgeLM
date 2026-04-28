@@ -113,8 +113,11 @@ def _release_model_from_gpu(model: Any) -> None:
 
     import torch
 
+    cpu_moved = False
+    cache_cleared = False
     try:
         model.cpu()
+        cpu_moved = True
     except RuntimeError as e:
         # CUDA OOM during transfer / device-side asserts. Not fatal —
         # the safety pass can still proceed on the existing device — but
@@ -123,14 +126,24 @@ def _release_model_from_gpu(model: Any) -> None:
     gc.collect()
     try:
         torch.cuda.empty_cache()
+        cache_cleared = True
     except RuntimeError as e:
         # `empty_cache` raises on driver / CUDA-init failures only. Same
         # rationale: log loud, do not abort the surrounding safety pass.
         logger.warning("Could not empty CUDA cache before safety eval: %s", e)
-    logger.info(
-        "Fine-tuned model moved to CPU before loading safety classifier. "
-        "If OOM occurs, reduce classifier model size or increase available VRAM."
-    )
+    if cpu_moved and cache_cleared:
+        logger.info(
+            "Fine-tuned model moved to CPU before loading safety classifier. "
+            "If OOM occurs, reduce classifier model size or increase available VRAM."
+        )
+    else:
+        logger.warning(
+            "VRAM cleanup before safety classifier was partial "
+            "(cpu_moved=%s, cache_cleared=%s). OOM is more likely on the "
+            "classifier load — reduce classifier model size or free VRAM manually.",
+            cpu_moved,
+            cache_cleared,
+        )
 
 
 def _classify_one_response(

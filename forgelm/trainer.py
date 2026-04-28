@@ -1236,17 +1236,24 @@ class ForgeTrainer:
             # Article 10: data governance report. Best-effort — if it fails,
             # log loudly but do not abort the run; the Article 11 manifest
             # has already been written and is the load-bearing artefact.
+            governance_ok = False
             try:
                 governance = generate_data_governance_report(self.config, self.dataset)
                 gov_path = os.path.join(compliance_dir, "data_governance_report.json")
                 with open(gov_path, "w", encoding="utf-8") as fh:
                     json.dump(governance, fh, indent=2)
                 self.audit.log_event("compliance.governance_exported", path=gov_path)
+                governance_ok = True
             except OSError as e:
                 logger.warning("Could not write data_governance_report.json: %s", e)
                 self.audit.log_event("compliance.governance_failed", reason=str(e))
 
-            self.audit.log_event("compliance.artifacts_exported", directory=compliance_dir)
+            # Only emit the rollup "all artefacts exported" event when both
+            # the Article 11 manifest export and the Article 10 governance
+            # report succeeded, so the audit chain truthfully reflects which
+            # artefacts are actually on disk.
+            if governance_ok:
+                self.audit.log_event("compliance.artifacts_exported", directory=compliance_dir)
         except Exception as e:
             logger.warning("Failed to export compliance artifacts: %s", e)
 

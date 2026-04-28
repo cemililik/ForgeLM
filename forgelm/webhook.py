@@ -146,6 +146,10 @@ class WebhookNotifier:
                 headers={"Content-Type": "application/json"},
                 timeout=timeout,
                 verify=verify,
+                # Disable redirect-following: the URL was SSRF-validated
+                # against the resolved IP literal up-front, but a 30x to a
+                # private destination would bypass that check entirely.
+                allow_redirects=False,
             )
             if not resp.ok:
                 # Don't log resp.text — receivers sometimes echo the payload
@@ -242,9 +246,11 @@ class WebhookNotifier:
             masked_reason = mask_secrets(reason)
         except ImportError:
             # data_audit imports stay light enough that this should not
-            # happen in practice; if it ever does, fall back to truncation
-            # so we still don't ship a 4 KB stack trace through Slack.
-            masked_reason = (reason or "")[:512]
+            # happen in practice; if it ever does, refuse to ship the raw
+            # reason because we cannot guarantee credentials/tokens have
+            # been scrubbed. A redacted placeholder is far less useful
+            # than a masked stack trace, but it's the only safe fallback.
+            masked_reason = "[REDACTED — secrets masker unavailable]"
         if isinstance(masked_reason, str) and len(masked_reason) > 2048:
             masked_reason = masked_reason[:2048] + "… (truncated)"
         self._send(

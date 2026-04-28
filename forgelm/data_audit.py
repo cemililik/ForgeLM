@@ -1076,6 +1076,13 @@ def _is_code_fence_open(line: str) -> Optional[Tuple[str, int]]:
         return None  # 4+ spaces: indented code block, not a fence
     if stripped.startswith("```"):
         run = len(stripped) - len(stripped.lstrip("`"))
+        # CommonMark §4.5: the info string after a backtick fence may not
+        # contain backticks. Lines like ``` ```lang `oops`` are *not*
+        # opening fences — treating them as one would mis-parse inline
+        # code in prose as a code block.
+        rest = stripped[run:]
+        if "`" in rest:
+            return None
         return ("`", run)
     if stripped.startswith("~~~"):
         run = len(stripped) - len(stripped.lstrip("~"))

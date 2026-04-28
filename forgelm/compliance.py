@@ -79,7 +79,16 @@ class AuditLogger:
                 size = f.tell()
                 if size == 0:
                     return "genesis"
-                f.seek(max(0, size - 4096))
+                seek_start = max(0, size - 4096)
+                f.seek(seek_start)
+                # When the seek lands mid-line, the first newline-bounded chunk
+                # we'd see is a partial entry. ``splitlines()`` keeps it as
+                # element [0]; with a single oversize entry > 4096 B it would
+                # also become element [-1] and we'd hash a truncated body.
+                # Skip past the partial first line so every line we parse is
+                # whole.
+                if seek_start > 0:
+                    f.readline()
                 tail = f.read()
         except OSError as e:
             # Real I/O failure — surface loudly. A silent re-root would

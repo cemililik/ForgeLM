@@ -300,13 +300,19 @@ assistants, code-with-data prompts.
   strategy runs** — so all strategies see the rendered Markdown, not a
   row-major flat string. The chunking strategy then chooses where chunk
   boundaries fall: `_markdown_sections()` splits **only on heading
-  lines** (it is heading-aware, not table-aware), so under
-  `--strategy markdown` a table whose surrounding section fits within
-  the chunk budget travels with that section intact — but a table that
-  is large enough to push the section past the budget can still be
-  split. Under `paragraph` / `sliding`, the chunker is unaware of table
-  structure and may slice rows mid-cell. PDF tables remain flattened in
-  all cases (no extraction-time table parser is wired up for PDFs).
+  lines** (it is heading-aware, not table-aware). Under
+  `--strategy markdown`, `_chunk_markdown()` (and its token-aware twin
+  `_chunk_markdown_tokens()`) preserves each section as an indivisible
+  unit — a section whose surrounding heading scope exceeds the chunk
+  budget is emitted **whole**, not split mid-section, so a table inside
+  it travels with the section intact regardless of size. Splitting a
+  large table requires a table-aware chunker or a separate
+  table-splitting pass; neither is wired up today. Under `paragraph` /
+  `sliding`, the chunker is unaware of table structure and may slice
+  rows mid-cell because those strategies operate on paragraph / window
+  boundaries that have no notion of table integrity. PDF tables remain
+  flattened in all cases (no extraction-time table parser is wired up
+  for PDFs).
 - **Metadata:** title / author / page numbers are dropped — only body text reaches the JSONL.
 - **Encoding:** non-UTF-8 input is read with `errors="replace"`; binary noise becomes Unicode replacement characters.
 - **Semantic chunking:** raises `NotImplementedError` until embedding support lands in a follow-up phase.

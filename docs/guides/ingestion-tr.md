@@ -283,14 +283,18 @@ sayfadan kısa belgelerde devre dışı kalır. Yapılandırılmış notlar
   Markdown'ı görür, satır-major düzleştirilmiş bir string'i değil.
   Strateji daha sonra chunk sınırlarının nereye düşeceğini seçer:
   `_markdown_sections()` **yalnızca heading satırlarında** ayırma yapar
-  (heading-bilen, tablo-bilen değil); bu yüzden `--strategy markdown`
-  altında, çevreleyen heading-bağlı section chunk bütçesine sığıyorsa
-  içindeki tablo da o section ile birlikte taşınır — section'ı
-  bütçeyi aşacak kadar büyük tutan bir tablo yine de bölünebilir.
-  `paragraph` / `sliding`'de chunker tablo yapısından habersizdir ve
-  hücre ortasından satır kesebilir. PDF tabloları her durumda
-  düzleştirilmiş kalır (PDF tarafında extraction-time tablo parser'ı
-  bağlı değil).
+  (heading-bilen, tablo-bilen değil). `--strategy markdown` altında
+  `_chunk_markdown()` (ve token-bilen ikizi `_chunk_markdown_tokens()`)
+  her section'ı bölünmez bir birim olarak korur — bütçeyi aşan bir
+  section tek parça (tek chunk) olarak yayınlanır, ortadan
+  bölünmez; içindeki tablo, ne kadar büyük olursa olsun section ile
+  birlikte taşınır. Büyük bir tabloyu bölmek tablo-bilinçli bir chunker
+  veya ayrı bir tablo-splitting aşaması gerektirir; bunların ikisi de
+  bugün bağlı değildir. `paragraph` / `sliding` stratejilerinde
+  chunker tablo yapısından habersizdir ve paragraf / pencere sınırlarına
+  göre çalıştığı için hücre ortasından satır kesebilir. PDF tabloları
+  her durumda düzleştirilmiş kalır (PDF tarafında extraction-time tablo
+  parser'ı bağlı değil).
 - **Metadata:** başlık / yazar / sayfa numarası düşürülür — yalnızca gövde
   metni JSONL'a iner.
 - **Encoding:** non-UTF-8 girdi `errors="replace"` ile okunur; binary
