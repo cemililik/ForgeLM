@@ -589,9 +589,22 @@ def _describe_adapter_method(config: Any) -> str:
 
 
 def _get_version() -> str:
-    try:
-        from forgelm import __version__
+    """Resolve ForgeLM's version for compliance-manifest stamping.
 
-        return __version__
-    except ImportError:
-        return "unknown"
+    Prefers the installed distribution metadata (single source of truth with
+    ``pyproject.toml``); falls back to the package-level ``__version__``
+    attribute (which itself uses ``importlib.metadata``); finally returns
+    ``"unknown"`` if both paths fail (raw source import without install).
+    """
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _pkg_version
+
+    try:
+        return _pkg_version("forgelm")
+    except PackageNotFoundError:
+        try:
+            from forgelm import __version__
+
+            return __version__
+        except ImportError:  # pragma: no cover
+            return "unknown"
