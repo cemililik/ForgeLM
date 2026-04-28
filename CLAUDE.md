@@ -15,6 +15,7 @@ Not a framework for training from scratch. Not an inference engine. Not a GUI. R
 1. **[docs/standards/README.md](docs/standards/README.md)** — index of all engineering standards
 2. **The specific standard** matching what you're about to change:
    - Python code → [coding.md](docs/standards/coding.md) + [architecture.md](docs/standards/architecture.md)
+   - **Any `re.compile` / regex change → [regex.md](docs/standards/regex.md)** (ReDoS exposure, fixture fragmentation, the 8 hard rules distilled from Phase 11/11.5/12 review cycles)
    - Error paths → [error-handling.md](docs/standards/error-handling.md)
    - Anything with output → [logging-observability.md](docs/standards/logging-observability.md)
    - Tests → [testing.md](docs/standards/testing.md)

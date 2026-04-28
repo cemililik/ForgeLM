@@ -44,8 +44,11 @@ _PREFERENCE_COLUMNS_HINT = "Columns: prompt, chosen, rejected"
 
 # HF Hub dataset IDs look like "<org>/<name>" — exactly one slash, with the
 # allowed character set used by the Hub. We accept these BYOD inputs without
-# touching the local filesystem; the trainer resolves them at runtime.
-_HF_HUB_ID_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+# touching the local filesystem; the trainer resolves them at runtime. The
+# Hub allows usernames + repo names up to 96 chars each, so we bound the
+# repeats per docs/standards/regex.md rule 3 (defence-in-depth, no behaviour
+# change vs. ``+``).
+_HF_HUB_ID_RE = re.compile(r"^[\w.-]{1,96}/[\w.-]{1,96}$")
 
 
 def _prompt(question: str, default: str = "") -> str:

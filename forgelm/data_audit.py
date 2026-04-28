@@ -782,18 +782,20 @@ _SECRET_PATTERNS: Dict[str, re.Pattern] = {
     # Slack bot / user / app / config tokens.
     "slack_token": re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
     # OpenAI API keys (legacy ``sk-…`` and project-scoped ``sk-proj-…``).
-    "openai_api_key": re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b"),
+    # ``[\w-]`` per docs/standards/regex.md rule 1 (``\w`` covers
+    # ``[A-Za-z0-9_]``; we keep the ``-`` outside the shorthand).
+    "openai_api_key": re.compile(r"\bsk-(?:proj-)?[\w-]{20,}\b"),
     # Google API keys (Maps, Cloud, etc.).
-    "google_api_key": re.compile(r"\bAIza[A-Za-z0-9_-]{35}\b"),
+    "google_api_key": re.compile(r"\bAIza[\w-]{35}\b"),
     # JSON Web Tokens — header.payload.sig. We anchor the header segment
     # on the base64url prefix of the canonical JWT header keys (``alg`` /
     # ``typ`` / ``kid`` / ``cty`` / ``enc``) and require minimum lengths
     # on payload + signature, so generic ``eyJ.eyJ.X``-shaped strings in
     # prose don't false-positive. This still catches >99 % of real JWTs.
     "jwt": re.compile(
-        r"\beyJ(?:hbGc|0eXA|raWQ|jdHk|lbmM|hcGk)[A-Za-z0-9_-]{10,}"
-        r"\.eyJ[A-Za-z0-9_-]{10,}"
-        r"\.[A-Za-z0-9_-]{15,}\b"
+        r"\beyJ(?:hbGc|0eXA|raWQ|jdHk|lbmM|hcGk)[\w-]{10,}"
+        r"\.eyJ[\w-]{10,}"
+        r"\.[\w-]{15,}\b"
     ),
     # Private-key blocks — full PEM/PGP envelope (BEGIN through END inclusive)
     # so ``mask_secrets`` redacts the entire block, not just the header line.
@@ -885,22 +887,96 @@ addition / rename doesn't silently break consumers."""
 
 
 _WORD_PATTERN = re.compile(r"\b[\w']+\b", re.UNICODE)
-_PUNCT_END_PATTERN = re.compile(r"[.!?…\"'\)\]]\s*$")
-# Match an entire CommonMark fenced code block. CommonMark §4.5 allows the
-# fence to be 3+ backticks **or** 3+ tildes, with up to 3 leading spaces of
-# indentation. The closing fence must use the same character as the opening
-# one, captured via the ``fence`` named group + ``(?P=fence)`` back-reference.
-# We strip these before applying prose heuristics because code legitimately
-# has low alpha ratio, missing end-of-line punctuation, and short paragraphs.
-_CODE_FENCE_BLOCK = re.compile(
-    r"^ {0,3}(?P<fence>`{3,}|~{3,})[^\n]*\n.*?^ {0,3}(?P=fence)[ \t]*$",
-    re.MULTILINE | re.DOTALL,
-)
+# ``[ \t]*$`` not ``\s*$``: callers pass single lines (no embedded
+# newlines), so the ``\s`` form's newline-overlap potential is dead
+# weight per docs/standards/regex.md rule 5.
+_PUNCT_END_PATTERN = re.compile(r"[.!?…\"'\)\]][ \t]*$")
+
+
+def _is_code_fence_open(line: str) -> Optional[str]:
+    """Return ``"`"`` / ``"~"`` if ``line`` opens a CommonMark fence, else ``None``.
+
+    CommonMark §4.5: an opening fence is 3+ identical backticks (or
+    tildes), optionally indented by up to 3 spaces, possibly followed by
+    an info string. We don't need to validate the info string further —
+    its only role is to opt the next lines into "code" rendering.
+    """
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) > 3:
+        return None  # 4+ spaces: indented code block, not a fence
+    if stripped.startswith("```"):
+        return "`"
+    if stripped.startswith("~~~"):
+        return "~"
+    return None
+
+
+def _is_code_fence_close(line: str, fence_char: str) -> bool:
+    """Return ``True`` when ``line`` is a valid CommonMark close for ``fence_char``.
+
+    Stricter than ``_is_code_fence_open``: the closing fence may **not**
+    carry an info string — only the fence run + optional trailing
+    whitespace. ``~~~bash`` opens a tilde block but does **not** close
+    one, so a stray info-string line inside a tilde block isn't
+    misread as the close.
+    """
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) > 3:
+        return False
+    body = stripped.rstrip(" \t\r\n")
+    if len(body) < 3 or any(ch != fence_char for ch in body):
+        return False
+    return True
 
 
 def _strip_code_fences(text: str) -> str:
-    """Remove CommonMark fenced code blocks (``\\`\\`\\``` or ``~~~``); leave inline code intact."""
-    return _CODE_FENCE_BLOCK.sub("", text)
+    """Remove CommonMark fenced code blocks (``\\`\\`\\``` or ``~~~``); leave inline code intact.
+
+    Implemented as a per-line state machine rather than a single regex
+    so the cost is provably O(n). The previous regex
+    ``^ {0,3}(?P<fence>\\`{3,}|~{3,})[^\\n]*\\n.*?^ {0,3}(?P=fence)[ \\t]*$``
+    used ``.*?`` with a back-reference under DOTALL, which static
+    analysers (SonarCloud python:S5852) flag as a polynomial-runtime
+    risk — and the same line-walker pattern is already used in
+    :func:`forgelm.ingestion._markdown_sections`, so we use it here too.
+
+    Behaviour matches the old regex bit-for-bit on the test fixtures:
+    a fully-closed fence is replaced by the surrounding line breaks
+    (``intro\\n…block…\\nouter`` → ``intro\\n\\nouter``); an *unclosed*
+    fence is left untouched (regex would have failed to match, so
+    ``re.sub`` returned the original input).
+    """
+    out: List[str] = []
+    open_fence: Optional[str] = None  # ``"`"`` or ``"~"`` while inside a block
+    block_buffer: List[str] = []  # accumulates an in-progress block
+
+    for line in text.splitlines(keepends=True):
+        if open_fence is None:
+            fence_char = _is_code_fence_open(line)
+            if fence_char is not None:
+                open_fence = fence_char
+                block_buffer = [line]  # buffer in case the block is unclosed
+            else:
+                out.append(line)
+            continue
+        # Inside an active block: buffer the line, then check for close.
+        block_buffer.append(line)
+        if _is_code_fence_close(line, open_fence):
+            # The regex consumed BEGIN through CLOSE inclusive but stopped
+            # before the trailing ``\n`` — preserve that newline so the
+            # surrounding lines aren't glued together.
+            if block_buffer[-1].endswith("\n"):
+                out.append("\n")
+            block_buffer = []
+            open_fence = None
+
+    # Unclosed block: flush the buffered lines back to output verbatim
+    # (the old regex would have failed to match a partial block, so the
+    # surrounding text stayed as-is).
+    if block_buffer:
+        out.extend(block_buffer)
+
+    return "".join(out)
 
 
 def _check_low_alpha_ratio(prose: str) -> Optional[str]:

@@ -397,6 +397,56 @@ class TestMarkdownOverlapValidation:
         assert result.chunk_count >= 1
 
 
+class TestRegexLinearity:
+    """Round-2.5: pin O(n) behaviour on patterns the static analyser flagged.
+
+    These regexes accept operator-controlled input (markdown / code in
+    audit JSONL or ingest source files), so a quadratic-time regex is a
+    DoS vector for any CI/CD pipeline that runs ForgeLM on a webhook
+    trigger. The benchmarks below were authored after a confirmed
+    100ms-at-n=2000 / 600ms-at-n=5000 ReDoS on the previous heading
+    pattern. Fail threshold is generous (1 second on N=10K) so a slow
+    CI host doesn't false-positive — but a real ReDoS would blow far
+    past it.
+    """
+
+    def test_heading_pattern_linear_on_pathological_whitespace(self):
+        # Old pattern: ``[ \t]+(.+?)[ \t]*$`` had three greedy/lazy
+        # quantifiers competing for trailing whitespace. New pattern
+        # anchors on \S so the engine has no ambiguity.
+        import time
+
+        from forgelm.ingestion import _MARKDOWN_HEADING_PATTERN
+
+        for n in (1_000, 5_000, 10_000):
+            payload = "# a" + " \t" * n + "x"
+            t0 = time.perf_counter()
+            _MARKDOWN_HEADING_PATTERN.match(payload)
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            assert elapsed_ms < 1000, (
+                f"heading regex took {elapsed_ms:.1f}ms on n={n} pathological input (possible ReDoS regression)"
+            )
+
+    def test_strip_code_fences_linear_on_unclosed_blocks(self):
+        # Old regex: ``.*?`` + back-reference + DOTALL. Replaced with
+        # a per-line state machine. Pathological shape: many opening
+        # fences and no close ever — old regex went linear-ish in CPython
+        # but SonarCloud flagged the polynomial-runtime risk; the walker
+        # is provably O(n) and silences the analyser.
+        import time
+
+        from forgelm.data_audit import _strip_code_fences
+
+        for n in (1_000, 5_000, 10_000):
+            payload = "```\nx\n" * n + "no close ever"
+            t0 = time.perf_counter()
+            _strip_code_fences(payload)
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            assert elapsed_ms < 1000, (
+                f"_strip_code_fences took {elapsed_ms:.1f}ms on n={n} unclosed-fence input (possible regression)"
+            )
+
+
 class TestMinHashDistinctSemantic:
     """``minhash_distinct`` must count *unique sketches*, mirroring simhash."""
 

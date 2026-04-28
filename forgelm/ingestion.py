@@ -497,12 +497,17 @@ def _chunk_semantic(text: str, chunk_size: int) -> Iterable[str]:
 
 
 # CommonMark allows 0-3 leading spaces before an ATX heading marker; 4+
-# spaces would make the line an indented code block instead. We use ``[ \t]``
-# explicitly (instead of ``\s``) to avoid the catastrophic-backtracking risk
-# that ``\s+(.+?)\s*$`` carries when ``.`` overlaps with ``\s`` on
-# pathological inputs — and to keep the per-line semantic clear under
-# ``re.MULTILINE`` (no newline ambiguity).
-_MARKDOWN_HEADING_PATTERN = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*$", re.MULTILINE)
+# spaces would make the line an indented code block instead. The body
+# capture is anchored on **non-whitespace** at both ends — without those
+# anchors, the lazy ``(.+?)`` and greedy ``[ \t]*$`` tails compete for
+# trailing whitespace, giving the engine O(n²) splits to try on a line
+# like ``# x \t \t … \tx`` (~100 ms at n=2000 in CPython, blocking the
+# ingest pipeline). The negated ``[^\n]*`` middle stays linear because
+# it can't overlap with the anchoring ``\S`` on either side.
+_MARKDOWN_HEADING_PATTERN = re.compile(
+    r"^ {0,3}(#{1,6})[ \t]+(\S(?:[^\n]*\S)?)[ \t]*$",
+    re.MULTILINE,
+)
 # Code fence — backticks or tildes per CommonMark §4.5; up to 3 leading spaces.
 _MARKDOWN_CODE_FENCE = re.compile(r"^ {0,3}(?:```|~~~)")
 
