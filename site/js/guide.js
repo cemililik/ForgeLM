@@ -31,6 +31,18 @@
     searchOpen: false,
   };
 
+  // Render an HTML string into a live element without assigning to its
+  // .innerHTML. The fragment is parsed via DOMParser — which produces
+  // an inert Document where <script> tags do not execute — and the
+  // parsed body's children are then moved into the target. Mirrors the
+  // setHtml helper in js/i18n.js so guide-side rendering follows the
+  // same defence-in-depth approach.
+  function setHtml(el, html) {
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    while (el.firstChild) el.removeChild(el.firstChild);
+    while (doc.body.firstChild) el.appendChild(doc.body.firstChild);
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     if (!document.querySelector('.guide-layout')) return;
 
@@ -87,7 +99,7 @@
     if (!idx) return;
 
     var lang = state.lang;
-    nav.innerHTML = '';
+    while (nav.firstChild) nav.removeChild(nav.firstChild);
 
     idx.sections.forEach(function (section) {
       var wrap = document.createElement('div');
@@ -205,14 +217,14 @@
       ? '<p class="guide-page-description">' + escapeHtml(page.description) + '</p>'
       : '';
 
-    content.innerHTML =
+    setHtml(content,
       '<nav class="guide-breadcrumb">' + crumbHtml + '</nav>'
       + fallbackBanner
       + '<h1>' + escapeHtml(page.title) + '</h1>'
       + descriptionHtml
       + '<div class="guide-page-body">' + page.html + '</div>'
       + pager
-      + editLink;
+      + editLink);
 
     // Re-translate any chrome that data-i18n updated nodes inside the content.
     if (window.ForgeLMi18n && window.ForgeLMi18n.setLanguage) {
@@ -238,10 +250,10 @@
   function renderNotFound(route) {
     var content = document.getElementById('guide-content');
     if (!content) return;
-    content.innerHTML =
+    setHtml(content,
       '<h1>Page not found</h1>'
       + '<p>The page <code>' + escapeHtml(route) + '</code> doesn\'t exist in this guide.</p>'
-      + '<p><a href="#/' + DEFAULT_ROUTE + '">Return to the introduction</a></p>';
+      + '<p><a href="#/' + DEFAULT_ROUTE + '">Return to the introduction</a></p>');
   }
 
   function buildPagerHtml(sectionId, pageId) {
@@ -284,7 +296,7 @@
     var toc = document.getElementById('guide-toc');
     if (!toc) return;
     if (!headings || headings.length === 0) {
-      toc.innerHTML = '';
+      while (toc.firstChild) toc.removeChild(toc.firstChild);
       toc.style.display = 'none';
       return;
     }
@@ -297,7 +309,7 @@
         + escapeHtml(h.text) + '</a></li>';
     });
     inner += '</ul>';
-    toc.innerHTML = inner;
+    setHtml(toc, inner);
 
     toc.querySelectorAll('a').forEach(function (a) {
       a.addEventListener('click', function (e) {
@@ -421,7 +433,14 @@
 
         var titleLow = pageTitle.toLowerCase();
         var headingsText = (doc.headings || []).map(function (h) { return h.text; }).join(' ');
-        var bodyTextLow = stripTags(doc.html).toLowerCase();
+        // Cache the plain-text version of the page on the doc record so
+        // we don't re-parse the same HTML on every keystroke. The cache
+        // lives only as long as the language bag itself; switching
+        // languages loads a fresh bag and the cache rebuilds.
+        if (doc._searchText === undefined) {
+          doc._searchText = stripTags(doc.html).toLowerCase();
+        }
+        var bodyTextLow = doc._searchText;
         var blob = (titleLow + ' ' + headingsText.toLowerCase() + ' ' + bodyTextLow);
 
         var score = 0;
@@ -454,14 +473,14 @@
     hits = hits.slice(0, 12);
 
     if (!hits.length) {
-      results.innerHTML = '<div class="guide-search-empty" data-i18n="guide.search.empty">No matches.</div>';
+      setHtml(results, '<div class="guide-search-empty" data-i18n="guide.search.empty">No matches.</div>');
     } else {
-      results.innerHTML = hits.map(function (h, i) {
+      setHtml(results, hits.map(function (h, i) {
         return '<li><a href="#/' + h.route + '" data-route="' + h.route + '" class="' + (i === 0 ? 'focused' : '') + '">'
           + '<div class="section">' + escapeHtml(h.sectionTitle) + '</div>'
           + '<div class="title">' + highlight(h.pageTitle, q) + '</div>'
           + '</a></li>';
-      }).join('');
+      }).join(''));
       // Re-translate after innerHTML update.
       if (window.ForgeLMi18n && window.ForgeLMi18n.setLanguage) {
         window.ForgeLMi18n.setLanguage(state.lang);
@@ -610,9 +629,10 @@
   }
 
   function stripTags(html) {
-    var tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    return tmp.textContent || tmp.innerText || '';
+    // DOMParser yields an inert document — no scripts execute and no
+    // resources load — so no innerHTML is needed on a live element.
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    return doc.body.textContent || '';
   }
 
   function highlight(text, query) {
