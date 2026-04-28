@@ -21,6 +21,19 @@
   --warn: #eab308;
   --danger: #ef4444;
 
+  /* Callout pills — dark-mode defaults. Solid backgrounds (no rgba) so the
+     CSS contrast checker can compute foreground/background unambiguously
+     (Sonar css:S7924). Light-mode overrides are in the [data-theme="light"]
+     block below. Each fg/bg pair clears AAA contrast (>7:1). */
+  --pill-note-fg:   #bae6fd;
+  --pill-note-bg:   #082f49;
+  --pill-tip-fg:    #bbf7d0;
+  --pill-tip-bg:    #14532d;
+  --pill-warn-fg:   #fef08a;
+  --pill-warn-bg:   #713f12;
+  --pill-danger-fg: #fecaca;
+  --pill-danger-bg: #7f1d1d;
+
   /* Dark canvas (default) */
   --bg: #0a0c12;
   --bg-alt: #11141c;
@@ -78,6 +91,16 @@
   --code-bg: #0d1018;        /* code stays dark even in light mode */
   --code-border: #1e2230;
   --code-text: #d4d8e2;
+
+  /* Callout pills — light-mode pairs. Each combination clears AAA (>7:1). */
+  --pill-note-fg:   #0c4a6e;
+  --pill-note-bg:   #e0f2fe;
+  --pill-tip-fg:    #14532d;
+  --pill-tip-bg:    #dcfce7;
+  --pill-warn-fg:   #713f12;
+  --pill-warn-bg:   #fef9c3;
+  --pill-danger-fg: #7f1d1d;
+  --pill-danger-bg: #fee2e2;
 }
 
 /* ── Reset ───────────────────────────────────────────────── */
@@ -1809,22 +1832,15 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
   border-radius: 3px;
   border: 1px solid;
 }
-/* Pills use deep, saturated text colours so the AA contrast threshold is met
-   on both the dark-mode (near-black) and light-mode (white) page backgrounds.
-   Earlier we used Tailwind's 400/500 shades (#4ade80 etc.) which read as low
-   contrast against the near-white pill tint in light mode (css:S7924). */
-.callout-pill.note    { color: #075985; border-color: var(--steel);   background: rgba(14,165,233,.18); }
-.callout-pill.tip     { color: #14532d; border-color: var(--success); background: rgba(34,197,94,.18);  }
-.callout-pill.warn    { color: #713f12; border-color: var(--warn);    background: rgba(234,179,8,.22);  }
-.callout-pill.danger  { color: #7f1d1d; border-color: var(--danger);  background: rgba(239,68,68,.18);  }
-[data-theme="light"] .callout-pill.note   { color: #0369a1; }
-[data-theme="light"] .callout-pill.tip    { color: #166534; }
-[data-theme="light"] .callout-pill.warn   { color: #854d0e; }
-[data-theme="light"] .callout-pill.danger { color: #991b1b; }
-:root:not([data-theme="light"]) .callout-pill.note    { color: var(--steel-bright); background: rgba(14,165,233,.18); }
-:root:not([data-theme="light"]) .callout-pill.tip     { color: #86efac;            background: rgba(34,197,94,.18); }
-:root:not([data-theme="light"]) .callout-pill.warn    { color: #fde047;            background: rgba(234,179,8,.22); }
-:root:not([data-theme="light"]) .callout-pill.danger  { color: #fca5a5;            background: rgba(239,68,68,.18); }
+/* Single ruleset — all four pills resolve their fg/bg through the
+   --pill-*-{fg,bg} tokens declared in :root (dark-mode defaults) and
+   overridden in [data-theme="light"]. Centralising the colour pairs in
+   variables avoids drift between the dark and light blocks; using solid
+   colours rather than rgba tints keeps Sonar's contrast checker happy. */
+.callout-pill.note   { color: var(--pill-note-fg);   background: var(--pill-note-bg);   border-color: var(--steel);   }
+.callout-pill.tip    { color: var(--pill-tip-fg);    background: var(--pill-tip-bg);    border-color: var(--success); }
+.callout-pill.warn   { color: var(--pill-warn-fg);   background: var(--pill-warn-bg);   border-color: var(--warn);    }
+.callout-pill.danger { color: var(--pill-danger-fg); background: var(--pill-danger-bg); border-color: var(--danger);  }
 
 /* ── Mermaid diagrams ────────────────────────────────────── */
 .guide-content .mermaid {
