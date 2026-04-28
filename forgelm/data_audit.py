@@ -765,6 +765,34 @@ def _count_leaked_rows_minhash(
     return leaked
 
 
+def _count_leaks_against_index(
+    source_sigs: List[Optional[Any]],
+    target_sigs: List[Optional[Any]],
+    target_lsh: Any,
+    target_keys: Dict[str, int],
+    jaccard_threshold: float,
+) -> int:
+    """Count source rows that have a Jaccard-similar match in the target index.
+
+    Single-direction counterpart used by :func:`_count_leaked_rows_minhash_bidirectional`.
+    Each source signature is queried against the target's pre-built LSH; the
+    first candidate whose actual Jaccard ≥ threshold is enough to flag a leak,
+    so we ``break`` after the first hit.
+    """
+    leaked = 0
+    for m in source_sigs:
+        if m is None:
+            continue
+        for cand_key in target_lsh.query(m):
+            cand_idx = target_keys.get(cand_key)
+            if cand_idx is None:
+                continue
+            if m.jaccard(target_sigs[cand_idx]) >= jaccard_threshold:
+                leaked += 1
+                break
+    return leaked
+
+
 def _count_leaked_rows_minhash_bidirectional(
     sigs_a: List[Optional[Any]],
     sigs_b: List[Optional[Any]],
@@ -789,30 +817,8 @@ def _count_leaked_rows_minhash_bidirectional(
     lsh_a, keys_a = _build_minhash_lsh(sigs_a, jaccard_threshold=jaccard_threshold, num_perm=num_perm, key_prefix="a")
     lsh_b, keys_b = _build_minhash_lsh(sigs_b, jaccard_threshold=jaccard_threshold, num_perm=num_perm, key_prefix="b")
 
-    leaked_a = 0
-    for m in sigs_a:
-        if m is None:
-            continue
-        for cand_key in lsh_b.query(m):
-            cand_idx = keys_b.get(cand_key)
-            if cand_idx is None:
-                continue
-            if m.jaccard(sigs_b[cand_idx]) >= jaccard_threshold:
-                leaked_a += 1
-                break
-
-    leaked_b = 0
-    for m in sigs_b:
-        if m is None:
-            continue
-        for cand_key in lsh_a.query(m):
-            cand_idx = keys_a.get(cand_key)
-            if cand_idx is None:
-                continue
-            if m.jaccard(sigs_a[cand_idx]) >= jaccard_threshold:
-                leaked_b += 1
-                break
-
+    leaked_a = _count_leaks_against_index(sigs_a, sigs_b, lsh_b, keys_b, jaccard_threshold)
+    leaked_b = _count_leaks_against_index(sigs_b, sigs_a, lsh_a, keys_a, jaccard_threshold)
     return leaked_a, leaked_b
 
 

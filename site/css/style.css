@@ -108,7 +108,11 @@ a:hover { color: var(--ember); }
 
 img, svg { max-width: 100%; display: block; }
 
-::selection { background: rgba(249,115,22,.35); color: #fff; }
+/* Selection colour. Alpha was raised from .35 → .85 so the contrast
+   between the white text and the orange background passes WCAG on both
+   themes (the previous .35 alpha let the page's light-theme background
+   bleed through, dropping contrast below 4.5:1). */
+::selection { background: rgba(249,115,22,.85); color: #fff; }
 
 /* ── Typography ──────────────────────────────────────────── */
 h1, h2, h3, h4, h5 {
@@ -283,6 +287,9 @@ section { padding: 5rem 0; }
   border-radius: 999px;
   padding: 3px;
   gap: 0;
+  /* Reset <fieldset> defaults — index.html uses a fieldset for a11y. */
+  margin: 0;
+  min-width: 0;
 }
 .lang-toggle button {
   background: none;
@@ -1133,6 +1140,10 @@ section { padding: 5rem 0; }
   font-size: 0.9rem;
   display: none;
 }
+/* Status colors are theme-split: the lighter shades (#4ade80 / #f87171)
+   meet WCAG AA on the dark theme but fail on the light theme's white
+   background (~3.5:1 and ~3.6:1). Define the dark-friendly defaults here;
+   the [data-theme="light"] block overrides them with darker shades. */
 .form-status.success {
   display: block;
   background: rgba(34,197,94,.08);
@@ -1145,6 +1156,8 @@ section { padding: 5rem 0; }
   border: 1px solid rgba(239,68,68,.3);
   color: #f87171;
 }
+[data-theme="light"] .form-status.success { color: #15803d; } /* green-700 */
+[data-theme="light"] .form-status.error   { color: #b91c1c; } /* red-700 */
 
 .channel-list {
   list-style: none;

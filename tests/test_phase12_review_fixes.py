@@ -187,7 +187,8 @@ class TestC4JwtRegexNarrowing:
     def test_realistic_hs256_token_detected(self):
         # Same fragmentation pattern as ``test_real_jwt_still_detected`` —
         # builds a longer payload to exercise the looser min-length branch.
-        header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"  # alg=HS256, typ=JWT
+        # Decoded header is the JWT type with HS256 algorithm.
+        header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
         payload = "eyJzdWIiOiIxMjM0NSIs" + "Im5hbWUiOiJKb2huIERvZSJ9"
         signature = "abcdefghij" + "klmnopqrstuvwxyz123"
         text = f"token={header}.{payload}.{signature}"

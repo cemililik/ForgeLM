@@ -734,6 +734,34 @@ def _chunk_markdown(text: str, max_chunk_size: int) -> Iterable[str]:
         yield "\n\n".join(current)
 
 
+def _build_markdown_section_blocks(sections: List[Tuple[List[str], str]]) -> List[str]:
+    """Render each (heading-path, body) pair into a single text block.
+
+    Pre-built so the tokenizer can be called once on the full list rather
+    than per-section. Empty heading paths fall back to the body alone.
+    """
+    blocks: List[str] = []
+    for path, body in sections:
+        breadcrumb = _heading_breadcrumb(path, path[-1] if path else "")
+        blocks.append(breadcrumb + body if breadcrumb else body)
+    return blocks
+
+
+def _count_section_tokens(section_blocks: List[str], tokenizer: Any) -> List[int]:
+    """Return per-block token counts using a single batch call when possible.
+
+    Per-section ``tokenizer.encode()`` called N times used to dominate the
+    cost for long documents; the batch call amortises Python-level overhead
+    and lets the tokenizer process the list in one pass.  Falls back to
+    per-block encoding for tokenizers that don't accept list input.
+    """
+    try:
+        batch_enc = tokenizer(section_blocks, add_special_tokens=False)
+        return [len(ids) for ids in batch_enc["input_ids"]]
+    except Exception:
+        return [len(tokenizer.encode(block, add_special_tokens=False)) for block in section_blocks]
+
+
 def _chunk_markdown_tokens(text: str, max_tokens: int, tokenizer: Any) -> Iterable[str]:
     """Token-aware twin of :func:`_chunk_markdown`. Same semantics, token cap.
 
@@ -750,22 +778,8 @@ def _chunk_markdown_tokens(text: str, max_tokens: int, tokenizer: Any) -> Iterab
         return
 
     sep_tokens = len(tokenizer.encode("\n\n", add_special_tokens=False))
-
-    # Build all section blocks first, then count tokens in a single batch call.
-    # Per-section tokenizer.encode() called N times was the dominant cost for
-    # long documents (many sections); batch tokenization amortises the Python
-    # call overhead and lets the tokenizer process the list in one pass.
-    section_blocks: List[str] = []
-    for path, body in sections:
-        breadcrumb = _heading_breadcrumb(path, path[-1] if path else "")
-        section_blocks.append(breadcrumb + body if breadcrumb else body)
-
-    try:
-        batch_enc = tokenizer(section_blocks, add_special_tokens=False)
-        section_token_counts = [len(ids) for ids in batch_enc["input_ids"]]
-    except Exception:
-        # Fallback for tokenizers that don't support batch-list input
-        section_token_counts = [len(tokenizer.encode(block, add_special_tokens=False)) for block in section_blocks]
+    section_blocks = _build_markdown_section_blocks(sections)
+    section_token_counts = _count_section_tokens(section_blocks, tokenizer)
 
     current: List[str] = []
     current_tokens = 0
