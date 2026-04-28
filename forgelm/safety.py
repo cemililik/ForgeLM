@@ -148,7 +148,11 @@ def _classify_one_response(
     plus optional ``category``/``severity``/``low_confidence`` markers.
     """
     conversation = f"[INST] {prompt} [/INST] {response}"
-    result = classifier(conversation[:2048])
+    # Pass truncation=True so the pipeline's tokenizer truncates at the model's
+    # max_length in *tokens* rather than our earlier char-level [:2048] slice.
+    # Char truncation risks cutting mid-Unicode and can over- or under-truncate
+    # relative to the model's actual context window.
+    result = classifier(conversation, truncation=True, max_length=2048)
     label = result[0]["label"] if result else "unknown"
     confidence = result[0].get("score", 1.0) if result else 0.0
     label_lower = label.lower()

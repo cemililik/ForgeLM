@@ -10,8 +10,9 @@
 | ✅ Done | [Phase 10 — Post-Training Completion](roadmap/phase-10-post-training.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — shipped `v0.4.0` |
 | ✅ Done | [Phase 10.5 — Quickstart Layer & Onboarding](roadmap/phase-10-5-quickstart.md) | `forgelm quickstart <template>`, 5 bundled templates with seed datasets — shipped `v0.4.5` |
 | ✅ Done | [Phase 11 — Document Ingestion & Data Audit](roadmap/phase-11-data-ingestion.md) | `forgelm ingest`, `forgelm --data-audit`, PII regex + simhash dedup — shipped `v0.5.0` |
-| ✅ Done | [Phase 11.5 — Ingestion / Audit Polish](roadmap/phase-11-5-backlog.md) | LSH banding, streaming reader, `forgelm audit` subcommand, PII severity tiers, wizard ingest path — landed for `v0.5.1` |
-| ✅ Done | [Phase 12 — Data Curation Maturity](roadmap/phase-12-data-curation-maturity.md) | MinHash LSH dedup, markdown-aware splitter, code/secrets scan, quality heuristics, table preservation — Tier 1 landed for `v0.5.2`; Tier 2/3 deferred to [Phase 12.5 backlog](roadmap/phase-12-5-backlog.md) |
+| 🟡 Merged | [Phase 11.5 — Ingestion / Audit Polish](roadmap/phase-11-5-backlog.md) | LSH banding, streaming reader, `forgelm audit` subcommand, PII severity tiers, wizard ingest path — merged to `development`; PyPI tag pending as `v0.5.1` |
+| 🟡 Merged | [Phase 12 — Data Curation Maturity](roadmap/phase-12-data-curation-maturity.md) | MinHash LSH dedup, markdown-aware splitter, code/secrets scan, quality heuristics, table preservation — Tier 1 merged to `development`; PyPI tag pending as `v0.5.2`; Tier 2/3 deferred to [Phase 12.5 backlog](roadmap/phase-12-5-backlog.md) |
+| 📋 Planned | [Phase 12.5 — Data Curation Follow-up](roadmap/phase-12-5-backlog.md) | Presidio PII adapter, Croissant metadata export, `--all-mask`, wizard "audit first" flow → after `v0.5.2` tag |
 | 📋 Planned | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO chained config, pipeline provenance artifacts → `v0.5.3` |
 | 📋 Planned | [Phase 13 — Pro CLI & Observability Dashboard](roadmap/phase-13-pro-cli.md) | License-gated dashboard, HPO, scheduled jobs, team config store → `v0.6.0-pro` |
 
@@ -36,22 +37,24 @@ graph LR
     P105 --> P11
     P11 --> P115[Phase 11.5<br/>Ingestion<br/>Polish]
     P115 --> P12[Phase 12<br/>Data Curation<br/>Maturity]
+    P12 --> P125[Phase 12.5<br/>Data Curation<br/>Follow-up]
     P12 --> P14[Phase 14<br/>Pipeline<br/>Chains]
     P14 --> P13[Phase 13<br/>Pro CLI<br/>+ Dashboard]
 
     P10 -.-> V1[v0.4.0]
     P105 -.-> V15[v0.4.5]
     P11 -.-> V2[v0.5.0]
-    P115 -.-> V21[v0.5.1]
-    P12 -.-> V22[v0.5.2]
+    P115 -.-> V21[v0.5.1 pending]
+    P12 -.-> V22[v0.5.2 pending]
     P14 -.-> V23[v0.5.3]
     P13 -.-> V3[v0.6.0-pro]
 
     style P10 fill:#003300,stroke:#00ff88
     style P105 fill:#003300,stroke:#00ff88
     style P11 fill:#003300,stroke:#00ff88
-    style P115 fill:#003300,stroke:#00ff88
-    style P12 fill:#003300,stroke:#00ff88
+    style P115 fill:#004400,stroke:#88ff88
+    style P12 fill:#004400,stroke:#88ff88
+    style P125 fill:#002244,stroke:#00aaff
     style P14 fill:#002244,stroke:#00aaff
     style P13 fill:#442200,stroke:#ffaa00
 ```

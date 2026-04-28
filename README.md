@@ -25,7 +25,7 @@
 - **Automated Benchmarking**: Post-training evaluation via `lm-evaluation-harness`
 - **Safety Evaluation**: Llama Guard classifier with confidence-weighted scoring, S1-S14 harm categories, severity levels, cross-run trend tracking, and auto-revert
 - **LLM-as-Judge**: API-based (OpenAI) or local model scoring for quality assessment
-- **Auto-Revert**: Automatically discard models that fail loss, benchmark, or safety thresholds
+- **Auto-Revert**: Opt-in (`evaluation.auto_revert: true`) — automatically discards models that fail loss, benchmark, or safety thresholds before artifacts are written
 
 ### Document Ingestion & Data Audit (v0.5.0 — polished in v0.5.1, matured in v0.5.2)
 - **Multi-Format Ingestion**: `forgelm ingest ./policies/ --recursive --output data/policies.jsonl` — turns raw PDF / DOCX / EPUB / TXT / Markdown into the SFT-ready JSONL the trainer accepts. Optional dep: `pip install forgelm[ingestion]`. v0.5.2 added a **Markdown-aware splitter** (`--strategy markdown`) and DOCX table preservation in Markdown table syntax.
@@ -36,7 +36,7 @@
 - **Secrets-Aware Ingest (v0.5.2)**: `forgelm ingest … --secrets-mask` scrubs credentials before chunks land in the JSONL — fine-tuning on text containing real API keys memorises them at training time. Pairs with `--pii-mask`; secrets run first so combined detectors don't double-count overlapping spans.
 
 ### Quickstart Layer (v0.4.5)
-- **One-Command Templates**: `forgelm quickstart customer-support` — bundled templates for SFT, code, BYOD domain expert, Turkish medical Q&A, and GRPO math reasoning. Auto-downsizes models on small GPUs.
+- **One-Command Templates**: `forgelm quickstart customer-support` — 4 bundled templates (SFT customer-support, code-assistant, medical-qa-tr, GRPO math-reasoning) plus a bring-your-own-data domain-expert scaffold. Auto-downsizes models on small GPUs.
 - **Conservative Defaults**: Every template ships QLoRA 4-bit, rank=8, batch=1, gradient checkpointing on — designed to run on a single 12 GB GPU.
 - **Wizard Integration**: `forgelm --wizard` opens with "Start from a template?" — same code paths, same YAML schema as a hand-written config.
 
@@ -171,7 +171,7 @@ pip install "forgelm[distributed]"       # DeepSpeed multi-GPU
 pip install "forgelm[merging]"           # mergekit model merging
 pip install "forgelm[ingestion]"         # PDF/DOCX/EPUB/Markdown → JSONL + langdetect + xxhash
 pip install "forgelm[ingestion-scale]"   # MinHash LSH dedup (datasketch) for >50K-row corpora
-pip install "forgelm[ingestion-secrets]" # Reserved for follow-up: detect-secrets bridge (no-op today)
+pip install "forgelm[ingestion-secrets]" # detect-secrets scanner for SFT corpora (falls back to regex if absent)
 pip install "forgelm[export]"            # GGUF export via llama-cpp-python
 pip install "forgelm[chat]"              # Rich terminal rendering for `forgelm chat`
 ```

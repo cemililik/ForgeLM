@@ -550,7 +550,11 @@ def parse_args():
         type=str,
         default=None,
         metavar="OUTPUT_DIR",
-        help="Export compliance artifacts (audit trail, provenance) from an existing training run.",
+        help=(
+            "Export EU AI Act compliance artifacts (audit trail, data provenance, Annex IV docs) "
+            "to OUTPUT_DIR from the given config. Run after training so the manifest is complete; "
+            "standalone use produces artifacts with empty metrics."
+        ),
     )
     parser.add_argument(
         "--data-audit",

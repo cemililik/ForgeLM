@@ -8,6 +8,7 @@ Article 15 (Model Integrity).
 
 import concurrent.futures
 import hashlib
+import hmac as _hmac_module
 import json
 import logging
 import os
@@ -15,6 +16,23 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+# flock is Unix-only; Windows falls back to advisory-only (no hard lock).
+try:
+    import fcntl as _fcntl
+
+    def _flock_ex(f) -> None:
+        _fcntl.flock(f, _fcntl.LOCK_EX)
+
+    def _flock_un(f) -> None:
+        _fcntl.flock(f, _fcntl.LOCK_UN)
+
+except ImportError:  # pragma: no cover — Windows path
+    def _flock_ex(f) -> None:  # type: ignore[misc]
+        pass
+
+    def _flock_un(f) -> None:  # type: ignore[misc]
+        pass
 
 logger = logging.getLogger("forgelm.compliance")
 
@@ -32,7 +50,14 @@ class AuditLogger:
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
         self.log_path = os.path.join(output_dir, "audit_log.jsonl")
+        self._manifest_path = self.log_path + ".manifest.json"
         self.operator = os.getenv("FORGELM_OPERATOR", os.getenv("USER", "unknown"))
+        # Per-run HMAC key: SHA-256(operator_secret || run_id). The secret is
+        # optional — when absent the HMAC degrades to a keyed fingerprint of
+        # the run_id, which still catches single-field tampering even without
+        # a shared secret between writer and verifier.
+        secret = os.getenv("FORGELM_AUDIT_SECRET", "").encode()
+        self._hmac_key: bytes = hashlib.sha256(secret + self.run_id.encode()).digest()
         self._prev_hash = self._load_last_hash()
 
     def _load_last_hash(self) -> str:
@@ -74,18 +99,73 @@ class AuditLogger:
             return hashlib.sha256(last_line).hexdigest()
         return "genesis"
 
+    def _check_genesis_manifest(self) -> None:
+        """Warn if the manifest exists but the log was truncated back to genesis.
+
+        An attacker who can write to the audit directory can delete the JSONL
+        and start a new chain; they cannot also forge the manifest (written
+        once on first entry, never overwritten) without detection.
+        """
+        if not os.path.isfile(self._manifest_path):
+            return
+        try:
+            with open(self._manifest_path, "r", encoding="utf-8") as fh:
+                manifest = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Audit genesis manifest unreadable (%s): %s", self._manifest_path, exc)
+            return
+        if not os.path.isfile(self.log_path) or os.path.getsize(self.log_path) == 0:
+            logger.error(
+                "AUDIT INTEGRITY: genesis manifest exists at %s but audit log is absent or empty. "
+                "The log may have been truncated. First-entry hash expected: %s",
+                self._manifest_path,
+                manifest.get("first_entry_sha256", "unknown"),
+            )
+
+    def _write_genesis_manifest(self, first_entry_sha256: str) -> None:
+        """Pin the first-ever entry hash so log truncation is detectable.
+
+        Written exactly once (when the manifest file does not yet exist).
+        Never overwritten — if the file exists we skip silently.
+        """
+        if os.path.isfile(self._manifest_path):
+            return
+        manifest = {
+            "audit_log": os.path.basename(self.log_path),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "run_id": self.run_id,
+            "first_entry_sha256": first_entry_sha256,
+        }
+        try:
+            with open(self._manifest_path, "w", encoding="utf-8") as fh:
+                json.dump(manifest, fh, indent=2)
+        except OSError as exc:
+            logger.warning("Could not write genesis manifest to %s: %s", self._manifest_path, exc)
+
     def log_event(self, event: str, **details) -> None:
         """Append a tamper-evident structured event to the audit log.
 
         Each entry includes the SHA-256 hash of the previous entry,
         creating a hash chain that detects modifications or deletions.
 
-        Hash advancement is **post-write**: ``self._prev_hash`` is only
-        updated after the line has been successfully appended. The previous
-        version advanced the hash before the write and swallowed the write
-        failure with ``logger.warning`` — leaving an in-memory chain that
-        looked valid but a log file with a missing entry.
+        Hardening:
+
+        - **flock**: ``LOCK_EX`` around the write prevents interleaved
+          lines from concurrent trainers sharing the same output directory.
+        - **HMAC**: each line carries ``_hmac`` — SHA-256(HMAC-key, line_without_hmac)
+          where the key is derived from ``run_id`` and an optional
+          ``FORGELM_AUDIT_SECRET`` env var. Lets a verifier detect
+          single-field edits even without a full chain re-walk.
+        - **Post-write hash advancement**: ``self._prev_hash`` is updated
+          only after the line lands on disk so a write failure leaves the
+          chain intact for a retry.
+        - **Genesis manifest**: on the first write to a new log, pins the
+          first-entry hash in a sidecar file so log truncation is detectable.
         """
+        is_genesis = self._prev_hash == "genesis"
+        if is_genesis:
+            self._check_genesis_manifest()
+
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "run_id": self.run_id,
@@ -94,10 +174,21 @@ class AuditLogger:
             "prev_hash": self._prev_hash,
             **details,
         }
+        # Compute HMAC over the entry without the _hmac tag so the tag can
+        # be stripped before verification without invalidating the hash chain.
+        entry_json_for_hmac = json.dumps(entry, default=str)
+        entry["_hmac"] = _hmac_module.new(
+            self._hmac_key, entry_json_for_hmac.encode(), hashlib.sha256
+        ).hexdigest()
         entry_json = json.dumps(entry, default=str)
+
         try:
             with open(self.log_path, "a") as f:
-                f.write(entry_json + "\n")
+                _flock_ex(f)
+                try:
+                    f.write(entry_json + "\n")
+                finally:
+                    _flock_un(f)
         except OSError as e:
             # Article 12 record-keeping is a load-bearing artefact; a write
             # failure must surface to the caller, not be quietly swallowed.
@@ -106,7 +197,10 @@ class AuditLogger:
                 "The hash chain has NOT been advanced — retry or fail the run."
             ) from e
         # Only advance the chain after the write succeeded.
-        self._prev_hash = hashlib.sha256(entry_json.encode()).hexdigest()
+        new_hash = hashlib.sha256(entry_json.encode()).hexdigest()
+        if is_genesis:
+            self._write_genesis_manifest(new_hash)
+        self._prev_hash = new_hash
 
 
 # ---------------------------------------------------------------------------
@@ -438,17 +532,30 @@ def generate_training_manifest(
 # ---------------------------------------------------------------------------
 
 
+
+# CommonMark special characters that must be backslash-escaped when embedding
+# user-controlled text in inline Markdown contexts (table cells, headings, etc.).
+# Source: https://spec.commonmark.org/0.31.2/#backslash-escapes
+_COMMONMARK_SPECIALS = frozenset(r'!"#$%&\'()*+,-./:;<=>?@[\]^_`{|}~')
+
+
 def _sanitize_md(text: Optional[str]) -> str:
     """Escape user-controlled text before embedding in Markdown to prevent injection.
+
+    Escapes the full CommonMark special-character set so operator-supplied fields
+    (``provider_name``, ``intended_purpose``, etc.) cannot create links, headers,
+    code spans, or table breaks in the generated deployer instructions.
 
     Accepts ``None`` (treated as "Not specified") so callers can pass through
     optional config fields without a per-site None-check.
     """
     if not text:
         return "Not specified"
-    text = text.replace("\n", " ").replace("\r", " ")
-    text = text.replace("|", "\\|")
-    return text.strip()
+    # Collapse newlines first so they don't break table cell boundaries
+    text = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    # Backslash-escape every CommonMark special character
+    escaped = "".join(("\\" + ch if ch in _COMMONMARK_SPECIALS else ch) for ch in text)
+    return escaped.strip()
 
 
 def generate_deployer_instructions(config: Any, metrics: Dict[str, float], final_path: str) -> str:

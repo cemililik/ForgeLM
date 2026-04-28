@@ -364,7 +364,7 @@ class ForgeTrainer:
         else:
             logger.warning("Unknown distributed strategy: %s. Ignoring.", dist_cfg.strategy)
 
-    def _resolve_deepspeed_config(self, config_ref: str = None) -> str:
+    def _resolve_deepspeed_config(self, config_ref: Optional[str] = None) -> str:
         """Resolve a DeepSpeed config reference to a file path.
 
         Accepts:

@@ -65,7 +65,7 @@ def _parse_judge_json(text: str) -> Dict[str, Any]:
     return {"score": None, "reason": f"Invalid JSON response: {text[:200]}"}
 
 
-def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: str = None) -> Dict[str, Any]:
+def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: Optional[str] = None) -> Dict[str, Any]:
     """Call an API-based judge (OpenAI-compatible endpoint)."""
     import requests
 
