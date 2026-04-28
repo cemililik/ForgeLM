@@ -225,9 +225,12 @@ PGP / Azure credential span'lerini chunk'lar JSONL'a inmeden önce
 `[REDACTED-SECRET]` ile değiştirir.
 
 `--output-format json` standart çıktıya makine-okunabilir bir özet
-yazar (dosya yolları, chunk sayısı, format sayıları, notlar ve Faz
-11.5'te eklenen `notes_structured` makine-okunabilir `{key: value}`
-yapısı). CI/CD pipeline'larında kullanışlı.
+yazar: dosya yolları, chunk sayısı, format sayıları, notlar, Faz
+11.5'te eklenen `notes_structured` (makine-okunabilir `{key: value}`
+yapısı) ve Faz 12'de eklenen `secrets_redaction_counts` (`--secrets-mask`
+çalıştığında her secret tipinden kaç span'in `[REDACTED-SECRET]` ile
+değiştirildiğini sayan `{secret_type: count}` haritası). CI/CD
+pipeline'larında kullanışlı.
 
 ### Token-aware chunking — `--chunk-tokens` (Faz 11.5)
 
@@ -278,12 +281,16 @@ sayfadan kısa belgelerde devre dışı kalır. Yapılandırılmış notlar
   body satırları) **chunking stratejisi çalışmadan önce, extraction
   aşamasında** dönüştürür — yani tüm stratejiler render edilmiş
   Markdown'ı görür, satır-major düzleştirilmiş bir string'i değil.
-  Strateji seçimi yalnızca tablo satırlarının chunk sınırları arasında
-  birlikte kalıp kalmayacağını etkiler: `--strategy markdown` her
-  tabloyu satır ortasından bölünmeyen atomik bir section olarak ele
-  alır; `paragraph` / `sliding` uzun bir tabloyu chunk'lara
-  bölebilir. PDF tabloları her durumda düzleştirilmiş kalır
-  (PDF tarafında extraction-time tablo parser'ı bağlı değil).
+  Strateji daha sonra chunk sınırlarının nereye düşeceğini seçer:
+  `_markdown_sections()` **yalnızca heading satırlarında** ayırma yapar
+  (heading-bilen, tablo-bilen değil); bu yüzden `--strategy markdown`
+  altında, çevreleyen heading-bağlı section chunk bütçesine sığıyorsa
+  içindeki tablo da o section ile birlikte taşınır — section'ı
+  bütçeyi aşacak kadar büyük tutan bir tablo yine de bölünebilir.
+  `paragraph` / `sliding`'de chunker tablo yapısından habersizdir ve
+  hücre ortasından satır kesebilir. PDF tabloları her durumda
+  düzleştirilmiş kalır (PDF tarafında extraction-time tablo parser'ı
+  bağlı değil).
 - **Metadata:** başlık / yazar / sayfa numarası düşürülür — yalnızca gövde
   metni JSONL'a iner.
 - **Encoding:** non-UTF-8 girdi `errors="replace"` ile okunur; binary

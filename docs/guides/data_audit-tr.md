@@ -218,9 +218,12 @@ farklı. MinHash yaklaşıktır (permütasyon gürültüsü; varsayılan
 `num_perm=128`), bu yüzden `num_perm` değiştiğinde aynı çift hafifçe
 farklı benzerlik skorlarıyla flag'lenebilir. Cross-run determinizm
 istiyorsanız `num_perm`'i sabit tutun. Audit JSON'a hangi yolun
-çalıştığını kaydeden `near_duplicate_summary.method` alanı eklendi;
-sadece `pairs_per_split`'i okuyan eski tüketiciler değişmeden
-çalışmaya devam eder.
+çalıştığını kaydeden `near_duplicate_summary.method` alanı ile
+per-split sayacı yansıtan `near_duplicate_summary.pairs_per_split`
+mapping'i eklendi. Çift sayısını eski yerinden okuyan tüketiciler —
+yani per-split `splits.<name>.near_duplicate_pairs` (örn.
+`jq '.splits.train.near_duplicate_pairs' data_audit_report.json`) —
+değişmeden çalışmaya devam eder; yeni özet bloğu tamamen additive.
 
 ### Code / secret leakage tagger (Faz 12, always-on)
 

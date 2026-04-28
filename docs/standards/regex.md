@@ -202,7 +202,7 @@ Before opening a PR that touches regex:
 - [ ] No two competing unbounded quantifiers over the same character class.
 - [ ] No `.*?` + back-reference + `DOTALL` (replace with a state machine).
 - [ ] `re.MULTILINE` matches the actual input shape — line-by-line vs. whole-string.
-- [ ] If the regex runs on operator-controlled input: linearity verified by 10K-char pathological benchmark.
+- [ ] If the regex runs on operator-controlled input: linearity verified empirically — pathological benchmark at **1K / 5K / 10K** characters, **median of N runs** (we use 5), and **approximately linear growth** across sizes (per the methodology in [ReDoS exposure budget](#redos-exposure-budget)).
 - [ ] Test fixtures with credential-shaped strings built from inert fragments.
 
 ## Related standards

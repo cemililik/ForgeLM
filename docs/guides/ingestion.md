@@ -298,12 +298,15 @@ assistants, code-with-data prompts.
   converts DOCX tables to **Markdown table syntax** (header + `---`
   separator + body rows) at extraction time, **before any chunking
   strategy runs** — so all strategies see the rendered Markdown, not a
-  row-major flat string. The strategy choice only affects whether table
-  rows stay together across chunk boundaries: `--strategy markdown`
-  treats each table as an atomic section that won't be split mid-row;
-  `paragraph` / `sliding` may still slice a long table across chunks.
-  PDF tables remain flattened in all cases (no extraction-time table
-  parser is wired up for PDFs).
+  row-major flat string. The chunking strategy then chooses where chunk
+  boundaries fall: `_markdown_sections()` splits **only on heading
+  lines** (it is heading-aware, not table-aware), so under
+  `--strategy markdown` a table whose surrounding section fits within
+  the chunk budget travels with that section intact — but a table that
+  is large enough to push the section past the budget can still be
+  split. Under `paragraph` / `sliding`, the chunker is unaware of table
+  structure and may slice rows mid-cell. PDF tables remain flattened in
+  all cases (no extraction-time table parser is wired up for PDFs).
 - **Metadata:** title / author / page numbers are dropped — only body text reaches the JSONL.
 - **Encoding:** non-UTF-8 input is read with `errors="replace"`; binary noise becomes Unicode replacement characters.
 - **Semantic chunking:** raises `NotImplementedError` until embedding support lands in a follow-up phase.

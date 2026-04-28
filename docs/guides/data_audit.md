@@ -221,10 +221,13 @@ practice, but the underlying definitions of "similar" differ. MinHash
 is approximate (permutation noise; default `num_perm=128`), so the same
 pair can be flagged at slightly different similarity scores between
 runs of MinHash itself when `num_perm` changes. Pin `num_perm` if you
-need cross-run determinism. Audit JSON gains a
-`near_duplicate_summary.method` field that records which path ran;
-older consumers reading just `pairs_per_split` continue to work
-unchanged.
+need cross-run determinism. The audit JSON gains a
+`near_duplicate_summary.method` field that records which path ran and
+a `near_duplicate_summary.pairs_per_split` mapping that mirrors the
+per-split pair counts. Older consumers reading the per-split count
+directly — `splits.<name>.near_duplicate_pairs` (e.g.
+`jq '.splits.train.near_duplicate_pairs' data_audit_report.json`) —
+continue to work unchanged; the new summary block is purely additive.
 
 ### Code / secret leakage tagger (Phase 12, always-on)
 
