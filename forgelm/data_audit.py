@@ -569,14 +569,25 @@ def compute_minhash(text: str, *, num_perm: int = DEFAULT_MINHASH_NUM_PERM) -> O
     convention of returning ``0`` for empty input — the caller treats both
     sentinels as "skip in pair-walks"). Tokens are the same as
     :func:`_tokenize` (case-folded ``\\w+``); MinHash sees one update per
-    distinct token, mirroring how simhash weighs tokens uniformly per
-    occurrence — the two methods then surface the same class of
-    near-duplicates within MinHash's permutation noise.
+    **distinct** token (standard MinHash convention).
+
+    Note: this is set-Jaccard similarity over distinct tokens, **not** the
+    same metric simhash uses (frequency-weighted bit-cosine over feature
+    vectors). The two can disagree on documents with high token-frequency
+    variance — e.g. boilerplate / heavy repetition: ``"the cat the cat
+    the cat"`` and ``"cat"`` have identical MinHash sketches but distinct
+    simhash fingerprints. On natural prose the two methods typically
+    agree to within MinHash's permutation noise. Operators that need
+    weighted similarity should stick with simhash; MinHash wins when set
+    overlap (rather than weighted overlap) is the right notion.
     """
-    _require_datasketch()
     tokens = _tokenize(text)
     if not tokens:
         return None
+    # Lazy: only require the optional extra when we actually need the
+    # ``datasketch`` types — defensive callers that call ``compute_minhash("")``
+    # still get a clean ``None`` without paying the import cost.
+    _require_datasketch()
     m = _MinHash(num_perm=num_perm)
     for token in set(tokens):
         m.update(token.encode("utf-8"))
@@ -645,6 +656,12 @@ def _count_leaked_rows_minhash(
     source MinHash. Same shape as :func:`_count_leaked_rows` for simhash —
     drop-in replacement on the ``audit_dataset`` cross-split path.
     """
+    # Short-circuit: if every target row is empty (sentinel) there is nothing
+    # to compare against. Callers from :func:`_cross_split_overlap` already
+    # skip empty splits, but defensive programmatic callers would otherwise
+    # pay the LSH-construction cost for a guaranteed-zero result.
+    if not any(m is not None for m in target):
+        return 0
     _require_datasketch()
     lsh = _MinHashLSH(threshold=jaccard_threshold, num_perm=num_perm)
     target_keys: Dict[str, int] = {}
@@ -738,9 +755,16 @@ _SECRET_PATTERNS: Dict[str, re.Pattern] = {
     "openai_api_key": re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b"),
     # Google API keys (Maps, Cloud, etc.).
     "google_api_key": re.compile(r"\bAIza[A-Za-z0-9_-]{35}\b"),
-    # JSON Web Tokens — header.payload.sig; we anchor on the typical
-    # ``eyJ`` base64url-encoded ``{"`` JSON-header start.
-    "jwt": re.compile(r"\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"),
+    # JSON Web Tokens — header.payload.sig. We anchor the header segment
+    # on the base64url prefix of the canonical JWT header keys (``alg`` /
+    # ``typ`` / ``kid`` / ``cty`` / ``enc``) and require minimum lengths
+    # on payload + signature, so generic ``eyJ.eyJ.X``-shaped strings in
+    # prose don't false-positive. This still catches >99 % of real JWTs.
+    "jwt": re.compile(
+        r"\beyJ(?:hbGc|0eXA|raWQ|jdHk|lbmM|hcGk)[A-Za-z0-9_-]{10,}"
+        r"\.eyJ[A-Za-z0-9_-]{10,}"
+        r"\.[A-Za-z0-9_-]{15,}\b"
+    ),
     # Private-key block headers cover OpenSSH, RSA, DSA, EC, etc.
     "openssh_private_key": re.compile(r"-----BEGIN (?:OPENSSH|RSA|DSA|EC) PRIVATE KEY-----"),
     "pgp_private_key": re.compile(r"-----BEGIN PGP PRIVATE KEY BLOCK-----"),
@@ -809,6 +833,7 @@ _QUALITY_CHECKS: Tuple[str, ...] = (
     "low_punct_endings",
     "abnormal_mean_word_length",
     "short_paragraphs",
+    "repeated_lines",
 )
 """Per-row quality-heuristic identifiers. Same names land in the audit
 JSON's ``quality_summary.by_check`` map; tests pin them so a future
@@ -817,6 +842,17 @@ addition / rename doesn't silently break consumers."""
 
 _WORD_PATTERN = re.compile(r"\b[\w']+\b", re.UNICODE)
 _PUNCT_END_PATTERN = re.compile(r"[.!?…\"'\)\]]\s*$")
+# Match an entire fenced code block (``` … ```) on its own line. We strip
+# these before applying prose heuristics because code legitimately has
+# low alpha ratio, missing end-of-line punctuation, and short paragraphs —
+# applying prose checks to fenced code produces false flags on legitimate
+# code-instruction SFT corpora.
+_CODE_FENCE_BLOCK = re.compile(r"^```[^\n]*\n.*?^```\s*$", re.MULTILINE | re.DOTALL)
+
+
+def _strip_code_fences(text: str) -> str:
+    """Remove fenced ``` … ``` blocks; leave inline code (``…``) intact."""
+    return _CODE_FENCE_BLOCK.sub("", text)
 
 
 def _row_quality_flags(text: str) -> List[str]:
@@ -827,16 +863,27 @@ def _row_quality_flags(text: str) -> List[str]:
     operator decides whether to filter). Empty / non-string input
     short-circuits with an empty list so :class:`_StreamingAggregator`
     can call this on every row without per-call type checks.
+
+    Fenced markdown code blocks (``` … ```) are stripped before applying
+    prose heuristics — code is legitimate SFT content but trips
+    ``low_alpha_ratio`` / ``low_punct_endings`` / ``short_paragraphs`` on
+    its own. If the row is **purely** code (nothing left after stripping),
+    the function returns ``[]`` rather than flagging the whole row.
     """
     if not isinstance(text, str) or not text.strip():
         return []
-    words = _WORD_PATTERN.findall(text)
+    prose = _strip_code_fences(text).strip()
+    if not prose:
+        # Pure code-fence rows: don't flag — this is legitimate SFT data
+        # for code-instruction models, not noise.
+        return []
+    words = _WORD_PATTERN.findall(prose)
     if not words:
         return ["low_alpha_ratio"]
     flags: List[str] = []
 
     # Alphabetic-character ratio: < 70 % of non-whitespace chars are letters.
-    non_ws = [c for c in text if not c.isspace()]
+    non_ws = [c for c in prose if not c.isspace()]
     if non_ws:
         alpha_ratio = sum(1 for c in non_ws if c.isalpha()) / len(non_ws)
         if alpha_ratio < 0.70:
@@ -844,7 +891,7 @@ def _row_quality_flags(text: str) -> List[str]:
 
     # End-of-line punctuation: ≥ 50 % of non-empty lines should close
     # with a punctuation mark. Sub-50 % suggests fragmented / OCR junk.
-    lines = [ln for ln in text.splitlines() if ln.strip()]
+    lines = [ln for ln in prose.splitlines() if ln.strip()]
     if lines:
         punct_ratio = sum(1 for ln in lines if _PUNCT_END_PATTERN.search(ln)) / len(lines)
         if punct_ratio < 0.50:
@@ -857,11 +904,26 @@ def _row_quality_flags(text: str) -> List[str]:
 
     # Short paragraphs: paragraph defined as a "\n\n"-separated block;
     # > 50 % of paragraphs with < 5 words → flag.
-    paragraphs = [p for p in text.split("\n\n") if p.strip()]
+    paragraphs = [p for p in prose.split("\n\n") if p.strip()]
     if paragraphs:
         short = sum(1 for p in paragraphs if len(_WORD_PATTERN.findall(p)) < 5)
         if short / len(paragraphs) > 0.50:
             flags.append("short_paragraphs")
+
+    # Repeated-line ratio: only count lines that **actually repeat** (count
+    # ≥ 2). The top-3 such lines covering > 30 % of all non-empty lines →
+    # flag. A naïve "top-3 distinct lines" rule fires on any short
+    # all-unique document; pinning on count ≥ 2 isolates real boilerplate
+    # (repeated headers / footers / disclaimers) which is what this
+    # heuristic exists to catch.
+    if lines and len(lines) >= 3:
+        line_counts = Counter(lines)
+        repeating = [(ln, n) for ln, n in line_counts.items() if n >= 2]
+        if repeating:
+            repeating.sort(key=lambda kv: kv[1], reverse=True)
+            top3_total = sum(n for _, n in repeating[:3])
+            if top3_total / len(lines) > 0.30:
+                flags.append("repeated_lines")
 
     return flags
 
@@ -1065,6 +1127,50 @@ def _ingest_row(agg: _StreamingAggregator, row: Any, parse_err: bool, decode_err
     _record_text_metrics(agg, payload)
 
 
+def _populate_schema_block(info: Dict[str, Any], agg: _StreamingAggregator) -> None:
+    """Fill columns / schema-drift / non-object-row fields on ``info``."""
+    columns_list = list(agg.seen_columns)
+    if columns_list:
+        info["columns"] = columns_list
+    if agg.keyset_counts:
+        most_common_keyset, _ = agg.keyset_counts.most_common(1)[0]
+        base_columns = set(most_common_keyset)
+        drift_columns = [c for c in columns_list if c not in base_columns]
+        if drift_columns:
+            info["schema_drift_columns"] = drift_columns
+    if agg.non_object_rows:
+        info["non_object_rows"] = agg.non_object_rows
+
+
+def _populate_optional_findings(info: Dict[str, Any], agg: _StreamingAggregator) -> None:
+    """Fill PII / secrets / quality blocks on ``info`` (only when non-empty)."""
+    if agg.pii_counts:
+        info["pii_counts"] = dict(agg.pii_counts)
+    if agg.secrets_counts:
+        info["secrets_counts"] = dict(agg.secrets_counts)
+    if agg.enable_quality_filter and agg.quality_flags_counts:
+        info["quality_flags_counts"] = dict(agg.quality_flags_counts)
+        info["quality_samples_flagged"] = agg.quality_samples_flagged
+
+
+def _within_split_pairs(
+    agg: _StreamingAggregator,
+    *,
+    near_dup_threshold: int,
+    minhash_jaccard: float,
+) -> int:
+    """Run the within-split near-duplicate scan, dispatching on dedup method."""
+    if agg.dedup_method == "minhash":
+        pairs = find_near_duplicates_minhash(
+            agg.minhashes,
+            jaccard_threshold=minhash_jaccard,
+            num_perm=agg.minhash_num_perm,
+        )
+    else:
+        pairs = find_near_duplicates(agg.fingerprints, threshold=near_dup_threshold)
+    return len(pairs)
+
+
 def _aggregator_to_info(
     split_name: str,
     agg: _StreamingAggregator,
@@ -1078,19 +1184,7 @@ def _aggregator_to_info(
         info["near_duplicate_pairs"] = 0
         return info
 
-    columns_list = list(agg.seen_columns)
-    if columns_list:
-        info["columns"] = columns_list
-
-    if agg.keyset_counts:
-        most_common_keyset, _ = agg.keyset_counts.most_common(1)[0]
-        base_columns = set(most_common_keyset)
-        drift_columns = [c for c in columns_list if c not in base_columns]
-        if drift_columns:
-            info["schema_drift_columns"] = drift_columns
-
-    if agg.non_object_rows:
-        info["non_object_rows"] = agg.non_object_rows
+    _populate_schema_block(info, agg)
 
     if agg.text_lengths:
         info["text_length"] = _length_stats(agg.text_lengths)
@@ -1106,13 +1200,7 @@ def _aggregator_to_info(
     else:
         info["simhash_distinct"] = len({fp for fp in agg.fingerprints if fp != 0})
 
-    if agg.pii_counts:
-        info["pii_counts"] = dict(agg.pii_counts)
-    if agg.secrets_counts:
-        info["secrets_counts"] = dict(agg.secrets_counts)
-    if agg.enable_quality_filter and agg.quality_flags_counts:
-        info["quality_flags_counts"] = dict(agg.quality_flags_counts)
-        info["quality_samples_flagged"] = agg.quality_samples_flagged
+    _populate_optional_findings(info, agg)
 
     if agg.sample_count >= _PROGRESS_INTERVAL:
         logger.info(
@@ -1121,15 +1209,11 @@ def _aggregator_to_info(
             "MinHash LSH" if agg.dedup_method == "minhash" else "simhash LSH-banded",
             agg.sample_count,
         )
-    if agg.dedup_method == "minhash":
-        within_pairs = find_near_duplicates_minhash(
-            agg.minhashes,
-            jaccard_threshold=minhash_jaccard,
-            num_perm=agg.minhash_num_perm,
-        )
-    else:
-        within_pairs = find_near_duplicates(agg.fingerprints, threshold=near_dup_threshold)
-    info["near_duplicate_pairs"] = len(within_pairs)
+    info["near_duplicate_pairs"] = _within_split_pairs(
+        agg,
+        near_dup_threshold=near_dup_threshold,
+        minhash_jaccard=minhash_jaccard,
+    )
     return info
 
 

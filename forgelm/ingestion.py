@@ -66,9 +66,9 @@ class IngestionResult:
     files_processed: int
     files_skipped: int
     total_chars: int
-    format_counts: dict = field(default_factory=dict)
-    pii_redaction_counts: dict = field(default_factory=dict)
-    secrets_redaction_counts: dict = field(default_factory=dict)
+    format_counts: Dict[str, int] = field(default_factory=dict)
+    pii_redaction_counts: Dict[str, int] = field(default_factory=dict)
+    secrets_redaction_counts: Dict[str, int] = field(default_factory=dict)
     extra_notes: List[str] = field(default_factory=list)
     notes_structured: Dict[str, Any] = field(default_factory=dict)
     pdf_header_footer_lines_stripped: int = 0
@@ -250,6 +250,17 @@ def _extract_pdf(path: Path, *, dedup_state: Optional[Dict[str, int]] = None) ->
     return "\n\n".join(cleaned_pages)
 
 
+def _escape_md_cell(text: Optional[str]) -> str:
+    """Escape ``|`` and ``\\`` so cell text is safe inside a markdown row.
+
+    Newlines collapse to spaces — a multi-line cell can't be expressed
+    inside one markdown table row. Empty / ``None`` returns ``""``.
+    """
+    if not text:
+        return ""
+    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ").replace("\r", " ").strip()
+
+
 def _docx_table_to_markdown(table: Any) -> str:
     """Phase 12: render a python-docx ``Table`` as a markdown-table block.
 
@@ -264,10 +275,16 @@ def _docx_table_to_markdown(table: Any) -> str:
     with empty cells so the markdown stays well-formed. The first
     non-empty row is treated as the header (no heuristic — that's what
     DOCX authors mean when they put a row in the table's first slot).
+
+    Cell text containing markdown structural characters (``|`` and ``\\``)
+    is escaped per CommonMark — otherwise a cell value like ``a|b`` would
+    be parsed as two extra columns by downstream tokenisers / renderers.
+    Newlines inside cells are collapsed to spaces (a multi-line cell
+    can't be expressed in a single markdown table row).
     """
     rows: List[List[str]] = []
     for row in table.rows:
-        cells = [cell.text.strip() if cell.text else "" for cell in row.cells]
+        cells = [_escape_md_cell(cell.text) for cell in row.cells]
         # Trim purely-empty rows; a row of all blanks is usually a layout artefact.
         if any(cells):
             rows.append(cells)
@@ -440,8 +457,30 @@ def _chunk_semantic(text: str, chunk_size: int) -> Iterable[str]:
 # ---------------------------------------------------------------------------
 
 
-_MARKDOWN_HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
-_MARKDOWN_CODE_FENCE = re.compile(r"^```")
+# CommonMark allows 0-3 leading spaces before an ATX heading marker; 4+
+# spaces would make the line an indented code block instead.
+_MARKDOWN_HEADING_PATTERN = re.compile(r"^[ ]{0,3}(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
+_MARKDOWN_CODE_FENCE = re.compile(r"^[ ]{0,3}```")
+
+
+def _push_heading_onto_path(current_path: List[str], heading_line: str, level: int) -> None:
+    """Pop deeper-or-equal levels off ``current_path`` then push ``heading_line``."""
+    while current_path:
+        last_level = len(current_path[-1].split(maxsplit=1)[0])
+        if last_level >= level:
+            current_path.pop()
+        else:
+            break
+    current_path.append(heading_line)
+
+
+def _trim_blank_edges(lines: List[str]) -> List[str]:
+    """Strip leading/trailing whitespace-only lines; preserve internal blanks."""
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return lines
 
 
 def _markdown_sections(text: str) -> List[Tuple[List[str], str]]:
@@ -459,13 +498,13 @@ def _markdown_sections(text: str) -> List[Tuple[List[str], str]]:
     matters for documents that include shell prompts (``# whoami``) or
     Python comments inside fenced blocks.
     """
-    lines = text.splitlines()
     sections: List[Tuple[List[str], List[str]]] = []
     current_path: List[str] = []
     current_lines: List[str] = []
     in_code_block = False
     seen_heading = False
-    for line in lines:
+
+    for line in text.splitlines():
         if _MARKDOWN_CODE_FENCE.match(line):
             in_code_block = not in_code_block
             current_lines.append(line)
@@ -474,35 +513,26 @@ def _markdown_sections(text: str) -> List[Tuple[List[str], str]]:
             current_lines.append(line)
             continue
         match = _MARKDOWN_HEADING_PATTERN.match(line)
-        if match:
-            if seen_heading or current_lines:
-                sections.append((list(current_path), current_lines))
-            level = len(match.group(1))
-            heading_text = match.group(0).strip()
-            # Pop deeper-or-equal levels off the path stack, then push.
-            while current_path:
-                last_level = len(current_path[-1].split(maxsplit=1)[0])
-                if last_level >= level:
-                    current_path.pop()
-                else:
-                    break
-            current_path.append(heading_text)
-            current_lines = [heading_text]
-            seen_heading = True
+        if not match:
+            current_lines.append(line)
             continue
-        current_lines.append(line)
+        # Heading boundary: flush prior section, then push this heading.
+        if seen_heading or current_lines:
+            sections.append((list(current_path), current_lines))
+        heading_text = match.group(0).strip()
+        _push_heading_onto_path(current_path, heading_text, level=len(match.group(1)))
+        current_lines = [heading_text]
+        seen_heading = True
+
     if current_lines or seen_heading:
         sections.append((list(current_path), current_lines))
+
     # Convert each section's lines list into a single string for emit.
     rendered: List[Tuple[List[str], str]] = []
     for path, body_lines in sections:
-        # Trim leading/trailing whitespace-only lines but preserve internal blanks.
-        while body_lines and not body_lines[0].strip():
-            body_lines.pop(0)
-        while body_lines and not body_lines[-1].strip():
-            body_lines.pop()
-        if body_lines:
-            rendered.append((path, "\n".join(body_lines)))
+        trimmed = _trim_blank_edges(body_lines)
+        if trimmed:
+            rendered.append((path, "\n".join(trimmed)))
     return rendered
 
 
@@ -543,6 +573,11 @@ def _chunk_markdown(text: str, max_chunk_size: int) -> Iterable[str]:
     Code-fenced blocks (``` ``` ```) are kept atomic — never split
     mid-block — because slicing through a code fence produces invalid
     markdown that confuses downstream tokenisers and the model.
+
+    Markdown mode emits **non-overlapping** chunks by design — sections
+    are the unit of indivisibility, and an overlap would slice
+    mid-section and break the heading-breadcrumb invariant. Use
+    ``--strategy sliding`` if you need overlapping windows.
     """
     if max_chunk_size <= 0:
         raise ValueError("max_chunk_size must be positive")
@@ -568,7 +603,12 @@ def _chunk_markdown(text: str, max_chunk_size: int) -> Iterable[str]:
 
 
 def _chunk_markdown_tokens(text: str, max_tokens: int, tokenizer: Any) -> Iterable[str]:
-    """Token-aware twin of :func:`_chunk_markdown`. Same semantics, token cap."""
+    """Token-aware twin of :func:`_chunk_markdown`. Same semantics, token cap.
+
+    Like the character-mode twin, this strategy is **non-overlapping** —
+    section boundaries are atomic. ``--overlap-tokens`` is silently
+    ignored when ``--strategy markdown`` is selected.
+    """
     if max_tokens <= 0:
         raise ValueError("chunk_tokens must be positive")
     sections = _markdown_sections(text)
@@ -830,10 +870,14 @@ def _emit_chunk(
     """Mask (optional), serialise, and write one chunk; update outcome counters.
 
     Mask order is **secrets first, PII second** when both are enabled.
-    Some secret patterns (e.g. GitHub PATs, OpenAI keys) partially overlap
-    with PII regexes (``de_id`` is a letter + digits run); running secrets
-    first redacts those spans cleanly so the PII pass sees a placeholder
-    and can't double-count or mis-classify them.
+    This is a **defensive ordering**: today's regex sets do not produce
+    measurable cross-detector overlap on the test fixtures we ship, but
+    secrets are higher-severity than PII (a leaked AWS key in training
+    data is unrecoverable; a phone number is recoverable via opt-out
+    flows), so when ordering matters at all it should favour the secrets
+    pass. Future PII / secret regex additions could legitimately overlap
+    (e.g. an Azure connection-string substring resembling an IBAN); this
+    ordering future-proofs against that case without operator action.
     """
     if mask_secrets is not None:
         payload, secret_counts = mask_secrets(payload, return_counts=True)
@@ -1037,9 +1081,9 @@ def ingest_path(
     files_processed = 0
     files_skipped = 0
     total_chars = 0
-    format_counts: dict = {}
-    pii_redaction_counts: dict = {}
-    secrets_redaction_counts: dict = {}
+    format_counts: Dict[str, int] = {}
+    pii_redaction_counts: Dict[str, int] = {}
+    secrets_redaction_counts: Dict[str, int] = {}
     notes: List[str] = []
     pdf_dedup_state: Dict[str, int] = {}
 

@@ -192,6 +192,121 @@ Faz 11.5 simhash backend'ini de değiştirilebilir hale getirdi:
   seviyesinde memoize ediyor — Zipfian token frekansı sayesinde küçük
   bir cache bile bir corpus'un trafiğinin çoğunu kapsıyor.
 
+### MinHash LSH dedup (Faz 12)
+
+50K satırın üzerindeki corpus'larda simhash + LSH banding sınırlarını
+hissetmeye başlar: band-bucket fan-out'u büyür ve false-positive
+doğrulama duvar saatine hâkim olmaya başlar. Faz 12 opsiyonel
+`[ingestion-scale]` extra'sı (`datasketch` paketi) üzerinden opt-in
+**MinHash LSH** yolunu ekledi. Yüzey:
+
+```bash
+pip install 'forgelm[ingestion-scale]'
+forgelm audit data/large_corpus.jsonl \
+  --dedup-method minhash --jaccard-threshold 0.85
+```
+
+```python
+from forgelm.data_audit import audit_dataset
+audit_dataset("data/large_corpus.jsonl",
+              dedup_method="minhash", minhash_jaccard=0.85)
+```
+
+İki yöntem **aynı eşiklerde değiştirilebilir değildir** — pratikte
+simhash Hamming ≤ 3 ≈ MinHash Jaccard ≥ 0.85, ama "benzer" tanımı
+farklı. MinHash yaklaşıktır (permütasyon gürültüsü; varsayılan
+`num_perm=128`), bu yüzden `num_perm` değiştiğinde aynı çift hafifçe
+farklı benzerlik skorlarıyla flag'lenebilir. Cross-run determinizm
+istiyorsanız `num_perm`'i sabit tutun. Audit JSON'a hangi yolun
+çalıştığını kaydeden `near_duplicate_summary.method` alanı eklendi;
+sadece `pairs_per_split`'i okuyan eski tüketiciler değişmeden
+çalışmaya devam eder.
+
+### Code / secret leakage tagger (Faz 12, always-on)
+
+Audit artık her satırı, SFT corpus'una hiç girmemesi gereken kimlik
+bilgileri ve token'lar için tarıyor — gerçek bir API anahtarı içeren
+metin üzerinde fine-tune etmek o anahtarı modelin içine ezberletir.
+Detector dar bir prefix-anchored regex seti kullanıyor (false-positive
+oranı bilerek düşük tutuldu) ve `pii_summary` yanında bir
+`secrets_summary` bloğu yayar:
+
+```json
+{
+  "secrets_summary": {
+    "aws_access_key": 1,
+    "github_token": 2,
+    "openai_api_key": 1
+  }
+}
+```
+
+Kapsam: AWS access key'leri (`AKIA…` / `ASIA…`), GitHub PAT'ler
+(`ghp_`, `gho_`, `ghs_`, `ghu_`, `ghr_`, `github_pat_`), Slack
+token'ları (`xox[baprs]-`), OpenAI API anahtarları (`sk-…` ve project
+scoped `sk-proj-…`), Google API anahtarları (`AIza…`), JSON Web
+Token'lar (`eyJ` ile encode edilmiş JSON başlığına anchored —
+sadece `alg`/`typ`/`kid` gibi kanonik header anahtarlarına bağlı, böylece
+prosa false-positive üretmiyor), OpenSSH / RSA / DSA / EC / PGP
+private-key blok başlıkları ve Azure storage connection string'leri.
+
+Operatör tarafında, eğitim öncesi temizlik için iki yol:
+
+```bash
+# Pre-process: helper API ile JSONL'i sonradan yeniden yaz
+python -c "from forgelm.data_audit import mask_secrets; \
+  print(mask_secrets(open('data.jsonl').read()))" > data_clean.jsonl
+
+# Veya ingest sırasında temizle (Faz 12; chunk'lar hiç JSONL'e düşmeden)
+forgelm ingest ./policies/ --recursive --output data/policies.jsonl --secrets-mask
+```
+
+Opsiyonel: `[ingestion-secrets]` kurulumu regex fallback'inin üstüne
+`detect-secrets`'in plugin setini katmanlar.
+
+### Heuristic kalite filtresi (Faz 12, opt-in)
+
+`forgelm audit --quality-filter` her satıra Gopher / C4 / RefinedWeb
+tarzı heuristikler uygular ve `quality_summary` bloğu yüzeye çıkarır:
+
+```json
+{
+  "quality_summary": {
+    "samples_flagged": 47,
+    "by_check": {
+      "low_alpha_ratio": 12,
+      "low_punct_endings": 8,
+      "abnormal_mean_word_length": 3,
+      "short_paragraphs": 27,
+      "repeated_lines": 5
+    },
+    "overall_quality_score": 0.94
+  }
+}
+```
+
+Kontroller (hepsi muhafazakar; hiçbir satır sessizce düşürülmez):
+
+- `low_alpha_ratio` — boşluk dışı karakterlerin < %70'i harf.
+- `low_punct_endings` — boş olmayan satırların < %50'si noktalama
+  ile bitiyor.
+- `abnormal_mean_word_length` — 3-12 karakter penceresinin dışında.
+- `short_paragraphs` — `\n\n` ile ayrılmış blokların > %50'si < 5
+  kelime.
+- `repeated_lines` — top-3 farklı satır boş olmayan satırların >
+  %30'unu kapsıyor (boilerplate / disclaimer tekrarı sinyali).
+
+Heuristikler markdown fenced kod bloklarını **otomatik atlar** — kod
+prosa kurallarına uymadığı için (düşük alpha oranı, eksik son
+noktalama) flag'lenmemesi için fence'lar değerlendirme öncesi
+çıkarılır. Kod yoğun bir satırın tamamı stripping sonrası boş kalırsa
+hiçbir flag atılmaz (kod legitimate SFT içeriği; gürültü değil).
+
+ML tabanlı kalite sınıflayıcılar (fastText / DeBERTa tarzı) bilinçli
+olarak **scope dışı**; deterministik regex / uzunluk / yapı pipeline'ı
+audit'i yeniden üretilebilir tutar (Annex IV gereksinimi) ve bare
+install ile uyumlu kalır.
+
 ---
 
 ## Layout gereksinimleri

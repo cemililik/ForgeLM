@@ -1409,6 +1409,11 @@ def _run_data_audit(
             "pii_severity": report.pii_severity,
             "secrets_summary": report.secrets_summary,
             "quality_summary": report.quality_summary,
+            # Pre-Phase-12 envelope key — kept verbatim so v0.5.1 consumers
+            # (e.g. ``jq '.near_duplicate_pairs_per_split.train'``) keep working.
+            # The richer ``near_duplicate_summary`` below carries the same
+            # data plus method/threshold metadata.
+            "near_duplicate_pairs_per_split": report.near_duplicate_summary.get("pairs_per_split", {}),
             "near_duplicate_summary": report.near_duplicate_summary,
             "cross_split_leakage_pairs": list((report.cross_split_overlap.get("pairs") or {}).keys()),
             "notes": report.notes,
