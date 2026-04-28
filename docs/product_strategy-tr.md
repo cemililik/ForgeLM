@@ -30,7 +30,7 @@ ForgeLM, LLM ince ayarını (fine-tuning) **güvenli, denetlenebilir ve tekrarla
 - **EU AI Act Madde 9-17 + Ek IV** — her madde yapılandırılmış bir çıktı dosyasına karşılık gelir:
   - Mad. 9 Risk Değerlendirmesi → `risk_assessment.json`
   - Mad. 10 Veri Yönetişimi → `data_governance_report.json`
-  - Mad. 11 Teknik Dokümantasyon → `annex_iv_technical_documentation.md`
+  - Mad. 11 Teknik Dokümantasyon → `annex_iv_metadata.json`
   - Mad. 12 Kayıt Tutma → `audit_log.jsonl`
   - Mad. 13 Şeffaflık → `deployer_instructions.md`
   - Mad. 14 İnsan Gözetimi → `require_human_approval: true` + çıkış kodu 4

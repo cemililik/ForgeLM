@@ -220,7 +220,7 @@ checkpoints/compliance/
 ├── data_provenance.json
 ├── risk_assessment.json
 ├── data_governance_report.json
-├── annex_iv_technical_documentation.md
+├── annex_iv_metadata.json
 ├── deployer_instructions.md
 ├── model_integrity.json
 └── audit_log.jsonl          # Tamper-evident hash chain, continuous across restarts

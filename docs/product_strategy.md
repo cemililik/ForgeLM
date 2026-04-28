@@ -30,7 +30,7 @@ As of August 2, 2026, EU AI Act applies to high-risk AI systems. ForgeLM is the 
 - **EU AI Act Articles 9-17 + Annex IV** — each article maps to a structured output artifact:
   - Art. 9 Risk Assessment → `risk_assessment.json`
   - Art. 10 Data Governance → `data_governance_report.json`
-  - Art. 11 Technical Documentation → `annex_iv_technical_documentation.md`
+  - Art. 11 Technical Documentation → `annex_iv_metadata.json`
   - Art. 12 Record-Keeping → `audit_log.jsonl`
   - Art. 13 Transparency → `deployer_instructions.md`
   - Art. 14 Human Oversight → `require_human_approval: true` + exit code 4
