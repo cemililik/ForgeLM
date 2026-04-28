@@ -420,7 +420,13 @@ def compute_dataset_fingerprint(dataset_path: str) -> Dict[str, Any]:
     else:
         fingerprint["source"] = "huggingface_hub"
         fingerprint["dataset_id"] = dataset_path
-        # Attempt to capture dataset version/revision from HF Hub
+        # Attempt to capture dataset version/revision from HF Hub.
+        # Narrow the catch to realistic load_dataset_builder failure modes:
+        # ImportError (datasets extra not installed), FileNotFoundError /
+        # ValueError (dataset id missing or malformed), AttributeError
+        # (info shape drift across `datasets` versions), and ConnectionError /
+        # TimeoutError (offline run). A broad ``Exception`` here would hide
+        # genuine bugs in the rest of the manifest pipeline.
         try:
             from datasets import load_dataset_builder
 
@@ -431,7 +437,14 @@ def compute_dataset_fingerprint(dataset_path: str) -> Dict[str, Any]:
                 fingerprint["description"] = builder.info.description[:200]
             if builder.info.download_size:
                 fingerprint["download_size_bytes"] = builder.info.download_size
-        except Exception as e:
+        except (
+            ImportError,
+            FileNotFoundError,
+            ValueError,
+            AttributeError,
+            ConnectionError,
+            TimeoutError,
+        ) as e:
             logger.debug("HF Hub metadata fetch skipped for '%s': %s", dataset_path, e)
 
     return fingerprint

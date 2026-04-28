@@ -85,12 +85,12 @@ sha256sum data_provenance.json > data_provenance.sha256
 ```
 
 Evidence locations (quick links)
-- Auto‑revert logic: [forgelm/trainer.py](forgelm/trainer.py) — `_revert_model`
-- Safety evaluation: [forgelm/safety.py](forgelm/safety.py)
-- Provenance + AuditLogger + hash chain: [forgelm/compliance.py](forgelm/compliance.py)
-- Config template: [config_template.yaml](config_template.yaml)
-- Safety guidance: [docs/guides/safety_compliance.md](docs/guides/safety_compliance.md)
-- Tests: [tests/test_compliance.py](tests/test_compliance.py), [tests/test_trainer.py](tests/test_trainer.py)
+- Auto‑revert logic: [forgelm/trainer.py](../../forgelm/trainer.py) — `_revert_model`
+- Safety evaluation: [forgelm/safety.py](../../forgelm/safety.py)
+- Provenance + AuditLogger + hash chain: [forgelm/compliance.py](../../forgelm/compliance.py)
+- Config template: [config_template.yaml](../../config_template.yaml)
+- Safety guidance: [docs/guides/safety_compliance.md](../guides/safety_compliance.md)
+- Tests: [tests/test_compliance.py](../../tests/test_compliance.py), [tests/test_trainer.py](../../tests/test_trainer.py)
 
 Phase 8 implemented features (all complete)
 - ComplianceMetadataConfig: provider_name, intended_purpose, risk_classification, system_name (Annex IV)

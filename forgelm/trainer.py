@@ -1244,7 +1244,14 @@ class ForgeTrainer:
                     json.dump(governance, fh, indent=2)
                 self.audit.log_event("compliance.governance_exported", path=gov_path)
                 governance_ok = True
-            except OSError as e:
+            except Exception as e:  # noqa: BLE001 — best-effort; broad catch keeps the audit trail honest
+                # OSError covers filesystem failures, but the governance
+                # report can also fail with TypeError (config schema drift),
+                # ValueError (dataset shape), AttributeError (mocked deps in
+                # tests), etc.  Any of those still represent a failed
+                # Article 10 export and must be recorded as such — the
+                # narrower OSError-only catch let those propagate and
+                # crash the surrounding compliance flow.
                 logger.warning("Could not write data_governance_report.json: %s", e)
                 self.audit.log_event("compliance.governance_failed", reason=str(e))
 

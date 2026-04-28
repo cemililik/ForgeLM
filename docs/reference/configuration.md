@@ -219,6 +219,8 @@ across retries. Each retry attempt is logged to the audit trail.
 | `notify_on_success` | bool | `true` | Notify on success |
 | `notify_on_failure` | bool | `true` | Notify on failure |
 | `timeout` | int | `5` | HTTP request timeout (seconds) |
+| `allow_private_destinations` | bool | `false` | Opt in to webhooks pointing at RFC1918 / loopback / link-local hosts (in-cluster Slack proxy, on-prem Teams gateway). Defaults to public-internet only — SSRF guard |
+| `tls_ca_bundle` | string | `null` | Path to a custom CA bundle forwarded to `requests` as `verify=` (e.g. corporate MITM CA). When unset, `certifi`'s bundled store is used |
 
 ---
 
@@ -231,6 +233,8 @@ across retries. Each retry attempt is logged to the audit trail.
 | `fsdp_strategy` | string | `"full_shard"` | `"full_shard"`, `"shard_grad_op"`, `"hybrid_shard"`, `"no_shard"` |
 | `fsdp_auto_wrap` | bool | `true` | Auto-wrap transformer layers |
 | `fsdp_offload` | bool | `false` | Offload parameters to CPU |
+| `fsdp_backward_prefetch` | string | `"backward_pre"` | `"backward_pre"` or `"backward_post"` |
+| `fsdp_state_dict_type` | string | `"FULL_STATE_DICT"` | `"FULL_STATE_DICT"` or `"SHARDED_STATE_DICT"` |
 
 ---
 

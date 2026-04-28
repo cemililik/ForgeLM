@@ -81,7 +81,7 @@
           <span class="i18n-inline" data-lang="tr">Formspree üzerinden iletilir. E-postanız yalnızca cevap için kullanılır — liste yok, takip yok.</span>
         </p>
 
-        <!-- Replace mbdqglqj with your real Formspree form ID after creating it at formspree.io -->
+        <!-- Replace xnjlejbb with your own Formspree form ID after creating one at formspree.io. -->
         <form id="contact-form" action="https://formspree.io/f/xnjlejbb" method="POST" novalidate>
           <input type="hidden" name="_subject" value="">
 
@@ -100,11 +100,11 @@
             <div class="form-group">
               <label for="topic"><span class="i18n-inline" data-lang="en">Topic</span><span class="i18n-inline" data-lang="tr">Konu başlığı</span></label>
               <select id="topic" name="topic" required>
-                <option value="general"><span>General question</span></option>
-                <option value="bug"><span>Bug report</span></option>
-                <option value="feature"><span>Feature request</span></option>
-                <option value="security"><span>Security disclosure</span></option>
-                <option value="commercial"><span>Commercial / consulting</span></option>
+                <option value="general"    data-i18n="contact.form.topic_general">General question</option>
+                <option value="bug"        data-i18n="contact.form.topic_bug">Bug report</option>
+                <option value="feature"    data-i18n="contact.form.topic_feature">Feature request</option>
+                <option value="security"   data-i18n="contact.form.topic_security">Security disclosure</option>
+                <option value="commercial" data-i18n="contact.form.topic_commercial">Commercial / consulting</option>
               </select>
             </div>
             <div class="form-group">

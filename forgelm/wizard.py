@@ -47,8 +47,10 @@ _PREFERENCE_COLUMNS_HINT = "Columns: prompt, chosen, rejected"
 # touching the local filesystem; the trainer resolves them at runtime. The
 # Hub allows usernames + repo names up to 96 chars each, so we bound the
 # repeats per docs/standards/regex.md rule 3 (defence-in-depth, no behaviour
-# change vs. ``+``).
-_HF_HUB_ID_RE = re.compile(r"^[\w.-]{1,96}/[\w.-]{1,96}$")
+# change vs. ``+``). re.ASCII forces ``\w`` to mean ``[A-Za-z0-9_]`` — Hub IDs
+# are ASCII-only, and Unicode-aware ``\w`` would silently accept characters
+# the Hub itself rejects.
+_HF_HUB_ID_RE = re.compile(r"^[\w.-]{1,96}/[\w.-]{1,96}$", flags=re.ASCII)
 
 
 def _prompt(question: str, default: str = "") -> str:

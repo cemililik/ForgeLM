@@ -1,14 +1,21 @@
 /**
- * ForgeLM site — minimal i18n switcher (EN/TR).
+ * ForgeLM site — i18n switcher.
  *
- * Convention:
- *   <span class="i18n-inline" data-lang="en">English</span>
- *   <span class="i18n-inline" data-lang="tr">Turkish</span>
- *   <div  class="i18n-block"  data-lang="en">...</div>
- *   <div  class="i18n-block"  data-lang="tr">...</div>
+ * Supported languages: en (default), tr, de, fr, es, zh.
  *
- * The active language gets the .active class; others stay hidden via CSS.
- * Persists choice to localStorage; falls back to navigator.language.
+ * Detection order:
+ *   1. localStorage["forgelm-lang"]
+ *   2. navigator.language prefix (e.g. "fr-CA" → "fr")
+ *   3. fallback to "en"
+ *
+ * Markup conventions (set in HTML):
+ *   <span data-i18n="key">English fallback</span>      — replaces textContent
+ *   <span data-i18n-html="key">…</span>                 — replaces innerHTML (use when value contains tags)
+ *   <meta data-i18n-attr="content:meta.desc.home">      — sets attribute(s); supports "attr1:key1,attr2:key2"
+ *   <title data-i18n="meta.title.home">…</title>        — title gets textContent treatment
+ *
+ * Translations are loaded from window.ForgeLMTranslations
+ * (translations.js, must load before this file).
  */
 (function () {
   'use strict';
@@ -17,57 +24,100 @@
   // renamed off the *_KEY suffix that triggers Codacy's "hardcoded password"
   // heuristic on string literals.
   var LANG_PREF_NAME = 'forgelm-lang';
-  var SUPPORTED = ['en', 'tr'];
-  var DEFAULT = 'en';
+  var SUPPORTED      = ['en', 'tr', 'de', 'fr', 'es', 'zh'];
+  var DEFAULT        = 'en';
+
+  function getTranslations() {
+    return (window && window.ForgeLMTranslations) || {};
+  }
 
   function detectLanguage() {
     var stored;
-    var nav;
-    var prefix;
     try {
       stored = localStorage.getItem(LANG_PREF_NAME);
       if (stored && SUPPORTED.indexOf(stored) !== -1) return stored;
     } catch (_) { /* localStorage may be blocked */ }
 
-    nav = (navigator.language || navigator.userLanguage || '').toLowerCase();
-    prefix = nav.split('-')[0];
+    var nav = (navigator.language || navigator.userLanguage || '').toLowerCase();
+    var prefix = nav.split('-')[0];
     return SUPPORTED.indexOf(prefix) !== -1 ? prefix : DEFAULT;
   }
 
+  function lookup(table, key) {
+    if (!table) return undefined;
+    return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+  }
+
   function setLanguage(lang) {
-    if (SUPPORTED.indexOf(lang) === -1) return;
+    if (SUPPORTED.indexOf(lang) === -1) lang = DEFAULT;
+
     try { localStorage.setItem(LANG_PREF_NAME, lang); } catch (_) {}
+
+    var all      = getTranslations();
+    var table    = all[lang]    || all[DEFAULT] || {};
+    var fallback = all[DEFAULT] || {};
+
     document.documentElement.lang = lang;
 
-    document.querySelectorAll('[data-lang]').forEach(function (el) {
-      el.classList.toggle('active', el.dataset.lang === lang);
-    });
-    document.querySelectorAll('.lang-toggle button').forEach(function (btn) {
-      btn.classList.toggle('active', btn.dataset.setLang === lang);
+    // Plain-text replacements.
+    document.querySelectorAll('[data-i18n]').forEach(function (el) {
+      var k = el.getAttribute('data-i18n');
+      var v = lookup(table, k);
+      if (v === undefined) v = lookup(fallback, k);
+      if (v === undefined) return;
+      el.textContent = v;
     });
 
-    // Update <title> if it has bilingual data attrs.
-    var titleEl = document.querySelector('title[data-title-en][data-title-tr]');
-    if (titleEl) {
-      titleEl.textContent = titleEl.dataset['title' + (lang === 'tr' ? 'Tr' : 'En')];
-    }
+    // HTML replacements (for content with markup like <code>, <em>).
+    document.querySelectorAll('[data-i18n-html]').forEach(function (el) {
+      var k = el.getAttribute('data-i18n-html');
+      var v = lookup(table, k);
+      if (v === undefined) v = lookup(fallback, k);
+      if (v === undefined) return;
+      el.innerHTML = v;
+    });
 
-    // Update meta description if bilingual.
-    var descEl = document.querySelector('meta[name="description"][data-desc-en][data-desc-tr]');
-    if (descEl) {
-      descEl.setAttribute('content', descEl.dataset['desc' + (lang === 'tr' ? 'Tr' : 'En')]);
-    }
+    // Attribute replacements: data-i18n-attr="content:meta.desc.home,placeholder:form.name".
+    document.querySelectorAll('[data-i18n-attr]').forEach(function (el) {
+      var spec = el.getAttribute('data-i18n-attr');
+      if (!spec) return;
+      spec.split(',').forEach(function (pair) {
+        var idx = pair.indexOf(':');
+        if (idx === -1) return;
+        var attr = pair.slice(0, idx).trim();
+        var k    = pair.slice(idx + 1).trim();
+        var v = lookup(table, k);
+        if (v === undefined) v = lookup(fallback, k);
+        if (v === undefined) return;
+        el.setAttribute(attr, v);
+      });
+    });
+
+    // Mark the active language menu button.
+    document.querySelectorAll('.lang-toggle-menu button[data-set-lang]').forEach(function (btn) {
+      var on = btn.dataset.setLang === lang;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+
+    // Update the dropdown trigger label to the current language code.
+    var labelEl = document.querySelector('.lang-toggle-current');
+    if (labelEl) labelEl.textContent = lang.toUpperCase();
   }
 
   document.addEventListener('DOMContentLoaded', function () {
     setLanguage(detectLanguage());
 
-    document.querySelectorAll('.lang-toggle button').forEach(function (btn) {
+    document.querySelectorAll('.lang-toggle-menu button[data-set-lang]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         setLanguage(btn.dataset.setLang);
       });
     });
   });
 
-  window.ForgeLMi18n = { setLanguage: setLanguage, detectLanguage: detectLanguage };
+  window.ForgeLMi18n = {
+    setLanguage:    setLanguage,
+    detectLanguage: detectLanguage,
+    supported:      SUPPORTED.slice()
+  };
 })();

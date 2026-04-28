@@ -151,11 +151,13 @@ jobs:
           python -c "
           import re, sys
           pairs = [
-              ('docs/reference/configuration.md',      'docs/reference/configuration-tr.md'),
-              ('docs/reference/usage.md',              'docs/reference/usage-tr.md'),
+              ('docs/reference/configuration.md',       'docs/reference/configuration-tr.md'),
+              ('docs/reference/usage.md',               'docs/reference/usage-tr.md'),
               ('docs/reference/distributed_training.md','docs/reference/distributed_training-tr.md'),
               ('docs/reference/data_preparation.md',    'docs/reference/data_preparation-tr.md'),
-              ('docs/reference/architecture.md',       'docs/reference/architecture-tr.md'),
+              ('docs/reference/architecture.md',        'docs/reference/architecture-tr.md'),
+              ('docs/guides/ingestion.md',              'docs/guides/ingestion-tr.md'),
+              ('docs/guides/data_audit.md',             'docs/guides/data_audit-tr.md'),
           ]
           failed = False
           for en, tr in pairs:

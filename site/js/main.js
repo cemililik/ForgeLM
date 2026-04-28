@@ -1,6 +1,7 @@
 /**
  * ForgeLM site — interactions:
  *   - mobile nav toggle
+ *   - language dropdown open/close
  *   - dark/light theme toggle (system-aware default)
  *   - copy-to-clipboard for code blocks
  *   - Formspree contact form submission
@@ -12,11 +13,26 @@
   document.addEventListener('DOMContentLoaded', function () {
     initNav();
     initTheme();
+    initLangDropdown();
     initCopyButtons();
     initContactForm();
     initHeroTyper();
     initSmoothAnchorOffset();
   });
+
+  /* ── Helpers ──────────────────────────────────────── */
+  // Pull a translation by key from the current language table, with EN
+  // fallback. Returns the key itself if no entry is found, so the UI
+  // doesn't show "undefined".
+  function tr(key) {
+    var lang = document.documentElement.lang || 'en';
+    var all = (window && window.ForgeLMTranslations) || {};
+    var table = all[lang] || all.en || {};
+    if (Object.prototype.hasOwnProperty.call(table, key)) return table[key];
+    var en = all.en || {};
+    if (Object.prototype.hasOwnProperty.call(en, key)) return en[key];
+    return key;
+  }
 
   /* ── Nav (mobile hamburger) ──────────────────────── */
   function initNav() {
@@ -37,6 +53,44 @@
         if (actions) actions.classList.remove('open');
         hamburger.setAttribute('aria-expanded', 'false');
       });
+    });
+  }
+
+  /* ── Language dropdown (open/close) ──────────────── */
+  function initLangDropdown() {
+    var dropdown = document.querySelector('.lang-toggle');
+    if (!dropdown) return;
+    var trigger = dropdown.querySelector('.lang-toggle-btn');
+    if (!trigger) return;
+
+    trigger.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var open = dropdown.classList.toggle('open');
+      trigger.setAttribute('aria-expanded', String(open));
+    });
+
+    // Close when a language option is picked.
+    dropdown.querySelectorAll('.lang-toggle-menu button').forEach(function (b) {
+      b.addEventListener('click', function () {
+        dropdown.classList.remove('open');
+        trigger.setAttribute('aria-expanded', 'false');
+      });
+    });
+
+    // Close when clicking outside the dropdown.
+    document.addEventListener('click', function (e) {
+      if (!dropdown.contains(e.target)) {
+        dropdown.classList.remove('open');
+        trigger.setAttribute('aria-expanded', 'false');
+      }
+    });
+
+    // Close on Escape.
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        dropdown.classList.remove('open');
+        trigger.setAttribute('aria-expanded', 'false');
+      }
     });
   }
 
@@ -61,8 +115,14 @@
     if (stored === 'light' || stored === 'dark') {
       applyTheme(stored);
     } else {
-      // System preference. Default = dark (forge identity).
-      applyTheme('dark');
+      // Honour system preference on first visit (no stored choice yet),
+      // falling back to dark — the forge identity — when the user has not
+      // expressed a system preference at all.
+      var prefersDark = window.matchMedia
+        && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var prefersLight = window.matchMedia
+        && window.matchMedia('(prefers-color-scheme: light)').matches;
+      applyTheme(prefersLight && !prefersDark ? 'light' : 'dark');
     }
 
     if (!btn) return;
@@ -93,8 +153,7 @@
             return n.cloneNode(true);
           });
           btn.classList.add('copied');
-          var lang = document.documentElement.lang || 'en';
-          btn.textContent = lang === 'tr' ? 'kopyalandı' : 'copied';
+          btn.textContent = tr('common.copy.done');
           setTimeout(function () {
             btn.classList.remove('copied');
             // Restore by replacing children with the cloned snapshot.
@@ -130,22 +189,16 @@
         body: new FormData(form),
         headers: { Accept: 'application/json' }
       }).then(function (res) {
-        var lang = document.documentElement.lang || 'en';
         if (res.ok) {
           status.className = 'form-status success';
-          status.textContent = lang === 'tr'
-            ? 'Mesajınız iletildi. En kısa sürede dönüş yapacağız.'
-            : 'Message received. We will get back to you shortly.';
+          status.textContent = tr('contact.form.success');
           form.reset();
         } else {
           throw new Error('formspree_failed');
         }
       }).catch(function () {
-        var lang = document.documentElement.lang || 'en';
         status.className = 'form-status error';
-        status.textContent = lang === 'tr'
-          ? 'Gönderilemedi. Lütfen daha sonra tekrar deneyin veya GitHub Issues üzerinden ulaşın.'
-          : 'Could not send. Please try again later or reach out via GitHub Issues.';
+        status.textContent = tr('contact.form.error');
       }).finally(function () {
         btn.disabled = false;
       });

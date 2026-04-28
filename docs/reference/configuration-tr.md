@@ -204,6 +204,8 @@ training:
 | `fsdp_strategy` | string | `"full_shard"` | `"full_shard"`, `"shard_grad_op"`, `"hybrid_shard"`, `"no_shard"` |
 | `fsdp_auto_wrap` | bool | `true` | Transformer katmanlarını otomatik sar |
 | `fsdp_offload` | bool | `false` | Parametreleri CPU'ya taşı |
+| `fsdp_backward_prefetch` | string | `"backward_pre"` | `"backward_pre"` veya `"backward_post"` |
+| `fsdp_state_dict_type` | string | `"FULL_STATE_DICT"` | `"FULL_STATE_DICT"` veya `"SHARDED_STATE_DICT"` |
 
 ## `synthetic` (İsteğe bağlı — Sentetik Veri Üretimi)
 
@@ -238,6 +240,8 @@ training:
 | `notify_on_success` | bool | `true` | Başarıda bildir |
 | `notify_on_failure` | bool | `true` | Hata durumunda bildir |
 | `timeout` | int | `5` | HTTP istek zaman aşımı (saniye) |
+| `allow_private_destinations` | bool | `false` | RFC1918 / loopback / link-local hedeflere webhook gönderimine izin verir (cluster içi Slack proxy, on-prem Teams gateway gibi). Varsayılan yalnızca genel internet — SSRF koruması |
+| `tls_ca_bundle` | string | `null` | `requests`'e `verify=` olarak iletilen özel CA bundle yolu (örn. kurumsal MITM CA). Boşsa `certifi` paketinin gömülü deposu kullanılır |
 
 ## `merge` (İsteğe bağlı)
 

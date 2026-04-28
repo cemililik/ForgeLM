@@ -164,7 +164,7 @@ checkpoints/
 ## Günlükler ve İzleme
 
 ForgeLM yapılandırılmış formatta stderr'e log yazar:
-```
+```text
 2026-03-24 10:30:00 [INFO] forgelm.trainer: Starting training...
 2026-03-24 11:45:00 [WARNING] forgelm.trainer: eval_steps (200) is larger than dataset (50 samples).
 ```

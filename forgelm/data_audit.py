@@ -446,7 +446,10 @@ def compute_simhash(text: str, *, bits: int = 64) -> int:
     for token in tokens:
         weights[token] = weights.get(token, 0) + 1
 
-    if _HAS_NUMPY and bits % 8 == 0:
+    # Numpy fast path uses ``np.uint64`` for the hash dtype, which silently
+    # truncates digests wider than 64 bits — fall back to pure Python for
+    # those (the hashlib BLAKE2b path scales arbitrarily wide).
+    if _HAS_NUMPY and bits % 8 == 0 and bits <= 64:
         return _compute_simhash_numpy(weights, bits)
 
     bit_scores = [0] * bits

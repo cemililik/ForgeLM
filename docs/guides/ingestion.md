@@ -98,7 +98,9 @@ Detected spans are replaced with `[REDACTED]`. Detection is regex-based —
 false positives are intentional. Audit your output afterwards with
 `forgelm audit` to verify.
 
-### Secrets masking (Phase 12)
+---
+
+## Secrets masking on the way in (Phase 12)
 
 Add `--secrets-mask` to scrub credentials and tokens before chunks land
 in the JSONL — fine-tuning a model on a corpus that contains a real API

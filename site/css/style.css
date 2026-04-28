@@ -280,31 +280,73 @@ section { padding: 5rem 0; }
   margin-left: 0.75rem;
 }
 
+/* Language dropdown (6 languages: EN, TR, DE, FR, ES, ZH).
+   Trigger button shows the current 2-letter code; menu lists native names. */
 .lang-toggle {
-  display: flex;
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 3px;
-  gap: 0;
-  /* Reset <fieldset> defaults — index.html uses a fieldset for a11y. */
+  position: relative;
   margin: 0;
   min-width: 0;
 }
-.lang-toggle button {
-  background: none;
-  border: none;
-  padding: 0.3rem 0.65rem;
-  font: 600 0.78rem var(--font-sans);
-  color: var(--text-muted);
-  cursor: pointer;
+.lang-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
   border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font: 600 0.78rem var(--font-sans);
+  color: var(--text);
+  cursor: pointer;
   transition: all var(--transition);
 }
-.lang-toggle button.active {
+.lang-toggle-btn:hover {
+  border-color: var(--ember);
+  color: var(--ember-bright);
+}
+.lang-toggle-btn svg { width: 14px; height: 14px; }
+.lang-toggle-btn .chevron {
+  width: 10px;
+  height: 10px;
+  transition: transform var(--transition);
+}
+.lang-toggle.open .lang-toggle-btn .chevron { transform: rotate(180deg); }
+
+.lang-toggle-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 150px;
   background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  list-style: none;
+  padding: 0.3rem 0;
+  z-index: 110;
+}
+.lang-toggle.open .lang-toggle-menu { display: block; }
+.lang-toggle-menu li { margin: 0; }
+.lang-toggle-menu button {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0.5rem 0.95rem;
+  text-align: left;
+  font: 500 0.88rem var(--font-sans);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.lang-toggle-menu button:hover {
+  background: var(--bg-elev);
   color: var(--text);
-  box-shadow: 0 1px 3px rgba(0,0,0,.3);
+}
+.lang-toggle-menu button.active {
+  color: var(--ember-bright);
+  font-weight: 600;
 }
 
 .theme-toggle {
@@ -1295,12 +1337,13 @@ section { padding: 5rem 0; }
 }
 
 /* ── i18n ────────────────────────────────────────────────── */
-[data-lang] { display: none; }
-[data-lang].active { display: revert; }
-.i18n-block { display: none; }
-.i18n-block.active { display: block; }
-.i18n-inline { display: none; }
-.i18n-inline.active { display: inline; }
+/* Translations are applied at runtime by js/i18n.js, which replaces
+   text content for elements carrying [data-i18n], [data-i18n-html] or
+   [data-i18n-attr] attributes. No display toggling required.
+   Hide elements until i18n.js has run, so users do not see English
+   defaults flicker if their preferred language is something else. */
+html:not([lang]) [data-i18n],
+html:not([lang]) [data-i18n-html] { visibility: hidden; }
 
 /* ── Accessibility ──────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
@@ -1342,7 +1385,11 @@ section { padding: 5rem 0; }
   width: 1px; height: 1px;
   padding: 0; margin: -1px;
   overflow: hidden;
+  /* `clip` is deprecated but kept as a legacy fallback for older browsers
+     that don't yet honour `clip-path`. New code should rely on the
+     `clip-path` declaration below. */
   clip: rect(0,0,0,0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
 }

@@ -24,9 +24,9 @@
 
 **Merged on `development`, tag + PyPI publish pending:** `v0.5.2` — Data Curation Maturity (Phase 12). MinHash LSH dedup option for >50K-row corpora (`[ingestion-scale]` extra), markdown-aware splitter, code/secrets leakage scan + ingest-side `--secrets-mask` (`[ingestion-secrets]` extra), heuristic quality filter, DOCX/Markdown table preservation. Direct continuation of the Phase 11/11.5 ingestion + audit lineage; closes the gaps surfaced by the post-`v0.5.1` competitive review. Tier 2/3 follow-ups (Presidio adapter, Croissant metadata, `--all-mask`, wizard "audit first") deferred to [Phase 12.5 backlog](roadmap/phase-12-5-backlog.md).
 
-**Next:** `v0.5.3` — Multi-Stage Pipeline Chains (Phase 14). SFT → DPO → GRPO chained config, pipeline provenance artifacts. Starts after Phase 12 lands.
+**Next:** `v0.5.3` — Multi-Stage Pipeline Chains (Phase 14). SFT → DPO → GRPO chained config, pipeline provenance artifacts. Starts after the `v0.5.2` PyPI tag is published.
 
-**Current state:** 16 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12) complete. 2 phases (13, 14) planned. `v0.5.3`: Phase 14. `v0.6.0-pro` (Phase 13) gated on adoption metrics.
+**Current state:** 16 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12) complete. 3 phases (12.5, 13, 14) planned. `v0.5.3`: Phase 14 (12.5 backlog folded in opportunistically). `v0.6.0-pro` (Phase 13) gated on adoption metrics.
 
 ## Quick summary of what's planned
 
