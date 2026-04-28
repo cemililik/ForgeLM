@@ -161,7 +161,21 @@ checkpoints/
 └── benchmark/                       # Benchmark sonuçları
 ```
 
-## GaLore (Bellek Verimli Tam Parametre Eğitimi)
+## Günlükler ve İzleme
+
+ForgeLM yapılandırılmış formatta stderr'e log yazar:
+```
+2026-03-24 10:30:00 [INFO] forgelm.trainer: Starting training...
+2026-03-24 11:45:00 [WARNING] forgelm.trainer: eval_steps (200) is larger than dataset (50 samples).
+```
+
+### TensorBoard
+
+```bash
+tensorboard --logdir=./checkpoints/runs/
+```
+
+### GaLore (Bellek Verimli Tam Parametre Eğitimi)
 
 GaLore, LoRA'ya alternatif olarak optimizer seviyesinde bellek optimizasyonu sağlar ve gradient düşük rank projeksiyonu ile tam parametre eğitimine olanak tanır:
 
@@ -176,7 +190,7 @@ training:
   galore_target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 ```
 
-## Uzun Bağlam Eğitimi
+### Uzun Bağlam Eğitimi
 
 RoPE ölçekleme, NEFTune gürültü enjeksiyonu, kayan pencere dikkat ve örnek paketleme ile genişletilmiş bağlam penceresi desteğini etkinleştirin:
 
@@ -188,7 +202,7 @@ training:
   sample_packing: true                # Kısa örnekleri tam uzunluklu dizilere paketle
 ```
 
-## GPU Maliyet Tahmini
+### GPU Maliyet Tahmini
 
 ForgeLM GPU modelinizi otomatik algılar (18 GPU modeli desteklenir) ve eğitim çalışması başına tahmini maliyeti takip eder. Çıktı JSON sonuçlarına, webhook bildirimlerine ve model kartlarına dahil edilir:
 
@@ -205,6 +219,24 @@ GPU Maliyet Tahmini:
 ```yaml
 training:
   gpu_cost_per_hour: 3.00  # GPU-saat başına USD
+```
+
+### W&B
+
+```yaml
+training:
+  report_to: "wandb"
+  run_name: "my-experiment"
+```
+
+### Webhook Bildirimleri
+
+```yaml
+webhook:
+  url_env: "FORGELM_WEBHOOK_URL"
+  notify_on_start: true
+  notify_on_success: true
+  notify_on_failure: true
 ```
 
 ## Docker
