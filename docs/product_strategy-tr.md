@@ -43,7 +43,7 @@ ForgeLM, LLM ince ayarını (fine-tuning) **güvenli, denetlenebilir ve tekrarla
 ForgeLM'in temel mimari kimliği: bir YAML dosyası bir eğitim çalışmasını eksiksiz tanımlar. Python kodu gerekmez, ortam değişkeni aranmaz, notebook durumu yok.
 
 - **Tek YAML girer, ince ayarlı model + compliance kanıtları çıkar** — deterministik ve sürüm kontrollü
-- **Anlamlı çıkış kodları** pipeline orkestrasyonu için: 0 (başarı), 1 (eğitim hatası), 2 (değerlendirme hatası), 3 (güvenlik hatası), 4 (insan onayı bekleniyor)
+- **Anlamlı çıkış kodları** pipeline orkestrasyonu için: 0 (başarı), 1 (config/doğrulama hatası), 2 (eğitim hatası), 3 (değerlendirme/güvenlik hatası), 4 (insan onayı bekleniyor)
 - **`--dry-run`**: GPU tahsis etmeden config, veri ve model yüklemeyi tam olarak doğrular
 - **Yapılandırılmış JSON çıktı**: tüm değerlendirme ve compliance adımlarında aşağı akış sistemlerince parse edilebilir
 - **Docker-native**: GPU ve CPU için resmi çok aşamalı imajlar; çevrimdışı/izole (air-gapped) mod desteklenir

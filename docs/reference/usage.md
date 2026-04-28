@@ -100,7 +100,7 @@ After training, interact with and deploy your fine-tuned model directly from the
 ```bash
 # Interactive chat REPL (streaming by default)
 forgelm chat ./checkpoints/final_model
-forgelm chat ./checkpoints/final_model --adapter ./adapter --safety
+forgelm chat ./checkpoints/final_model --adapter ./adapter
 forgelm chat ./checkpoints/final_model --system "You are a helpful assistant." --temperature 0.8
 
 # Export to GGUF (for Ollama, LM Studio, llama.cpp)

@@ -43,7 +43,7 @@ As of August 2, 2026, EU AI Act applies to high-risk AI systems. ForgeLM is the 
 ForgeLM's core architectural identity: a YAML file fully describes a training run. No Python code required. No environment variable hunting. No notebook state.
 
 - **Single YAML in, fine-tuned model + compliance artifacts out** — deterministic and version-controllable
-- **Meaningful exit codes** for pipeline orchestration: 0 (success), 1 (training failure), 2 (evaluation failure), 3 (safety failure), 4 (awaiting human approval)
+- **Meaningful exit codes** for pipeline orchestration: 0 (success), 1 (config/validation error), 2 (training error), 3 (evaluation/safety failure), 4 (awaiting human approval)
 - **`--dry-run`** validates the full pipeline — config, data, model loading — without allocating a GPU
 - **Structured JSON output** on all evaluation and compliance steps — parseable by any downstream system
 - **Docker-native**: official multi-stage images for GPU and CPU; offline/air-gapped mode supported

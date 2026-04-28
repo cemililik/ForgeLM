@@ -68,8 +68,11 @@ Implementation notes and quick examples
 - Evidence bundle command (example):
 
 ```bash
-# creates a ready-to-download audit bundle
-forge export-compliance --output compliance_bundle.zip --run-id <RUN_ID>
+# Export compliance artifacts from a completed training run
+forgelm --config job.yaml --compliance-export ./compliance_output/
+
+# Package all artifacts into a single auditor-ready ZIP
+# (export_evidence_bundle() in forgelm/compliance.py)
 ```
 
 - CI workflow skeleton (concept): create `.github/workflows/auto_revert.yml` that runs train → evaluate → safety checks → if fail: archive artifacts, create issue, optionally revert. Add Slack or webhook notifications.
@@ -82,18 +85,18 @@ sha256sum data_provenance.json > data_provenance.sha256
 ```
 
 Evidence locations (quick links)
-- Auto‑revert logic: [forgelm/trainer.py](forgelm/trainer.py#L37) / `_revert_model`: [forgelm/trainer.py](forgelm/trainer.py#L278)
-- Safety evaluation: [forgelm/safety.py](forgelm/safety.py#L33) (thresholds [forgelm/safety.py](forgelm/safety.py#L129))
-- Provenance implementation: [forgelm/compliance.py](forgelm/compliance.py#L1) (hash [forgelm/compliance.py](forgelm/compliance.py#L33); output [forgelm/compliance.py](forgelm/compliance.py#L167))
-- Config template: [config_template.yaml](config_template.yaml#L101)
-- Safety guidance: [docs/guides/safety_compliance.md](docs/guides/safety_compliance.md#L23)
-- Tests: [tests/test_compliance.py](tests/test_compliance.py#L134), [tests/test_trainer.py](tests/test_trainer.py#L27)
+- Auto‑revert logic: [forgelm/trainer.py](forgelm/trainer.py) — `_revert_model`
+- Safety evaluation: [forgelm/safety.py](forgelm/safety.py)
+- Provenance + AuditLogger + hash chain: [forgelm/compliance.py](forgelm/compliance.py)
+- Config template: [config_template.yaml](config_template.yaml)
+- Safety guidance: [docs/guides/safety_compliance.md](docs/guides/safety_compliance.md)
+- Tests: [tests/test_compliance.py](tests/test_compliance.py), [tests/test_trainer.py](tests/test_trainer.py)
 
 Phase 8 implemented features (all complete)
 - ComplianceMetadataConfig: provider_name, intended_purpose, risk_classification, system_name (Annex IV)
 - RiskAssessmentConfig: intended_use, foreseeable_misuse, risk_category, mitigation_measures (Art. 9)
 - DataGovernanceConfig: collection_method, annotation_process, known_biases, DPIA tracking (Art. 10)
-- AuditLogger: append-only JSON Lines event log with run_id, operator, timestamps (Art. 12)
+- AuditLogger: append-only JSON Lines event log with run_id, operator, timestamps, SHA-256 hash chain, per-line HMAC, flock concurrent-write guard, genesis manifest sidecar (Art. 12)
 - generate_deployer_instructions(): auto-generated markdown for non-ML deployers (Art. 13)
 - require_human_approval: pipeline pauses for review, exit code 4 (Art. 14)
 - generate_model_integrity(): SHA-256 checksums on all output artifacts (Art. 15)

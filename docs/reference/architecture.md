@@ -28,29 +28,39 @@ forgelm --config job.yaml
 
 ```
 ForgeLM/
-├── forgelm/                # Core Python Package (17 modules)
+├── forgelm/                # Core Python Package (26 modules)
 │   ├── __init__.py         # Lazy imports for fast CLI startup
-│   ├── cli.py              # CLI with 13 flags and 6 modes
+│   ├── cli.py              # CLI entry point and mode dispatcher
 │   ├── config.py           # 19 Pydantic config models
 │   ├── data.py             # Dataset loading (SFT/DPO/KTO/GRPO/multimodal)
+│   ├── data_audit.py       # Audit pipeline (length/language/dedup/leakage/PII/secrets)
+│   ├── ingestion.py        # Raw docs → SFT JSONL (PDF/DOCX/EPUB/TXT/Markdown)
 │   ├── model.py            # Model + LoRA/DoRA/PiSSA + MoE detection
 │   ├── trainer.py          # Training orchestration (6 trainer types)
+│   ├── inference.py        # Shared inference primitives (load/generate/stream)
+│   ├── chat.py             # Interactive terminal REPL with slash commands
+│   ├── export.py           # GGUF export via llama-cpp-python
+│   ├── fit_check.py        # Pre-flight VRAM estimator
+│   ├── deploy.py           # Deployment config generator (Ollama/vLLM/TGI/HF Endpoints)
 │   ├── results.py          # TrainResult dataclass (no heavy deps)
 │   ├── benchmark.py        # lm-evaluation-harness integration
-│   ├── safety.py           # Post-training safety evaluation
+│   ├── safety.py           # Post-training safety evaluation (Llama Guard)
 │   ├── judge.py            # LLM-as-Judge (API + local)
 │   ├── compliance.py       # EU AI Act compliance + audit log + provenance
 │   ├── model_card.py       # HF-compatible model card generation
 │   ├── merging.py          # Model merging (TIES/DARE/SLERP/linear)
 │   ├── synthetic.py        # Synthetic data generation (teacher→student)
+│   ├── grpo_rewards.py     # Built-in GRPO format/length reward shapers
+│   ├── quickstart.py       # Bundled one-command templates
 │   ├── wizard.py           # Interactive configuration wizard
-│   ├── webhook.py          # Webhook notifications
+│   ├── webhook.py          # Webhook notifications (Slack/Teams)
 │   └── utils.py            # Authentication + checkpoint management
+├── forgelm/templates/      # Quickstart template bundles (config.yaml + seed data)
 ├── configs/deepspeed/      # ZeRO-2, ZeRO-3, ZeRO-3+Offload presets
-├── notebooks/              # 5 Colab-ready Jupyter notebooks
-├── tests/                  # 200+ unit tests across 18 test files
+├── notebooks/              # 10 Colab-ready Jupyter notebooks
+├── tests/                  # 800+ unit tests across 47 test files
 ├── docs/                   # Guides, reference docs, QMS templates
-│   ├── guides/             # 6 user guides
+│   ├── guides/             # User guides (ingestion, audit, alignment, CI/CD, …)
 │   └── qms/                # EU AI Act QMS SOP templates
 ├── Dockerfile              # Multi-stage Docker build
 ├── docker-compose.yaml     # Train + TensorBoard services
