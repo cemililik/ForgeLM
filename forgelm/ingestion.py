@@ -738,8 +738,10 @@ def _chunk_markdown_tokens(text: str, max_tokens: int, tokenizer: Any) -> Iterab
     """Token-aware twin of :func:`_chunk_markdown`. Same semantics, token cap.
 
     Like the character-mode twin, this strategy is **non-overlapping** —
-    section boundaries are atomic. ``--overlap-tokens`` is silently
-    ignored when ``--strategy markdown`` is selected.
+    section boundaries are atomic. Non-zero ``overlap_tokens`` is
+    rejected with a ``ValueError`` by :func:`_strategy_dispatch_tokens`
+    *before* this function is called (see ``_MARKDOWN_OVERLAP_UNSUPPORTED_MSG``);
+    callers therefore never reach this body with a meaningful overlap.
     """
     if max_tokens <= 0:
         raise ValueError(_CHUNK_TOKENS_POSITIVE_MSG)

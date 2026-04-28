@@ -273,12 +273,17 @@ sayfadan kısa belgelerde devre dışı kalır. Yapılandırılmış notlar
 ## Sınırlamalar
 
 - **OCR:** Kapsam dışı. Harici araçlar kullanın — aşağıdaki örneklere bakın.
-- **Tablolar / şekiller:** Faz 12'den (`v0.5.2`) itibaren `--strategy markdown`
-  ile DOCX tabloları **Markdown tablo syntax'ına** (header + `---` ayraç +
-  body satırları) dönüştürülür ve chunk sınırları arasında bütünlüğünü korur.
-  Diğer stratejilerde (`paragraph`, `sliding`) ve bu sürümden önceki
-  versiyonlarda tablolar düz metin olarak satır-major düzende düzleştirilir;
-  görsel yapı kaybolur. PDF tabloları her durumda düzleştirilmiş kalır.
+- **Tablolar / şekiller:** Faz 12'den (`v0.5.2`) itibaren `_extract_docx()`
+  DOCX tablolarını **Markdown tablo syntax'ına** (header + `---` ayraç +
+  body satırları) **chunking stratejisi çalışmadan önce, extraction
+  aşamasında** dönüştürür — yani tüm stratejiler render edilmiş
+  Markdown'ı görür, satır-major düzleştirilmiş bir string'i değil.
+  Strateji seçimi yalnızca tablo satırlarının chunk sınırları arasında
+  birlikte kalıp kalmayacağını etkiler: `--strategy markdown` her
+  tabloyu satır ortasından bölünmeyen atomik bir section olarak ele
+  alır; `paragraph` / `sliding` uzun bir tabloyu chunk'lara
+  bölebilir. PDF tabloları her durumda düzleştirilmiş kalır
+  (PDF tarafında extraction-time tablo parser'ı bağlı değil).
 - **Metadata:** başlık / yazar / sayfa numarası düşürülür — yalnızca gövde
   metni JSONL'a iner.
 - **Encoding:** non-UTF-8 girdi `errors="replace"` ile okunur; binary

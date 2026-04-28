@@ -117,10 +117,14 @@ forgelm ingest ./engineering_wiki/ --output data/wiki.jsonl --secrets-mask
 forgelm ingest ./mixed_corpus/ --output data/clean.jsonl --secrets-mask --pii-mask
 ```
 
-Detected spans are replaced with `[REDACTED-SECRET]`. Optional extra
-`pip install 'forgelm[ingestion-secrets]'` adds `detect-secrets`'s
-plugin set on top; without it the regex-only fallback covers ~10
-common patterns and an INFO log says so.
+Detected spans are replaced with `[REDACTED-SECRET]`. The
+`ingest_path()` masking path delegates to
+`forgelm.data_audit.mask_secrets`, which scans with the regex set
+described in [data_audit.md](data_audit.md) (≈10 prefix-anchored
+patterns: AWS, GitHub, Slack, OpenAI, Google, JWT, full
+OpenSSH/RSA/DSA/EC/PGP private-key blocks, Azure storage). The
+`[ingestion-secrets]` extra is reserved for a follow-up release —
+installing it today does **not** change ingest masking behaviour.
 
 ---
 
@@ -290,12 +294,16 @@ assistants, code-with-data prompts.
 ## Limitations
 
 - **OCR:** out of scope. Use external tooling — see the worked example below.
-- **Tables / figures:** Since Phase 12 (`v0.5.2`), DOCX tables emit as
-  **Markdown table syntax** (header + `---` separator + body rows) when
-  `--strategy markdown` is used and stay intact across chunk boundaries.
-  With other strategies (`paragraph`, `sliding`) and on older versions, tables
-  are flattened to plain text in row-major order and visual structure is lost.
-  PDF tables remain flattened in all cases.
+- **Tables / figures:** Since Phase 12 (`v0.5.2`), `_extract_docx()`
+  converts DOCX tables to **Markdown table syntax** (header + `---`
+  separator + body rows) at extraction time, **before any chunking
+  strategy runs** — so all strategies see the rendered Markdown, not a
+  row-major flat string. The strategy choice only affects whether table
+  rows stay together across chunk boundaries: `--strategy markdown`
+  treats each table as an atomic section that won't be split mid-row;
+  `paragraph` / `sliding` may still slice a long table across chunks.
+  PDF tables remain flattened in all cases (no extraction-time table
+  parser is wired up for PDFs).
 - **Metadata:** title / author / page numbers are dropped — only body text reaches the JSONL.
 - **Encoding:** non-UTF-8 input is read with `errors="replace"`; binary noise becomes Unicode replacement characters.
 - **Semantic chunking:** raises `NotImplementedError` until embedding support lands in a follow-up phase.

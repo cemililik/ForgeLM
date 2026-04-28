@@ -263,8 +263,13 @@ python -c "from forgelm.data_audit import mask_secrets; \
 forgelm ingest ./policies/ --recursive --output data/policies.jsonl --secrets-mask
 ```
 
-Opsiyonel: `[ingestion-secrets]` kurulumu regex fallback'inin üstüne
-`detect-secrets`'in plugin setini katmanlar.
+Opsiyonel / forward-compatibility: `[ingestion-secrets]` extra'sı bir
+`detect-secrets>=1.5.0` bağımlılığı tanımlar ama bu **bir sonraki sürüm
+için ayrılmıştır**. v0.5.2 itibarıyla `forgelm.data_audit.detect_secrets()`
+yalnızca yukarıdaki regex setine dayanır; extra'yı kurmak bugün audit
+davranışını değiştirmez. Extra, `forgelm[ingestion-secrets]` pin'leyen
+operatörlerin entegrasyon geldiğinde forward-compatible olabilmesi
+için var.
 
 ### Heuristic kalite filtresi (Faz 12, opt-in)
 
@@ -295,8 +300,10 @@ Kontroller (hepsi muhafazakar; hiçbir satır sessizce düşürülmez):
 - `abnormal_mean_word_length` — 3-12 karakter penceresinin dışında.
 - `short_paragraphs` — `\n\n` ile ayrılmış blokların > %50'si < 5
   kelime.
-- `repeated_lines` — top-3 farklı satır boş olmayan satırların >
-  %30'unu kapsıyor (boilerplate / disclaimer tekrarı sinyali).
+- `repeated_lines` — gerçekten tekrar eden (count ≥ 2) en sık 3 satır,
+  tüm boş olmayan satırların > %30'unu kapsıyor. Boilerplate'i (header,
+  footer, tekrarlayan disclaimer) yakalar — kısa, tamamen tekil
+  belgelerde false positive üretmemek için sayım filtresi şart.
 
 Heuristikler markdown fenced kod bloklarını **otomatik atlar** — kod
 prosa kurallarına uymadığı için (düşük alpha oranı, eksik son
@@ -360,6 +367,9 @@ forgelm audit PATH \
   [--output DIR] \
   [--verbose] \
   [--near-dup-threshold N] \
+  [--dedup-method {simhash,minhash}] \
+  [--jaccard-threshold X] \
+  [--quality-filter] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```
@@ -368,8 +378,15 @@ forgelm audit PATH \
 varsayılan olarak `./audit/`'tir. `--verbose`, insan-okunabilir özette
 bulgu olmayan split'leri de gösterir (varsayılan, çoklu-split
 denetimlerini kısa tutmak için tüm temiz split'leri tek bir kuyruk
-satırına katlar — diskteki JSON raporu etkilenmez). `--near-dup-threshold`
-varsayılan Hamming eşiğini (3, ≈%95 benzerlik) ezer.
+satırına katlar — diskteki JSON raporu etkilenmez). `--near-dup-threshold N`
+varsayılan simhash Hamming eşiğini (3, ≈%95 benzerlik) ezer;
+`--dedup-method=minhash` seçildiğinde göz ardı edilir.
+`--dedup-method` (Faz 12) near-duplicate motorunu seçer — `simhash`
+(varsayılan) veya `minhash` (`[ingestion-scale]` extra'sı şart;
+`--jaccard-threshold` cutoff'u kontrol eder, varsayılan 0.85).
+`--quality-filter` (Faz 12) heuristic kalite skorlamasını opt-in
+çalıştırır. Credential/secrets taraması **her zaman açık** — kapatma
+flag'i yoktur.
 
 Eski `forgelm --data-audit PATH` flag'i deprecation alias olarak
 korunuyor; davranış aynı, sadece ek bir uyarı log'lanıyor.

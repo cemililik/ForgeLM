@@ -131,15 +131,20 @@ The principle: when a regex with a back-reference needs to span multiple lines, 
 
 ### 8. No `^.*` when you mean "from the start"
 
-`^.*` invites the engine to backtrack `.*` for every failure. If you really mean "from the start of the line", anchor and stop being greedy:
+`^.*` invites the engine to backtrack `.*` for every failure. Pick the regex that matches your actual intent — and if you only need a fixed-prefix check, skip regex entirely:
 
 ```python
 # WRONG — `^.*foo` against a line that doesn't contain "foo" walks the whole line.
 re.compile(r"^.*ERROR:")
 
-# RIGHT — the engine fails at column 0 if "ERROR:" isn't there.
-re.compile(r"^[^E]*ERROR:")  # or just .startswith("ERROR:")
+# RIGHT — match only lines that *start* with "ERROR:".
+re.compile(r"^ERROR:")          # or, even better: text.startswith("ERROR:")
+
+# RIGHT — match "ERROR:" anywhere in the string (no anchor, no `^.*`).
+re.compile(r"ERROR:")           # equivalent to the unanchored search intent
 ```
+
+Avoid clever-looking variants like `r"^[^E]*ERROR:"` — `[^E]*` matches *zero* characters when the line begins with `E`, so `"EEE ERROR: boom"` fails to match even though `ERROR:` is present. Spell out the intent instead.
 
 For "starts with X", just use `text.startswith("X")`. Regex isn't the answer to every string question.
 
@@ -149,7 +154,7 @@ Some regexes consume operator-controlled input (e.g. `audit` / `ingest` walking 
 
 For any regex that runs on operator-controlled input:
 
-- **Verify linearity empirically.** Run the regex against a 10K-character pathological input. Wall-clock should be ≤ 10ms. If it isn't, the regex is broken.
+- **Verify linearity empirically — measure scaling, not absolute milliseconds.** Run the regex at *multiple* input sizes (e.g. 1K / 5K / 10K characters of pathological input) and take the **median of N runs** (we use 5 in [`tests/test_phase12_review_fixes.py`](../../tests/test_phase12_review_fixes.py)) to absorb shared-CI jitter. Acceptable: roughly linear growth — doubling the input doubles the time. Broken: super-linear (≥ ~3× on a 2× input) or any explosive jump. Don't pin a hard ms cutoff in the standard; what matters is the *shape* of the curve, not the wall-clock on whoever's laptop. Existing ReDoS-regression tests assert generous absolute bounds (≤ 100 ms / ≤ 1 s on 10K input) only as a safety floor — a real ReDoS blows past those by orders of magnitude.
 - **Or replace with a non-regex parser.** State machines (line walkers) are O(n) by construction. We use them in [`forgelm/data_audit.py::_strip_code_fences`](../../forgelm/data_audit.py) and [`forgelm/ingestion.py::_markdown_sections`](../../forgelm/ingestion.py) precisely because the regex equivalents tripped SonarCloud.
 
 The pathological-input benchmark for our regexes:
