@@ -1224,9 +1224,16 @@ def ingest_path(
     # Resolve ``overlap``: only the sliding strategy needs a non-zero default.
     # Paragraph and markdown are non-overlapping by design — we keep
     # ``overlap=None`` flowing into the dispatcher so the default doesn't
-    # spuriously trigger the markdown overlap-rejected validator.
+    # spuriously trigger the markdown overlap-rejected validator. For
+    # sliding, clamp the implicit default to ``effective_chunk_size // 2``
+    # so a small ``--chunk-size`` (e.g. 300) doesn't trip ``_chunk_sliding``'s
+    # "overlap > chunk_size // 2" guard with the default 200, which would
+    # surface as a confusing error for a knob the user didn't even set.
     if overlap is None:
-        overlap = DEFAULT_SLIDING_OVERLAP if strategy == "sliding" else 0
+        if strategy == "sliding":
+            overlap = min(DEFAULT_SLIDING_OVERLAP, max(0, effective_chunk_size // 2))
+        else:
+            overlap = 0
 
     if pii_mask:
         # Lazy import: PII helpers live in data_audit.py; we don't want to

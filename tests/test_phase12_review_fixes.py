@@ -14,7 +14,6 @@ import json
 from pathlib import Path
 
 from forgelm.data_audit import (
-    _SECRET_PATTERNS,
     _row_quality_flags,
     audit_dataset,
     detect_secrets,
@@ -203,13 +202,28 @@ class TestC4JwtRegexNarrowing:
         result = detect_secrets(text)
         assert "jwt" not in result
 
-    def test_jwt_pattern_anchored_on_known_headers(self):
-        # The compiled pattern itself must require one of the canonical
-        # JWT header prefixes — pinning so a future regex broadening can't
-        # silently re-introduce the false-positive class.
-        pattern = _SECRET_PATTERNS["jwt"].pattern
-        for anchor in ("hbGc", "0eXA", "raWQ", "jdHk", "lbmM", "hcGk"):
-            assert anchor in pattern
+    def test_jwt_detection_covers_each_canonical_header_anchor(self):
+        # Behavioural counterpart to the previous pattern-introspection
+        # test: each canonical JWT header prefix (``alg`` / ``typ`` /
+        # ``kid`` / ``cty`` / ``enc`` / ``api``) must trip the detector
+        # via ``detect_secrets`` — so a future regex refactor that
+        # achieves the same matching semantics with different anchor
+        # encoding still passes, but a broadening that drops one of the
+        # required prefixes still fails. Tokens are built from inert
+        # fragments to keep repo-wide secret scanners off them.
+        # Each base64 fragment below is the start of a JWT header
+        # claim: ``eyJ`` + ``hbGc``=``alg``, ``0eXA``=``typ``,
+        # ``raWQ``=``kid``, ``jdHk``=``cty``, ``lbmM``=``enc``,
+        # ``hcGk``=``api`` (decoded under-the-hood).
+        anchors = ("hbGc", "0eXA", "raWQ", "jdHk", "lbmM", "hcGk")
+        signature = "SflKxwRJSMe" + "KKF2QT4fwpMeJ"
+        payload = "eyJzdWIiOiIxIn0"
+        for anchor in anchors:
+            header = "eyJ" + anchor + "iOiJfdGVzdF9fIn0"  # JSON-shaped after decode
+            text = f"Authorization: Bearer {header}.{payload}.{signature}"
+            assert detect_secrets(text).get("jwt") == 1, (
+                f"JWT detector missed header anchor {anchor!r} — regex broadening regression?"
+            )
 
 
 # ---------------------------------------------------------------------------

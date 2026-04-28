@@ -78,11 +78,30 @@ class AuditLogger:
         defeat the multi-writer fork race documented in the class docstring).
 
         Returns ``"genesis"`` when the file is empty.
+
+        Raises ``ValueError`` when the file does not end with a newline,
+        because :meth:`log_event` always writes ``entry_json + "\\n"`` —
+        the only way to land on an unterminated last record is a crash
+        mid-write or external corruption, in which case hashing the
+        partial body would silently anchor the chain to a truncated
+        entry.
         """
         fh.seek(0, 2)
         size = fh.tell()
         if size == 0:
             return "genesis"
+        # Trailing-newline guard. Read the final byte cheaply and refuse
+        # to derive a chain head from an unterminated tail (it would be
+        # a truncated record).
+        fh.seek(size - 1)
+        if fh.read(1) != b"\n":
+            raise ValueError(
+                f"Audit log {self.log_path!r} does not end with a newline — "
+                "the final record is truncated. Refusing to silently re-root "
+                "the hash chain on a partial entry; investigate or repair the "
+                "log before resuming."
+            )
+
         seek_start = max(0, size - 4096)
         fh.seek(seek_start)
         # When the seek lands mid-line, the first newline-bounded chunk
@@ -90,31 +109,31 @@ class AuditLogger:
         if seek_start > 0:
             fh.readline()
         tail = fh.read()
-        try:
-            lines = [ln for ln in tail.decode("utf-8").splitlines() if ln.strip()]
-        except UnicodeDecodeError as e:
-            raise ValueError(
-                f"Audit log {self.log_path!r} contains non-UTF-8 data — likely corrupt: {e}. "
-                "Refusing to silently re-root the hash chain."
-            ) from e
+        lines = self._decode_lines(tail)
         if lines:
             return hashlib.sha256(lines[-1].encode("utf-8")).hexdigest()
         # Empty after skipping the partial-first-line means the final entry
         # itself exceeds the 4 KiB tail window. Re-read from ``seek_start``
         # without skipping so we still recover the (oversized) last record.
+        # The trailing-newline guard above guarantees the recovered line
+        # is complete; we just need a wider tail window.
         if seek_start > 0:
             fh.seek(seek_start)
             tail = fh.read()
-            try:
-                lines = [ln for ln in tail.decode("utf-8").splitlines() if ln.strip()]
-            except UnicodeDecodeError as e:
-                raise ValueError(
-                    f"Audit log {self.log_path!r} contains non-UTF-8 data — likely corrupt: {e}. "
-                    "Refusing to silently re-root the hash chain."
-                ) from e
+            lines = self._decode_lines(tail)
             if lines:
                 return hashlib.sha256(lines[-1].encode("utf-8")).hexdigest()
         return "genesis"
+
+    def _decode_lines(self, blob: bytes) -> list:
+        """UTF-8 decode + split into non-empty stripped lines, or raise."""
+        try:
+            return [ln for ln in blob.decode("utf-8").splitlines() if ln.strip()]
+        except UnicodeDecodeError as e:
+            raise ValueError(
+                f"Audit log {self.log_path!r} contains non-UTF-8 data — likely corrupt: {e}. "
+                "Refusing to silently re-root the hash chain."
+            ) from e
 
     def _load_last_hash(self) -> str:
         """Read the last line hash from an existing log file to restore chain continuity.
