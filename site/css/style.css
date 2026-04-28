@@ -1809,10 +1809,22 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
   border-radius: 3px;
   border: 1px solid;
 }
-.callout-pill.note    { color: var(--steel-bright); border-color: var(--steel); background: rgba(14,165,233,.1); }
-.callout-pill.tip     { color: #4ade80;            border-color: var(--success); background: rgba(34,197,94,.1); }
-.callout-pill.warn    { color: #facc15;            border-color: var(--warn); background: rgba(234,179,8,.1); }
-.callout-pill.danger  { color: #f87171;            border-color: var(--danger); background: rgba(239,68,68,.1); }
+/* Pills use deep, saturated text colours so the AA contrast threshold is met
+   on both the dark-mode (near-black) and light-mode (white) page backgrounds.
+   Earlier we used Tailwind's 400/500 shades (#4ade80 etc.) which read as low
+   contrast against the near-white pill tint in light mode (css:S7924). */
+.callout-pill.note    { color: #075985; border-color: var(--steel);   background: rgba(14,165,233,.18); }
+.callout-pill.tip     { color: #14532d; border-color: var(--success); background: rgba(34,197,94,.18);  }
+.callout-pill.warn    { color: #713f12; border-color: var(--warn);    background: rgba(234,179,8,.22);  }
+.callout-pill.danger  { color: #7f1d1d; border-color: var(--danger);  background: rgba(239,68,68,.18);  }
+[data-theme="light"] .callout-pill.note   { color: #0369a1; }
+[data-theme="light"] .callout-pill.tip    { color: #166534; }
+[data-theme="light"] .callout-pill.warn   { color: #854d0e; }
+[data-theme="light"] .callout-pill.danger { color: #991b1b; }
+:root:not([data-theme="light"]) .callout-pill.note    { color: var(--steel-bright); background: rgba(14,165,233,.18); }
+:root:not([data-theme="light"]) .callout-pill.tip     { color: #86efac;            background: rgba(34,197,94,.18); }
+:root:not([data-theme="light"]) .callout-pill.warn    { color: #fde047;            background: rgba(234,179,8,.22); }
+:root:not([data-theme="light"]) .callout-pill.danger  { color: #fca5a5;            background: rgba(239,68,68,.18); }
 
 /* ── Mermaid diagrams ────────────────────────────────────── */
 .guide-content .mermaid {
