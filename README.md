@@ -29,7 +29,7 @@
 
 ### Document Ingestion & Data Audit (v0.5.0 — polished in v0.5.1, matured in v0.5.2)
 - **Multi-Format Ingestion**: `forgelm ingest ./policies/ --recursive --output data/policies.jsonl` — turns raw PDF / DOCX / EPUB / TXT / Markdown into the SFT-ready JSONL the trainer accepts. Optional dep: `pip install forgelm[ingestion]`. v0.5.2 added a **markdown-aware splitter** (`--strategy markdown`) and DOCX table preservation in markdown table syntax.
-- **Chunking Strategies**: `paragraph` (default; preserves boundaries) or `sliding` (fixed window with overlap). Token-aware mode in v0.5.1: `--chunk-tokens 1024 --tokenizer Qwen/Qwen2.5-7B-Instruct` sizes chunks against your model's actual vocabulary.
+- **Chunking Strategies**: `paragraph` (default; preserves boundaries), `sliding` (fixed window with overlap), `markdown` (v0.5.2 — heading-aware splitter that keeps fenced code blocks atomic and inlines a heading breadcrumb at the top of each chunk for SFT context), or `semantic` (sentence-boundary aware). Token-aware mode in v0.5.1: `--chunk-tokens 1024 --tokenizer Qwen/Qwen2.5-7B-Instruct` sizes chunks against your model's actual vocabulary.
 - **PII Masking on Ingest**: `--pii-mask` redacts emails, phones, credit cards (Luhn-validated), IBAN, and national IDs (TR / DE / FR / US-SSN) before chunks land in the JSONL.
 - **PDF Page Header/Footer Dedup (v0.5.1)**: Lines that recur on ≥ 70 % of PDF pages (watermarks, page numbers, copyright lines) are stripped automatically — the audit's near-duplicate counts stop misfiring on long policy / book PDFs.
 - **Dataset Audit**: `forgelm audit data/sft.jsonl --output ./audit/` — produces `data_audit_report.json` with sample count, length distribution, top-3 language detection, LSH-banded near-duplicate rate (`O(n × k)` typical case, exact recall at the default Hamming threshold; v0.5.2 added optional **MinHash LSH** via `--dedup-method minhash` for >50K-row corpora), cross-split leakage check, null/empty rate, and PII flag counts with **severity tiers** (critical / high / medium / low + worst-tier verdict). v0.5.2 also added an always-on **secrets/credential scan** (AWS / GitHub / Slack / OpenAI / Google / JWT / private-key headers) and an opt-in **heuristic quality filter** (`--quality-filter`). CPU-only; streaming JSONL reader keeps memory bounded on multi-million-row splits; feeds EU AI Act Article 10 governance artifact automatically when present at training time. Legacy `--data-audit` flag still works as a deprecation alias.
@@ -124,10 +124,11 @@ See the [Quick Start Guide](docs/guides/quickstart.md) for a complete walkthroug
 
 ## Notebooks
 
-Each notebook is runnable in Colab with a free T4 GPU.
+Each notebook is runnable in Colab with a free T4 GPU. Data preparation runs CPU-only.
 
 **Getting started**
 - [Quick Start — SFT Fine-Tuning](notebooks/quickstart_sft.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/quickstart_sft.ipynb)
+- [Data Curation — Ingestion + Audit](notebooks/data_curation.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/data_curation.ipynb) — `forgelm ingest` + `forgelm audit` end-to-end (markdown-aware splitter, PII / secrets masking, MinHash LSH, quality filter). **CPU-only**.
 
 **Alignment methods** (post-SFT preference / RL)
 - [DPO Preference Alignment](notebooks/dpo_alignment.ipynb) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/cemililik/ForgeLM/blob/main/notebooks/dpo_alignment.ipynb)
@@ -166,10 +167,12 @@ pip install -e ".[eval]"         # lm-evaluation-harness benchmarks
 pip install -e ".[tracking]"     # W&B experiment tracking
 pip install -e ".[distributed]"  # DeepSpeed multi-GPU
 pip install -e ".[merging]"      # mergekit model merging
-pip install -e ".[ingestion]"    # PDF/DOCX/EPUB → JSONL + langdetect
-pip install -e ".[export]"       # GGUF export via llama-cpp-python
-pip install -e ".[chat]"         # Rich terminal rendering for `forgelm chat`
-pip install -e ".[dev]"          # pytest, ruff (development)
+pip install -e ".[ingestion]"         # PDF/DOCX/EPUB/Markdown → JSONL + langdetect + xxhash
+pip install -e ".[ingestion-scale]"   # MinHash LSH dedup (datasketch) for >50K-row corpora
+pip install -e ".[ingestion-secrets]" # detect-secrets plugin set on top of the regex fallback
+pip install -e ".[export]"            # GGUF export via llama-cpp-python
+pip install -e ".[chat]"              # Rich terminal rendering for `forgelm chat`
+pip install -e ".[dev]"               # pytest, ruff (development)
 ```
 
 ---
@@ -216,32 +219,38 @@ forgelm --version                            # Show version
 
 ```
 forgelm/
-├── cli.py           # CLI with 10+ modes (train, dry-run, merge, benchmark, wizard...)
-├── config.py        # Pydantic config (19 models: training, evaluation, distributed...)
-├── data.py          # Dataset loading (SFT, DPO, KTO, GRPO formats + multi-dataset)
-├── model.py         # Model loading (transformers, unsloth, MoE, PEFT)
-├── trainer.py       # Training orchestration (6 trainer types via TRL, GaLore, long-context)
-├── inference.py     # Shared inference primitives (load, generate, stream, adaptive sampling)
-├── chat.py          # Interactive terminal REPL with streaming and slash commands
-├── export.py        # GGUF export via llama-cpp-python
-├── fit_check.py     # Pre-flight VRAM estimator (FITS / TIGHT / OOM / UNKNOWN)
-├── deploy.py        # Deployment config generator (Ollama, vLLM, TGI, HF Endpoints)
-├── results.py       # TrainResult dataclass
-├── benchmark.py     # lm-evaluation-harness integration
-├── safety.py        # Post-training safety evaluation (Llama Guard)
-├── judge.py         # LLM-as-Judge evaluation (API + local)
-├── compliance.py    # EU AI Act compliance export & data provenance
-├── model_card.py    # Auto-generated HF model cards
-├── merging.py       # Model merging (TIES, DARE, SLERP, linear)
-├── synthetic.py     # Synthetic data generation (teacher→student distillation)
-├── wizard.py        # Interactive configuration wizard
-├── webhook.py       # Slack/Teams webhook notifications
-└── utils.py         # Authentication & checkpoint management
+├── cli.py            # CLI with 10+ modes (train, dry-run, merge, benchmark, wizard, ingest, audit, ...)
+├── config.py         # Pydantic config (19 models: training, evaluation, distributed, ...)
+├── data.py           # Dataset loading (SFT, DPO, KTO, GRPO formats + multi-dataset)
+├── data_audit.py     # Audit pipeline (length / language / dedup / leakage / PII / secrets / quality) — `forgelm audit`
+├── ingestion.py      # Raw docs → SFT JSONL (PDF/DOCX/EPUB/TXT/Markdown + chunking + masking) — `forgelm ingest`
+├── model.py          # Model loading (transformers, unsloth, MoE, PEFT)
+├── trainer.py        # Training orchestration (6 trainer types via TRL, GaLore, long-context)
+├── inference.py      # Shared inference primitives (load, generate, stream, adaptive sampling)
+├── chat.py           # Interactive terminal REPL with streaming and slash commands
+├── export.py         # GGUF export via llama-cpp-python
+├── fit_check.py      # Pre-flight VRAM estimator (FITS / TIGHT / OOM / UNKNOWN)
+├── deploy.py         # Deployment config generator (Ollama, vLLM, TGI, HF Endpoints)
+├── results.py        # TrainResult dataclass (AuditReport lives in data_audit.py, IngestionResult in ingestion.py)
+├── benchmark.py      # lm-evaluation-harness integration
+├── safety.py         # Post-training safety evaluation (Llama Guard)
+├── judge.py          # LLM-as-Judge evaluation (API + local)
+├── compliance.py     # EU AI Act compliance export & data provenance
+├── model_card.py     # Auto-generated HF model cards
+├── merging.py        # Model merging (TIES, DARE, SLERP, linear)
+├── synthetic.py      # Synthetic data generation (teacher→student distillation)
+├── grpo_rewards.py   # Built-in GRPO reward shapers (format / length fallbacks)
+├── quickstart.py     # `forgelm quickstart <template>` — bundled SFT / code / domain templates
+├── wizard.py         # Interactive configuration wizard (offers `forgelm ingest` for raw-doc dirs)
+├── webhook.py        # Slack/Teams webhook notifications
+└── utils.py          # Authentication & checkpoint management
 
-configs/deepspeed/   # ZeRO-2, ZeRO-3, ZeRO-3+Offload presets
-notebooks/           # Colab-ready Jupyter notebooks
-tests/               # pytest suite spanning every module (run with `pytest tests/`)
-docs/guides/         # Quickstart, alignment, CI/CD, enterprise, safety guides
+configs/deepspeed/    # ZeRO-2, ZeRO-3, ZeRO-3+Offload presets
+configs/safety_prompts/  # 140 adversarial prompts × 6 categories for safety evaluation
+forgelm/templates/    # Quickstart templates (SFT, code-assistant, domain-expert, medical-qa-tr, grpo-math)
+notebooks/            # Colab-ready Jupyter notebooks (data curation, SFT, DPO, KTO, GRPO, ...)
+tests/                # pytest suite spanning every module (run with `pytest tests/`)
+docs/guides/          # Quickstart, ingestion, audit, alignment, CI/CD, enterprise, safety guides
 ```
 
 ---
