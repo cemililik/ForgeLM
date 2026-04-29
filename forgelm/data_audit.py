@@ -397,25 +397,91 @@ def mask_pii(
 # ---------------------------------------------------------------------------
 
 
-# Presidio analyzer is heavy to construct (loads spaCy + an English NER
-# model on first call), so we cache a single instance for the duration
-# of the process. ``maxsize=1`` keeps the cache trivially eviction-free
-# while still letting test code blow the cache via ``cache_clear()``.
-@lru_cache(maxsize=1)
-def _get_presidio_analyzer() -> Any:
-    """Return a cached :class:`presidio_analyzer.AnalyzerEngine` instance.
+# Conventional spaCy model name per language code. Covers the languages
+# spaCy publishes a maintained ``*_core_news_lg`` / ``*_core_web_lg``
+# model for; operators auditing in a language not in this map should
+# pass ``"xx"`` for the multilingual fallback (and install
+# ``xx_ent_wiki_sm``) or hand-build a Presidio ``NlpEngine`` and feed
+# it to :func:`audit_dataset` programmatically. The map is small on
+# purpose — auto-mapping more languages without verifying each model's
+# NER quality risks silent under-detection in compliance-critical
+# workflows.
+_SPACY_MODEL_FOR_LANGUAGE: Dict[str, str] = {
+    "en": "en_core_web_lg",
+    "de": "de_core_news_lg",
+    "es": "es_core_news_lg",
+    "fr": "fr_core_news_lg",
+    "it": "it_core_news_lg",
+    "ja": "ja_core_news_lg",
+    "ko": "ko_core_news_lg",
+    "nl": "nl_core_news_lg",
+    "pl": "pl_core_news_lg",
+    "pt": "pt_core_news_lg",
+    "ru": "ru_core_news_lg",
+    "zh": "zh_core_web_lg",
+    # Multilingual fallback — coarser NER but works for any Unicode
+    # script; useful for languages without a dedicated spaCy model
+    # (e.g. Turkish, Arabic at time of writing).
+    "xx": "xx_ent_wiki_sm",
+}
+
+
+# Presidio analyzer is heavy to construct (loads spaCy + a NER model on
+# first call), so we cache instances per-language. ``maxsize=8`` covers
+# the realistic set of audit-language combinations a single process
+# would request without unbounded growth; test code blows the cache via
+# ``cache_clear()``.
+@lru_cache(maxsize=8)
+def _get_presidio_analyzer(language: str = "en") -> Any:
+    """Return a cached :class:`presidio_analyzer.AnalyzerEngine` for ``language``.
+
+    English uses Presidio's default constructor (loads ``en_core_web_lg``
+    via spaCy). Non-English builds an :class:`NlpEngineProvider` keyed
+    on the conventional spaCy model from
+    :data:`_SPACY_MODEL_FOR_LANGUAGE` and instantiates the analyzer with
+    ``supported_languages=[language]`` so the pre-flight in
+    :func:`_require_presidio` sees the requested language as registered.
 
     Raises:
-        ImportError: when the ``[ingestion-pii-ml]`` extra is missing OR
-            when ``presidio-analyzer`` is installed but the spaCy NER
-            model it depends on is not — both surfaces produce the same
-            actionable install hint via :func:`_require_presidio` so
-            the operator never sees a deep ``OSError`` from spaCy
-            mid-stream.
+        ImportError: when the ``[ingestion-pii-ml]`` extra is missing —
+            the actionable install hint surfaces via
+            :func:`_require_presidio` so the operator never sees a deep
+            ``OSError`` from spaCy mid-stream.
+        ValueError: when ``language`` has no entry in
+            :data:`_SPACY_MODEL_FOR_LANGUAGE`. Operators auditing in
+            unsupported languages should use ``"xx"`` (multilingual
+            fallback) or configure a custom Presidio analyzer
+            programmatically.
     """
     if not _HAS_PRESIDIO:
         raise ImportError(_PRESIDIO_INSTALL_HINT)
-    return _PresidioAnalyzer()
+    if language == "en":
+        return _PresidioAnalyzer()
+    model_name = _SPACY_MODEL_FOR_LANGUAGE.get(language)
+    if model_name is None:
+        raise ValueError(
+            f"No default spaCy model registered for Presidio language {language!r}. "
+            f"Supported language codes: {sorted(_SPACY_MODEL_FOR_LANGUAGE)}. "
+            "For other languages, use 'xx' (multilingual fallback, install "
+            "'xx_ent_wiki_sm') or configure a custom Presidio AnalyzerEngine "
+            "via the Python API (see "
+            "https://microsoft.github.io/presidio/analyzer/languages/)."
+        )
+    # Local import: NlpEngineProvider is part of presidio-analyzer, so
+    # gating on ``_HAS_PRESIDIO`` above is sufficient. Importing here
+    # rather than at module top keeps the audit module importable when
+    # the optional extra is missing.
+    from presidio_analyzer.nlp_engine import NlpEngineProvider  # type: ignore[import-not-found]
+
+    nlp_configuration = {
+        "nlp_engine_name": "spacy",
+        "models": [{"lang_code": language, "model_name": model_name}],
+    }
+    nlp_engine = NlpEngineProvider(nlp_configuration=nlp_configuration).create_engine()
+    return _PresidioAnalyzer(
+        nlp_engine=nlp_engine,
+        supported_languages=[language],
+    )
 
 
 # A single, canonical install hint shared by the import-sentinel branch
@@ -426,7 +492,9 @@ _PRESIDIO_INSTALL_HINT: str = (
     "Presidio PII ML detection requires the 'ingestion-pii-ml' extra "
     "AND a spaCy English NER model. Install with:\n"
     "  pip install 'forgelm[ingestion-pii-ml]'\n"
-    "  python -m spacy download en_core_web_lg"
+    "  python -m spacy download en_core_web_lg\n"
+    "For non-English audits also install the matching spaCy model "
+    "(e.g. 'python -m spacy download de_core_news_lg' for --pii-ml-language de)."
 )
 
 
@@ -454,7 +522,7 @@ def _require_presidio(language: str = "en") -> None:
     if not _HAS_PRESIDIO:
         raise ImportError(_PRESIDIO_INSTALL_HINT)
     try:
-        analyzer = _get_presidio_analyzer()
+        analyzer = _get_presidio_analyzer(language)
     except OSError as exc:
         # spaCy raises ``OSError`` ("Can't find model 'en_core_web_lg'")
         # when the model package isn't on the import path. Re-raise as
@@ -463,15 +531,23 @@ def _require_presidio(language: str = "en") -> None:
         # failure modes.
         _get_presidio_analyzer.cache_clear()
         raise ImportError(
-            f"Presidio analyzer build failed (likely missing spaCy NER model): {exc}\n{_PRESIDIO_INSTALL_HINT}"
+            f"Presidio analyzer build failed (likely missing spaCy NER model for "
+            f"language {language!r}): {exc}\n{_PRESIDIO_INSTALL_HINT}"
         ) from exc
+    # Defence in depth: ``_get_presidio_analyzer`` builds the analyzer
+    # for the requested language so this should always pass, but a stub
+    # / mock injected by tests or a future Presidio API change could
+    # produce a mismatch — fail loud instead of letting per-row scans
+    # silently return ``{}`` when the analyzer doesn't actually support
+    # what was asked for.
     supported = getattr(analyzer, "supported_languages", None) or ["en"]
     if language not in supported:
         raise ValueError(
             f"Presidio analyzer has no NLP engine registered for language {language!r}. "
             f"Registered languages: {sorted(supported)}. "
-            "The default AnalyzerEngine only loads English; for non-English corpora "
-            "configure a custom NlpEngine before invoking the audit (see "
+            "Use one of the codes in forgelm.data_audit._SPACY_MODEL_FOR_LANGUAGE, "
+            "use 'xx' for the multilingual fallback (install 'xx_ent_wiki_sm'), or "
+            "configure a custom Presidio analyzer via the Python API (see "
             "https://microsoft.github.io/presidio/analyzer/languages/)."
         )
 
@@ -532,9 +608,9 @@ def detect_pii_ml(text: Any, *, language: str = "en") -> Dict[str, int]:
     if not _HAS_PRESIDIO:
         return {}
     try:
-        analyzer = _get_presidio_analyzer()
+        analyzer = _get_presidio_analyzer(language)
         results = analyzer.analyze(text=text, language=language)
-    except (ValueError, RuntimeError):  # pragma: no cover — Presidio edge cases
+    except (ValueError, RuntimeError) as exc:  # pragma: no cover — Presidio edge cases
         # Per-row resilience for the narrow class of failures Presidio
         # raises on bad input or transient engine state. ``OSError`` is
         # deliberately NOT caught here — that's the missing-spaCy-model
@@ -542,6 +618,18 @@ def detect_pii_ml(text: Any, *, language: str = "en") -> Dict[str, int]:
         # converted it to ImportError before any row was scanned. If
         # one slips through (e.g. lazy model load triggered later),
         # surfacing it loudly is the correct behaviour.
+        #
+        # Log at DEBUG (not WARNING): per-row failures can fire on
+        # every row in pathological corpora, and warning-level spam
+        # would drown out the audit's real findings. Operators
+        # debugging "why is ML PII coverage zero" can rerun with
+        # ``--log-level DEBUG`` to see the per-row exception trail.
+        logger.debug(
+            "detect_pii_ml: per-row Presidio failure (language=%s): %s",
+            language,
+            exc,
+            exc_info=True,
+        )
         return {}
     counts: Dict[str, int] = {}
     for finding in results:

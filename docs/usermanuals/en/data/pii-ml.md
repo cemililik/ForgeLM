@@ -76,14 +76,21 @@ These tiers sit **deliberately below** the regex `critical`/`high` floors (credi
 
 ## Language selection
 
-Pass `--pii-ml-language` to point at a non-English NLP engine. ForgeLM's pre-flight (`_require_presidio(language=...)`) verifies the requested language is registered on Presidio's `AnalyzerEngine` before any rows are scanned and raises a `ValueError` with the registered-languages list when it isn't — failing fast instead of silently returning empty findings. Default `AnalyzerEngine` only loads English; for non-English corpora you need a custom NlpEngine ([Presidio docs](https://microsoft.github.io/presidio/analyzer/languages/)) plus the matching spaCy model:
+Pass `--pii-ml-language` to audit non-English corpora. ForgeLM auto-builds a Presidio `AnalyzerEngine` for the requested language when you pass a code from the supported map (English defaults plus `de`, `es`, `fr`, `it`, `ja`, `ko`, `nl`, `pl`, `pt`, `ru`, `zh`); install the conventional spaCy model first:
 
 ```bash
-python -m spacy download xx_ent_wiki_sm     # multilingual, smaller
+python -m spacy download de_core_news_lg
+forgelm audit data/german-corpus.jsonl --pii-ml --pii-ml-language de
+```
+
+For languages without a maintained spaCy model (Turkish, Arabic, etc.), use the multilingual fallback `xx`:
+
+```bash
+python -m spacy download xx_ent_wiki_sm
 forgelm audit data/turkish-corpus.jsonl --pii-ml --pii-ml-language xx
 ```
 
-Default is `en`. If you run `--pii-ml` on a Turkish-majority corpus without configuring the language, the pre-flight aborts with the registered-languages list — no silent zero-findings audit.
+The pre-flight (`_require_presidio(language=...)`) validates both the spaCy model availability and the language registration before any rows are scanned; misconfiguration aborts with an actionable error instead of silently returning zero findings.
 
 ## Why pre-flight matters
 

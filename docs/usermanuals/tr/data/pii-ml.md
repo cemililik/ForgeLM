@@ -76,14 +76,21 @@ Bu katmanlar **bilinçli olarak** regex'in `critical`/`high` zeminlerinin (kredi
 
 ## Dil Seçimi {#dil-secimi}
 
-Non-English NLP engine'e işaret etmek için `--pii-ml-language` geçin. ForgeLM'in pre-flight'ı (`_require_presidio(language=...)`) hiçbir satır taranmadan önce talep edilen dilin Presidio `AnalyzerEngine`'inde kayıtlı olduğunu doğrular; değilse kayıtlı dil listesini içeren bir `ValueError` raise eder — sessizce boş bulgu döndürmek yerine peşinen başarısız olur. Varsayılan `AnalyzerEngine` yalnızca İngilizce yükler; non-English korpuslar için özel bir NlpEngine ([Presidio dokümanı](https://microsoft.github.io/presidio/analyzer/languages/)) ve eşleşen spaCy modeli gerekir:
+Non-English korpusları audit etmek için `--pii-ml-language` geçin. ForgeLM, desteklenen haritadaki bir kod (varsayılan İngilizce'ye ek olarak `de`, `es`, `fr`, `it`, `ja`, `ko`, `nl`, `pl`, `pt`, `ru`, `zh`) verildiğinde istenen dil için otomatik olarak bir Presidio `AnalyzerEngine` inşa eder; önce konvansiyonel spaCy modelini kurun:
 
 ```bash
-python -m spacy download xx_ent_wiki_sm     # çok dilli, daha küçük
+python -m spacy download de_core_news_lg
+forgelm audit data/german-corpus.jsonl --pii-ml --pii-ml-language de
+```
+
+Bakımdaki bir spaCy modeli olmayan diller için (Türkçe, Arapça, vb.) çok-dilli fallback `xx`'i kullanın:
+
+```bash
+python -m spacy download xx_ent_wiki_sm
 forgelm audit data/turkish-corpus.jsonl --pii-ml --pii-ml-language xx
 ```
 
-Varsayılan `en`. Türkçe ağırlıklı bir korpusta `--pii-ml`'i dil yapılandırmadan çalıştırırsanız, pre-flight kayıtlı dil listesiyle birlikte abort olur — sessiz sıfır-bulgu audit'i yoktur.
+Pre-flight (`_require_presidio(language=...)`) hiçbir satır taranmadan önce hem spaCy modelinin mevcudiyetini hem de dil kaydını doğrular; yanlış yapılandırma sessizce sıfır-bulgu döndürmek yerine actionable bir hata ile abort olur.
 
 ## Pre-flight neden önemli {#pre-flight-neden-onemli}
 

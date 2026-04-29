@@ -682,3 +682,64 @@ class TestPresidioLanguagePreflight:
                     _require_presidio(language="en")  # must not raise
         finally:
             _get_presidio_analyzer.cache_clear()
+
+    def test_unmapped_language_raises_value_error_at_analyzer_build(self):
+        # Languages without a default spaCy model in
+        # _SPACY_MODEL_FOR_LANGUAGE must fail fast at _get_presidio_analyzer
+        # time with an actionable hint that points at the 'xx' multilingual
+        # fallback or the Python-API custom-engine path. Exercises the
+        # "language not in map" branch directly without needing Presidio
+        # installed.
+        from forgelm.data_audit import _get_presidio_analyzer
+
+        _get_presidio_analyzer.cache_clear()
+        try:
+            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
+                with pytest.raises(ValueError) as exc_info:
+                    _get_presidio_analyzer(language="qq")
+        finally:
+            _get_presidio_analyzer.cache_clear()
+        msg = str(exc_info.value)
+        assert "qq" in msg
+        assert "xx" in msg  # message points at the multilingual fallback
+
+
+class TestPresidioPerRowErrorLogging:
+    """Per-row Presidio failures must surface at DEBUG level, not silently.
+
+    The handler stays narrow ((ValueError, RuntimeError)) and still
+    returns ``{}`` so a single bad row doesn't block the audit, but a
+    deluge of failures (zero ML coverage) is now diagnosable via
+    ``--log-level DEBUG`` instead of being invisible.
+    """
+
+    def test_per_row_value_error_emits_debug_log(self, caplog):
+        import logging
+
+        from forgelm.data_audit import _get_presidio_analyzer, detect_pii_ml
+
+        class _AngryAnalyzer:
+            def analyze(self, text, language):
+                raise ValueError("simulated per-row failure")
+
+        _get_presidio_analyzer.cache_clear()
+        try:
+            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
+                with patch(
+                    "forgelm.data_audit._get_presidio_analyzer",
+                    return_value=_AngryAnalyzer(),
+                ):
+                    with caplog.at_level(logging.DEBUG, logger="forgelm.data_audit"):
+                        result = detect_pii_ml("some text", language="en")
+        finally:
+            _get_presidio_analyzer.cache_clear()
+        # Behaviour: per-row failure swallowed (returns empty dict)
+        # but a DEBUG-level diagnostic record was emitted with the
+        # language and exception so operators can trace why ML PII
+        # coverage is zero in a noisy corpus.
+        assert result == {}
+        debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any("per-row Presidio failure" in r.getMessage() for r in debug_records), (
+            "expected DEBUG log for per-row Presidio failure"
+        )
+        assert any("language=en" in r.getMessage() for r in debug_records)
