@@ -4,9 +4,9 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
-_Empty — v0.5.0 is finalized. The next minor (`v0.5.1`) covers Phase 14
-(Multi-Stage Pipeline Chains); see [docs/roadmap.md](docs/roadmap.md)
-for the active phase plan._
+### Added
+
+- (next entry goes here — Phase 14 / Multi-Stage Pipeline Chains is the active phase; see [docs/roadmap.md](docs/roadmap.md))
 
 ---
 
