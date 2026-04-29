@@ -142,6 +142,9 @@ forgelm ingest ./mixed_corpus/ --secrets-mask --output data/clean.jsonl
 # v0.5.2: secrets + PII maskelemeyi birleştir (önce secrets, sonra PII —
 # örtüşen span'ler iki kez sayılmasın)
 forgelm ingest ./mixed_corpus/ --secrets-mask --pii-mask --output data/scrubbed.jsonl
+
+# v0.5.3 (Faz 12.5): yukarıdaki kombinasyonun tek-flag kısayolu
+forgelm ingest ./mixed_corpus/ --all-mask --output data/scrubbed.jsonl
 ```
 
 ### Veri Seti Denetimi (v0.5.0+; v0.5.1 subcommand; v0.5.2 MinHash + quality + secrets)
@@ -167,6 +170,13 @@ forgelm audit data/large_corpus.jsonl --dedup-method minhash --jaccard-threshold
 
 # v0.5.2: opt-in heuristik kalite filtresi (Gopher/C4 stili)
 forgelm audit data/ --quality-filter
+
+# v0.5.3 (Faz 12.5): audit'in yanında bir Google Croissant 1.0 dataset card emit et
+forgelm audit data/ --output ./audit/ --croissant
+
+# v0.5.3 (Faz 12.5): regex PII detector üzerine Presidio NER katmanı ekle
+# (`[ingestion-pii-ml]` extra'sını gerektirir — person/organization/location kategorileri ekler)
+forgelm audit data/ --output ./audit/ --pii-ml
 
 # stdout'a makine-okunabilir özet
 forgelm audit data/sft.jsonl --output ./audit/ --output-format json

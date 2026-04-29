@@ -12,7 +12,7 @@
 | ✅ Done | [Phase 11 — Document Ingestion & Data Audit](roadmap/phase-11-data-ingestion.md) | `forgelm ingest`, `forgelm --data-audit`, PII regex + simhash dedup — shipped `v0.5.0` |
 | 🟡 Merged | [Phase 11.5 — Ingestion / Audit Polish](roadmap/phase-11-5-backlog.md) | LSH banding, streaming reader, `forgelm audit` subcommand, PII severity tiers, wizard ingest path — merged to `main` (PR #11/#12); PyPI tag pending as `v0.5.1` |
 | 🟡 Merged | [Phase 12 — Data Curation Maturity](roadmap/phase-12-data-curation-maturity.md) | MinHash LSH dedup, markdown-aware splitter, code/secrets scan, quality heuristics, table preservation — Tier 1 merged to `main` (PR #13, 2026-04-29); PyPI tag pending as `v0.5.2`; Tier 2/3 deferred to [Phase 12.5 backlog](roadmap/phase-12-5-backlog.md) |
-| 📋 Planned | [Phase 12.5 — Data Curation Follow-up](roadmap/phase-12-5-backlog.md) | Presidio PII adapter, Croissant metadata export, `--all-mask`, wizard "audit first" flow → after `v0.5.2` tag |
+| 🟡 Merged | [Phase 12.5 — Data Curation Follow-up](roadmap/phase-12-5-backlog.md) | Presidio PII adapter (`[ingestion-pii-ml]`), Croissant 1.0 metadata (`--croissant`), `--all-mask`, wizard "audit first" — implemented on `development`; ships with `v0.5.3` (Phase 14) |
 | 📋 Planned | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO chained config, pipeline provenance artifacts → `v0.5.3` |
 | 📋 Planned | [Phase 13 — Pro CLI & Observability Dashboard](roadmap/phase-13-pro-cli.md) | License-gated dashboard, HPO, scheduled jobs, team config store → `v0.6.0-pro` |
 
@@ -24,7 +24,7 @@
 
 **Earlier:** `v0.4.0` — Post-Training Completion (2026-04-26). Inference primitives, interactive chat REPL, GGUF export, VRAM fit advisor, deployment config generation.
 
-**Next:** `v0.5.3` — Multi-Stage Pipeline Chains (Phase 14). SFT → DPO → GRPO chained config, pipeline provenance artifacts. Starts after the `v0.5.2` PyPI tag is published. Folds in [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14).
+**Next:** `v0.5.3` — Multi-Stage Pipeline Chains (Phase 14) + Phase 12.5 polish. SFT → DPO → GRPO chained config, pipeline provenance artifacts. Starts after the `v0.5.2` PyPI tag is published. Folds in [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14) and the four Phase 12.5 backlog items now landed on `development` (Presidio NER, Croissant 1.0 card, `--all-mask`, wizard "audit first").
 
 **Current state:** 16 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12) complete. 3 phases (12.5, 13, 14) planned. `v0.5.3`: Phase 14 (12.5 backlog folded in opportunistically). `v0.6.0-pro` (Phase 13) gated on adoption metrics.
 

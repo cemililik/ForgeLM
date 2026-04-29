@@ -112,6 +112,16 @@ ingestion-secrets = [
   "detect-secrets>=1.5.0,<2.0.0",
 ]
 
+# Phase 12.5: optional Presidio ML-NER PII detector. Adds the
+# unstructured-identifier categories (person / organization / location)
+# that the regex detector inherently misses. Heavyweight install
+# (≈ 50 MB spaCy model on first analyzer build), so opt-in only — the
+# regex set already covers the GDPR-mandated structured identifiers
+# (email, phone, IBAN, credit card, national IDs).
+ingestion-pii-ml = [
+  "presidio-analyzer>=2.2.0,<3.0.0",
+]
+
 # Phase 10: rich terminal rendering for the forgelm chat REPL.
 # Falls back to plain text output when not installed.
 chat = [

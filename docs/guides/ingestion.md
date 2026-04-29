@@ -130,6 +130,26 @@ installing it today does **not** change ingest masking behaviour.
 
 ---
 
+## All-in-one masking — `--all-mask` (Phase 12.5)
+
+`--all-mask` is a one-flag shorthand for `--secrets-mask --pii-mask` —
+the common "scrub everything detectable before training on a shared
+corpus" workflow. The two underlying detectors run in the documented
+order (secrets first so combined PII detectors don't double-count
+overlapping spans); the resulting JSONL carries both `[REDACTED-SECRET]`
+and `[REDACTED]` tokens where matches were found.
+
+```bash
+forgelm ingest ./mixed_corpus/ --recursive --all-mask --output data/clean.jsonl
+```
+
+Composes additively with explicit flags — `--all-mask --pii-mask` is
+not an error; the boolean union of the two flags is what runs. The
+shorthand exists purely as ergonomics; it does not introduce any new
+detector.
+
+---
+
 ## Recursive directory walk
 
 ```text

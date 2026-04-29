@@ -160,6 +160,9 @@ forgelm ingest ./mixed_corpus/ --secrets-mask --output data/clean.jsonl
 
 # v0.5.2: combine secrets + PII masking (secrets first to avoid double-counting)
 forgelm ingest ./mixed_corpus/ --secrets-mask --pii-mask --output data/scrubbed.jsonl
+
+# v0.5.3 (Phase 12.5): one-flag shorthand for the same combination above
+forgelm ingest ./mixed_corpus/ --all-mask --output data/scrubbed.jsonl
 ```
 
 ### Dataset Audit (v0.5.0+; subcommand promoted in v0.5.1; MinHash + quality + secrets in v0.5.2)
@@ -184,6 +187,13 @@ forgelm audit data/large_corpus.jsonl --dedup-method minhash --jaccard-threshold
 
 # v0.5.2: opt-in heuristic quality filter (Gopher/C4 style)
 forgelm audit data/ --quality-filter
+
+# v0.5.3 (Phase 12.5): emit a Google Croissant 1.0 dataset card alongside the audit
+forgelm audit data/ --output ./audit/ --croissant
+
+# v0.5.3 (Phase 12.5): layer Presidio NER on top of the regex PII detector
+# (needs `[ingestion-pii-ml]` extra — adds person/organization/location categories)
+forgelm audit data/ --output ./audit/ --pii-ml
 
 # Machine-readable summary on stdout
 forgelm audit data/sft.jsonl --output ./audit/ --output-format json

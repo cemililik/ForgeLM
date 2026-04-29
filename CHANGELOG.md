@@ -4,6 +4,85 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+### Added — Phase 12.5 (Data Curation Polish backlog)
+
+Four follow-up items from
+[`docs/roadmap/phase-12-5-backlog.md`](docs/roadmap/phase-12-5-backlog.md)
+ship together — none require new architecture; each is a small
+additive surface on top of the Phase 12 ingestion + audit lineage.
+
+- **`forgelm ingest --all-mask`** (item #3) — one-flag shorthand for
+  `--secrets-mask --pii-mask` in the documented mask order (secrets
+  first so combined detectors don't double-count overlapping spans).
+  Composes additively with explicit flags (set-union, no error). Pure
+  UX; no new behaviour.
+- **`forgelm audit --croissant`** (item #2) — opt-in
+  [Google Croissant 1.0](http://mlcommons.org/croissant/) dataset card
+  emitted under a new `croissant` key in `data_audit_report.json`. The
+  card carries dataset-level identity, one `cr:FileObject` per JSONL
+  split, and a `cr:RecordSet` per split with `cr:Field` entries
+  derived from the audit's column detection. Existing audit JSON keys
+  are byte-equivalent — the block stays empty when the flag is off
+  (same precedent as `secrets_summary` / `quality_summary`). Lets the
+  same JSON file double as both the EU AI Act Article 10 governance
+  artifact and a Croissant-consumer dataset card.
+- **`forgelm audit --pii-ml`** + new `[ingestion-pii-ml]` extra
+  (item #1) — opt-in [Presidio](https://github.com/microsoft/presidio)
+  ML-NER PII detector layered on top of the existing regex detector.
+  Adds the unstructured-identifier categories the regex inherently
+  misses (`person`, `organization`, `location`) into the same
+  `pii_summary` / `pii_severity` blocks under disjoint category
+  names. Severity tiers in the new `PII_ML_SEVERITY` table:
+  `person → medium`, `organization → low`, `location → low` (deliberately
+  below the regex `critical`/`high` tiers because NER false-positive
+  rates are materially higher than regex-anchored detection).
+  Pre-flight check raises `ImportError("...pip install
+  'forgelm[ingestion-pii-ml]'")` when the extra is missing — failures
+  surface before any rows are scanned. Per-row Presidio failures are
+  swallowed so a single malformed row never blocks the audit.
+- **Wizard "audit first" entry point** (item #4) — when the wizard
+  resolves a JSONL (either typed directly or produced by the
+  Phase 11.5 `_offer_ingest_for_directory` ingest flow), it now offers
+  to run `forgelm audit` on it inline and prints `summarize_report`'s
+  verdict before continuing. Mirrors the
+  `_offer_ingest_for_directory` shape exactly. Closes the BYOD audit
+  loop end-to-end. Audit is informational, not a gate — failures fall
+  through to the "continue without audit" path.
+
+Touch points (so the next reviewer can audit blast radius quickly):
+
+- `forgelm/ingestion.py` — no module changes (the flag composes at the
+  CLI boundary into the existing `pii_mask` / `secrets_mask` booleans).
+- `forgelm/cli.py` — three new flags on the existing subparsers
+  (`--all-mask` on `forgelm ingest`; `--croissant` and `--pii-ml` on
+  `forgelm audit`); dispatcher signatures threaded through.
+- `forgelm/data_audit.py` — `_HAS_PRESIDIO` sentinel, `_require_presidio`,
+  `_get_presidio_analyzer` (cached), `detect_pii_ml`,
+  `PII_ML_SEVERITY`, `PII_ML_TYPES`, `_PRESIDIO_ENTITY_MAP`,
+  `_build_croissant_metadata`, `_CROISSANT_CONTEXT`. New
+  `enable_pii_ml` / `emit_croissant` parameters on `audit_dataset` /
+  `_process_split` / `_audit_split`; new `enable_pii_ml` field on
+  `_StreamingAggregator`; new `croissant` field on `AuditReport`.
+  `_build_pii_severity` now consults the merged
+  `PII_SEVERITY ∪ PII_ML_SEVERITY` table.
+- `forgelm/wizard.py` — new `_offer_audit_for_jsonl(path)` helper;
+  invoked from `_offer_ingest_for_directory` (after ingest produces
+  a JSONL), `_validate_local_jsonl` (after a directly-provided JSONL
+  passes validation), and `_prompt_dataset_path_with_ingest_offer`
+  (after a non-directory JSONL is provided to the full wizard).
+- `pyproject.toml` — new `[ingestion-pii-ml]` extra
+  (`presidio-analyzer>=2.2.0,<3.0.0`).
+- `tests/test_phase12_5.py` — 11 new tests, four classes (one per
+  backlog row).
+- `tests/test_wizard_byod.py` — three existing tests get an extra
+  `"n"` answer to decline the new audit-first offer (the offer
+  behaviour has its own coverage in `test_phase12_5.py`).
+- Docs — `README.md` install matrix + Phase 12.5 feature line;
+  `docs/standards/architecture.md` extras matrix; `docs/guides/ingestion{,-tr}.md`
+  + `docs/guides/data_audit{,-tr}.md` get dedicated sections per
+  feature; `notebooks/data_curation.ipynb` mentions `--all-mask` and
+  the Phase 12.5 audit add-ons inline.
+
 ### Fixed — post-PR-#13 review-cycle batches (rounds 8-12)
 
 Inline-comment batches landing on top of PR #13 (now merged to `main`).

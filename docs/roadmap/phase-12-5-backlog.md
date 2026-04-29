@@ -14,12 +14,12 @@
 > **Scope:** small additions only — none require new architecture.
 > Each row is one PR.
 
-| # | Item | Source | Effort | Impact |
+| # | Item | Source | Effort | Status |
 |---|---|---|---|---|
-| **1** | **Presidio adapter** (`[ingestion-pii-ml]` extra, optional) | Phase 12 plan Tier 2 #6 | S–M | ML-NER signal regex misses (person names, organisations, locations); maps into the existing `pii_severity` table with new tier rows. Default regex+Luhn+TC-Kimlik path stays. |
-| **2** | **Croissant metadata compatibility** (audit JSON) | Phase 12 plan Tier 2 #7 | S | Adds a Google Croissant-shaped subset to `data_audit_report.json` so the file doubles as both an EU AI Act Article 10 governance artifact and a Croissant-consumer dataset card. Opt-in `--croissant` flag; existing audit consumers unaffected. |
-| **3** | **`forgelm ingest --all-mask` composite flag** | Phase 12 plan Tier 3 #8 | XS | One-flag shorthand that runs `--secrets-mask` then `--pii-mask` in the documented order. Pure UX; no new behaviour. Test: combined-fixture roundtrip. |
-| **4** | **Wizard "audit first" entry point** | Phase 12 plan Tier 3 #9 | S | Mirrors Phase 11.5's `_offer_ingest_for_directory` pattern: when the user provides a JSONL, the wizard offers to run `forgelm audit` and prints the verdicts before continuing. Closes the audit loop in the BYOD path. |
+| **1** | ~~**Presidio adapter** (`[ingestion-pii-ml]` extra, optional)~~ | Phase 12 plan Tier 2 #6 | S–M | ✅ Landed on `development` — `forgelm audit --pii-ml`; new `PII_ML_SEVERITY` table; opt-in `[ingestion-pii-ml]` extra (`presidio-analyzer`); ships with `v0.5.3`. |
+| **2** | ~~**Croissant metadata compatibility** (audit JSON)~~ | Phase 12 plan Tier 2 #7 | S | ✅ Landed on `development` — `forgelm audit --croissant`; Croissant 1.0 card under report's `croissant` key; existing keys byte-equivalent when off. |
+| **3** | ~~**`forgelm ingest --all-mask` composite flag**~~ | Phase 12 plan Tier 3 #8 | XS | ✅ Landed on `development` — `forgelm ingest --all-mask`; set-union with explicit flags; resolved at the CLI boundary. |
+| **4** | ~~**Wizard "audit first" entry point**~~ | Phase 12 plan Tier 3 #9 | S | ✅ Landed on `development` — `_offer_audit_for_jsonl` invoked from the three JSONL-finalisation paths in `forgelm/wizard.py`. |
 
 ## Why these landed here, not in Phase 12
 

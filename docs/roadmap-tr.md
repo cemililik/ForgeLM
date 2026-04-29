@@ -12,7 +12,7 @@
 | ✅ Tamam | [Faz 11 — Doküman Yutma ve Veri Denetimi](roadmap/phase-11-data-ingestion.md) | `forgelm ingest`, `forgelm --data-audit`, PII regex + simhash dedup — `v0.5.0` çıktı |
 | 🟡 Birleşti | [Faz 11.5 — Yutma / Denetim Cilası](roadmap/phase-11-5-backlog.md) | LSH banding, streaming reader, `forgelm audit` subcommand, PII şiddet katmanları, wizard ingest girişi — `main`'e indi (PR #11/#12); `v0.5.1` PyPI tag'i bekliyor |
 | 🟡 Birleşti | [Faz 12 — Veri Curation Olgunlaşması](roadmap/phase-12-data-curation-maturity.md) | MinHash LSH dedup, markdown-aware splitter, code/secrets tarama, kalite heuristic'leri, tablo yapısı koruma — Tier 1 `main`'e indi (PR #13, 2026-04-29); `v0.5.2` PyPI tag'i bekliyor; Tier 2/3 [Faz 12.5 backlog](roadmap/phase-12-5-backlog.md)'a ertelendi |
-| 📋 Planlandı | [Faz 12.5 — Veri Curation Follow-up](roadmap/phase-12-5-backlog.md) | Presidio PII adapter, Croissant metadata export, `--all-mask`, wizard "audit first" akışı → `v0.5.2` tag'inden sonra |
+| 🟡 Birleşti | [Faz 12.5 — Veri Curation Follow-up](roadmap/phase-12-5-backlog.md) | Presidio PII adaptörü (`[ingestion-pii-ml]`), Croissant 1.0 metadata (`--croissant`), `--all-mask`, wizard "audit first" — `development`'a indi; `v0.5.3` (Faz 14) ile çıkacak |
 | 📋 Planlandı | [Faz 14 — Çok Aşamalı Pipeline Zincirleri](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO config zinciri, pipeline kaynak izleri → `v0.5.3` |
 | 📋 Planlandı | [Faz 13 — Pro CLI ve Gözlemlenebilirlik Dashboard](roadmap/phase-13-pro-cli.md) | Lisans korumalı dashboard, HPO, zamanlanmış görevler, takım config store → `v0.6.0-pro` |
 
@@ -24,7 +24,7 @@
 
 **Daha öncesi:** `v0.4.0` — Post-Training Tamamlama (2026-04-26). Inference primitif'leri, etkileşimli chat REPL, GGUF export, VRAM fit advisor, deployment config üretimi.
 
-**Sonraki:** `v0.5.3` — Çok Aşamalı Pipeline Zincirleri (Faz 14). SFT → DPO → GRPO zincir konfigürasyonu, pipeline kaynak izleri. `v0.5.2` PyPI tag'inden sonra başlar; [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14) follow-up'ını kapsar.
+**Sonraki:** `v0.5.3` — Çok Aşamalı Pipeline Zincirleri (Faz 14) + Faz 12.5 cilası. SFT → DPO → GRPO zincir konfigürasyonu, pipeline kaynak izleri. `v0.5.2` PyPI tag'inden sonra başlar; [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14) follow-up'ını ve `development`'a inen dört Faz 12.5 backlog item'ını (Presidio NER, Croissant 1.0 card, `--all-mask`, wizard "audit first") kapsar.
 
 **Güncel durum:** 16 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12) tamam. 3 faz (12.5, 13, 14) planlandı. `v0.5.3`: Faz 14 (12.5 backlog'u fırsat oldukça eklenir). `v0.6.0-pro` (Faz 13) adoption metriklerine bağlı.
 

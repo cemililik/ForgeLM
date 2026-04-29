@@ -330,6 +330,16 @@ def _add_ingest_subcommand(subparsers) -> None:
         ),
     )
     p.add_argument(
+        "--all-mask",
+        action="store_true",
+        help=(
+            "Phase 12.5 shorthand: equivalent to --secrets-mask --pii-mask. "
+            "Convenience for the common 'scrub everything detectable before "
+            "training on shared corpora' workflow. Composes additively with "
+            "explicit --pii-mask / --secrets-mask flags (set-union, no error)."
+        ),
+    )
+    p.add_argument(
         "--chunk-tokens",
         type=_non_negative_int,
         default=None,
@@ -463,6 +473,26 @@ def _add_audit_subcommand(subparsers) -> None:
             "ratio, end-of-line punctuation ratio, repeated-line ratio, short-paragraph ratio). "
             "Findings appear under quality_summary in the audit JSON. ML-based classifiers are "
             "deferred to Phase 13+."
+        ),
+    )
+    p.add_argument(
+        "--croissant",
+        action="store_true",
+        help=(
+            "Phase 12.5: emit a Google Croissant 1.0 dataset card (sc:Dataset / cr:RecordSet) "
+            "under the report's 'croissant' key so the same data_audit_report.json doubles as "
+            "both the EU AI Act Article 10 governance artifact and a Croissant-consumer dataset "
+            "card. Existing audit JSON keys are unchanged; the block is empty when this flag is off."
+        ),
+    )
+    p.add_argument(
+        "--pii-ml",
+        action="store_true",
+        help=(
+            "Phase 12.5 opt-in: layer Presidio's ML-NER PII detection (person / organization / "
+            "location categories) on top of the regex detector. Requires the optional "
+            "'forgelm[ingestion-pii-ml]' extra; raises an install-hint ImportError when missing. "
+            "Findings merge into pii_summary / pii_severity under disjoint category names."
         ),
     )
     _add_common_subparser_flags(p, include_output_format=True)
@@ -1277,6 +1307,13 @@ def _run_ingest_cmd(args, output_format: str) -> None:
     """Phase 11 dispatch: raw documents → SFT-ready JSONL."""
     from .ingestion import ingest_path, summarize_result
 
+    # Phase 12.5: --all-mask is a shorthand that ORs into the two individual
+    # masking flags. Resolve it here at the CLI boundary so ``ingest_path``
+    # keeps its narrow API (only ``pii_mask`` / ``secrets_mask`` booleans).
+    all_mask = getattr(args, "all_mask", False)
+    pii_mask = bool(args.pii_mask) or all_mask
+    secrets_mask = bool(getattr(args, "secrets_mask", False)) or all_mask
+
     try:
         result = ingest_path(
             args.input_path,
@@ -1285,8 +1322,8 @@ def _run_ingest_cmd(args, output_format: str) -> None:
             overlap=args.overlap,
             strategy=args.strategy,
             recursive=args.recursive,
-            pii_mask=args.pii_mask,
-            secrets_mask=getattr(args, "secrets_mask", False),
+            pii_mask=pii_mask,
+            secrets_mask=secrets_mask,
             chunk_tokens=getattr(args, "chunk_tokens", None),
             overlap_tokens=getattr(args, "overlap_tokens", 0),
             tokenizer=getattr(args, "tokenizer", None),
@@ -1349,6 +1386,8 @@ def _run_data_audit(
     dedup_method: str = "simhash",
     minhash_jaccard: Optional[float] = None,
     enable_quality_filter: bool = False,
+    enable_pii_ml: bool = False,
+    emit_croissant: bool = False,
     invoked_via_legacy_flag: bool = False,
 ) -> None:
     """Phase 11 / 11.5 / 12 dispatch: dataset quality + governance audit.
@@ -1383,6 +1422,8 @@ def _run_data_audit(
             dedup_method=dedup_method,
             minhash_jaccard=jaccard,
             enable_quality_filter=enable_quality_filter,
+            enable_pii_ml=enable_pii_ml,
+            emit_croissant=emit_croissant,
         )
     except OSError as exc:
         # OSError covers FileNotFoundError / PermissionError / ENOSPC /
@@ -1454,6 +1495,8 @@ def _run_audit_cmd(args, output_format: str) -> None:
         dedup_method=getattr(args, "dedup_method", "simhash"),
         minhash_jaccard=getattr(args, "jaccard_threshold", None),
         enable_quality_filter=getattr(args, "quality_filter", False),
+        enable_pii_ml=getattr(args, "pii_ml", False),
+        emit_croissant=getattr(args, "croissant", False),
         invoked_via_legacy_flag=False,
     )
 

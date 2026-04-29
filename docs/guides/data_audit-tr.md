@@ -321,6 +321,91 @@ install ile uyumlu kalır.
 
 ---
 
+### ML-NER PII adaptörü — `--pii-ml` (Faz 12.5, opt-in)
+
+Varsayılan regex detector, EU AI Act Madde 10'un önemsediği yapılandırılmış
+identifier'ları (email, telefon, IBAN, kredi kartı, ulusal kimlik) kapsar.
+Faz 12.5, regex'in doğal olarak kaçırdığı yapılandırılmamış identifier
+kategorilerini ekleyen opt-in **Presidio** ([microsoft/presidio](https://github.com/microsoft/presidio))
+adaptörünü ML-NER olarak üstüne ekler: `person`, `organization`,
+`location`.
+
+```bash
+pip install 'forgelm[ingestion-pii-ml]'
+forgelm audit data/ --output ./audit/ --pii-ml
+```
+
+Yeni kategoriler mevcut `pii_summary` ve `pii_severity` bloklarına
+disjoint isimlerle birleşir, bu yüzden regex baseline ML sinyaliyle
+yan yana görünür kalır:
+
+```json
+{
+  "pii_summary": {
+    "email": 12,
+    "phone": 3,
+    "person": 47,         // ← Presidio
+    "organization": 18,   // ← Presidio
+    "location": 9         // ← Presidio
+  },
+  "pii_severity": {
+    "by_tier": {"critical": 0, "high": 0, "medium": 59, "low": 30},
+    "by_type": {
+      "email": {"count": 12, "tier": "medium"},
+      "person": {"count": 47, "tier": "medium"},
+      "organization": {"count": 18, "tier": "low"}
+    },
+    "worst_tier": "medium"
+  }
+}
+```
+
+Şiddet ataması `forgelm.data_audit.PII_ML_SEVERITY`'de yaşar:
+`person → medium`, `organization → low`, `location → low`. NER
+false-positive oranları regex-anchored detection'dan materyal olarak
+yüksektir — bu yüzden ML katmanları regex'in `critical` / `high`
+katlarının altında bilinçli konumlandırılır. Bir ML bulgusunu sert
+bir gate olarak değerlendirmeden önce satır bazında span'leri inceleyin.
+
+Presidio'nun ilk analyzer build'i bir spaCy İngilizce NER modeli
+indirir (~ 50 MB, tek seferlik). Sonraki çalışmalar cached modeli
+yeniden kullanır. Adaptör yalnızca opt-in; `--pii-ml` olmadan audit
+zero-extra-deps regex yolunda kalır.
+
+---
+
+### Croissant 1.0 dataset card — `--croissant` (Faz 12.5, opt-in)
+
+`--croissant`, `data_audit_report.json` içinde yeni bir top-level
+`croissant` bloğunu [Google Croissant 1.0](http://mlcommons.org/croissant/)
+dataset card'ı (`@type: sc:Dataset`) ile doldurur. Card, kanonik
+`mlcommons.org/croissant/1.0` context'iyle uyumludur — bu yüzden
+Croissant farkındalıklı consumer'lar (HuggingFace dataset cards,
+MLCommons referans loader'ları, Croissant validator) bloğu hiçbir
+modifikasyon olmadan parse edebilir.
+
+```bash
+forgelm audit data/ --output ./audit/ --croissant
+```
+
+Card şunları taşır:
+
+* dataset seviyesinde kimlik (`name`, `description`, `version`,
+  `datePublished`, `url`),
+* her JSONL split'i için bir `cr:FileObject` (Croissant consumer'ı
+  altta yatan dosyaları bulabilsin diye),
+* her split için audit'in column-detection katmanından türetilen
+  `cr:Field` girdileriyle bir `cr:RecordSet`.
+
+Flag kapalıyken blok boştur — mevcut consumer'lar byte-eşdeğer çıktı
+görür, `secrets_summary` / `quality_summary`'nin koyduğu emsalin
+aynısı. Card'ı HuggingFace / MLCommons'a yayınlamak isteyen operatörler
+audit'in birinci sınıf delili olmayan ek Croissant alanlarını
+(`license`, `citeAs`, `keywords`) audit'i yeniden çalıştırmadan
+elle düzenleyebilir.
+
+---
+
 ## Layout gereksinimleri
 
 | Girdi şekli | Ne elde edersin |

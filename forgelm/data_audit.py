@@ -94,6 +94,23 @@ except ImportError:  # pragma: no cover
     _HAS_DATASKETCH = False
 
 
+# Phase 12.5: optional Presidio ML-NER PII detection. Layered ON TOP of
+# the regex detector so the default audit keeps its zero-extra-deps
+# guarantee. Presidio + spaCy are heavyweight (≈ 50 MB model download),
+# so we stay strictly opt-in and fail soft when missing — the regex set
+# already covers the GDPR-mandated structured identifiers (email, phone,
+# IBAN, credit card, national IDs) that the audit's compliance contract
+# is built around. ML adds the *unstructured* identifiers regex inherently
+# misses: person names, organisations, locations.
+try:  # pragma: no cover — exercised by the dedicated extras-skip tests
+    from presidio_analyzer import AnalyzerEngine as _PresidioAnalyzer
+
+    _HAS_PRESIDIO = True
+except ImportError:  # pragma: no cover
+    _PresidioAnalyzer = None  # type: ignore[assignment]
+    _HAS_PRESIDIO = False
+
+
 # ---------------------------------------------------------------------------
 # Public types
 # ---------------------------------------------------------------------------
@@ -133,6 +150,27 @@ PII_SEVERITY: Dict[str, str] = {
 PII_SEVERITY_ORDER: Tuple[str, ...] = ("critical", "high", "medium", "low")
 """Display order — most-severe first so the operator-facing summary leads
 with the worst-case findings rather than burying them behind low tiers."""
+
+
+# Phase 12.5: severity for the ML-NER detector (Presidio adapter).  These
+# categories sit alongside the regex set and feed the same pii_severity
+# block, which is why they share the ``critical/high/medium/low`` tier
+# vocabulary.  Entries are deliberately on the lower end of the tier
+# table because NER false-positive rates are materially higher than the
+# regex-anchored detectors (a model name, a city, or an organization
+# string can be flagged with no privacy impact); compliance reviewers
+# can still upgrade the tier locally if their corpus warrants it.
+PII_ML_SEVERITY: Dict[str, str] = {
+    "person": "medium",
+    "organization": "low",
+    "location": "low",
+}
+
+
+PII_ML_TYPES: Tuple[str, ...] = tuple(PII_ML_SEVERITY.keys())
+"""Canonical category names for ML-detected PII.  Disjoint from
+:data:`PII_TYPES` (regex categories) so the two detectors can run side
+by side without double-counting the same span."""
 
 
 # Columns we treat as text payloads when computing length / language / dedup.
@@ -191,6 +229,10 @@ class AuditReport:
     # dicts on default audits with no findings.
     secrets_summary: Dict[str, int] = field(default_factory=dict)
     quality_summary: Dict[str, Any] = field(default_factory=dict)
+    # Phase 12.5: optional Google Croissant 1.0 dataset card. Empty dict
+    # by default so existing consumers see byte-identical output; set
+    # via ``audit_dataset(..., emit_croissant=True)`` or ``--croissant``.
+    croissant: Dict[str, Any] = field(default_factory=dict)
     notes: List[str] = field(default_factory=list)
 
 
@@ -348,6 +390,100 @@ def mask_pii(
 
         out = pattern.sub(_replace, out)
     return (out, counts) if return_counts else out
+
+
+# ---------------------------------------------------------------------------
+# Phase 12.5: optional Presidio ML-NER PII adapter
+# ---------------------------------------------------------------------------
+
+
+# Presidio analyzer is heavy to construct (loads spaCy + an English NER
+# model on first call), so we cache a single instance for the duration
+# of the process. ``maxsize=1`` keeps the cache trivially eviction-free
+# while still letting test code blow the cache via ``cache_clear()``.
+@lru_cache(maxsize=1)
+def _get_presidio_analyzer() -> Any:
+    """Return a cached :class:`presidio_analyzer.AnalyzerEngine` instance.
+
+    Raises:
+        ImportError: when the ``[ingestion-pii-ml]`` extra is missing.
+            Also surfaced through the public :func:`_require_presidio`
+            helper so callers that gate on Presidio availability up
+            front can produce a clean message before processing starts.
+    """
+    _require_presidio()
+    return _PresidioAnalyzer()
+
+
+def _require_presidio() -> None:
+    """Raise a clear ImportError when the optional ML-NER backend is missing.
+
+    Mirrors :func:`_require_datasketch` so any audit code path that
+    needs Presidio fails with an actionable install hint instead of a
+    deep ``AttributeError`` the operator can't act on.
+    """
+    if not _HAS_PRESIDIO:
+        raise ImportError(
+            "Presidio PII ML detection requires the 'ingestion-pii-ml' extra. "
+            "Install with: pip install 'forgelm[ingestion-pii-ml]'"
+        )
+
+
+# Map of Presidio's canonical entity-type strings (which mirror the
+# spaCy NER label set) to the ForgeLM category names that feed
+# :data:`PII_ML_SEVERITY` / :data:`PII_ML_TYPES`.  Keys come from
+# Presidio's recognizer registry; multiple Presidio labels can collapse
+# into a single ForgeLM bucket (``GPE`` / ``LOCATION`` both → ``location``)
+# because the audit's downstream consumer (compliance reviewer) doesn't
+# need finer granularity than person / organization / location.
+_PRESIDIO_ENTITY_MAP: Dict[str, str] = {
+    "PERSON": "person",
+    "ORG": "organization",
+    "ORGANIZATION": "organization",
+    "LOCATION": "location",
+    "GPE": "location",
+    "NORP": "location",
+    "FAC": "location",
+}
+
+
+def detect_pii_ml(text: Any) -> Dict[str, int]:
+    """ML-NER PII detector — counts ``person`` / ``organization`` / ``location`` spans.
+
+    Layered ON TOP of :func:`detect_pii` (regex). The two detectors
+    return disjoint category sets so the merged ``pii_summary`` shows
+    both the structured-identifier signal (regex) and the
+    unstructured-identifier signal (ML) without double-counting the
+    same span.
+
+    Returns an empty dict when:
+    * ``text`` is not a non-empty string (defensive — callers pass JSONL
+      payloads that may be ``None`` / numbers / dicts);
+    * Presidio is not installed (the caller must opt in explicitly via
+      :func:`_require_presidio` if they want a hard failure);
+    * the analyzer raises on the input — Presidio can fail on
+      pathological strings, model-load races, or version skews. We
+      swallow per-row failures and return zero counts so a single bad
+      row never blocks the audit.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return {}
+    if not _HAS_PRESIDIO:
+        return {}
+    try:
+        analyzer = _get_presidio_analyzer()
+        results = analyzer.analyze(text=text, language="en")
+    except Exception:  # pragma: no cover — Presidio raises on edge cases
+        # Per-row resilience: a single malformed row must not abort the
+        # audit. The aggregator counts no ML PII for this row, which is
+        # the correct behaviour for opt-in best-effort detection.
+        return {}
+    counts: Dict[str, int] = {}
+    for finding in results:
+        kind = _PRESIDIO_ENTITY_MAP.get(getattr(finding, "entity_type", ""))
+        if kind:
+            counts[kind] = counts.get(kind, 0) + 1
+    return counts
 
 
 # ---------------------------------------------------------------------------
@@ -1376,6 +1512,8 @@ class _StreamingAggregator:
     # Phase 12 configuration (set once by the orchestrator; never mutated).
     dedup_method: str = "simhash"
     minhash_num_perm: int = DEFAULT_MINHASH_NUM_PERM
+    # Phase 12.5: opt-in ML-NER PII detection (Presidio). Off by default.
+    enable_pii_ml: bool = False
     enable_quality_filter: bool = False
 
 
@@ -1415,6 +1553,13 @@ def _record_text_metrics(agg: _StreamingAggregator, payload: str) -> None:
     _record_dedup_signature(agg, payload)
     for kind, count in detect_pii(payload).items():
         agg.pii_counts[kind] = agg.pii_counts.get(kind, 0) + count
+    if agg.enable_pii_ml:
+        # Phase 12.5: Presidio NER findings layer onto the same pii_counts
+        # bucket. The category names are disjoint from the regex set
+        # (person / organization / location vs. email / phone / *_id),
+        # so the merged counts present both views without double-counting.
+        for kind, count in detect_pii_ml(payload).items():
+            agg.pii_counts[kind] = agg.pii_counts.get(kind, 0) + count
     for kind, count in detect_secrets(payload).items():
         agg.secrets_counts[kind] = agg.secrets_counts.get(kind, 0) + count
     if agg.enable_quality_filter:
@@ -1584,6 +1729,7 @@ def _audit_split(
     minhash_jaccard: float = DEFAULT_MINHASH_JACCARD,
     minhash_num_perm: int = DEFAULT_MINHASH_NUM_PERM,
     enable_quality_filter: bool = False,
+    enable_pii_ml: bool = False,
 ) -> Tuple[Dict[str, Any], List[Any], Dict[str, int], int, int]:
     """Stream a JSONL split into a metrics record.
 
@@ -1621,6 +1767,7 @@ def _audit_split(
         dedup_method=dedup_method,
         minhash_num_perm=minhash_num_perm,
         enable_quality_filter=enable_quality_filter,
+        enable_pii_ml=enable_pii_ml,
     )
     for row, parse_err, decode_err in _read_jsonl_split(path):
         _ingest_row(agg, row, parse_err, decode_err)
@@ -1938,6 +2085,7 @@ def _process_split(
     minhash_jaccard: float = DEFAULT_MINHASH_JACCARD,
     minhash_num_perm: int = DEFAULT_MINHASH_NUM_PERM,
     enable_quality_filter: bool = False,
+    enable_pii_ml: bool = False,
 ) -> _SplitOutcome:
     """Stream + audit one split. Tolerates per-split filesystem failures.
 
@@ -1957,6 +2105,7 @@ def _process_split(
             minhash_jaccard=minhash_jaccard,
             minhash_num_perm=minhash_num_perm,
             enable_quality_filter=enable_quality_filter,
+            enable_pii_ml=enable_pii_ml,
         )
     except OSError as exc:
         logger.warning("Could not read split '%s' (%s): %s — skipping.", split_name, path, exc)
@@ -2009,12 +2158,15 @@ def _build_pii_severity(pii_summary: Dict[str, int]) -> Dict[str, Any]:
     from :data:`PII_SEVERITY` (forward-compat for new types) fall back to
     ``unknown``.
 
-    A snapshot of :data:`PII_SEVERITY` is taken at call time so a
-    test or downstream caller mutating the module-level dict cannot
-    corrupt the audit output mid-run; per-call audits see a stable
-    table for the duration of their work.
+    A snapshot of :data:`PII_SEVERITY` (regex categories) and
+    :data:`PII_ML_SEVERITY` (Phase 12.5 ML-NER categories) is taken at
+    call time so a test or downstream caller mutating either dict
+    cannot corrupt the audit output mid-run; per-call audits see a
+    stable merged table for the duration of their work. The two
+    tables share the same tier vocabulary (``critical/high/medium/low``)
+    on purpose so the verdict surface stays unified.
     """
-    severity_table = dict(PII_SEVERITY)
+    severity_table = {**PII_SEVERITY, **PII_ML_SEVERITY}
     if not pii_summary:
         return {
             "total": 0,
@@ -2189,6 +2341,146 @@ def _build_quality_summary(
     }
 
 
+# Phase 12.5: Google Croissant 1.0 dataset-card emission. Croissant is a
+# JSON-LD vocabulary built on top of schema.org; mlcommons.org/croissant
+# describes the canonical context. We emit a minimum-viable subset that's
+# valid against the spec — tools that consume Croissant (HuggingFace's
+# dataset-cards, Croissant validator, MLCommons reference loaders) can
+# parse the block without modification, while the rest of the audit JSON
+# stays untouched. The card lives under the new ``croissant`` key on the
+# ``AuditReport`` dataclass; callers that don't want it never see it.
+_CROISSANT_VOCAB_VERSION = "1.0"
+_CROISSANT_CONTEXT: Dict[str, Any] = {
+    "@language": "en",
+    "@vocab": "https://schema.org/",
+    "sc": "https://schema.org/",
+    "cr": "http://mlcommons.org/croissant/",
+    "data": {"@id": "cr:data", "@type": "@json"},
+    "dataType": {"@id": "cr:dataType", "@type": "@vocab"},
+    "extract": "cr:extract",
+    "field": "cr:field",
+    "fileProperty": "cr:fileProperty",
+    "format": "cr:format",
+    "includes": "cr:includes",
+    "isLiveDataset": "cr:isLiveDataset",
+    "jsonPath": "cr:jsonPath",
+    "key": "cr:key",
+    "parentField": "cr:parentField",
+    "path": "cr:path",
+    "recordSet": "cr:recordSet",
+    "references": "cr:references",
+    "regex": "cr:regex",
+    "repeated": "cr:repeated",
+    "replace": "cr:replace",
+    "separator": "cr:separator",
+    "source": "cr:source",
+    "subField": "cr:subField",
+    "transform": "cr:transform",
+}
+
+
+def _build_croissant_metadata(
+    *,
+    source_path: str,
+    source_input: str,
+    generated_at: str,
+    total_samples: int,
+    splits_info: Dict[str, Dict[str, Any]],
+    splits_paths: Dict[str, Path],
+) -> Dict[str, Any]:
+    """Render a minimum-viable Croissant 1.0 dataset card for the audited corpus.
+
+    The card exposes:
+    * dataset-level identity (name, description, version, datePublished),
+    * one ``cr:FileObject`` per JSONL split (so a Croissant consumer can
+      locate the underlying files),
+    * one ``cr:RecordSet`` per split with the columns the audit detected
+      under ``splits.<name>.columns`` mapped to ``cr:Field`` entries.
+
+    The mapping intentionally stays additive — Croissant supports many
+    optional fields (citeAs, license, keywords, sameAs, etc.) that the
+    audit does not have first-class evidence for. Operators that want to
+    publish the card to HuggingFace / MLCommons can hand-edit those
+    fields without re-running the audit.
+    """
+    # Derive a human-readable name from the source path. ``Path.stem`` for
+    # a JSONL ("policies.jsonl" → "policies"); for a directory we use the
+    # directory name. Fall back to ``source_input`` so HF Hub IDs survive
+    # in the card even though the audit is filesystem-only today.
+    src = Path(source_path)
+    if src.is_file():
+        name = src.stem
+    elif src.is_dir():
+        name = src.name
+    else:
+        name = source_input or "dataset"
+
+    distribution: List[Dict[str, Any]] = []
+    record_sets: List[Dict[str, Any]] = []
+    for split_name, info in splits_info.items():
+        split_path = splits_paths.get(split_name)
+        sample_count = int(info.get("sample_count", 0))
+        file_id = f"{split_name}.jsonl"
+        distribution.append(
+            {
+                "@type": "cr:FileObject",
+                "@id": file_id,
+                "name": file_id,
+                "contentUrl": str(split_path) if split_path is not None else file_id,
+                "encodingFormat": "application/jsonlines",
+                "description": f"Split {split_name!r}: {sample_count} sample(s).",
+            }
+        )
+
+        # Map the audit's detected columns to ``cr:Field`` entries.
+        # ``columns`` is a list of strings (the keys present in the JSONL
+        # rows). When the column is one of the canonical text-payload
+        # columns we type it as ``sc:Text``; everything else is ``sc:Text``
+        # too (the audit doesn't track per-column dtypes — that's a
+        # consumer-side concern).
+        columns = info.get("columns") or []
+        fields = [
+            {
+                "@type": "cr:Field",
+                "@id": f"{split_name}/{column}",
+                "name": column,
+                "dataType": "sc:Text",
+                "source": {
+                    "fileObject": {"@id": file_id},
+                    "extract": {"jsonPath": f"$.{column}"},
+                },
+            }
+            for column in columns
+        ]
+        record_sets.append(
+            {
+                "@type": "cr:RecordSet",
+                "@id": split_name,
+                "name": split_name,
+                "field": fields,
+                "description": f"Records from split {split_name!r}.",
+            }
+        )
+
+    return {
+        "@context": dict(_CROISSANT_CONTEXT),
+        "@type": "sc:Dataset",
+        "conformsTo": "http://mlcommons.org/croissant/1.0",
+        "name": name,
+        "description": (
+            "ForgeLM audit-generated dataset card. "
+            f"{total_samples} sample(s) across {len(splits_info)} split(s). "
+            "Inline counts/quality/PII summaries live in the parent "
+            "data_audit_report.json under the canonical audit keys."
+        ),
+        "url": str(source_path),
+        "version": _CROISSANT_VOCAB_VERSION,
+        "datePublished": generated_at,
+        "distribution": distribution,
+        "recordSet": record_sets,
+    }
+
+
 def _build_near_duplicate_summary(
     *,
     dedup_method: str,
@@ -2219,6 +2511,8 @@ def audit_dataset(
     minhash_jaccard: float = DEFAULT_MINHASH_JACCARD,
     minhash_num_perm: int = DEFAULT_MINHASH_NUM_PERM,
     enable_quality_filter: bool = False,
+    enable_pii_ml: bool = False,
+    emit_croissant: bool = False,
 ) -> AuditReport:
     """Run the audit pipeline over a JSONL file or split-keyed directory.
 
@@ -2240,6 +2534,18 @@ def audit_dataset(
             similarity terms.
         minhash_num_perm: Number of permutations for ``datasketch.MinHash``.
             Default ``128`` matches datasketch's own default.
+        enable_pii_ml: Phase 12.5 opt-in — layer Presidio's ML-NER PII
+            detector (``person`` / ``organization`` / ``location``) on
+            top of the regex detector. Requires the optional
+            ``[ingestion-pii-ml]`` extra; raises ``ImportError`` with an
+            install hint when missing so the failure surfaces before
+            any rows are scanned.
+        emit_croissant: Phase 12.5 opt-in flag — when ``True``, populate
+            the report's ``croissant`` field with a Google Croissant 1.0
+            dataset card (``@type: sc:Dataset``) so the same JSON file
+            doubles as both the EU AI Act Article 10 governance artifact
+            and a Croissant-consumer dataset card. Off by default — older
+            consumers see byte-identical output until they opt in.
         enable_quality_filter: Phase 12 opt-in flag — when ``True``, run
             the heuristic quality checks (Gopher / C4 / RefinedWeb-style)
             and surface findings under ``quality_summary``.
@@ -2257,6 +2563,11 @@ def audit_dataset(
         if not isinstance(minhash_num_perm, int) or isinstance(minhash_num_perm, bool) or minhash_num_perm <= 0:
             raise ValueError(f"minhash_num_perm must be a positive integer; got {minhash_num_perm!r}.")
         _require_datasketch()
+    if enable_pii_ml:
+        # Phase 12.5: pre-flight the optional extra so the caller learns
+        # the dep is missing BEFORE we open any files / scan any rows,
+        # mirroring the ``_require_datasketch`` shape above.
+        _require_presidio()
 
     splits_paths, resolution_notes = _resolve_input(source)
 
@@ -2283,6 +2594,7 @@ def audit_dataset(
             minhash_jaccard=minhash_jaccard,
             minhash_num_perm=minhash_num_perm,
             enable_quality_filter=enable_quality_filter,
+            enable_pii_ml=enable_pii_ml,
         )
         splits_info[split_name] = outcome.info
         signatures_by_split[split_name] = outcome.signatures
@@ -2344,9 +2656,22 @@ def audit_dataset(
         minhash_num_perm=minhash_num_perm,
     )
 
+    generated_at = datetime.now(timezone.utc).isoformat()
+    source_path_abs = os.fspath(Path(source).expanduser().resolve())
+    croissant: Dict[str, Any] = {}
+    if emit_croissant:
+        croissant = _build_croissant_metadata(
+            source_path=source_path_abs,
+            source_input=source,
+            generated_at=generated_at,
+            total_samples=total_samples,
+            splits_info=splits_info,
+            splits_paths=splits_paths,
+        )
+
     report = AuditReport(
-        generated_at=datetime.now(timezone.utc).isoformat(),
-        source_path=os.fspath(Path(source).expanduser().resolve()),
+        generated_at=generated_at,
+        source_path=source_path_abs,
         source_input=source,
         total_samples=total_samples,
         splits=splits_info,
@@ -2356,6 +2681,7 @@ def audit_dataset(
         near_duplicate_summary=near_duplicate_summary,
         secrets_summary=secrets_summary,
         quality_summary=quality_summary,
+        croissant=croissant,
         notes=notes,
     )
 

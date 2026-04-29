@@ -141,6 +141,26 @@ yukarıdaki regex seti çalışır.
 
 ---
 
+## Hepsi bir arada maskeleme — `--all-mask` (Faz 12.5)
+
+`--all-mask`, `--secrets-mask --pii-mask` için tek-flag kısayoludur —
+"paylaşılan korpus üzerinde eğitime başlamadan tespit edilebilir her
+şeyi temizle" iş akışının yaygın hâlidir. İki detector belgelenen
+sıraya göre çalışır (önce secrets — birleşik PII detector'lar örtüşen
+span'leri çift saymasın diye); ortaya çıkan JSONL eşleşme bulunan
+yerlerde hem `[REDACTED-SECRET]` hem de `[REDACTED]` belirteçlerini
+taşır.
+
+```bash
+forgelm ingest ./mixed_corpus/ --recursive --all-mask --output data/clean.jsonl
+```
+
+Açık flag'lerle additive birleşir — `--all-mask --pii-mask` hata
+değildir; iki flag'in boolean unionu çalışır. Kısayol yalnızca
+ergonomi içindir; yeni bir detector eklemez.
+
+---
+
 ## Recursive dizin yürüyüşü
 
 ```text
