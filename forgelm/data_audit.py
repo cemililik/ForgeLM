@@ -406,48 +406,78 @@ def _get_presidio_analyzer() -> Any:
     """Return a cached :class:`presidio_analyzer.AnalyzerEngine` instance.
 
     Raises:
-        ImportError: when the ``[ingestion-pii-ml]`` extra is missing.
-            Also surfaced through the public :func:`_require_presidio`
-            helper so callers that gate on Presidio availability up
-            front can produce a clean message before processing starts.
+        ImportError: when the ``[ingestion-pii-ml]`` extra is missing OR
+            when ``presidio-analyzer`` is installed but the spaCy NER
+            model it depends on is not — both surfaces produce the same
+            actionable install hint via :func:`_require_presidio` so
+            the operator never sees a deep ``OSError`` from spaCy
+            mid-stream.
     """
-    _require_presidio()
+    if not _HAS_PRESIDIO:
+        raise ImportError(_PRESIDIO_INSTALL_HINT)
     return _PresidioAnalyzer()
 
 
-def _require_presidio() -> None:
-    """Raise a clear ImportError when the optional ML-NER backend is missing.
+# A single, canonical install hint shared by the import-sentinel branch
+# and the spaCy-model-missing branch.  Both failure modes look identical
+# to the operator (``--pii-ml`` doesn't work; here is the recipe), so
+# we keep the message in one place to avoid drift.
+_PRESIDIO_INSTALL_HINT: str = (
+    "Presidio PII ML detection requires the 'ingestion-pii-ml' extra "
+    "AND a spaCy English NER model. Install with:\n"
+    "  pip install 'forgelm[ingestion-pii-ml]'\n"
+    "  python -m spacy download en_core_web_lg"
+)
 
-    Mirrors :func:`_require_datasketch` so any audit code path that
-    needs Presidio fails with an actionable install hint instead of a
-    deep ``AttributeError`` the operator can't act on.
+
+def _require_presidio() -> None:
+    """Raise a clear ImportError when the optional ML-NER backend is unusable.
+
+    Mirrors :func:`_require_datasketch` but extends the check to model
+    availability: a fresh ``[ingestion-pii-ml]`` install does **not**
+    transitively ship the spaCy NER model — that's a separate
+    ``python -m spacy download en_core_web_lg`` step. Without the model
+    the first per-row analyzer call would raise ``OSError`` deep inside
+    spaCy and (because :func:`detect_pii_ml`'s last-ditch ``except``
+    swallows per-row failures) the audit would silently report zero
+    ML PII coverage. Pre-flighting the analyzer build here surfaces
+    the missing-model case before any rows are scanned.
     """
     if not _HAS_PRESIDIO:
+        raise ImportError(_PRESIDIO_INSTALL_HINT)
+    try:
+        _get_presidio_analyzer()
+    except OSError as exc:
+        # spaCy raises ``OSError`` ("Can't find model 'en_core_web_lg'")
+        # when the model package isn't on the import path. Re-raise as
+        # ImportError so callers that already catch ImportError for the
+        # extras-missing branch see the same exception class for both
+        # failure modes.
+        _get_presidio_analyzer.cache_clear()
         raise ImportError(
-            "Presidio PII ML detection requires the 'ingestion-pii-ml' extra. "
-            "Install with: pip install 'forgelm[ingestion-pii-ml]'"
-        )
+            f"Presidio analyzer build failed (likely missing spaCy NER model): {exc}\n{_PRESIDIO_INSTALL_HINT}"
+        ) from exc
 
 
-# Map of Presidio's canonical entity-type strings (which mirror the
-# spaCy NER label set) to the ForgeLM category names that feed
-# :data:`PII_ML_SEVERITY` / :data:`PII_ML_TYPES`.  Keys come from
-# Presidio's recognizer registry; multiple Presidio labels can collapse
-# into a single ForgeLM bucket (``GPE`` / ``LOCATION`` both → ``location``)
-# because the audit's downstream consumer (compliance reviewer) doesn't
-# need finer granularity than person / organization / location.
+# Presidio canonicalises spaCy NER labels through its
+# ``model_to_presidio_entity_mapping`` (PER/PERSON → PERSON,
+# LOC/GPE → LOCATION, ORG → ORGANIZATION, NORP → NRP); what
+# ``analyzer.analyze()`` emits as ``entity_type`` is the canonical
+# Presidio name, never the raw spaCy tag. Keep this map keyed on
+# canonical Presidio names only so a future maintainer doesn't read
+# dead spaCy keys as live coverage.  ``NRP`` (nationality / religious /
+# political group) is deliberately not mapped — it's a distinct privacy
+# signal from ``location`` and Presidio's NRP precision is too low to
+# grade as ``person`` without further work; revisit if compliance
+# reviewers ask for it.
 _PRESIDIO_ENTITY_MAP: Dict[str, str] = {
     "PERSON": "person",
-    "ORG": "organization",
     "ORGANIZATION": "organization",
     "LOCATION": "location",
-    "GPE": "location",
-    "NORP": "location",
-    "FAC": "location",
 }
 
 
-def detect_pii_ml(text: Any) -> Dict[str, int]:
+def detect_pii_ml(text: Any, *, language: str = "en") -> Dict[str, int]:
     """ML-NER PII detector — counts ``person`` / ``organization`` / ``location`` spans.
 
     Layered ON TOP of :func:`detect_pii` (regex). The two detectors
@@ -456,15 +486,27 @@ def detect_pii_ml(text: Any) -> Dict[str, int]:
     unstructured-identifier signal (ML) without double-counting the
     same span.
 
+    Args:
+        text: Per-row payload; defensive against ``None`` / numbers / dicts.
+        language: Presidio NLP-engine language code. Default ``"en"``.
+            Set via :func:`audit_dataset`'s ``pii_ml_language`` parameter.
+            Presidio raises a typed exception if no NLP engine is
+            registered for the requested language — surfaced as the
+            same per-row swallow as any other analyzer failure.
+
     Returns an empty dict when:
     * ``text`` is not a non-empty string (defensive — callers pass JSONL
       payloads that may be ``None`` / numbers / dicts);
     * Presidio is not installed (the caller must opt in explicitly via
       :func:`_require_presidio` if they want a hard failure);
-    * the analyzer raises on the input — Presidio can fail on
-      pathological strings, model-load races, or version skews. We
-      swallow per-row failures and return zero counts so a single bad
-      row never blocks the audit.
+    * the analyzer raises a recoverable error on this row — pathological
+      strings, transient NLP engine state, language-specific recogniser
+      misses. We swallow narrowly-typed failures (``ValueError`` /
+      ``RuntimeError``) and let everything else propagate so genuine
+      bugs (``OSError`` on missing model, ``MemoryError``, ``KeyboardInterrupt``)
+      stay visible. The pre-flight in :func:`_require_presidio` covers
+      the missing-model case so it never reaches this path in the
+      common run.
     """
     if not isinstance(text, str) or not text.strip():
         return {}
@@ -472,11 +514,15 @@ def detect_pii_ml(text: Any) -> Dict[str, int]:
         return {}
     try:
         analyzer = _get_presidio_analyzer()
-        results = analyzer.analyze(text=text, language="en")
-    except Exception:  # pragma: no cover — Presidio raises on edge cases
-        # Per-row resilience: a single malformed row must not abort the
-        # audit. The aggregator counts no ML PII for this row, which is
-        # the correct behaviour for opt-in best-effort detection.
+        results = analyzer.analyze(text=text, language=language)
+    except (ValueError, RuntimeError):  # pragma: no cover — Presidio edge cases
+        # Per-row resilience for the narrow class of failures Presidio
+        # raises on bad input or transient engine state. ``OSError`` is
+        # deliberately NOT caught here — that's the missing-spaCy-model
+        # signal and ``_require_presidio``'s pre-flight should have
+        # converted it to ImportError before any row was scanned. If
+        # one slips through (e.g. lazy model load triggered later),
+        # surfacing it loudly is the correct behaviour.
         return {}
     counts: Dict[str, int] = {}
     for finding in results:
@@ -1514,6 +1560,7 @@ class _StreamingAggregator:
     minhash_num_perm: int = DEFAULT_MINHASH_NUM_PERM
     # Phase 12.5: opt-in ML-NER PII detection (Presidio). Off by default.
     enable_pii_ml: bool = False
+    pii_ml_language: str = "en"
     enable_quality_filter: bool = False
 
 
@@ -1558,7 +1605,10 @@ def _record_text_metrics(agg: _StreamingAggregator, payload: str) -> None:
         # bucket. The category names are disjoint from the regex set
         # (person / organization / location vs. email / phone / *_id),
         # so the merged counts present both views without double-counting.
-        for kind, count in detect_pii_ml(payload).items():
+        # ``pii_ml_language`` is plumbed through so a Turkish-majority
+        # corpus can be audited with a Turkish spaCy model rather than
+        # silently scoring zero NER findings under English.
+        for kind, count in detect_pii_ml(payload, language=agg.pii_ml_language).items():
             agg.pii_counts[kind] = agg.pii_counts.get(kind, 0) + count
     for kind, count in detect_secrets(payload).items():
         agg.secrets_counts[kind] = agg.secrets_counts.get(kind, 0) + count
@@ -1730,6 +1780,7 @@ def _audit_split(
     minhash_num_perm: int = DEFAULT_MINHASH_NUM_PERM,
     enable_quality_filter: bool = False,
     enable_pii_ml: bool = False,
+    pii_ml_language: str = "en",
 ) -> Tuple[Dict[str, Any], List[Any], Dict[str, int], int, int]:
     """Stream a JSONL split into a metrics record.
 
@@ -1768,6 +1819,7 @@ def _audit_split(
         minhash_num_perm=minhash_num_perm,
         enable_quality_filter=enable_quality_filter,
         enable_pii_ml=enable_pii_ml,
+        pii_ml_language=pii_ml_language,
     )
     for row, parse_err, decode_err in _read_jsonl_split(path):
         _ingest_row(agg, row, parse_err, decode_err)
@@ -2086,6 +2138,7 @@ def _process_split(
     minhash_num_perm: int = DEFAULT_MINHASH_NUM_PERM,
     enable_quality_filter: bool = False,
     enable_pii_ml: bool = False,
+    pii_ml_language: str = "en",
 ) -> _SplitOutcome:
     """Stream + audit one split. Tolerates per-split filesystem failures.
 
@@ -2106,6 +2159,7 @@ def _process_split(
             minhash_num_perm=minhash_num_perm,
             enable_quality_filter=enable_quality_filter,
             enable_pii_ml=enable_pii_ml,
+            pii_ml_language=pii_ml_language,
         )
     except OSError as exc:
         logger.warning("Could not read split '%s' (%s): %s — skipping.", split_name, path, exc)
@@ -2349,7 +2403,6 @@ def _build_quality_summary(
 # parse the block without modification, while the rest of the audit JSON
 # stays untouched. The card lives under the new ``croissant`` key on the
 # ``AuditReport`` dataclass; callers that don't want it never see it.
-_CROISSANT_VOCAB_VERSION = "1.0"
 _CROISSANT_CONTEXT: Dict[str, Any] = {
     "@language": "en",
     "@vocab": "https://schema.org/",
@@ -2418,15 +2471,21 @@ def _build_croissant_metadata(
     distribution: List[Dict[str, Any]] = []
     record_sets: List[Dict[str, Any]] = []
     for split_name, info in splits_info.items():
-        split_path = splits_paths.get(split_name)
         sample_count = int(info.get("sample_count", 0))
         file_id = f"{split_name}.jsonl"
+        # ``contentUrl`` deliberately uses the *file_id* (relative
+        # filename), not the absolute filesystem path: cards published
+        # to HuggingFace / MLCommons must not leak the auditor's local
+        # ``/Users/...`` / ``/home/builder/...`` layout. Operators that
+        # want a real ``contentUrl`` (HF Hub URL, S3 path, etc.) can
+        # hand-edit the field at publish time the same way they do
+        # ``license`` / ``citeAs``.
         distribution.append(
             {
                 "@type": "cr:FileObject",
                 "@id": file_id,
                 "name": file_id,
-                "contentUrl": str(split_path) if split_path is not None else file_id,
+                "contentUrl": file_id,
                 "encodingFormat": "application/jsonlines",
                 "description": f"Split {split_name!r}: {sample_count} sample(s).",
             }
@@ -2462,6 +2521,14 @@ def _build_croissant_metadata(
             }
         )
 
+    # ``url`` carries ``source_input`` (as-typed) rather than the
+    # resolved absolute path — see ``contentUrl`` rationale above.
+    # ``version`` (``sc:version``) describes the *dataset* version,
+    # not the Croissant vocabulary version (vocab conformance is
+    # declared via ``conformsTo``). The audit doesn't have first-class
+    # evidence for dataset version, so the field is omitted; operators
+    # that publish the card hand-edit ``version`` like they do
+    # ``license`` / ``citeAs``.
     return {
         "@context": dict(_CROISSANT_CONTEXT),
         "@type": "sc:Dataset",
@@ -2473,8 +2540,7 @@ def _build_croissant_metadata(
             "Inline counts/quality/PII summaries live in the parent "
             "data_audit_report.json under the canonical audit keys."
         ),
-        "url": str(source_path),
-        "version": _CROISSANT_VOCAB_VERSION,
+        "url": source_input,
         "datePublished": generated_at,
         "distribution": distribution,
         "recordSet": record_sets,
@@ -2512,6 +2578,7 @@ def audit_dataset(
     minhash_num_perm: int = DEFAULT_MINHASH_NUM_PERM,
     enable_quality_filter: bool = False,
     enable_pii_ml: bool = False,
+    pii_ml_language: str = "en",
     emit_croissant: bool = False,
 ) -> AuditReport:
     """Run the audit pipeline over a JSONL file or split-keyed directory.
@@ -2537,9 +2604,15 @@ def audit_dataset(
         enable_pii_ml: Phase 12.5 opt-in — layer Presidio's ML-NER PII
             detector (``person`` / ``organization`` / ``location``) on
             top of the regex detector. Requires the optional
-            ``[ingestion-pii-ml]`` extra; raises ``ImportError`` with an
-            install hint when missing so the failure surfaces before
-            any rows are scanned.
+            ``[ingestion-pii-ml]`` extra AND a spaCy NER model
+            (``python -m spacy download en_core_web_lg``); raises
+            ``ImportError`` with the install hint when either is
+            missing so the failure surfaces before any rows are scanned.
+        pii_ml_language: Phase 12.5 — language code passed to Presidio's
+            NLP engine. Default ``"en"``. Set to ``"tr"`` (or whichever
+            spaCy model the operator has loaded) for non-English
+            corpora; Presidio raises a typed exception when no engine
+            is registered for the requested language.
         emit_croissant: Phase 12.5 opt-in flag — when ``True``, populate
             the report's ``croissant`` field with a Google Croissant 1.0
             dataset card (``@type: sc:Dataset``) so the same JSON file
@@ -2595,6 +2668,7 @@ def audit_dataset(
             minhash_num_perm=minhash_num_perm,
             enable_quality_filter=enable_quality_filter,
             enable_pii_ml=enable_pii_ml,
+            pii_ml_language=pii_ml_language,
         )
         splits_info[split_name] = outcome.info
         signatures_by_split[split_name] = outcome.signatures

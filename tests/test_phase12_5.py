@@ -197,9 +197,14 @@ class TestCroissantMetadataExport:
             assert exc_info.value.code == 0
 
         report = json.loads((out_dir / "data_audit_report.json").read_text(encoding="utf-8"))
-        # Key may or may not be present depending on serializer; the contract
-        # is "no Croissant content unless --croissant is passed".
-        assert report.get("croissant", {}) == {}
+        # Pin the contract: ``croissant`` is *always* present in the
+        # serialised report (dataclass ``field(default_factory=dict)``)
+        # and is the empty dict when ``--croissant`` is off. This
+        # matches the precedent set by ``secrets_summary`` /
+        # ``quality_summary`` and prevents a future serializer change
+        # from silently dropping the key for empty dicts.
+        assert "croissant" in report
+        assert report["croissant"] == {}
 
     def test_croissant_flag_emits_minimal_card(self, tmp_path):
         ds = tmp_path / "data.jsonl"
@@ -290,3 +295,234 @@ class TestPresidioPIIAdapter:
         assert PII_ML_SEVERITY["person"] == "medium"
         assert PII_ML_SEVERITY["organization"] == "low"
         assert PII_ML_SEVERITY["location"] == "low"
+
+    def test_presidio_entity_map_only_canonical_keys(self):
+        # Presidio canonicalises spaCy NER labels (PER/PERSON → PERSON,
+        # LOC/GPE → LOCATION, ORG → ORGANIZATION, NORP → NRP) before
+        # they reach ``analyzer.analyze().entity_type``. Pin the map to
+        # the canonical names only so a future maintainer doesn't read
+        # raw spaCy keys (``ORG`` / ``GPE`` / ``NORP`` / ``FAC``) as
+        # live coverage. NRP is deliberately excluded — it's a distinct
+        # privacy signal from ``location``.
+        from forgelm.data_audit import _PRESIDIO_ENTITY_MAP
+
+        assert set(_PRESIDIO_ENTITY_MAP.keys()) == {"PERSON", "ORGANIZATION", "LOCATION"}
+        assert _PRESIDIO_ENTITY_MAP["PERSON"] == "person"
+        assert _PRESIDIO_ENTITY_MAP["ORGANIZATION"] == "organization"
+        assert _PRESIDIO_ENTITY_MAP["LOCATION"] == "location"
+
+    def test_presidio_missing_spacy_model_surfaces_install_hint(self):
+        # Even when ``presidio-analyzer`` is importable, the spaCy model
+        # is a separate ``python -m spacy download …`` step. spaCy
+        # raises ``OSError("Can't find model …")`` when the model
+        # package isn't on the import path; ``_require_presidio`` must
+        # catch that and re-raise as ``ImportError`` with the install
+        # recipe so the operator never gets a deep spaCy traceback.
+        from forgelm.data_audit import _get_presidio_analyzer, _require_presidio
+
+        # Reset the cache so our patched class is the one that gets
+        # constructed; otherwise a previous successful build could
+        # return a stale instance.
+        _get_presidio_analyzer.cache_clear()
+        try:
+
+            class _BoomAnalyzer:
+                def __init__(self):
+                    raise OSError("Can't find model 'en_core_web_lg'")
+
+            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
+                with patch("forgelm.data_audit._PresidioAnalyzer", _BoomAnalyzer):
+                    with pytest.raises(ImportError) as exc_info:
+                        _require_presidio()
+        finally:
+            # Always restore the cache so subsequent tests in the same
+            # session don't see ``_BoomAnalyzer``.
+            _get_presidio_analyzer.cache_clear()
+        msg = str(exc_info.value)
+        assert "spacy" in msg.lower() or "spaCy" in msg
+        assert "ingestion-pii-ml" in msg
+        assert "en_core_web_lg" in msg
+
+    def test_presidio_entity_map_collapses_findings_to_buckets(self):
+        # Behavioural test for ``detect_pii_ml`` — a stub Presidio
+        # analyzer that emits canonical entity_type strings should
+        # produce the right counts; non-canonical ones (raw spaCy
+        # labels) should be ignored. This test would have caught the
+        # original review's M2 immediately.
+        from forgelm.data_audit import _get_presidio_analyzer, detect_pii_ml
+
+        class _Finding:
+            def __init__(self, entity_type):
+                self.entity_type = entity_type
+
+        class _StubAnalyzer:
+            def analyze(self, text, language):
+                # Emit the full Presidio canonical set + a couple of raw
+                # spaCy labels (which Presidio would never actually
+                # emit) to confirm our map only honours canonicals.
+                return [
+                    _Finding("PERSON"),
+                    _Finding("ORGANIZATION"),
+                    _Finding("LOCATION"),
+                    _Finding("LOCATION"),
+                    _Finding("NRP"),  # Presidio canonical, not mapped
+                    _Finding("ORG"),  # raw spaCy, must NOT be honoured
+                    _Finding("GPE"),  # raw spaCy, must NOT be honoured
+                ]
+
+        _get_presidio_analyzer.cache_clear()
+        try:
+            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
+                with patch("forgelm.data_audit._get_presidio_analyzer", return_value=_StubAnalyzer()):
+                    counts = detect_pii_ml("Alice works at Acme Corp in Berlin.")
+        finally:
+            _get_presidio_analyzer.cache_clear()
+        assert counts == {"person": 1, "organization": 1, "location": 2}
+
+
+# ---------------------------------------------------------------------------
+# Cross-cutting tests — coverage gaps surfaced by the Phase 12.5 review
+# ---------------------------------------------------------------------------
+
+
+class TestCroissantMultiSplit:
+    """Multi-split layout produces one cr:FileObject + cr:RecordSet per split."""
+
+    def _write_jsonl(self, path: Path, rows) -> None:
+        with open(path, "w", encoding="utf-8") as fh:
+            for row in rows:
+                fh.write(json.dumps(row) + "\n")
+
+    def test_multi_split_card_carries_one_record_per_split(self, tmp_path):
+        # train.jsonl / validation.jsonl / test.jsonl is the canonical
+        # multi-split layout the audit recognises. Each must produce
+        # its own ``cr:FileObject`` (in ``distribution``) and its own
+        # ``cr:RecordSet`` (with the right ``@id``).
+        data_dir = tmp_path / "splits"
+        data_dir.mkdir()
+        for split, rows in [
+            ("train", [{"text": "alpha"}, {"text": "beta"}]),
+            ("validation", [{"text": "gamma"}]),
+            ("test", [{"text": "delta"}]),
+        ]:
+            self._write_jsonl(data_dir / f"{split}.jsonl", rows)
+
+        out_dir = tmp_path / "audit"
+        with patch(
+            "sys.argv",
+            [
+                "forgelm",
+                "audit",
+                str(data_dir),
+                "--output",
+                str(out_dir),
+                "--croissant",
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        report = json.loads((out_dir / "data_audit_report.json").read_text(encoding="utf-8"))
+        crois = report["croissant"]
+        ids = {entry["@id"] for entry in crois["distribution"]}
+        assert ids == {"train.jsonl", "validation.jsonl", "test.jsonl"}
+        record_ids = {entry["@id"] for entry in crois["recordSet"]}
+        assert record_ids == {"train", "validation", "test"}
+        # contentUrl must be the relative file_id, not an absolute
+        # filesystem path — see the Phase 12.5 review m3 finding.
+        for entry in crois["distribution"]:
+            assert entry["contentUrl"] == entry["@id"]
+            assert "/" not in entry["contentUrl"]
+
+
+class TestAllMaskSymmetric:
+    """``--all-mask`` set-union covers the secrets-mask-already-true direction too."""
+
+    def test_all_mask_with_secrets_mask_already_set(self, tmp_path):
+        # Symmetric counterpart to test_all_mask_combines_with_individual_flags_no_error
+        # so a future refactor that drops one branch of the boolean
+        # union trips a test.
+        aws_key = "AKIA" + "IOSFODNN7" + "EXAMPLE"
+        src = tmp_path / "input.txt"
+        src.write_text(
+            f"alice@example.com mentioned key={aws_key}",
+            encoding="utf-8",
+        )
+        out = tmp_path / "out.jsonl"
+        with patch(
+            "sys.argv",
+            [
+                "forgelm",
+                "ingest",
+                str(src),
+                "--output",
+                str(out),
+                "--secrets-mask",
+                "--all-mask",
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+        written = out.read_text(encoding="utf-8")
+        assert "[REDACTED]" in written
+        assert "[REDACTED-SECRET]" in written
+        assert aws_key not in written
+
+
+class TestPiiMlJsonEnvelope:
+    """``forgelm audit --output-format json`` surfaces the Croissant card."""
+
+    def _write_jsonl(self, path: Path, rows) -> None:
+        with open(path, "w", encoding="utf-8") as fh:
+            for row in rows:
+                fh.write(json.dumps(row) + "\n")
+
+    def test_envelope_carries_croissant_when_flag_on(self, tmp_path, capsys):
+        ds = tmp_path / "data.jsonl"
+        self._write_jsonl(ds, [{"text": "alpha"}])
+        out_dir = tmp_path / "audit"
+        with patch(
+            "sys.argv",
+            [
+                "forgelm",
+                "audit",
+                str(ds),
+                "--output",
+                str(out_dir),
+                "--croissant",
+                "--output-format",
+                "json",
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+        envelope = json.loads(capsys.readouterr().out)
+        assert "croissant" in envelope
+        assert envelope["croissant"]["@type"] == "sc:Dataset"
+
+    def test_envelope_croissant_is_empty_when_flag_off(self, tmp_path, capsys):
+        ds = tmp_path / "data.jsonl"
+        self._write_jsonl(ds, [{"text": "alpha"}])
+        out_dir = tmp_path / "audit"
+        with patch(
+            "sys.argv",
+            [
+                "forgelm",
+                "audit",
+                str(ds),
+                "--output",
+                str(out_dir),
+                "--output-format",
+                "json",
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+        envelope = json.loads(capsys.readouterr().out)
+        # Phase 12 precedent: present-and-empty when off.
+        assert "croissant" in envelope
+        assert envelope["croissant"] == {}

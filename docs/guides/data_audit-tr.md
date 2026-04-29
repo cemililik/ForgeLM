@@ -367,10 +367,32 @@ yüksektir — bu yüzden ML katmanları regex'in `critical` / `high`
 katlarının altında bilinçli konumlandırılır. Bir ML bulgusunu sert
 bir gate olarak değerlendirmeden önce satır bazında span'leri inceleyin.
 
-Presidio'nun ilk analyzer build'i bir spaCy İngilizce NER modeli
-indirir (~ 50 MB, tek seferlik). Sonraki çalışmalar cached modeli
-yeniden kullanır. Adaptör yalnızca opt-in; `--pii-ml` olmadan audit
-zero-extra-deps regex yolunda kalır.
+**İki adımlı kurulum.** `presidio-analyzer` paketi spaCy NER modelini
+transitively içermez — tek seferlik ayrı bir indirme:
+
+```bash
+pip install 'forgelm[ingestion-pii-ml]'
+python -m spacy download en_core_web_lg   # ~ 50 MB; gerekli
+```
+
+Model yoksa `forgelm audit --pii-ml` hiçbir satır taranmadan **önce**
+aynı install hint ile `ImportError` raise eder
+(`forgelm.data_audit._require_presidio`'daki pre-flight, spaCy'nin
+`OSError`'unu yakalayıp typed install error'a dönüştürür). Bu fail-loud
+davranış bilinçli — önceki prototiplerde model eksikken sıfır ML
+bulgusu sessizce raporlanıyordu, opt-in bir detector için kritik bir
+compliance kör noktası.
+
+İngilizce olmayan korpuslar için eşleşen spaCy modelini kurup dil
+kodunu geçirin:
+
+```bash
+python -m spacy download xx_ent_wiki_sm        # çok dilli, daha küçük
+forgelm audit data/ --pii-ml --pii-ml-language xx
+```
+
+Adaptör yalnızca opt-in; `--pii-ml` olmadan audit zero-extra-deps
+regex yolunda kalır.
 
 ---
 

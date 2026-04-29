@@ -364,9 +364,31 @@ detection, so the ML tiers sit deliberately below the regex
 `critical`/`high` floors — review the per-row spans before treating an
 ML finding as a hard gate.
 
-Presidio's first analyzer build downloads a spaCy English NER model
-(~ 50 MB, one-time). Subsequent runs reuse the cached model. The
-adapter is opt-in only; without `--pii-ml` the audit stays on the
+**Two-step install.** `presidio-analyzer` does **not** transitively
+ship a spaCy NER model — that's a separate one-time download:
+
+```bash
+pip install 'forgelm[ingestion-pii-ml]'
+python -m spacy download en_core_web_lg   # ~ 50 MB; required
+```
+
+Without the model, `forgelm audit --pii-ml` raises an `ImportError`
+with the same install hint **before** any rows are scanned (the
+pre-flight check in `forgelm.data_audit._require_presidio` catches
+spaCy's `OSError` and re-raises it as the typed install error). This
+fail-loud behaviour exists because earlier prototypes silently scored
+zero ML findings on a missing model — a critical compliance blind
+spot for an opt-in detector that operators expect to actually run.
+
+For non-English corpora, install the matching spaCy model and pass
+the language code:
+
+```bash
+python -m spacy download xx_ent_wiki_sm        # multilingual, smaller
+forgelm audit data/ --pii-ml --pii-ml-language xx
+```
+
+The adapter is opt-in only; without `--pii-ml` the audit stays on the
 zero-extra-deps regex path.
 
 ---

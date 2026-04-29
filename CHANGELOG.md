@@ -26,20 +26,44 @@ additive surface on top of the Phase 12 ingestion + audit lineage.
   (same precedent as `secrets_summary` / `quality_summary`). Lets the
   same JSON file double as both the EU AI Act Article 10 governance
   artifact and a Croissant-consumer dataset card.
-- **`forgelm audit --pii-ml`** + new `[ingestion-pii-ml]` extra
-  (item #1) — opt-in [Presidio](https://github.com/microsoft/presidio)
-  ML-NER PII detector layered on top of the existing regex detector.
-  Adds the unstructured-identifier categories the regex inherently
-  misses (`person`, `organization`, `location`) into the same
-  `pii_summary` / `pii_severity` blocks under disjoint category
-  names. Severity tiers in the new `PII_ML_SEVERITY` table:
-  `person → medium`, `organization → low`, `location → low` (deliberately
-  below the regex `critical`/`high` tiers because NER false-positive
-  rates are materially higher than regex-anchored detection).
-  Pre-flight check raises `ImportError("...pip install
-  'forgelm[ingestion-pii-ml]'")` when the extra is missing — failures
-  surface before any rows are scanned. Per-row Presidio failures are
-  swallowed so a single malformed row never blocks the audit.
+  - `url` and `contentUrl` use the as-typed input string and the
+    relative split filename, never the resolved absolute filesystem
+    path, so cards published to HuggingFace / MLCommons don't leak
+    the auditor's local layout.
+  - Croissant `version` (`sc:version`, dataset version) is omitted
+    deliberately — the audit doesn't have first-class evidence for
+    it; vocab conformance is declared via `conformsTo`. Operators
+    that publish hand-edit `version` like they do `license` /
+    `citeAs`.
+  - The card is now also surfaced in the `--output-format json`
+    stdout envelope alongside the on-disk report so CI consumers
+    don't need a second file slurp.
+- **`forgelm audit --pii-ml [--pii-ml-language LANG]`** + new
+  `[ingestion-pii-ml]` extra (item #1) — opt-in
+  [Presidio](https://github.com/microsoft/presidio) ML-NER PII detector
+  layered on top of the existing regex detector. Adds the
+  unstructured-identifier categories the regex inherently misses
+  (`person`, `organization`, `location`) into the same `pii_summary` /
+  `pii_severity` blocks under disjoint category names. Severity tiers
+  in the new `PII_ML_SEVERITY` table: `person → medium`,
+  `organization → low`, `location → low` (deliberately below the regex
+  `critical`/`high` tiers because NER false-positive rates are
+  materially higher than regex-anchored detection). The pre-flight
+  check covers BOTH the missing-extra branch AND the missing-spaCy-model
+  branch — `presidio-analyzer` does *not* transitively ship a spaCy
+  NER model, so the install recipe is now two lines:
+  ```
+  pip install 'forgelm[ingestion-pii-ml]'
+  python -m spacy download en_core_web_lg
+  ```
+  Without either, `forgelm audit --pii-ml` raises `ImportError` with
+  the recipe before any rows are scanned. Per-row Presidio failures
+  are scoped to `(ValueError, RuntimeError)` so a single malformed row
+  never blocks the audit, but a deep `OSError` from a missing model
+  surfaces loudly instead of silently scoring zero ML coverage.
+  `--pii-ml-language` (default `"en"`) lets non-English corpora point
+  at the matching spaCy model; Presidio raises a typed exception when
+  no engine is registered for the requested language.
 - **Wizard "audit first" entry point** (item #4) — when the wizard
   resolves a JSONL (either typed directly or produced by the
   Phase 11.5 `_offer_ingest_for_directory` ingest flow), it now offers

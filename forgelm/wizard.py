@@ -456,6 +456,15 @@ def _offer_ingest_for_directory(directory: Path) -> Optional[str]:
     return str(out_path)
 
 
+_AUDIT_LARGE_FILE_THRESHOLD_BYTES: int = 100 * 1024 * 1024  # 100 MB
+"""Threshold above which the wizard's audit offer warns operators that the
+scan can take real time. Below 100 MB the runtime is dominated by Python
+startup; above 100 MB the dedup signature pass becomes a meaningful
+fraction of wall clock and the operator deserves to know before saying
+yes. Tuned empirically against the streaming reader's throughput
+(simhash + LSH banding ≈ 8-15 MB/s of JSONL on a single CPU)."""
+
+
 def _offer_audit_for_jsonl(jsonl_path: Path) -> bool:
     """Phase 12.5 wizard hook: optionally audit a JSONL the user just selected.
 
@@ -466,12 +475,41 @@ def _offer_audit_for_jsonl(jsonl_path: Path) -> bool:
     declined or the audit could not start. Audit failures are surfaced
     as warnings: the audit is informational, not a gate, and a malformed
     JSONL or missing optional dep must NOT crash the wizard.
+
+    Exception ladder (per :doc:`docs/standards/error-handling.md`'s
+    "log-and-swallow is permitted only on explicitly-non-fatal paths"
+    rule): the courtesy audit is one such path — the wizard's contract
+    is "produce a config", not "vouch for the dataset". The bare
+    ``except Exception`` at the bottom of the ladder is the exception
+    the standard mentions, scoped to a single short call (not a
+    library-wide swallow), and explicitly re-raises ``BaseException``
+    subclasses (``KeyboardInterrupt``, ``SystemExit``) by virtue of
+    matching ``Exception`` only.
     """
-    if not _prompt_yes_no(
-        f"\n  Run a quality + governance audit on '{jsonl_path}' before training? "
-        "(length stats, language, near-duplicates, PII, secrets — CPU-only, ~seconds)",
-        default=True,
-    ):
+    # File-size-aware copy: small JSONL → "~ seconds" is honest; large
+    # JSONL → warn the operator the scan takes real time before they
+    # commit to it. The streaming audit doesn't load the whole file into
+    # memory, so accepting on a large file is safe — just slow.
+    try:
+        size_bytes = jsonl_path.stat().st_size
+    except OSError:
+        size_bytes = 0  # Fall through to the small-file copy; the
+        # subsequent ``audit_dataset`` call surfaces the real OSError.
+    if size_bytes > _AUDIT_LARGE_FILE_THRESHOLD_BYTES:
+        size_mb = size_bytes / (1024 * 1024)
+        prompt = (
+            f"\n  Run a quality + governance audit on '{jsonl_path}' "
+            f"({size_mb:.0f} MB) before training? Scan is CPU-only and "
+            "streams the file; runtime depends on size (≈ 8–15 MB/s of "
+            "JSONL on a single CPU)."
+        )
+    else:
+        prompt = (
+            f"\n  Run a quality + governance audit on '{jsonl_path}' "
+            "before training? (length stats, language, near-duplicates, "
+            "PII, secrets — CPU-only, runtime depends on dataset size)"
+        )
+    if not _prompt_yes_no(prompt, default=True):
         print("  Skipped — audit can be run later via:")
         print(f"      forgelm audit {jsonl_path}")
         return False
@@ -487,6 +525,11 @@ def _offer_audit_for_jsonl(jsonl_path: Path) -> bool:
 
     print(f"\n  Running audit on '{jsonl_path}'…")
     try:
+        # Default flags only — the courtesy audit doesn't reach for
+        # ``--quality-filter`` / ``--pii-ml`` / ``--croissant`` because
+        # those need either an optional extra or a configuration choice
+        # the wizard hasn't asked the operator about. Operators that
+        # want the richer audit run ``forgelm audit`` directly.
         report = audit_dataset(str(jsonl_path))
     except (FileNotFoundError, ValueError, OSError) as exc:
         # Filesystem / parse errors — same defensive shape we use for
@@ -506,7 +549,9 @@ def _offer_audit_for_jsonl(jsonl_path: Path) -> bool:
         # version-mismatch surfaced through datasketch's own internals, or
         # an unanticipated edge case in a downstream audit module must NOT
         # crash the wizard. The audit is informational; we log loudly and
-        # let the operator continue.
+        # let the operator continue. ``KeyboardInterrupt`` /
+        # ``SystemExit`` propagate by virtue of being ``BaseException``
+        # subclasses, so Ctrl-C still aborts the wizard cleanly.
         print(f"  Audit could not run: {exc}")
         return False
 

@@ -491,8 +491,23 @@ def _add_audit_subcommand(subparsers) -> None:
         help=(
             "Phase 12.5 opt-in: layer Presidio's ML-NER PII detection (person / organization / "
             "location categories) on top of the regex detector. Requires the optional "
-            "'forgelm[ingestion-pii-ml]' extra; raises an install-hint ImportError when missing. "
-            "Findings merge into pii_summary / pii_severity under disjoint category names."
+            "'forgelm[ingestion-pii-ml]' extra AND a spaCy NER model "
+            "(`python -m spacy download en_core_web_lg`); raises an install-hint ImportError "
+            "when either is missing. Findings merge into pii_summary / pii_severity under "
+            "disjoint category names."
+        ),
+    )
+    p.add_argument(
+        "--pii-ml-language",
+        type=str,
+        default="en",
+        metavar="LANG",
+        help=(
+            "Phase 12.5: language code passed to Presidio's NLP engine when --pii-ml is on "
+            "(default: 'en'). Presidio raises a typed exception if no engine is registered for "
+            "the requested language — surface it to the operator instead of silently "
+            "running an English NER on a non-English corpus. Set to e.g. 'tr' on a Turkish "
+            "corpus AND make sure the matching spaCy model is installed."
         ),
     )
     _add_common_subparser_flags(p, include_output_format=True)
@@ -1387,6 +1402,7 @@ def _run_data_audit(
     minhash_jaccard: Optional[float] = None,
     enable_quality_filter: bool = False,
     enable_pii_ml: bool = False,
+    pii_ml_language: str = "en",
     emit_croissant: bool = False,
     invoked_via_legacy_flag: bool = False,
 ) -> None:
@@ -1423,6 +1439,7 @@ def _run_data_audit(
             minhash_jaccard=jaccard,
             enable_quality_filter=enable_quality_filter,
             enable_pii_ml=enable_pii_ml,
+            pii_ml_language=pii_ml_language,
             emit_croissant=emit_croissant,
         )
     except OSError as exc:
@@ -1469,6 +1486,13 @@ def _run_data_audit(
             "near_duplicate_pairs_per_split": report.near_duplicate_summary.get("pairs_per_split", {}),
             "near_duplicate_summary": report.near_duplicate_summary,
             "cross_split_leakage_pairs": list((report.cross_split_overlap.get("pairs") or {}).keys()),
+            # Phase 12.5: Croissant 1.0 dataset card. Empty dict when the
+            # ``--croissant`` flag was not passed — same additive shape as
+            # ``secrets_summary`` / ``quality_summary``. Surfacing it here
+            # mirrors the on-disk report so a CI step that reads stdout
+            # via ``--output-format json`` does not need to slurp the
+            # file separately.
+            "croissant": report.croissant,
             "notes": report.notes,
         }
         print(json.dumps(summary, indent=2, ensure_ascii=False))
@@ -1496,6 +1520,7 @@ def _run_audit_cmd(args, output_format: str) -> None:
         minhash_jaccard=getattr(args, "jaccard_threshold", None),
         enable_quality_filter=getattr(args, "quality_filter", False),
         enable_pii_ml=getattr(args, "pii_ml", False),
+        pii_ml_language=getattr(args, "pii_ml_language", "en"),
         emit_croissant=getattr(args, "croissant", False),
         invoked_via_legacy_flag=False,
     )
