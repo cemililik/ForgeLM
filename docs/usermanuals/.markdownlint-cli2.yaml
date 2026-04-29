@@ -1,0 +1,15 @@
+# Per-directory markdownlint config for the user-manual SPA source.
+#
+# MD051 (link-fragments) is disabled here because the user manuals use
+# the SPA hash-router scheme `#/<section>/<page>` (parsed at runtime by
+# site/js/guide.js::parseHash). These are NOT in-page anchors that
+# MD051 can validate — they are route identifiers consumed by the
+# guide-page renderer once the markdown is baked into
+# site/js/usermanuals/<lang>.js by tools/build_usermanuals.py.
+#
+# The convention is used in 488 places across docs/usermanuals/ and is
+# part of the public navigation contract; we keep MD051 enabled for the
+# rest of the docs tree (CHANGELOG, README, docs/standards, docs/guides,
+# docs/roadmap) where standard anchors are the right shape.
+config:
+  MD051: false

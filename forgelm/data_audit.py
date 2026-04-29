@@ -2426,7 +2426,14 @@ _CROISSANT_CONTEXT: Dict[str, Any] = {
     "@language": "en",
     "@vocab": "https://schema.org/",
     "sc": "https://schema.org/",
-    "cr": "http://mlcommons.org/croissant/",
+    # ``cr:`` is the canonical Croissant 1.0 JSON-LD namespace IRI as
+    # defined by the mlcommons.org/croissant spec — an RDF identifier,
+    # not a network endpoint. Strict consumers (mlcroissant validator,
+    # MLCommons reference loaders) compare this string lexically; using
+    # ``https://`` here would diverge from the spec-canonical form and
+    # break exact-match consumers. The S5332 hotspot is a false positive
+    # for this dual-purpose URI.
+    "cr": "http://mlcommons.org/croissant/",  # NOSONAR — JSON-LD namespace IRI, not a fetch URL
     "data": {"@id": "cr:data", "@type": "@json"},
     "dataType": {"@id": "cr:dataType", "@type": "@vocab"},
     "extract": "cr:extract",
@@ -2568,7 +2575,12 @@ def _build_croissant_metadata(
     return {
         "@context": dict(_CROISSANT_CONTEXT),
         "@type": "sc:Dataset",
-        "conformsTo": "http://mlcommons.org/croissant/1.0",
+        # ``conformsTo`` declares the Croissant vocabulary version the
+        # card adheres to. Like ``cr:`` above, this is a JSON-LD URI
+        # identifier (RDF reference), not a network endpoint — strict
+        # consumers exact-match the canonical spec form. Same S5332
+        # false-positive rationale as ``cr:`` in ``_CROISSANT_CONTEXT``.
+        "conformsTo": "http://mlcommons.org/croissant/1.0",  # NOSONAR — JSON-LD identifier
         "name": name,
         "description": (
             "ForgeLM audit-generated dataset card. "
