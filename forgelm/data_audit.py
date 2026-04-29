@@ -2510,6 +2510,16 @@ def _build_quality_summary(
 # parse the block without modification, while the rest of the audit JSON
 # stays untouched. The card lives under the new ``croissant`` key on the
 # ``AuditReport`` dataclass; callers that don't want it never see it.
+
+# JSON-LD reserved keywords used as dict keys in the Croissant card body.
+# The W3C JSON-LD 1.1 spec fixes these tokens — they're vocabulary
+# constants, not arbitrary strings, but Sonar's S1192 (string-literals-
+# duplicated) flags the repeated literal use across the metadata
+# builder. Hoisting them here keeps the rule satisfied without
+# obscuring that we're emitting standardized JSON-LD framing.
+_JSONLD_TYPE_KEY: str = "@type"
+_JSONLD_ID_KEY: str = "@id"
+
 _CROISSANT_CONTEXT: Dict[str, Any] = {
     "@language": "en",
     "@vocab": "https://schema.org/",
@@ -2605,8 +2615,8 @@ def _build_croissant_metadata(
         # ``license`` / ``citeAs``.
         distribution.append(
             {
-                "@type": "cr:FileObject",
-                "@id": file_id,
+                _JSONLD_TYPE_KEY: "cr:FileObject",
+                _JSONLD_ID_KEY: file_id,
                 "name": file_id,
                 "contentUrl": file_id,
                 "encodingFormat": "application/jsonlines",
@@ -2623,12 +2633,12 @@ def _build_croissant_metadata(
         columns = info.get("columns") or []
         fields = [
             {
-                "@type": "cr:Field",
-                "@id": f"{split_name}/{column}",
+                _JSONLD_TYPE_KEY: "cr:Field",
+                _JSONLD_ID_KEY: f"{split_name}/{column}",
                 "name": column,
                 "dataType": "sc:Text",
                 "source": {
-                    "fileObject": {"@id": file_id},
+                    "fileObject": {_JSONLD_ID_KEY: file_id},
                     "extract": {"jsonPath": f"$.{column}"},
                 },
             }
@@ -2636,8 +2646,8 @@ def _build_croissant_metadata(
         ]
         record_sets.append(
             {
-                "@type": "cr:RecordSet",
-                "@id": split_name,
+                _JSONLD_TYPE_KEY: "cr:RecordSet",
+                _JSONLD_ID_KEY: split_name,
                 "name": split_name,
                 "field": fields,
                 "description": f"Records from split {split_name!r}.",
@@ -2662,7 +2672,7 @@ def _build_croissant_metadata(
     url_safe = Path(source_input).name if source_input else name
     return {
         "@context": dict(_CROISSANT_CONTEXT),
-        "@type": "sc:Dataset",
+        _JSONLD_TYPE_KEY: "sc:Dataset",
         # ``conformsTo`` declares the Croissant vocabulary version the
         # card adheres to. Like ``cr:`` above, this is a JSON-LD URI
         # identifier (RDF reference), not a network endpoint — strict
