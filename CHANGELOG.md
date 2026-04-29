@@ -10,7 +10,7 @@ for the active phase plan._
 
 ---
 
-## [0.5.0] — 2026-04-29
+## [0.5.0] — 2026-04-30
 
 **Theme:** "Document Ingestion + Data Curation Pipeline" — Phases 11,
 11.5, 12, and 12.5 ship as one comprehensive release.
