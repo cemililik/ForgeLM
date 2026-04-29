@@ -27,13 +27,17 @@ $ forgelm ingest ./policies/ \
     --recursive \
     --strategy markdown \
     --max-tokens 1024 \
-    --pii-mask --secrets-mask \
+    --all-mask \
     --output data/policies.jsonl
 ✓ scanned 47 files (12 PDF, 8 DOCX, 27 MD)
 ✓ extracted 12,240 chunks (avg 743 tokens)
 ✓ masked 18 PII matches, 0 secret matches
 ✓ wrote data/policies.jsonl (8.2 MB)
 ```
+
+`--all-mask` is the documented shorthand for `--secrets-mask --pii-mask`
+in the right order. See [Combined Masking](#/data/all-mask) for the
+full behaviour and set-union semantics.
 
 ## Supported formats
 

@@ -135,5 +135,7 @@ print(masked)
 ## Bkz.
 
 - [Veri Seti Denetimi](#/data/audit) — modifiye etmeden PII tespiti koşturur.
+- [ML-NER PII (Presidio)](#/data/pii-ml) — regex katmanının yakalayamadığı yapılandırılmamış identifier'lar (person / organization / location) için opsiyonel opt-in katman.
+- [Birleşik Maskeleme](#/data/all-mask) — PII + sırlar maskelemesini doğru sırada koşturmak için `--all-mask` kısayolu.
 - [Sırların Temizlenmesi](#/data/secrets) — kimlik bilgileri için kardeş özellik.
 - [GDPR / KVKK](#/compliance/gdpr) — regülatif bağlam.
