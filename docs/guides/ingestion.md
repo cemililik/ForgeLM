@@ -1,10 +1,20 @@
 # Document Ingestion Guide
 
 Convert raw enterprise corpora (PDF / DOCX / EPUB / TXT / Markdown) into the
-SFT-ready JSONL ForgeLM trains on. Phase 11; introduced in `v0.5.0`. Phase
-11.5 (`v0.5.1`) added token-aware chunking, PDF page header/footer dedup,
-and structured ingestion notes — each documented inline in the relevant
-section below.
+SFT-ready JSONL ForgeLM trains on. Ships with `v0.5.0` (Phases 11 + 11.5
++ 12 + 12.5 consolidated): paragraph / sliding / markdown chunking,
+token-aware sizing, PDF page header/footer dedup, code/credential
+scrubbing (`--secrets-mask`), DOCX tables rendered as markdown, and the
+`--all-mask` shorthand for combined PII + secrets masking. Earlier
+phase boundaries kept inline as breadcrumbs for reviewers; the
+behaviours all ship in the same release.
+
+> **Phase trail (kept for reviewers):** Phase 11 introduced the
+> ingestion pipeline; Phase 11.5 added token-aware chunking + PDF page
+> header/footer dedup + structured ingestion notes; Phase 12 added
+> markdown-aware splitting + secrets scrubbing + DOCX table preservation;
+> Phase 12.5 added `--all-mask`. The four phases were consolidated into
+> a single `v0.5.0` release.
 
 > Pair with [`forgelm audit`](data_audit.md) afterwards to surface
 > length-distribution / language / near-duplicate / PII metrics, and with
@@ -20,7 +30,7 @@ pip install 'forgelm[ingestion]'
 ```
 
 The extra brings in `pypdf`, `python-docx`, `ebooklib`, `beautifulsoup4`,
-`langdetect`, and (since v0.5.1) the optional non-cryptographic `xxhash`
+`langdetect`, and the optional non-cryptographic `xxhash`
 backend used by the simhash digest. They are optional because plain text
 + Markdown work without any of them. Importing the module does not pull
 these in unless the matching extractor is exercised; `xxhash`'s absence
@@ -130,6 +140,26 @@ installing it today does **not** change ingest masking behaviour.
 
 ---
 
+## All-in-one masking — `--all-mask` (Phase 12.5)
+
+`--all-mask` is a one-flag shorthand for `--secrets-mask --pii-mask` —
+the common "scrub everything detectable before training on a shared
+corpus" workflow. The two underlying detectors run in the documented
+order (secrets first so combined PII detectors don't double-count
+overlapping spans); the resulting JSONL carries both `[REDACTED-SECRET]`
+and `[REDACTED]` tokens where matches were found.
+
+```bash
+forgelm ingest ./mixed_corpus/ --recursive --all-mask --output data/clean.jsonl
+```
+
+Composes additively with explicit flags — `--all-mask --pii-mask` is
+not an error; the boolean union of the two flags is what runs. The
+shorthand exists purely as ergonomics; it does not introduce any new
+detector.
+
+---
+
 ## Recursive directory walk
 
 ```text
@@ -204,6 +234,7 @@ forgelm ingest INPUT_PATH \
   [--recursive] \
   [--pii-mask] \
   [--secrets-mask] \
+  [--all-mask] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```
@@ -296,7 +327,7 @@ assistants, code-with-data prompts.
 ## Limitations
 
 - **OCR:** out of scope. Use external tooling — see the worked example below.
-- **Tables / figures:** Since Phase 12 (`v0.5.2`), `_extract_docx()`
+- **Tables / figures:** Since Phase 12 (consolidated into `v0.5.0`), `_extract_docx()`
   converts DOCX tables to **Markdown table syntax** (header + `---`
   separator + body rows) at extraction time, **before any chunking
   strategy runs** — so all strategies see the rendered Markdown, not a

@@ -3,11 +3,11 @@
 `forgelm audit PATH` analyzes a JSONL dataset and produces a
 `data_audit_report.json` covering quality, governance, PII, and (Phase 12
 onwards) credential-leakage and heuristic-quality signals. Phase 11
-(`v0.5.0`) shipped the underlying audit; Phase 11.5 (`v0.5.1`) promoted
+shipped the underlying audit; Phase 11.5 (consolidated into `v0.5.0`) promoted
 it from a top-level flag to a first-class subcommand and added
 LSH-banded near-duplicate detection, streaming JSONL reading, PII
 severity tiers, atomic on-disk write, and a verbose-by-default
-truncation policy. **Phase 12 (`v0.5.2`)** added an opt-in MinHash LSH
+truncation policy. **Phase 12 (consolidated into `v0.5.0`)** added an opt-in MinHash LSH
 dedup method (`--dedup-method minhash`), a code/credential leakage scan
 that runs always-on (`secrets_summary`), and an opt-in heuristic
 quality filter (`--quality-filter`).
@@ -268,7 +268,7 @@ forgelm ingest ./policies/ --recursive --output data/policies.jsonl --secrets-ma
 
 Optional / forward-compatibility: the `[ingestion-secrets]` extra
 declares a `detect-secrets>=1.5.0` dependency that is **reserved for a
-follow-up release**. As of v0.5.2 the audit's
+follow-up release**. As of v0.5.0 the audit's
 `forgelm.data_audit.detect_secrets()` relies solely on the regex set
 above; installing the extra today does not change audit behaviour. The
 extra exists so operators who pin `forgelm[ingestion-secrets]` in
@@ -316,6 +316,113 @@ flags rather than being flagged on shape grounds.
 ML-based quality classifiers (fastText / DeBERTa style) are deliberately
 **out of scope**; a deterministic regex/length/structure pipeline keeps
 the audit reproducible (Annex IV requirement) and bare-install-friendly.
+
+---
+
+### ML-NER PII adapter — `--pii-ml` (Phase 12.5, opt-in)
+
+The default regex detector covers the structured identifiers EU AI Act
+Article 10 cares about (email, phone, IBAN, credit card, national IDs).
+Phase 12.5 adds an opt-in **Presidio** ([microsoft/presidio](https://github.com/microsoft/presidio))
+adapter that layers ML-NER on top — adding the unstructured-identifier
+categories regex inherently misses: `person`, `organization`, `location`.
+
+```bash
+pip install 'forgelm[ingestion-pii-ml]'
+forgelm audit data/ --output ./audit/ --pii-ml
+```
+
+The new categories merge into the existing `pii_summary` and
+`pii_severity` blocks under disjoint names so the regex baseline stays
+visible alongside the ML signal:
+
+```json
+{
+  "pii_summary": {
+    "email": 12,
+    "phone": 3,
+    "person": 47,         // ← Presidio
+    "organization": 18,   // ← Presidio
+    "location": 9         // ← Presidio
+  },
+  "pii_severity": {
+    "by_tier": {"critical": 0, "high": 0, "medium": 59, "low": 30},
+    "by_type": {
+      "email": {"count": 12, "tier": "medium"},
+      "person": {"count": 47, "tier": "medium"},
+      "organization": {"count": 18, "tier": "low"}
+    },
+    "worst_tier": "medium"
+  }
+}
+```
+
+Severity assignment lives in `forgelm.data_audit.PII_ML_SEVERITY`:
+`person → medium`, `organization → low`, `location → low`. NER
+false-positive rates are materially higher than regex-anchored
+detection, so the ML tiers sit deliberately below the regex
+`critical`/`high` floors — review the per-row spans before treating an
+ML finding as a hard gate.
+
+**Two-step install.** `presidio-analyzer` does **not** transitively
+ship a spaCy NER model — that's a separate one-time download:
+
+```bash
+pip install 'forgelm[ingestion-pii-ml]'
+python -m spacy download en_core_web_lg   # ~ 50 MB; required
+```
+
+Without the model, `forgelm audit --pii-ml` raises an `ImportError`
+with the same install hint **before** any rows are scanned (the
+pre-flight check in `forgelm.data_audit._require_presidio` catches
+spaCy's `OSError` and re-raises it as the typed install error). This
+fail-loud behaviour exists because earlier prototypes silently scored
+zero ML findings on a missing model — a critical compliance blind
+spot for an opt-in detector that operators expect to actually run.
+
+For non-English corpora, install the matching spaCy model and pass
+the language code:
+
+```bash
+python -m spacy download xx_ent_wiki_sm        # multilingual, smaller
+forgelm audit data/ --pii-ml --pii-ml-language xx
+```
+
+The adapter is opt-in only; without `--pii-ml` the audit stays on the
+zero-extra-deps regex path.
+
+---
+
+### Croissant 1.0 dataset card — `--croissant` (Phase 12.5, opt-in)
+
+`--croissant` populates a new top-level `croissant` block in
+`data_audit_report.json` with a [Google Croissant 1.0](https://mlcommons.org/croissant/)
+dataset card (`@type: sc:Dataset`). The card is conformant with the
+canonical `mlcommons.org/croissant/1.0` context, so Croissant-aware
+consumers (HuggingFace dataset cards, MLCommons reference loaders, the
+Croissant validator) can parse the block without modification.
+
+```bash
+forgelm audit data/ --output ./audit/ --croissant
+```
+
+The card carries:
+
+* dataset-level identity (`name`, `description`, `datePublished`,
+  `url`) — `version` is intentionally omitted because the audit has
+  no first-class evidence for dataset version; operators that publish
+  the card hand-edit `version` like they do `license` / `citeAs`,
+* one `cr:FileObject` per JSONL split (so a Croissant consumer can
+  locate the underlying files),
+* one `cr:RecordSet` per split with `cr:Field` entries derived from
+  the audit's column-detection layer.
+
+The block is empty when the flag is off — existing consumers see
+byte-equivalent output, the same precedent set by `secrets_summary` /
+`quality_summary`. Operators that want to publish the card to
+HuggingFace / MLCommons can hand-edit the additional Croissant fields
+the audit doesn't have first-class evidence for (`license`, `citeAs`,
+`keywords`) without re-running the audit.
 
 ---
 
@@ -369,6 +476,9 @@ forgelm audit PATH \
   [--dedup-method {simhash,minhash}] \
   [--jaccard-threshold X] \
   [--quality-filter] \
+  [--pii-ml] \
+  [--pii-ml-language LANG] \
+  [--croissant] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```

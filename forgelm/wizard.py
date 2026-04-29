@@ -447,7 +447,117 @@ def _offer_ingest_for_directory(directory: Path) -> Optional[str]:
         return None
 
     print(f"  Ingest complete: {result.chunk_count} chunk(s) from {result.files_processed} file(s) → {out_path}")
+    # Phase 12.5: now that we have a JSONL produced from raw docs, offer to
+    # run a quality + governance audit on it before handing it to the wizard.
+    # Closes the BYOD loop — operators see length / language / dedup / PII
+    # / secrets / quality verdicts at config-time, not 30 minutes into a
+    # training run.
+    _offer_audit_for_jsonl(out_path)
     return str(out_path)
+
+
+_AUDIT_LARGE_FILE_THRESHOLD_BYTES: int = 100 * 1024 * 1024  # 100 MB
+"""Threshold above which the wizard's audit offer warns operators that the
+scan can take real time. Below 100 MB the runtime is dominated by Python
+startup; above 100 MB the dedup signature pass becomes a meaningful
+fraction of wall clock and the operator deserves to know before saying
+yes. Tuned empirically against the streaming reader's throughput
+(simhash + LSH banding ≈ 8-15 MB/s of JSONL on a single CPU)."""
+
+
+def _offer_audit_for_jsonl(jsonl_path: Path) -> bool:
+    """Phase 12.5 wizard hook: optionally audit a JSONL the user just selected.
+
+    Mirrors :func:`_offer_ingest_for_directory`'s shape — a non-blocking
+    interactive offer that, on acceptance, runs the audit and prints a
+    short verdict before the wizard continues. Returns ``True`` when the
+    audit ran (regardless of findings) and ``False`` when the operator
+    declined or the audit could not start. Audit failures are surfaced
+    as warnings: the audit is informational, not a gate, and a malformed
+    JSONL or missing optional dep must NOT crash the wizard.
+
+    Exception ladder (per :doc:`docs/standards/error-handling.md`'s
+    "log-and-swallow is permitted only on explicitly-non-fatal paths"
+    rule): the courtesy audit is one such path — the wizard's contract
+    is "produce a config", not "vouch for the dataset". The bare
+    ``except Exception`` at the bottom of the ladder is the exception
+    the standard mentions, scoped to a single short call (not a
+    library-wide swallow), and explicitly re-raises ``BaseException``
+    subclasses (``KeyboardInterrupt``, ``SystemExit``) by virtue of
+    matching ``Exception`` only.
+    """
+    # File-size-aware copy: small JSONL → "~ seconds" is honest; large
+    # JSONL → warn the operator the scan takes real time before they
+    # commit to it. The streaming audit doesn't load the whole file into
+    # memory, so accepting on a large file is safe — just slow.
+    try:
+        size_bytes = jsonl_path.stat().st_size
+    except OSError:
+        size_bytes = 0  # Fall through to the small-file copy; the
+        # subsequent ``audit_dataset`` call surfaces the real OSError.
+    if size_bytes > _AUDIT_LARGE_FILE_THRESHOLD_BYTES:
+        size_mb = size_bytes / (1024 * 1024)
+        prompt = (
+            f"\n  Run a quality + governance audit on '{jsonl_path}' "
+            f"({size_mb:.0f} MB) before training? Scan is CPU-only and "
+            "streams the file; runtime depends on size (≈ 8–15 MB/s of "
+            "JSONL on a single CPU)."
+        )
+    else:
+        prompt = (
+            f"\n  Run a quality + governance audit on '{jsonl_path}' "
+            "before training? (length stats, language, near-duplicates, "
+            "PII, secrets — CPU-only, runtime depends on dataset size)"
+        )
+    if not _prompt_yes_no(prompt, default=True):
+        print("  Skipped — audit can be run later via:")
+        print(f"      forgelm audit {jsonl_path}")
+        return False
+
+    try:
+        # Lazy import — keeps the wizard cold-start cheap and matches the
+        # existing pattern used elsewhere in this file (see
+        # ``_offer_ingest_for_directory``'s ``ingest_path`` import).
+        from .data_audit import audit_dataset, summarize_report
+    except ImportError as exc:  # pragma: no cover — extras-skip path
+        print(f"  audit subsystem unavailable: {exc}")
+        return False
+
+    print(f"\n  Running audit on '{jsonl_path}'…")
+    try:
+        # Default flags only — the courtesy audit doesn't reach for
+        # ``--quality-filter`` / ``--pii-ml`` / ``--croissant`` because
+        # those need either an optional extra or a configuration choice
+        # the wizard hasn't asked the operator about. Operators that
+        # want the richer audit run ``forgelm audit`` directly.
+        report = audit_dataset(str(jsonl_path))
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        # Filesystem / parse errors — same defensive shape we use for
+        # ``_offer_ingest_for_directory`` so the wizard never aborts on a
+        # courtesy step.
+        print(f"  Audit could not run: {exc}")
+        return False
+    except ImportError as exc:
+        # The wizard's audit hook never asks for ``--dedup-method=minhash``
+        # or any other feature gated on an optional extra; an ImportError
+        # here would only fire if a future feature inside ``audit_dataset``
+        # added an unguarded import. Surface and recover.
+        print(f"  Audit could not run (missing optional dep): {exc}")
+        return False
+    except Exception as exc:  # noqa: BLE001 — see docstring
+        # Last-ditch guard: a malformed JSONL row mid-file, a datasketch
+        # version-mismatch surfaced through datasketch's own internals, or
+        # an unanticipated edge case in a downstream audit module must NOT
+        # crash the wizard. The audit is informational; we log loudly and
+        # let the operator continue. ``KeyboardInterrupt`` /
+        # ``SystemExit`` propagate by virtue of being ``BaseException``
+        # subclasses, so Ctrl-C still aborts the wizard cleanly.
+        print(f"  Audit could not run: {exc}")
+        return False
+
+    print("\n  Audit complete. Summary:")
+    print(summarize_report(report, verbose=False))
+    return True
 
 
 def _prompt_dataset_path_with_ingest_offer(question: str) -> str:
@@ -468,10 +578,14 @@ def _prompt_dataset_path_with_ingest_offer(question: str) -> str:
             ingested = _offer_ingest_for_directory(candidate)
             if ingested is None:
                 continue
+            # ``_offer_ingest_for_directory`` already invoked the audit hook
+            # on the produced JSONL — don't double-prompt here.
             return ingested
-        # Files / Hub IDs / non-existent paths are returned verbatim. The
-        # trainer's data loader will fail later if the path is bogus —
-        # consistent with the wizard's pre-Phase-11.5 behaviour.
+        # Phase 12.5: when the path resolves to an existing local JSONL,
+        # offer to audit it before continuing. Hub IDs and non-existent
+        # paths flow through unchanged (no local file to audit).
+        if candidate.is_file() and candidate.suffix.lower() in (".jsonl", ".json"):
+            _offer_audit_for_jsonl(candidate.resolve())
         return raw
 
 
@@ -497,6 +611,8 @@ def _validate_local_jsonl(raw_path: str):
         ingested = _offer_ingest_for_directory(resolved)
         if ingested is None:
             return None
+        # ``_offer_ingest_for_directory`` already invokes the Phase 12.5
+        # audit hook on the produced JSONL — don't re-prompt here.
         return ingested
     if not resolved.is_file():
         return _BYOD_LOCAL_NOT_FOUND
@@ -509,6 +625,10 @@ def _validate_local_jsonl(raw_path: str):
     except (OSError, ValueError) as e:
         print(f"  File is not valid JSONL (first line failed to parse): {e}")
         return None
+    # Phase 12.5: confirmed local JSONL → offer to audit it before returning
+    # the path to the caller. Closes the BYOD audit loop documented in
+    # docs/roadmap/phase-12-5-backlog.md row #4.
+    _offer_audit_for_jsonl(resolved.resolve())
     return str(resolved.resolve())
 
 

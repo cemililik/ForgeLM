@@ -85,7 +85,11 @@ def test_byod_rejects_malformed_jsonl(tmp_path, capsys):
 def test_byod_accepts_valid_jsonl(tmp_path):
     good = tmp_path / "good.jsonl"
     good.write_text('{"messages":[]}\n', encoding="utf-8")
-    answers = _PRELUDE + [str(good)]
+    # Phase 12.5: after a JSONL is validated, the wizard offers to run an
+    # audit on it. Decline ("n") so this test remains scoped to the BYOD
+    # validation path; the audit-offer behaviour has its own coverage in
+    # test_phase12_5.py::TestWizardAuditFirstOffer.
+    answers = _PRELUDE + [str(good), "n"]
 
     fake_result = type(
         "R",
@@ -149,7 +153,8 @@ def test_byod_expands_user_home(tmp_path, monkeypatch):
     # On POSIX Path.expanduser() reads $HOME; setting it is enough.
 
     typed = "~/data.jsonl"
-    answers = _PRELUDE + [typed]
+    # Phase 12.5: extra "n" declines the post-validation audit offer.
+    answers = _PRELUDE + [typed, "n"]
 
     fake_result = type(
         "R",
@@ -197,7 +202,8 @@ def test_byod_relative_local_path_not_misclassified_as_hub_id(tmp_path, monkeypa
     monkeypatch.chdir(tmp_path)  # so "data/train.jsonl" resolves under tmp_path
 
     typed = "data/train.jsonl"
-    answers = _PRELUDE + [typed]
+    # Phase 12.5: decline the post-validation audit offer.
+    answers = _PRELUDE + [typed, "n"]
 
     fake_result = type(
         "R",

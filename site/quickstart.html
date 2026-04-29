@@ -133,11 +133,14 @@
               <span class="lang">terminal</span>
               <button class="copy-btn" type="button" data-i18n="common.copy.idle">copy</button>
             </div>
-            <pre class="code-block-body"><span class="comment"># have raw documents? Ingest first.</span>
+            <pre class="code-block-body"><span class="comment"># have raw documents? Ingest first. --all-mask is shorthand for</span>
+<span class="comment"># --secrets-mask --pii-mask (the documented combined-scrub flow).</span>
 <span class="prompt">$</span> forgelm ingest ./policies/ <span class="flag">--recursive</span> <span class="flag">--strategy</span> markdown \
-    <span class="flag">--secrets-mask</span> <span class="flag">--pii-mask</span> <span class="flag">--output</span> data/policies.jsonl
+    <span class="flag">--all-mask</span> <span class="flag">--output</span> data/policies.jsonl
 
-<span class="comment"># then audit (PII / secrets / leakage / quality / language).</span>
+<span class="comment"># then audit (PII / secrets / leakage / quality / language). Add</span>
+<span class="comment"># --croissant for a Google Croissant 1.0 dataset card; --pii-ml for</span>
+<span class="comment"># Presidio NER on top (needs `forgelm[ingestion-pii-ml]` extra).</span>
 <span class="prompt">$</span> forgelm audit data/policies.jsonl <span class="flag">--output</span> ./audit/
 
 <span class="prompt">$</span> jq <span class="string">'.pii_summary, .near_duplicate_pairs, .cross_split_overlap'</span> \

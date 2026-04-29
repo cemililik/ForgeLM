@@ -27,13 +27,17 @@ $ forgelm ingest ./policies/ \
     --recursive \
     --strategy markdown \
     --max-tokens 1024 \
-    --pii-mask --secrets-mask \
+    --all-mask \
     --output data/policies.jsonl
 ✓ 47 dosya tarandı (12 PDF, 8 DOCX, 27 MD)
 ✓ 12,240 chunk çıkarıldı (ortalama 743 token)
 ✓ 18 PII eşleşmesi maskelendi, 0 sır
 ✓ data/policies.jsonl yazıldı (8.2 MB)
 ```
+
+`--all-mask`, `--secrets-mask --pii-mask`'in doğru sıradaki belgelenen
+kısayoludur. Tam davranış ve set-union semantiği için
+[Birleşik Maskeleme](#/data/all-mask)'ye bakın.
 
 ## Desteklenen formatlar
 

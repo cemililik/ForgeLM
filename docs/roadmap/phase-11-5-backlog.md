@@ -1,6 +1,11 @@
 # Phase 11.5 — Ingestion / Audit Polish
 
-> **Status:** ✅ Landed for the `v0.5.1` cycle. All 12 follow-ups carved
+> **Note (post-consolidation):** Originally targeted `v0.5.1`, now ships
+> as part of the consolidated `v0.5.0` release alongside Phases 11, 12,
+> and 12.5 — see [releases.md](releases.md#v050--document-ingestion--data-curation-pipeline).
+> Version-label references below preserve the historical planning trail.
+>
+> **Status:** ✅ Landed for the (originally) `v0.5.1` cycle. All 12 follow-ups carved
 > out of Phase 11's review backlog have shipped. Modules touched:
 > [`forgelm/data_audit.py`](../../forgelm/data_audit.py),
 > [`forgelm/ingestion.py`](../../forgelm/ingestion.py),

@@ -185,6 +185,30 @@ sections:
           fr: Nettoyage des secrets
           es: Limpieza de secretos
           zh: Secrets 清洗
+      - id: all-mask
+        title:
+          en: Combined Masking (--all-mask)
+          tr: Birleşik Maskeleme (--all-mask)
+          de: Kombinierte Maskierung (--all-mask)
+          fr: Masquage combiné (--all-mask)
+          es: Enmascaramiento combinado (--all-mask)
+          zh: 组合遮罩 (--all-mask)
+      - id: pii-ml
+        title:
+          en: ML-NER PII (Presidio)
+          tr: ML-NER PII (Presidio)
+          de: ML-NER-PII (Presidio)
+          fr: PII ML-NER (Presidio)
+          es: PII ML-NER (Presidio)
+          zh: ML-NER PII (Presidio)
+      - id: croissant-card
+        title:
+          en: Croissant 1.0 Dataset Card
+          tr: Croissant 1.0 Dataset Kartı
+          de: Croissant-1.0-Datensatzkarte
+          fr: Carte de jeu de données Croissant 1.0
+          es: Tarjeta de dataset Croissant 1.0
+          zh: Croissant 1.0 数据集卡片
       - id: deduplication
         title:
           en: Deduplication

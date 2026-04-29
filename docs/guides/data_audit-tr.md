@@ -2,11 +2,11 @@
 
 `forgelm audit PATH` bir JSONL veri setini analiz eder ve kalite,
 governance ile PII sinyallerini kapsayan bir `data_audit_report.json`
-üretir. Faz 11 (`v0.5.0`'da tanıtıldı) altyapıyı, Faz 11.5 (`v0.5.1`)
+üretir. Faz 11 altyapıyı, Faz 11.5 (`v0.5.0`'da birleşti)
 ise top-level flag'i first-class subcommand'a yükseltti, LSH-banded
 near-duplicate tespitini, streaming JSONL okuyucusunu, PII şiddet
 katmanlarını, atomik disk yazımı ve verbose-by-default kısaltma
-politikasını ekledi. **Faz 12 (`v0.5.2`)** opt-in MinHash LSH dedup
+politikasını ekledi. **Faz 12 (`v0.5.0`'da birleşti)** opt-in MinHash LSH dedup
 yöntemini (`--dedup-method minhash`), her zaman çalışan
 code/credential leakage taramasını (`secrets_summary`), ve opt-in
 heuristic kalite filtresini (`--quality-filter`) ekledi.
@@ -268,7 +268,7 @@ forgelm ingest ./policies/ --recursive --output data/policies.jsonl --secrets-ma
 
 Opsiyonel / forward-compatibility: `[ingestion-secrets]` extra'sı bir
 `detect-secrets>=1.5.0` bağımlılığı tanımlar ama bu **bir sonraki sürüm
-için ayrılmıştır**. v0.5.2 itibarıyla `forgelm.data_audit.detect_secrets()`
+için ayrılmıştır**. v0.5.0 itibarıyla `forgelm.data_audit.detect_secrets()`
 yalnızca yukarıdaki regex setine dayanır; extra'yı kurmak bugün audit
 davranışını değiştirmez. Extra, `forgelm[ingestion-secrets]` pin'leyen
 operatörlerin entegrasyon geldiğinde forward-compatible olabilmesi
@@ -318,6 +318,115 @@ ML tabanlı kalite sınıflayıcılar (fastText / DeBERTa tarzı) bilinçli
 olarak **scope dışı**; deterministik regex / uzunluk / yapı pipeline'ı
 audit'i yeniden üretilebilir tutar (Annex IV gereksinimi) ve bare
 install ile uyumlu kalır.
+
+---
+
+### ML-NER PII adaptörü — `--pii-ml` (Faz 12.5, opt-in)
+
+Varsayılan regex detector, EU AI Act Madde 10'un önemsediği yapılandırılmış
+identifier'ları (email, telefon, IBAN, kredi kartı, ulusal kimlik) kapsar.
+Faz 12.5, regex'in doğal olarak kaçırdığı yapılandırılmamış identifier
+kategorilerini ekleyen opt-in **Presidio** ([microsoft/presidio](https://github.com/microsoft/presidio))
+adaptörünü ML-NER olarak üstüne ekler: `person`, `organization`,
+`location`.
+
+```bash
+pip install 'forgelm[ingestion-pii-ml]'
+forgelm audit data/ --output ./audit/ --pii-ml
+```
+
+Yeni kategoriler mevcut `pii_summary` ve `pii_severity` bloklarına
+disjoint isimlerle birleşir, bu yüzden regex baseline ML sinyaliyle
+yan yana görünür kalır:
+
+```json
+{
+  "pii_summary": {
+    "email": 12,
+    "phone": 3,
+    "person": 47,         // ← Presidio
+    "organization": 18,   // ← Presidio
+    "location": 9         // ← Presidio
+  },
+  "pii_severity": {
+    "by_tier": {"critical": 0, "high": 0, "medium": 59, "low": 30},
+    "by_type": {
+      "email": {"count": 12, "tier": "medium"},
+      "person": {"count": 47, "tier": "medium"},
+      "organization": {"count": 18, "tier": "low"}
+    },
+    "worst_tier": "medium"
+  }
+}
+```
+
+Şiddet ataması `forgelm.data_audit.PII_ML_SEVERITY`'de yaşar:
+`person → medium`, `organization → low`, `location → low`. NER
+false-positive oranları regex-anchored detection'dan materyal olarak
+yüksektir — bu yüzden ML katmanları regex'in `critical` / `high`
+katlarının altında bilinçli konumlandırılır. Bir ML bulgusunu sert
+bir gate olarak değerlendirmeden önce satır bazında span'leri inceleyin.
+
+**İki adımlı kurulum.** `presidio-analyzer` paketi spaCy NER modelini
+transitively içermez — tek seferlik ayrı bir indirme:
+
+```bash
+pip install 'forgelm[ingestion-pii-ml]'
+python -m spacy download en_core_web_lg   # ~ 50 MB; gerekli
+```
+
+Model yoksa `forgelm audit --pii-ml` hiçbir satır taranmadan **önce**
+aynı install hint ile `ImportError` raise eder
+(`forgelm.data_audit._require_presidio`'daki pre-flight, spaCy'nin
+`OSError`'unu yakalayıp typed install error'a dönüştürür). Bu fail-loud
+davranış bilinçli — önceki prototiplerde model eksikken sıfır ML
+bulgusu sessizce raporlanıyordu, opt-in bir detector için kritik bir
+compliance kör noktası.
+
+İngilizce olmayan korpuslar için eşleşen spaCy modelini kurup dil
+kodunu geçirin:
+
+```bash
+python -m spacy download xx_ent_wiki_sm        # çok dilli, daha küçük
+forgelm audit data/ --pii-ml --pii-ml-language xx
+```
+
+Adaptör yalnızca opt-in; `--pii-ml` olmadan audit zero-extra-deps
+regex yolunda kalır.
+
+---
+
+### Croissant 1.0 dataset card — `--croissant` (Faz 12.5, opt-in)
+
+`--croissant`, `data_audit_report.json` içinde yeni bir top-level
+`croissant` bloğunu [Google Croissant 1.0](https://mlcommons.org/croissant/)
+dataset card'ı (`@type: sc:Dataset`) ile doldurur. Card, kanonik
+`mlcommons.org/croissant/1.0` context'iyle uyumludur — bu yüzden
+Croissant farkındalıklı consumer'lar (HuggingFace dataset cards,
+MLCommons referans loader'ları, Croissant validator) bloğu hiçbir
+modifikasyon olmadan parse edebilir.
+
+```bash
+forgelm audit data/ --output ./audit/ --croissant
+```
+
+Card şunları taşır:
+
+* dataset seviyesinde kimlik (`name`, `description`, `datePublished`,
+  `url`) — `version` bilinçli olarak çıkarılmıştır, audit'in dataset
+  sürümü için first-class kanıtı yoktur; card'ı yayınlayan operatörler
+  `version`'ı `license` / `citeAs` gibi elle düzenler,
+* her JSONL split'i için bir `cr:FileObject` (Croissant consumer'ı
+  altta yatan dosyaları bulabilsin diye),
+* her split için audit'in column-detection katmanından türetilen
+  `cr:Field` girdileriyle bir `cr:RecordSet`.
+
+Flag kapalıyken blok boştur — mevcut consumer'lar byte-eşdeğer çıktı
+görür, `secrets_summary` / `quality_summary`'nin koyduğu emsalin
+aynısı. Card'ı HuggingFace / MLCommons'a yayınlamak isteyen operatörler
+audit'in birinci sınıf delili olmayan ek Croissant alanlarını
+(`license`, `citeAs`, `keywords`) audit'i yeniden çalıştırmadan
+elle düzenleyebilir.
 
 ---
 
@@ -373,6 +482,9 @@ forgelm audit PATH \
   [--dedup-method {simhash,minhash}] \
   [--jaccard-threshold X] \
   [--quality-filter] \
+  [--pii-ml] \
+  [--pii-ml-language LANG] \
+  [--croissant] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```

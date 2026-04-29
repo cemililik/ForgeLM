@@ -135,5 +135,7 @@ print(masked)
 ## See also
 
 - [Dataset Audit](#/data/audit) — runs PII detection without modifying data.
+- [ML-NER PII (Presidio)](#/data/pii-ml) — optional opt-in layer for unstructured identifiers (person / organization / location) that the regex layer can't catch.
+- [Combined Masking](#/data/all-mask) — `--all-mask` shorthand for running PII + secrets masking in the right order.
 - [Secrets Scrubbing](#/data/secrets) — sister feature for credentials.
 - [GDPR / KVKK](#/compliance/gdpr) — regulatory context.

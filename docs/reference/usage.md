@@ -129,7 +129,7 @@ forgelm --config my_config.yaml --generate-data
 
 This uses the `synthetic` config section to generate training data from a teacher model before training begins. See the [Configuration Guide](configuration.md) for all synthetic data options.
 
-### Document Ingestion (v0.5.0+; token-aware in v0.5.1; markdown + secrets-mask in v0.5.2)
+### Document Ingestion (v0.5.0)
 
 Convert raw PDF / DOCX / EPUB / TXT / Markdown into SFT-ready JSONL. Optional dep: `pip install forgelm[ingestion]`. See [Ingestion Guide](../guides/ingestion.md).
 
@@ -147,27 +147,30 @@ forgelm ingest ./scan.pdf --strategy sliding --chunk-size 1024 --overlap 128 \
 # Mask PII before writing
 forgelm ingest ./customer_emails/ --pii-mask --output data/anon.jsonl
 
-# Token-aware chunking (v0.5.1) — sizes chunks against your model's vocab
+# Token-aware chunking — sizes chunks against your model's vocab
 forgelm ingest ./policies/ --recursive --output data/policies.jsonl \
   --chunk-tokens 1024 --tokenizer "Qwen/Qwen2.5-7B-Instruct"
 
-# v0.5.2: markdown-aware splitter for technical wikis / READMEs
+# Markdown-aware splitter for technical wikis / READMEs
 forgelm ingest ./engineering_wiki/ --recursive --strategy markdown \
   --output data/wiki.jsonl
 
-# v0.5.2: scrub credentials before chunks land in the JSONL
+# Scrub credentials before chunks land in the JSONL
 forgelm ingest ./mixed_corpus/ --secrets-mask --output data/clean.jsonl
 
-# v0.5.2: combine secrets + PII masking (secrets first to avoid double-counting)
+# Combine secrets + PII masking (secrets first to avoid double-counting)
 forgelm ingest ./mixed_corpus/ --secrets-mask --pii-mask --output data/scrubbed.jsonl
+
+# One-flag shorthand for the same combination above
+forgelm ingest ./mixed_corpus/ --all-mask --output data/scrubbed.jsonl
 ```
 
-### Dataset Audit (v0.5.0+; subcommand promoted in v0.5.1; MinHash + quality + secrets in v0.5.2)
+### Dataset Audit (v0.5.0)
 
 CPU-only quality + governance audit. Produces `data_audit_report.json`. See [Audit Guide](../guides/data_audit.md).
 
 ```bash
-# Single split (v0.5.1 subcommand)
+# Single split (subcommand)
 forgelm audit data/sft.jsonl --output ./audit/
 
 # Multi-split directory (train.jsonl / validation.jsonl / test.jsonl)
@@ -179,11 +182,18 @@ forgelm audit data/ --verbose
 # Custom Hamming threshold for simhash near-duplicate detection
 forgelm audit data/ --near-dup-threshold 5
 
-# v0.5.2: MinHash LSH dedup for >50K-row corpora (needs `[ingestion-scale]` extra)
+# MinHash LSH dedup for >50K-row corpora (needs `[ingestion-scale]` extra)
 forgelm audit data/large_corpus.jsonl --dedup-method minhash --jaccard-threshold 0.85
 
-# v0.5.2: opt-in heuristic quality filter (Gopher/C4 style)
+# Opt-in heuristic quality filter (Gopher/C4 style)
 forgelm audit data/ --quality-filter
+
+# Emit a Google Croissant 1.0 dataset card alongside the audit
+forgelm audit data/ --output ./audit/ --croissant
+
+# Layer Presidio NER on top of the regex PII detector
+# (needs `[ingestion-pii-ml]` extra — adds person/organization/location categories)
+forgelm audit data/ --output ./audit/ --pii-ml
 
 # Machine-readable summary on stdout
 forgelm audit data/sft.jsonl --output ./audit/ --output-format json
@@ -192,7 +202,7 @@ forgelm audit data/sft.jsonl --output ./audit/ --output-format json
 forgelm --data-audit data/sft.jsonl --output ./audit/
 ```
 
-The audit captures: per-split sample count + length distribution, top-3 language detection, **LSH-banded** simhash near-duplicate rate (Phase 11.5; brute-force fallback at edge thresholds; v0.5.2 added optional **MinHash LSH** path), cross-split leakage (silent train-test overlap), PII flag counts with **severity tiers**, **always-on credentials/secrets scan** (`secrets_summary` — nine families per `forgelm.data_audit.SECRET_TYPES`: `aws_access_key`, `github_token`, `slack_token`, `openai_api_key`, `google_api_key`, `jwt`, `openssh_private_key` (full BEGIN…END block), `pgp_private_key` (full BEGIN…END block), `azure_storage_key`), and an opt-in **heuristic quality filter** (Gopher/C4 style) that adds a `quality_summary` block.
+The audit captures: per-split sample count + length distribution, top-3 language detection, **LSH-banded** simhash near-duplicate rate (brute-force fallback at edge thresholds; optional **MinHash LSH** path via `--dedup-method minhash`), cross-split leakage (silent train-test overlap), PII flag counts with **severity tiers**, **always-on credentials/secrets scan** (`secrets_summary` — nine families per `forgelm.data_audit.SECRET_TYPES`: `aws_access_key`, `github_token`, `slack_token`, `openai_api_key`, `google_api_key`, `jwt`, `openssh_private_key` (full BEGIN…END block), `pgp_private_key` (full BEGIN…END block), `azure_storage_key`), and an opt-in **heuristic quality filter** (Gopher/C4 style) that adds a `quality_summary` block.
 
 When `data_audit_report.json` is present in the trainer's `output_dir` at training time, its findings are inlined under the `data_audit` key of the EU AI Act Article 10 governance artifact automatically.
 
