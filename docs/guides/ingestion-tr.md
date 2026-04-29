@@ -1,12 +1,11 @@
 # Doküman Yutma Rehberi
 
 Ham kurumsal külliyatı (PDF / DOCX / EPUB / TXT / Markdown) ForgeLM'in
-eğittiği SFT-uyumlu JSONL'a dönüştürün. Faz 11; `v0.5.0`'da tanıtıldı.
-Faz 11.5 (`v0.5.1`) token-aware chunking, PDF sayfa header/footer dedup
-ve yapılandırılmış ingestion notları ekledi. **Faz 12 (`v0.5.2`)**
-markdown-aware splitter (`--strategy markdown`), code/credential
-leakage scrubbing (`--secrets-mask`) ve DOCX tablolarının markdown
-syntax'ı ile çıkarılmasını ekledi.
+eğittiği SFT-uyumlu JSONL'a dönüştürün. `v0.5.0` ile birlikte gelir
+(Faz 11 + 11.5 + 12 + 12.5 birleşmiş): paragraph / sliding /
+markdown-aware splitter, token-aware chunking, PDF sayfa header/footer
+dedup, code/credential scrubbing (`--secrets-mask`), DOCX tablolarının
+markdown syntax'ı ile çıkarılması, `--all-mask` kısayolu.
 
 > Sonrasında [`forgelm audit`](data_audit-tr.md) ile uzunluk dağılımı /
 > dil / near-duplicate / PII metriklerini yüzeye çıkarın; chunk'ları Q&A
@@ -296,7 +295,7 @@ sayfadan kısa belgelerde devre dışı kalır. Yapılandırılmış notlar
 ## Sınırlamalar
 
 - **OCR:** Kapsam dışı. Harici araçlar kullanın — aşağıdaki örneklere bakın.
-- **Tablolar / şekiller:** Faz 12'den (`v0.5.2`) itibaren `_extract_docx()`
+- **Tablolar / şekiller:** Faz 12'den (`v0.5.0`'da birleşti) itibaren `_extract_docx()`
   DOCX tablolarını **Markdown tablo syntax'ına** (header + `---` ayraç +
   body satırları) **chunking stratejisi çalışmadan önce, extraction
   aşamasında** dönüştürür — yani tüm stratejiler render edilmiş

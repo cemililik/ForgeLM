@@ -80,68 +80,57 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ---
 
-## v0.5.0 — "Document Ingestion & Data Audit"
+## v0.5.0 — "Document Ingestion + Data Curation Pipeline"
 
-**Status:** Shipped (PR #11 merged to `main` 2026-04-27). Focus: [Phase 11](phase-11-data-ingestion.md). Bridges raw enterprise corpora to ForgeLM's training data format and surfaces governance signals before training.
+**Status:** Merged on `main` (Phases 11 + 11.5 + 12 + 12.5 consolidated; 2026-04-29). The `v0.5.0` git tag and PyPI publish are the remaining release-engineering steps. One hardening follow-up tracked outside the release: [#14 — webhook SSRF DNS-rebinding TOCTOU](https://github.com/cemililik/ForgeLM/issues/14) (defence-in-depth on top of the existing `allow_private_destinations: false` default).
 
-### Features:
+> **Note on consolidation.** Originally planned as four sequential PyPI tags (`v0.5.0` / `v0.5.1` / `v0.5.2` / `v0.5.3`), the four phases were consolidated into a single `v0.5.0` because they form one coherent surface (ingest → polish → mature → polish) hard to use in parts. Git history retains the four phases as separate commit batches; this entry collapses them into one user-facing release. CHANGELOG.md preserves the phase boundaries inside the `[0.5.0]` section so reviewers can map back to PR history (#11, #12, #13, #18).
 
-1. [x] **`forgelm/ingestion.py`** + **`forgelm ingest`** subcommand — Multi-format document → JSONL pipeline with `paragraph` (default) and `sliding` chunking strategies, recursive directory walk, optional `--pii-mask`. Supported extensions: `.pdf` (`pypdf`), `.docx` (`python-docx`), `.epub` (`ebooklib` + `beautifulsoup4`), `.txt`, `.md`. Output is `{"text": ...}` JSONL recognized by ForgeLM's data loader as pre-formatted SFT input — no further preprocessing needed. OCR is intentionally out of scope; scanned PDFs warn and produce zero chunks.
+### Phase 11 — Document Ingestion & Data Audit
 
-2. [x] **`forgelm/data_audit.py`** + **`forgelm --data-audit`** top-level flag — Per-split metrics (sample count, column schema, length distribution `min/max/mean/p50/p95`, top-3 language detection, null/empty rate), 64-bit simhash near-duplicate detection within each split, cross-split overlap report (catches train-test leakage), PII regex with Luhn-validated credit cards and TC Kimlik checksum-validated TR IDs. Layout: single `.jsonl` → treated as `train`; directory → split-keyed (`train.jsonl` / `validation.jsonl` / `test.jsonl`) auto-discovered. Writes `data_audit_report.json` to `--output` (default `./audit/`); `--output-format json` mirrors the report on stdout for CI/CD. CPU-only, no network.
+1. [x] **`forgelm/ingestion.py` + `forgelm ingest` subcommand** — Multi-format document → JSONL pipeline with `paragraph` (default) and `sliding` chunking strategies, recursive directory walk, optional `--pii-mask`. Supported extensions: `.pdf` (`pypdf`), `.docx` (`python-docx`), `.epub` (`ebooklib` + `beautifulsoup4`), `.txt`, `.md`. Output is `{"text": ...}` JSONL recognised by ForgeLM's data loader as pre-formatted SFT input. OCR is intentionally out of scope; scanned PDFs warn and produce zero chunks.
+2. [x] **`forgelm/data_audit.py` + `forgelm --data-audit` flag** — Per-split metrics (sample count, column schema, length distribution `min/max/mean/p50/p95`, top-3 language detection, null/empty rate), 64-bit simhash near-duplicate detection within each split, cross-split overlap report (catches train-test leakage), PII regex with Luhn-validated credit cards and TC Kimlik checksum-validated TR IDs. CPU-only, no network.
+3. [x] **EU AI Act Article 10 integration** — `generate_data_governance_report` inlines `data_audit_report.json` under the `data_audit` key when present in the trainer's `output_dir`.
+4. [x] **`pyproject.toml` `[ingestion]` extra** — `pypdf`, `python-docx`, `ebooklib`, `beautifulsoup4`, `langdetect`. Cross-platform; no native compilation.
 
-3. [x] **EU AI Act Article 10 integration** — `generate_data_governance_report` now inlines `data_audit_report.json` under the `data_audit` key when present in the trainer's `output_dir`. Compliance bundle becomes a single self-contained document.
+### Phase 11.5 — Ingestion / Audit Polish
 
-4. [x] **`pyproject.toml` `[ingestion]` extra** — `pypdf`, `python-docx`, `ebooklib`, `beautifulsoup4`, `langdetect`. Cross-platform; no native compilation. Plain TXT / Markdown ingestion + the audit module work without installing the extra (PII regex, simhash, length stats are pure stdlib).
+1. [x] **`forgelm audit` subcommand** — promotes the `--data-audit` flag to a first-class subcommand. Flag preserved as a deprecation alias.
+2. [x] **LSH-banded near-duplicate detection** — replaces the `O(n²)` pair scan with locality-sensitive-hashing bands; drops average-case to `O(n × k)` and unblocks 100K+ row corpora.
+3. [x] **Streaming `_read_jsonl_split`** — JSONL reader yields rows lazily; per-split aggregator stays generator-based until simhash collection.
+4. [x] **Token-aware `--chunk-tokens`** — sizes chunks against an HF tokenizer instead of raw character counts.
+5. [x] **PDF page-level header / footer dedup** — repeated page headers (company watermark, page number) stripped automatically.
+6. [x] **PII severity tiers** — `pii_severity` block grades each PII type as `low / medium / high / critical` + worst-tier verdict.
+7. [x] **`summarize_report` truncation policy** — multi-split summaries default to `verbose=False`.
+8. [x] **Structured ingestion notes** — parallel `notes_structured: {key: value}` map for programmatic consumers.
+9. [x] **Wizard "ingest first" entry point** — first-class wizard option that routes to `forgelm ingest`.
+10. [x] **xxhash backend + token-level memo** — drop-in faster non-crypto digest path; `lru_cache`-memoised repeat tokens for 2–5× speedup.
+11. [x] **Atomic audit report write** — tempfile + atomic rename.
 
-5. [x] **Tests + docs** — `tests/test_ingestion.py` and `tests/test_data_audit.py` (54 tests; PDF round-trip skips when `pypdf` missing). New guides: [`docs/guides/ingestion.md`](../guides/ingestion.md), [`docs/guides/data_audit.md`](../guides/data_audit.md). README feature section, install matrix, and roadmap status updated.
+### Phase 12 — Data Curation Maturity (Tier 1)
 
----
+1. [x] **MinHash LSH dedup option** — opt-in `--dedup-method minhash --jaccard-threshold 0.85` via `datasketch` (`[ingestion-scale]` extra). Default simhash + LSH banding stays untouched.
+2. [x] **Markdown-aware splitter** — `--strategy markdown` preserves heading hierarchy (`# H1` / `## H2`), keeps fenced code blocks atomic, and inlines a heading breadcrumb so SFT loss sees document context.
+3. [x] **Code / secrets leakage tagger** — new `secrets_summary` block in audit JSON (nine families per `forgelm.data_audit.SECRET_TYPES`). Ingest gains `--secrets-mask` (mask order: secrets → PII).
+4. [x] **Heuristic quality filter** — opt-in `--quality-filter` adds a `quality_summary` block with Gopher / C4 / RefinedWeb-style heuristics.
+5. [x] **DOCX / Markdown table preservation** — `_extract_docx` emits markdown table syntax instead of the previous `" | "` flat join.
 
-## v0.5.1 — "Ingestion / Audit Polish"
+### Phase 12.5 — Data Curation Polish (backlog items #1–#4)
 
-**Status:** Merged on `main` (carried in via Phase 11/12 PRs). The `v0.5.1` git tag and PyPI publish are the remaining release-engineering steps. Focus: [Phase 11.5](phase-11-5-backlog.md). Operational polish on top of `v0.5.0`'s ingestion + audit surface — no new training capabilities, but materially better handling for large corpora and a cleaner CLI shape.
+1. [x] **Presidio adapter (item #1)** — `forgelm audit --pii-ml [--pii-ml-language LANG]` layers Presidio NER on top of the regex detector via the optional `[ingestion-pii-ml]` extra. Adds `person` / `organization` / `location` categories. Pre-flight check covers BOTH the missing-extra branch AND the missing-spaCy-model branch (`presidio-analyzer` does NOT transitively ship `en_core_web_lg`; the install recipe is two lines, raised as `ImportError` before any rows are scanned).
+2. [x] **Croissant 1.0 metadata (item #2)** — `forgelm audit --croissant` populates a new `croissant` key in `data_audit_report.json` with a Google Croissant 1.0 dataset card. Card carries `cr:FileObject` per JSONL split, `cr:RecordSet` per split with `cr:Field` entries from column detection. Conformant with `mlcommons.org/croissant/1.0`.
+3. [x] **`forgelm ingest --all-mask` (item #3)** — one-flag shorthand for `--secrets-mask --pii-mask` in the documented order. Set-union with explicit flags.
+4. [x] **Wizard "audit first" (item #4)** — when the wizard resolves a JSONL (typed or produced by ingest), it offers to run `forgelm audit` inline and prints the verdict. Closes the BYOD audit loop.
 
-### Features:
+### Hardening follow-up (tracked outside this release)
 
-1. [x] **`forgelm audit` subcommand** — Promotes the `--data-audit` top-level flag to a first-class subcommand with its own `--output` default. The flag is preserved as a deprecation alias; existing pipelines keep working.
-2. [x] **LSH-banded near-duplicate detection** — Replaces the `O(n²)` pair scan inside each split (and across splits) with locality-sensitive-hashing bands (4 × 16-bit on the 64-bit fingerprint, hash-bucket lookup). Drops average-case to `O(n × k)` and unblocks audits on 100K+ row corpora.
-3. [x] **Streaming `_read_jsonl_split`** — The audit's JSONL reader now yields rows lazily and the per-split aggregator stays generator-based until simhash collection. Bounds memory on multi-million-row splits.
-4. [x] **Token-aware `--chunk-tokens`** — Optional ingestion flag that sizes chunks against an HF tokenizer instead of raw character counts. Removes a class of "my chunks blew through `max_length`" surprises.
-5. [x] **PDF page-level header / footer dedup** — Repeated page headers (company watermark, page number) used to inflate near-duplicate counts; common-prefix / common-suffix detection across pages now strips them.
-6. [x] **PII severity tiers** — Audit output adds a `pii_severity` block grading each PII type as `low / medium / high / critical` (e.g. `credit_card` → critical, `phone` → low) so compliance reviewers get a one-glance verdict.
-7. [x] **`summarize_report` truncation policy** — Multi-split summaries get a `verbose=False` default that suppresses zero-finding splits. Operators see issues, not 100 lines of "all clean" rows.
-8. [x] **Structured ingestion notes** — `IngestionResult.extra_notes` keeps the human-readable list but gains a parallel `notes_structured: {key: value}` map (e.g. `{"skipped_files": 3, "pii_redactions": {...}}`) for programmatic consumers.
-9. [x] **Wizard "ingest first" entry point** — A first-class wizard option ("I have raw documents") routes to `forgelm ingest`, surfaces a JSONL path, and folds it back into the BYOD prompt — closing the onboarding loop end-to-end.
-10. [x] **xxhash backend for simhash + token-level memo** — Drop-in faster non-crypto digest path (BLAKE2b kept as fallback for sites that can't add the optional dep). Token-level `lru_cache` memoizes repeat tokens (the/and/etc.) for a 2–5× speedup on long corpora.
-11. [x] **Atomic audit report write** — `data_audit_report.json` is written via `tempfile.NamedTemporaryFile` + atomic rename so a crashed audit never leaves a half-written report on disk.
-
----
-
-## v0.5.2 — "Data Curation Maturity"
-
-**Status:** Tier 1 merged on `main` via PR #13 (2026-04-29). The `v0.5.2` git tag and PyPI publish are the remaining release-engineering steps. One hardening follow-up tracked outside the release: [#14 — webhook SSRF DNS-rebinding TOCTOU](https://github.com/cemililik/ForgeLM/issues/14) (defence-in-depth on top of the existing `allow_private_destinations: false` default). Focus: [Phase 12](phase-12-data-curation-maturity.md). Direct continuation of the Phase 11/11.5 ingestion + audit lineage — closes the four gaps surfaced by the post-`v0.5.1` competitive review (LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling).
-
-### Tier 1 features (shipped):
-
-1. [x] **MinHash LSH dedup option** — Opt-in `--dedup-method minhash --jaccard-threshold 0.85` route via `datasketch` (`[ingestion-scale]` extra) for >50K-row corpora. Default simhash + LSH banding stays untouched.
-2. [x] **Markdown-aware splitter** — New `--strategy markdown` preserves heading hierarchy (`# H1` / `## H2`), code-block boundaries, and inlines a heading breadcrumb so SFT loss sees document context.
-3. [x] **Code / secrets leakage tagger** — New `secrets_summary` block in audit JSON (AWS / GitHub / Slack / OpenAI / Google / JWT / OpenSSH / PGP / Azure storage). Ingest gains `--secrets-mask` (mask order: secrets → PII so combined detectors don't double-count). `[ingestion-secrets]` extra (`detect-secrets`); regex-only fallback when missing.
-4. [x] **Heuristic quality filter** — Opt-in `--quality-filter` adds a `quality_summary` block with Gopher / C4 / RefinedWeb-style heuristics (mean-word-length, alphabetic ratio, end-of-line punctuation, short-paragraph ratio). ML classifiers stay deferred to Phase 13+.
-5. [x] **DOCX / Markdown table preservation** — `_extract_docx` emits markdown table syntax (header + separator + body rows) instead of the previous `" | "` flat join; uneven rows padded; all-blank rows trimmed; the new markdown chunker keeps these blocks intact across chunks.
-
-### Tier 2/3 (deferred to [Phase 12.5 backlog](phase-12-5-backlog.md)):
-
-- Presidio adapter (`--pii-engine presidio` + `[ingestion-pii-ml]` extra).
-- Croissant metadata compatibility (audit JSON `--croissant` flag).
-- `forgelm ingest --all-mask` composite flag.
-- Wizard "audit first" entry point (mirrors Phase 11.5's ingest-first hook).
+- [#14 — webhook SSRF DNS-rebinding TOCTOU](https://github.com/cemililik/ForgeLM/issues/14): defence-in-depth on top of the existing `allow_private_destinations: false` default. Slated for `v0.5.1`.
 
 ---
 
-## v0.5.3 — "Pipeline Chains" (Planned)
+## v0.5.1 — "Pipeline Chains" (Planned)
 
-**Status:** Planned. Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. Reslotted from `v0.5.2` so the ingestion / audit lineage finishes uninterrupted; no hard blockers, starts after the `v0.5.2` PyPI tag is published. Folds in [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14) (defence-in-depth on top of the existing `allow_private_destinations: false` default).
+**Status:** Planned. Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. Starts after the `v0.5.0` PyPI tag is published. Folds in [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14) (defence-in-depth on top of the existing `allow_private_destinations: false` default).
 
 ---
 

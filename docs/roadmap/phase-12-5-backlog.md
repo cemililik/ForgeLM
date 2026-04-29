@@ -1,6 +1,12 @@
 # Phase 12.5 — Data Curation Polish Backlog
 
-> **Follow-up to Phase 12.** Phase 12 (`v0.5.2`) shipped the five Tier 1
+> **Note (post-consolidation):** Originally targeted `v0.5.3`; all four
+> backlog items now ship together with Phases 11 / 11.5 / 12 in the
+> consolidated `v0.5.0` release (see [releases.md](releases.md#v050--document-ingestion--data-curation-pipeline)).
+> The version-label references below preserve the historical planning
+> trail.
+>
+> **Follow-up to Phase 12.** Phase 12 (originally targeted `v0.5.2`) shipped the five Tier 1
 > must-haves: MinHash LSH dedup option, markdown-aware splitter,
 > code/secrets leakage tagger, heuristic quality filter, DOCX/Markdown
 > table preservation. Three Tier 2/3 items were tagged "if scope allows"
@@ -16,10 +22,10 @@
 
 | # | Item | Source | Effort | Status |
 |---|---|---|---|---|
-| **1** | ~~**Presidio adapter** (`[ingestion-pii-ml]` extra, optional)~~ | Phase 12 plan Tier 2 #6 | S–M | ✅ Landed on `development` — `forgelm audit --pii-ml`; new `PII_ML_SEVERITY` table; opt-in `[ingestion-pii-ml]` extra (`presidio-analyzer`); ships with `v0.5.3`. |
-| **2** | ~~**Croissant metadata compatibility** (audit JSON)~~ | Phase 12 plan Tier 2 #7 | S | ✅ Landed on `development` — `forgelm audit --croissant`; Croissant 1.0 card under report's `croissant` key; existing keys byte-equivalent when off. |
-| **3** | ~~**`forgelm ingest --all-mask` composite flag**~~ | Phase 12 plan Tier 3 #8 | XS | ✅ Landed on `development` — `forgelm ingest --all-mask`; set-union with explicit flags; resolved at the CLI boundary. |
-| **4** | ~~**Wizard "audit first" entry point**~~ | Phase 12 plan Tier 3 #9 | S | ✅ Landed on `development` — `_offer_audit_for_jsonl` invoked from the three JSONL-finalisation paths in `forgelm/wizard.py`. |
+| **1** | ~~**Presidio adapter** (`[ingestion-pii-ml]` extra, optional)~~ | Phase 12 plan Tier 2 #6 | S–M | ✅ Landed on `development` — `forgelm audit --pii-ml`; new `PII_ML_SEVERITY` table; opt-in `[ingestion-pii-ml]` extra (`presidio-analyzer`); ships with `v0.5.0` (consolidated release). |
+| **2** | ~~**Croissant metadata compatibility** (audit JSON)~~ | Phase 12 plan Tier 2 #7 | S | ✅ Landed on `development` — `forgelm audit --croissant`; Croissant 1.0 card under report's `croissant` key; existing keys byte-equivalent when off. Ships with `v0.5.0`. |
+| **3** | ~~**`forgelm ingest --all-mask` composite flag**~~ | Phase 12 plan Tier 3 #8 | XS | ✅ Landed on `development` — `forgelm ingest --all-mask`; set-union with explicit flags; resolved at the CLI boundary. Ships with `v0.5.0`. |
+| **4** | ~~**Wizard "audit first" entry point**~~ | Phase 12 plan Tier 3 #9 | S | ✅ Landed on `development` — `_offer_audit_for_jsonl` invoked from the three JSONL-finalisation paths in `forgelm/wizard.py`. Ships with `v0.5.0`. |
 
 ## Why these landed here, not in Phase 12
 

@@ -3,11 +3,11 @@
 `forgelm audit PATH` analyzes a JSONL dataset and produces a
 `data_audit_report.json` covering quality, governance, PII, and (Phase 12
 onwards) credential-leakage and heuristic-quality signals. Phase 11
-(`v0.5.0`) shipped the underlying audit; Phase 11.5 (`v0.5.1`) promoted
+shipped the underlying audit; Phase 11.5 (consolidated into `v0.5.0`) promoted
 it from a top-level flag to a first-class subcommand and added
 LSH-banded near-duplicate detection, streaming JSONL reading, PII
 severity tiers, atomic on-disk write, and a verbose-by-default
-truncation policy. **Phase 12 (`v0.5.2`)** added an opt-in MinHash LSH
+truncation policy. **Phase 12 (consolidated into `v0.5.0`)** added an opt-in MinHash LSH
 dedup method (`--dedup-method minhash`), a code/credential leakage scan
 that runs always-on (`secrets_summary`), and an opt-in heuristic
 quality filter (`--quality-filter`).
@@ -268,7 +268,7 @@ forgelm ingest ./policies/ --recursive --output data/policies.jsonl --secrets-ma
 
 Optional / forward-compatibility: the `[ingestion-secrets]` extra
 declares a `detect-secrets>=1.5.0` dependency that is **reserved for a
-follow-up release**. As of v0.5.2 the audit's
+follow-up release**. As of v0.5.0 the audit's
 `forgelm.data_audit.detect_secrets()` relies solely on the regex set
 above; installing the extra today does not change audit behaviour. The
 extra exists so operators who pin `forgelm[ingestion-secrets]` in

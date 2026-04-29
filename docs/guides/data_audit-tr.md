@@ -2,11 +2,11 @@
 
 `forgelm audit PATH` bir JSONL veri setini analiz eder ve kalite,
 governance ile PII sinyallerini kapsayan bir `data_audit_report.json`
-üretir. Faz 11 (`v0.5.0`'da tanıtıldı) altyapıyı, Faz 11.5 (`v0.5.1`)
+üretir. Faz 11 altyapıyı, Faz 11.5 (`v0.5.0`'da birleşti)
 ise top-level flag'i first-class subcommand'a yükseltti, LSH-banded
 near-duplicate tespitini, streaming JSONL okuyucusunu, PII şiddet
 katmanlarını, atomik disk yazımı ve verbose-by-default kısaltma
-politikasını ekledi. **Faz 12 (`v0.5.2`)** opt-in MinHash LSH dedup
+politikasını ekledi. **Faz 12 (`v0.5.0`'da birleşti)** opt-in MinHash LSH dedup
 yöntemini (`--dedup-method minhash`), her zaman çalışan
 code/credential leakage taramasını (`secrets_summary`), ve opt-in
 heuristic kalite filtresini (`--quality-filter`) ekledi.
@@ -268,7 +268,7 @@ forgelm ingest ./policies/ --recursive --output data/policies.jsonl --secrets-ma
 
 Opsiyonel / forward-compatibility: `[ingestion-secrets]` extra'sı bir
 `detect-secrets>=1.5.0` bağımlılığı tanımlar ama bu **bir sonraki sürüm
-için ayrılmıştır**. v0.5.2 itibarıyla `forgelm.data_audit.detect_secrets()`
+için ayrılmıştır**. v0.5.0 itibarıyla `forgelm.data_audit.detect_secrets()`
 yalnızca yukarıdaki regex setine dayanır; extra'yı kurmak bugün audit
 davranışını değiştirmez. Extra, `forgelm[ingestion-secrets]` pin'leyen
 operatörlerin entegrasyon geldiğinde forward-compatible olabilmesi
