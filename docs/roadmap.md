@@ -79,12 +79,12 @@ docs/
     ├── completed-phases.md                     # Phase 1-10 archive (detailed)
     ├── phase-10-post-training.md               # Completed — v0.4.0
     ├── phase-10-5-quickstart.md                # Done (Phase 10.5) — shipped as v0.4.5
-    ├── phase-11-data-ingestion.md              # Done (Phase 11) — shipped v0.5.0
-    ├── phase-11-5-backlog.md                   # Done (Phase 11.5) — landed for v0.5.1; ingestion/audit polish
-    ├── phase-12-data-curation-maturity.md      # Done (Phase 12 Tier 1) — landed for v0.5.2; MinHash LSH, markdown splitter, secrets scan
-    ├── phase-12-5-backlog.md                   # Phase 12.5 follow-up backlog (Presidio adapter, Croissant metadata, --all-mask, wizard audit-first)
+    ├── phase-11-data-ingestion.md              # Done (Phase 11) — consolidated into v0.5.0
+    ├── phase-11-5-backlog.md                   # Done (Phase 11.5) — consolidated into v0.5.0; ingestion/audit polish
+    ├── phase-12-data-curation-maturity.md      # Done (Phase 12 Tier 1) — consolidated into v0.5.0; MinHash LSH, markdown splitter, secrets scan
+    ├── phase-12-5-backlog.md                   # Done (Phase 12.5) — consolidated into v0.5.0; Presidio adapter, Croissant metadata, --all-mask, wizard audit-first
     ├── phase-13-pro-cli.md                     # Planned — v0.6.0-pro (gated)
-    ├── phase-14-pipeline-chains.md             # Planned — v0.5.3 (reslotted from v0.5.2)
+    ├── phase-14-pipeline-chains.md             # Planned — v0.5.1 (follow-up to the v0.5.0 consolidation)
     ├── releases.md                             # v0.3.0 → v0.6.0 release notes
     └── risks-and-decisions.md                  # Risk matrix, opportunities, competitive positioning, decision log
 ```

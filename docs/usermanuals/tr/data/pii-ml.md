@@ -76,14 +76,14 @@ Bu katmanlar **bilinçli olarak** regex'in `critical`/`high` zeminlerinin (kredi
 
 ## Dil Seçimi {#dil-secimi}
 
-Non-English NLP engine'e işaret etmek için `--pii-ml-language` geçin. Talep edilen dil için bir engine kayıtlı değilse Presidio typed bir exception raise eder — eşleşen spaCy modelini kurabilmeniz için yüksek sesle yüzeye çıkar:
+Non-English NLP engine'e işaret etmek için `--pii-ml-language` geçin. ForgeLM'in pre-flight'ı (`_require_presidio(language=...)`) hiçbir satır taranmadan önce talep edilen dilin Presidio `AnalyzerEngine`'inde kayıtlı olduğunu doğrular; değilse kayıtlı dil listesini içeren bir `ValueError` raise eder — sessizce boş bulgu döndürmek yerine peşinen başarısız olur. Varsayılan `AnalyzerEngine` yalnızca İngilizce yükler; non-English korpuslar için özel bir NlpEngine ([Presidio dokümanı](https://microsoft.github.io/presidio/analyzer/languages/)) ve eşleşen spaCy modeli gerekir:
 
-```shell
-$ python -m spacy download xx_ent_wiki_sm     # çok dilli, daha küçük
-$ forgelm audit data/turkish-corpus.jsonl --pii-ml --pii-ml-language xx
+```bash
+python -m spacy download xx_ent_wiki_sm     # çok dilli, daha küçük
+forgelm audit data/turkish-corpus.jsonl --pii-ml --pii-ml-language xx
 ```
 
-Varsayılan `en`. Türkçe ağırlıklı bir korpusta `--pii-ml`'i dil ayarlamadan çalıştırırsanız, Presidio'nun İngilizce NER'i sıfır veya sıfıra yakın bulgu döndürür — audit dürüstçe "0 person" raporlar ama efektif olarak no-op çalıştırmış olursunuz.
+Varsayılan `en`. Türkçe ağırlıklı bir korpusta `--pii-ml`'i dil yapılandırmadan çalıştırırsanız, pre-flight kayıtlı dil listesiyle birlikte abort olur — sessiz sıfır-bulgu audit'i yoktur.
 
 ## Pre-flight neden önemli {#pre-flight-neden-onemli}
 
@@ -111,7 +111,7 @@ print(counts)
 # {'person': 1, 'organization': 1, 'location': 1}
 ```
 
-Fonksiyon non-string input, eksik extra'lar veya geçici analyzer hataları için boş dict döndürür (tek bir kötü satır audit'i bloke etmez). Sert arızalar (eksik spaCy modeli, kayıtlı olmayan dil) caller'a propagate olur.
+Fonksiyon non-string input, eksik extra'lar veya geçici analyzer hataları için boş dict döndürür (tek bir kötü satır audit'i bloke etmez). Sert arızalar (eksik spaCy modeli, kayıtlı olmayan dil) `_require_presidio(language=...)` tarafından peşinen yakalanır ve hiçbir satır taranmadan önce raise edilir — `audit_dataset`'i bypass ettiğinizde aynı pre-flight garantilerini istiyorsanız bunu açıkça çağırın.
 
 ## Bu katmanda OLMAYAN şeyler
 

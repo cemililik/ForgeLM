@@ -79,12 +79,12 @@ docs/
     ├── completed-phases.md                     # Faz 1-10 arşivi (detaylı, İngilizce)
     ├── phase-10-post-training.md               # Tamamlandı — v0.4.0
     ├── phase-10-5-quickstart.md                # Tamam (Faz 10.5) — v0.4.5 olarak yayınlandı
-    ├── phase-11-data-ingestion.md              # Tamam (Faz 11) — v0.5.0 olarak çıktı
-    ├── phase-11-5-backlog.md                   # Tamam (Faz 11.5) — v0.5.1 için indi; ingestion/audit cilası
-    ├── phase-12-data-curation-maturity.md      # Tamam (Faz 12 Tier 1) — v0.5.2 için indi; MinHash LSH, markdown splitter, secrets scan
-    ├── phase-12-5-backlog.md                   # Faz 12.5 follow-up backlog (Presidio, Croissant, --all-mask, wizard audit-first)
+    ├── phase-11-data-ingestion.md              # Tamam (Faz 11) — v0.5.0'a birleştirildi
+    ├── phase-11-5-backlog.md                   # Tamam (Faz 11.5) — v0.5.0'a birleştirildi; ingestion/audit cilası
+    ├── phase-12-data-curation-maturity.md      # Tamam (Faz 12 Tier 1) — v0.5.0'a birleştirildi; MinHash LSH, markdown splitter, secrets scan
+    ├── phase-12-5-backlog.md                   # Tamam (Faz 12.5) — v0.5.0'a birleştirildi; Presidio, Croissant, --all-mask, wizard audit-first
     ├── phase-13-pro-cli.md                     # Planlandı — v0.6.0-pro (gated)
-    ├── phase-14-pipeline-chains.md             # Planlandı — v0.5.3 (v0.5.2'den kaydırıldı)
+    ├── phase-14-pipeline-chains.md             # Planlandı — v0.5.1 (v0.5.0 birleştirmesinin takip release'i)
     ├── releases.md                             # v0.3.0 → v0.6.0 sürüm notları
     └── risks-and-decisions.md                  # Risk matrisi, fırsatlar, rekabet analizi, karar günlüğü
 ```

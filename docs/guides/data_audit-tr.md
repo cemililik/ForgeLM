@@ -399,7 +399,7 @@ regex yolunda kalır.
 ### Croissant 1.0 dataset card — `--croissant` (Faz 12.5, opt-in)
 
 `--croissant`, `data_audit_report.json` içinde yeni bir top-level
-`croissant` bloğunu [Google Croissant 1.0](http://mlcommons.org/croissant/)
+`croissant` bloğunu [Google Croissant 1.0](https://mlcommons.org/croissant/)
 dataset card'ı (`@type: sc:Dataset`) ile doldurur. Card, kanonik
 `mlcommons.org/croissant/1.0` context'iyle uyumludur — bu yüzden
 Croissant farkındalıklı consumer'lar (HuggingFace dataset cards,
@@ -412,8 +412,10 @@ forgelm audit data/ --output ./audit/ --croissant
 
 Card şunları taşır:
 
-* dataset seviyesinde kimlik (`name`, `description`, `version`,
-  `datePublished`, `url`),
+* dataset seviyesinde kimlik (`name`, `description`, `datePublished`,
+  `url`) — `version` bilinçli olarak çıkarılmıştır, audit'in dataset
+  sürümü için first-class kanıtı yoktur; card'ı yayınlayan operatörler
+  `version`'ı `license` / `citeAs` gibi elle düzenler,
 * her JSONL split'i için bir `cr:FileObject` (Croissant consumer'ı
   altta yatan dosyaları bulabilsin diye),
 * her split için audit'in column-detection katmanından türetilen
@@ -480,6 +482,9 @@ forgelm audit PATH \
   [--dedup-method {simhash,minhash}] \
   [--jaccard-threshold X] \
   [--quality-filter] \
+  [--pii-ml] \
+  [--pii-ml-language LANG] \
+  [--croissant] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```

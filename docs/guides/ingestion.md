@@ -234,6 +234,7 @@ forgelm ingest INPUT_PATH \
   [--recursive] \
   [--pii-mask] \
   [--secrets-mask] \
+  [--all-mask] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```

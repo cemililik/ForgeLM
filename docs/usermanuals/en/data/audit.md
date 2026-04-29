@@ -100,7 +100,7 @@ For **binary** (KTO) datasets:
 | `--sample-rate FLOAT` | Audit a random subsample (e.g. `0.1` for 10%). For very large datasets. |
 | `--quality-filter` | Run heuristic quality checks (Gopher / C4 / RefinedWeb-style). Adds `quality_summary`. See [Quality Filter](#/data/quality-filter). |
 | `--pii-ml [--pii-ml-language LANG]` | Layer Presidio NER on top of the regex PII detector — adds `person` / `organization` / `location` categories into the same `pii_summary` block. Requires the `[ingestion-pii-ml]` extra **and** a spaCy NER model. See [ML-NER PII (Presidio)](#/data/pii-ml). |
-| `--croissant` | Emit a [Google Croissant 1.0](http://mlcommons.org/croissant/) dataset card under the report's `croissant` key — same JSON file doubles as both the audit and a Croissant-consumer card. See [Croissant 1.0 Dataset Card](#/data/croissant-card). |
+| `--croissant` | Emit a [Google Croissant 1.0](https://mlcommons.org/croissant/) dataset card under the report's `croissant` key — same JSON file doubles as both the audit and a Croissant-consumer card. See [Croissant 1.0 Dataset Card](#/data/croissant-card). |
 
 ## What's in the report
 

@@ -93,7 +93,7 @@ additive surface on top of the Phase 12 ingestion + audit lineage.
   check covers BOTH the missing-extra branch AND the missing-spaCy-model
   branch — `presidio-analyzer` does *not* transitively ship a spaCy
   NER model, so the install recipe is now two lines:
-  ```
+  ```bash
   pip install 'forgelm[ingestion-pii-ml]'
   python -m spacy download en_core_web_lg
   ```

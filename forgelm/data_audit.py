@@ -430,8 +430,8 @@ _PRESIDIO_INSTALL_HINT: str = (
 )
 
 
-def _require_presidio() -> None:
-    """Raise a clear ImportError when the optional ML-NER backend is unusable.
+def _require_presidio(language: str = "en") -> None:
+    """Raise a clear ImportError / ValueError when the optional ML-NER backend is unusable.
 
     Mirrors :func:`_require_datasketch` but extends the check to model
     availability: a fresh ``[ingestion-pii-ml]`` install does **not**
@@ -442,11 +442,19 @@ def _require_presidio() -> None:
     swallows per-row failures) the audit would silently report zero
     ML PII coverage. Pre-flighting the analyzer build here surfaces
     the missing-model case before any rows are scanned.
+
+    When ``language`` is non-default, also verify the requested language
+    is registered on the analyzer's supported list. Presidio's default
+    ``AnalyzerEngine`` only loads English; ``--pii-ml --pii-ml-language tr``
+    against a default install would otherwise return ``{}`` per row
+    (``analyzer.analyze`` raises ``ValueError`` which
+    :func:`detect_pii_ml` swallows). Failing fast with an actionable
+    message is the only way the operator notices the misconfiguration.
     """
     if not _HAS_PRESIDIO:
         raise ImportError(_PRESIDIO_INSTALL_HINT)
     try:
-        _get_presidio_analyzer()
+        analyzer = _get_presidio_analyzer()
     except OSError as exc:
         # spaCy raises ``OSError`` ("Can't find model 'en_core_web_lg'")
         # when the model package isn't on the import path. Re-raise as
@@ -457,6 +465,15 @@ def _require_presidio() -> None:
         raise ImportError(
             f"Presidio analyzer build failed (likely missing spaCy NER model): {exc}\n{_PRESIDIO_INSTALL_HINT}"
         ) from exc
+    supported = getattr(analyzer, "supported_languages", None) or ["en"]
+    if language not in supported:
+        raise ValueError(
+            f"Presidio analyzer has no NLP engine registered for language {language!r}. "
+            f"Registered languages: {sorted(supported)}. "
+            "The default AnalyzerEngine only loads English; for non-English corpora "
+            "configure a custom NlpEngine before invoking the audit (see "
+            "https://microsoft.github.io/presidio/analyzer/languages/)."
+        )
 
 
 # Presidio canonicalises spaCy NER labels through its
@@ -490,9 +507,11 @@ def detect_pii_ml(text: Any, *, language: str = "en") -> Dict[str, int]:
         text: Per-row payload; defensive against ``None`` / numbers / dicts.
         language: Presidio NLP-engine language code. Default ``"en"``.
             Set via :func:`audit_dataset`'s ``pii_ml_language`` parameter.
-            Presidio raises a typed exception if no NLP engine is
-            registered for the requested language — surfaced as the
-            same per-row swallow as any other analyzer failure.
+            The unsupported-language case is caught up-front by
+            :func:`_require_presidio` (called from ``audit_dataset`` when
+            ``enable_pii_ml`` is set), so the per-row ``ValueError``
+            swallow below only fires for pathological inputs / transient
+            engine state, not for misconfiguration.
 
     Returns an empty dict when:
     * ``text`` is not a non-empty string (defensive — callers pass JSONL
@@ -505,8 +524,8 @@ def detect_pii_ml(text: Any, *, language: str = "en") -> Dict[str, int]:
       ``RuntimeError``) and let everything else propagate so genuine
       bugs (``OSError`` on missing model, ``MemoryError``, ``KeyboardInterrupt``)
       stay visible. The pre-flight in :func:`_require_presidio` covers
-      the missing-model case so it never reaches this path in the
-      common run.
+      the missing-model and unsupported-language cases so neither
+      reaches this path in the common run.
     """
     if not isinstance(text, str) or not text.strip():
         return {}
@@ -2472,7 +2491,16 @@ def _build_croissant_metadata(
     record_sets: List[Dict[str, Any]] = []
     for split_name, info in splits_info.items():
         sample_count = int(info.get("sample_count", 0))
-        file_id = f"{split_name}.jsonl"
+        # Derive ``file_id`` from the real source filename (basename
+        # only, never the absolute path) so single-file audits like
+        # ``policies.jsonl`` don't show up as ``train.jsonl`` in the
+        # generated card and alias layouts (``dev.jsonl`` → split
+        # ``validation``) keep their on-disk filename. Falls back to
+        # the canonical ``{split}.jsonl`` shape when no path is
+        # registered — defensive for callers that bypass
+        # ``_resolve_input``.
+        split_path = splits_paths.get(split_name)
+        file_id = split_path.name if split_path else f"{split_name}.jsonl"
         # ``contentUrl`` deliberately uses the *file_id* (relative
         # filename), not the absolute filesystem path: cards published
         # to HuggingFace / MLCommons must not leak the auditor's local
@@ -2521,14 +2549,22 @@ def _build_croissant_metadata(
             }
         )
 
-    # ``url`` carries ``source_input`` (as-typed) rather than the
-    # resolved absolute path — see ``contentUrl`` rationale above.
+    # ``url`` carries the basename of ``source_input`` so we never
+    # publish an auditor's absolute filesystem path
+    # (``/Users/...`` / ``/home/builder/...``) into a card that may be
+    # shipped to HuggingFace / MLCommons. ``Path.name`` gives the
+    # relative form for both files (``policies.jsonl``) and directories
+    # (``data/`` → ``data``); when ``source_input`` is empty we fall
+    # back to the dataset name. Operators that want a real public URL
+    # (HF Hub, S3) hand-edit at publish time, the same way they do
+    # ``license`` / ``citeAs``.
     # ``version`` (``sc:version``) describes the *dataset* version,
     # not the Croissant vocabulary version (vocab conformance is
     # declared via ``conformsTo``). The audit doesn't have first-class
     # evidence for dataset version, so the field is omitted; operators
     # that publish the card hand-edit ``version`` like they do
     # ``license`` / ``citeAs``.
+    url_safe = Path(source_input).name if source_input else name
     return {
         "@context": dict(_CROISSANT_CONTEXT),
         "@type": "sc:Dataset",
@@ -2540,7 +2576,7 @@ def _build_croissant_metadata(
             "Inline counts/quality/PII summaries live in the parent "
             "data_audit_report.json under the canonical audit keys."
         ),
-        "url": source_input,
+        "url": url_safe,
         "datePublished": generated_at,
         "distribution": distribution,
         "recordSet": record_sets,
@@ -2637,10 +2673,15 @@ def audit_dataset(
             raise ValueError(f"minhash_num_perm must be a positive integer; got {minhash_num_perm!r}.")
         _require_datasketch()
     if enable_pii_ml:
-        # Phase 12.5: pre-flight the optional extra so the caller learns
-        # the dep is missing BEFORE we open any files / scan any rows,
-        # mirroring the ``_require_datasketch`` shape above.
-        _require_presidio()
+        # Phase 12.5: pre-flight the optional extra AND the requested
+        # language so the caller learns the dep / model / language is
+        # missing BEFORE we open any files / scan any rows, mirroring
+        # the ``_require_datasketch`` shape above. Without the language
+        # check, ``--pii-ml-language tr`` against a default Presidio
+        # install would silently return ``{}`` per row (analyzer raises
+        # ``ValueError`` which ``detect_pii_ml`` deliberately swallows
+        # for per-row resilience on pathological strings).
+        _require_presidio(language=pii_ml_language)
 
     splits_paths, resolution_notes = _resolve_input(source)
 

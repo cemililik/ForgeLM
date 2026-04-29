@@ -76,14 +76,14 @@ These tiers sit **deliberately below** the regex `critical`/`high` floors (credi
 
 ## Language selection
 
-Pass `--pii-ml-language` to point at a non-English NLP engine. Presidio raises a typed exception when no engine is registered for the requested language — surfaced loudly so you can install the matching spaCy model:
+Pass `--pii-ml-language` to point at a non-English NLP engine. ForgeLM's pre-flight (`_require_presidio(language=...)`) verifies the requested language is registered on Presidio's `AnalyzerEngine` before any rows are scanned and raises a `ValueError` with the registered-languages list when it isn't — failing fast instead of silently returning empty findings. Default `AnalyzerEngine` only loads English; for non-English corpora you need a custom NlpEngine ([Presidio docs](https://microsoft.github.io/presidio/analyzer/languages/)) plus the matching spaCy model:
 
-```shell
-$ python -m spacy download xx_ent_wiki_sm     # multilingual, smaller
-$ forgelm audit data/turkish-corpus.jsonl --pii-ml --pii-ml-language xx
+```bash
+python -m spacy download xx_ent_wiki_sm     # multilingual, smaller
+forgelm audit data/turkish-corpus.jsonl --pii-ml --pii-ml-language xx
 ```
 
-Default is `en`. If you run `--pii-ml` on a Turkish-majority corpus without setting the language, Presidio's English NER will return zero or near-zero findings — the audit honestly reports "0 person" but you've effectively run a no-op.
+Default is `en`. If you run `--pii-ml` on a Turkish-majority corpus without configuring the language, the pre-flight aborts with the registered-languages list — no silent zero-findings audit.
 
 ## Why pre-flight matters
 
@@ -111,7 +111,7 @@ print(counts)
 # {'person': 1, 'organization': 1, 'location': 1}
 ```
 
-The function returns an empty dict for non-string input, missing extras, or transient analyzer errors (a single bad row never blocks the audit). Hard failures (missing spaCy model, language not registered) propagate to the caller.
+The function returns an empty dict for non-string input, missing extras, or transient analyzer errors (a single bad row never blocks the audit). Hard failures (missing spaCy model, language not registered) are caught up front by `_require_presidio(language=...)` and raised before any rows are scanned — call it explicitly when you bypass `audit_dataset` and want the same pre-flight guarantees.
 
 ## What's NOT in this layer
 

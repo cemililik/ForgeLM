@@ -526,3 +526,159 @@ class TestPiiMlJsonEnvelope:
         # Phase 12 precedent: present-and-empty when off.
         assert "croissant" in envelope
         assert envelope["croissant"] == {}
+
+
+# ---------------------------------------------------------------------------
+# Phase 12.5 review fixes — verified-by-test follow-ups from PR #18
+# ---------------------------------------------------------------------------
+
+
+class TestCroissantFileIdReflectsRealFilename:
+    """``file_id`` must come from the real source filename, not the split label.
+
+    Single-file audits and alias layouts (``dev.jsonl`` → split
+    ``validation``) used to fabricate ``file_id = f"{split_name}.jsonl"``
+    which mismatched the file actually on disk and broke any consumer
+    that tried to resolve the card's ``contentUrl`` back to the JSONL.
+    """
+
+    def _write_jsonl(self, path: Path, rows) -> None:
+        with open(path, "w", encoding="utf-8") as fh:
+            for row in rows:
+                fh.write(json.dumps(row) + "\n")
+
+    def test_single_file_audit_keeps_real_filename(self, tmp_path):
+        # ``policies.jsonl`` must show up in the card as ``policies.jsonl``,
+        # not as ``train.jsonl`` (the canonical split label _resolve_input
+        # assigns to single-file inputs).
+        ds = tmp_path / "policies.jsonl"
+        self._write_jsonl(ds, [{"text": "alpha"}, {"text": "beta"}])
+        out_dir = tmp_path / "audit"
+        with patch(
+            "sys.argv",
+            [
+                "forgelm",
+                "audit",
+                str(ds),
+                "--output",
+                str(out_dir),
+                "--croissant",
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+        crois = json.loads((out_dir / "data_audit_report.json").read_text(encoding="utf-8"))["croissant"]
+        ids = {entry["@id"] for entry in crois["distribution"]}
+        assert ids == {"policies.jsonl"}
+        for entry in crois["distribution"]:
+            assert entry["contentUrl"] == "policies.jsonl"
+            assert entry["name"] == "policies.jsonl"
+
+    def test_alias_layout_keeps_real_filename(self, tmp_path):
+        # ``dev.jsonl`` is folded onto canonical split name ``validation``
+        # by _resolve_input. The card must still reference the real file
+        # (``dev.jsonl``), otherwise the contentUrl points to a file
+        # that doesn't exist on disk.
+        data_dir = tmp_path / "splits"
+        data_dir.mkdir()
+        self._write_jsonl(data_dir / "train.jsonl", [{"text": "alpha"}])
+        self._write_jsonl(data_dir / "dev.jsonl", [{"text": "beta"}])
+        out_dir = tmp_path / "audit"
+        with patch(
+            "sys.argv",
+            [
+                "forgelm",
+                "audit",
+                str(data_dir),
+                "--output",
+                str(out_dir),
+                "--croissant",
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+        crois = json.loads((out_dir / "data_audit_report.json").read_text(encoding="utf-8"))["croissant"]
+        ids = {entry["@id"] for entry in crois["distribution"]}
+        assert ids == {"train.jsonl", "dev.jsonl"}, (
+            "alias layout must keep the real filename, not the canonical split label"
+        )
+
+    def test_url_does_not_leak_absolute_path(self, tmp_path):
+        # When the operator passes an absolute path, the published card
+        # must not carry ``/Users/...`` / ``/home/builder/...`` — those
+        # leak the auditor's local layout to whoever reads the card.
+        ds = tmp_path / "policies.jsonl"
+        self._write_jsonl(ds, [{"text": "alpha"}])
+        out_dir = tmp_path / "audit"
+        absolute_input = str(ds.resolve())
+        assert absolute_input.startswith("/"), "test precondition: absolute path"
+        with patch(
+            "sys.argv",
+            [
+                "forgelm",
+                "audit",
+                absolute_input,
+                "--output",
+                str(out_dir),
+                "--croissant",
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+        crois = json.loads((out_dir / "data_audit_report.json").read_text(encoding="utf-8"))["croissant"]
+        assert "/" not in crois["url"], f"url field leaks absolute path: {crois['url']!r}"
+        assert crois["url"] == "policies.jsonl"
+
+
+class TestPresidioLanguagePreflight:
+    """Pre-flight rejects unsupported ``--pii-ml-language`` instead of swallowing.
+
+    Without the pre-flight, ``analyzer.analyze(text, language='xx')``
+    raises ``ValueError`` per row inside ``detect_pii_ml`` and the
+    handler swallows it — so ``--pii-ml --pii-ml-language xx`` against
+    a default Presidio install (which only registers English) returns
+    zero ML findings without a peep. That's exactly the silent-failure
+    anti-pattern Phase 12.5 set out to remove, so we pin the loud-fail
+    behaviour with a regression test.
+    """
+
+    def test_unsupported_language_raises_value_error(self):
+        from forgelm.data_audit import _get_presidio_analyzer, _require_presidio
+
+        class _StubAnalyzer:
+            supported_languages = ["en"]
+
+        _get_presidio_analyzer.cache_clear()
+        try:
+            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
+                with patch(
+                    "forgelm.data_audit._get_presidio_analyzer",
+                    return_value=_StubAnalyzer(),
+                ):
+                    with pytest.raises(ValueError) as exc_info:
+                        _require_presidio(language="xx")
+        finally:
+            _get_presidio_analyzer.cache_clear()
+        msg = str(exc_info.value)
+        assert "xx" in msg
+        assert "en" in msg  # registered list shows what is available
+
+    def test_default_english_language_passes_preflight(self):
+        from forgelm.data_audit import _get_presidio_analyzer, _require_presidio
+
+        class _StubAnalyzer:
+            supported_languages = ["en"]
+
+        _get_presidio_analyzer.cache_clear()
+        try:
+            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
+                with patch(
+                    "forgelm.data_audit._get_presidio_analyzer",
+                    return_value=_StubAnalyzer(),
+                ):
+                    _require_presidio(language="en")  # must not raise
+        finally:
+            _get_presidio_analyzer.cache_clear()

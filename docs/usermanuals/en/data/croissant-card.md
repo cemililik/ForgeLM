@@ -5,7 +5,7 @@ description: Optional Google Croissant 1.0 metadata emitted alongside the audit 
 
 # Croissant 1.0 Dataset Card — `--croissant`
 
-The audit report (`data_audit_report.json`) already carries every signal an EU AI Act Article 10 reviewer needs: PII counts, secrets summary, near-duplicate pairs, cross-split leakage, language distribution. With `--croissant`, the same file picks up a top-level `croissant` block that conforms to the [Google Croissant 1.0](http://mlcommons.org/croissant/) specification. One file, two consumers.
+The audit report (`data_audit_report.json`) already carries every signal an EU AI Act Article 10 reviewer needs: PII counts, secrets summary, near-duplicate pairs, cross-split leakage, language distribution. With `--croissant`, the same file picks up a top-level `croissant` block that conforms to the [Google Croissant 1.0](https://mlcommons.org/croissant/) specification. One file, two consumers.
 
 ## Why bother?
 
@@ -80,7 +80,7 @@ If you want these fields populated, edit the JSON post-audit before publishing. 
 
 ## Conformance
 
-The emitted card is conformant against the canonical [Croissant 1.0 spec](http://mlcommons.org/croissant/1.0). It's been validated against:
+The emitted card is conformant against the canonical [Croissant 1.0 spec](https://mlcommons.org/croissant/). It's been validated against:
 
 - The [Croissant validator](https://github.com/mlcommons/croissant) (`mlcroissant validate`).
 - HuggingFace's dataset card parser (the `datasets` library reads Croissant if present in the dataset directory).

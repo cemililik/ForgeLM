@@ -396,7 +396,7 @@ zero-extra-deps regex path.
 ### Croissant 1.0 dataset card — `--croissant` (Phase 12.5, opt-in)
 
 `--croissant` populates a new top-level `croissant` block in
-`data_audit_report.json` with a [Google Croissant 1.0](http://mlcommons.org/croissant/)
+`data_audit_report.json` with a [Google Croissant 1.0](https://mlcommons.org/croissant/)
 dataset card (`@type: sc:Dataset`). The card is conformant with the
 canonical `mlcommons.org/croissant/1.0` context, so Croissant-aware
 consumers (HuggingFace dataset cards, MLCommons reference loaders, the
@@ -408,8 +408,10 @@ forgelm audit data/ --output ./audit/ --croissant
 
 The card carries:
 
-* dataset-level identity (`name`, `description`, `version`,
-  `datePublished`, `url`),
+* dataset-level identity (`name`, `description`, `datePublished`,
+  `url`) — `version` is intentionally omitted because the audit has
+  no first-class evidence for dataset version; operators that publish
+  the card hand-edit `version` like they do `license` / `citeAs`,
 * one `cr:FileObject` per JSONL split (so a Croissant consumer can
   locate the underlying files),
 * one `cr:RecordSet` per split with `cr:Field` entries derived from
@@ -474,6 +476,9 @@ forgelm audit PATH \
   [--dedup-method {simhash,minhash}] \
   [--jaccard-threshold X] \
   [--quality-filter] \
+  [--pii-ml] \
+  [--pii-ml-language LANG] \
+  [--croissant] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```

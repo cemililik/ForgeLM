@@ -5,7 +5,7 @@ description: Audit raporunun yanında yayınlanan opsiyonel Google Croissant 1.0
 
 # Croissant 1.0 Dataset Kartı — `--croissant`
 
-Audit raporu (`data_audit_report.json`) bir EU AI Act Madde 10 reviewer'ının ihtiyacı olan her sinyali zaten taşır: PII sayıları, secrets özeti, near-duplicate çiftleri, cross-split sızıntı, dil dağılımı. `--croissant` ile aynı dosya, [Google Croissant 1.0](http://mlcommons.org/croissant/) spec'ine uyan top-level bir `croissant` bloğu kazanır. Tek dosya, iki tüketici.
+Audit raporu (`data_audit_report.json`) bir EU AI Act Madde 10 reviewer'ının ihtiyacı olan her sinyali zaten taşır: PII sayıları, secrets özeti, near-duplicate çiftleri, cross-split sızıntı, dil dağılımı. `--croissant` ile aynı dosya, [Google Croissant 1.0](https://mlcommons.org/croissant/) spec'ine uyan top-level bir `croissant` bloğu kazanır. Tek dosya, iki tüketici.
 
 ## Niye uğraşalım?
 
@@ -80,7 +80,7 @@ Bu alanların doldurulmasını istiyorsanız, publish öncesi audit-sonrası JSO
 
 ## Conformance
 
-Yayınlanan card kanonik [Croissant 1.0 spec](http://mlcommons.org/croissant/1.0)'ine uyumludur. Şunlara karşı doğrulanmıştır:
+Yayınlanan card kanonik [Croissant 1.0 spec](https://mlcommons.org/croissant/)'ine uyumludur. Şunlara karşı doğrulanmıştır:
 
 - [Croissant validator](https://github.com/mlcommons/croissant) (`mlcroissant validate`).
 - HuggingFace'in dataset card parser'ı (`datasets` kütüphanesi dataset dizininde varsa Croissant'ı okur).
