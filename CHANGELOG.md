@@ -4,8 +4,9 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
-(no unreleased changes — next minor will pick up Phase 14, tracked in
-[docs/roadmap.md](docs/roadmap.md))
+_Empty — v0.5.0 is finalized. The next minor (`v0.5.1`) covers Phase 14
+(Multi-Stage Pipeline Chains); see [docs/roadmap.md](docs/roadmap.md)
+for the active phase plan._
 
 ---
 
