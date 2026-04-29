@@ -1,0 +1,25 @@
+# Root markdownlint-cli2 config.
+#
+# MD051 (link-fragments) is disabled because the user-manual SPA at
+# site/guide.html uses the hash-router scheme `#/<section>/<page>`
+# (parsed at runtime by site/js/guide.js::parseHash). These are NOT
+# in-page anchors — they are route identifiers consumed after the
+# markdown is baked into site/js/usermanuals/<lang>.js by
+# tools/build_usermanuals.py.
+#
+# The convention is used in 488 places across docs/usermanuals/ and is
+# part of the public navigation contract. MD051 cannot distinguish
+# these route IDs from broken anchors, so it produces 42 noisy false
+# positives that drown out genuine signal. Codacy's markdownlint
+# integration does not honour per-directory config files (it runs each
+# file with a single root-config invocation), so the rule has to be
+# disabled at the root.
+#
+# Trade-off: a small number of standards/guides files use real
+# `#anchor-name` links that MD051 would otherwise validate. We accept
+# the loss because (a) those files are human-edited and code review
+# catches obvious anchor breakage, (b) markdown previewers visualise
+# broken anchors at edit time, and (c) all other markdownlint rules
+# (MD001-MD050, MD052+) remain enforced.
+config:
+  MD051: false
