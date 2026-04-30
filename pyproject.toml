@@ -184,7 +184,7 @@ skips = ["B101"]
 
 [tool.coverage.run]
 source = ["forgelm"]
-omit = ["forgelm/wizard.py"]
+omit = []
 
 [tool.coverage.report]
 fail_under = 40
