@@ -179,8 +179,14 @@ class SyntheticDataGenerator:
             raise ValueError(f"Unknown teacher_backend: {backend}")
 
     def _call_api_teacher(self, prompt: str) -> str:
-        """Call an OpenAI-compatible API teacher."""
-        import requests
+        """Call an OpenAI-compatible API teacher.
+
+        Routes through :func:`forgelm._http.safe_post` so the same SSRF /
+        scheme / redirect / TLS / timeout policy that protects the webhook
+        and judge call sites also covers synthetic-data generation. The
+        bearer token in ``Authorization`` is masked from the failure log.
+        """
+        from ._http import safe_post
 
         api_base = self.synth_cfg.api_base.rstrip("/")
         api_key = self.synth_cfg.api_key or os.environ.get(self.synth_cfg.api_key_env or "", "")
@@ -204,7 +210,7 @@ class SyntheticDataGenerator:
             "temperature": self.synth_cfg.temperature,
         }
 
-        response = requests.post(
+        response = safe_post(
             f"{api_base}/chat/completions",
             headers=headers,
             json=payload,

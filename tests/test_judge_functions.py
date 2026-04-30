@@ -232,3 +232,58 @@ class TestJudgeApiBasePassthrough:
         actual_url = call_args[0][0] if call_args[0] else call_args.kwargs.get("url") or call_args[1].get("url")
         # The URL passed to requests.post should match the custom api_base
         assert actual_url == custom_base
+
+
+class TestJudgeUsesSafePost:
+    """Phase 7: judge._call_api_judge must route through forgelm._http.safe_post.
+
+    The acceptance gate is: ``grep -rn 'requests.post' forgelm/`` returns
+    nothing outside ``_http.py``. These tests cover the behavioural side —
+    judge calls go through ``safe_post`` and inherit the SSRF / scheme /
+    redirect / TLS policy automatically.
+    """
+
+    def test_imports_safe_post(self):
+        """judge._call_api_judge must import safe_post from forgelm._http."""
+        import inspect
+
+        from forgelm import judge
+
+        src = inspect.getsource(judge._call_api_judge)
+        assert "safe_post" in src, "judge._call_api_judge must use safe_post"
+
+    @patch("forgelm._http.requests.post")
+    def test_judge_call_goes_through_safe_post(self, mock_post):
+        """A successful judge call must hit requests.post (via safe_post)."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"choices": [{"message": {"content": '{"score": 7, "reason": "OK"}'}}]}
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        from forgelm.judge import _call_api_judge
+
+        result = _call_api_judge("prompt", "fake-key", "gpt-4o")
+
+        # Confirm the call went through safe_post → requests.post
+        mock_post.assert_called_once()
+        kwargs = mock_post.call_args.kwargs
+        # safe_post forwards allow_redirects=False
+        assert kwargs.get("allow_redirects") is False
+        assert result["score"] == 7
+
+    @patch("forgelm._http.requests.post")
+    def test_judge_ssrf_block_for_private_url(self, mock_post):
+        """A private-IP api_base must be rejected before any network call."""
+        from forgelm.judge import _call_api_judge
+
+        result = _call_api_judge(
+            "prompt",
+            "fake-key",
+            "gpt-4o",
+            api_base="https://10.0.0.1/v1/chat/completions",
+        )
+
+        # safe_post raised HttpSafetyError → judge maps to None / API error.
+        mock_post.assert_not_called()
+        assert result["score"] is None
+        assert "API error" in result["reason"]

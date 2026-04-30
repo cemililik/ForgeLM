@@ -83,22 +83,97 @@ def _load_safety_prompts(test_prompts_path: str) -> List[str]:
     return prompts
 
 
-def _generate_safety_responses(model: Any, tokenizer: Any, prompts: List[str], max_new_tokens: int) -> List[str]:
-    """Generate fine-tuned-model responses for the safety prompt set."""
+def _generate_one_safety_response(model: Any, tokenizer: Any, prompt: str, max_new_tokens: int) -> str:
+    """Single-prompt fallback used when a batch hits CUDA OOM."""
     import torch
 
+    try:
+        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        with torch.no_grad():
+            outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+        return tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
+    except Exception as e:
+        logger.warning("Failed to generate response for prompt: %s", e)
+        return ""
+
+
+def _generate_safety_responses(
+    model: Any,
+    tokenizer: Any,
+    prompts: List[str],
+    max_new_tokens: int,
+    batch_size: int = 8,
+) -> List[str]:
+    """Generate fine-tuned-model responses for the safety prompt set.
+
+    Batches ``batch_size`` prompts at a time with pad-longest so short
+    prompts don't waste compute on padding. Falls back to single-prompt
+    generation on per-batch CUDA OOM (the surrounding pipeline still
+    completes, even on tight VRAM budgets).
+    """
+    import torch
+
+    if batch_size <= 0:
+        batch_size = 1
+
+    # Ensure tokenizer has a pad token — required for batched padding.
+    # We use eos_token as a safe default (matches HF pattern in load path).
+    if getattr(tokenizer, "pad_token", None) is None and getattr(tokenizer, "eos_token", None) is not None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    # Left-pad for decoder-only generation so the prompt boundary lines up
+    # across rows (right-pad shifts the boundary into the padding region
+    # and produces garbage continuations on the shorter samples).
+    original_padding_side = getattr(tokenizer, "padding_side", "right")
+    tokenizer.padding_side = "left"
+
     responses: List[str] = []
-    for prompt in prompts:
-        try:
-            inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
-            inputs = {k: v.to(model.device) for k, v in inputs.items()}
-            with torch.no_grad():
-                outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
-            response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
-            responses.append(response)
-        except Exception as e:
-            logger.warning("Failed to generate response for prompt: %s", e)
-            responses.append("")
+    try:
+        for batch_start in range(0, len(prompts), batch_size):
+            batch = prompts[batch_start : batch_start + batch_size]
+            try:
+                inputs = tokenizer(
+                    batch,
+                    return_tensors="pt",
+                    truncation=True,
+                    max_length=1024,
+                    padding="longest",
+                )
+                inputs = {k: v.to(model.device) for k, v in inputs.items()}
+                with torch.no_grad():
+                    outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+                prompt_len = inputs["input_ids"].shape[1]
+                for row in outputs:
+                    responses.append(tokenizer.decode(row[prompt_len:], skip_special_tokens=True))
+            except torch.cuda.OutOfMemoryError as e:
+                logger.warning(
+                    "CUDA OOM on safety-generation batch of %d (start=%d). "
+                    "Falling back to single-prompt generation for this batch: %s",
+                    len(batch),
+                    batch_start,
+                    e,
+                )
+                try:
+                    torch.cuda.empty_cache()
+                except RuntimeError:
+                    pass
+                for prompt in batch:
+                    responses.append(_generate_one_safety_response(model, tokenizer, prompt, max_new_tokens))
+            except Exception as e:
+                # Non-OOM batch failure — fall back to per-prompt so a single
+                # malformed input can't blank out the whole batch.
+                logger.warning(
+                    "Safety-generation batch failed (start=%d, size=%d), retrying per-prompt: %s",
+                    batch_start,
+                    len(batch),
+                    e,
+                )
+                for prompt in batch:
+                    responses.append(_generate_one_safety_response(model, tokenizer, prompt, max_new_tokens))
+    finally:
+        tokenizer.padding_side = original_padding_side
+
     return responses
 
 
@@ -349,6 +424,12 @@ def run_safety_evaluation(
     min_classifier_confidence: float = 0.7,
     track_categories: bool = False,
     severity_thresholds: Optional[Dict[str, float]] = None,
+    # Phase 4 (closure F-performance-102) — batched generation
+    batch_size: int = 8,
+    # Closure plan Faz 3: optional audit logger so a classifier load failure
+    # surfaces as an Article 12 record-keeping event in addition to the
+    # existing ``passed=False`` return path.
+    audit_logger: Any = None,
 ) -> SafetyResult:
     """Evaluate model safety using a classifier on adversarial test prompts."""
     from transformers import pipeline
@@ -364,7 +445,7 @@ def run_safety_evaluation(
 
     logger.info("Running safety evaluation with %d test prompts (scoring=%s)...", len(prompts), scoring)
 
-    responses = _generate_safety_responses(model, tokenizer, prompts, max_new_tokens)
+    responses = _generate_safety_responses(model, tokenizer, prompts, max_new_tokens, batch_size=batch_size)
     _release_model_from_gpu(model)
     # Drop our local reference too — _release_model_from_gpu can only act on
     # what's reachable. Without this the model object is pinned to VRAM until
@@ -386,6 +467,19 @@ def run_safety_evaluation(
         )
     except Exception as e:
         logger.error("Failed to load safety classifier: %s", e)
+        # Closure plan Faz 3 (F-compliance-120): emit a record-keeping event
+        # so safety classifier outages are visible in the EU AI Act Article 12
+        # audit trail, not only in process logs. Best-effort: a failure here
+        # must not mask the original classifier error.
+        if audit_logger is not None:
+            try:
+                audit_logger.log_event(
+                    "audit.classifier_load_failed",
+                    classifier=classifier_path,
+                    reason=str(e)[:500],
+                )
+            except Exception as audit_exc:  # pragma: no cover — defensive
+                logger.warning("Failed to emit classifier_load_failed audit event: %s", audit_exc)
         return SafetyResult(passed=False, failure_reason=f"Classifier load failed: {e}")
 
     classified = _classify_responses(classifier, prompts, responses, track_categories, min_classifier_confidence)

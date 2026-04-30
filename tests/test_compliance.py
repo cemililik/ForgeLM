@@ -2,6 +2,7 @@
 
 import json
 import os
+from unittest import mock
 
 import pytest
 from conftest import minimal_config as _minimal_config
@@ -291,3 +292,355 @@ class TestGovernanceAuditInlining:
             "No data_audit_report.json" in m and ("forgelm audit" in m or "forgelm --data-audit" in m)
             for m in info_msgs
         )
+
+
+# ---------------------------------------------------------------------------
+# Closure plan Faz 3: operator identity + audit forensics
+# ---------------------------------------------------------------------------
+
+
+class TestAuditLoggerOperatorIdentity:
+    """F-compliance-102: ``operator="unknown"`` is no longer a silent fallback."""
+
+    def test_operator_from_FORGELM_OPERATOR(self, tmp_path, monkeypatch):
+        """Explicit ``FORGELM_OPERATOR`` wins over every other source."""
+        from forgelm.compliance import AuditLogger
+
+        monkeypatch.setenv("FORGELM_OPERATOR", "ci-bot@github-actions")
+        log = AuditLogger(str(tmp_path))
+        assert log.operator == "ci-bot@github-actions"
+
+    def test_operator_from_getpass_and_hostname(self, tmp_path, monkeypatch):
+        """Without ``FORGELM_OPERATOR``, derive ``user@host`` from getpass."""
+        from forgelm import compliance
+
+        monkeypatch.delenv("FORGELM_OPERATOR", raising=False)
+        monkeypatch.setattr(compliance.getpass, "getuser", lambda: "alice")
+        monkeypatch.setattr(compliance.socket, "gethostname", lambda: "workstation-1")
+
+        log = compliance.AuditLogger(str(tmp_path))
+        assert log.operator == "alice@workstation-1"
+
+    def test_operator_raises_when_no_identity_no_flag(self, tmp_path, monkeypatch):
+        """No env var + getpass failure + no opt-in = ConfigError, not 'unknown'."""
+        from forgelm import compliance
+
+        monkeypatch.delenv("FORGELM_OPERATOR", raising=False)
+        monkeypatch.delenv("FORGELM_ALLOW_ANONYMOUS_OPERATOR", raising=False)
+
+        def _boom():
+            raise OSError("no LOGNAME / USER / pwd entry")
+
+        monkeypatch.setattr(compliance.getpass, "getuser", _boom)
+        with pytest.raises(compliance.ConfigError, match="Operator identity unavailable"):
+            compliance.AuditLogger(str(tmp_path))
+
+    def test_operator_anonymous_with_flag(self, tmp_path, monkeypatch):
+        """Explicit opt-in via FORGELM_ALLOW_ANONYMOUS_OPERATOR=1 -> anonymous@host."""
+        from forgelm import compliance
+
+        monkeypatch.delenv("FORGELM_OPERATOR", raising=False)
+        monkeypatch.setenv("FORGELM_ALLOW_ANONYMOUS_OPERATOR", "1")
+        monkeypatch.setattr(compliance.getpass, "getuser", lambda: (_ for _ in ()).throw(OSError("no user")))
+        monkeypatch.setattr(compliance.socket, "gethostname", lambda: "sandbox-host")
+
+        log = compliance.AuditLogger(str(tmp_path))
+        assert log.operator == "anonymous@sandbox-host"
+
+    def test_no_unknown_fallback_in_default_path(self, tmp_path, monkeypatch):
+        """Belt-and-braces: the literal string 'unknown' must never become
+        the operator when the resolution chain succeeds."""
+        from forgelm import compliance
+
+        monkeypatch.delenv("FORGELM_OPERATOR", raising=False)
+        monkeypatch.setattr(compliance.getpass, "getuser", lambda: "real-user")
+        monkeypatch.setattr(compliance.socket, "gethostname", lambda: "real-host")
+
+        log = compliance.AuditLogger(str(tmp_path))
+        assert log.operator == "real-user@real-host"
+        assert log.operator != "unknown"
+
+
+class TestAuditLoggerFsync:
+    """F-compliance-114: log_event must fsync after flush so chain advance is durable."""
+
+    def test_log_event_calls_fsync(self, tmp_path, monkeypatch):
+        from forgelm.compliance import AuditLogger
+
+        log = AuditLogger(str(tmp_path))
+
+        with mock.patch("forgelm.compliance.os.fsync") as mock_fsync:
+            log.log_event("test.event", key="value")
+
+        assert mock_fsync.called, "log_event() must invoke os.fsync after flushing the audit line"
+        # Called exactly once per event (not per flush call elsewhere in the
+        # process); the file descriptor argument is an int from f.fileno().
+        assert mock_fsync.call_count == 1
+        (fileno_arg,), _ = mock_fsync.call_args
+        assert isinstance(fileno_arg, int)
+
+
+class TestSafetyClassifierLoadFailureAudit:
+    """F-compliance-120: classifier load failure surfaces as an audit event."""
+
+    def test_classifier_load_failure_emits_audit_event(self, tmp_path, monkeypatch):
+        # We exercise the failure path inside ``run_safety_evaluation`` directly
+        # by stubbing the in-function ``transformers.pipeline`` import to raise.
+        # No real model / tokenizer / GPU is touched.
+        torch = pytest.importorskip("torch")  # noqa: F841 — guarded import for safety module
+        import sys
+        import types
+
+        from forgelm import safety
+        from forgelm.compliance import AuditLogger  # noqa: I001
+
+        class _BoomPipeline:
+            def __call__(self, *a, **kw):
+                raise RuntimeError("classifier checkpoint corrupt")
+
+        # Inject a fake ``transformers`` module so ``from transformers import
+        # pipeline`` inside run_safety_evaluation returns our raising stub.
+        fake_transformers = types.ModuleType("transformers")
+        fake_transformers.pipeline = lambda *a, **kw: (_ for _ in ()).throw(
+            RuntimeError("classifier checkpoint corrupt")
+        )
+        monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+        # Stub out generation + GPU release so the function reaches the
+        # classifier-load branch without needing a real model.
+        monkeypatch.setattr(safety, "_generate_safety_responses", lambda *a, **k: ["resp"])
+        monkeypatch.setattr(safety, "_release_model_from_gpu", lambda m: None)
+
+        prompts_path = tmp_path / "prompts.jsonl"
+        prompts_path.write_text(json.dumps({"prompt": "hi"}) + "\n")
+
+        audit = AuditLogger(str(tmp_path))
+        result = safety.run_safety_evaluation(
+            model=mock.Mock(),
+            tokenizer=mock.Mock(),
+            classifier_path="meta-llama/Llama-Guard-3-8B",
+            test_prompts_path=str(prompts_path),
+            audit_logger=audit,
+        )
+
+        assert result.passed is False
+        # Read the audit log and verify the event landed with the expected payload.
+        with open(audit.log_path, "r", encoding="utf-8") as fh:
+            lines = [json.loads(line) for line in fh if line.strip()]
+        events = [entry["event"] for entry in lines]
+        assert "audit.classifier_load_failed" in events
+        load_failed = next(e for e in lines if e["event"] == "audit.classifier_load_failed")
+        assert load_failed["classifier"] == "meta-llama/Llama-Guard-3-8B"
+        assert "classifier checkpoint corrupt" in load_failed["reason"]
+
+
+class TestHFRevisionPin:
+    """F-compliance-117: dataset fingerprint pins HF Hub revision SHA."""
+
+    def test_hf_revision_pinned_in_fingerprint(self, monkeypatch):
+        # Simulate ``huggingface_hub.HfApi().dataset_info`` returning a
+        # commit-pinned info object. We patch the import target so the
+        # in-function ``from huggingface_hub import HfApi`` resolves here.
+        import sys
+        import types
+
+        from forgelm import compliance
+
+        class _FakeInfo:
+            sha = "abc123def456" + "0" * 28  # plausible-looking 40-char SHA
+
+        class _FakeHfApi:
+            def dataset_info(self, dataset_id):
+                return _FakeInfo()
+
+        fake_module = types.ModuleType("huggingface_hub")
+        fake_module.HfApi = _FakeHfApi
+        monkeypatch.setitem(sys.modules, "huggingface_hub", fake_module)
+
+        # Also stub ``load_dataset_builder`` so the version-fetch arm does
+        # not hit the network or fail noisily.
+        fake_datasets = types.ModuleType("datasets")
+
+        class _FakeBuilder:
+            class info:
+                version = None
+                description = None
+                download_size = None
+
+        fake_datasets.load_dataset_builder = lambda path: _FakeBuilder()
+        monkeypatch.setitem(sys.modules, "datasets", fake_datasets)
+
+        fp = compliance.compute_dataset_fingerprint("HuggingFaceH4/ultrachat_200k")
+
+        assert fp["source"] == "huggingface_hub"
+        assert fp["dataset_id"] == "HuggingFaceH4/ultrachat_200k"
+        assert fp["hf_revision"] == _FakeInfo.sha
+
+
+# ---------------------------------------------------------------------------
+# Closure plan Faz 6: verify_audit_log library function + verify-audit CLI
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyAuditLog:
+    """Closure plan Faz 6: ``forgelm.compliance.verify_audit_log`` library
+    function and its ``forgelm verify-audit`` CLI counterpart.
+
+    Each test exercises the real :class:`AuditLogger` as the writer so
+    these are integration-style — any drift between the writer's
+    canonicalisation and the verifier would surface here immediately.
+    """
+
+    @staticmethod
+    def _build_log(tmp_path, *, secret: str = "", events: int = 3):
+        """Write a fresh audit log under *tmp_path* and return its path."""
+        from forgelm.compliance import AuditLogger
+
+        # AuditLogger reads FORGELM_AUDIT_SECRET at __init__ time, so set
+        # the env var unconditionally and let the caller toggle it via
+        # ``secret=""`` for the unkeyed-writer path.
+        if secret:
+            os.environ["FORGELM_AUDIT_SECRET"] = secret
+        else:
+            os.environ.pop("FORGELM_AUDIT_SECRET", None)
+
+        logger = AuditLogger(str(tmp_path))
+        for i in range(events):
+            logger.log_event(f"event.{i}", index=i, payload={"step": i})
+
+        # Tear down the env var so it doesn't leak into adjacent tests.
+        os.environ.pop("FORGELM_AUDIT_SECRET", None)
+        return logger.log_path
+
+    def test_verify_audit_valid_chain(self, tmp_path):
+        from forgelm.compliance import verify_audit_log
+
+        log_path = self._build_log(tmp_path, events=5)
+        result = verify_audit_log(log_path)
+        assert result.valid is True
+        assert result.entries_count == 5
+        assert result.first_invalid_index is None
+        assert result.reason is None
+
+    def test_verify_audit_tampered_line(self, tmp_path):
+        """Modify one entry's payload after the fact; chain must break at
+        the *next* line (whose prev_hash no longer matches the rewritten
+        line's SHA-256)."""
+        from forgelm.compliance import verify_audit_log
+
+        log_path = self._build_log(tmp_path, events=4)
+        with open(log_path, "r", encoding="utf-8") as fh:
+            lines = fh.readlines()
+
+        # Tamper with line 2 (index 1): re-encode with a flipped value.
+        entry = json.loads(lines[1])
+        entry["payload"] = {"step": 99999}
+        lines[1] = json.dumps(entry, default=str) + "\n"
+        with open(log_path, "w", encoding="utf-8") as fh:
+            fh.writelines(lines)
+
+        result = verify_audit_log(log_path)
+        assert result.valid is False
+        # The tamper changes line 2's hash, so the *first* observable
+        # break is at line 3 — its prev_hash no longer matches.
+        assert result.first_invalid_index == 3
+        assert "chain broken" in (result.reason or "")
+
+    def test_verify_audit_truncated_chain(self, tmp_path):
+        """Delete the genesis line: the manifest sidecar still pins the
+        original first_entry_sha256, so verification surfaces the
+        truncation as a manifest mismatch."""
+        from forgelm.compliance import verify_audit_log
+
+        log_path = self._build_log(tmp_path, events=4)
+        with open(log_path, "r", encoding="utf-8") as fh:
+            lines = fh.readlines()
+
+        # Drop the first line (truncate-from-head simulates an attacker
+        # who removed the genesis entry to hide an event).
+        with open(log_path, "w", encoding="utf-8") as fh:
+            fh.writelines(lines[1:])
+
+        result = verify_audit_log(log_path)
+        assert result.valid is False
+        # Either the chain breaks at line 1 (prev_hash mismatch — the new
+        # first line carries the *old* line-1 hash, not "genesis") OR the
+        # manifest cross-check fires. Both indicate truncation; assert on
+        # the line index rather than the message text to stay robust.
+        assert result.first_invalid_index == 1
+        assert result.reason is not None
+
+    def test_verify_audit_missing_manifest_warning(self, tmp_path, caplog):
+        """A log without the manifest sidecar still verifies if its chain
+        is intact — the verifier logs at DEBUG that truncate-and-resume
+        detection is degraded but does not fail."""
+        from forgelm.compliance import verify_audit_log
+
+        log_path = self._build_log(tmp_path, events=3)
+        manifest_path = log_path + ".manifest.json"
+        if os.path.isfile(manifest_path):
+            os.remove(manifest_path)
+
+        with caplog.at_level("DEBUG", logger="forgelm.compliance"):
+            result = verify_audit_log(log_path)
+        assert result.valid is True
+        assert result.entries_count == 3
+        assert any("No genesis manifest" in r.message for r in caplog.records)
+
+    def test_verify_audit_hmac_valid(self, tmp_path):
+        from forgelm.compliance import verify_audit_log
+
+        secret = "s3cr3t-operator-key"
+        log_path = self._build_log(tmp_path, secret=secret, events=3)
+
+        result = verify_audit_log(log_path, hmac_secret=secret)
+        assert result.valid is True
+        assert result.entries_count == 3
+
+    def test_verify_audit_hmac_invalid(self, tmp_path):
+        from forgelm.compliance import verify_audit_log
+
+        log_path = self._build_log(tmp_path, secret="real-secret", events=3)
+
+        # Wrong secret: each line's HMAC tag fails to recompute.
+        result = verify_audit_log(log_path, hmac_secret="wrong-secret")
+        assert result.valid is False
+        assert result.first_invalid_index == 1
+        assert "HMAC mismatch" in (result.reason or "")
+
+    def test_verify_audit_require_hmac_no_secret(self, tmp_path, monkeypatch, capsys):
+        """CLI dispatcher: ``--require-hmac`` without a configured secret
+        env var must exit 2 (option error) before opening the log."""
+        from forgelm.cli import _run_verify_audit_cmd
+
+        log_path = self._build_log(tmp_path, events=2)
+        monkeypatch.delenv("FORGELM_AUDIT_SECRET", raising=False)
+
+        # Build a minimal argparse.Namespace stand-in.
+        class _Args:
+            pass
+
+        ns = _Args()
+        ns.log_path = log_path
+        ns.hmac_secret_env = "FORGELM_AUDIT_SECRET"
+        ns.require_hmac = True
+
+        exit_code = _run_verify_audit_cmd(ns)
+        assert exit_code == 2
+        captured = capsys.readouterr()
+        assert "FORGELM_AUDIT_SECRET" in captured.err
+        assert "--require-hmac" in captured.err
+
+    def test_verify_audit_empty_log(self, tmp_path):
+        """An empty file is trivially valid — entries_count == 0, no
+        first_invalid_index. Mirrors AuditLogger's genesis convention
+        where an absent/empty file legitimately starts at 'genesis'."""
+        from forgelm.compliance import verify_audit_log
+
+        empty_path = tmp_path / "audit_log.jsonl"
+        empty_path.touch()
+
+        result = verify_audit_log(str(empty_path))
+        assert result.valid is True
+        assert result.entries_count == 0
+        assert result.first_invalid_index is None

@@ -7,6 +7,11 @@ on:
 
 # No workflow-level permissions — each job declares the minimal set it needs.
 
+# Set FORGELM_OPERATOR so future operator-identity checks (Phase 3 hardening)
+# do not raise on distroless runners where USER is unset.
+env:
+  FORGELM_OPERATOR: ci-smoke
+
 jobs:
   test-latest-deps:
     name: Test with latest dependencies
@@ -70,6 +75,18 @@ jobs:
             forgelm quickstart "$tpl" --dry-run --output "/tmp/qs-$tpl.yaml"
             forgelm --config "/tmp/qs-$tpl.yaml" --dry-run
           done
+
+      - name: Forbid git+https in notebooks
+        run: |
+          # Notebooks must install ForgeLM from PyPI with a pinned version,
+          # never from a git+https URL. Closure plan Faz 5 — git+https makes
+          # Colab installs depend on a specific branch HEAD, breaking
+          # reproducibility and confusing users when main moves ahead of
+          # the latest released wheel.
+          if grep -rn 'git+https://github.com/cemililik/ForgeLM' notebooks/; then
+            echo "::error::Notebooks must install from PyPI, not git+https"
+            exit 1
+          fi
 
       - name: Ingestion + audit smoke test (Phase 11)
         run: |

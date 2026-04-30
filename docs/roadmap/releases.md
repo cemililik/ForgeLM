@@ -12,7 +12,7 @@
 2. [x] **Long-Context Training**: RoPE scaling, NEFTune noise injection, sliding window attention, and sample packing for extended context windows. Config fields: `rope_scaling`, `neftune_noise_alpha`, `sliding_window_attention`, `sample_packing`.
 3. [x] **Synthetic Data Pipeline**: Teacher-to-student distillation via `--generate-data` CLI flag. New `SyntheticDataGenerator` class in `forgelm/synthetic.py`. Configurable teacher model, backend, seed prompts, and output format.
 4. [x] **PyPI Publishing**: `pip install forgelm` now works. Automated publishing via `publish.yml` GitHub Actions workflow.
-5. [x] **GPU Cost Estimation**: Auto-detection for 18 GPU models with per-run cost tracking. Included in JSON output, webhook notifications, and model cards.
+5. [x] **GPU Cost Estimation**: Auto-detection for 16 GPU models with per-run cost tracking. Included in JSON output, webhook notifications, and model cards.
 6. [x] **Nightly CI**: `.github/workflows/nightly.yml` for compatibility testing against latest dependency versions.
 7. [x] **Expanded Adversarial Prompts**: 6 category files, 140 prompts (up from 50) covering general safety, bias/discrimination, harmful instructions, privacy/PII, misinformation, and jailbreak attempts.
 
@@ -82,7 +82,7 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ## v0.5.0 — "Document Ingestion + Data Curation Pipeline"
 
-**Status:** Merged on `main` (Phases 11 + 11.5 + 12 + 12.5 consolidated; 2026-04-29). The `v0.5.0` git tag and PyPI publish are the remaining release-engineering steps. One hardening follow-up tracked outside the release: [#14 — webhook SSRF DNS-rebinding TOCTOU](https://github.com/cemililik/ForgeLM/issues/14) (defence-in-depth on top of the existing `allow_private_destinations: false` default).
+**Status:** ✅ Done — released to [PyPI 2026-04-30](https://pypi.org/project/forgelm/0.5.0/) (Phases 11 + 11.5 + 12 + 12.5 consolidated; merged on `main` 2026-04-29). One hardening follow-up tracked outside the release: [#14 — webhook SSRF DNS-rebinding TOCTOU](https://github.com/cemililik/ForgeLM/issues/14) (defence-in-depth on top of the existing `allow_private_destinations: false` default).
 
 > **Note on consolidation.** Originally planned as four sequential PyPI tags (`v0.5.0` / `v0.5.1` / `v0.5.2` / `v0.5.3`), the four phases were consolidated into a single `v0.5.0` because they form one coherent surface (ingest → polish → mature → polish) hard to use in parts. Git history retains the four phases as separate commit batches; this entry collapses them into one user-facing release. CHANGELOG.md preserves the phase boundaries inside the `[0.5.0]` section so reviewers can map back to PR history (#11, #12, #13, #18).
 

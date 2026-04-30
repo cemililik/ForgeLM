@@ -66,8 +66,14 @@ def _parse_judge_json(text: str) -> Dict[str, Any]:
 
 
 def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: Optional[str] = None) -> Dict[str, Any]:
-    """Call an API-based judge (OpenAI-compatible endpoint)."""
-    import requests
+    """Call an API-based judge (OpenAI-compatible endpoint).
+
+    Routes through :func:`forgelm._http.safe_post` so SSRF / scheme /
+    redirect / timeout / TLS policy is enforced once across every outbound
+    call site (see ``forgelm/_http.py``). The bearer token in
+    ``Authorization`` is masked from the failure log by ``safe_post``.
+    """
+    from ._http import HttpSafetyError, safe_post
 
     url = api_base or OPENAI_API_BASE
     headers = {
@@ -82,10 +88,13 @@ def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: 
     }
 
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response = safe_post(url, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
         return _parse_judge_json(content)
+    except HttpSafetyError as e:
+        logger.warning("API judge URL rejected by HTTP policy: %s", e)
+        return {"score": None, "reason": f"API error: {e}"}
     except json.JSONDecodeError as e:
         logger.warning("API judge returned invalid JSON: %s", e)
         return {"score": None, "reason": f"Invalid JSON from API: {e}"}
@@ -151,6 +160,76 @@ def _generate_response(model: Any, tokenizer: Any, prompt: str, max_new_tokens: 
         return ""
 
 
+def _generate_responses_batched(
+    model: Any,
+    tokenizer: Any,
+    prompts: List[str],
+    max_new_tokens: int,
+    batch_size: int = 8,
+) -> List[str]:
+    """Batched fine-tuned-model generation for the judge eval set.
+
+    Pads to longest in the batch (left-padded for decoder-only generation)
+    and falls back to per-prompt generation on CUDA OOM so a tight VRAM
+    budget can't blank out the entire run.
+    """
+    import torch
+
+    if batch_size <= 0:
+        batch_size = 1
+
+    if getattr(tokenizer, "pad_token", None) is None and getattr(tokenizer, "eos_token", None) is not None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    original_padding_side = getattr(tokenizer, "padding_side", "right")
+    tokenizer.padding_side = "left"
+
+    responses: List[str] = []
+    try:
+        for batch_start in range(0, len(prompts), batch_size):
+            batch = prompts[batch_start : batch_start + batch_size]
+            try:
+                inputs = tokenizer(
+                    batch,
+                    return_tensors="pt",
+                    truncation=True,
+                    max_length=1024,
+                    padding="longest",
+                )
+                inputs = {k: v.to(model.device) for k, v in inputs.items()}
+                with torch.no_grad():
+                    outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+                prompt_len = inputs["input_ids"].shape[1]
+                for row in outputs:
+                    responses.append(tokenizer.decode(row[prompt_len:], skip_special_tokens=True))
+            except torch.cuda.OutOfMemoryError as e:
+                logger.warning(
+                    "CUDA OOM on judge-generation batch of %d (start=%d). Falling back to single-prompt generation: %s",
+                    len(batch),
+                    batch_start,
+                    e,
+                )
+                try:
+                    torch.cuda.empty_cache()
+                except RuntimeError:
+                    pass
+                for prompt in batch:
+                    responses.append(_generate_response(model, tokenizer, prompt, max_new_tokens))
+            except Exception as e:
+                logger.warning(
+                    "Judge-generation batch failed (start=%d, size=%d), retrying per-prompt: %s",
+                    batch_start,
+                    len(batch),
+                    e,
+                )
+                for prompt in batch:
+                    responses.append(_generate_response(model, tokenizer, prompt, max_new_tokens))
+    finally:
+        tokenizer.padding_side = original_padding_side
+
+    return responses
+
+
 def _clip_judge_score(raw_score: Optional[float]) -> Optional[float]:
     """Clip the judge's raw 1-10 score; pass through None for parse/transport failures.
 
@@ -206,6 +285,8 @@ def run_judge_evaluation(
     max_new_tokens: int = 512,
     output_dir: Optional[str] = None,
     api_base: Optional[str] = None,
+    # Phase 4 (closure F-performance-102) — batched fine-tuned-model generation
+    batch_size: int = 8,
 ) -> JudgeResult:
     """Evaluate fine-tuned model outputs using an LLM judge.
 
@@ -257,6 +338,7 @@ def run_judge_evaluation(
         api_base=api_base,
         local_judge_model=local_judge_model,
         local_judge_tokenizer=local_judge_tokenizer,
+        batch_size=batch_size,
     )
 
     avg_score, passed, failure_reason = _summarize_judge_scores(
@@ -291,14 +373,22 @@ def _score_eval_prompts(
     api_base: Optional[str],
     local_judge_model: Any,
     local_judge_tokenizer: Any,
+    batch_size: int = 8,
 ) -> tuple[List[Optional[float]], List[Dict[str, Any]], int]:
-    """Run each eval prompt through generation + judge, collect scores + details."""
+    """Run each eval prompt through generation + judge, collect scores + details.
+
+    Generation runs in batches of ``batch_size`` (closure F-performance-102) to
+    amortize CUDA launch overhead across the eval set; the judge call is still
+    per-prompt because the API path is rate-limited and the local-judge path
+    typically uses a different model than the eval target.
+    """
     scores: List[Optional[float]] = []
     details: List[Dict[str, Any]] = []
     failure_count = 0
 
-    for prompt in eval_prompts:
-        response = _generate_response(model, tokenizer, prompt, max_new_tokens)
+    responses = _generate_responses_batched(model, tokenizer, eval_prompts, max_new_tokens, batch_size=batch_size)
+
+    for prompt, response in zip(eval_prompts, responses):
         judge_prompt = rubric.format(prompt=prompt[:500], response=response[:1000])
         if is_api_judge:
             result = _call_api_judge(judge_prompt, judge_api_key, judge_model, api_base=api_base)

@@ -7,15 +7,20 @@ Article 15 (Model Integrity).
 """
 
 import concurrent.futures
+import getpass
 import hashlib
 import hmac as _hmac_module
 import json
 import logging
 import os
+import socket
 import uuid
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+from .config import ConfigError
 
 # flock is Unix-only; Windows falls back to advisory-only (no hard lock).
 try:
@@ -53,7 +58,49 @@ class AuditLogger:
         os.makedirs(output_dir, exist_ok=True)
         self.log_path = os.path.join(output_dir, "audit_log.jsonl")
         self._manifest_path = self.log_path + ".manifest.json"
-        self.operator = os.getenv("FORGELM_OPERATOR", os.getenv("USER", "unknown"))
+        # Article 12 record-keeping requires a real operator on every entry.
+        # The previous fallback chain ``$FORGELM_OPERATOR -> $USER -> "unknown"``
+        # silently produced ``operator="unknown"`` when both env vars were
+        # missing (CI runners, container images with no login user). That made
+        # the audit log unattributable — a regulator cannot identify who ran
+        # the job. New policy:
+        #
+        # 1. If ``FORGELM_OPERATOR`` is set, use it verbatim (CI / pipelines
+        #    pin a deliberate identity here).
+        # 2. Otherwise derive ``<getpass.getuser()>@<socket.gethostname()>`` —
+        #    matches how Unix audit subsystems attribute work.
+        # 3. If no username can be resolved, refuse to start unless the
+        #    operator opts in to anonymous logging via
+        #    ``FORGELM_ALLOW_ANONYMOUS_OPERATOR=1``. Loud failure beats a
+        #    silent ``"unknown"`` smear across the chain.
+        operator_env = os.getenv("FORGELM_OPERATOR")
+        if operator_env:
+            self.operator = operator_env
+        else:
+            try:
+                username = getpass.getuser()
+            except Exception:
+                # ``getpass.getuser()`` raises ``OSError`` on systems where
+                # neither ``LOGNAME``/``USER``/``LNAME``/``USERNAME`` env vars
+                # nor the ``pwd`` lookup resolves an identity (rootless
+                # containers, sandboxed CI). We still honour the explicit
+                # opt-in below; fall through with no username.
+                username = None
+            hostname = socket.gethostname() or "unknown-host"
+            if username:
+                self.operator = f"{username}@{hostname}"
+            else:
+                allow_anonymous = os.getenv("FORGELM_ALLOW_ANONYMOUS_OPERATOR") == "1"
+                if not allow_anonymous:
+                    raise ConfigError(
+                        "Operator identity unavailable: no FORGELM_OPERATOR set, "
+                        "and getpass.getuser() could not resolve a username. "
+                        "Set FORGELM_OPERATOR=<id> for CI/CD pipelines, or "
+                        "FORGELM_ALLOW_ANONYMOUS_OPERATOR=1 to opt in to "
+                        "anonymous audit entries (not recommended for "
+                        "EU AI Act Article 12 record-keeping)."
+                    )
+                self.operator = f"anonymous@{hostname}"
         # Per-run HMAC key: SHA-256(operator_secret || run_id).  The secret is
         # required for tamper-evident HMACs because ``run_id`` is part of the
         # public log header — without a non-empty secret an attacker who can
@@ -262,6 +309,16 @@ class AuditLogger:
                     f.seek(0, 2)
                     f.write((entry_json + "\n").encode("utf-8"))
                     f.flush()
+                    # ``flush()`` only pushes user-space buffers into the OS
+                    # kernel; an unclean shutdown (power loss, kernel panic,
+                    # OOM-kill of the container host) before the kernel
+                    # write-back can still drop the entry. ``fsync`` blocks
+                    # until the write reaches stable storage, so the
+                    # ``self._prev_hash`` advance below is durable. The cost
+                    # (one fsync per audit event, typically a handful per
+                    # training run) is negligible next to the cost of losing
+                    # a record-keeping line.
+                    os.fsync(f.fileno())
                     new_hash = hashlib.sha256(entry_json.encode()).hexdigest()
                 finally:
                     _flock_un(f)
@@ -511,6 +568,25 @@ def compute_dataset_fingerprint(dataset_path: str) -> Dict[str, Any]:
             TimeoutError,
         ) as e:
             logger.debug("HF Hub metadata fetch skipped for '%s': %s", dataset_path, e)
+
+        # Closure plan Faz 3 (F-compliance-117): pin the dataset *commit*
+        # (Hub revision SHA) alongside the dataset id. ``load_dataset_builder``
+        # only surfaces ``info.version`` (semantic version), which most Hub
+        # datasets do not maintain. The Hub commit is the only stable
+        # identifier that lets Article 10 reviewers reproduce the exact
+        # corpus the model was trained on. We query ``HfApi.dataset_info``
+        # (which is part of the always-installed ``huggingface_hub`` package
+        # pulled in by ``datasets``) — narrow the catch to expected import /
+        # network / 404 failure modes so genuine bugs still surface.
+        try:
+            from huggingface_hub import HfApi
+
+            info = HfApi().dataset_info(dataset_path)
+            revision_sha = getattr(info, "sha", None)
+            if revision_sha:
+                fingerprint["hf_revision"] = revision_sha
+        except (ImportError, ConnectionError, TimeoutError, OSError, ValueError) as e:
+            logger.debug("HF Hub revision pin skipped for '%s': %s", dataset_path, e)
 
     return fingerprint
 
@@ -871,3 +947,231 @@ def _get_version() -> str:
             return __version__
         except ImportError:  # pragma: no cover
             return "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Audit log verification (forgelm verify-audit)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class VerifyResult:
+    """Outcome of :func:`verify_audit_log`.
+
+    Attributes:
+        valid: ``True`` when the SHA-256 hash chain (and optional HMAC tags)
+            are intact across every entry. ``False`` on the first detected
+            mismatch.
+        entries_count: Number of newline-terminated JSON entries inspected.
+        first_invalid_index: 1-based line number of the first invalid entry,
+            or ``None`` when ``valid`` is ``True``.
+        reason: Human-readable explanation of the first failure (chain
+            break, HMAC mismatch, JSON decode error, manifest mismatch,
+            missing-but-required HMAC tag), or ``None`` when valid.
+    """
+
+    valid: bool
+    entries_count: int
+    first_invalid_index: Optional[int] = None
+    reason: Optional[str] = None
+
+
+def verify_audit_log(
+    path: str,
+    *,
+    hmac_secret: Optional[str] = None,
+    require_hmac: bool = False,
+) -> VerifyResult:
+    """Verify a ForgeLM ``audit_log.jsonl`` chain integrity.
+
+    Mirrors :meth:`AuditLogger.log_event` exactly:
+
+    - Each line is the JSON encoding produced by ``json.dumps(entry, default=str)``
+      (no key sorting, no separator overrides).
+    - The first entry's ``prev_hash`` must be ``"genesis"``.
+    - Every subsequent entry's ``prev_hash`` must equal
+      ``sha256(prior_full_line_json).hexdigest()`` — including any ``_hmac``
+      field present on the prior line, since the chain is computed over the
+      *post-HMAC* line as written.
+    - When ``hmac_secret`` is provided, each entry's ``_hmac`` field is
+      verified as ``HMAC-SHA256(key, entry_json_without_hmac)`` where
+      ``key = sha256(secret + run_id).digest()`` (operator's per-run key).
+
+    Args:
+        path: Path to the ``audit_log.jsonl`` file.
+        hmac_secret: Optional operator secret. When provided, HMAC tags on
+            each line are verified. Lines lacking an ``_hmac`` field are
+            tolerated (the writer omits the field when no secret is set)
+            unless ``require_hmac=True``.
+        require_hmac: When ``True``, every entry must carry a valid
+            ``_hmac`` field — a missing tag fails verification. Used by the
+            CLI's ``--require-hmac`` flag for strict enterprise audits.
+
+    Returns:
+        :class:`VerifyResult`. ``valid=True`` only when the chain is intact
+        end-to-end (and HMAC tags pass when a secret was supplied / required).
+
+    Notes:
+        Genesis-manifest sidecar (``<path>.manifest.json``) is checked when
+        present: its ``first_entry_sha256`` must equal the SHA-256 of the
+        first line. A missing manifest is logged at DEBUG level (not all
+        legitimate logs predate the manifest sidecar), but a mismatched
+        manifest fails verification — this is the truncate-and-resume
+        detector documented in :meth:`AuditLogger._check_genesis_manifest`.
+    """
+    # ---- Empty / missing file -----------------------------------------
+    if not os.path.isfile(path):
+        return VerifyResult(
+            valid=False,
+            entries_count=0,
+            first_invalid_index=None,
+            reason=f"audit log not found at {path!r}",
+        )
+
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read()
+    except OSError as exc:
+        return VerifyResult(
+            valid=False,
+            entries_count=0,
+            first_invalid_index=None,
+            reason=f"could not read audit log: {exc}",
+        )
+
+    if not raw:
+        # Empty file is trivially valid — no entries to fault.
+        return VerifyResult(valid=True, entries_count=0)
+
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        return VerifyResult(
+            valid=False,
+            entries_count=0,
+            first_invalid_index=None,
+            reason=f"audit log is not valid UTF-8: {exc}",
+        )
+
+    # Use splitlines(keepends=False) and re-derive each line's exact bytes
+    # for hashing. AuditLogger writes ``entry_json + "\n"`` and hashes
+    # ``entry_json`` (the JSON body, without the trailing newline) — so we
+    # must split on newlines and hash each stripped line.
+    lines = [ln for ln in text.split("\n") if ln]
+    entries_count = len(lines)
+    if entries_count == 0:
+        return VerifyResult(valid=True, entries_count=0)
+
+    # ---- Walk the chain ----------------------------------------------
+    expected_prev = "genesis"
+    first_run_id: Optional[str] = None
+    first_line_hash: Optional[str] = None
+
+    for idx, line in enumerate(lines, start=1):
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as exc:
+            return VerifyResult(
+                valid=False,
+                entries_count=entries_count,
+                first_invalid_index=idx,
+                reason=f"line {idx} is not valid JSON: {exc}",
+            )
+
+        prev_hash = entry.get("prev_hash")
+        if prev_hash != expected_prev:
+            return VerifyResult(
+                valid=False,
+                entries_count=entries_count,
+                first_invalid_index=idx,
+                reason=(f"chain broken at line {idx}: prev_hash={prev_hash!r} expected={expected_prev!r}"),
+            )
+
+        # HMAC verification (when a secret is supplied OR strictly required).
+        if hmac_secret is not None or require_hmac:
+            tag = entry.get("_hmac")
+            if tag is None:
+                if require_hmac:
+                    return VerifyResult(
+                        valid=False,
+                        entries_count=entries_count,
+                        first_invalid_index=idx,
+                        reason=f"line {idx} lacks _hmac field but --require-hmac is set",
+                    )
+                # Secret given but the writer wasn't keyed for this entry:
+                # skip silently (mixed-mode logs are not a chain failure).
+            elif hmac_secret is not None:
+                run_id = entry.get("run_id")
+                if not run_id:
+                    return VerifyResult(
+                        valid=False,
+                        entries_count=entries_count,
+                        first_invalid_index=idx,
+                        reason=f"line {idx} has _hmac but no run_id — cannot derive key",
+                    )
+                # Mirror AuditLogger's key derivation byte-for-byte.
+                key = hashlib.sha256(hmac_secret.encode() + run_id.encode()).digest()
+                # Recompute the HMAC over the entry sans the _hmac field, in
+                # the exact field order the writer used: insertion order is
+                # preserved by ``dict``, and ``log_event`` adds ``_hmac``
+                # last, so removing it leaves the original ordering intact.
+                entry_without_hmac = {k: v for k, v in entry.items() if k != "_hmac"}
+                expected_tag = _hmac_module.new(
+                    key,
+                    json.dumps(entry_without_hmac, default=str).encode(),
+                    hashlib.sha256,
+                ).hexdigest()
+                if not _hmac_module.compare_digest(expected_tag, tag):
+                    return VerifyResult(
+                        valid=False,
+                        entries_count=entries_count,
+                        first_invalid_index=idx,
+                        reason=f"line {idx}: HMAC mismatch",
+                    )
+
+        # Advance the chain. ``line`` here is the exact JSON body the
+        # writer hashed (post-HMAC, without the trailing newline).
+        line_hash = hashlib.sha256(line.encode("utf-8")).hexdigest()
+        if idx == 1:
+            first_run_id = entry.get("run_id")
+            first_line_hash = line_hash
+        expected_prev = line_hash
+
+    # ---- Genesis manifest cross-check --------------------------------
+    manifest_path = path + ".manifest.json"
+    if os.path.isfile(manifest_path):
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as mfh:
+                manifest = json.load(mfh)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Audit genesis manifest unreadable (%s): %s", manifest_path, exc)
+        else:
+            pinned = manifest.get("first_entry_sha256")
+            if pinned and first_line_hash and pinned != first_line_hash:
+                return VerifyResult(
+                    valid=False,
+                    entries_count=entries_count,
+                    first_invalid_index=1,
+                    reason=(
+                        "manifest mismatch: pinned first_entry_sha256 "
+                        f"{pinned!r} does not match line 1 hash {first_line_hash!r} "
+                        "(log may have been truncated and rewritten)"
+                    ),
+                )
+            pinned_run = manifest.get("run_id")
+            if pinned_run and first_run_id and pinned_run != first_run_id:
+                return VerifyResult(
+                    valid=False,
+                    entries_count=entries_count,
+                    first_invalid_index=1,
+                    reason=(
+                        f"manifest mismatch: pinned run_id {pinned_run!r} does not match line 1 run_id {first_run_id!r}"
+                    ),
+                )
+    else:
+        logger.debug(
+            "No genesis manifest at %s — truncate-and-resume detection limited to in-chain hash continuity.",
+            manifest_path,
+        )
+
+    return VerifyResult(valid=True, entries_count=entries_count)

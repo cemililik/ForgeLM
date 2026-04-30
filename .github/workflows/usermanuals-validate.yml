@@ -6,11 +6,21 @@ name: Validate user-manuals
 # source. Catches structural problems before they hit main.
 
 on:
+  push:
+    branches: [main, development]
+    paths:
+      - "docs/usermanuals/**"
+      - "tools/build_usermanuals.py"
   pull_request:
     branches: [main]
     paths:
       - "docs/usermanuals/**"
       - "tools/build_usermanuals.py"
+
+# Mirror CI's operator identity so any future pytest invocation does not
+# raise on distroless runners where USER is unset.
+env:
+  FORGELM_OPERATOR: ci-smoke
 
 jobs:
   validate:

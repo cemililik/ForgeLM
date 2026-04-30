@@ -282,6 +282,25 @@ ForgeLM's audit log (`audit_log.jsonl`) uses a SHA-256 hash chain for tamper evi
 
 Verify integrity by checking that each entry's hash matches the SHA-256 of the previous line.
 
+### Verifying audit log integrity
+
+The `forgelm verify-audit` subcommand validates the SHA-256 hash chain (and optional HMAC tags) of an audit log:
+
+```bash
+forgelm verify-audit run123/audit_log.jsonl
+# OK: 47 entries verified
+
+FORGELM_AUDIT_SECRET=$OPERATOR_KEY forgelm verify-audit run123/audit_log.jsonl
+# OK: 47 entries verified (HMAC validated)
+
+forgelm verify-audit tampered.jsonl
+# FAIL at line 23: chain broken at line 23: prev_hash='...' expected='...'
+```
+
+Exit codes: `0` valid, `1` invalid chain or HMAC mismatch, `2` file/option error (e.g. `--require-hmac` without a configured secret env var).
+
+The library function `forgelm.compliance.verify_audit_log(path, *, hmac_secret=None, require_hmac=False)` returns a `VerifyResult` dataclass (`valid`, `entries_count`, `first_invalid_index`, `reason`) for programmatic CI/CD integration.
+
 ### compliance_report.json
 
 ```json

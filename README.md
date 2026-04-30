@@ -19,7 +19,7 @@
 - **Synthetic Data Pipeline**: Teacher-to-student distillation with `--generate-data` CLI flag
 - **DeepSpeed & FSDP**: Multi-GPU distributed training with ZeRO-2/3 presets
 - **MoE Support**: Fine-tune Mixture of Experts models (Qwen3, Mixtral, DeepSeek)
-- **GPU Cost Estimation**: Auto-detection for 18 GPU models with per-run cost tracking
+- **GPU Cost Estimation**: Auto-detection for 16 GPU models with per-run cost tracking
 
 ### Evaluation & Safety
 - **Automated Benchmarking**: Post-training evaluation via `lm-evaluation-harness`
@@ -39,7 +39,7 @@
 - **Wizard "audit first"**: when the wizard resolves a JSONL (typed or produced by `forgelm ingest`) it offers to run `forgelm audit` inline and prints the verdict before continuing — closes the BYOD audit loop end-to-end.
 
 ### Quickstart Layer (v0.4.5)
-- **One-Command Templates**: `forgelm quickstart customer-support` — 4 bundled templates (SFT customer-support, code-assistant, medical-qa-tr, GRPO math-reasoning) plus a bring-your-own-data domain-expert scaffold. Auto-downsizes models on small GPUs.
+- **One-Command Templates**: `forgelm quickstart customer-support` — 5 bundled templates (SFT customer-support, code-assistant, medical-qa-tr, domain-expert, GRPO grpo-math). Auto-downsizes models on small GPUs.
 - **Conservative Defaults**: Every template ships QLoRA 4-bit, rank=8, batch=1, gradient checkpointing on — designed to run on a single 12 GB GPU.
 - **Wizard Integration**: `forgelm --wizard` opens with "Start from a template?" — same code paths, same YAML schema as a hand-written config.
 
@@ -231,7 +231,7 @@ forgelm --version                            # Show version
 
 ```
 forgelm/
-├── cli.py            # CLI with 10+ modes (train, dry-run, merge, benchmark, wizard, ingest, audit, ...)
+├── cli.py            # CLI entry point (train, dry-run, merge, benchmark, wizard, ingest, audit, ...)
 ├── config.py         # Pydantic config (19 models: training, evaluation, distributed, ...)
 ├── data.py           # Dataset loading (SFT, DPO, KTO, GRPO formats + multi-dataset)
 ├── data_audit.py     # Audit pipeline (length / language / dedup / leakage / PII / secrets / quality) — `forgelm audit`

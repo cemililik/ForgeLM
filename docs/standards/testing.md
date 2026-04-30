@@ -5,7 +5,7 @@
 
 ## Layout
 
-Current structure (26 test modules, one per feature area):
+Current structure (48 test modules, one per feature area):
 
 ```
 tests/
@@ -124,7 +124,7 @@ From [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml):
 
 1. **Lint** — `ruff check` + `ruff format --check` on entire repo. Failure = PR blocked.
 2. **Test matrix** — Python 3.10, 3.11, 3.12, 3.13 on ubuntu-latest.
-3. **Coverage** — `pytest --cov=forgelm --cov-fail-under=25`.
+3. **Coverage** — `pytest --cov=forgelm --cov-fail-under=40` (enforced via `addopts` in `pyproject.toml`'s `[tool.pytest.ini_options]`, kept in lock-step with `[tool.coverage.report].fail_under`).
 4. **Dry-run validation** — `forgelm --config config_template.yaml --dry-run` must succeed.
 
 From [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml):

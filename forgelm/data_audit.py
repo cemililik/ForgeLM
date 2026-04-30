@@ -101,7 +101,7 @@ except ImportError:  # pragma: no cover
 # already covers the GDPR-mandated structured identifiers (email, phone,
 # IBAN, credit card, national IDs) that the audit's compliance contract
 # is built around. ML adds the *unstructured* identifiers regex inherently
-# misses: person names, organisations, locations.
+# misses: person names, organizations, locations.
 try:  # pragma: no cover — exercised by the dedicated extras-skip tests
     from presidio_analyzer import AnalyzerEngine as _PresidioAnalyzer
 
@@ -1703,7 +1703,10 @@ def _record_dedup_sentinel(agg: _StreamingAggregator) -> None:
 def _record_text_metrics(agg: _StreamingAggregator, payload: str) -> None:
     agg.length_digest.update(len(payload))
     if len(agg.lang_sample) < _LANG_SAMPLE_SIZE:
-        agg.lang_sample.append(payload)
+        # Cap each sample at 512 chars: lang detection only needs a short
+        # snippet to identify the language, and unbounded payloads inflate
+        # peak memory on multi-GB JSONL inputs.
+        agg.lang_sample.append(payload[:512])
     _record_dedup_signature(agg, payload)
     for kind, count in detect_pii(payload).items():
         agg.pii_counts[kind] = agg.pii_counts.get(kind, 0) + count

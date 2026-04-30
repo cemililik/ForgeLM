@@ -153,9 +153,7 @@ Touch points (so the next reviewer can audit blast radius quickly):
 
 Inline-comment batches landing on top of PR #13 (now merged to `main`).
 Same review surface as rounds 4-7; further hardening on top of the
-`v0.5.2` content. The `v0.5.2` git tag + PyPI publish are the
-remaining release-engineering steps before this section can be
-frozen into a release.
+`v0.5.2` content.
 
 - **Audit log hardening** (`forgelm/compliance.py`) — HMAC `_hmac` field is now
   emitted only when `FORGELM_AUDIT_SECRET` is set; without a secret, a key

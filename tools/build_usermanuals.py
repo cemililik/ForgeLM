@@ -401,7 +401,7 @@ def _render_outputs(languages: list, sections: list[Section], default_lang: str)
         pages, ok, fb = build_language(lang, sections, default_lang)
         out_path = OUTPUT_DIR / f"{lang}.js"
         written[out_path] = serialise_data(pages, lang)
-        marker = "✓" if fb == 0 else "fallbacks=" + str(fb)
+        marker = "OK" if fb == 0 else "fallbacks=" + str(fb)
         print(f"  {lang}: {ok} pages translated, {marker}")
     written[OUTPUT_DIR / "_index.js"] = serialise_index(sections, languages)
     return written

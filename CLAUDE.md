@@ -57,7 +57,7 @@ ForgeLM/
 │   ├── webhook.py           # Slack/Teams notifications
 │   ├── grpo_rewards.py      # Built-in GRPO format/length shaping reward fallback
 │   └── ...                  # benchmark, judge, merging, synthetic, wizard, ...
-├── tests/                   # pytest, 26 test modules
+├── tests/                   # pytest, 47 test modules
 ├── docs/
 │   ├── roadmap.md           # Public roadmap (short index)
 │   ├── roadmap/             # Detailed phase files + archive

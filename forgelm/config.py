@@ -252,6 +252,8 @@ class SafetyConfig(BaseModel):
     min_classifier_confidence: float = 0.7  # flag responses below this confidence
     track_categories: bool = False  # parse Llama Guard S1-S14 harm categories
     severity_thresholds: Optional[Dict[str, float]] = None  # per-severity limits: {"critical": 0, "high": 0.01}
+    # Phase 4 (closure F-performance-102): batched generation. 1 disables batching.
+    batch_size: int = 8
 
 
 class JudgeConfig(BaseModel):
