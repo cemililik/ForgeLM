@@ -9,10 +9,10 @@
 
 ## Supported languages
 
-- **EN + TR (mandatory).** All user-facing docs and user-manual pages exist as EN+TR mirrors. The site language picker exposes only these two.
-- **DE / FR / ES / ZH (deferred).** Not present in the site picker; user-manual content is not authored. Source skeletons may exist under `docs/usermanuals/<lang>/` but no JS bag is emitted for them. Reverse path when translator capacity is available — re-add to the picker, restore `tools/build_usermanuals.py` emission, then ship the translated content.
+- **EN + TR (authored).** All user-facing docs and user-manual pages are written and reviewed in both English and Turkish. EN+TR mirror parity is mandatory for the doc tree — see "Structural mirror rule" below.
+- **DE / FR / ES / ZH (site UI translated; user-manual content English-fallback).** The site language picker exposes all six languages, and `site/js/translations.js` carries the marketing/product copy in DE/FR/ES/ZH. The user-manual content (`docs/usermanuals/...`) is **only authored in EN + TR**; when a deferred-language user picks DE/FR/ES/ZH, the manual side falls back to English via the i18n chain (`tableForLang(...) → DEFAULT='en'`). `tools/build_usermanuals.py` therefore emits JS bags only for the authored set (`en`, `tr`); the deferred languages reuse the EN bag through the fallback path.
 
-A language is "supported" only when the picker shows it AND its content is reviewed by a native or near-native speaker. Anything else is deferred.
+A language is "site-translated" when its strings live in `site/js/translations.js`. A language is "manual-authored" only when `docs/usermanuals/<lang>/` content is reviewed by a native or near-native speaker.
 
 Rationale:
 
