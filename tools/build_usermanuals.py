@@ -79,6 +79,22 @@ OUTPUT_DIR = REPO_ROOT / "site" / "js" / "usermanuals"
 META_FILE = SOURCE_DIR / "_meta.yaml"
 
 
+# Supported vs. deferred languages — see docs/standards/localization.md.
+#
+# SUPPORTED_LANGUAGES: shipped in the site picker; their JS bags are emitted.
+# DEFERRED_LANGUAGES: source skeletons may exist under docs/usermanuals/<lang>/,
+# and _meta.yaml may keep them in its `languages:` list, but this script does
+# NOT emit a JS bag for them — they are not user-visible until translator
+# capacity arrives.
+#
+# Adding a language: move it from DEFERRED_LANGUAGES to SUPPORTED_LANGUAGES,
+# add the picker entries to all eight site/*.html files, and add the
+# Object.assign blocks to site/js/translations.js. site-deploy.yml's verify
+# step also iterates over the supported set.
+SUPPORTED_LANGUAGES: tuple[str, ...] = ("en", "tr")
+DEFERRED_LANGUAGES: tuple[str, ...] = ("de", "fr", "es", "zh")
+
+
 @dataclass
 class Page:
     section_id: str
@@ -395,15 +411,32 @@ def serialise_index(sections: list[Section], languages: list[str]) -> str:
 
 
 def _render_outputs(languages: list, sections: list[Section], default_lang: str) -> dict[Path, str]:
-    """Render the full set of output files keyed by absolute path."""
+    """Render the full set of output files keyed by absolute path.
+
+    Sparse-emit: only languages in :data:`SUPPORTED_LANGUAGES` get a JS bag.
+    Languages in :data:`DEFERRED_LANGUAGES` are skipped silently (deferred per
+    docs/standards/localization.md). The shared `_index.js` records only the
+    emitted set so the site picker and the build artefact agree.
+    """
     written: dict[Path, str] = {}
+    emitted_langs: list[str] = []
+    skipped: list[str] = []
     for lang in languages:
+        if lang in DEFERRED_LANGUAGES:
+            skipped.append(lang)
+            continue
+        if lang not in SUPPORTED_LANGUAGES:
+            print(f"  {lang}: skipped (not in SUPPORTED_LANGUAGES; add to tools/build_usermanuals.py to emit)")
+            continue
         pages, ok, fb = build_language(lang, sections, default_lang)
         out_path = OUTPUT_DIR / f"{lang}.js"
         written[out_path] = serialise_data(pages, lang)
         marker = "OK" if fb == 0 else "fallbacks=" + str(fb)
         print(f"  {lang}: {ok} pages translated, {marker}")
-    written[OUTPUT_DIR / "_index.js"] = serialise_index(sections, languages)
+        emitted_langs.append(lang)
+    if skipped:
+        print(f"  deferred (no bag emitted): {', '.join(skipped)}")
+    written[OUTPUT_DIR / "_index.js"] = serialise_index(sections, emitted_langs)
     return written
 
 

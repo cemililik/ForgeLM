@@ -1,11 +1,13 @@
 /**
  * ForgeLM site — i18n switcher.
  *
- * Supported languages: en (default), tr, de, fr, es, zh.
+ * Supported languages: en (default), tr.
+ * Deferred (not in picker, no translations bag): de, fr, es, zh.
+ *   See docs/standards/localization.md → "Supported languages".
  *
  * Detection order:
  *   1. localStorage["forgelm-lang"]
- *   2. navigator.language prefix (e.g. "fr-CA" → "fr")
+ *   2. navigator.language prefix (e.g. "tr-TR" → "tr")
  *   3. fallback to "en"
  *
  * Markup conventions (set in HTML):
@@ -24,7 +26,7 @@
   // renamed off the *_KEY suffix that triggers Codacy's "hardcoded password"
   // heuristic on string literals.
   var LANG_PREF_NAME = 'forgelm-lang';
-  var SUPPORTED      = ['en', 'tr', 'de', 'fr', 'es', 'zh'];
+  var SUPPORTED      = ['en', 'tr'];
   var DEFAULT        = 'en';
 
   function getTranslations() {
@@ -55,16 +57,14 @@
 
   // Resolve the per-language sub-table without bracket access on a
   // user-supplied key. Each branch returns a property by name so the
-  // analyzer can see no dynamic key reaches the object.
+  // analyzer can see no dynamic key reaches the object. Only en/tr are
+  // wired today; deferred languages (de/fr/es/zh) are intentionally
+  // absent from this switch — see docs/standards/localization.md.
   function tableForLang(all, lang) {
     if (!all) return undefined;
     switch (lang) {
       case 'en': return all.en;
       case 'tr': return all.tr;
-      case 'de': return all.de;
-      case 'fr': return all.fr;
-      case 'es': return all.es;
-      case 'zh': return all.zh;
       default:   return undefined;
     }
   }

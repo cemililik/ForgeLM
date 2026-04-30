@@ -59,10 +59,13 @@ jobs:
         run: python3 tools/build_usermanuals.py
 
       - name: Verify the generated tree
+        # Only the languages in SUPPORTED_LANGUAGES (build_usermanuals.py) are
+        # emitted today — see docs/standards/localization.md → Supported
+        # languages. Deferred bags (de/fr/es/zh) are intentionally absent.
         run: |
           test -f site/js/usermanuals/_index.js
           test -f site/js/usermanuals/en.js
-          for lang in en tr de fr es zh; do
+          for lang in en tr; do
             test -f "site/js/usermanuals/${lang}.js" || { echo "missing ${lang}.js"; exit 1; }
           done
 
