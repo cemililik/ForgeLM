@@ -241,7 +241,10 @@ class TestMinHashMissingExtra:
     def test_helpful_error_when_datasketch_missing(self, monkeypatch):
         from forgelm import data_audit as audit_mod
 
-        # Force the "missing extra" code path even if datasketch is installed.
-        monkeypatch.setattr(audit_mod, "_HAS_DATASKETCH", False)
+        # Faz 14: optional-deps sentinels live in ._optional after the
+        # data_audit package split; ._minhash reads ``_optional._HAS_DATASKETCH``
+        # via attribute lookup, so patches applied to the canonical module
+        # propagate to the require-helper.
+        monkeypatch.setattr(audit_mod._optional, "_HAS_DATASKETCH", False)
         with pytest.raises(ImportError, match=r"forgelm\[ingestion-scale\]"):
             audit_mod._require_datasketch()

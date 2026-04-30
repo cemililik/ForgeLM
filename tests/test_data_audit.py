@@ -457,14 +457,20 @@ class TestPartialFailureTolerance:
         _write_jsonl(tmp_path / "train.jsonl", [{"text": "A"}, {"text": "B"}])
         _write_jsonl(tmp_path / "validation.jsonl", [{"text": "C"}])
 
-        original_read = audit_mod._read_jsonl_split
+        # Faz 14: data_audit was split into a package. The streaming reader
+        # lives in ._streaming and is imported by ._aggregator at module
+        # load time, so patching the package-level re-export does not reach
+        # the call site. Patch the binding inside ._aggregator (where
+        # _audit_split actually looks it up) — same effect, lockstep with
+        # the split refactor.
+        original_read = audit_mod._streaming._read_jsonl_split
 
         def flaky_read(path):
             if path.name == "validation.jsonl":
                 raise OSError("simulated permission denied")
             return original_read(path)
 
-        monkeypatch.setattr(audit_mod, "_read_jsonl_split", flaky_read)
+        monkeypatch.setattr(audit_mod._aggregator, "_read_jsonl_split", flaky_read)
 
         report = audit_dataset(str(tmp_path))
         assert "train" in report.splits
@@ -601,7 +607,9 @@ class TestAtomicWriteFailure:
         def _boom(*_args, **_kwargs):
             raise OSError("simulated replace failure")
 
-        monkeypatch.setattr(audit_mod.os, "replace", _boom)
+        # Faz 14: _atomic_write_json now lives in ._orchestrator, which is
+        # the module that holds the ``os`` import the helper actually calls.
+        monkeypatch.setattr(audit_mod._orchestrator.os, "replace", _boom)
         with pytest.raises(OSError, match="simulated replace failure"):
             audit_mod._atomic_write_json(target, {"hello": "world"})
 

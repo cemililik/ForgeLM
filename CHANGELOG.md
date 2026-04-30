@@ -166,6 +166,37 @@ All notable changes to ForgeLM are documented here.
   wired into the human-approval gate so an operator-facing webhook fires the
   moment the model is staged. Receivers can opt out via
   `webhook.notify_on_awaiting_approval=false`.
+- **`forgelm/data_audit.py` -> `forgelm/data_audit/` package (Faz 14)** —
+  the 3098-line monolith was split into a 14-module package
+  (`_optional`, `_types`, `_pii_regex`, `_pii_ml`, `_secrets`, `_simhash`,
+  `_minhash`, `_quality`, `_streaming`, `_aggregator`, `_splits`,
+  `_summary`, `_croissant`, `_orchestrator`) per the
+  cohesion ceiling in `docs/standards/architecture.md`. The public
+  `forgelm.data_audit.X` import surface — including the
+  test-touched private helpers (`_HAS_PRESIDIO`, `_get_presidio_analyzer`,
+  `_token_digest`, `_strip_code_fences`, `_row_quality_flags`,
+  `_read_jsonl_split`, `_count_leaked_rows`, `_find_near_duplicates_brute`,
+  `_is_credit_card`, `_is_tr_id`, `_require_presidio`,
+  `_PRESIDIO_ENTITY_MAP`, etc.) — is preserved by `__init__.py` re-exports
+  so external callers (`forgelm.ingestion`, `forgelm.wizard`) and the
+  test suite keep working without code changes. Closes F-code-103 (Major).
+  See
+  [split-design-data_audit-cli-202604300906.md](docs/analysis/code_reviews/split-design-data_audit-cli-202604300906.md)
+  §1 for the design.
+
+### Removed
+
+- **`[ingestion-secrets]` extra (`detect-secrets>=1.5.0,<2.0.0`)** —
+  reserved during Phase 12 for a follow-up integration that never landed.
+  The `detect-secrets` scanner expects file paths while ForgeLM audits
+  row-level JSONL streams, so the wire-up was rejected as architecturally
+  incompatible. The prefix-anchored regex set in
+  `forgelm/data_audit/_secrets.py` (9-family coverage: AWS, GitHub,
+  Slack, OpenAI, Google API, JWT, OpenSSH, PGP, Azure storage) is the
+  sole detection backend and stays the sole detection backend. Removed
+  the dead extra from `pyproject.toml`, the install snippet from
+  `README.md`, and the "fallback regex set" framing from the secrets
+  module docstring. Closes C-53 (deferred from v0.5.0).
 
 ---
 

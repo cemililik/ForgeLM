@@ -176,7 +176,6 @@ pip install "forgelm[distributed]"       # DeepSpeed multi-GPU
 pip install "forgelm[merging]"           # mergekit model merging
 pip install "forgelm[ingestion]"         # PDF/DOCX/EPUB/Markdown → JSONL + langdetect + xxhash
 pip install "forgelm[ingestion-scale]"   # MinHash LSH dedup (datasketch) for >50K-row corpora
-pip install "forgelm[ingestion-secrets]" # detect-secrets scanner for SFT corpora (falls back to regex if absent)
 pip install "forgelm[ingestion-pii-ml]"  # Presidio ML-NER for person/organization/location PII (Phase 12.5; ALSO needs `python -m spacy download en_core_web_lg`)
 pip install "forgelm[export]"            # GGUF export via llama-cpp-python
 pip install "forgelm[chat]"              # Rich terminal rendering for `forgelm chat`

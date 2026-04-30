@@ -275,7 +275,7 @@ class TestPresidioPIIAdapter:
         # When the extra isn't installed, the require-helper raises a typed
         # ImportError pointing at the install command — same pattern as
         # ``_require_datasketch`` / ``_require_detect_secrets``.
-        with patch("forgelm.data_audit._HAS_PRESIDIO", False):
+        with patch("forgelm.data_audit._optional._HAS_PRESIDIO", False):
             with pytest.raises(ImportError) as exc_info:
                 _require_presidio()
         msg = str(exc_info.value)
@@ -330,8 +330,8 @@ class TestPresidioPIIAdapter:
                 def __init__(self):
                     raise OSError("Can't find model 'en_core_web_lg'")
 
-            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
-                with patch("forgelm.data_audit._PresidioAnalyzer", _BoomAnalyzer):
+            with patch("forgelm.data_audit._optional._HAS_PRESIDIO", True):
+                with patch("forgelm.data_audit._optional._PresidioAnalyzer", _BoomAnalyzer):
                     with pytest.raises(ImportError) as exc_info:
                         _require_presidio()
         finally:
@@ -372,8 +372,8 @@ class TestPresidioPIIAdapter:
 
         _get_presidio_analyzer.cache_clear()
         try:
-            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
-                with patch("forgelm.data_audit._get_presidio_analyzer", return_value=_StubAnalyzer()):
+            with patch("forgelm.data_audit._optional._HAS_PRESIDIO", True):
+                with patch("forgelm.data_audit._pii_ml._get_presidio_analyzer", return_value=_StubAnalyzer()):
                     counts = detect_pii_ml("Alice works at Acme Corp in Berlin.")
         finally:
             _get_presidio_analyzer.cache_clear()
@@ -653,9 +653,9 @@ class TestPresidioLanguagePreflight:
 
         _get_presidio_analyzer.cache_clear()
         try:
-            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
+            with patch("forgelm.data_audit._optional._HAS_PRESIDIO", True):
                 with patch(
-                    "forgelm.data_audit._get_presidio_analyzer",
+                    "forgelm.data_audit._pii_ml._get_presidio_analyzer",
                     return_value=_StubAnalyzer(),
                 ):
                     with pytest.raises(ValueError) as exc_info:
@@ -674,9 +674,9 @@ class TestPresidioLanguagePreflight:
 
         _get_presidio_analyzer.cache_clear()
         try:
-            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
+            with patch("forgelm.data_audit._optional._HAS_PRESIDIO", True):
                 with patch(
-                    "forgelm.data_audit._get_presidio_analyzer",
+                    "forgelm.data_audit._pii_ml._get_presidio_analyzer",
                     return_value=_StubAnalyzer(),
                 ):
                     _require_presidio(language="en")  # must not raise
@@ -694,7 +694,7 @@ class TestPresidioLanguagePreflight:
 
         _get_presidio_analyzer.cache_clear()
         try:
-            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
+            with patch("forgelm.data_audit._optional._HAS_PRESIDIO", True):
                 with pytest.raises(ValueError) as exc_info:
                     _get_presidio_analyzer(language="qq")
         finally:
@@ -724,9 +724,9 @@ class TestPresidioPerRowErrorLogging:
 
         _get_presidio_analyzer.cache_clear()
         try:
-            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
+            with patch("forgelm.data_audit._optional._HAS_PRESIDIO", True):
                 with patch(
-                    "forgelm.data_audit._get_presidio_analyzer",
+                    "forgelm.data_audit._pii_ml._get_presidio_analyzer",
                     return_value=_AngryAnalyzer(),
                 ):
                     with caplog.at_level(logging.DEBUG, logger="forgelm.data_audit"):
