@@ -305,7 +305,8 @@ class TestSafePostHttpDiscipline:
 
         from forgelm import _http
 
-        bearer_token = "sk-" + "supersecret123"  # noqa: S105  NOSONAR test fixture, fragment-built
+        # NOSONAR test fixture, fragment-built (rule python:S2068 hard-coded credential false-positive)
+        bearer_token = "sk-" + "supersecret123"  # noqa: S105
         with patch.object(_http.requests, "post") as mock_post:
             mock_post.side_effect = req.exceptions.ConnectionError(f"refused while sending Bearer {bearer_token}")
             with caplog.at_level(logging.WARNING, logger="forgelm._http"):

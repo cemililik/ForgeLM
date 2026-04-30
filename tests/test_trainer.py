@@ -82,6 +82,9 @@ class TestEvaluationChecks:
             trainer.checkpoint_dir = "/tmp/test_forge_eval"
             trainer.run_name = "test_finetune"
             trainer.notifier = MagicMock()
+            # _revert_model emits an audit event before destructive action;
+            # mock the audit logger so revert paths don't AttributeError.
+            trainer.audit = MagicMock()
         return trainer
 
     def test_no_evaluation_config(self):
@@ -101,6 +104,7 @@ class TestEvaluationChecks:
             trainer.checkpoint_dir = "/tmp/test"
             trainer.run_name = "test"
             trainer.notifier = MagicMock()
+            trainer.audit = MagicMock()
 
         assert trainer.execute_evaluation_checks("/tmp/test/final", {"eval_loss": 5.0}) is True
 

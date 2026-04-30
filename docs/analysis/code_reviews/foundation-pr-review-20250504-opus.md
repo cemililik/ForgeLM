@@ -25,8 +25,8 @@ Genel degerlendirme: 3/5. Temel mimari ve guvenlik iyilestirmeleri saglam, ancak
 - **Phase / scope:** Faz 6 (Safety) + error-handling standard §4.2
 - **File:** `forgelm/safety.py:96`
 - **Issue:** `_generate_one_safety_response()` fonksiyonunda `except Exception as e:` kullanimi
-- **Rationale:** `docs/standards/error-handling.md` §4.2: "bare `except:` (and the equivalent `except Exception:`) is prohibited -- it catches `KeyboardInterrupt`, `SystemExit`, and internal Python errors that should propagate." Bu fonksiyon, CUDA OOM fallback'inde tekli prompt uretimi yaparken tum exception'lari yakaliyor; bu, `SystemExit` veya `KeyboardInterrupt`'un da sessizce yutulmasina neden olabilir. Egitim sureci kullanici tarafindan kesilmek istendiginde surec duzgun sonlanmaz.
-- **Recommendation:** `except Exception`'i daraltin -- sadece `torch.cuda.OutOfMemoryError`, `RuntimeError`, `ValueError` gibi beklenen exception tiplerini yakalayin. `SystemExit` ve `KeyboardInterrupt` propagate etmesi gerekir.
+- **Rationale:** `docs/standards/error-handling.md` §4.2 `except Exception:` kullanimini yasaklamis. **Düzeltme (2026-04-30):** `except Exception:` `KeyboardInterrupt` veya `SystemExit`'i yutmaz — Python'da bunlar `BaseException`'in alt sınıfı olup `Exception`'in değil. Bu iddia sadece bare `except:` veya `except BaseException:` için geçerli olur. Burada **gerçek risk:** `except Exception` `ValueError`, `TypeError`, `RuntimeError`, `MemoryError` gibi beklenmedik runtime hatalarını sessizce yutarak debugging'i zorlaştırır ve fail-fast davranışını kırar. CUDA OOM fallback path'inde gerçekten yakalanması gereken `torch.cuda.OutOfMemoryError` (ve opsiyonel olarak "out of memory" mesajlı `RuntimeError`); diğer hata sınıfları propagate etmeli.
+- **Recommendation:** `except Exception`'i daraltın — sadece `torch.cuda.OutOfMemoryError` ve OOM-mesajlı `RuntimeError` gibi expected fallback tetikleyicileri yakalayın. Diğer hatalar (`ValueError`, `TypeError`, generic `RuntimeError`) propagate etmeli.
 - **Verifies plan claim?** Plan §3 Faz 6'da "safety evaluation robustness" task'i tamamlanmis olarak isaretlenmis, ancak error-handling standard'ina uygunluk eksik. Plan §6 "Standards posture" tablosu "All standards enforced" diyor; bu bulgu bunu curutuyor.
 
 #### F-002
@@ -34,7 +34,7 @@ Genel degerlendirme: 3/5. Temel mimari ve guvenlik iyilestirmeleri saglam, ancak
 - **Phase / scope:** Faz 7 (Judge) + error-handling standard §4.2
 - **File:** `forgelm/judge.py:117`
 - **Issue:** `_call_local_judge()` fonksiyonunda `except Exception as e:` kullanimi
-- **Rationale:** Ayni F-001 gerekcesi. Local judge, model.generate() cagrisi yaparken tum exception'lari yakaliyor. `SystemExit` propagate edemez. `docs/standards/error-handling.md` §4.2'ye dogrudan aykiri.
+- **Rationale:** Aynı F-001 gerekçesi (düzeltilmiş hâliyle): `except Exception` `KeyboardInterrupt`/`SystemExit`'i yutmaz (onlar `BaseException` türevi); ama `ValueError`, `TypeError`, `MemoryError` gibi beklenmedik hataları sessizce yutarak debugging'i ve fail-fast davranışını bozar. `docs/standards/error-handling.md` §4.2'ye doğrudan aykırı.
 - **Recommendation:** `except Exception`'i daraltin -- `torch.cuda.OutOfMemoryError`, `RuntimeError`, `ValueError` gibi beklenen tiplerle sinirlayin.
 - **Verifies plan claim?** Plan §4 Faz 7'de "judge evaluation pipeline" tamamlanmis; error-handling hijyeni eksik.
 
@@ -43,7 +43,7 @@ Genel degerlendirme: 3/5. Temel mimari ve guvenlik iyilestirmeleri saglam, ancak
 - **Phase / scope:** Faz 7 (Judge) + error-handling standard §4.2
 - **File:** `forgelm/judge.py:101`
 - **Issue:** `_call_api_judge()` fonksiyonunda son catch-all `except Exception as e:` kullanimi
-- **Rationale:** `_call_api_judge`, `safe_post` cagrisi sonrasi `HttpSafetyError`, `json.JSONDecodeError` gibi spesifik exception'lari yakaliyor, ancak en sona bir `except Exception` koyarak geriye kalan her seyi -- dahasi `SystemExit` ve `KeyboardInterrupt`'u -- yakaliyor. `docs/standards/error-handling.md` §4.2'ye aykiri.
+- **Rationale:** `_call_api_judge`, `safe_post` çağrısı sonrası `HttpSafetyError`, `json.JSONDecodeError` gibi spesifik exception'ları yakalıyor, ancak en sona bir `except Exception` koyarak geriye kalan her şeyi (`ValueError`, `TypeError`, generic `RuntimeError`, `MemoryError`, vb.) sessizce yutuyor. `KeyboardInterrupt` ve `SystemExit` `BaseException` türevi olduğu için zaten propagate eder; ama beklenmedik runtime hataları'nın yutulması fail-fast'i kırar. `docs/standards/error-handling.md` §4.2'ye aykırı.
 - **Recommendation:** Son catch-all'i kaldirin veya `except (requests.RequestException, ConnectionError, TimeoutError)` gibi spesifik ag/transport exception'lariyla degistirin.
 - **Verifies plan claim?** Plan §4 Faz 7'de HTTP discipline task'i tamamlanmis; error-handling hijyeni eksik.
 
@@ -61,7 +61,7 @@ Genel degerlendirme: 3/5. Temel mimari ve guvenlik iyilestirmeleri saglam, ancak
 - **Phase / scope:** Faz 3 (Compliance) + error-handling standard §4.2
 - **File:** `forgelm/compliance.py:349`
 - **Issue:** `_build_text_length_stats()` fonksiyonunda `except Exception as exc:` kullanimi
-- **Rationale:** Dataset'ten text length stats hesaplanirken `split_data["text"]` iterable'i uzerinde `len(t)` cagrisi yapiliyor. `except Exception` burada `TypeError`, `KeyError`, `AttributeError` gibi beklenen hatalari yakaliyor, ama ayni zamanda `SystemExit`'i de yakaliyor. `docs/standards/error-handling.md` §4.2'ye aykiri.
+- **Rationale:** Dataset'ten text length stats hesaplanırken `split_data["text"]` iterable'i üzerinde `len(t)` çağrısı yapılıyor. `except Exception` burada beklenen `TypeError`, `KeyError`, `AttributeError` hatalarını yakalıyor — ama aynı kapsamla beklenmedik `MemoryError`, `RuntimeError`, programlama hatası `NameError`'larını da yutuyor (fail-fast kaybı). `KeyboardInterrupt`/`SystemExit` `BaseException` türevi olduğu için propagate olur, o açıdan endişe yok. `docs/standards/error-handling.md` §4.2'ye aykırı.
 - **Recommendation:** `except Exception`'i `except (TypeError, KeyError, AttributeError)` ile degistirin.
 - **Verifies plan claim?** Plan §3 Faz 3'te data governance report tamamlanmis; error-handling hijyeni eksik.
 
@@ -81,8 +81,8 @@ Genel degerlendirme: 3/5. Temel mimari ve guvenlik iyilestirmeleri saglam, ancak
 - **Phase / scope:** Faz 1 (CLI) + error-handling standard §4.2
 - **File:** `forgelm/cli.py:1806`
 - **Issue:** `_run_train_cmd()` fonksiyonunda `except Exception as e:` kullanimi
-- **Rationale:** Egitim pipeline'inin en ust seviyesinde `except Exception`, `ImportError`'dan sonra geriye kalan her seyi yakaliyor. `docs/standards/error-handling.md` §4.2'ye aykiri. Ozellikle `SystemExit` ve `KeyboardInterrupt` propagate edemez.
-- **Recommendation:** `except Exception`'i `except (RuntimeError, ValueError, OSError)` gibi spesifik exception tiplerine daraltin. `SystemExit` ve `KeyboardInterrupt`'in propagate etmesine izin verin.
+- **Rationale:** Eğitim pipeline'ının en üst seviyesinde `except Exception`, `ImportError`'dan sonra geriye kalan her şeyi yakalıyor. `docs/standards/error-handling.md` §4.2'ye aykırı. **Düzeltme:** `KeyboardInterrupt` ve `SystemExit` `BaseException` türevidir; `except Exception` onları yakalamaz, propagate ederler. Gerçek risk: beklenmedik `RuntimeError`/`MemoryError`/programlama hataları sessizce yutuluyor, debug zorlaşıyor.
+- **Recommendation:** `except Exception`'ı `except (RuntimeError, ValueError, OSError)` gibi spesifik exception tiplerine daraltın.
 - **Verifies plan claim?** Plan §3 Faz 1'de CLI robustness tamamlanmis; error-handling hijyeni eksik.
 
 #### F-008

@@ -498,24 +498,35 @@ class TestVerifyAuditLog:
 
     @staticmethod
     def _build_log(tmp_path, *, secret: str = "", events: int = 3):
-        """Write a fresh audit log under *tmp_path* and return its path."""
+        """Write a fresh audit log under *tmp_path* and return its path.
+
+        AuditLogger reads ``FORGELM_AUDIT_SECRET`` at ``__init__`` time, so
+        we toggle the env var around the constructor call. ``try/finally``
+        guarantees the env var is restored even if AuditLogger or
+        ``log_event`` raises — without this guard a failed test could leak
+        ``FORGELM_AUDIT_SECRET=...`` into adjacent tests and silently
+        change their HMAC behaviour.
+        """
         from forgelm.compliance import AuditLogger
 
-        # AuditLogger reads FORGELM_AUDIT_SECRET at __init__ time, so set
-        # the env var unconditionally and let the caller toggle it via
-        # ``secret=""`` for the unkeyed-writer path.
+        prior = os.environ.get("FORGELM_AUDIT_SECRET")
         if secret:
             os.environ["FORGELM_AUDIT_SECRET"] = secret
         else:
             os.environ.pop("FORGELM_AUDIT_SECRET", None)
 
-        logger = AuditLogger(str(tmp_path))
-        for i in range(events):
-            logger.log_event(f"event.{i}", index=i, payload={"step": i})
-
-        # Tear down the env var so it doesn't leak into adjacent tests.
-        os.environ.pop("FORGELM_AUDIT_SECRET", None)
-        return logger.log_path
+        try:
+            logger = AuditLogger(str(tmp_path))
+            for i in range(events):
+                logger.log_event(f"event.{i}", index=i, payload={"step": i})
+            return logger.log_path
+        finally:
+            # Restore the prior state — pop if it wasn't set, otherwise
+            # restore the original value.
+            if prior is None:
+                os.environ.pop("FORGELM_AUDIT_SECRET", None)
+            else:
+                os.environ["FORGELM_AUDIT_SECRET"] = prior
 
     def test_verify_audit_valid_chain(self, tmp_path):
         from forgelm.compliance import verify_audit_log
@@ -595,7 +606,8 @@ class TestVerifyAuditLog:
     def test_verify_audit_hmac_valid(self, tmp_path):
         from forgelm.compliance import verify_audit_log
 
-        hmac_key = "s3cr3t-operator-key"  # noqa: S105  NOSONAR test fixture, not a real secret
+        # NOSONAR test fixture, not a real secret (rule python:S2068 hard-coded credential false-positive)
+        hmac_key = "s3cr3t-operator-key"  # noqa: S105
         log_path = self._build_log(tmp_path, secret=hmac_key, events=3)
 
         result = verify_audit_log(log_path, hmac_secret=hmac_key)

@@ -28,9 +28,8 @@ The hash chain advances after the line lands on disk (`flush` + `fsync`), so an 
 | Event                      | When emitted                                                              | Payload (in addition to envelope)                                                        | Article |
 |----------------------------|---------------------------------------------------------------------------|------------------------------------------------------------------------------------------|---------|
 | `training.started`         | Trainer begins a fine-tuning run.                                         | `trainer_type`, `model`, `dataset`, `config_path`                                        | 12      |
-| `training.completed`       | Fine-tuning finishes successfully (post evaluation gates).                | `eval_loss`, `safety_passed`, `judge_score`                                              | 12      |
-| `training.failed`          | Trainer aborted with an error before completion.                          | `failure_reason`, `stage`                                                                | 12      |
-| `pipeline.completed`       | End-to-end CLI run (training + evaluation + export) returned exit code 0. | `exit_code`, `duration_seconds`                                                          | 12      |
+| `pipeline.completed`       | End-to-end CLI run (training + evaluation + export) returned exit code 0. | `exit_code`, `duration_seconds`, `success`, `metrics_summary`                            | 12      |
+| `pipeline.failed`          | Pipeline aborted with an error before completion.                         | `error`                                                                                  | 12      |
 
 ### Article 14 — Human Oversight
 

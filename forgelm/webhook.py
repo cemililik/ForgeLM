@@ -125,9 +125,14 @@ class WebhookNotifier:
             logger.warning("Webhook connection failed for event '%s' (url=%s).", event, masked_url)
             return
         except requests.RequestException:
-            logger.exception("Unexpected error sending webhook notification for event '%s'.", event)
-            return
-        except Exception:
+            # ``requests.RequestException`` is the base of the library's
+            # transport-error hierarchy (Timeout / ConnectionError / SSLError
+            # / TooManyRedirects / etc.) so this single catch covers every
+            # network-shaped failure after the more-specific clauses above.
+            # We deliberately do **not** add a trailing ``except Exception:``
+            # — programming bugs (TypeError, ValueError, attribute errors in
+            # payload construction) should propagate so they surface in
+            # tests rather than being silently absorbed by the webhook path.
             logger.exception("Unexpected error sending webhook notification for event '%s'.", event)
             return
 

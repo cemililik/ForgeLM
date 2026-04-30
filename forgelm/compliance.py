@@ -79,7 +79,7 @@ class AuditLogger:
         else:
             try:
                 username = getpass.getuser()
-            except Exception:
+            except OSError:
                 # ``getpass.getuser()`` raises ``OSError`` on systems where
                 # neither ``LOGNAME``/``USER``/``LNAME``/``USERNAME`` env vars
                 # nor the ``pwd`` lookup resolves an identity (rootless
@@ -547,16 +547,32 @@ def _fingerprint_hf_revision(dataset_path: str, fingerprint: Dict[str, Any]) -> 
     The only stable identifier that lets Article 10 reviewers reproduce
     the exact corpus the model was trained on. ``HfApi.dataset_info`` is
     part of the always-installed ``huggingface_hub`` (pulled in by
-    ``datasets``); the catch is narrow so genuine bugs still surface.
+    ``datasets``).
+
+    Two-layer error handling so the failure mode is informative:
+
+    1. Module import is guarded separately — if ``huggingface_hub`` is
+       missing it's an environment issue, not a transient API hiccup.
+    2. The actual ``dataset_info`` call uses a broad ``Exception`` catch
+       (with ``# noqa: BLE001`` justification) because the HF Hub client
+       surface raises a long tail of error types (``HfHubHTTPError``,
+       ``RepositoryNotFoundError``, ``RevisionNotFoundError``, plus the
+       transport ``OSError``/``ValueError`` family). Enumerating them
+       couples ``compliance.py`` to ``huggingface_hub`` internals;
+       failing best-effort is the documented contract.
     """
     try:
         from huggingface_hub import HfApi
+    except ImportError as e:
+        logger.debug("HF Hub revision pin skipped for '%s' — huggingface_hub not installed: %s", dataset_path, e)
+        return
 
+    try:
         info = HfApi().dataset_info(dataset_path)
         revision_sha = getattr(info, "sha", None)
         if revision_sha:
             fingerprint["hf_revision"] = revision_sha
-    except (ImportError, OSError, ValueError) as e:
+    except Exception as e:  # noqa: BLE001 — best-effort revision pin; HF Hub surface raises a wide error tail
         logger.debug("HF Hub revision pin skipped for '%s': %s", dataset_path, e)
 
 

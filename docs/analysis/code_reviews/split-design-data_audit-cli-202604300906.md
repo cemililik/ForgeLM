@@ -496,9 +496,9 @@ if __name__ == "__main__":
 
 ### 2.f Migration sequence (cli)
 
-| PR | Files extracted | Test impact | Effort | Risk |
-|---|---|---|---|---|
-| **C-1** Extract `_exit_codes.py`, `_logging.py`, `_argparse_types.py`, `_resume.py`, `_result.py` | Tests: no change (re-exports cover them). | 0.5 day | Very low | |
+| PR + files extracted | Test impact | Effort | Risk |
+|---|---|---|---|
+| **C-1** Extract `_exit_codes.py`, `_logging.py`, `_argparse_types.py`, `_resume.py`, `_result.py` | Tests: no change (re-exports cover them). | 0.5 day | Very low |
 | **C-2** Extract `_parser.py` (move all registrars + `parse_args`) | Tests: `--help` snapshot test (new — Section 4) MUST go green; `test_smoke.py::parse_args` import keeps working through `__init__.py`. | 1 day | Medium — registrars must be moved verbatim including help-string text to keep `--help` byte-identical. |
 | **C-3** Extract `_dry_run.py`, `_fit_check.py`, `_no_train_modes.py`, `_wizard.py`, `_config_load.py`, `_training.py` | Tests: `_run_dry_run`, `_run_fit_check`, `_run_compliance_export` must still resolve at `forgelm.cli`. Re-exports cover this. | 0.75 day | Low |
 | **C-4** Create `subcommands/` package and extract `_chat.py`, `_export.py`, `_deploy.py`, `_ingest.py` | No test changes. | 0.75 day | Low |

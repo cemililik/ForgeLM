@@ -487,7 +487,7 @@ class ForgeTrainer:
         if math.isnan(final_loss) or math.isinf(final_loss):
             reason = f"eval_loss is {final_loss} (NaN or Inf) — training diverged."
             logger.error("EVALUATION FAILED: %s", reason)
-            self._revert_model(final_path, reason)
+            self._revert_model(final_path, reason, source="nan_inf")
             return False
 
         # Two independent checks:
@@ -502,7 +502,7 @@ class ForgeTrainer:
         if failed_reasons:
             reason = " ".join(failed_reasons)
             logger.error("EVALUATION FAILED: %s", reason)
-            self._revert_model(final_path, reason)
+            self._revert_model(final_path, reason, source="threshold")
             return False
 
         # Log success with improvement details
@@ -519,8 +519,32 @@ class ForgeTrainer:
 
         return True
 
-    def _revert_model(self, final_path: str, reason: str) -> None:
-        """Delete generated model artifacts and notify."""
+    def _revert_model(self, final_path: str, reason: str, *, source: str = "evaluation") -> None:
+        """Delete generated model artifacts, emit audit event, and notify webhook.
+
+        Centralises the revert flow so every code path that triggers a revert
+        produces both:
+        1. ``_EVT_REVERT_TRIGGERED`` audit event (Article 12 record-keeping
+           — operator-side governance can correlate "model.reverted" webhook
+           ↔ audit entry by ``run_id`` + timestamp).
+        2. ``training.reverted`` webhook lifecycle event (Faz 8 — dashboards).
+
+        Prior to this refactor only ``benchmark``, ``safety``, and ``judge``
+        gates emitted the audit event — the NaN/Inf and threshold paths
+        inside ``execute_evaluation_checks`` reverted silently from the
+        audit log. Foundation PR review I2 closure.
+
+        Args:
+            final_path: Filesystem path of the artifacts to delete.
+            reason: Human-readable failure reason (free-form).
+            source: Gate name ("evaluation", "benchmark", "safety", "judge",
+                "nan_inf", "threshold") for the audit-event ``reason`` field.
+                The webhook payload also includes this in the masked reason.
+        """
+        # Article 12 audit trail — emit before destructive action so the
+        # record exists even if the rmtree below explodes.
+        self.audit.log_event(_EVT_REVERT_TRIGGERED, reason=source, detail=reason)
+
         logger.warning("Auto-revert enabled. Deleting generated artifacts at %s...", final_path)
         if os.path.exists(final_path):
             try:
@@ -790,8 +814,7 @@ class ForgeTrainer:
         if not (self.config.evaluation and self.config.evaluation.auto_revert):
             # Failure recorded on train_result; pipeline continues to safety/judge stages.
             return True
-        self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="benchmark", detail=reason)
-        self._revert_model(final_path, reason)
+        self._revert_model(final_path, reason, source="benchmark")
         train_result.success = False
         train_result.reverted = True
         return False
@@ -833,8 +856,7 @@ class ForgeTrainer:
         )
         if safety_result.passed or not (self.config.evaluation and self.config.evaluation.auto_revert):
             return True
-        self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="safety", detail=safety_result.failure_reason)
-        self._revert_model(final_path, safety_result.failure_reason or "Safety check failed.")
+        self._revert_model(final_path, safety_result.failure_reason or "Safety check failed.", source="safety")
         train_result.success = False
         train_result.reverted = True
         return False
@@ -859,8 +881,7 @@ class ForgeTrainer:
         )
         if judge_result.passed or not (self.config.evaluation and self.config.evaluation.auto_revert):
             return True
-        self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="judge", detail=judge_result.failure_reason)
-        self._revert_model(final_path, judge_result.failure_reason or "Judge score below threshold.")
+        self._revert_model(final_path, judge_result.failure_reason or "Judge score below threshold.", source="judge")
         train_result.success = False
         train_result.reverted = True
         return False

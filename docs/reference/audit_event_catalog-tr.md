@@ -28,9 +28,8 @@ Hash zinciri, satır diske düştükten (`flush` + `fsync`) sonra ilerler; kirli
 | Event                      | Ne zaman emit edilir                                                            | Payload (zarfa ek olarak)                                                          | Madde |
 |----------------------------|---------------------------------------------------------------------------------|-------------------------------------------------------------------------------------|-------|
 | `training.started`         | Trainer fine-tuning koşusunu başlatır.                                          | `trainer_type`, `model`, `dataset`, `config_path`                                  | 12    |
-| `training.completed`       | Fine-tuning başarıyla tamamlanır (değerlendirme kapıları sonrası).              | `eval_loss`, `safety_passed`, `judge_score`                                        | 12    |
-| `training.failed`          | Trainer tamamlanmadan bir hata ile iptal olur.                                  | `failure_reason`, `stage`                                                          | 12    |
-| `pipeline.completed`       | Uçtan uca CLI koşusu (eğitim + değerlendirme + dışa aktarma) 0 koduyla biter.   | `exit_code`, `duration_seconds`                                                    | 12    |
+| `pipeline.completed`       | Uçtan uca CLI koşusu (eğitim + değerlendirme + dışa aktarma) 0 koduyla biter.   | `exit_code`, `duration_seconds`, `success`, `metrics_summary`                      | 12    |
+| `pipeline.failed`          | Pipeline tamamlanmadan bir hata ile iptal olur.                                 | `error`                                                                            | 12    |
 
 ### Madde 14 — İnsan Gözetimi
 
