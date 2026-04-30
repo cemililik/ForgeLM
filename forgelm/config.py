@@ -292,6 +292,22 @@ class EvaluationConfig(BaseModel):
     safety: Optional[SafetyConfig] = None  # post-training safety evaluation
     llm_judge: Optional[JudgeConfig] = None  # LLM-as-Judge scoring
     require_human_approval: bool = False  # Art. 14: pause pipeline for human review before final save
+    # ``final_model.staging/`` retention horizon for `forgelm reject` paths.
+    # Documented now (v0.5.5) so operators can plan their evidence-preservation
+    # policy; auto-deletion enforcement is deferred to Phase 21 (GDPR
+    # right-to-erasure) where it lands alongside the broader retention
+    # framework. Setting the value today has no runtime effect — it is
+    # surfaced in the compliance manifest so reviewers can audit the policy.
+    staging_ttl_days: int = Field(
+        default=7,
+        ge=0,
+        description=(
+            "Article 14: number of days to retain `final_model.staging/` after a "
+            "`forgelm reject` decision before scheduled cleanup. Zero means retain "
+            "indefinitely. Auto-deletion enforcement is deferred to Phase 21 "
+            "(GDPR right-to-erasure)."
+        ),
+    )
 
 
 class RiskAssessmentConfig(BaseModel):

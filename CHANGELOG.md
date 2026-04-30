@@ -13,6 +13,68 @@ All notable changes to ForgeLM are documented here.
 > Per-PR CHANGELOG entries below collapse into the v0.5.5 release
 > notes at tag time.
 
+### Added — Wave 1 closure (Faz 9, 11, 12, 13, 25, 31, 32 — see PR description)
+
+- **Article 14 staging directory + `forgelm approve` / `forgelm reject` (Faz 9)** —
+  When `evaluation.require_human_approval=true`, the trainer now saves the
+  final adapters to `final_model.staging/` instead of writing to
+  `final_model/` before review. Two new CLI subcommands manage the gate:
+  `forgelm approve <run_id> --output-dir <dir>` atomically renames
+  `final_model.staging/` → `final_model/` (with a `shutil.move` fallback on
+  cross-device output mounts) and emits a `human_approval.granted` audit
+  event plus a `notify_success` webhook; `forgelm reject <run_id>` records a
+  `human_approval.rejected` event and leaves the staging directory in place
+  for forensic review. Both commands resolve the approver identity via
+  `FORGELM_OPERATOR` → `getpass.getuser()` → `"anonymous"`, mirroring
+  `AuditLogger.operator`. The `human_approval.required` audit event payload
+  now also carries `staging_path` and `run_id` so downstream tooling can
+  cross-check the approval against the originating run.
+- **`evaluation.staging_ttl_days` config field (Faz 9)** — documents the
+  retention horizon for `final_model.staging/` after a `forgelm reject`;
+  default 7 days. Auto-deletion enforcement is deferred to Phase 21
+  (GDPR right-to-erasure); v0.5.5 surfaces the policy in the compliance
+  manifest only.
+- **`forgelm.wizard._print` indirection (Faz 11)** — 85 `print()` calls
+  replaced with a testable `_print()` helper (mirrors the chat.py pattern).
+  Coverage omit list emptied; wizard is now visible to coverage measurement.
+  Closes F-code-105, F-test-003, F-code-019.
+- **`tests/_helpers/factories.py` (Faz 12)** — single canonical
+  `minimal_config(**overrides)` factory replaces 4 scattered local
+  `_minimal_config` definitions and 7 `from conftest import` indirections.
+  Closes F-test-004, F-test-005, F-code-015.
+- **`forgelm --data-audit` deprecation (Faz 13)** — legacy flag emits
+  `DeprecationWarning` + a `cli.legacy_flag_invoked` audit event;
+  scheduled for removal in v0.7.0. Closes F-code-107, F-business-024.
+- **6 enum-shaped config fields tightened to `Literal[...]` (Faz 10)** —
+  `LoraConfig.bias`, `DistributedConfig.fsdp_backward_prefetch` /
+  `fsdp_state_dict_type`, `SafetyConfig.scoring`,
+  `ComplianceMetadataConfig.risk_classification`, `TrainingConfig.galore_optim` /
+  `galore_proj_type`. Pydantic now validates whitelist at parse time;
+  bespoke runtime validators removed. Closes F-code-101, F-compliance-105.
+- **`tools/check_site_claims.py` (Faz 25)** — site-as-tested-surface CI
+  guard; AST-parses `forgelm/compliance.py`, `forgelm/quickstart.py`,
+  `forgelm/trainer.py`, `pyproject.toml` and diffs against site HTML to
+  catch claim/code drift. Wired into `ci.yml` (`--strict` mode).
+- **`docs/standards/localization.md` "Supported languages" section (Faz 25)**
+  — codifies that EN+TR are authored at site AND user-manual levels, while
+  DE/FR/ES/ZH are site-translated only and the user-manual side falls back
+  to English via the i18n chain. Closes F-loc-001, F-loc-003, Theme α.
+- **`.github/workflows/publish.yml` cross-OS release matrix (Faz 31)** —
+  tag-driven `build → cross-os-tests → publish` chain over 3 OS × 4 Python
+  = 12 combinations; packaged-wheel install (not editable); SBOM artifact
+  upload per combo; OIDC trusted publishing. Closes F-test-007.
+- **`tools/generate_sbom.py` (Faz 31)** — stdlib-only CycloneDX 1.5
+  emitter; called from each `cross-os-tests` matrix combo to produce a
+  per-OS-and-Python SBOM artifact.
+- **`.pre-commit-config.yaml` (Faz 32; optional)** — opt-in local hooks
+  (`ruff`, `ruff-format`, `gitleaks`, trailing-whitespace,
+  end-of-file-fixer, check-yaml/-toml, check-merge-conflict). CI keeps
+  enforcing the same checks; pre-commit is ergonomic optimization, not a
+  duplicate enforcement boundary. Closes F-test-008.
+- `tests/test_human_approval_gate.py` — 15 new tests covering the staging
+  → approve / reject flow, stale-staging detection, atomic-rename race,
+  cross-device move, audit chain integrity. Total suite: 951+ tests.
+
 ### Added — Foundation bundle (PR #19, Faz 1-8)
 
 - `forgelm verify-audit` subcommand + library function
@@ -97,6 +159,13 @@ All notable changes to ForgeLM are documented here.
   (same output, same exit codes). Tracking issue:
   [#&lt;TBD&gt;](https://github.com/cemililik/ForgeLM/issues/&lt;TBD&gt;) —
   to be opened for the v0.7.0 removal milestone.
+
+### Changed
+
+- `WebhookNotifier.notify_awaiting_approval(run_name, model_path)` is now
+  wired into the human-approval gate so an operator-facing webhook fires the
+  moment the model is staged. Receivers can opt out via
+  `webhook.notify_on_awaiting_approval=false`.
 
 ---
 
