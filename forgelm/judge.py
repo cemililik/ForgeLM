@@ -160,6 +160,56 @@ def _generate_response(model: Any, tokenizer: Any, prompt: str, max_new_tokens: 
         return ""
 
 
+def _generate_batch_with_oom_retry(
+    model: Any,
+    tokenizer: Any,
+    batch: List[str],
+    batch_start: int,
+    max_new_tokens: int,
+) -> List[str]:
+    """Run one batch; on CUDA OOM or any other generation error fall back to per-prompt.
+
+    Extracted from ``_generate_responses_batched`` to keep the outer loop
+    linear (cognitive-complexity ceiling) and to make the OOM/retry policy
+    independently testable.
+    """
+    import torch
+
+    try:
+        inputs = tokenizer(
+            batch,
+            return_tensors="pt",
+            truncation=True,
+            max_length=1024,
+            padding="longest",
+        )
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        with torch.no_grad():
+            outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+        prompt_len = inputs["input_ids"].shape[1]
+        return [tokenizer.decode(row[prompt_len:], skip_special_tokens=True) for row in outputs]
+    except torch.cuda.OutOfMemoryError as e:
+        logger.warning(
+            "CUDA OOM on judge-generation batch of %d (start=%d). Falling back to single-prompt generation: %s",
+            len(batch),
+            batch_start,
+            e,
+        )
+        try:
+            torch.cuda.empty_cache()
+        except RuntimeError:
+            pass
+        return [_generate_response(model, tokenizer, p, max_new_tokens) for p in batch]
+    except Exception as e:
+        logger.warning(
+            "Judge-generation batch failed (start=%d, size=%d), retrying per-prompt: %s",
+            batch_start,
+            len(batch),
+            e,
+        )
+        return [_generate_response(model, tokenizer, p, max_new_tokens) for p in batch]
+
+
 def _generate_responses_batched(
     model: Any,
     tokenizer: Any,
@@ -170,14 +220,9 @@ def _generate_responses_batched(
     """Batched fine-tuned-model generation for the judge eval set.
 
     Pads to longest in the batch (left-padded for decoder-only generation)
-    and falls back to per-prompt generation on CUDA OOM so a tight VRAM
-    budget can't blank out the entire run.
+    and delegates per-batch error handling to
+    :func:`_generate_batch_with_oom_retry`.
     """
-    import torch
-
-    if batch_size <= 0:
-        batch_size = 1
-
     if getattr(tokenizer, "pad_token", None) is None and getattr(tokenizer, "eos_token", None) is not None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -188,42 +233,7 @@ def _generate_responses_batched(
     try:
         for batch_start in range(0, len(prompts), batch_size):
             batch = prompts[batch_start : batch_start + batch_size]
-            try:
-                inputs = tokenizer(
-                    batch,
-                    return_tensors="pt",
-                    truncation=True,
-                    max_length=1024,
-                    padding="longest",
-                )
-                inputs = {k: v.to(model.device) for k, v in inputs.items()}
-                with torch.no_grad():
-                    outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
-                prompt_len = inputs["input_ids"].shape[1]
-                for row in outputs:
-                    responses.append(tokenizer.decode(row[prompt_len:], skip_special_tokens=True))
-            except torch.cuda.OutOfMemoryError as e:
-                logger.warning(
-                    "CUDA OOM on judge-generation batch of %d (start=%d). Falling back to single-prompt generation: %s",
-                    len(batch),
-                    batch_start,
-                    e,
-                )
-                try:
-                    torch.cuda.empty_cache()
-                except RuntimeError:
-                    pass
-                for prompt in batch:
-                    responses.append(_generate_response(model, tokenizer, prompt, max_new_tokens))
-            except Exception as e:
-                logger.warning(
-                    "Judge-generation batch failed (start=%d, size=%d), retrying per-prompt: %s",
-                    batch_start,
-                    len(batch),
-                    e,
-                )
-                for prompt in batch:
-                    responses.append(_generate_response(model, tokenizer, prompt, max_new_tokens))
+            responses.extend(_generate_batch_with_oom_retry(model, tokenizer, batch, batch_start, max_new_tokens))
     finally:
         tokenizer.padding_side = original_padding_side
 

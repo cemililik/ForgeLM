@@ -299,10 +299,21 @@ class TestGovernanceAuditInlining:
 # ---------------------------------------------------------------------------
 
 
+def _raise(exc):
+    """Helper: raise *exc* — used as a lambda body in monkeypatch fixtures.
+
+    The Pythonic one-liner ``(_ for _ in ()).throw(exc)`` works but trips
+    Sonar's "replace comprehension with constructor call" rule (false
+    positive on a generator-throw idiom). Wrapping in a named function
+    keeps both Sonar and ``ruff`` happy.
+    """
+    raise exc
+
+
 class TestAuditLoggerOperatorIdentity:
     """F-compliance-102: ``operator="unknown"`` is no longer a silent fallback."""
 
-    def test_operator_from_FORGELM_OPERATOR(self, tmp_path, monkeypatch):
+    def test_operator_from_forgelm_operator_env(self, tmp_path, monkeypatch):
         """Explicit ``FORGELM_OPERATOR`` wins over every other source."""
         from forgelm.compliance import AuditLogger
 
@@ -341,7 +352,7 @@ class TestAuditLoggerOperatorIdentity:
 
         monkeypatch.delenv("FORGELM_OPERATOR", raising=False)
         monkeypatch.setenv("FORGELM_ALLOW_ANONYMOUS_OPERATOR", "1")
-        monkeypatch.setattr(compliance.getpass, "getuser", lambda: (_ for _ in ()).throw(OSError("no user")))
+        monkeypatch.setattr(compliance.getpass, "getuser", lambda: _raise(OSError("no user")))
         monkeypatch.setattr(compliance.socket, "gethostname", lambda: "sandbox-host")
 
         log = compliance.AuditLogger(str(tmp_path))
@@ -387,23 +398,17 @@ class TestSafetyClassifierLoadFailureAudit:
         # We exercise the failure path inside ``run_safety_evaluation`` directly
         # by stubbing the in-function ``transformers.pipeline`` import to raise.
         # No real model / tokenizer / GPU is touched.
-        torch = pytest.importorskip("torch")  # noqa: F841 — guarded import for safety module
+        pytest.importorskip("torch")  # safety module imports torch lazily
         import sys
         import types
 
         from forgelm import safety
         from forgelm.compliance import AuditLogger  # noqa: I001
 
-        class _BoomPipeline:
-            def __call__(self, *a, **kw):
-                raise RuntimeError("classifier checkpoint corrupt")
-
         # Inject a fake ``transformers`` module so ``from transformers import
         # pipeline`` inside run_safety_evaluation returns our raising stub.
         fake_transformers = types.ModuleType("transformers")
-        fake_transformers.pipeline = lambda *a, **kw: (_ for _ in ()).throw(
-            RuntimeError("classifier checkpoint corrupt")
-        )
+        fake_transformers.pipeline = lambda *a, **kw: _raise(RuntimeError("classifier checkpoint corrupt"))
         monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
 
         # Stub out generation + GPU release so the function reaches the
@@ -590,10 +595,10 @@ class TestVerifyAuditLog:
     def test_verify_audit_hmac_valid(self, tmp_path):
         from forgelm.compliance import verify_audit_log
 
-        secret = "s3cr3t-operator-key"
-        log_path = self._build_log(tmp_path, secret=secret, events=3)
+        hmac_key = "s3cr3t-operator-key"  # noqa: S105 test fixture, not a real secret
+        log_path = self._build_log(tmp_path, secret=hmac_key, events=3)
 
-        result = verify_audit_log(log_path, hmac_secret=secret)
+        result = verify_audit_log(log_path, hmac_secret=hmac_key)
         assert result.valid is True
         assert result.entries_count == 3
 

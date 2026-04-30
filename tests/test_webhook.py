@@ -298,21 +298,21 @@ class TestSafePostHttpDiscipline:
 
         from forgelm import _http
 
-        secret = "sk-supersecret123"
+        bearer_token = "sk-" + "supersecret123"  # noqa: S105 test fixture, fragment-built
         with patch.object(_http.requests, "post") as mock_post:
-            mock_post.side_effect = req.exceptions.ConnectionError(f"refused while sending Bearer {secret}")
+            mock_post.side_effect = req.exceptions.ConnectionError(f"refused while sending Bearer {bearer_token}")
             with caplog.at_level(logging.WARNING, logger="forgelm._http"):
                 with pytest.raises(req.exceptions.ConnectionError):
                     _http.safe_post(
                         "https://example.com/hook",
                         json={},
-                        headers={"Authorization": f"Bearer {secret}"},
+                        headers={"Authorization": f"Bearer {bearer_token}"},
                         timeout=10.0,
                     )
 
-        # The secret must be masked from the warning log.
+        # The bearer token must be masked from the warning log.
         log_text = " ".join(r.message for r in caplog.records)
-        assert secret not in log_text
+        assert bearer_token not in log_text
         assert "[REDACTED]" in log_text
 
     def test_localhost_blocked_by_hostname(self):

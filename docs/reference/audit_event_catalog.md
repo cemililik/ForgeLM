@@ -68,10 +68,6 @@ The hash chain advances after the line lands on disk (`flush` + `fsync`), so an 
 | `audit.classifier_load_failed` | _(See Article 15 row above.)_                                                                     | `classifier`, `reason`               | 15      |
 | `audit.cross_run_continuity`   | First write of a second-or-later AuditLogger instance pointing at an existing log directory.      | `previous_chain_head`                | 12      |
 
-## Webhook events
-
-Webhook payloads (Slack / Teams) are a separate vocabulary scoped to operator notifications, not the regulatory record. They are _extended in Faz 8_ — see [logging-observability.md](../standards/logging-observability.md) for the canonical list. Webhook events are **not** appended to `audit_log.jsonl`; they ride the side-channel notification bus.
-
 ## Adding a new event
 
 1. Pick a dotted name following the existing namespaces (`training.*`, `compliance.*`, `audit.*`, `human_approval.*`, `model.*`, `cli.*`).
@@ -91,11 +87,13 @@ Webhook payloads (Slack / Teams) are a separate vocabulary scoped to operator no
 
 ## Webhook events
 
+Webhook payloads (Slack / Teams / generic HTTP) are a separate vocabulary scoped to operator notifications, not the regulatory record. Webhook events are **not** appended to `audit_log.jsonl`; they ride the side-channel notification bus. The canonical lifecycle vocabulary is also documented in [logging-observability.md](../standards/logging-observability.md).
+
 These five lifecycle events are the **only** events that webhook
-receivers (Slack, Teams, generic HTTP) should expect from
-`WebhookNotifier`. Each one mirrors a corresponding audit-log event so
-a downstream operator can correlate webhook ping → audit entry by
-`run_name` + timestamp. Implementation: `forgelm/webhook.py`.
+receivers should expect from `WebhookNotifier`. Each one mirrors a
+corresponding audit-log event so a downstream operator can correlate
+webhook ping → audit entry by `run_name` + timestamp. Implementation:
+`forgelm/webhook.py`.
 
 | Webhook `event` | Audit-log mirror | Trigger | Gated by | Required payload fields |
 |---|---|---|---|---|
@@ -160,6 +158,6 @@ Slack-compatible block — other receivers may ignore it.
 
 Webhook payloads are **transient**. They are not the audit record.
 Receivers that need long-term history should snapshot the audit JSONL
-(`<output_dir>/compliance/audit.jsonl`) rather than archiving webhook
+(`<output_dir>/compliance/audit_log.jsonl`) rather than archiving webhook
 traffic, because the audit log is the append-only hash-chained record
 and the webhook stream is best-effort.

@@ -68,10 +68,6 @@ Hash zinciri, satır diske düştükten (`flush` + `fsync`) sonra ilerler; kirli
 | `audit.classifier_load_failed` | _(Yukarıdaki Madde 15 satırına bakın.)_                                                                    | `classifier`, `reason`               | 15    |
 | `audit.cross_run_continuity`   | Mevcut bir log dizinine işaret eden ikinci-veya-sonraki AuditLogger örneğinin ilk yazımı.                  | `previous_chain_head`                | 12    |
 
-## Webhook event'leri
-
-Webhook payload'ları (Slack / Teams) operatör bildirimlerine kapsamlanmış ayrı bir sözlüktür, regülasyon kaydı değil. _Faz 8'de genişletilecek_ — kanonik liste için bkz. [logging-observability.md](../standards/logging-observability.md). Webhook event'leri `audit_log.jsonl`'a **eklenmez**; yan-kanal bildirim bus'ı üzerinde gider.
-
 ## Yeni bir event eklemek
 
 1. Mevcut isim alanlarını (`training.*`, `compliance.*`, `audit.*`, `human_approval.*`, `model.*`, `cli.*`) takip eden noktalı bir ad seçin.
@@ -88,14 +84,16 @@ Webhook payload'ları (Slack / Teams) operatör bildirimlerine kapsamlanmış ay
 | `flock(LOCK_EX)`         | Aynı dizini paylaşan eşzamanlı trainer'lardan iç içe yazımlar.                    | Evet (Unix); Windows'ta no-op.                    |
 | `flush` + `fsync`        | Buffer yazımı ile zincir ilerleme arasında güç-kesme / kernel-panic kaybı.        | Evet.                                             |
 | Satır başına HMAC-SHA-256| Log yeniden yazımı sonrası sahte yeniden imzalama.                                | Sadece `FORGELM_AUDIT_SECRET` set olduğunda.      |
+
 ## Webhook olayları
 
-Bu beş yaşam döngüsü olayı, webhook alıcılarının (Slack, Teams, jenerik
-HTTP) `WebhookNotifier`'dan beklemesi gereken **tek** olaylardır. Her
-biri, karşılık gelen bir denetim günlüğü olayını yansıtır; böylece
-aşağı akıştaki bir operatör webhook ping → denetim girdisi
-korelasyonunu `run_name` + zaman damgasıyla kurabilir. Uygulama:
-`forgelm/webhook.py`.
+Webhook payload'ları (Slack / Teams / jenerik HTTP) operatör bildirimlerine kapsamlanmış ayrı bir sözlüktür, regülasyon kaydı değil. Webhook olayları `audit_log.jsonl`'a **eklenmez**; yan-kanal bildirim bus'ı üzerinde gider. Kanonik yaşam döngüsü sözlüğü ayrıca [logging-observability.md](../standards/logging-observability.md)'da da belgelenmiştir.
+
+Bu beş yaşam döngüsü olayı, webhook alıcılarının `WebhookNotifier`'dan
+beklemesi gereken **tek** olaylardır. Her biri, karşılık gelen bir
+denetim günlüğü olayını yansıtır; böylece aşağı akıştaki bir operatör
+webhook ping → denetim girdisi korelasyonunu `run_name` + zaman
+damgasıyla kurabilir. Uygulama: `forgelm/webhook.py`.
 
 | Webhook `event` | Denetim günlüğü karşılığı | Tetikleyici | Kapı (gate) | Zorunlu payload alanları |
 |---|---|---|---|---|
@@ -163,6 +161,6 @@ ihtiyaç duyan olaylarda doldurulur. `attachments`, Slack uyumlu blok'tur
 
 Webhook payload'ları **geçicidir**. Denetim kaydı değildir. Uzun süreli
 geçmişe ihtiyaç duyan alıcılar, webhook trafiğini arşivlemek yerine
-denetim JSONL dosyasının (`<output_dir>/compliance/audit.jsonl`) anlık
+denetim JSONL dosyasının (`<output_dir>/compliance/audit_log.jsonl`) anlık
 görüntüsünü almalıdır; çünkü denetim günlüğü yalnız-eklenir
 hash-zincirli kayıttır ve webhook akışı en-iyi-çabadır (best-effort).

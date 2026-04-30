@@ -7,7 +7,9 @@ from urllib.parse import urlparse
 import requests
 
 from ._http import HttpSafetyError, safe_post
-from ._http import _is_private_destination as _is_private_destination  # re-export for back-compat
+from ._http import (
+    _is_private_destination as _is_private_destination,  # noqa: F401  re-export for back-compat (unused import is intentional — see Phase 7 closure)
+)
 
 logger = logging.getLogger("forgelm.webhook")
 

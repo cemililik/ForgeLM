@@ -135,7 +135,7 @@ class WebhookNotifier:
 1. **Webhooks never abort training.** A 500 from Slack is a warning, not a failure. Wrap the POST in `try/except requests.RequestException` and log at `WARNING`.
 2. **Timeout every request** (`timeout=10` minimum, `timeout=30` maximum).
 3. **Sanitize payload.** Never send API keys, full config contents, or sensitive data paths. Whitelist fields going into `payload`.
-4. **Lifecycle events:** `training.started`, `training.succeeded`, `training.failed`, `training.reverted`, `approval.required`. Same vocabulary as audit log.
+4. **Lifecycle events:** `training.start`, `training.success`, `training.failure`, `training.reverted`, `approval.required` — see the table below for the canonical list. Each webhook event mirrors a distinct audit-log event (e.g., webhook `training.start` ↔ audit `training.started`); the two vocabularies are paired but not identical because past-tense audit identifiers describe a finalized record while webhooks announce a state transition.
 5. **Retry:** Up to 3 times with exponential backoff. After that, audit-log the failure and move on.
 
 ### Webhook event vocabulary
@@ -172,7 +172,7 @@ formatting that other receivers may ignore.
 
 **Retention guidance:** Webhook payloads are transient — they are *not* the
 audit record. Receivers that need long-term history should snapshot the
-audit JSONL (`<output_dir>/compliance/audit.jsonl`) rather than archiving
+audit JSONL (`<output_dir>/compliance/audit_log.jsonl`) rather than archiving
 webhook traffic, because the audit log is the append-only hash-chained
 record and the webhook stream is best-effort.
 

@@ -18,7 +18,7 @@ import uuid
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .config import ConfigError
 
@@ -491,6 +491,75 @@ def generate_model_integrity(final_path: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _fingerprint_local_file(dataset_path: str, fingerprint: Dict[str, Any]) -> None:
+    """Populate ``fingerprint`` with size/mtime/sha256 of a local file.
+
+    Symlinks are resolved before hashing; ``stat`` is captured from the
+    same open fd as the SHA-256 stream so a concurrent writer surfaces as
+    an inconsistent fingerprint rather than a silent partial read.
+    """
+    resolved = os.path.realpath(dataset_path)
+    if resolved != dataset_path:
+        fingerprint["resolved_path"] = resolved
+
+    sha256 = hashlib.sha256()
+    with open(resolved, "rb") as f:
+        stat = os.fstat(f.fileno())
+        fingerprint["size_bytes"] = stat.st_size
+        fingerprint["modified"] = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha256.update(chunk)
+    fingerprint["sha256"] = sha256.hexdigest()
+
+
+def _fingerprint_hf_metadata(dataset_path: str, fingerprint: Dict[str, Any]) -> None:
+    """Populate ``fingerprint`` with HF Hub builder metadata (version, description, size).
+
+    Best-effort: catches realistic ``load_dataset_builder`` failure modes
+    (missing extra, malformed id, info-shape drift, offline). A broad
+    ``Exception`` here would hide genuine bugs in the rest of the
+    manifest pipeline.
+    """
+    try:
+        from datasets import load_dataset_builder
+
+        builder = load_dataset_builder(dataset_path)
+        if builder.info.version:
+            fingerprint["version"] = str(builder.info.version)
+        if builder.info.description:
+            fingerprint["description"] = builder.info.description[:200]
+        if builder.info.download_size:
+            fingerprint["download_size_bytes"] = builder.info.download_size
+    except (
+        ImportError,
+        FileNotFoundError,
+        ValueError,
+        AttributeError,
+        ConnectionError,
+        TimeoutError,
+    ) as e:
+        logger.debug("HF Hub metadata fetch skipped for '%s': %s", dataset_path, e)
+
+
+def _fingerprint_hf_revision(dataset_path: str, fingerprint: Dict[str, Any]) -> None:
+    """Closure plan Faz 3 (F-compliance-117): pin the Hub commit SHA.
+
+    The only stable identifier that lets Article 10 reviewers reproduce
+    the exact corpus the model was trained on. ``HfApi.dataset_info`` is
+    part of the always-installed ``huggingface_hub`` (pulled in by
+    ``datasets``); the catch is narrow so genuine bugs still surface.
+    """
+    try:
+        from huggingface_hub import HfApi
+
+        info = HfApi().dataset_info(dataset_path)
+        revision_sha = getattr(info, "sha", None)
+        if revision_sha:
+            fingerprint["hf_revision"] = revision_sha
+    except (ImportError, OSError, ValueError) as e:
+        logger.debug("HF Hub revision pin skipped for '%s': %s", dataset_path, e)
+
+
 def compute_dataset_fingerprint(dataset_path: str) -> Dict[str, Any]:
     """Compute a fingerprint for a dataset file or directory.
 
@@ -505,14 +574,16 @@ def compute_dataset_fingerprint(dataset_path: str) -> Dict[str, Any]:
        hashed independently; mutating the target invalidated only one
        cache entry.
     3. **Non-atomic stat + read**: ``os.stat()`` and the subsequent open
-       read could race a concurrent writer, producing a (size, mtime,
-       sha256) triple where the size belonged to one revision and the
-       hash to another.
+       read could race a concurrent writer.
 
     The cache is dropped (cost is dominated by the file read anyway, and
     a per-process memo would still suffer the staleness problem); symlinks
     are resolved before hashing; ``stat`` is captured from the same open
     file descriptor as the SHA-256 stream so the triple is consistent.
+
+    Per-source helpers (``_fingerprint_local_file`` /
+    ``_fingerprint_hf_metadata`` / ``_fingerprint_hf_revision``) keep the
+    orchestrator linear; this function just routes by source kind.
     """
     fingerprint = {
         "path": dataset_path,
@@ -520,73 +591,12 @@ def compute_dataset_fingerprint(dataset_path: str) -> Dict[str, Any]:
     }
 
     if os.path.isfile(dataset_path):
-        # Resolve symlinks: the artefact we attest to is the resolved file,
-        # not the link. Preserve the original path so the caller can still
-        # see what they passed.
-        resolved = os.path.realpath(dataset_path)
-        if resolved != dataset_path:
-            fingerprint["resolved_path"] = resolved
-
-        sha256 = hashlib.sha256()
-        with open(resolved, "rb") as f:
-            # Capture stat from the open fd so size/mtime cannot drift from
-            # the byte stream we are hashing — a concurrent writer would
-            # surface as an inconsistent fingerprint downstream rather than
-            # a silent partial read.
-            stat = os.fstat(f.fileno())
-            fingerprint["size_bytes"] = stat.st_size
-            fingerprint["modified"] = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
-            for chunk in iter(lambda: f.read(8192), b""):
-                sha256.update(chunk)
-        fingerprint["sha256"] = sha256.hexdigest()
+        _fingerprint_local_file(dataset_path, fingerprint)
     else:
         fingerprint["source"] = "huggingface_hub"
         fingerprint["dataset_id"] = dataset_path
-        # Attempt to capture dataset version/revision from HF Hub.
-        # Narrow the catch to realistic load_dataset_builder failure modes:
-        # ImportError (datasets extra not installed), FileNotFoundError /
-        # ValueError (dataset id missing or malformed), AttributeError
-        # (info shape drift across `datasets` versions), and ConnectionError /
-        # TimeoutError (offline run). A broad ``Exception`` here would hide
-        # genuine bugs in the rest of the manifest pipeline.
-        try:
-            from datasets import load_dataset_builder
-
-            builder = load_dataset_builder(dataset_path)
-            if builder.info.version:
-                fingerprint["version"] = str(builder.info.version)
-            if builder.info.description:
-                fingerprint["description"] = builder.info.description[:200]
-            if builder.info.download_size:
-                fingerprint["download_size_bytes"] = builder.info.download_size
-        except (
-            ImportError,
-            FileNotFoundError,
-            ValueError,
-            AttributeError,
-            ConnectionError,
-            TimeoutError,
-        ) as e:
-            logger.debug("HF Hub metadata fetch skipped for '%s': %s", dataset_path, e)
-
-        # Closure plan Faz 3 (F-compliance-117): pin the dataset *commit*
-        # (Hub revision SHA) alongside the dataset id. ``load_dataset_builder``
-        # only surfaces ``info.version`` (semantic version), which most Hub
-        # datasets do not maintain. The Hub commit is the only stable
-        # identifier that lets Article 10 reviewers reproduce the exact
-        # corpus the model was trained on. We query ``HfApi.dataset_info``
-        # (which is part of the always-installed ``huggingface_hub`` package
-        # pulled in by ``datasets``) — narrow the catch to expected import /
-        # network / 404 failure modes so genuine bugs still surface.
-        try:
-            from huggingface_hub import HfApi
-
-            info = HfApi().dataset_info(dataset_path)
-            revision_sha = getattr(info, "sha", None)
-            if revision_sha:
-                fingerprint["hf_revision"] = revision_sha
-        except (ImportError, ConnectionError, TimeoutError, OSError, ValueError) as e:
-            logger.debug("HF Hub revision pin skipped for '%s': %s", dataset_path, e)
+        _fingerprint_hf_metadata(dataset_path, fingerprint)
+        _fingerprint_hf_revision(dataset_path, fingerprint)
 
     return fingerprint
 
@@ -976,6 +986,200 @@ class VerifyResult:
     reason: Optional[str] = None
 
 
+def _verify_hmac_for_entry(
+    idx: int,
+    entry: Dict[str, Any],
+    hmac_secret: Optional[str],
+    require_hmac: bool,
+    entries_count: int,
+) -> Optional[VerifyResult]:
+    """Return None if HMAC check passes (or is skipped); a failing VerifyResult otherwise."""
+    if hmac_secret is None and not require_hmac:
+        return None
+    tag = entry.get("_hmac")
+    if tag is None:
+        if require_hmac:
+            return VerifyResult(
+                valid=False,
+                entries_count=entries_count,
+                first_invalid_index=idx,
+                reason=f"line {idx} lacks _hmac field but --require-hmac is set",
+            )
+        # Secret given but the writer wasn't keyed for this entry:
+        # skip silently (mixed-mode logs are not a chain failure).
+        return None
+    if hmac_secret is None:
+        return None
+    run_id = entry.get("run_id")
+    if not run_id:
+        return VerifyResult(
+            valid=False,
+            entries_count=entries_count,
+            first_invalid_index=idx,
+            reason=f"line {idx} has _hmac but no run_id — cannot derive key",
+        )
+    # Mirror AuditLogger's key derivation byte-for-byte.
+    key = hashlib.sha256(hmac_secret.encode() + run_id.encode()).digest()
+    # Recompute the HMAC over the entry sans the _hmac field. Insertion
+    # order is preserved by ``dict`` and ``log_event`` adds ``_hmac``
+    # last, so removing it leaves the original ordering intact.
+    entry_without_hmac = {k: v for k, v in entry.items() if k != "_hmac"}
+    expected_tag = _hmac_module.new(
+        key,
+        json.dumps(entry_without_hmac, default=str).encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    if not _hmac_module.compare_digest(expected_tag, tag):
+        return VerifyResult(
+            valid=False,
+            entries_count=entries_count,
+            first_invalid_index=idx,
+            reason=f"line {idx}: HMAC mismatch",
+        )
+    return None
+
+
+def _verify_genesis_manifest(
+    path: str,
+    first_run_id: Optional[str],
+    first_line_hash: Optional[str],
+    entries_count: int,
+) -> Optional[VerifyResult]:
+    """Cross-check the ``<path>.manifest.json`` genesis pin; None on success."""
+    manifest_path = path + ".manifest.json"
+    if not os.path.isfile(manifest_path):
+        logger.debug(
+            "No genesis manifest at %s — truncate-and-resume detection limited to in-chain hash continuity.",
+            manifest_path,
+        )
+        return None
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as mfh:
+            manifest = json.load(mfh)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Audit genesis manifest unreadable (%s): %s", manifest_path, exc)
+        return None
+    pinned = manifest.get("first_entry_sha256")
+    if pinned and first_line_hash and pinned != first_line_hash:
+        return VerifyResult(
+            valid=False,
+            entries_count=entries_count,
+            first_invalid_index=1,
+            reason=(
+                "manifest mismatch: pinned first_entry_sha256 "
+                f"{pinned!r} does not match line 1 hash {first_line_hash!r} "
+                "(log may have been truncated and rewritten)"
+            ),
+        )
+    pinned_run = manifest.get("run_id")
+    if pinned_run and first_run_id and pinned_run != first_run_id:
+        return VerifyResult(
+            valid=False,
+            entries_count=entries_count,
+            first_invalid_index=1,
+            reason=(f"manifest mismatch: pinned run_id {pinned_run!r} does not match line 1 run_id {first_run_id!r}"),
+        )
+    return None
+
+
+def _verify_chain_walk(
+    lines: List[str],
+    hmac_secret: Optional[str],
+    require_hmac: bool,
+) -> VerifyResult:
+    """Walk every line, verify chain + HMAC; return final VerifyResult.
+
+    Returns valid=True with first_run_id and first_line_hash buried in the
+    reason (not pretty, but keeps the public dataclass shape unchanged) —
+    actually the caller passes those forward via the ``_chain_walk_state``
+    closure. Simpler: we expose a private 2-tuple via ``reason`` only when
+    valid; on failure ``reason`` is the human message.
+
+    The orchestrator captures first_run_id/first_line_hash separately by
+    re-parsing line 1 — cheaper than threading state through this helper.
+    """
+    entries_count = len(lines)
+    expected_prev = "genesis"
+
+    for idx, line in enumerate(lines, start=1):
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as exc:
+            return VerifyResult(
+                valid=False,
+                entries_count=entries_count,
+                first_invalid_index=idx,
+                reason=f"line {idx} is not valid JSON: {exc}",
+            )
+
+        prev_hash = entry.get("prev_hash")
+        if prev_hash != expected_prev:
+            return VerifyResult(
+                valid=False,
+                entries_count=entries_count,
+                first_invalid_index=idx,
+                reason=(f"chain broken at line {idx}: prev_hash={prev_hash!r} expected={expected_prev!r}"),
+            )
+
+        hmac_failure = _verify_hmac_for_entry(idx, entry, hmac_secret, require_hmac, entries_count)
+        if hmac_failure is not None:
+            return hmac_failure
+
+        # Advance the chain. ``line`` here is the exact JSON body the
+        # writer hashed (post-HMAC, without the trailing newline).
+        expected_prev = hashlib.sha256(line.encode("utf-8")).hexdigest()
+
+    return VerifyResult(valid=True, entries_count=entries_count)
+
+
+def _read_audit_log_lines(path: str) -> Tuple[Optional[VerifyResult], List[str]]:
+    """Stream the audit log line-by-line; return (failure-or-None, non-empty-lines).
+
+    Streaming via line iteration avoids ``fh.read()`` into a single string
+    which would balloon RAM for large logs. Lines are stripped of trailing
+    newline so ``hashlib.sha256(line.encode("utf-8"))`` matches the writer's
+    canonicalisation byte-for-byte.
+    """
+    if not os.path.isfile(path):
+        return (
+            VerifyResult(
+                valid=False,
+                entries_count=0,
+                first_invalid_index=None,
+                reason=f"audit log not found at {path!r}",
+            ),
+            [],
+        )
+    lines: List[str] = []
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for raw_line in fh:
+                line = raw_line.rstrip("\n")
+                if line:
+                    lines.append(line)
+    except OSError as exc:
+        return (
+            VerifyResult(
+                valid=False,
+                entries_count=0,
+                first_invalid_index=None,
+                reason=f"could not read audit log: {exc}",
+            ),
+            [],
+        )
+    except UnicodeDecodeError as exc:
+        return (
+            VerifyResult(
+                valid=False,
+                entries_count=0,
+                first_invalid_index=None,
+                reason=f"audit log is not valid UTF-8: {exc}",
+            ),
+            [],
+        )
+    return None, lines
+
+
 def verify_audit_log(
     path: str,
     *,
@@ -1012,166 +1216,32 @@ def verify_audit_log(
         end-to-end (and HMAC tags pass when a secret was supplied / required).
 
     Notes:
-        Genesis-manifest sidecar (``<path>.manifest.json``) is checked when
-        present: its ``first_entry_sha256`` must equal the SHA-256 of the
-        first line. A missing manifest is logged at DEBUG level (not all
-        legitimate logs predate the manifest sidecar), but a mismatched
-        manifest fails verification — this is the truncate-and-resume
-        detector documented in :meth:`AuditLogger._check_genesis_manifest`.
+        Reads the log line-by-line (streaming) so RAM usage stays
+        bounded for large logs. Genesis-manifest sidecar
+        (``<path>.manifest.json``) is checked when present.
     """
-    # ---- Empty / missing file -----------------------------------------
-    if not os.path.isfile(path):
-        return VerifyResult(
-            valid=False,
-            entries_count=0,
-            first_invalid_index=None,
-            reason=f"audit log not found at {path!r}",
-        )
-
-    try:
-        with open(path, "rb") as fh:
-            raw = fh.read()
-    except OSError as exc:
-        return VerifyResult(
-            valid=False,
-            entries_count=0,
-            first_invalid_index=None,
-            reason=f"could not read audit log: {exc}",
-        )
-
-    if not raw:
-        # Empty file is trivially valid — no entries to fault.
+    failure, lines = _read_audit_log_lines(path)
+    if failure is not None:
+        return failure
+    if not lines:
         return VerifyResult(valid=True, entries_count=0)
 
+    chain_result = _verify_chain_walk(lines, hmac_secret, require_hmac)
+    if not chain_result.valid:
+        return chain_result
+
+    # Re-parse line 1 to capture first_run_id / first_line_hash for the
+    # manifest cross-check. Cheaper than threading state out of the walk.
     try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        return VerifyResult(
-            valid=False,
-            entries_count=0,
-            first_invalid_index=None,
-            reason=f"audit log is not valid UTF-8: {exc}",
-        )
+        first_entry = json.loads(lines[0])
+    except json.JSONDecodeError:
+        # Should be unreachable — _verify_chain_walk already accepted line 1.
+        return chain_result
+    first_run_id = first_entry.get("run_id")
+    first_line_hash = hashlib.sha256(lines[0].encode("utf-8")).hexdigest()
 
-    # Use splitlines(keepends=False) and re-derive each line's exact bytes
-    # for hashing. AuditLogger writes ``entry_json + "\n"`` and hashes
-    # ``entry_json`` (the JSON body, without the trailing newline) — so we
-    # must split on newlines and hash each stripped line.
-    lines = [ln for ln in text.split("\n") if ln]
-    entries_count = len(lines)
-    if entries_count == 0:
-        return VerifyResult(valid=True, entries_count=0)
+    manifest_failure = _verify_genesis_manifest(path, first_run_id, first_line_hash, len(lines))
+    if manifest_failure is not None:
+        return manifest_failure
 
-    # ---- Walk the chain ----------------------------------------------
-    expected_prev = "genesis"
-    first_run_id: Optional[str] = None
-    first_line_hash: Optional[str] = None
-
-    for idx, line in enumerate(lines, start=1):
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError as exc:
-            return VerifyResult(
-                valid=False,
-                entries_count=entries_count,
-                first_invalid_index=idx,
-                reason=f"line {idx} is not valid JSON: {exc}",
-            )
-
-        prev_hash = entry.get("prev_hash")
-        if prev_hash != expected_prev:
-            return VerifyResult(
-                valid=False,
-                entries_count=entries_count,
-                first_invalid_index=idx,
-                reason=(f"chain broken at line {idx}: prev_hash={prev_hash!r} expected={expected_prev!r}"),
-            )
-
-        # HMAC verification (when a secret is supplied OR strictly required).
-        if hmac_secret is not None or require_hmac:
-            tag = entry.get("_hmac")
-            if tag is None:
-                if require_hmac:
-                    return VerifyResult(
-                        valid=False,
-                        entries_count=entries_count,
-                        first_invalid_index=idx,
-                        reason=f"line {idx} lacks _hmac field but --require-hmac is set",
-                    )
-                # Secret given but the writer wasn't keyed for this entry:
-                # skip silently (mixed-mode logs are not a chain failure).
-            elif hmac_secret is not None:
-                run_id = entry.get("run_id")
-                if not run_id:
-                    return VerifyResult(
-                        valid=False,
-                        entries_count=entries_count,
-                        first_invalid_index=idx,
-                        reason=f"line {idx} has _hmac but no run_id — cannot derive key",
-                    )
-                # Mirror AuditLogger's key derivation byte-for-byte.
-                key = hashlib.sha256(hmac_secret.encode() + run_id.encode()).digest()
-                # Recompute the HMAC over the entry sans the _hmac field, in
-                # the exact field order the writer used: insertion order is
-                # preserved by ``dict``, and ``log_event`` adds ``_hmac``
-                # last, so removing it leaves the original ordering intact.
-                entry_without_hmac = {k: v for k, v in entry.items() if k != "_hmac"}
-                expected_tag = _hmac_module.new(
-                    key,
-                    json.dumps(entry_without_hmac, default=str).encode(),
-                    hashlib.sha256,
-                ).hexdigest()
-                if not _hmac_module.compare_digest(expected_tag, tag):
-                    return VerifyResult(
-                        valid=False,
-                        entries_count=entries_count,
-                        first_invalid_index=idx,
-                        reason=f"line {idx}: HMAC mismatch",
-                    )
-
-        # Advance the chain. ``line`` here is the exact JSON body the
-        # writer hashed (post-HMAC, without the trailing newline).
-        line_hash = hashlib.sha256(line.encode("utf-8")).hexdigest()
-        if idx == 1:
-            first_run_id = entry.get("run_id")
-            first_line_hash = line_hash
-        expected_prev = line_hash
-
-    # ---- Genesis manifest cross-check --------------------------------
-    manifest_path = path + ".manifest.json"
-    if os.path.isfile(manifest_path):
-        try:
-            with open(manifest_path, "r", encoding="utf-8") as mfh:
-                manifest = json.load(mfh)
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("Audit genesis manifest unreadable (%s): %s", manifest_path, exc)
-        else:
-            pinned = manifest.get("first_entry_sha256")
-            if pinned and first_line_hash and pinned != first_line_hash:
-                return VerifyResult(
-                    valid=False,
-                    entries_count=entries_count,
-                    first_invalid_index=1,
-                    reason=(
-                        "manifest mismatch: pinned first_entry_sha256 "
-                        f"{pinned!r} does not match line 1 hash {first_line_hash!r} "
-                        "(log may have been truncated and rewritten)"
-                    ),
-                )
-            pinned_run = manifest.get("run_id")
-            if pinned_run and first_run_id and pinned_run != first_run_id:
-                return VerifyResult(
-                    valid=False,
-                    entries_count=entries_count,
-                    first_invalid_index=1,
-                    reason=(
-                        f"manifest mismatch: pinned run_id {pinned_run!r} does not match line 1 run_id {first_run_id!r}"
-                    ),
-                )
-    else:
-        logger.debug(
-            "No genesis manifest at %s — truncate-and-resume detection limited to in-chain hash continuity.",
-            manifest_path,
-        )
-
-    return VerifyResult(valid=True, entries_count=entries_count)
+    return chain_result

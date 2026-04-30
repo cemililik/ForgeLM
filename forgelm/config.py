@@ -253,7 +253,9 @@ class SafetyConfig(BaseModel):
     track_categories: bool = False  # parse Llama Guard S1-S14 harm categories
     severity_thresholds: Optional[Dict[str, float]] = None  # per-severity limits: {"critical": 0, "high": 0.01}
     # Phase 4 (closure F-performance-102): batched generation. 1 disables batching.
-    batch_size: int = 8
+    # ge=1 enforced at parse time so 0/negative values raise ValidationError
+    # immediately instead of being silently coerced inside the eval loop.
+    batch_size: int = Field(default=8, ge=1)
 
 
 class JudgeConfig(BaseModel):

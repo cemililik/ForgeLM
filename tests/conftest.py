@@ -31,4 +31,4 @@ def _pin_audit_operator(monkeypatch):
     ``TestAuditLoggerOperatorIdentity`` class) explicitly clear this
     via ``monkeypatch.delenv`` inside the test body.
     """
-    monkeypatch.setenv("FORGELM_OPERATOR", os.environ.get("FORGELM_OPERATOR", "test-operator"))
+    monkeypatch.setenv("FORGELM_OPERATOR", os.environ.get("FORGELM_OPERATOR") or "test-operator")
