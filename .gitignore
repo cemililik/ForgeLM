@@ -3,8 +3,19 @@ docs/marketing/
 docs/analysis/
 # Explicit exceptions: a small set of v0.5.5-closure planning artifacts
 # is exposed publicly (referenced from closure PRs and the roadmap). The
-# full review history under docs/analysis/code_reviews/* stays internal.
+# rest of docs/analysis/** stays internal — including all subdirectories
+# (QKV-Core, Trion, autoresearch, proposals, ...) and every other file
+# under code_reviews/.
+#
+# Pattern explanation:
+#   1. docs/analysis/ — ignore everything under this dir
+#   2. !docs/analysis/ — re-allow the directory itself (so we can descend)
+#   3. docs/analysis/* — ignore every direct entry (subdirs + files)
+#   4. !docs/analysis/code_reviews/ — re-allow code_reviews/ subdir only
+#   5. docs/analysis/code_reviews/* — ignore every entry in code_reviews/
+#   6. !<three named files> — re-include the 3 closure planning artifacts
 !docs/analysis/
+docs/analysis/*
 !docs/analysis/code_reviews/
 docs/analysis/code_reviews/*
 !docs/analysis/code_reviews/closure-plan-202604300906.md
