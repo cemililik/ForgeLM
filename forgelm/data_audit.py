@@ -644,6 +644,15 @@ def detect_pii_ml(text: Any, *, language: str = "en") -> Dict[str, int]:
 # ---------------------------------------------------------------------------
 
 
+# Tokenizer for simhash / MinHash dedup. ``\w+`` deliberately matches
+# alphanumerics + underscore (Unicode word chars under ``re.UNICODE``)
+# rather than the language-aware ``\b[\w']+\b`` pattern from
+# ``docs/standards/regex.md`` §1: dedup operates on byte-level token
+# overlap, not natural-language words. Underscore-bearing identifiers
+# (``__init__``, ``snake_case``) sharing a token *is* the desired
+# behaviour for code/text near-duplicate detection — replacing them
+# with whitespace as a separator inflates the false-positive rate of
+# the simhash/MinHash signature.
 _TOKEN_PATTERN = re.compile(r"\w+", re.UNICODE)
 
 

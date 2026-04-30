@@ -4,9 +4,89 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
-### Added
+> **Active cycle:** v0.5.5 closure — a single-release consolidation of
+> the master review's 175 findings + 4 new feature tracks (Library API,
+> ISO 27001 / SOC 2 alignment, GDPR right-to-erasure, Article 14 real
+> staging directory). Detailed plan:
+> [closure-plan-202604300906.md](docs/analysis/code_reviews/closure-plan-202604300906.md).
+> No interim releases; v0.5.5 ships once Faz 1-33 are complete.
+> Per-PR CHANGELOG entries below collapse into the v0.5.5 release
+> notes at tag time.
 
-- (next entry goes here — Phase 14 / Multi-Stage Pipeline Chains is the active phase; see [docs/roadmap.md](docs/roadmap.md))
+### Added — Foundation bundle (PR #19, Faz 1-8)
+
+- `forgelm verify-audit` subcommand + library function
+  `forgelm.compliance.verify_audit_log` (Faz 6 — closes F-compliance-103
+  Critical).
+- `forgelm._http.safe_post` — single boundary for outbound HTTP with
+  SSRF guard, redirect refusal, scheme policy, timeout floor, TLS
+  pinning, secret-mask error reasons (Faz 7 — closes M-201 Major).
+  Migrated webhook + judge + synthetic call sites.
+- `WebhookNotifier.notify_reverted` and `notify_awaiting_approval` —
+  paired with `training.reverted` and `approval.required` events
+  (Faz 8 — closes F-compliance-104 Major).
+- `SafetyEvalThresholds` dataclass — bundles five Phase 9 knobs so
+  `run_safety_evaluation` stays under the 13-param ceiling (Faz 4 v2
+  + complexity refactor).
+- `audit.classifier_load_failed` audit event with `audit_logger=`
+  parameter on `run_safety_evaluation` (Faz 3 — closes F-compliance-120
+  Minor).
+- `tests/test_lazy_imports.py` — regression test pinning that
+  `import forgelm.trainer` / `import forgelm.model` do not eagerly
+  load torch (Faz 4 — closes F-performance-101 Major).
+- `docs/reference/audit_event_catalog.md` + TR mirror — comprehensive
+  event vocabulary with payload schemas (Faz 3 + Faz 8 union).
+- `docs/standards/release.md` "Deprecation cadence" section (Faz 2
+  — closes F-business-011 Major).
+
+### Changed
+
+- `AuditLogger` — operator identity raises `ConfigError` instead of
+  falling back to literal `"unknown"` (Faz 3 — closes F-compliance-102
+  Critical). `getpass.getuser()@socket.gethostname()` chain with
+  `FORGELM_ALLOW_ANONYMOUS_OPERATOR=1` escape hatch.
+- `AuditLogger.log_event` — `os.fsync(f.fileno())` after flush; chain
+  durability across power-cut (Faz 3 — closes F-compliance-114 Major).
+- `compute_dataset_fingerprint` — split into three helpers (local file
+  / HF metadata / HF revision); HF Hub revision SHA pinned (Faz 3
+  — closes F-compliance-117 Minor + complexity refactor).
+- `_generate_safety_responses` and `_generate_responses_batched` —
+  `batch_size=8` default with token-pad-longest + per-batch CUDA-OOM
+  fallback to single-prompt (Faz 4 — closes F-performance-102 Major).
+  Per-batch error handling extracted to `_generate_*_batch_with_oom_retry`
+  helpers.
+- `_chunk_paragraph_tokens` — single-encode + offset slicing (Faz 4
+  — closes F-performance-103 Major).
+- `_post_payload` — delegates to `safe_post` with `min_timeout=1.0`
+  for back-compat (Faz 7).
+- 7 notebooks — install from PyPI (`forgelm[qlora]==0.5.0`) instead
+  of `git+https://...` (Faz 5 — closes F-business-005 Major).
+- CI now enforces `pytest --cov-fail-under=40` via `pyproject.toml`
+  `addopts` (Faz 2 — closes F-test-001 Critical).
+- CI matrix `fail-fast: false`; `usermanuals-validate.yml` runs on
+  push + PR (Faz 2 — closes F-test-006 + F-test-017 Major).
+- Site honesty: `compliance.html` artefact tree, `quickstart.html`
+  template names, GPU stat (16 vs claimed 18) — all refreshed against
+  real code (Faz 1 — closes F-business-001/002/004 Critical+Major).
+- QMS `sop_data_management.md` — single v0.5.0 story; v0.5.1+/v0.5.2
+  splits removed (Faz 1 — closes M-DOC-001 Critical).
+- Roadmap (`roadmap.md`, `roadmap-tr.md`, `releases.md`) — v0.5.0
+  marked released; tristate status legend added (Faz 1 — closes
+  F-business-003 Critical).
+- `forgelm.webhook` exports `_is_private_destination` via `__all__`
+  for back-compat (Faz 7).
+
+### Documentation
+
+- Full Faz 1-8 closure plan:
+  [closure-plan-202604300906.md](docs/analysis/code_reviews/closure-plan-202604300906.md)
+  (33 phases, ~47 PRs).
+- Master review:
+  [master-review-opus-202604300906.md](docs/analysis/code_reviews/master-review-opus-202604300906.md)
+  (175 findings).
+- `data_audit/` + `cli/` package split design:
+  [split-design-data_audit-cli-202604300906.md](docs/analysis/code_reviews/split-design-data_audit-cli-202604300906.md)
+  (Faz 14-15 forward-looking).
 
 ---
 
