@@ -226,10 +226,14 @@ class WebhookNotifier:
         message bodies, and we treat the approval signal as a notification,
         not an artefact transfer channel.
         """
-        if not (self.config and getattr(self.config, "notify_on_awaiting_approval", True)):
+        # Approval is only emitted on otherwise-successful runs, so it
+        # piggy-backs on notify_on_success per the audit_event_catalog
+        # webhook section. Operators who silenced success notifications do
+        # not want approval pings either.
+        if not (self.config and self.config.notify_on_success):
             return
         self._send(
-            event="training.awaiting_approval",
+            event="approval.required",
             run_name=run_name,
             status="awaiting_approval",
             title=f"Awaiting Human Approval: {run_name}",
@@ -240,6 +244,7 @@ class WebhookNotifier:
                 "`forgelm reject <run_id>` to discard."
             ),
             color="#f2c744",
+            model_path=model_path,
         )
 
     def notify_failure(self, run_name: str, reason: str) -> None:
@@ -313,33 +318,4 @@ class WebhookNotifier:
             ),
             color="#ff9900",
             reason=masked_reason,
-        )
-
-    def notify_awaiting_approval(self, run_name: str, model_path: str) -> None:
-        """Post an ``approval.required`` notification (Art. 14 human-in-the-loop).
-
-        Fired right after the audit log records ``human_approval.required``
-        so the operator gets a real-time ping instead of having to poll the
-        audit JSONL. ``model_path`` is included as plain text — it's a
-        local filesystem path that the operator already controls. Model
-        weights themselves are *never* in the payload; only the path and
-        the run name are.
-        """
-        if not (self.config and self.config.notify_on_success):
-            # Approval is only emitted on otherwise-successful runs, so it
-            # piggy-backs on notify_on_success. An operator who silenced
-            # success notifications doesn't want approval pings either.
-            return
-        self._send(
-            event="approval.required",
-            run_name=run_name,
-            status="awaiting_approval",
-            title=f"Approval Required: {run_name}",
-            text=(
-                "Training succeeded and is staged for human review (EU AI Act "
-                f"Art. 14). Review the compliance artifacts, then redeploy.\n\n"
-                f"Staging path: {model_path}"
-            ),
-            color="#ffcc00",
-            model_path=model_path,
         )
