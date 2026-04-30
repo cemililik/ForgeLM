@@ -898,28 +898,64 @@ class ForgeTrainer:
         self._generate_deployer_instructions(final_path, metrics)
         self._export_compliance_if_needed(metrics, train_result)
 
-    def _handle_human_approval_gate(self, final_path: str, train_result: TrainResult) -> bool:
-        """Return True if the run should pause for human approval (Art. 14)."""
+    def _handle_human_approval_gate(
+        self,
+        staging_path: str,
+        train_result: TrainResult,
+        *,
+        already_saved: bool = False,
+    ) -> bool:
+        """Pause the run for human approval (Art. 14) and emit the gate event.
+
+        The honest behaviour for an "awaiting human approval" pipeline: the
+        final model must NOT land in the canonical ``final_model/`` directory
+        before a human signs off, otherwise downstream consumers that watch
+        that path treat the run as already deployed. Instead, the adapters
+        live in a sibling ``final_model.staging/`` directory until
+        ``forgelm approve <run_id>`` atomically renames it.
+
+        ``staging_path`` is the on-disk staging directory (``final_path +
+        ".staging"``). When ``already_saved=False`` (default) the method
+        also saves the model to ``staging_path``; this preserves backwards
+        compatibility for callers who reach the gate without having staged
+        the model themselves. The pipeline orchestrator passes
+        ``already_saved=True`` because it stages early so the post-train
+        gates can evaluate against on-disk artefacts.
+
+        Returns ``True`` when the gate fires (caller must skip the regular
+        ``save_final_model(final_path)`` / ``notify_success`` calls),
+        ``False`` when the gate is disabled.
+        """
         eval_cfg = self.config.evaluation
         if not (eval_cfg and eval_cfg.require_human_approval):
             return False
+
+        if not already_saved:
+            self.save_final_model(staging_path)
+
         self.audit.log_event(
             "human_approval.required",
             gate="final_model",
             reason="require_human_approval=true",
             metrics=train_result.metrics,
-            model_path=final_path,
+            staging_path=staging_path,
+            run_id=self.audit.run_id,
         )
-        # Webhook lifecycle: surface the approval gate to operators in
-        # real-time instead of forcing them to tail the audit JSONL.
-        self.notifier.notify_awaiting_approval(run_name=self.run_name, model_path=final_path)
-        logger.info("Human approval required. Model saved to staging: %s", final_path)
+        self.notifier.notify_awaiting_approval(run_name=self.run_name, model_path=staging_path)
+
+        logger.info("Human approval required. Model staged at: %s", staging_path)
         logger.info(
-            "Review results in %s/compliance/ and redeploy when ready. Run ID: %s",
+            "Review results in %s/compliance/ and run `forgelm approve %s --output-dir %s` "
+            "to promote, or `forgelm reject %s --output-dir %s` to discard.",
             self.checkpoint_dir,
             self.audit.run_id,
+            self.checkpoint_dir,
+            self.audit.run_id,
+            self.checkpoint_dir,
         )
+
         train_result.success = True
+        train_result.staging_path = staging_path
         return True
 
     def _run_training_pipeline(self, resume_from_checkpoint: Optional[str]) -> TrainResult:
@@ -940,27 +976,45 @@ class ForgeTrainer:
             self.checkpoint_dir,
             getattr(self.config.training, "final_model_dir", "final_model"),
         )
-        self.save_final_model(final_path)
 
-        if not self.execute_evaluation_checks(final_path, metrics):
+        # Article 14 (honest path): when ``require_human_approval`` is on the
+        # adapters land in ``final_model.staging/`` rather than the canonical
+        # ``final_model/`` directory — and the canonical directory is created
+        # only by ``forgelm approve <run_id>`` after a human signs off.
+        # ``_handle_human_approval_gate`` performs both the staging save and
+        # the audit-event / webhook emit, returning True when it fires so we
+        # can skip the regular ``save_final_model`` call below.
+        train_result = TrainResult(success=True, metrics=metrics, final_model_path=final_path)
+        approval_required = bool(self.config.evaluation and self.config.evaluation.require_human_approval)
+        if approval_required:
+            # Save to staging first so post-train gates (safety/judge/etc.)
+            # have an on-disk model to evaluate. The gate's audit event +
+            # webhook notification fire after compliance artefacts are
+            # generated so reviewers see a complete bundle.
+            gate_path = final_path + ".staging"
+            self.save_final_model(gate_path)
+            train_result.final_model_path = gate_path
+        else:
+            gate_path = final_path
+            self.save_final_model(gate_path)
+
+        if not self.execute_evaluation_checks(gate_path, metrics):
             return TrainResult(success=False, metrics=metrics, reverted=True)
 
-        train_result = TrainResult(success=True, metrics=metrics, final_model_path=final_path)
-
-        if not self._apply_benchmark_result(self._run_benchmark_if_configured(), train_result, metrics, final_path):
+        if not self._apply_benchmark_result(self._run_benchmark_if_configured(), train_result, metrics, gate_path):
             return train_result
 
         self._apply_resource_usage(train_result, metrics)
 
-        if not self._apply_safety_result(self._run_safety_if_configured(), train_result, metrics, final_path):
+        if not self._apply_safety_result(self._run_safety_if_configured(), train_result, metrics, gate_path):
             return train_result
 
-        if not self._apply_judge_result(self._run_judge_if_configured(), train_result, metrics, final_path):
+        if not self._apply_judge_result(self._run_judge_if_configured(), train_result, metrics, gate_path):
             return train_result
 
-        self._finalize_artifacts(final_path, metrics, train_result)
+        self._finalize_artifacts(gate_path, metrics, train_result)
 
-        if self._handle_human_approval_gate(final_path, train_result):
+        if self._handle_human_approval_gate(gate_path, train_result, already_saved=True):
             return train_result
 
         self.audit.log_event("pipeline.completed", success=True, metrics_summary=metrics)

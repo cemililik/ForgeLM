@@ -211,6 +211,37 @@ class WebhookNotifier:
                 metrics=metrics,
             )
 
+    def notify_awaiting_approval(self, run_name: str, model_path: str) -> None:
+        """Post an "awaiting human approval" notification (Art. 14 gate).
+
+        Fired by :meth:`ForgeTrainer._handle_human_approval_gate` after the
+        adapters have been saved to the staging directory. ``model_path`` is
+        the on-disk staging location (``final_model.staging/``) so an
+        approver can inspect the artefacts before running
+        ``forgelm approve <run_id>``.
+
+        Only the directory path is sent — the payload deliberately carries
+        no model weights, tokenizer files, or compliance-bundle contents.
+        Webhook receivers (Slack/Teams/Discord) regularly persist or echo
+        message bodies, and we treat the approval signal as a notification,
+        not an artefact transfer channel.
+        """
+        if not (self.config and getattr(self.config, "notify_on_awaiting_approval", True)):
+            return
+        self._send(
+            event="training.awaiting_approval",
+            run_name=run_name,
+            status="awaiting_approval",
+            title=f"Awaiting Human Approval: {run_name}",
+            text=(
+                "Training completed; the model is staged at "
+                f"`{model_path}` and awaiting reviewer sign-off.\n"
+                "Run `forgelm approve <run_id>` to promote, or "
+                "`forgelm reject <run_id>` to discard."
+            ),
+            color="#f2c744",
+        )
+
     def notify_failure(self, run_name: str, reason: str) -> None:
         """Post a training-failure notification.
 
