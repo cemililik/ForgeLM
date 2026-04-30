@@ -42,6 +42,12 @@ class JudgeResult:
 
 OPENAI_API_BASE = "https://api.openai.com/v1/chat/completions"
 
+# Single source-of-truth for the hard-failure log line so the wording
+# stays identical across the three call sites (HttpSafetyError handler,
+# JSON parse failure, no-valid-scores summary). Operators grep the audit
+# trail on this exact prefix.
+_LOG_JUDGE_FAILED = "JUDGE EVALUATION FAILED: %s"
+
 
 def _parse_judge_json(text: str) -> Dict[str, Any]:
     """Safely parse judge response JSON, handling common LLM output quirks."""
@@ -369,7 +375,7 @@ def run_judge_evaluation(
         # scheme, etc.). Treat as hard configuration failure, not a per-prompt
         # null score, so the trainer's auto-revert / approval gate can react.
         failure_reason = f"judge endpoint rejected by HTTP safety policy: {e}"
-        logger.error("JUDGE EVALUATION FAILED: %s", failure_reason)
+        logger.error(_LOG_JUDGE_FAILED, failure_reason)
         return JudgeResult(passed=False, failure_reason=failure_reason)
 
     avg_score, passed, failure_reason = _summarize_judge_scores(
@@ -461,7 +467,7 @@ def _summarize_judge_scores(
 
     if not valid_scores:
         failure_reason = f"No valid judge scores (all {failure_count}/{len(eval_prompts)} parses/requests failed)."
-        logger.error("JUDGE EVALUATION FAILED: %s", failure_reason)
+        logger.error(_LOG_JUDGE_FAILED, failure_reason)
         return 0.0, False, failure_reason
 
     avg_score = sum(valid_scores) / len(valid_scores)
@@ -476,5 +482,5 @@ def _summarize_judge_scores(
         return avg_score, True, None
 
     failure_reason = f"Average judge score ({avg_score:.2f}) below minimum ({min_score:.2f})"
-    logger.error("JUDGE EVALUATION FAILED: %s", failure_reason)
+    logger.error(_LOG_JUDGE_FAILED, failure_reason)
     return avg_score, False, failure_reason
