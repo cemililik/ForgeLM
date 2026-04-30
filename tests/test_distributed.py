@@ -4,7 +4,6 @@ import json
 import os
 
 import yaml
-from conftest import minimal_config as _minimal_config
 
 from forgelm.config import (
     DistributedConfig,
@@ -43,52 +42,52 @@ class TestDistributedConfig:
 
 
 class TestForgeConfigDistributed:
-    def test_no_distributed(self):
-        cfg = ForgeConfig(**_minimal_config())
+    def test_no_distributed(self, minimal_config):
+        cfg = ForgeConfig(**minimal_config())
         assert cfg.distributed is None
 
-    def test_deepspeed_config(self):
-        cfg = ForgeConfig(**_minimal_config(distributed={"strategy": "deepspeed", "deepspeed_config": "zero3"}))
+    def test_deepspeed_config(self, minimal_config):
+        cfg = ForgeConfig(**minimal_config(distributed={"strategy": "deepspeed", "deepspeed_config": "zero3"}))
         assert cfg.distributed.strategy == "deepspeed"
         assert cfg.distributed.deepspeed_config == "zero3"
 
-    def test_fsdp_config(self):
-        cfg = ForgeConfig(**_minimal_config(distributed={"strategy": "fsdp", "fsdp_strategy": "hybrid_shard"}))
+    def test_fsdp_config(self, minimal_config):
+        cfg = ForgeConfig(**minimal_config(distributed={"strategy": "fsdp", "fsdp_strategy": "hybrid_shard"}))
         assert cfg.distributed.strategy == "fsdp"
         assert cfg.distributed.fsdp_strategy == "hybrid_shard"
 
-    def test_unsloth_distributed_raises(self):
+    def test_unsloth_distributed_raises(self, minimal_config):
         """Unsloth + distributed should raise ValueError."""
         import pytest
 
         with pytest.raises((ValueError, TypeError)):
             ForgeConfig(
-                **_minimal_config(
+                **minimal_config(
                     model={"name_or_path": "org/model", "backend": "unsloth"},
                     distributed={"strategy": "deepspeed"},
                 )
             )
 
-    def test_zero3_qlora_warning(self, caplog):
+    def test_zero3_qlora_warning(self, caplog, minimal_config):
         """QLoRA + ZeRO-3 should produce a warning."""
         import logging
 
         with caplog.at_level(logging.WARNING, logger="forgelm.config"):
             ForgeConfig(
-                **_minimal_config(
+                **minimal_config(
                     model={"name_or_path": "org/model", "load_in_4bit": True},
                     distributed={"strategy": "deepspeed", "deepspeed_config": "zero3"},
                 )
             )
         assert "QLoRA (4-bit) with DeepSpeed ZeRO-3" in caplog.text
 
-    def test_zero2_qlora_no_warning(self, caplog):
+    def test_zero2_qlora_no_warning(self, caplog, minimal_config):
         """QLoRA + ZeRO-2 should NOT produce the ZeRO-3 warning."""
         import logging
 
         with caplog.at_level(logging.WARNING, logger="forgelm.config"):
             ForgeConfig(
-                **_minimal_config(
+                **minimal_config(
                     model={"name_or_path": "org/model", "load_in_4bit": True},
                     distributed={"strategy": "deepspeed", "deepspeed_config": "zero2"},
                 )
@@ -100,16 +99,16 @@ class TestForgeConfigDistributed:
 
 
 class TestLoadConfigDistributed:
-    def test_load_deepspeed_yaml(self, tmp_path):
-        data = _minimal_config(distributed={"strategy": "deepspeed", "deepspeed_config": "zero2"})
+    def test_load_deepspeed_yaml(self, tmp_path, minimal_config):
+        data = minimal_config(distributed={"strategy": "deepspeed", "deepspeed_config": "zero2"})
         cfg_path = str(tmp_path / "config.yaml")
         with open(cfg_path, "w") as f:
             yaml.dump(data, f)
         cfg = load_config(cfg_path)
         assert cfg.distributed.strategy == "deepspeed"
 
-    def test_load_fsdp_yaml(self, tmp_path):
-        data = _minimal_config(
+    def test_load_fsdp_yaml(self, tmp_path, minimal_config):
+        data = minimal_config(
             distributed={
                 "strategy": "fsdp",
                 "fsdp_strategy": "full_shard",
@@ -174,18 +173,18 @@ class TestDeepSpeedConfigResolution:
 
 
 class TestDryRunDistributed:
-    def test_dry_run_json_shows_distributed(self, tmp_path, capsys):
+    def test_dry_run_json_shows_distributed(self, tmp_path, capsys, minimal_config):
         from forgelm.cli import _run_dry_run
 
-        cfg = ForgeConfig(**_minimal_config(distributed={"strategy": "deepspeed", "deepspeed_config": "zero3"}))
+        cfg = ForgeConfig(**minimal_config(distributed={"strategy": "deepspeed", "deepspeed_config": "zero3"}))
         _run_dry_run(cfg, "json")
         result = json.loads(capsys.readouterr().out)
         assert result["distributed"] == "deepspeed"
 
-    def test_dry_run_json_no_distributed(self, capsys):
+    def test_dry_run_json_no_distributed(self, capsys, minimal_config):
         from forgelm.cli import _run_dry_run
 
-        cfg = ForgeConfig(**_minimal_config())
+        cfg = ForgeConfig(**minimal_config())
         _run_dry_run(cfg, "json")
         result = json.loads(capsys.readouterr().out)
         assert result["distributed"] is None

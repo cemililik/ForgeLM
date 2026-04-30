@@ -5,7 +5,6 @@ import os
 from unittest import mock
 
 import pytest
-from conftest import minimal_config as _minimal_config
 
 from forgelm.compliance import (
     _sanitize_md,
@@ -46,9 +45,9 @@ class TestJudgeConfig:
 
 
 class TestEvaluationWithSafetyJudge:
-    def test_eval_config_with_safety(self):
+    def test_eval_config_with_safety(self, minimal_config):
         cfg = ForgeConfig(
-            **_minimal_config(
+            **minimal_config(
                 evaluation={
                     "auto_revert": True,
                     "safety": {"enabled": True, "test_prompts": "prompts.jsonl"},
@@ -57,9 +56,9 @@ class TestEvaluationWithSafetyJudge:
         )
         assert cfg.evaluation.safety.enabled is True
 
-    def test_eval_config_with_judge(self):
+    def test_eval_config_with_judge(self, minimal_config):
         cfg = ForgeConfig(
-            **_minimal_config(
+            **minimal_config(
                 evaluation={
                     "llm_judge": {"enabled": True, "min_score": 7.0},
                 }
@@ -67,9 +66,9 @@ class TestEvaluationWithSafetyJudge:
         )
         assert cfg.evaluation.llm_judge.min_score == pytest.approx(7.0)
 
-    def test_eval_config_with_all(self):
+    def test_eval_config_with_all(self, minimal_config):
         cfg = ForgeConfig(
-            **_minimal_config(
+            **minimal_config(
                 evaluation={
                     "auto_revert": True,
                     "max_acceptable_loss": 2.0,
@@ -138,16 +137,16 @@ class TestDatasetFingerprint:
 
 
 class TestTrainingManifest:
-    def test_generate_manifest(self):
-        cfg = ForgeConfig(**_minimal_config())
+    def test_generate_manifest(self, minimal_config):
+        cfg = ForgeConfig(**minimal_config())
         manifest = generate_training_manifest(cfg, metrics={"eval_loss": 0.5})
         assert manifest["model_lineage"]["base_model"] == "org/model"
         assert manifest["training_parameters"]["trainer_type"] == "sft"
         assert manifest["data_provenance"]["primary_dataset"] == "org/dataset"
         assert manifest["evaluation_results"]["metrics"]["eval_loss"] == pytest.approx(0.5)
 
-    def test_manifest_with_resource_usage(self):
-        cfg = ForgeConfig(**_minimal_config())
+    def test_manifest_with_resource_usage(self, minimal_config):
+        cfg = ForgeConfig(**minimal_config())
         manifest = generate_training_manifest(
             cfg,
             metrics={"eval_loss": 0.5},
@@ -157,10 +156,10 @@ class TestTrainingManifest:
 
 
 class TestComplianceExport:
-    def test_export_creates_files(self, tmp_path):
+    def test_export_creates_files(self, tmp_path, minimal_config):
         from forgelm.compliance import export_compliance_artifacts
 
-        cfg = ForgeConfig(**_minimal_config())
+        cfg = ForgeConfig(**minimal_config())
         manifest = generate_training_manifest(cfg, metrics={"eval_loss": 0.5})
         output_dir = str(tmp_path / "compliance")
         files = export_compliance_artifacts(manifest, output_dir)
@@ -251,8 +250,8 @@ class TestGovernanceAuditInlining:
     """Bug 6: Article 10 governance auto-inlines data_audit_report.json
     from training output_dir; missing-file path emits a clear hint."""
 
-    def test_inlines_audit_when_present(self, tmp_path):
-        config = ForgeConfig(**_minimal_config(training={"output_dir": str(tmp_path)}))
+    def test_inlines_audit_when_present(self, tmp_path, minimal_config):
+        config = ForgeConfig(**minimal_config(training={"output_dir": str(tmp_path)}))
         audit_payload = {
             "generated_at": "2026-04-27T00:00:00Z",
             "total_samples": 42,
@@ -264,8 +263,8 @@ class TestGovernanceAuditInlining:
         report = generate_data_governance_report(config, dataset={})
         assert report["data_audit"] == audit_payload
 
-    def test_warns_when_audit_corrupt(self, tmp_path, caplog):
-        config = ForgeConfig(**_minimal_config(training={"output_dir": str(tmp_path)}))
+    def test_warns_when_audit_corrupt(self, tmp_path, caplog, minimal_config):
+        config = ForgeConfig(**minimal_config(training={"output_dir": str(tmp_path)}))
         # Malformed JSON should NOT abort governance generation; the
         # report carries no data_audit key + a warning is logged.
         (tmp_path / "data_audit_report.json").write_text("{not valid json", encoding="utf-8")
@@ -274,12 +273,12 @@ class TestGovernanceAuditInlining:
         assert "data_audit" not in report
         assert any("Could not inline" in r.message for r in caplog.records)
 
-    def test_info_log_when_audit_missing(self, tmp_path, caplog):
+    def test_info_log_when_audit_missing(self, tmp_path, caplog, minimal_config):
         # The audit CLI defaults to ./audit/ but the trainer's
         # output_dir is typically ./checkpoints/ — without alignment
         # the inlining silently no-ops. Loud INFO log surfaces the
         # path mismatch with an actionable command hint.
-        config = ForgeConfig(**_minimal_config(training={"output_dir": str(tmp_path)}))
+        config = ForgeConfig(**minimal_config(training={"output_dir": str(tmp_path)}))
         with caplog.at_level("INFO", logger="forgelm.compliance"):
             report = generate_data_governance_report(config, dataset={})
         assert "data_audit" not in report
