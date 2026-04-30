@@ -88,6 +88,16 @@ All notable changes to ForgeLM are documented here.
   [split-design-data_audit-cli-202604300906.md](docs/analysis/code_reviews/split-design-data_audit-cli-202604300906.md)
   (Faz 14-15 forward-looking).
 
+### Deprecated
+
+- **`forgelm --data-audit PATH`** — the legacy flag now emits a
+  `DeprecationWarning` and an `cli.legacy_flag_invoked` audit-log event
+  on every invocation. Behaviour is unchanged; the flag is scheduled for
+  removal in **v0.7.0**. Migrate to the `forgelm audit PATH` subcommand
+  (same output, same exit codes). Tracking issue:
+  [#&lt;TBD&gt;](https://github.com/cemililik/ForgeLM/issues/&lt;TBD&gt;) —
+  to be opened for the v0.7.0 removal milestone.
+
 ---
 
 ## [0.5.0] — 2026-04-30

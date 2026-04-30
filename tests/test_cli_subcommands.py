@@ -138,6 +138,46 @@ class TestAuditSubcommand:
         # Same on-disk product as the subcommand path.
         assert (out_dir / "data_audit_report.json").is_file()
 
+    def test_legacy_data_audit_flag_emits_deprecation_warning_and_audit_event(self, tmp_path):
+        """Phase 13 (Faz 13) — `--data-audit` is a documented deprecation path.
+
+        Verifies three contract points the deprecation must satisfy:
+          1. A real ``DeprecationWarning`` fires (so `python -Wd` / CI
+             warning gates surface it).
+          2. The append-only audit log records `cli.legacy_flag_invoked`
+             with the documented payload (flag / replacement / version).
+          3. The deprecated invocation still completes successfully — the
+             warning is informational, never aborts the run.
+        """
+        data_path = tmp_path / "data.jsonl"
+        self._make_jsonl(data_path, [{"text": "deprecation contract probe"}])
+        out_dir = tmp_path / "audit"
+
+        with patch(
+            "sys.argv",
+            ["forgelm", "--data-audit", str(data_path), "--output", str(out_dir)],
+        ):
+            with pytest.warns(DeprecationWarning, match=r"--data-audit"):
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+            # Contract point #3: deprecated path must still exit 0.
+            assert exc_info.value.code == EXIT_SUCCESS
+
+        # Contract point #2: audit log carries the legacy-flag breadcrumb.
+        audit_log_path = out_dir / "audit_log.jsonl"
+        assert audit_log_path.is_file(), "legacy flag should produce an audit_log.jsonl entry"
+        events = [json.loads(line) for line in audit_log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        legacy_events = [e for e in events if e.get("event") == "cli.legacy_flag_invoked"]
+        assert len(legacy_events) == 1, f"expected exactly one legacy-flag event, got {legacy_events}"
+        evt = legacy_events[0]
+        assert evt["flag"] == "--data-audit"
+        assert evt["replacement"] == "forgelm audit"
+        assert evt["version"] == "v0.7.0 removal"
+
+        # Sanity: the deprecated path still produced the report — the
+        # warning is purely informational.
+        assert (out_dir / "data_audit_report.json").is_file()
+
     def test_audit_quality_filter_flag(self, tmp_path):
         # Phase 12: --quality-filter populates quality_summary.
         data_path = tmp_path / "data.jsonl"

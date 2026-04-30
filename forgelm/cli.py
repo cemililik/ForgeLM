@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import sys
+import warnings
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from pathlib import Path
@@ -1458,14 +1459,14 @@ def _run_data_audit(
     enable_pii_ml: bool = False,
     pii_ml_language: str = "en",
     emit_croissant: bool = False,
-    invoked_via_legacy_flag: bool = False,
 ) -> None:
     """Phase 11 / 11.5 / 12 dispatch: dataset quality + governance audit.
 
-    ``invoked_via_legacy_flag`` flips a one-line deprecation notice when
-    the operator reaches us through ``forgelm --data-audit`` instead of
-    the newer ``forgelm audit`` subcommand. The behaviour is identical
-    in both paths so existing CI pipelines keep working unchanged.
+    The behaviour is identical whether the operator reaches us via the
+    Phase 11.5 ``forgelm audit`` subcommand or the legacy ``--data-audit``
+    flag, so existing CI pipelines keep working unchanged. Phase 13 moved
+    the legacy-flag deprecation notice + audit-log event up to the
+    dispatch site in :func:`main` so this helper stays single-purpose.
     """
     from .data_audit import (
         DEFAULT_MINHASH_JACCARD,
@@ -1473,13 +1474,6 @@ def _run_data_audit(
         audit_dataset,
         summarize_report,
     )
-
-    if invoked_via_legacy_flag:
-        logger.warning(
-            "Deprecation: `forgelm --data-audit PATH` is preserved as an alias and is "
-            "scheduled for removal in v0.7.0. Migrate to `forgelm audit PATH` "
-            "(Phase 11.5+) — same behaviour, same output."
-        )
 
     target = output_dir or "./audit"
     threshold = near_dup_threshold if near_dup_threshold is not None else DEFAULT_NEAR_DUP_HAMMING
@@ -1576,7 +1570,6 @@ def _run_audit_cmd(args, output_format: str) -> None:
         enable_pii_ml=getattr(args, "pii_ml", False),
         pii_ml_language=getattr(args, "pii_ml_language", "en"),
         emit_croissant=getattr(args, "croissant", False),
-        invoked_via_legacy_flag=False,
     )
 
 
@@ -1827,17 +1820,58 @@ def main():
     # --data-audit operates on a JSONL file/directory only — no config needed.
     # Run before the config-required check so operators can audit raw data
     # without writing a YAML. Phase 11.5 promoted the same code path to
-    # `forgelm audit PATH` (a real subcommand) and surfaces a deprecation
-    # notice from inside :func:`_run_data_audit` when the legacy flag is used.
+    # `forgelm audit PATH` (a real subcommand); the legacy flag is preserved
+    # as an alias and slated for removal in v0.7.0 — Phase 13 wires up the
+    # deprecation signalling at this dispatch site.
     if getattr(args, "data_audit", None):
         json_output = args.output_format == "json"
         log_level = "WARNING" if args.quiet else args.log_level
         _setup_logging(log_level, json_format=json_output)
+        # Phase 13 (Faz 13): emit a structured Python ``DeprecationWarning``
+        # so `pytest -W error::DeprecationWarning` and `python -Wd` tooling
+        # surface it, plus an append-only audit-log event so operators who
+        # only read the JSONL trail see the migration signal too. Cadence
+        # for the v0.7.0 removal follows the "Deprecation cadence" section
+        # in ``docs/standards/release.md`` (one-minor warning window
+        # minimum). Tracking issue:
+        # https://github.com/cemililik/ForgeLM/issues/<TBD> (open to track
+        # removal — no GitHub issue number assigned yet).
+        warnings.warn(
+            "`forgelm --data-audit PATH` is deprecated and will be removed "
+            "in v0.7.0. Use the `forgelm audit PATH` subcommand instead — "
+            "same behaviour, same output. See "
+            "https://github.com/cemililik/ForgeLM/issues/<TBD> for the "
+            "tracking issue.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # Audit-log event: append-only Article 12 record of the legacy
+        # invocation so compliance reviewers can prove the operator was
+        # warned. The logger writes to ``<target>/audit_log.jsonl`` next to
+        # the report this run is about to produce. Resolve the target the
+        # same way ``_run_data_audit`` does (default ``./audit``) so the
+        # event lands in the same directory as the report.
+        legacy_target = args.output or "./audit"
+        try:
+            from .compliance import AuditLogger
+
+            AuditLogger(legacy_target).log_event(
+                "cli.legacy_flag_invoked",
+                flag="--data-audit",
+                replacement="forgelm audit",
+                version="v0.7.0 removal",
+            )
+        except OSError as audit_exc:
+            # Non-fatal: the audit log is a best-effort telemetry record
+            # for the deprecation notice. The DeprecationWarning has
+            # already fired; the audit run itself must still proceed —
+            # losing the legacy-flag breadcrumb is preferable to aborting
+            # a working pipeline because the output dir is read-only.
+            logger.debug("Failed to record legacy-flag audit event: %s", audit_exc)
         _run_data_audit(
             args.data_audit,
             args.output,
             args.output_format,
-            invoked_via_legacy_flag=True,
         )
         sys.exit(EXIT_SUCCESS)
 
