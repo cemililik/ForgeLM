@@ -558,7 +558,7 @@ class ForgeTrainer:
         # Lifecycle event: dashboards distinguish "training.reverted" (gate
         # rejected an otherwise-completed run) from "training.failure"
         # (training itself crashed). See docs/standards/logging-observability.md.
-        self.notifier.notify_reverted(run_name=self.run_name, reason=f"{reason} Adapters discarded.")
+        self.notifier.notify_reverted(run_name=self.run_name, reason=f"{reason} Artifacts discarded.")
 
     def _build_trainer(self, callbacks: list) -> None:
         """Build (or rebuild) self.trainer from current config. Called on first build and after OOM retry."""

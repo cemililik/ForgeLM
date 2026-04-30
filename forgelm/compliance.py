@@ -149,28 +149,32 @@ class AuditLogger:
                 "log before resuming."
             )
 
-        seek_start = max(0, size - 4096)
-        fh.seek(seek_start)
-        # When the seek lands mid-line, the first newline-bounded chunk
-        # would be a partial entry — skip it so every line we parse is whole.
-        if seek_start > 0:
-            fh.readline()
-        tail = fh.read()
-        lines = self._decode_lines(tail)
-        if lines:
-            return hashlib.sha256(lines[-1].encode("utf-8")).hexdigest()
-        # Empty after skipping the partial-first-line means the final entry
-        # itself exceeds the 4 KiB tail window. Re-read from ``seek_start``
-        # without skipping so we still recover the (oversized) last record.
-        # The trailing-newline guard above guarantees the recovered line
-        # is complete; we just need a wider tail window.
-        if seek_start > 0:
+        # Progressive-widen tail read.
+        #
+        # Start at a 4 KiB tail (typical audit entry < 1 KiB so this hits in
+        # one read for the common case). When the tail starts mid-record
+        # (seek-landed inside an entry > tail size) ``readline()`` consumes
+        # the partial first line, leaving an empty whole-records segment;
+        # we then **double the window** and retry, up to the full file.
+        # This guarantees we never hash a truncated record — the prior
+        # 4 KiB-only fallback would silently re-root to a partial entry
+        # when a single record exceeded 4 KiB.
+        window = 4096
+        while True:
+            seek_start = max(0, size - window)
             fh.seek(seek_start)
+            if seek_start > 0:
+                fh.readline()  # drop partial first line
             tail = fh.read()
             lines = self._decode_lines(tail)
             if lines:
                 return hashlib.sha256(lines[-1].encode("utf-8")).hexdigest()
-        return "genesis"
+            if seek_start == 0:
+                # We read the entire file and got no whole record — the
+                # log starts mid-record (impossible for a valid file with
+                # the trailing-newline guard above). Treat as fresh log.
+                return "genesis"
+            window *= 2
 
     def _decode_lines(self, blob: bytes) -> list:
         """UTF-8 decode + split into non-empty stripped lines, or raise."""
@@ -1069,14 +1073,32 @@ def _verify_genesis_manifest(
             manifest_path,
         )
         return None
+    # Manifest is present (the truncate-and-resume detector). A
+    # present-but-unreadable / present-but-malformed manifest is itself a
+    # failure signal: an attacker who corrupted the manifest could be
+    # disguising a chain rewrite. Fail verification rather than warning
+    # and continuing.
     try:
         with open(manifest_path, "r", encoding="utf-8") as mfh:
             manifest = json.load(mfh)
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning("Audit genesis manifest unreadable (%s): %s", manifest_path, exc)
-        return None
+        return VerifyResult(
+            valid=False,
+            entries_count=entries_count,
+            first_invalid_index=1,
+            reason=f"manifest present but unreadable at {manifest_path!r}: {exc}",
+        )
     pinned = manifest.get("first_entry_sha256")
-    if pinned and first_line_hash and pinned != first_line_hash:
+    pinned_run = manifest.get("run_id")
+    if not pinned or not pinned_run:
+        return VerifyResult(
+            valid=False,
+            entries_count=entries_count,
+            first_invalid_index=1,
+            reason=(f"manifest missing required pinned fields (first_entry_sha256={pinned!r}, run_id={pinned_run!r})"),
+        )
+    if first_line_hash and pinned != first_line_hash:
         return VerifyResult(
             valid=False,
             entries_count=entries_count,
@@ -1087,8 +1109,7 @@ def _verify_genesis_manifest(
                 "(log may have been truncated and rewritten)"
             ),
         )
-    pinned_run = manifest.get("run_id")
-    if pinned_run and first_run_id and pinned_run != first_run_id:
+    if first_run_id and pinned_run != first_run_id:
         return VerifyResult(
             valid=False,
             entries_count=entries_count,

@@ -142,7 +142,7 @@ Coupling counted as "concern A imports/calls a symbol that lives in concern B".
 
 ### 1.d Proposed package layout
 
-```
+```text
 forgelm/data_audit/
     __init__.py          # facade — re-exports the entire public + test-patched surface
     _optional.py         # optional-deps sentinels (xxhash / numpy / datasketch / presidio handles)
@@ -394,7 +394,7 @@ Coupling is shallow — registrars and dispatchers form parallel chains both roo
 
 ### 2.d Proposed package layout
 
-```
+```text
 forgelm/cli/
     __init__.py             # re-exports main + exit codes + the test-touched helpers
     __main__.py             # python -m forgelm.cli entry point (NEW — load-bearing for quickstart subprocess)
@@ -548,7 +548,7 @@ A pre-commit linter that fails on top-level torch imports inside `forgelm/cli/**
 
 Eleven PRs total — five parallelisable, six sequential.
 
-```
+```text
 Week 1 (parallel where possible):
     Day 1: D-1 (data_audit leaf concerns)        || C-1 (cli leaf concerns)
     Day 2: D-2 (simhash/minhash + types)         || C-2 (cli parser package extraction)

@@ -498,6 +498,16 @@ def run_safety_evaluation(
     if thresholds is None:
         thresholds = SafetyEvalThresholds()
 
+    # Library-API boundary check. ``SafetyConfig.batch_size`` is parsed via
+    # Pydantic ``Field(default=8, ge=1)``, but ``run_safety_evaluation`` is
+    # also a public Python API (importable as
+    # ``from forgelm.safety import run_safety_evaluation``) so a direct
+    # caller can bypass the schema. Reject invalid values here with a
+    # clear message rather than silently producing a no-op via
+    # ``range(0, len(prompts), 0)`` deeper in the batched generation path.
+    if not isinstance(batch_size, int) or batch_size < 1:
+        raise ValueError(f"batch_size must be a positive integer (got {batch_size!r})")
+
     if not os.path.isfile(test_prompts_path):
         logger.error("Safety test prompts file not found: %s", test_prompts_path)
         return SafetyResult(passed=False, failure_reason=f"Test prompts file not found: {test_prompts_path}")
