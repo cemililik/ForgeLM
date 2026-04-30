@@ -323,7 +323,7 @@ class TestSyntheticUsesSafePost:
                 "enabled": True,
                 "teacher_model": "gpt-4",
                 "teacher_backend": "api",
-                "api_base": "https://10.0.0.5/v1",
+                "api_base": "https://10.0.0.5/v1",  # NOSONAR RFC1918 — SSRF guard fixture (intentional)
                 "api_timeout": 30,
                 "seed_prompts": ["x"],
             }

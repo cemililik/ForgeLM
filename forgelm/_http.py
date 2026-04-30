@@ -188,7 +188,9 @@ def safe_post(
     # Scheme policy.
     if parsed.scheme == "http":
         if not allow_insecure_http:
-            raise HttpSafetyError(f"http:// blocked (use https://); url={_mask_netloc(url)}")
+            raise HttpSafetyError(  # NOSONAR — error string mentions "http://" by design (operator-facing rejection message)
+                f"http:// blocked (use https://); url={_mask_netloc(url)}"
+            )
     elif parsed.scheme != "https":
         raise HttpSafetyError(f"Unsupported URL scheme {parsed.scheme!r}; only http(s) allowed.")
 

@@ -595,7 +595,7 @@ class TestVerifyAuditLog:
     def test_verify_audit_hmac_valid(self, tmp_path):
         from forgelm.compliance import verify_audit_log
 
-        hmac_key = "s3cr3t-operator-key"  # noqa: S105 test fixture, not a real secret
+        hmac_key = "s3cr3t-operator-key"  # noqa: S105  NOSONAR test fixture, not a real secret
         log_path = self._build_log(tmp_path, secret=hmac_key, events=3)
 
         result = verify_audit_log(log_path, hmac_secret=hmac_key)

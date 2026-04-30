@@ -6,10 +6,14 @@ from urllib.parse import urlparse
 
 import requests
 
-from ._http import HttpSafetyError, safe_post
-from ._http import (
-    _is_private_destination as _is_private_destination,  # noqa: F401  re-export for back-compat (unused import is intentional — see Phase 7 closure)
-)
+from ._http import HttpSafetyError, _is_private_destination, safe_post
+
+# Public re-export surface — Phase 7 split moved ``_is_private_destination``
+# into ``forgelm._http`` but external callers / older code may still import
+# it from ``forgelm.webhook``. Listing it in ``__all__`` documents the
+# re-export as intentional and silences ruff/Codacy F401 ("imported but
+# unused") and Sonar's equivalent rule.
+__all__ = ["HttpSafetyError", "WebhookNotifier", "_is_private_destination", "safe_post"]
 
 logger = logging.getLogger("forgelm.webhook")
 

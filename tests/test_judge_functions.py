@@ -280,7 +280,7 @@ class TestJudgeUsesSafePost:
             "prompt",
             "fake-key",
             "gpt-4o",
-            api_base="https://10.0.0.1/v1/chat/completions",
+            api_base="https://10.0.0.1/v1/chat/completions",  # NOSONAR RFC1918 — SSRF guard fixture (intentional)
         )
 
         # safe_post raised HttpSafetyError → judge maps to None / API error.

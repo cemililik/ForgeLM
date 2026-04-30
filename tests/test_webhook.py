@@ -180,17 +180,24 @@ class TestSafePostHttpDiscipline:
     on. The Phase 7 closure adds judge + synthetic + (existing) webhook to
     the call-site list; the gates must reject misconfigured URLs identically
     across all of them.
+
+    NOTE for static analysers: the literals in this class deliberately
+    include RFC1918 / loopback / IMDS / multicast IP addresses, plain
+    ``http://`` URLs, and ``ftp://`` URLs. These are not security
+    vulnerabilities — they are the inputs the test asserts the SSRF /
+    scheme guard rejects. Removing them would erase the coverage of those
+    rejections.
     """
 
     @pytest.mark.parametrize(
         "url",
         [
-            "https://10.0.0.1/hook",  # RFC1918 (10/8)
-            "https://172.16.0.5/hook",  # RFC1918 (172.16/12)
-            "https://192.168.1.10/hook",  # RFC1918 (192.168/16)
-            "https://127.0.0.1/hook",  # loopback
-            "https://169.254.169.254/latest/meta-data/",  # AWS IMDS
-            "https://224.0.0.1/multicast",  # multicast
+            "https://10.0.0.1/hook",  # NOSONAR RFC1918 (10/8) — SSRF guard fixture
+            "https://172.16.0.5/hook",  # NOSONAR RFC1918 (172.16/12) — SSRF guard fixture
+            "https://192.168.1.10/hook",  # NOSONAR RFC1918 (192.168/16) — SSRF guard fixture
+            "https://127.0.0.1/hook",  # NOSONAR loopback — SSRF guard fixture
+            "https://169.254.169.254/latest/meta-data/",  # NOSONAR AWS IMDS — SSRF guard fixture
+            "https://224.0.0.1/multicast",  # NOSONAR multicast — SSRF guard fixture
         ],
     )
     def test_ssrf_block_private_ip(self, url):
@@ -207,7 +214,7 @@ class TestSafePostHttpDiscipline:
         with patch.object(_http.requests, "post") as mock_post:
             mock_post.return_value = MagicMock(ok=True, status_code=200)
             _http.safe_post(
-                "https://10.0.0.1/hook",
+                "https://10.0.0.1/hook",  # NOSONAR RFC1918 — SSRF opt-out fixture
                 json={},
                 timeout=10.0,
                 allow_private=True,
@@ -229,7 +236,7 @@ class TestSafePostHttpDiscipline:
         from forgelm._http import HttpSafetyError, safe_post
 
         with pytest.raises(HttpSafetyError, match="http://"):
-            safe_post("http://example.com/hook", json={}, timeout=10.0)
+            safe_post("http://example.com/hook", json={}, timeout=10.0)  # NOSONAR scheme blocker fixture
 
     def test_http_allowed_with_opt_in(self):
         """allow_insecure_http=True (used by webhook) lets http:// through."""
@@ -238,7 +245,7 @@ class TestSafePostHttpDiscipline:
         with patch.object(_http.requests, "post") as mock_post:
             mock_post.return_value = MagicMock(ok=True, status_code=200)
             _http.safe_post(
-                "http://example.com/hook",
+                "http://example.com/hook",  # NOSONAR opt-in fixture (webhook back-compat path)
                 json={},
                 timeout=10.0,
                 allow_insecure_http=True,
@@ -251,7 +258,7 @@ class TestSafePostHttpDiscipline:
 
         with pytest.raises(HttpSafetyError, match="Unsupported URL scheme"):
             safe_post(
-                "ftp://example.com/hook",
+                "ftp://example.com/hook",  # NOSONAR scheme blocker fixture (ftp not allowed)
                 json={},
                 timeout=10.0,
                 allow_insecure_http=True,
@@ -298,7 +305,7 @@ class TestSafePostHttpDiscipline:
 
         from forgelm import _http
 
-        bearer_token = "sk-" + "supersecret123"  # noqa: S105 test fixture, fragment-built
+        bearer_token = "sk-" + "supersecret123"  # noqa: S105  NOSONAR test fixture, fragment-built
         with patch.object(_http.requests, "post") as mock_post:
             mock_post.side_effect = req.exceptions.ConnectionError(f"refused while sending Bearer {bearer_token}")
             with caplog.at_level(logging.WARNING, logger="forgelm._http"):
@@ -386,7 +393,7 @@ class TestLifecycleVocabulary:
 
         notifier.notify_awaiting_approval(
             run_name="my_run",
-            model_path="/var/forgelm/runs/abc/final_model",
+            model_path="/var/forgelm/runs/abc/final_model",  # NOSONAR — payload string fixture, no fs op
         )
 
         mock_post.assert_called_once()
@@ -396,6 +403,7 @@ class TestLifecycleVocabulary:
         assert payload["event"] == "approval.required"
         assert payload["status"] == "awaiting_approval"
         assert payload["run_name"] == "my_run"
+        # NOSONAR — string literal, not a real filesystem operation
         assert payload["model_path"] == "/var/forgelm/runs/abc/final_model"
         assert "/var/forgelm/runs/abc/final_model" in payload["attachments"][0]["text"]
 
