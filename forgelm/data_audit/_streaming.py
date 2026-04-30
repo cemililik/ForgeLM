@@ -27,13 +27,18 @@ def _detect_language(text: str) -> str:
         return "unknown"
     try:
         from langdetect import DetectorFactory, detect
+        from langdetect.lang_detect_exception import LangDetectException
 
         DetectorFactory.seed = 0
-        return detect(text)
+        try:
+            return detect(text)
+        except LangDetectException:
+            # langdetect raises this when no features can be extracted (e.g.,
+            # short non-alphabetic strings, pure-symbol payloads). Treat as
+            # "unknown" rather than crashing the audit.
+            return "unknown"
     except ImportError:
         return "unknown (install forgelm[ingestion])"
-    except Exception:
-        return "unknown"
 
 
 def _length_stats(lengths: List[int]) -> Dict[str, float]:

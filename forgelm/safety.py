@@ -93,7 +93,13 @@ def _generate_one_safety_response(model: Any, tokenizer: Any, prompt: str, max_n
         with torch.no_grad():
             outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
         return tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
-    except Exception as e:
+    except (RuntimeError, ValueError, TypeError, IndexError, KeyError) as e:
+        # Tokenizer + generate boundary. RuntimeError covers CUDA OOM /
+        # device-side asserts, ValueError/TypeError cover bad-shape inputs,
+        # IndexError covers empty / oversize sequences, KeyError covers
+        # malformed BatchEncoding dicts. This is the bottom of the OOM
+        # recovery cascade — empty response is the documented fallback so
+        # one bad prompt never blanks out the whole batch.
         logger.warning("Failed to generate response for prompt: %s", e)
         return ""
 
@@ -139,9 +145,12 @@ def _generate_safety_batch_with_oom_retry(
         except RuntimeError:
             pass
         return [_generate_one_safety_response(model, tokenizer, p, max_new_tokens) for p in batch]
-    except Exception as e:
+    except (RuntimeError, ValueError, TypeError, IndexError, KeyError) as e:
         # Non-OOM batch failure — fall back to per-prompt so a single
-        # malformed input can't blank out the whole batch.
+        # malformed input can't blank out the whole batch. RuntimeError
+        # covers CUDA / driver errors below the OOM-specific branch above,
+        # ValueError/TypeError/KeyError cover tokenizer-side issues,
+        # IndexError covers shape mismatches in pad-longest path.
         logger.warning(
             "Safety-generation batch failed (start=%d, size=%d), retrying per-prompt: %s",
             batch_start,
@@ -308,7 +317,12 @@ def _classify_responses(
                 category_dist,
                 severity_dist,
             )
-        except Exception as e:
+        except (RuntimeError, ValueError, TypeError, IndexError, KeyError) as e:
+            # HF pipeline boundary. RuntimeError covers tokenizer / model
+            # driver errors, ValueError/TypeError/IndexError cover bad
+            # input shapes, KeyError covers result-dict key drift across
+            # classifier versions. Per-sample failure is surfaced into the
+            # detail row (label='error') rather than aborting the batch.
             logger.warning("Classification failed for response: %s", e)
             # Surface classifier crashes through the same review channel as
             # genuinely low-confidence rows so they aren't silently buried.
@@ -455,7 +469,7 @@ def _load_safety_classifier(classifier_path: str, audit_logger: Any) -> Any:
             device_map="auto",
             trust_remote_code=False,
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort: HF pipeline surface raises a wide error tail (OSError/ValueError/RuntimeError/HFValidationError/repo errors); we re-raise as RuntimeError below so the caller still sees the failure.
         logger.error("Failed to load safety classifier: %s", e)
         # Closure plan Faz 3 (F-compliance-120): emit a record-keeping event
         # so safety classifier outages are visible in the EU AI Act Article 12
@@ -468,7 +482,7 @@ def _load_safety_classifier(classifier_path: str, audit_logger: Any) -> Any:
                     classifier=classifier_path,
                     reason=str(e)[:500],
                 )
-            except Exception as audit_exc:  # pragma: no cover — defensive
+            except Exception as audit_exc:  # noqa: BLE001 — best-effort: audit emission must not mask the primary classifier load failure being re-raised below.
                 logger.warning("Failed to emit classifier_load_failed audit event: %s", audit_exc)
         raise RuntimeError(str(e)) from e
 
@@ -642,5 +656,9 @@ def _append_trend_entry(output_dir: str, safety_score: float, safe_ratio: float,
         with open(trend_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
         logger.info("Safety trend entry appended to %s", trend_path)
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
+        # OSError: filesystem (permission, full disk, missing dir).
+        # TypeError/ValueError: json.dumps on unexpected entry shape.
+        # Trend logging is non-fatal — a missing entry must not abort the
+        # safety pass that already concluded successfully.
         logger.warning("Failed to write safety trend entry: %s", e)

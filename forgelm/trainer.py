@@ -764,7 +764,13 @@ class ForgeTrainer:
             try:
                 with model_obj.disable_adapter():
                     baseline_metrics = self.trainer.evaluate()
-            except Exception as e:
+            except (RuntimeError, AttributeError, ValueError, NotImplementedError) as e:
+                # PEFT disable_adapter context can fail when the active model
+                # isn't a PeftModel (AttributeError), when the underlying
+                # adapter graph is in a state that disallows toggling
+                # (RuntimeError / NotImplementedError), or when evaluate()
+                # rejects the temporarily-base configuration (ValueError).
+                # Fall back to evaluating with adapters active.
                 logger.warning("Failed to disable adapters for baseline eval, evaluating with adapters instead: %s", e)
                 baseline_metrics = self.trainer.evaluate()
         else:
@@ -1039,7 +1045,7 @@ class ForgeTrainer:
 
         try:
             return self._run_training_pipeline(resume_from_checkpoint)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort: top-of-pipeline catch must record an audit event and notify before re-raising regardless of failure type (CUDA, dataloader, optimizer, etc.); the bare re-raise preserves the original traceback.
             logger.exception("Training pipeline failed.")
             self.audit.log_event("pipeline.failed", error=str(e))
             self.notifier.notify_failure(run_name=self.run_name, reason=str(e))
@@ -1055,7 +1061,13 @@ class ForgeTrainer:
             logger.info("Saving final adapters to %s...", final_path)
             try:
                 self.trainer.model.save_pretrained(final_path)
-            except Exception as e:
+            except (OSError, RuntimeError, AttributeError, ValueError) as e:
+                # OSError: filesystem (permissions, disk full, missing dir).
+                # RuntimeError: torch / CUDA-side serialization error.
+                # AttributeError: non-PEFT models without save_pretrained
+                # contract drift. ValueError: safetensors / state_dict
+                # validation. Fall back to trainer.save_model which goes
+                # through HF Trainer's hardened save path.
                 logger.warning("Direct model save failed, falling back to trainer.save_model: %s", e)
                 self.trainer.save_model(final_path)
             self.tokenizer.save_pretrained(final_path)
@@ -1067,7 +1079,12 @@ class ForgeTrainer:
         try:
             merged = model_to_save.merge_and_unload()
             merged.save_pretrained(final_path, safe_serialization=True)
-        except Exception as e:
+        except (OSError, RuntimeError, AttributeError, ValueError) as e:
+            # AttributeError: non-PEFT model lacking merge_and_unload.
+            # RuntimeError: torch-side merge / dtype / device errors.
+            # OSError + ValueError: serialization paths (filesystem,
+            # safetensors validation). Fall back to the unmerged save so
+            # the run still produces a usable artefact.
             logger.warning("Adapter merge failed, saving model state as-is: %s", e)
             self.trainer.save_model(final_path)
         self.tokenizer.save_pretrained(final_path)
@@ -1121,7 +1138,13 @@ class ForgeTrainer:
                 safety_score=result.safety_score,
                 safety_categories=result.safety_categories,
             )
-        except Exception as e:
+        except (OSError, ValueError, TypeError, AttributeError, KeyError) as e:
+            # OSError: filesystem write of README.md.
+            # ValueError/TypeError: jinja template rendering on unexpected
+            # config / metrics shapes. AttributeError/KeyError: schema drift
+            # between TrainResult and the model card template. Card is a
+            # documentation artefact — failure must not abort a successful
+            # training run.
             logger.warning("Failed to generate model card: %s", e)
 
     # Known GPU on-demand pricing ($/hour, approximate mid-2026 cloud averages)
@@ -1215,7 +1238,12 @@ class ForgeTrainer:
                         gpu_hours,
                         cost_per_hour,
                     )
-        except Exception as e:
+        except (RuntimeError, AttributeError, KeyError, OSError, ValueError) as e:
+            # RuntimeError/AttributeError: torch.cuda surface (driver
+            # uninit, missing device). KeyError: log_history shape drift.
+            # OSError: rare GPU device-info read errors. ValueError:
+            # dataclass / config attribute coercion. Resource metrics are
+            # advisory; a failure must not abort the surrounding run.
             logger.warning("Failed to collect resource usage: %s", e)
         return usage if usage else None
 
@@ -1384,7 +1412,7 @@ class ForgeTrainer:
                     output_dir=compliance_dir,
                     files=files,
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort: outer compliance-export gate. Article 11/12 export plumbing crosses pydantic validation, json serialization, hashing, filesystem writes, and audit emission; any leak from the inner narrow-class catches must not abort the surrounding training pipeline that already succeeded.
             logger.warning("Failed to export compliance artifacts: %s", e)
 
     def _generate_model_integrity(self, final_path: str) -> None:
@@ -1400,7 +1428,12 @@ class ForgeTrainer:
                 json.dump(integrity, f, indent=2)
             self.audit.log_event("model.integrity_verified", artifacts=len(integrity.get("artifacts", [])))
             logger.info("Model integrity checksums saved to %s", integrity_path)
-        except Exception as e:
+        except (OSError, ValueError, TypeError) as e:
+            # OSError: filesystem walk + write of model_integrity.json.
+            # TypeError: json.dump rejecting unexpected payload shape.
+            # ValueError: hash digest construction on empty input. Article
+            # 15 checksum is an artefact; failure must not abort a
+            # successful run.
             logger.warning("Failed to generate model integrity: %s", e)
 
     def _generate_deployer_instructions(self, final_path: str, metrics: Dict[str, float]) -> None:
@@ -1409,5 +1442,10 @@ class ForgeTrainer:
             from .compliance import generate_deployer_instructions
 
             generate_deployer_instructions(self.config, metrics, final_path)
-        except Exception as e:
+        except (OSError, ValueError, TypeError, AttributeError, KeyError) as e:
+            # OSError: filesystem write. ValueError/TypeError: template
+            # rendering on unexpected metrics shape. AttributeError /
+            # KeyError: config schema drift. Article 13 deployer
+            # instructions are documentation; failure must not abort a
+            # successful run.
             logger.warning("Failed to generate deployer instructions: %s", e)
