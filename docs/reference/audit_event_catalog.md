@@ -36,8 +36,8 @@ The hash chain advances after the line lands on disk (`flush` + `fsync`), so an 
 | Event                        | When emitted                                                                                            | Payload                                              | Article |
 |------------------------------|---------------------------------------------------------------------------------------------------------|------------------------------------------------------|---------|
 | `human_approval.required`    | A gate marked `requires_human_approval: true` paused the pipeline awaiting an operator decision.        | `gate`, `reason`, `metrics`                          | 14      |
-| `human_approval.granted`     | Operator approved the paused gate. _(Faz 9 — placeholder; not yet emitted.)_                            | `gate`, `approver`, `comment`                        | 14      |
-| `human_approval.rejected`    | Operator rejected the paused gate. _(Faz 9 — placeholder; not yet emitted.)_                            | `gate`, `approver`, `comment`                        | 14      |
+| `human_approval.granted`     | Operator approved the paused gate via `forgelm approve`.                                                | `gate`, `approver`, `comment`                        | 14      |
+| `human_approval.rejected`    | Operator rejected the paused gate via `forgelm reject`.                                                 | `gate`, `approver`, `comment`                        | 14      |
 
 ### Article 15 — Model Integrity (auto-revert + safety)
 
@@ -58,7 +58,7 @@ The hash chain advances after the line lands on disk (`flush` + `fsync`), so an 
 
 | Event                       | When emitted                                                                                       | Payload                          | Article |
 |-----------------------------|----------------------------------------------------------------------------------------------------|----------------------------------|---------|
-| `cli.legacy_flag_invoked`   | A deprecated CLI flag was used. _(Faz 13 — placeholder; not yet emitted.)_                         | `flag`, `replacement`, `version` | 12      |
+| `cli.legacy_flag_invoked`   | A deprecated CLI flag was used (e.g., `--data-audit`).                                             | `flag`, `replacement`, `version` | 12      |
 
 ### Audit-system events (meta)
 
