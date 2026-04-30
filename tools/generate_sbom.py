@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Emit a minimal CycloneDX 1.5 SBOM for the active Python environment.
+
+Reads the installed package set via ``pip list --format=json`` and renders a
+CycloneDX 1.5 JSON document on stdout. Pure stdlib, cross-platform — used by
+the ``publish.yml`` cross-OS matrix to attach a per-(os, python-version) SBOM
+artifact to every tagged release.
+
+This is intentionally a hand-rolled emitter rather than the optional
+``cyclonedx-bom`` PyPI package: keeping the dependency footprint at zero means
+the SBOM step can never silently degrade an otherwise-green matrix combo just
+because a transitive dep failed to wheel-build on (say) Python 3.13/Windows.
+
+Output schema reference: https://cyclonedx.org/docs/1.5/json/
+
+Usage:
+    python tools/generate_sbom.py > sbom.json
+"""
+
+from __future__ import annotations
+
+import datetime as _dt
+import json
+import platform
+import subprocess
+import sys
+import uuid
+from importlib.metadata import PackageNotFoundError, version
+from typing import Any
+
+
+def _installed_packages() -> list[dict[str, str]]:
+    """Return ``pip list --format=json`` output as a list of dicts.
+
+    Falls back to an empty list if pip is unavailable; the SBOM will still be
+    syntactically valid (just empty ``components``).
+    """
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "list", "--format=json", "--disable-pip-version-check"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        return []
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+
+
+def _purl(name: str, ver: str) -> str:
+    """Build a Package URL (purl) for a PyPI package."""
+    # CycloneDX expects RFC-style purls; pkg:pypi/<name>@<version>.
+    return f"pkg:pypi/{name}@{ver}"
+
+
+def _component(pkg: dict[str, str]) -> dict[str, Any]:
+    name = pkg.get("name", "")
+    ver = pkg.get("version", "")
+    return {
+        "type": "library",
+        "name": name,
+        "version": ver,
+        "purl": _purl(name, ver),
+        "bom-ref": _purl(name, ver),
+    }
+
+
+def _forgelm_version() -> str:
+    try:
+        return version("forgelm")
+    except PackageNotFoundError:
+        return "0.0.0+unknown"
+
+
+def build_sbom() -> dict[str, Any]:
+    """Construct the CycloneDX 1.5 SBOM document."""
+    now = _dt.datetime.now(tz=_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    forgelm_ver = _forgelm_version()
+    components = [_component(p) for p in _installed_packages()]
+    return {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.5",
+        "serialNumber": f"urn:uuid:{uuid.uuid4()}",
+        "version": 1,
+        "metadata": {
+            "timestamp": now,
+            "tools": [
+                {
+                    "vendor": "ForgeLM",
+                    "name": "generate_sbom.py",
+                    "version": "1.0.0",
+                }
+            ],
+            "component": {
+                "type": "application",
+                "name": "forgelm",
+                "version": forgelm_ver,
+                "purl": _purl("forgelm", forgelm_ver),
+                "bom-ref": _purl("forgelm", forgelm_ver),
+            },
+            "properties": [
+                {"name": "python:version", "value": platform.python_version()},
+                {"name": "python:implementation", "value": platform.python_implementation()},
+                {"name": "platform:system", "value": platform.system()},
+                {"name": "platform:release", "value": platform.release()},
+                {"name": "platform:machine", "value": platform.machine()},
+            ],
+        },
+        "components": components,
+    }
+
+
+def main() -> int:
+    sbom = build_sbom()
+    json.dump(sbom, sys.stdout, indent=2, sort_keys=False)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
