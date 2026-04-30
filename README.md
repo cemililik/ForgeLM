@@ -5,6 +5,8 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/cemililik/ForgeLM/actions/workflows/ci.yml/badge.svg)](https://github.com/cemililik/ForgeLM/actions/workflows/ci.yml)
 
+**Runs on Linux, macOS, and Windows.** The PyPI metadata's `Operating System :: OS Independent` classifier is backed by a release-tag CI matrix that builds the wheel on Linux and re-installs + tests it across **3 operating systems × 4 Python versions = 12 combinations** (Ubuntu, macOS, Windows × Python 3.10, 3.11, 3.12, 3.13) — every combo must pass before PyPI publish runs. See [`.github/workflows/publish.yml`](.github/workflows/publish.yml). Linux-only extras (`qlora`, `unsloth`) are flagged on each `pip install "forgelm[...]"` line below.
+
 **ForgeLM** is a config-driven, enterprise-ready LLM fine-tuning toolkit. It supports the full modern post-training stack — from supervised fine-tuning to preference alignment to reasoning RL — with integrated safety evaluation, EU AI Act compliance, and CI/CD-native design.
 
 ## Features
