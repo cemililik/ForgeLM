@@ -158,6 +158,13 @@ jobs:
           print('synthetic.py import: OK')
           "
 
+      - name: Site-as-tested-surface guard (strict)
+        # Diffs site/*.html claims against the Python sources of truth
+        # (compliance artefacts, quickstart templates, GPU profile count,
+        # pyproject version). Fails the build on any drift; see
+        # tools/check_site_claims.py for what's checked and why.
+        run: python3 tools/check_site_claims.py --strict
+
       - name: Bilingual doc H2 parity check
         run: |
           python -c "
