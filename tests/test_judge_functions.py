@@ -273,17 +273,24 @@ class TestJudgeUsesSafePost:
 
     @patch("forgelm._http.requests.post")
     def test_judge_ssrf_block_for_private_url(self, mock_post):
-        """A private-IP api_base must be rejected before any network call."""
+        """A private-IP api_base must be rejected before any network call.
+
+        ``_call_api_judge`` re-raises :class:`HttpSafetyError` so
+        ``run_judge_evaluation`` can convert it into a hard
+        ``JudgeResult(passed=False)`` instead of silently scoring every
+        prompt as ``None`` (which would mask a misconfigured endpoint).
+        """
+        import pytest
+
+        from forgelm._http import HttpSafetyError
         from forgelm.judge import _call_api_judge
 
-        result = _call_api_judge(
-            "prompt",
-            "fake-key",
-            "gpt-4o",
-            api_base="https://10.0.0.1/v1/chat/completions",  # NOSONAR RFC1918 — SSRF guard fixture (intentional)
-        )
+        with pytest.raises(HttpSafetyError):
+            _call_api_judge(
+                "prompt",
+                "fake-key",
+                "gpt-4o",
+                api_base="https://10.0.0.1/v1/chat/completions",  # NOSONAR RFC1918 — SSRF guard fixture (intentional)
+            )
 
-        # safe_post raised HttpSafetyError → judge maps to None / API error.
         mock_post.assert_not_called()
-        assert result["score"] is None
-        assert "API error" in result["reason"]

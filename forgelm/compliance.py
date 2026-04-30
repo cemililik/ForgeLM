@@ -1149,6 +1149,14 @@ def _verify_chain_walk(
                 reason=f"line {idx} is not valid JSON: {exc}",
             )
 
+        if not isinstance(entry, dict):
+            return VerifyResult(
+                valid=False,
+                entries_count=entries_count,
+                first_invalid_index=idx,
+                reason=f"line {idx} is not a JSON object",
+            )
+
         prev_hash = entry.get("prev_hash")
         if prev_hash != expected_prev:
             return VerifyResult(

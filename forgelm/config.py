@@ -269,6 +269,10 @@ class JudgeConfig(BaseModel):
     judge_api_base: Optional[str] = None
     eval_dataset: str = "eval_prompts.jsonl"  # evaluation prompts file
     min_score: float = 5.0  # minimum average score (1-10 scale)
+    # Phase 4 (closure F-performance-102): batched fine-tuned-model generation.
+    # ge=1 enforced at parse time so 0/negative values raise ValidationError
+    # immediately instead of being silently coerced inside run_judge_evaluation.
+    batch_size: int = Field(default=8, ge=1)
 
 
 class EvaluationConfig(BaseModel):

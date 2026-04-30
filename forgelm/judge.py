@@ -92,9 +92,13 @@ def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: 
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
         return _parse_judge_json(content)
-    except HttpSafetyError as e:
-        logger.warning("API judge URL rejected by HTTP policy: %s", e)
-        return {"score": None, "reason": f"API error: {e}"}
+    except HttpSafetyError:
+        # Re-raise. HttpSafetyError signals a misconfigured judge endpoint
+        # (private IP, blocked scheme, etc.), not a transient per-prompt
+        # failure — every subsequent prompt would hit it too. Surfacing it
+        # lets ``run_judge_evaluation`` abort the whole evaluation rather
+        # than silently scoring every prompt as ``None``.
+        raise
     except json.JSONDecodeError as e:
         logger.warning("API judge returned invalid JSON: %s", e)
         return {"score": None, "reason": f"Invalid JSON from API: {e}"}
@@ -314,6 +318,15 @@ def run_judge_evaluation(
     Returns:
         JudgeResult with scores and pass/fail status.
     """
+    if not isinstance(batch_size, int) or batch_size < 1:
+        # Library-API boundary check. The Pydantic ``JudgeConfig.batch_size``
+        # already enforces ``ge=1`` for the YAML-fed path, but callers reaching
+        # this function via direct import bypass that schema; reject invalid
+        # values here so the batching loop never sees ``0`` or negatives.
+        raise ValueError(f"batch_size must be a positive integer (got {batch_size!r})")
+
+    from ._http import HttpSafetyError
+
     if not os.path.isfile(eval_dataset_path):
         logger.error("Judge eval dataset not found: %s", eval_dataset_path)
         return JudgeResult(passed=False, failure_reason=f"Eval dataset not found: {eval_dataset_path}")
@@ -336,20 +349,28 @@ def run_judge_evaluation(
             logger.error("Failed to load local judge model: %s", e)
             return JudgeResult(passed=False, failure_reason=f"Judge model load failed: {e}")
 
-    scores, details, failure_count = _score_eval_prompts(
-        model=model,
-        tokenizer=tokenizer,
-        eval_prompts=eval_prompts,
-        rubric=rubric,
-        max_new_tokens=max_new_tokens,
-        is_api_judge=is_api_judge,
-        judge_api_key=judge_api_key,
-        judge_model=judge_model,
-        api_base=api_base,
-        local_judge_model=local_judge_model,
-        local_judge_tokenizer=local_judge_tokenizer,
-        batch_size=batch_size,
-    )
+    try:
+        scores, details, failure_count = _score_eval_prompts(
+            model=model,
+            tokenizer=tokenizer,
+            eval_prompts=eval_prompts,
+            rubric=rubric,
+            max_new_tokens=max_new_tokens,
+            is_api_judge=is_api_judge,
+            judge_api_key=judge_api_key,
+            judge_model=judge_model,
+            api_base=api_base,
+            local_judge_model=local_judge_model,
+            local_judge_tokenizer=local_judge_tokenizer,
+            batch_size=batch_size,
+        )
+    except HttpSafetyError as e:
+        # Judge endpoint blocked by HTTP-safety policy (private IP, blocked
+        # scheme, etc.). Treat as hard configuration failure, not a per-prompt
+        # null score, so the trainer's auto-revert / approval gate can react.
+        failure_reason = f"judge endpoint rejected by HTTP safety policy: {e}"
+        logger.error("JUDGE EVALUATION FAILED: %s", failure_reason)
+        return JudgeResult(passed=False, failure_reason=failure_reason)
 
     avg_score, passed, failure_reason = _summarize_judge_scores(
         scores=scores,

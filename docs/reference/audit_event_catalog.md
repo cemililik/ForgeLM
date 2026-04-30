@@ -13,7 +13,7 @@ Each line is a single JSON object with at least the following fields:
 |---------------|---------|-----------------------------------------------------------------------------------------------------------|
 | `timestamp`   | string  | ISO-8601 UTC timestamp (`datetime.now(timezone.utc).isoformat()`).                                        |
 | `run_id`      | string  | Stable per-training-run identifier (`fg-<uuid12>`).                                                       |
-| `operator`    | string  | Human-attributable identity. From `$FORGELM_OPERATOR`, else `<getpass.getuser()>@<hostname>`.             |
+| `operator`    | string  | Human-attributable identity, resolved by `AuditLogger` in priority order: (1) `$FORGELM_OPERATOR` if set; (2) `<getpass.getuser()>@<hostname>` when the username can be resolved; (3) `anonymous@<hostname>` only when `getpass.getuser()` fails *and* `FORGELM_ALLOW_ANONYMOUS_OPERATOR=1` is set (otherwise the run aborts loudly). |
 | `event`       | string  | Dotted event name from this catalog.                                                                      |
 | `prev_hash`   | string  | SHA-256 of the previous line (`"genesis"` for the first entry). Forms the tamper-evident hash chain.      |
 | `_hmac`       | string? | Present only when `FORGELM_AUDIT_SECRET` is set. HMAC-SHA-256 of the line without `_hmac`.                |

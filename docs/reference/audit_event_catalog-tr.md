@@ -13,7 +13,7 @@ Her satır, en azından aşağıdaki alanları içeren tek bir JSON nesnesidir:
 |---------------|---------|-----------------------------------------------------------------------------------------------------------|
 | `timestamp`   | string  | ISO-8601 UTC zaman damgası (`datetime.now(timezone.utc).isoformat()`).                                    |
 | `run_id`      | string  | Eğitim koşusu başına stabil tanımlayıcı (`fg-<uuid12>`).                                                  |
-| `operator`    | string  | İnsan-atfedilebilir kimlik. `$FORGELM_OPERATOR` ya da `<getpass.getuser()>@<hostname>` üzerinden.         |
+| `operator`    | string  | İnsan-atfedilebilir kimlik. `AuditLogger` öncelik sırasıyla çözer: (1) `$FORGELM_OPERATOR` setse onu; (2) yoksa kullanıcı adı çözülebildiğinde `<getpass.getuser()>@<hostname>`; (3) yalnızca `getpass.getuser()` çağrısı başarısızsa *ve* `FORGELM_ALLOW_ANONYMOUS_OPERATOR=1` setse `anonymous@<hostname>` (aksi halde koşu yüksek sesli iptal olur). |
 | `event`       | string  | Bu kataloğa ait noktalı event adı.                                                                        |
 | `prev_hash`   | string  | Önceki satırın SHA-256'sı (ilk girdi için `"genesis"`). Tampering-evident hash zincirini oluşturur.       |
 | `_hmac`       | string? | Sadece `FORGELM_AUDIT_SECRET` set edildiğinde mevcut. `_hmac` olmadan satırın HMAC-SHA-256'sı.            |

@@ -903,7 +903,13 @@ class ForgeTrainer:
         eval_cfg = self.config.evaluation
         if not (eval_cfg and eval_cfg.require_human_approval):
             return False
-        self.audit.log_event("human_approval.required", model_path=final_path)
+        self.audit.log_event(
+            "human_approval.required",
+            gate="final_model",
+            reason="require_human_approval=true",
+            metrics=train_result.metrics,
+            model_path=final_path,
+        )
         # Webhook lifecycle: surface the approval gate to operators in
         # real-time instead of forcing them to tail the audit JSONL.
         self.notifier.notify_awaiting_approval(run_name=self.run_name, model_path=final_path)
@@ -1220,6 +1226,7 @@ class ForgeTrainer:
             min_score=judge_cfg.min_score,
             output_dir=output_dir,
             api_base=getattr(judge_cfg, "judge_api_base", None),
+            batch_size=judge_cfg.batch_size,
         )
 
     def _export_compliance_if_needed(self, metrics: Dict[str, float], result: TrainResult) -> None:
@@ -1292,7 +1299,11 @@ class ForgeTrainer:
                 gov_path = os.path.join(compliance_dir, "data_governance_report.json")
                 with open(gov_path, "w", encoding="utf-8") as fh:
                     json.dump(governance, fh, indent=2)
-                self.audit.log_event("compliance.governance_exported", path=gov_path)
+                self.audit.log_event(
+                    "compliance.governance_exported",
+                    output_path=gov_path,
+                    dataset_count=len(self.dataset),
+                )
                 governance_ok = True
             except Exception as e:  # noqa: BLE001 — best-effort; broad catch keeps the audit trail honest
                 # OSError covers filesystem failures, but the governance
@@ -1310,7 +1321,15 @@ class ForgeTrainer:
             # report succeeded, so the audit chain truthfully reflects which
             # artefacts are actually on disk.
             if governance_ok:
-                self.audit.log_event("compliance.artifacts_exported", directory=compliance_dir)
+                try:
+                    files = sorted(os.listdir(compliance_dir))
+                except OSError:
+                    files = []
+                self.audit.log_event(
+                    "compliance.artifacts_exported",
+                    output_dir=compliance_dir,
+                    files=files,
+                )
         except Exception as e:
             logger.warning("Failed to export compliance artifacts: %s", e)
 

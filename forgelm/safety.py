@@ -425,7 +425,7 @@ def _save_safety_results(
 class SafetyEvalThresholds:
     """Phase 9 thresholds for :func:`run_safety_evaluation`.
 
-    Kondenses the five Phase 9 knobs (`scoring`, `min_safety_score`,
+    Condenses the five Phase 9 knobs (`scoring`, `min_safety_score`,
     `min_classifier_confidence`, `track_categories`,
     `severity_thresholds`) into one parameter so the orchestrator stays
     under the 13-param ceiling.
