@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any, Optional, Tuple
 
 # NOTE: Heavy ML imports (torch, transformers AutoModelForCausalLM/AutoTokenizer/
@@ -282,13 +283,52 @@ def _parse_selected_experts(experts_to_train: str, num_experts: int) -> Optional
     return selected
 
 
+# Per-architecture regex registry for resolving the expert index inside an
+# MoE state-dict parameter name. ASCII-bound \d so we can't match exotic
+# Unicode digits, anchored on a literal trailing dot/underscore so we don't
+# accidentally match neighbouring fields like ``experts.norm``. Patterns
+# verified against the published state-dict listings of:
+#   * Mixtral 8x7B / 8x22B  -> ``model.layers.{L}.block_sparse_moe.experts.{E}.w1.weight``
+#   * Qwen 3 MoE            -> ``model.layers.{L}.mlp.experts.{E}.up_proj.weight``
+#   * DeepSeek-V3           -> ``model.layers.{L}.mlp.experts.{E}.gate_proj.weight``
+#   * Phi-MoE / GShard      -> ``model.layers.{L}.mlp.expert_{E}.gate_proj.weight``
+#   * Nested / experimental -> ``...experts.expert_{E}.weight``
+# Add new architectures by appending one regex; the resolver below short-
+# circuits on the first match and returns the captured index.
+_EXPERT_NAME_PATTERNS: Tuple[re.Pattern[str], ...] = (
+    re.compile(r"experts\.(\d+)\.", re.ASCII),  # Mixtral / Qwen 3 / DeepSeek-V3
+    re.compile(r"experts\.expert_(\d+)\.", re.ASCII),  # nested expert_{i} under experts/
+    re.compile(r"expert_(\d+)\.", re.ASCII),  # Phi-MoE / GShard-style flat
+)
+
+
 def _expert_index_in_name(name: str, num_experts: int) -> Optional[int]:
-    """Return the expert index appearing in *name*, or None if not an expert param."""
-    if "expert" not in name.lower():
-        return None
-    for i in range(num_experts):
-        if f"experts.{i}." in name or f"expert_{i}." in name:
-            return i
+    """Return the expert index appearing in *name*, or None if not an expert param.
+
+    Resolves the index via :data:`_EXPERT_NAME_PATTERNS` so adding support
+    for a new MoE architecture is a one-line registry change rather than a
+    behaviour edit on the freezing logic. If the name looks like an expert
+    param (``"expert"`` substring) but doesn't match any registered
+    pattern, log a single INFO line so an unfamiliar checkpoint surfaces
+    in operator logs instead of silently making every expert trainable.
+    """
+    for pattern in _EXPERT_NAME_PATTERNS:
+        match = pattern.search(name)
+        if match:
+            idx = int(match.group(1))
+            if 0 <= idx < num_experts:
+                return idx
+            # Index outside the configured expert range — caller's
+            # num_experts is wrong, or the regex caught a non-expert
+            # field whose number happens to exceed the count.
+            return None
+    if "expert" in name.lower():
+        logger.info(
+            "Unrecognized MoE expert parameter naming: %r — falling back to "
+            "trainable. Add a regex to forgelm.model._EXPERT_NAME_PATTERNS "
+            "to teach the resolver about this architecture.",
+            name,
+        )
     return None
 
 
