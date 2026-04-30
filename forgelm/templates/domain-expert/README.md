@@ -10,7 +10,7 @@ language.
 # Already have a JSONL dataset
 forgelm quickstart domain-expert --dataset ./my-policies.jsonl
 
-# Have raw PDFs / DOCX / EPUB? (requires Phase 11 — `forgelm ingest`)
+# Have raw PDFs / DOCX / EPUB? Use `forgelm ingest` first.
 forgelm ingest ./policies/ --output ./policies.jsonl
 forgelm quickstart domain-expert --dataset ./policies.jsonl
 ```

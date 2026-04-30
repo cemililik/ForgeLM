@@ -2,6 +2,7 @@
 
 import json
 import os
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -264,3 +265,72 @@ synthetic:
     def test_config_template_still_valid(self):
         config = load_config("config_template.yaml")
         assert config.synthetic is None
+
+
+class TestSyntheticUsesSafePost:
+    """Phase 7: synthetic._call_api_teacher must route through forgelm._http.safe_post.
+
+    Same rationale as the judge equivalent — every outbound HTTP call site
+    in the codebase shares one policy gate. Synthetic data generation hits
+    OpenAI-compatible APIs with a bearer token; SSRF / scheme / redirect /
+    timeout discipline must apply here too.
+    """
+
+    def test_imports_safe_post(self):
+        """synthetic._call_api_teacher must use safe_post."""
+        import inspect
+
+        from forgelm import synthetic
+
+        src = inspect.getsource(synthetic.SyntheticDataGenerator._call_api_teacher)
+        assert "safe_post" in src, "synthetic._call_api_teacher must use safe_post"
+
+    @patch("forgelm._http.requests.post")
+    def test_synthetic_call_goes_through_safe_post(self, mock_post):
+        """A successful API teacher call routes through safe_post → requests.post."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"choices": [{"message": {"content": "synthetic response"}}]}
+        mock_response.raise_for_status = MagicMock()
+        mock_response.ok = True
+        mock_post.return_value = mock_response
+
+        config = _config(
+            synthetic={
+                "enabled": True,
+                "teacher_model": "gpt-4",
+                "teacher_backend": "api",
+                "api_base": "https://api.openai.com/v1",
+                "api_timeout": 30,
+                "seed_prompts": ["What is AI?"],
+            }
+        )
+        gen = SyntheticDataGenerator(config)
+        response = gen._call_api_teacher("What is AI?")
+
+        assert response == "synthetic response"
+        mock_post.assert_called_once()
+        kwargs = mock_post.call_args.kwargs
+        # safe_post forwards allow_redirects=False
+        assert kwargs.get("allow_redirects") is False
+
+    @patch("forgelm._http.requests.post")
+    def test_synthetic_ssrf_block_for_private_api_base(self, mock_post):
+        """A private-IP api_base must be rejected before any network call."""
+        from forgelm._http import HttpSafetyError
+
+        config = _config(
+            synthetic={
+                "enabled": True,
+                "teacher_model": "gpt-4",
+                "teacher_backend": "api",
+                "api_base": "https://10.0.0.5/v1",  # NOSONAR RFC1918 — SSRF guard fixture (intentional)
+                "api_timeout": 30,
+                "seed_prompts": ["x"],
+            }
+        )
+        gen = SyntheticDataGenerator(config)
+
+        with pytest.raises(HttpSafetyError, match="Private/loopback"):
+            gen._call_api_teacher("x")
+
+        mock_post.assert_not_called()

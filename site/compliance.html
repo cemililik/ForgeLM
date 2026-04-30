@@ -99,7 +99,7 @@
         <span class="article-num">Article 11</span>
         <h3 data-i18n="compliance.art11.title">Technical documentation</h3>
         <p data-i18n="compliance.art11.body">Annex IV's eight required sections — auto-populated from the run.</p>
-        <div class="article-evidence"><b>artifacts/annex_iv.json</b></div>
+        <div class="article-evidence"><b>artifacts/annex_iv_metadata.json</b></div>
       </article>
 
       <article class="article-card">
@@ -163,16 +163,16 @@
           <button class="copy-btn" type="button" data-i18n="common.copy.idle">copy</button>
         </div>
         <pre class="code-block-body">artifacts/
-├── annex_iv.json              <span class="comment"># Article 11 technical documentation</span>
-├── audit_log.jsonl            <span class="comment"># Article 12 append-only event log</span>
-├── data_audit_report.json     <span class="comment"># Article 10 data governance evidence</span>
-├── safety_report.json         <span class="comment"># Llama Guard verdict (Article 9 + 15)</span>
-├── benchmark_results.json     <span class="comment"># lm-eval-harness scores per task (Article 15)</span>
-├── conformity_declaration.md  <span class="comment"># Article 16 declaration scaffold</span>
-└── manifest.json              <span class="comment"># SHA-256 over every artifact above</span>
-README.md                      <span class="comment"># Article 13 model card</span>
-config_snapshot.yaml           <span class="comment"># the YAML this run actually used</span>
-checkpoints/                   <span class="comment"># PEFT adapter or merged weights</span>
+├── annex_iv_metadata.json         <span class="comment"># Article 11 technical documentation (flat JSON, not Markdown)</span>
+├── audit_log.jsonl                <span class="comment"># Article 12 append-only event log</span>
+├── audit_log.jsonl.manifest.json  <span class="comment"># SHA-256 sidecar over the audit log</span>
+├── data_audit_report.json         <span class="comment"># Article 10 data governance — quality/PII/bias scan</span>
+├── data_governance_report.json    <span class="comment"># Article 10 governance summary (sources, licenses)</span>
+├── model_card.md                  <span class="comment"># Article 13 model card (capabilities, intended use)</span>
+├── model_integrity.json           <span class="comment"># SHA-256 over weights/adapter for Article 15</span>
+└── deployer_instructions.md       <span class="comment"># Article 13 downstream-deployer guidance</span>
+config_snapshot.yaml               <span class="comment"># the YAML this run actually used</span>
+checkpoints/                       <span class="comment"># PEFT adapter or merged weights</span>
 </pre>
       </div>
     </div>

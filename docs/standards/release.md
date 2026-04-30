@@ -74,6 +74,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 5. **Write for users**, not for contributors. "Added inference module" is user-facing. "Refactored `trainer.py`" is not — don't include it.
 6. **Audience doesn't care about version bumps of dev deps** (ruff, pytest). Don't add.
 
+## Deprecation cadence
+
+When a CLI flag, YAML field, JSON output key, or public function is removed,
+it must first be deprecated for **at least one minor release** before the
+removal lands. The cadence is non-negotiable so users running locked
+versions in CI/CD pipelines get a release cycle to migrate.
+
+Rules:
+
+1. **Minimum overlap.** A deprecated surface stays present for at least one
+   intervening minor (`v0.5.0` deprecate → `v0.6.0` still present →
+   `v0.7.0` removable). Patch releases never remove anything.
+2. **`DeprecationWarning` is mandatory** at the moment of deprecation —
+   raised via `warnings.warn(..., DeprecationWarning, stacklevel=2)`. CLI
+   flags additionally print a one-line stderr notice.
+3. **Removal version stated up-front.** The deprecation message, the
+   `--help` text, and the CHANGELOG `### Deprecated` entry must all name
+   the version that will remove the surface.
+4. **Tracking issue mandatory.** Every deprecation links to a GitHub issue
+   that the removal PR closes. The link goes in the CHANGELOG entry.
+5. **`### Removed` section required** in the CHANGELOG of the version that
+   actually drops the surface, cross-referencing the deprecation entry.
+
+**Worked example — `--data-audit` flag:** introduced in pre-Phase-11,
+superseded by the `forgelm audit` subcommand in Phase 12. Deprecated in
+v0.5.0 (`forgelm/cli.py:1424-1428` raises `DeprecationWarning` and prints a
+stderr notice naming v0.7.0 as the removal target). The flag remains
+present and functional through v0.6.x, then is removed in v0.7.0 with a
+matching `### Removed` CHANGELOG entry.
+
 ## Release checklist
 
 Done manually by the maintainer (or a bot when automated):

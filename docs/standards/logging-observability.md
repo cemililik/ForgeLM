@@ -135,8 +135,46 @@ class WebhookNotifier:
 1. **Webhooks never abort training.** A 500 from Slack is a warning, not a failure. Wrap the POST in `try/except requests.RequestException` and log at `WARNING`.
 2. **Timeout every request** (`timeout=10` minimum, `timeout=30` maximum).
 3. **Sanitize payload.** Never send API keys, full config contents, or sensitive data paths. Whitelist fields going into `payload`.
-4. **Lifecycle events:** `training.started`, `training.succeeded`, `training.failed`, `training.reverted`, `approval.required`. Same vocabulary as audit log.
+4. **Lifecycle events:** `training.start`, `training.success`, `training.failure`, `training.reverted`, `approval.required` — see the table below for the canonical list. Each webhook event mirrors a distinct audit-log event (e.g., webhook `training.start` ↔ audit `training.started`); the two vocabularies are paired but not identical because past-tense audit identifiers describe a finalized record while webhooks announce a state transition.
 5. **Retry:** Up to 3 times with exponential backoff. After that, audit-log the failure and move on.
+
+### Webhook event vocabulary
+
+The five lifecycle events below are the **only** events that webhook receivers
+should expect. Adding new ones requires a docs update here, a `Notifier`
+method, a paired audit event, and tests. Do not invent ad-hoc event strings.
+
+| Event | Emitted when | Required fields | Notes |
+|---|---|---|---|
+| `training.start` | `train()` is entered, before model load. | `run_name`, `status="started"` | Mirrors audit event `training.started`. Gated by `webhook.notify_on_start`. |
+| `training.success` | All gates passed, no human approval required. | `run_name`, `status="succeeded"`, `metrics` | Mirrors audit event `pipeline.completed`. Gated by `webhook.notify_on_success`. |
+| `training.failure` | Training itself crashed (OOM, dataset error, exception in pipeline). | `run_name`, `status="failed"`, `reason` (masked, ≤2048 chars) | Mirrors audit event `pipeline.failed`. Gated by `webhook.notify_on_failure`. |
+| `training.reverted` | A post-training gate (eval / safety / judge / benchmark) rejected the run and `_revert_model` deleted the adapters. | `run_name`, `status="reverted"`, `reason` (masked, ≤2048 chars) | Distinct from `training.failure` so dashboards can separate "training crashed" from "training succeeded but quality regressed". Mirrors audit event `model.reverted`. Gated by `webhook.notify_on_failure`. |
+| `approval.required` | Run succeeded, `evaluation.require_human_approval=true`, model staged for review. | `run_name`, `status="awaiting_approval"`, `model_path` (filesystem path) | Mirrors audit event `human_approval.required`. Operator gets a real-time ping instead of having to poll the audit JSONL. Model weights themselves are **never** in the payload — only the staging path. Gated by `webhook.notify_on_success`. |
+
+**Payload schema (every event):**
+
+```json
+{
+  "event": "<one of the five above>",
+  "run_name": "<string>",
+  "status": "<started|succeeded|failed|reverted|awaiting_approval>",
+  "metrics": {"<name>": <number>, ...},
+  "reason": "<masked string or null>",
+  "model_path": "<staging path or null>",
+  "attachments": [{"title": "...", "text": "...", "color": "..."}]
+}
+```
+
+`metrics`, `reason`, and `model_path` are always present in the schema; only
+populated for the events that need them. `attachments` is Slack-compatible
+formatting that other receivers may ignore.
+
+**Retention guidance:** Webhook payloads are transient — they are *not* the
+audit record. Receivers that need long-term history should snapshot the
+audit JSONL (`<output_dir>/compliance/audit_log.jsonl`) rather than archiving
+webhook traffic, because the audit log is the append-only hash-chained
+record and the webhook stream is best-effort.
 
 ## Third-party tracking (W&B / MLflow / TensorBoard)
 

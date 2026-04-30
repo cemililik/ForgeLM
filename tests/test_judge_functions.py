@@ -57,7 +57,7 @@ class TestParseJudgeJson:
 
 
 class TestCallApiJudge:
-    @patch("requests.post")
+    @patch("forgelm._http.requests.post")
     def test_successful_api_call(self, mock_post):
         mock_response = MagicMock()
         mock_response.json.return_value = {"choices": [{"message": {"content": '{"score": 8, "reason": "Good"}'}}]}
@@ -70,7 +70,7 @@ class TestCallApiJudge:
         assert result["score"] == 8
         mock_post.assert_called_once()
 
-    @patch("requests.post")
+    @patch("forgelm._http.requests.post")
     def test_api_timeout(self, mock_post):
         import requests
 
@@ -83,7 +83,7 @@ class TestCallApiJudge:
         assert result["score"] is None
         assert "API error" in result["reason"]
 
-    @patch("requests.post")
+    @patch("forgelm._http.requests.post")
     def test_custom_api_base(self, mock_post):
         mock_response = MagicMock()
         mock_response.json.return_value = {"choices": [{"message": {"content": '{"score": 7, "reason": "OK"}'}}]}
@@ -108,7 +108,7 @@ class TestJudgeResult:
 
 @pytest.mark.skipif(not torch_available, reason="torch not installed")
 class TestJudgeScoreClipping:
-    @patch("requests.post")
+    @patch("forgelm._http.requests.post")
     def test_score_above_10_clipped_to_10(self, mock_post, caplog):
         """Scores above 10 must be clamped to 10.0 with a warning."""
         import logging
@@ -129,7 +129,7 @@ class TestJudgeScoreClipping:
         # _call_api_judge returns the raw parsed value.
         assert result["score"] == 15
 
-    @patch("requests.post")
+    @patch("forgelm._http.requests.post")
     def test_score_clipped_in_run_judge_evaluation(self, mock_post, tmp_path, caplog):
         """run_judge_evaluation must clip out-of-range scores and emit a warning."""
         import logging
@@ -177,7 +177,7 @@ class TestJudgeScoreClipping:
         # Warning must be emitted
         assert any("clipped" in r.message or "out-of-range" in r.message for r in caplog.records)
 
-    @patch("requests.post")
+    @patch("forgelm._http.requests.post")
     def test_score_below_1_clipped_to_1(self, mock_post, tmp_path):
         """Scores below 1 must be clamped to 1.0."""
         import torch
@@ -215,7 +215,7 @@ class TestJudgeScoreClipping:
 
 
 class TestJudgeApiBasePassthrough:
-    @patch("requests.post")
+    @patch("forgelm._http.requests.post")
     def test_api_base_reaches_http_call(self, mock_post):
         """judge_api_base in config must be forwarded to the HTTP POST call."""
         mock_response = MagicMock()
@@ -232,3 +232,65 @@ class TestJudgeApiBasePassthrough:
         actual_url = call_args[0][0] if call_args[0] else call_args.kwargs.get("url") or call_args[1].get("url")
         # The URL passed to requests.post should match the custom api_base
         assert actual_url == custom_base
+
+
+class TestJudgeUsesSafePost:
+    """Phase 7: judge._call_api_judge must route through forgelm._http.safe_post.
+
+    The acceptance gate is: ``grep -rn 'requests.post' forgelm/`` returns
+    nothing outside ``_http.py``. These tests cover the behavioural side —
+    judge calls go through ``safe_post`` and inherit the SSRF / scheme /
+    redirect / TLS policy automatically.
+    """
+
+    def test_imports_safe_post(self):
+        """judge._call_api_judge must import safe_post from forgelm._http."""
+        import inspect
+
+        from forgelm import judge
+
+        src = inspect.getsource(judge._call_api_judge)
+        assert "safe_post" in src, "judge._call_api_judge must use safe_post"
+
+    @patch("forgelm._http.requests.post")
+    def test_judge_call_goes_through_safe_post(self, mock_post):
+        """A successful judge call must hit requests.post (via safe_post)."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"choices": [{"message": {"content": '{"score": 7, "reason": "OK"}'}}]}
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        from forgelm.judge import _call_api_judge
+
+        result = _call_api_judge("prompt", "fake-key", "gpt-4o")
+
+        # Confirm the call went through safe_post → requests.post
+        mock_post.assert_called_once()
+        kwargs = mock_post.call_args.kwargs
+        # safe_post forwards allow_redirects=False
+        assert kwargs.get("allow_redirects") is False
+        assert result["score"] == 7
+
+    @patch("forgelm._http.requests.post")
+    def test_judge_ssrf_block_for_private_url(self, mock_post):
+        """A private-IP api_base must be rejected before any network call.
+
+        ``_call_api_judge`` re-raises :class:`HttpSafetyError` so
+        ``run_judge_evaluation`` can convert it into a hard
+        ``JudgeResult(passed=False)`` instead of silently scoring every
+        prompt as ``None`` (which would mask a misconfigured endpoint).
+        """
+        import pytest
+
+        from forgelm._http import HttpSafetyError
+        from forgelm.judge import _call_api_judge
+
+        with pytest.raises(HttpSafetyError):
+            _call_api_judge(
+                "prompt",
+                "fake-key",
+                "gpt-4o",
+                api_base="https://10.0.0.1/v1/chat/completions",  # NOSONAR RFC1918 — SSRF guard fixture (intentional)
+            )
+
+        mock_post.assert_not_called()

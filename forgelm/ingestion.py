@@ -895,11 +895,15 @@ def _chunk_paragraph_tokens(text: str, max_tokens: int, tokenizer: Any) -> Itera
         return
 
     sep_tokens = len(tokenizer.encode("\n\n", add_special_tokens=False))
+    # Single batch tokenize call (closure F-performance-103) instead of
+    # re-encoding each paragraph in the loop. Reuses the markdown-chunker
+    # helper which already handles old/minimal tokenizers that don't accept
+    # list input.
+    paragraph_token_counts = _count_section_tokens(paragraphs, tokenizer)
 
     current: List[str] = []
     current_tokens = 0
-    for para in paragraphs:
-        para_tokens = len(tokenizer.encode(para, add_special_tokens=False))
+    for para, para_tokens in zip(paragraphs, paragraph_token_counts):
         # When we already have packed paragraphs, joining adds a "\n\n"
         # which costs ``sep_tokens`` on top of the new paragraph itself.
         cost = para_tokens + (sep_tokens if current else 0)

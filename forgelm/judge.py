@@ -42,6 +42,12 @@ class JudgeResult:
 
 OPENAI_API_BASE = "https://api.openai.com/v1/chat/completions"
 
+# Single source-of-truth for the hard-failure log line so the wording
+# stays identical across the three call sites (HttpSafetyError handler,
+# JSON parse failure, no-valid-scores summary). Operators grep the audit
+# trail on this exact prefix.
+_LOG_JUDGE_FAILED = "JUDGE EVALUATION FAILED: %s"
+
 
 def _parse_judge_json(text: str) -> Dict[str, Any]:
     """Safely parse judge response JSON, handling common LLM output quirks."""
@@ -66,8 +72,14 @@ def _parse_judge_json(text: str) -> Dict[str, Any]:
 
 
 def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: Optional[str] = None) -> Dict[str, Any]:
-    """Call an API-based judge (OpenAI-compatible endpoint)."""
-    import requests
+    """Call an API-based judge (OpenAI-compatible endpoint).
+
+    Routes through :func:`forgelm._http.safe_post` so SSRF / scheme /
+    redirect / timeout / TLS policy is enforced once across every outbound
+    call site (see ``forgelm/_http.py``). The bearer token in
+    ``Authorization`` is masked from the failure log by ``safe_post``.
+    """
+    from ._http import HttpSafetyError, safe_post
 
     url = api_base or OPENAI_API_BASE
     headers = {
@@ -82,10 +94,17 @@ def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: 
     }
 
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response = safe_post(url, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
         return _parse_judge_json(content)
+    except HttpSafetyError:
+        # Re-raise. HttpSafetyError signals a misconfigured judge endpoint
+        # (private IP, blocked scheme, etc.), not a transient per-prompt
+        # failure — every subsequent prompt would hit it too. Surfacing it
+        # lets ``run_judge_evaluation`` abort the whole evaluation rather
+        # than silently scoring every prompt as ``None``.
+        raise
     except json.JSONDecodeError as e:
         logger.warning("API judge returned invalid JSON: %s", e)
         return {"score": None, "reason": f"Invalid JSON from API: {e}"}
@@ -151,6 +170,86 @@ def _generate_response(model: Any, tokenizer: Any, prompt: str, max_new_tokens: 
         return ""
 
 
+def _generate_batch_with_oom_retry(
+    model: Any,
+    tokenizer: Any,
+    batch: List[str],
+    batch_start: int,
+    max_new_tokens: int,
+) -> List[str]:
+    """Run one batch; on CUDA OOM or any other generation error fall back to per-prompt.
+
+    Extracted from ``_generate_responses_batched`` to keep the outer loop
+    linear (cognitive-complexity ceiling) and to make the OOM/retry policy
+    independently testable.
+    """
+    import torch
+
+    try:
+        inputs = tokenizer(
+            batch,
+            return_tensors="pt",
+            truncation=True,
+            max_length=1024,
+            padding="longest",
+        )
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        with torch.no_grad():
+            outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+        prompt_len = inputs["input_ids"].shape[1]
+        return [tokenizer.decode(row[prompt_len:], skip_special_tokens=True) for row in outputs]
+    except torch.cuda.OutOfMemoryError as e:
+        logger.warning(
+            "CUDA OOM on judge-generation batch of %d (start=%d). Falling back to single-prompt generation: %s",
+            len(batch),
+            batch_start,
+            e,
+        )
+        try:
+            torch.cuda.empty_cache()
+        except RuntimeError:
+            pass
+        return [_generate_response(model, tokenizer, p, max_new_tokens) for p in batch]
+    except Exception as e:
+        logger.warning(
+            "Judge-generation batch failed (start=%d, size=%d), retrying per-prompt: %s",
+            batch_start,
+            len(batch),
+            e,
+        )
+        return [_generate_response(model, tokenizer, p, max_new_tokens) for p in batch]
+
+
+def _generate_responses_batched(
+    model: Any,
+    tokenizer: Any,
+    prompts: List[str],
+    max_new_tokens: int,
+    batch_size: int = 8,
+) -> List[str]:
+    """Batched fine-tuned-model generation for the judge eval set.
+
+    Pads to longest in the batch (left-padded for decoder-only generation)
+    and delegates per-batch error handling to
+    :func:`_generate_batch_with_oom_retry`.
+    """
+    if getattr(tokenizer, "pad_token", None) is None and getattr(tokenizer, "eos_token", None) is not None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    original_padding_side = getattr(tokenizer, "padding_side", "right")
+    tokenizer.padding_side = "left"
+
+    responses: List[str] = []
+    try:
+        for batch_start in range(0, len(prompts), batch_size):
+            batch = prompts[batch_start : batch_start + batch_size]
+            responses.extend(_generate_batch_with_oom_retry(model, tokenizer, batch, batch_start, max_new_tokens))
+    finally:
+        tokenizer.padding_side = original_padding_side
+
+    return responses
+
+
 def _clip_judge_score(raw_score: Optional[float]) -> Optional[float]:
     """Clip the judge's raw 1-10 score; pass through None for parse/transport failures.
 
@@ -206,6 +305,8 @@ def run_judge_evaluation(
     max_new_tokens: int = 512,
     output_dir: Optional[str] = None,
     api_base: Optional[str] = None,
+    # Phase 4 (closure F-performance-102) — batched fine-tuned-model generation
+    batch_size: int = 8,
 ) -> JudgeResult:
     """Evaluate fine-tuned model outputs using an LLM judge.
 
@@ -223,6 +324,15 @@ def run_judge_evaluation(
     Returns:
         JudgeResult with scores and pass/fail status.
     """
+    if not isinstance(batch_size, int) or batch_size < 1:
+        # Library-API boundary check. The Pydantic ``JudgeConfig.batch_size``
+        # already enforces ``ge=1`` for the YAML-fed path, but callers reaching
+        # this function via direct import bypass that schema; reject invalid
+        # values here so the batching loop never sees ``0`` or negatives.
+        raise ValueError(f"batch_size must be a positive integer (got {batch_size!r})")
+
+    from ._http import HttpSafetyError
+
     if not os.path.isfile(eval_dataset_path):
         logger.error("Judge eval dataset not found: %s", eval_dataset_path)
         return JudgeResult(passed=False, failure_reason=f"Eval dataset not found: {eval_dataset_path}")
@@ -245,19 +355,28 @@ def run_judge_evaluation(
             logger.error("Failed to load local judge model: %s", e)
             return JudgeResult(passed=False, failure_reason=f"Judge model load failed: {e}")
 
-    scores, details, failure_count = _score_eval_prompts(
-        model=model,
-        tokenizer=tokenizer,
-        eval_prompts=eval_prompts,
-        rubric=rubric,
-        max_new_tokens=max_new_tokens,
-        is_api_judge=is_api_judge,
-        judge_api_key=judge_api_key,
-        judge_model=judge_model,
-        api_base=api_base,
-        local_judge_model=local_judge_model,
-        local_judge_tokenizer=local_judge_tokenizer,
-    )
+    try:
+        scores, details, failure_count = _score_eval_prompts(
+            model=model,
+            tokenizer=tokenizer,
+            eval_prompts=eval_prompts,
+            rubric=rubric,
+            max_new_tokens=max_new_tokens,
+            is_api_judge=is_api_judge,
+            judge_api_key=judge_api_key,
+            judge_model=judge_model,
+            api_base=api_base,
+            local_judge_model=local_judge_model,
+            local_judge_tokenizer=local_judge_tokenizer,
+            batch_size=batch_size,
+        )
+    except HttpSafetyError as e:
+        # Judge endpoint blocked by HTTP-safety policy (private IP, blocked
+        # scheme, etc.). Treat as hard configuration failure, not a per-prompt
+        # null score, so the trainer's auto-revert / approval gate can react.
+        failure_reason = f"judge endpoint rejected by HTTP safety policy: {e}"
+        logger.error(_LOG_JUDGE_FAILED, failure_reason)
+        return JudgeResult(passed=False, failure_reason=failure_reason)
 
     avg_score, passed, failure_reason = _summarize_judge_scores(
         scores=scores,
@@ -291,14 +410,22 @@ def _score_eval_prompts(
     api_base: Optional[str],
     local_judge_model: Any,
     local_judge_tokenizer: Any,
+    batch_size: int = 8,
 ) -> tuple[List[Optional[float]], List[Dict[str, Any]], int]:
-    """Run each eval prompt through generation + judge, collect scores + details."""
+    """Run each eval prompt through generation + judge, collect scores + details.
+
+    Generation runs in batches of ``batch_size`` (closure F-performance-102) to
+    amortize CUDA launch overhead across the eval set; the judge call is still
+    per-prompt because the API path is rate-limited and the local-judge path
+    typically uses a different model than the eval target.
+    """
     scores: List[Optional[float]] = []
     details: List[Dict[str, Any]] = []
     failure_count = 0
 
-    for prompt in eval_prompts:
-        response = _generate_response(model, tokenizer, prompt, max_new_tokens)
+    responses = _generate_responses_batched(model, tokenizer, eval_prompts, max_new_tokens, batch_size=batch_size)
+
+    for prompt, response in zip(eval_prompts, responses):
         judge_prompt = rubric.format(prompt=prompt[:500], response=response[:1000])
         if is_api_judge:
             result = _call_api_judge(judge_prompt, judge_api_key, judge_model, api_base=api_base)
@@ -340,7 +467,7 @@ def _summarize_judge_scores(
 
     if not valid_scores:
         failure_reason = f"No valid judge scores (all {failure_count}/{len(eval_prompts)} parses/requests failed)."
-        logger.error("JUDGE EVALUATION FAILED: %s", failure_reason)
+        logger.error(_LOG_JUDGE_FAILED, failure_reason)
         return 0.0, False, failure_reason
 
     avg_score = sum(valid_scores) / len(valid_scores)
@@ -355,5 +482,5 @@ def _summarize_judge_scores(
         return avg_score, True, None
 
     failure_reason = f"Average judge score ({avg_score:.2f}) below minimum ({min_score:.2f})"
-    logger.error("JUDGE EVALUATION FAILED: %s", failure_reason)
+    logger.error(_LOG_JUDGE_FAILED, failure_reason)
     return avg_score, False, failure_reason

@@ -163,6 +163,7 @@ include = ["forgelm*"]
 ]
 
 [tool.pytest.ini_options]
+addopts = "--cov=forgelm --cov-report=term-missing --cov-fail-under=40"
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
 

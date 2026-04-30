@@ -6,6 +6,14 @@ on:
   pull_request:
     branches: [main]
 
+# Coverage gate (--cov-fail-under=40) is enforced via pyproject.toml's
+# [tool.pytest.ini_options].addopts; the test job intentionally does not
+# duplicate the flag here. FORGELM_OPERATOR is set so future operator-identity
+# checks (Phase 3 hardening) do not raise on distroless runners where USER is
+# unset.
+env:
+  FORGELM_OPERATOR: ci-smoke
+
 jobs:
   # --- Job 1: Lint (fast, no heavy deps) ---
   lint:
@@ -30,6 +38,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
@@ -46,7 +55,10 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: Run tests with coverage
-        run: pytest -q --tb=short --cov=forgelm --cov-report=term-missing --cov-report=xml:coverage.xml
+        # --cov, --cov-report=term-missing, and --cov-fail-under=40 come from
+        # pyproject.toml addopts (single source of truth). Only the XML report
+        # is added here because it is CI-specific (artifact upload).
+        run: pytest -q --tb=short --cov-report=xml:coverage.xml
 
       - name: Upload coverage (3.11 only)
         if: matrix.python-version == '3.11' && always()

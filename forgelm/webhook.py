@@ -1,60 +1,21 @@
-import ipaddress
 import json
 import logging
 import os
-import socket
 from typing import Dict, Optional
 from urllib.parse import urlparse
 
 import requests
 
+from ._http import HttpSafetyError, _is_private_destination, safe_post
+
+# Public re-export surface — Phase 7 split moved ``_is_private_destination``
+# into ``forgelm._http`` but external callers / older code may still import
+# it from ``forgelm.webhook``. Listing it in ``__all__`` documents the
+# re-export as intentional and silences ruff/Codacy F401 ("imported but
+# unused") and Sonar's equivalent rule.
+__all__ = ["HttpSafetyError", "WebhookNotifier", "_is_private_destination", "safe_post"]
+
 logger = logging.getLogger("forgelm.webhook")
-
-
-def _is_private_destination(host: str) -> bool:
-    """Return ``True`` if ``host`` resolves to a private / loopback / link-local IP.
-
-    Used as the SSRF guard: webhook URLs are operator-controlled but the
-    process running them often has elevated network access (cloud metadata
-    services on 169.254.169.254, internal RFC1918 management UIs, etc.).
-    A misconfigured or attacker-controlled config should not trick the
-    trainer into sending its run summary to those destinations without
-    explicit operator opt-in (``webhook.allow_private_destinations``).
-    """
-    if not host:
-        return False
-    # Allow already-IP hostnames (literal in URL) to be checked directly so a
-    # config like `https://10.0.0.5/hook` is caught even with no DNS at all.
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        ip = None
-    if ip is not None:
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
-    try:
-        # Pre-resolve so a hostname that points at a private IP still trips.
-        addrinfo = socket.getaddrinfo(host, None)
-    except (socket.gaierror, UnicodeError):
-        # DNS failure → not a private destination by our definition. Let
-        # `requests` produce its natural ConnectionError downstream so the
-        # operator gets the real "could not resolve host" message instead
-        # of an SSRF-shaped refusal that hides the typo.
-        return False
-    for _family, _type, _proto, _canon, sockaddr in addrinfo:
-        ip_str = sockaddr[0]
-        try:
-            resolved = ipaddress.ip_address(ip_str)
-        except ValueError:
-            continue
-        if (
-            resolved.is_private
-            or resolved.is_loopback
-            or resolved.is_link_local
-            or resolved.is_reserved
-            or resolved.is_multicast
-        ):
-            return True
-    return False
 
 
 class WebhookNotifier:
@@ -98,39 +59,34 @@ class WebhookNotifier:
     def _post_payload(self, url: str, payload: dict, event: str) -> None:
         """POST *payload* to *url* and log any transport / HTTP errors.
 
-        Hardened:
+        Delegates SSRF / scheme / TLS / redirect / timeout discipline to
+        :func:`forgelm._http.safe_post` so every outbound HTTP call site in
+        the codebase shares the same policy. Webhook-specific behaviour kept
+        here:
 
-        - SSRF guard: refuses non-loopback private / link-local destinations
-          unless ``webhook.allow_private_destinations`` is explicitly true.
-        - TLS: passes ``verify=True`` to ``requests.post`` so an attacker on
-          the egress path can't strip cert validation by setting
-          ``verify=False`` somewhere upstream. Operator can supply a custom
-          CA bundle via ``webhook.tls_ca_bundle`` (forwarded as ``verify``).
-        - Timeout floor: refuses ``timeout < 1`` since ``requests`` honours
-          ``0`` as "block forever, no timeout" — hangs the trainer on a
-          dead webhook.
+        * The webhook config defaults ``timeout`` to 5s for historical
+          compatibility — ``safe_post`` is invoked with ``min_timeout=1.0``
+          so an existing operator config that uses ``timeout=5`` keeps
+          working (every ``http*`` call site outside webhook gets the
+          stricter 10s floor).
+        * On policy rejection or transport error we log a warning and
+          *swallow* — ``notify_*`` is never allowed to fail the training run.
+        * Response body suppression on non-2xx — receivers (Slack, Teams)
+          sometimes echo the payload, which can carry config-derived secrets.
+
+        Signature is part of the internal Notifier contract: Phase 8 adds
+        ``notify_reverted`` / ``notify_awaiting_approval`` that call
+        ``self._post_payload(url, payload, event)`` — do not rename or
+        reorder arguments without coordinating with that work.
         """
         masked_url = self._mask(url)
 
-        # SSRF guard — runs before the request so an internal-IP webhook
-        # never receives the payload.
-        if not getattr(self.config, "allow_private_destinations", False):
-            host = urlparse(url).hostname or ""
-            if _is_private_destination(host):
-                logger.warning(
-                    "Refusing to post webhook for event '%s' to private/loopback destination "
-                    "(url=%s). Set webhook.allow_private_destinations=true to opt in.",
-                    event,
-                    masked_url,
-                )
-                return
-
         # Resolve TLS verify setting. Default True (strict); allow operator
         # to point at a custom CA bundle.
-        verify = getattr(self.config, "tls_ca_bundle", None) or True
+        ca_bundle = getattr(self.config, "tls_ca_bundle", None)
 
-        # Timeout floor — refuse 0/None which `requests` treats as
-        # "no timeout".
+        # Timeout floor — webhook keeps the historical 1s floor (``safe_post``
+        # rejects 0/None unconditionally).
         timeout = getattr(self.config, "timeout", 5)
         if not isinstance(timeout, (int, float)) or timeout < 1:
             logger.warning(
@@ -139,34 +95,57 @@ class WebhookNotifier:
             )
             timeout = 5
 
+        allow_private = bool(getattr(self.config, "allow_private_destinations", False))
+
         try:
-            resp = requests.post(
+            resp = safe_post(
                 url,
                 data=json.dumps(payload),
                 headers={"Content-Type": "application/json"},
                 timeout=timeout,
-                verify=verify,
-                # Disable redirect-following: the URL was SSRF-validated
-                # against the resolved IP literal up-front, but a 30x to a
-                # private destination would bypass that check entirely.
-                allow_redirects=False,
+                ca_bundle=ca_bundle,
+                allow_private=allow_private,
+                # Webhook keeps the documented 1s floor; the upstream warning
+                # at ``_send`` already flags ``http://`` URLs as plaintext.
+                allow_insecure_http=True,
+                min_timeout=1.0,
             )
-            if not resp.ok:
-                # Don't log resp.text — receivers sometimes echo the payload
-                # (which can contain secret-bearing fields) or include their
-                # own auth context. Surface only the status code.
-                logger.warning(
-                    "Webhook HTTP %d for event '%s' (url=%s) — response body suppressed",
-                    resp.status_code,
-                    event,
-                    masked_url,
-                )
+        except HttpSafetyError as exc:
+            logger.warning(
+                "Refusing to post webhook for event '%s' (url=%s): %s",
+                event,
+                masked_url,
+                exc,
+            )
+            return
         except requests.exceptions.Timeout:
             logger.warning("Webhook request timed out for event '%s' (url=%s).", event, masked_url)
+            return
         except requests.exceptions.ConnectionError:
             logger.warning("Webhook connection failed for event '%s' (url=%s).", event, masked_url)
-        except Exception:
+            return
+        except requests.RequestException:
+            # ``requests.RequestException`` is the base of the library's
+            # transport-error hierarchy (Timeout / ConnectionError / SSLError
+            # / TooManyRedirects / etc.) so this single catch covers every
+            # network-shaped failure after the more-specific clauses above.
+            # We deliberately do **not** add a trailing ``except Exception:``
+            # — programming bugs (TypeError, ValueError, attribute errors in
+            # payload construction) should propagate so they surface in
+            # tests rather than being silently absorbed by the webhook path.
             logger.exception("Unexpected error sending webhook notification for event '%s'.", event)
+            return
+
+        if not resp.ok:
+            # Don't log resp.text — receivers sometimes echo the payload
+            # (which can contain secret-bearing fields) or include their
+            # own auth context. Surface only the status code.
+            logger.warning(
+                "Webhook HTTP %d for event '%s' (url=%s) — response body suppressed",
+                resp.status_code,
+                event,
+                masked_url,
+            )
 
     def _send(
         self,
@@ -179,6 +158,7 @@ class WebhookNotifier:
         color: str = "#36a64f",
         metrics: Optional[Dict[str, float]] = None,
         reason: Optional[str] = None,
+        model_path: Optional[str] = None,
     ) -> None:
         url = self._resolve_url()
         if not url:
@@ -190,13 +170,17 @@ class WebhookNotifier:
         # Sanitize metrics — only include numeric values
         safe_metrics = {k: v for k, v in (metrics or {}).items() if isinstance(v, (int, float))}
 
-        # Generic webhook payload (works for most HTTP receivers)
+        # Generic webhook payload (works for most HTTP receivers).
+        # ``model_path`` is included only for ``approval.required`` events;
+        # we add the key unconditionally (even as None) to keep the schema
+        # stable so downstream consumers can rely on its presence.
         payload = {
             "event": event,
             "run_name": run_name,
             "status": status,
             "metrics": safe_metrics,
             "reason": reason,
+            "model_path": model_path,
             # Slack-compatible formatting (receivers can ignore)
             "attachments": [{"title": title, "text": text, "color": color}],
         }
@@ -240,19 +224,7 @@ class WebhookNotifier:
         """
         if not (self.config and self.config.notify_on_failure):
             return
-        try:
-            from .data_audit import mask_secrets
-
-            masked_reason = mask_secrets(reason)
-        except ImportError:
-            # data_audit imports stay light enough that this should not
-            # happen in practice; if it ever does, refuse to ship the raw
-            # reason because we cannot guarantee credentials/tokens have
-            # been scrubbed. A redacted placeholder is far less useful
-            # than a masked stack trace, but it's the only safe fallback.
-            masked_reason = "[REDACTED — secrets masker unavailable]"
-        if isinstance(masked_reason, str) and len(masked_reason) > 2048:
-            masked_reason = masked_reason[:2048] + "… (truncated)"
+        masked_reason = self._mask_and_truncate_reason(reason)
         self._send(
             event="training.failure",
             run_name=run_name,
@@ -261,4 +233,82 @@ class WebhookNotifier:
             text=f"The training job encountered an error or evaluation failed.\n\nReason: {masked_reason}",
             color="#ff0000",
             reason=masked_reason,
+        )
+
+    @staticmethod
+    def _mask_and_truncate_reason(reason: str) -> str:
+        """Mask secrets in *reason* and truncate to 2048 chars.
+
+        Shared between :meth:`notify_failure` and :meth:`notify_reverted`
+        so both lifecycle events get the same redaction guarantee. Falls
+        back to a hard placeholder when ``data_audit`` cannot be imported
+        because shipping an un-scrubbed stack trace is the worse option.
+        """
+        try:
+            from .data_audit import mask_secrets
+
+            masked = mask_secrets(reason)
+        except ImportError:
+            # data_audit imports stay light enough that this should not
+            # happen in practice; if it ever does, refuse to ship the raw
+            # reason because we cannot guarantee credentials/tokens have
+            # been scrubbed.
+            masked = "[REDACTED — secrets masker unavailable]"
+        if isinstance(masked, str) and len(masked) > 2048:
+            masked = masked[:2048] + "… (truncated)"
+        return masked
+
+    def notify_reverted(self, run_name: str, reason: str) -> None:
+        """Post an auto-revert notification (lifecycle event ``training.reverted``).
+
+        Distinct from :meth:`notify_failure` so dashboards can separate
+        "training crashed" from "training succeeded but eval/safety/judge
+        gates rejected the artifact and we deleted the adapters". The
+        reason is masked + truncated identically to ``notify_failure`` so
+        a leaked stack trace can't smuggle secrets via this path either.
+        """
+        if not (self.config and self.config.notify_on_failure):
+            return
+        masked_reason = self._mask_and_truncate_reason(reason)
+        self._send(
+            event="training.reverted",
+            run_name=run_name,
+            status="reverted",
+            title=f"Training Reverted: {run_name}",
+            text=(
+                "Auto-revert fired. Generated artifacts were deleted because a "
+                "post-training gate (evaluation, safety, judge, or benchmark) "
+                f"rejected the run.\n\nReason: {masked_reason}"
+            ),
+            color="#ff9900",
+            reason=masked_reason,
+        )
+
+    def notify_awaiting_approval(self, run_name: str, model_path: str) -> None:
+        """Post an ``approval.required`` notification (Art. 14 human-in-the-loop).
+
+        Fired right after the audit log records ``human_approval.required``
+        so the operator gets a real-time ping instead of having to poll the
+        audit JSONL. ``model_path`` is included as plain text — it's a
+        local filesystem path that the operator already controls. Model
+        weights themselves are *never* in the payload; only the path and
+        the run name are.
+        """
+        if not (self.config and self.config.notify_on_success):
+            # Approval is only emitted on otherwise-successful runs, so it
+            # piggy-backs on notify_on_success. An operator who silenced
+            # success notifications doesn't want approval pings either.
+            return
+        self._send(
+            event="approval.required",
+            run_name=run_name,
+            status="awaiting_approval",
+            title=f"Approval Required: {run_name}",
+            text=(
+                "Training succeeded and is staged for human review (EU AI Act "
+                f"Art. 14). Review the compliance artifacts, then redeploy.\n\n"
+                f"Staging path: {model_path}"
+            ),
+            color="#ffcc00",
+            model_path=model_path,
         )

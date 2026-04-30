@@ -513,6 +513,58 @@ def _add_audit_subcommand(subparsers) -> None:
     _add_common_subparser_flags(p, include_output_format=True)
 
 
+def _add_verify_audit_subcommand(subparsers) -> None:
+    """Phase 6 (closure plan): ``forgelm verify-audit`` for chain integrity.
+
+    Validates the SHA-256 hash chain (and, when a secret is supplied,
+    the per-line HMAC tags) of an ``audit_log.jsonl`` file written by
+    :class:`forgelm.compliance.AuditLogger`. Exit codes:
+
+    - ``0`` — chain (and HMAC, if checked) intact
+    - ``1`` — chain broken or HMAC mismatch
+    - ``2`` — file missing / unreadable, or option error (e.g.
+      ``--require-hmac`` without a configured secret env var)
+    """
+    p = subparsers.add_parser(
+        "verify-audit",
+        help="Verify integrity of an audit_log.jsonl chain.",
+        description=(
+            "Validates the SHA-256 hash chain of a ForgeLM audit_log.jsonl "
+            "(EU AI Act Article 12 record-keeping). When the operator's "
+            "FORGELM_AUDIT_SECRET is set in the environment, HMAC tags on "
+            "each line are also verified. Designed for CI/CD pipelines: "
+            "exit code 0 means the chain is intact, 1 means tampering or "
+            "corruption was detected."
+        ),
+    )
+    p.add_argument(
+        "log_path",
+        help="Path to audit_log.jsonl (the genesis manifest sidecar is auto-detected if present).",
+    )
+    p.add_argument(
+        "--hmac-secret-env",
+        type=str,
+        default="FORGELM_AUDIT_SECRET",
+        metavar="VAR",
+        help=(
+            "Name of the environment variable carrying the HMAC secret used at "
+            "log-write time (default: FORGELM_AUDIT_SECRET). When the variable "
+            "is set, per-line HMAC tags are validated; when unset, only the "
+            "SHA-256 chain is checked."
+        ),
+    )
+    p.add_argument(
+        "--require-hmac",
+        action="store_true",
+        help=(
+            "Strict mode: exit 2 if the configured env var is unset, and exit 1 "
+            "if any line lacks an _hmac field. Use this in regulated CI pipelines "
+            "where every entry must be HMAC-authenticated."
+        ),
+    )
+    _add_common_subparser_flags(p, include_output_format=False)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="ForgeLM: Language Model Fine-Tuning Toolkit",
@@ -522,6 +574,7 @@ def parse_args():
             "  forgelm quickstart [TEMPLATE]   Generate a config from a curated template\n"
             "  forgelm ingest PATH             Convert raw docs (PDF/DOCX/EPUB/TXT/Markdown) → JSONL\n"
             "  forgelm audit PATH              Run dataset audit (length/lang/PII/leakage)\n"
+            "  forgelm verify-audit LOG_PATH   Verify SHA-256 + HMAC integrity of an audit log\n"
             "  forgelm chat MODEL_PATH         Interactive chat REPL\n"
             "  forgelm export MODEL_PATH       Export model to GGUF\n"
             "  forgelm deploy MODEL_PATH       Generate serving config\n"
@@ -537,6 +590,7 @@ def parse_args():
     _add_quickstart_subcommand(subparsers)
     _add_ingest_subcommand(subparsers)
     _add_audit_subcommand(subparsers)
+    _add_verify_audit_subcommand(subparsers)
 
     # --- Top-level flags (training / config-driven mode) ---
     parser.add_argument("--config", type=str, help="Path to the YAML configuration file.")
@@ -1526,13 +1580,62 @@ def _run_audit_cmd(args, output_format: str) -> None:
     )
 
 
+def _run_verify_audit_cmd(args) -> int:
+    """Phase 6 (closure plan) dispatch for ``forgelm verify-audit LOG_PATH``.
+
+    Returns the process exit code rather than calling :func:`sys.exit`
+    directly so the dispatcher can route the (0/1/2) outcome through the
+    same code path as the other subcommands. Exit-code contract:
+
+    - ``0`` — SHA-256 chain (and HMAC tags, when verified) intact.
+    - ``1`` — tamper or corruption detected (chain break, HMAC mismatch,
+      manifest mismatch, JSON decode error).
+    - ``2`` — option error (``--require-hmac`` without a secret env var)
+      or file/permission error reading the log.
+    """
+    from .compliance import verify_audit_log
+
+    secret_var = args.hmac_secret_env or ""
+    hmac_secret = os.getenv(secret_var) if secret_var else None
+    require_hmac = bool(getattr(args, "require_hmac", False))
+
+    if require_hmac and not hmac_secret:
+        print(
+            f"ERROR: --require-hmac specified but ${secret_var} is unset.",
+            file=sys.stderr,
+        )
+        return EXIT_TRAINING_ERROR  # 2 — option/config error
+
+    if not os.path.isfile(args.log_path):
+        print(f"ERROR: audit log not found: {args.log_path}", file=sys.stderr)
+        return EXIT_TRAINING_ERROR
+
+    result = verify_audit_log(
+        args.log_path,
+        hmac_secret=hmac_secret,
+        require_hmac=require_hmac,
+    )
+
+    if result.valid:
+        suffix = " (HMAC validated)" if hmac_secret else ""
+        print(f"OK: {result.entries_count} entries verified{suffix}")
+        return EXIT_SUCCESS
+
+    line = result.first_invalid_index
+    if line is None:
+        print(f"FAIL: {result.reason}", file=sys.stderr)
+    else:
+        print(f"FAIL at line {line}: {result.reason}", file=sys.stderr)
+    return EXIT_CONFIG_ERROR  # 1 — chain/HMAC failure
+
+
 def _dispatch_subcommand(command: str, args) -> None:
     """Run a Phase 10 / 10.5 / 11 / 11.5 subcommand and exit.
 
     Subcommands handled here: ``chat``, ``export``, ``deploy``, ``quickstart``,
-    ``ingest``, ``audit``. Each terminates the process via ``sys.exit`` after
-    its own dispatcher returns — the trainer/training code path never runs
-    when a subcommand is in play.
+    ``ingest``, ``audit``, ``verify-audit``. Each terminates the process via
+    ``sys.exit`` after its own dispatcher returns — the trainer/training code
+    path never runs when a subcommand is in play.
     """
     if command == "chat":
         # _run_chat_cmd's REPL catches KeyboardInterrupt internally for the
@@ -1561,6 +1664,8 @@ def _dispatch_subcommand(command: str, args) -> None:
     elif command == "audit":
         _run_audit_cmd(args, getattr(args, "output_format", "text"))
         sys.exit(EXIT_SUCCESS)
+    elif command == "verify-audit":
+        sys.exit(_run_verify_audit_cmd(args))
 
 
 def _maybe_run_wizard(args) -> None:

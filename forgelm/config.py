@@ -252,6 +252,10 @@ class SafetyConfig(BaseModel):
     min_classifier_confidence: float = 0.7  # flag responses below this confidence
     track_categories: bool = False  # parse Llama Guard S1-S14 harm categories
     severity_thresholds: Optional[Dict[str, float]] = None  # per-severity limits: {"critical": 0, "high": 0.01}
+    # Phase 4 (closure F-performance-102): batched generation. 1 disables batching.
+    # ge=1 enforced at parse time so 0/negative values raise ValidationError
+    # immediately instead of being silently coerced inside the eval loop.
+    batch_size: int = Field(default=8, ge=1)
 
 
 class JudgeConfig(BaseModel):
@@ -265,6 +269,10 @@ class JudgeConfig(BaseModel):
     judge_api_base: Optional[str] = None
     eval_dataset: str = "eval_prompts.jsonl"  # evaluation prompts file
     min_score: float = 5.0  # minimum average score (1-10 scale)
+    # Phase 4 (closure F-performance-102): batched fine-tuned-model generation.
+    # ge=1 enforced at parse time so 0/negative values raise ValidationError
+    # immediately instead of being silently coerced inside run_judge_evaluation.
+    batch_size: int = Field(default=8, ge=1)
 
 
 class EvaluationConfig(BaseModel):

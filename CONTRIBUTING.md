@@ -59,30 +59,10 @@ Push your branch and open a Pull Request against `main`.
 
 ### Project Structure
 
-```
-forgelm/
-├── cli.py           # CLI entry point
-├── config.py        # Pydantic config models
-├── data.py          # Dataset loading
-├── model.py         # Model + LoRA setup
-├── trainer.py       # Training orchestration
-├── results.py       # TrainResult dataclass
-├── benchmark.py     # lm-eval-harness
-├── safety.py        # Safety evaluation
-├── judge.py         # LLM-as-Judge
-├── compliance.py    # EU AI Act artifacts
-├── model_card.py    # Model card generation
-├── merging.py       # Model merging (TIES/DARE/SLERP)
-├── wizard.py        # Interactive config wizard
-├── synthetic.py     # Synthetic data pipeline
-├── webhook.py       # Notifications
-└── utils.py         # Auth & checkpoints
-
-tests/               # 47 test files
-notebooks/           # 10 Colab notebooks
-configs/deepspeed/   # ZeRO presets
-docs/guides/         # user guides
-```
+ForgeLM is a single-package layout: ~26 single-file modules under `forgelm/`,
+~47 test files under `tests/`, plus `configs/`, `docs/`, and `notebooks/`. For
+the authoritative module-by-module map (purpose, public surface, dependency
+arrows), see [`docs/reference/architecture.md`](docs/reference/architecture.md).
 
 ### Running Tests
 

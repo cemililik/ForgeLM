@@ -88,3 +88,5 @@
 | 2026-04-25 | Enterprise outreach moved to Day 1 (previously Week 7-12) | EU AI Act enforcement in 99 days; enterprise sales cycle is 3-6 months; starting at Week 7 means missing the window |
 | 2026-04-25 | v0.3.1rc1 security + config hardening release | Comprehensive code review revealed webhook URL leakage, audit log chain gap, GRPO callable bug, TIES merging error — all fixed |
 | 2026-04-25 | Turkey/BDDK/KVKK market added as priority enterprise target | First-mover in Turkish compliance market; BDDK AI guidelines publishing in 2026; no competitors; path to first enterprise case study |
+| 2026-04-30 | v0.5.0 release — Phases 11 + 11.5 + 12 + 12.5 consolidation | Four originally-sequential phases (`v0.5.0`–`v0.5.3`) form one coherent ingest → polish → mature → polish surface that's hard to use in parts; consolidated into a single user-facing release |
+| 2026-04-30 | PyPI publish landed for v0.5.0 | Document Ingestion + Data Curation Pipeline shipped to PyPI; closes the "merged on main, publish pending" gap that drifted across roadmap, releases.md, and CHANGELOG.md |

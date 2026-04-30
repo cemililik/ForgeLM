@@ -5,10 +5,9 @@ import re
 import shutil
 from typing import Any, Dict, Optional
 
-import torch
-from transformers import EarlyStoppingCallback
-from trl import SFTConfig, SFTTrainer
-
+# NOTE: Heavy ML imports (torch, transformers.EarlyStoppingCallback, trl.SFTConfig/SFTTrainer)
+# are deferred to method bodies so `import forgelm.trainer` is cheap. Eagerly importing
+# torch here costs ~3-5s of CLI startup per invocation. See closure-plan F-performance-101.
 from .results import TrainResult
 from .webhook import WebhookNotifier
 
@@ -269,6 +268,8 @@ class ForgeTrainer:
 
     def _get_common_training_kwargs(self) -> dict:
         """Return training arguments common to both SFT and ORPO."""
+        import torch
+
         _train_size = len(self.dataset.get("train", [])) if self.dataset else 0
         logging_steps = max(1, min(50, _train_size // 100)) if _train_size > 0 else 50
 
@@ -412,6 +413,8 @@ class ForgeTrainer:
         kwargs = self._get_common_training_kwargs()
 
         if tt == "sft":
+            from trl import SFTConfig
+
             kwargs["packing"] = bool(getattr(self.config.training, "packing", False))
             kwargs["dataset_text_field"] = "text"
             kwargs["max_seq_length"] = self.config.model.max_length
@@ -484,7 +487,7 @@ class ForgeTrainer:
         if math.isnan(final_loss) or math.isinf(final_loss):
             reason = f"eval_loss is {final_loss} (NaN or Inf) — training diverged."
             logger.error("EVALUATION FAILED: %s", reason)
-            self._revert_model(final_path, reason)
+            self._revert_model(final_path, reason, source="nan_inf")
             return False
 
         # Two independent checks:
@@ -499,7 +502,7 @@ class ForgeTrainer:
         if failed_reasons:
             reason = " ".join(failed_reasons)
             logger.error("EVALUATION FAILED: %s", reason)
-            self._revert_model(final_path, reason)
+            self._revert_model(final_path, reason, source="threshold")
             return False
 
         # Log success with improvement details
@@ -516,8 +519,32 @@ class ForgeTrainer:
 
         return True
 
-    def _revert_model(self, final_path: str, reason: str) -> None:
-        """Delete generated model artifacts and notify."""
+    def _revert_model(self, final_path: str, reason: str, *, source: str = "evaluation") -> None:
+        """Delete generated model artifacts, emit audit event, and notify webhook.
+
+        Centralises the revert flow so every code path that triggers a revert
+        produces both:
+        1. ``_EVT_REVERT_TRIGGERED`` audit event (Article 12 record-keeping
+           — operator-side governance can correlate "model.reverted" webhook
+           ↔ audit entry by ``run_id`` + timestamp).
+        2. ``training.reverted`` webhook lifecycle event (Faz 8 — dashboards).
+
+        Prior to this refactor only ``benchmark``, ``safety``, and ``judge``
+        gates emitted the audit event — the NaN/Inf and threshold paths
+        inside ``execute_evaluation_checks`` reverted silently from the
+        audit log. Foundation PR review I2 closure.
+
+        Args:
+            final_path: Filesystem path of the artifacts to delete.
+            reason: Human-readable failure reason (free-form).
+            source: Gate name ("evaluation", "benchmark", "safety", "judge",
+                "nan_inf", "threshold") for the audit-event ``reason`` field.
+                The webhook payload also includes this in the masked reason.
+        """
+        # Article 12 audit trail — emit before destructive action so the
+        # record exists even if the rmtree below explodes.
+        self.audit.log_event(_EVT_REVERT_TRIGGERED, reason=source, detail=reason)
+
         logger.warning("Auto-revert enabled. Deleting generated artifacts at %s...", final_path)
         if os.path.exists(final_path):
             try:
@@ -528,7 +555,10 @@ class ForgeTrainer:
                     "Failed to delete reverted artifacts at %s: %s. Manual cleanup may be required.", final_path, e
                 )
 
-        self.notifier.notify_failure(run_name=self.run_name, reason=f"{reason} Adapters discarded.")
+        # Lifecycle event: dashboards distinguish "training.reverted" (gate
+        # rejected an otherwise-completed run) from "training.failure"
+        # (training itself crashed). See docs/standards/logging-observability.md.
+        self.notifier.notify_reverted(run_name=self.run_name, reason=f"{reason} Artifacts discarded.")
 
     def _build_trainer(self, callbacks: list) -> None:
         """Build (or rebuild) self.trainer from current config. Called on first build and after OOM retry."""
@@ -553,6 +583,8 @@ class ForgeTrainer:
         """Build any non-GRPO TRL trainer. GRPO needs reward-func wiring and is handled separately."""
         if tt == "sft":
             logger.info("Initializing TRL SFTTrainer...")
+            from trl import SFTTrainer
+
             return SFTTrainer(**trainer_kwargs)
         if tt == "orpo":
             logger.info("Initializing TRL ORPOTrainer (ORPO preference alignment)...")
@@ -636,8 +668,15 @@ class ForgeTrainer:
         from transformers import AutoModelForSequenceClassification
         from transformers import AutoTokenizer as _AutoTok
 
-        _rw_tok = _AutoTok.from_pretrained(reward_model_path)
-        _rw_model = AutoModelForSequenceClassification.from_pretrained(reward_model_path, device_map="auto")
+        # `trust_remote_code=False` is the secure default — a reward model
+        # downloaded from the Hub should never execute arbitrary repo code
+        # at load time. Operators that genuinely need a custom architecture
+        # can fork and pre-convert; this code path is the GRPO classifier
+        # reward, which is always a SequenceClassification head.
+        _rw_tok = _AutoTok.from_pretrained(reward_model_path, trust_remote_code=False)
+        _rw_model = AutoModelForSequenceClassification.from_pretrained(
+            reward_model_path, device_map="auto", trust_remote_code=False
+        )
 
         def _reward_fn(completions, **kwargs):
             import torch as _t
@@ -775,8 +814,7 @@ class ForgeTrainer:
         if not (self.config.evaluation and self.config.evaluation.auto_revert):
             # Failure recorded on train_result; pipeline continues to safety/judge stages.
             return True
-        self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="benchmark", detail=reason)
-        self._revert_model(final_path, reason)
+        self._revert_model(final_path, reason, source="benchmark")
         train_result.success = False
         train_result.reverted = True
         return False
@@ -818,8 +856,7 @@ class ForgeTrainer:
         )
         if safety_result.passed or not (self.config.evaluation and self.config.evaluation.auto_revert):
             return True
-        self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="safety", detail=safety_result.failure_reason)
-        self._revert_model(final_path, safety_result.failure_reason or "Safety check failed.")
+        self._revert_model(final_path, safety_result.failure_reason or "Safety check failed.", source="safety")
         train_result.success = False
         train_result.reverted = True
         return False
@@ -844,8 +881,7 @@ class ForgeTrainer:
         )
         if judge_result.passed or not (self.config.evaluation and self.config.evaluation.auto_revert):
             return True
-        self.audit.log_event(_EVT_REVERT_TRIGGERED, reason="judge", detail=judge_result.failure_reason)
-        self._revert_model(final_path, judge_result.failure_reason or "Judge score below threshold.")
+        self._revert_model(final_path, judge_result.failure_reason or "Judge score below threshold.", source="judge")
         train_result.success = False
         train_result.reverted = True
         return False
@@ -867,7 +903,16 @@ class ForgeTrainer:
         eval_cfg = self.config.evaluation
         if not (eval_cfg and eval_cfg.require_human_approval):
             return False
-        self.audit.log_event("human_approval.required", model_path=final_path)
+        self.audit.log_event(
+            "human_approval.required",
+            gate="final_model",
+            reason="require_human_approval=true",
+            metrics=train_result.metrics,
+            model_path=final_path,
+        )
+        # Webhook lifecycle: surface the approval gate to operators in
+        # real-time instead of forcing them to tail the audit JSONL.
+        self.notifier.notify_awaiting_approval(run_name=self.run_name, model_path=final_path)
         logger.info("Human approval required. Model saved to staging: %s", final_path)
         logger.info(
             "Review results in %s/compliance/ and redeploy when ready. Run ID: %s",
@@ -924,6 +969,8 @@ class ForgeTrainer:
 
     def train(self, resume_from_checkpoint: Optional[str] = None) -> TrainResult:
         """Starts the main training loop. Returns TrainResult with status and metrics."""
+        from transformers import EarlyStoppingCallback
+
         # Store originals so compliance manifest reflects pre-OOM values
         self._original_batch_size = self.config.training.per_device_train_batch_size
         self._original_grad_accum = self.config.training.gradient_accumulation_steps
@@ -1048,6 +1095,8 @@ class ForgeTrainer:
 
     def _collect_gpu_info(self, usage: Dict[str, Any]) -> None:
         """Populate gpu_model / peak_vram_gb / gpu_count fields when CUDA is available."""
+        import torch
+
         if not torch.cuda.is_available():
             return
         usage["gpu_model"] = torch.cuda.get_device_name(0)
@@ -1131,6 +1180,15 @@ class ForgeTrainer:
         safety_cfg = eval_cfg.safety
         logger.info("Running post-training safety evaluation (scoring=%s)...", getattr(safety_cfg, "scoring", "binary"))
         output_dir = os.path.join(self.checkpoint_dir, "safety")
+        from .safety import SafetyEvalThresholds
+
+        thresholds = SafetyEvalThresholds(
+            scoring=getattr(safety_cfg, "scoring", "binary"),
+            min_safety_score=getattr(safety_cfg, "min_safety_score", None),
+            min_classifier_confidence=getattr(safety_cfg, "min_classifier_confidence", 0.7),
+            track_categories=getattr(safety_cfg, "track_categories", False),
+            severity_thresholds=getattr(safety_cfg, "severity_thresholds", None),
+        )
         return run_safety_evaluation(
             model=self.trainer.model,
             tokenizer=self.tokenizer,
@@ -1138,11 +1196,9 @@ class ForgeTrainer:
             test_prompts_path=safety_cfg.test_prompts,
             max_safety_regression=safety_cfg.max_safety_regression,
             output_dir=output_dir,
-            scoring=getattr(safety_cfg, "scoring", "binary"),
-            min_safety_score=getattr(safety_cfg, "min_safety_score", None),
-            min_classifier_confidence=getattr(safety_cfg, "min_classifier_confidence", 0.7),
-            track_categories=getattr(safety_cfg, "track_categories", False),
-            severity_thresholds=getattr(safety_cfg, "severity_thresholds", None),
+            thresholds=thresholds,
+            batch_size=getattr(safety_cfg, "batch_size", 8),
+            audit_logger=self.audit,
         )
 
     def _run_judge_if_configured(self):
@@ -1170,6 +1226,7 @@ class ForgeTrainer:
             min_score=judge_cfg.min_score,
             output_dir=output_dir,
             api_base=getattr(judge_cfg, "judge_api_base", None),
+            batch_size=judge_cfg.batch_size,
         )
 
     def _export_compliance_if_needed(self, metrics: Dict[str, float], result: TrainResult) -> None:
@@ -1242,7 +1299,11 @@ class ForgeTrainer:
                 gov_path = os.path.join(compliance_dir, "data_governance_report.json")
                 with open(gov_path, "w", encoding="utf-8") as fh:
                     json.dump(governance, fh, indent=2)
-                self.audit.log_event("compliance.governance_exported", path=gov_path)
+                self.audit.log_event(
+                    "compliance.governance_exported",
+                    output_path=gov_path,
+                    dataset_count=len(self.dataset),
+                )
                 governance_ok = True
             except Exception as e:  # noqa: BLE001 — best-effort; broad catch keeps the audit trail honest
                 # OSError covers filesystem failures, but the governance
@@ -1260,7 +1321,15 @@ class ForgeTrainer:
             # report succeeded, so the audit chain truthfully reflects which
             # artefacts are actually on disk.
             if governance_ok:
-                self.audit.log_event("compliance.artifacts_exported", directory=compliance_dir)
+                try:
+                    files = sorted(os.listdir(compliance_dir))
+                except OSError:
+                    files = []
+                self.audit.log_event(
+                    "compliance.artifacts_exported",
+                    output_dir=compliance_dir,
+                    files=files,
+                )
         except Exception as e:
             logger.warning("Failed to export compliance artifacts: %s", e)
 

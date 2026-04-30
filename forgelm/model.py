@@ -1,14 +1,18 @@
 import logging
 from typing import Any, Optional, Tuple
 
-import torch
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+# NOTE: Heavy ML imports (torch, transformers AutoModelForCausalLM/AutoTokenizer/
+# BitsAndBytesConfig, peft helpers) are deferred to function bodies so
+# `import forgelm.model` is cheap. Eagerly importing torch/peft here costs
+# ~3-5s of CLI startup per invocation (peft pulls transformers which pulls
+# torch). See closure-plan F-performance-101.
 
 logger = logging.getLogger("forgelm.model")
 
 
 def _resolve_bnb_compute_dtype(dtype_str: str):
+    import torch
+
     if not dtype_str or dtype_str == "auto":
         return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     normalized = str(dtype_str).lower()
@@ -59,6 +63,8 @@ def _load_tokenizer(config: Any, trust_remote_code: bool) -> Any:
 
         tokenizer = AutoProcessor.from_pretrained(config.model.name_or_path, trust_remote_code=trust_remote_code)
     else:
+        from transformers import AutoTokenizer
+
         tokenizer = AutoTokenizer.from_pretrained(config.model.name_or_path, trust_remote_code=trust_remote_code)
 
     if hasattr(tokenizer, "pad_token") and tokenizer.pad_token is None:
@@ -69,6 +75,8 @@ def _load_tokenizer(config: Any, trust_remote_code: bool) -> Any:
 
 def _device_map_for(config: Any, is_distributed: bool):
     """Pick a from_pretrained device_map suited to the current environment."""
+    import torch
+
     if is_distributed:
         logger.info("Distributed training detected — skipping device_map.")
         return None
@@ -84,6 +92,8 @@ def _device_map_for(config: Any, is_distributed: bool):
 
 def _build_model_kwargs(config: Any, trust_remote_code: bool) -> dict:
     """Assemble from_pretrained kwargs (device_map, BnB, RoPE, sliding window)."""
+    import torch
+
     dist_cfg = getattr(config, "distributed", None)
     is_distributed = bool(dist_cfg and dist_cfg.strategy)
 
@@ -93,6 +103,8 @@ def _build_model_kwargs(config: Any, trust_remote_code: bool) -> dict:
         kwargs["device_map"] = device_map
 
     if torch.cuda.is_available() and config.model.load_in_4bit:
+        from transformers import BitsAndBytesConfig
+
         logger.info("Using 4-bit QLoRA quantization...")
         compute_dtype = _resolve_bnb_compute_dtype(config.model.bnb_4bit_compute_dtype)
         kwargs["quantization_config"] = BitsAndBytesConfig(
@@ -128,8 +140,10 @@ def _apply_moe_config(model: Any, config: Any) -> None:
         _freeze_unselected_experts(model, moe_cfg.experts_to_train, num_experts)
 
 
-def _build_lora_config(config: Any) -> LoraConfig:
+def _build_lora_config(config: Any) -> "LoraConfig":  # noqa: F821 — peft import is lazy
     """Resolve PEFT method (lora / dora / rslora / pissa) and build LoraConfig."""
+    from peft import LoraConfig
+
     peft_method = getattr(config.lora, "method", "lora")
     use_dora = config.lora.use_dora or peft_method == "dora"
     use_rslora = getattr(config.lora, "use_rslora", False) or peft_method == "rslora"
@@ -159,6 +173,10 @@ def _build_lora_config(config: Any) -> LoraConfig:
 
 def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
     """Loads the base model, tokenizer, and configures LoRA."""
+    import torch
+    from peft import get_peft_model, prepare_model_for_kbit_training
+    from transformers import AutoModelForCausalLM
+
     logger.info("Loading Base Model: %s with backend: %s", config.model.name_or_path, config.model.backend)
 
     trust_remote_code = getattr(config.model, "trust_remote_code", False)
@@ -219,6 +237,8 @@ def _apply_moe_expert_quantization(model) -> None:
     Note: True int8 quantization requires bitsandbytes Linear8bitLt —
     raw dtype casting to int8 destroys weight values and is NOT used here.
     """
+    import torch
+
     target_dtype = torch.float16
     if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
         target_dtype = torch.bfloat16
