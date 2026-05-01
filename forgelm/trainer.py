@@ -999,9 +999,7 @@ class ForgeTrainer:
             # generated so reviewers see a complete bundle.
             # final_model_path retains the intended final location; staging_path
             # records where the adapters currently live pending human sign-off.
-            gate_path = final_path + ".staging"
-            if os.path.isdir(gate_path):
-                shutil.rmtree(gate_path)
+            gate_path = f"{final_path}.staging.{self.audit.run_id}"
             self.save_final_model(gate_path)
             # Point final_model_path at the actual on-disk location (staging dir)
             # so downstream reporters (log, JSON output) reflect reality.

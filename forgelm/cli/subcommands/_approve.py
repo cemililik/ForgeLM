@@ -89,6 +89,41 @@ def _find_human_approval_required_event(audit_log_path: str, run_id: str) -> Opt
     return latest_match
 
 
+_TERMINAL_DECISION_EVENTS = frozenset({"human_approval.granted", "human_approval.rejected"})
+
+
+def _find_human_approval_decision_event(audit_log_path: str, run_id: str) -> Optional[dict]:
+    """Return the most-recent terminal decision event for *run_id*, or None.
+
+    A terminal decision is either ``human_approval.granted`` or
+    ``human_approval.rejected``. Finding one before attempting promotion
+    prevents double-approve and approve-after-reject races.
+    """
+    if not os.path.isfile(audit_log_path):
+        return None
+
+    latest_decision = None
+    try:
+        fh = open(audit_log_path, "r", encoding="utf-8")
+    except OSError as exc:
+        logger.error("Cannot open audit log %s: %s", audit_log_path, exc)
+        return None
+    with fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            if event.get("event") in _TERMINAL_DECISION_EVENTS and event.get("run_id") == run_id:
+                latest_decision = event
+    return latest_decision
+
+
 def _atomic_rename_or_move(src: str, dst: str) -> str:
     """Atomically promote *src* → *dst*.
 
@@ -199,6 +234,16 @@ def _run_approve_cmd(args, output_format: str) -> None:
             EXIT_CONFIG_ERROR,
         )
 
+    decision_event = _cli_facade._find_human_approval_decision_event(audit_log_path, run_id)
+    if decision_event is not None:
+        prior = decision_event.get("event", "unknown")
+        _output_error_and_exit(
+            output_format,
+            f"Run {run_id!r} already has a terminal decision ({prior!r}). "
+            "Refusing to promote — re-approve is not allowed.",
+            EXIT_CONFIG_ERROR,
+        )
+
     staging_path = required_event.get("staging_path") or os.path.join(output_dir, f"final_model{_STAGING_SUFFIX}")
     final_path = (
         staging_path[: -len(_STAGING_SUFFIX)]
@@ -279,6 +324,16 @@ def _run_reject_cmd(args, output_format: str) -> None:
             output_format,
             f"No human_approval.required event for run_id={run_id!r} found in {audit_log_path!r}. "
             "Refusing to record a rejection on a run that did not request one.",
+            EXIT_CONFIG_ERROR,
+        )
+
+    decision_event = _cli_facade._find_human_approval_decision_event(audit_log_path, run_id)
+    if decision_event is not None:
+        prior = decision_event.get("event", "unknown")
+        _output_error_and_exit(
+            output_format,
+            f"Run {run_id!r} already has a terminal decision ({prior!r}). "
+            "Refusing to record another decision — re-rejection is not allowed.",
             EXIT_CONFIG_ERROR,
         )
 

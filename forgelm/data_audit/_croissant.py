@@ -12,8 +12,24 @@ don't want it never see it.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Dict, List
+
+
+def _slug(value: str, fallback: str = "unknown") -> str:
+    """Return a JSON-LD-safe identifier derived from *value*.
+
+    Replaces path separators, dots (except extension dots confuse consumers),
+    whitespace, and any non-word character with ``_``, collapses consecutive
+    underscores, strips leading/trailing underscores, and falls back to
+    *fallback* when the result would be empty.  The ASCII flag ensures Unicode
+    punctuation is always replaced rather than silently passed through.
+    """
+    slugged = re.sub(r"[^\w]", "_", value, flags=re.ASCII)
+    slugged = re.sub(r"_+", "_", slugged).strip("_")
+    return slugged or fallback
+
 
 # JSON-LD reserved keywords used as dict keys in the Croissant card body.
 # The W3C JSON-LD 1.1 spec fixes these tokens — they're vocabulary
@@ -110,20 +126,21 @@ def _build_croissant_metadata(
         # registered — defensive for callers that bypass
         # ``_resolve_input``.
         split_path = splits_paths.get(split_name)
-        file_id = split_path.name if split_path else f"{split_name}.jsonl"
-        # ``contentUrl`` deliberately uses the *file_id* (relative
-        # filename), not the absolute filesystem path: cards published
-        # to HuggingFace / MLCommons must not leak the auditor's local
-        # ``/Users/...`` / ``/home/builder/...`` layout. Operators that
-        # want a real ``contentUrl`` (HF Hub URL, S3 path, etc.) can
-        # hand-edit the field at publish time the same way they do
-        # ``license`` / ``citeAs``.
+        raw_file_id = split_path.name if split_path else f"{split_name}.jsonl"
+        file_id = _slug(raw_file_id, fallback=f"{_slug(split_name)}.jsonl")
+        split_id = _slug(split_name, fallback="split")
+        # ``contentUrl`` deliberately uses the *raw* filename (relative,
+        # not the absolute filesystem path) so cards published to HuggingFace
+        # / MLCommons do not leak the auditor's local layout. The ``@id``
+        # uses the slugged form for JSON-LD validity; operators hand-edit
+        # ``contentUrl`` at publish time (HF Hub URL, S3 path, etc.) as they
+        # do ``license`` / ``citeAs``.
         distribution.append(
             {
                 _JSONLD_TYPE_KEY: "cr:FileObject",
                 _JSONLD_ID_KEY: file_id,
-                "name": file_id,
-                "contentUrl": file_id,
+                "name": raw_file_id,
+                "contentUrl": raw_file_id,
                 "encodingFormat": "application/jsonlines",
                 "description": f"Split {split_name!r}: {sample_count} sample(s).",
             }
@@ -135,11 +152,13 @@ def _build_croissant_metadata(
         # columns we type it as ``sc:Text``; everything else is ``sc:Text``
         # too (the audit doesn't track per-column dtypes — that's a
         # consumer-side concern).
+        # ``@id`` uses the slugged column name for JSON-LD validity; ``name``
+        # preserves the original so consumers can correlate back to the data.
         columns = info.get("columns") or []
         fields = [
             {
                 _JSONLD_TYPE_KEY: "cr:Field",
-                _JSONLD_ID_KEY: f"{split_name}/{column}",
+                _JSONLD_ID_KEY: f"{split_id}/{_slug(column, fallback='field')}",
                 "name": column,
                 "dataType": "sc:Text",
                 "source": {
@@ -152,7 +171,7 @@ def _build_croissant_metadata(
         record_sets.append(
             {
                 _JSONLD_TYPE_KEY: "cr:RecordSet",
-                _JSONLD_ID_KEY: split_name,
+                _JSONLD_ID_KEY: split_id,
                 "name": split_name,
                 "field": fields,
                 "description": f"Records from split {split_name!r}.",
@@ -174,7 +193,7 @@ def _build_croissant_metadata(
     # evidence for dataset version, so the field is omitted; operators
     # that publish the card hand-edit ``version`` like they do
     # ``license`` / ``citeAs``.
-    url_safe = Path(source_input).name if source_input else name
+    url_safe = _slug(Path(source_input).name if source_input else name, fallback=_slug(name, fallback="dataset"))
     return {
         "@context": dict(_CROISSANT_CONTEXT),
         _JSONLD_TYPE_KEY: "sc:Dataset",

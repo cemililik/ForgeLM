@@ -117,6 +117,7 @@ from ._wizard import _maybe_run_wizard  # noqa: F401 — re-export for tests
 from .subcommands._approve import (
     _atomic_rename_or_move,  # noqa: F401 — re-export for tests
     _build_approval_notifier,  # noqa: F401 — re-export for tests
+    _find_human_approval_decision_event,  # noqa: F401 — re-export for tests
     _find_human_approval_required_event,  # noqa: F401 — re-export for tests
     _load_metrics_from_manifest,  # noqa: F401 — re-export for tests
     _resolve_approver_identity,  # noqa: F401 — re-export for tests

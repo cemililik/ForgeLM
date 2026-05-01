@@ -149,7 +149,7 @@ def main():
 
     if not args.config:
         if getattr(args, "output_format", "text") == "json":
-            print(json.dumps({"error": "--config is required.", "code": EXIT_CONFIG_ERROR}), file=sys.stderr)
+            print(json.dumps({"success": False, "error": "--config is required."}))
         else:
             print("Error: --config is required. Use --help for usage.", file=sys.stderr)
         sys.exit(EXIT_CONFIG_ERROR)

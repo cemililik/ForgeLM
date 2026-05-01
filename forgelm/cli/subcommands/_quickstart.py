@@ -122,7 +122,11 @@ def _run_quickstart_train_subprocess(args, config_path: Path) -> None:
     #   which is passed verbatim as a single argv element (no shell expansion,
     #   no string concatenation).
     # → No command-injection or shell-metachar surface. Safe to ignore.
-    train_rc = subprocess.run(train_cmd, check=False).returncode  # noqa: S603  # nosec B603
+    try:
+        train_rc = subprocess.run(train_cmd, check=False).returncode  # noqa: S603  # nosec B603
+    except OSError as exc:
+        logger.error("Failed to launch training subprocess: %s", exc)
+        sys.exit(EXIT_TRAINING_ERROR)
     if train_rc != 0:
         logger.error("Training exited with code %d", train_rc)
         exit_code = train_rc if train_rc in _PUBLIC_EXIT_CODES else EXIT_TRAINING_ERROR

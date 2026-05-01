@@ -426,13 +426,13 @@ class TestCroissantMultiSplit:
         report = json.loads((out_dir / "data_audit_report.json").read_text(encoding="utf-8"))
         crois = report["croissant"]
         ids = {entry["@id"] for entry in crois["distribution"]}
-        assert ids == {"train.jsonl", "validation.jsonl", "test.jsonl"}
+        assert ids == {"train_jsonl", "validation_jsonl", "test_jsonl"}
         record_ids = {entry["@id"] for entry in crois["recordSet"]}
         assert record_ids == {"train", "validation", "test"}
-        # contentUrl must be the relative file_id, not an absolute
+        # contentUrl must be the raw filename (not the slug), not an absolute
         # filesystem path — see the Phase 12.5 review m3 finding.
         for entry in crois["distribution"]:
-            assert entry["contentUrl"] == entry["@id"]
+            assert entry["contentUrl"] == entry["name"]
             assert "/" not in entry["contentUrl"]
 
 
@@ -570,7 +570,7 @@ class TestCroissantFileIdReflectsRealFilename:
             assert exc_info.value.code == 0
         crois = json.loads((out_dir / "data_audit_report.json").read_text(encoding="utf-8"))["croissant"]
         ids = {entry["@id"] for entry in crois["distribution"]}
-        assert ids == {"policies.jsonl"}
+        assert ids == {"policies_jsonl"}
         for entry in crois["distribution"]:
             assert entry["contentUrl"] == "policies.jsonl"
             assert entry["name"] == "policies.jsonl"
@@ -601,8 +601,8 @@ class TestCroissantFileIdReflectsRealFilename:
             assert exc_info.value.code == 0
         crois = json.loads((out_dir / "data_audit_report.json").read_text(encoding="utf-8"))["croissant"]
         ids = {entry["@id"] for entry in crois["distribution"]}
-        assert ids == {"train.jsonl", "dev.jsonl"}, (
-            "alias layout must keep the real filename, not the canonical split label"
+        assert ids == {"train_jsonl", "dev_jsonl"}, (
+            "alias layout must keep the real filename (slugged for JSON-LD), not the canonical split label"
         )
 
     def test_url_does_not_leak_absolute_path(self, tmp_path):
@@ -630,7 +630,7 @@ class TestCroissantFileIdReflectsRealFilename:
             assert exc_info.value.code == 0
         crois = json.loads((out_dir / "data_audit_report.json").read_text(encoding="utf-8"))["croissant"]
         assert "/" not in crois["url"], f"url field leaks absolute path: {crois['url']!r}"
-        assert crois["url"] == "policies.jsonl"
+        assert crois["url"] == "policies_jsonl"
 
 
 class TestPresidioLanguagePreflight:
