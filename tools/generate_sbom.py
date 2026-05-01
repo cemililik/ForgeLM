@@ -39,7 +39,11 @@ def _installed_packages() -> list[dict[str, str]]:
             check=True,
             timeout=60,
         )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        detail = f" — stderr: {stderr}" if stderr else ""
+        raise RuntimeError(f"pip list failed: {exc}{detail}") from exc
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
         raise RuntimeError(f"pip list failed: {exc}") from exc
     try:
         return json.loads(result.stdout)
@@ -69,7 +73,7 @@ def _forgelm_version() -> str:
     try:
         return version("forgelm")
     except PackageNotFoundError:
-        return "0.0.0+unknown"
+        return "0.0.0+dev"
 
 
 def build_sbom() -> dict[str, Any]:

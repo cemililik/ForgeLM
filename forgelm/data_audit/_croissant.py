@@ -36,8 +36,8 @@ _CROISSANT_CONTEXT: Dict[str, Any] = {
     # break exact-match consumers. The S5332 hotspot is a false positive
     # for this dual-purpose URI.
     "cr": "http://mlcommons.org/croissant/",  # NOSONAR — JSON-LD namespace IRI, not a fetch URL
-    "data": {"@id": "cr:data", "@type": "@json"},
-    "dataType": {"@id": "cr:dataType", "@type": "@vocab"},
+    "data": {_JSONLD_ID_KEY: "cr:data", _JSONLD_TYPE_KEY: "@json"},
+    "dataType": {_JSONLD_ID_KEY: "cr:dataType", _JSONLD_TYPE_KEY: "@vocab"},
     "extract": "cr:extract",
     "field": "cr:field",
     "fileObject": "cr:fileObject",

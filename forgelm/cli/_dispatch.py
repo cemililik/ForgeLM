@@ -7,6 +7,7 @@ Subcommand dispatchers are looked up via the package facade
 
 from __future__ import annotations
 
+import json
 import sys
 import warnings
 
@@ -147,7 +148,10 @@ def main():
     _maybe_run_wizard(args)
 
     if not args.config:
-        print("Error: --config is required. Use --help for usage.", file=sys.stderr)
+        if getattr(args, "output_format", "text") == "json":
+            print(json.dumps({"error": "--config is required.", "code": EXIT_CONFIG_ERROR}), file=sys.stderr)
+        else:
+            print("Error: --config is required. Use --help for usage.", file=sys.stderr)
         sys.exit(EXIT_CONFIG_ERROR)
 
     json_output = args.output_format == "json"

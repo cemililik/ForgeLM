@@ -31,13 +31,22 @@ def _report_training_error(
 
 def _run_training_pipeline(config, args, json_output: bool) -> None:
     """Run the full training pipeline (model load → data → trainer.train → cleanup)."""
+    # Defer heavy imports so `--help`, `--version`, and `--dry-run` stay lightweight.
+    # ImportError here means a required optional extra is missing — surface as install hint.
     try:
-        # Defer heavy imports so `--help`, `--version`, and `--dry-run` stay lightweight.
         from ..data import prepare_dataset
         from ..model import get_model_and_tokenizer
         from ..trainer import ForgeTrainer
         from ..utils import manage_checkpoints, setup_authentication
+    except ImportError as e:
+        _report_training_error(
+            json_output,
+            payload={"success": False, "error": f"Missing dependency: {e}"},
+            log_msg=f"Missing dependency: {e}. Check your installation.",
+            exit_code=EXIT_TRAINING_ERROR,
+        )
 
+    try:
         if not config.model.offline:
             setup_authentication(config.auth.hf_token if config.auth else None)
         else:
@@ -53,7 +62,7 @@ def _run_training_pipeline(config, args, json_output: bool) -> None:
         trainer = ForgeTrainer(model=model, tokenizer=tokenizer, config=config, dataset=dataset)
         result = trainer.train(resume_from_checkpoint=resume_checkpoint)
 
-        logger.info("Cleaning up intermediate checkpoints...")
+        logger.info("Preserving intermediate checkpoints (action=keep).")
         manage_checkpoints(config.training.output_dir, action="keep")
 
         _output_result(result, args.output_format)
@@ -61,13 +70,6 @@ def _run_training_pipeline(config, args, json_output: bool) -> None:
             sys.exit(EXIT_AWAITING_APPROVAL)
         sys.exit(EXIT_SUCCESS if result.success else EXIT_EVAL_FAILURE)
 
-    except ImportError as e:
-        _report_training_error(
-            json_output,
-            payload={"success": False, "error": f"Missing dependency: {e}"},
-            log_msg=f"Missing dependency: {e}. Check your installation.",
-            exit_code=EXIT_TRAINING_ERROR,
-        )
     except Exception as e:
         _report_training_error(
             json_output,

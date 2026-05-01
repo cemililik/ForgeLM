@@ -1000,6 +1000,8 @@ class ForgeTrainer:
             # final_model_path retains the intended final location; staging_path
             # records where the adapters currently live pending human sign-off.
             gate_path = final_path + ".staging"
+            if os.path.isdir(gate_path):
+                shutil.rmtree(gate_path)
             self.save_final_model(gate_path)
             train_result.staging_path = gate_path
         else:

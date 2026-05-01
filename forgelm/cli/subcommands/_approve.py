@@ -61,7 +61,12 @@ def _find_human_approval_required_event(audit_log_path: str, run_id: str) -> Opt
 
     latest_match = None
     skipped_lines = 0
-    with open(audit_log_path, "r", encoding="utf-8") as fh:
+    try:
+        fh = open(audit_log_path, "r", encoding="utf-8")
+    except OSError as exc:
+        logger.error("Cannot open audit log %s: %s", audit_log_path, exc)
+        return None
+    with fh:
         for raw in fh:
             line = raw.strip()
             if not line:

@@ -76,6 +76,9 @@ class TestExpertNamePatterns:
         assert _expert_index_in_name("model.embed_tokens.weight", 8) is None
         assert _expert_index_in_name("model.layers.0.self_attn.q_proj.weight", 8) is None
         assert _expert_index_in_name("model.layers.0.input_layernorm.weight", 8) is None
+        # "shared_expert_*" must not false-positive against the expert_N pattern.
+        assert _expert_index_in_name("model.shared_expert_0.weight", 8) is None
+        assert _expert_index_in_name("model.layers.0.shared_expert_1.weight", 8) is None
 
     def test_expert_index_outside_range_returns_none(self):
         from forgelm.model import _expert_index_in_name
@@ -100,12 +103,22 @@ class TestExpertNamePatterns:
         # Clear the module-level sentinel so prior tests with unrecognized names
         # (e.g. the Arabic-digit test) don't suppress this run's log emission.
         _LOGGED_UNKNOWN_EXPERT_NAMES.discard("_UNKNOWN_EXPERT_LAYOUT_")
+        try:
+            with caplog.at_level(logging.INFO, logger="forgelm.model"):
+                result = _expert_index_in_name("model.weird_expert_layout.weight", 8)
+            assert result is None
+            # Name contains "expert" but no pattern matched — operator must see it.
+            assert "Unrecognized MoE expert parameter naming" in caplog.text
+            first_count = caplog.text.count("Unrecognized MoE expert parameter naming")
 
-        with caplog.at_level(logging.INFO, logger="forgelm.model"):
-            result = _expert_index_in_name("model.weird_expert_layout.weight", 8)
-        assert result is None
-        # Name contains "expert" but no pattern matched — operator must see it.
-        assert "Unrecognized MoE expert parameter naming" in caplog.text
+            # Dedup: a second call with the same unrecognized layout must NOT emit again.
+            caplog.clear()
+            _expert_index_in_name("model.weird_expert_layout.weight", 8)
+            assert "Unrecognized MoE expert parameter naming" not in caplog.text
+            assert caplog.text.count("Unrecognized MoE expert parameter naming") == 0
+            _ = first_count  # used only to assert the first call fired exactly once
+        finally:
+            _LOGGED_UNKNOWN_EXPERT_NAMES.discard("_UNKNOWN_EXPERT_LAYOUT_")
 
     def test_pattern_registry_uses_ascii_flag(self):
         import re

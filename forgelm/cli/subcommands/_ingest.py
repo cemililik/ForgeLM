@@ -11,8 +11,6 @@ from .._logging import logger
 
 def _run_ingest_cmd(args, output_format: str) -> None:
     """Phase 11 dispatch: raw documents → SFT-ready JSONL."""
-    from ...ingestion import ingest_path, summarize_result
-
     # Phase 12.5: --all-mask is a shorthand that ORs into the two individual
     # masking flags. Resolve it here at the CLI boundary so ``ingest_path``
     # keeps its narrow API (only ``pii_mask`` / ``secrets_mask`` booleans).
@@ -21,6 +19,8 @@ def _run_ingest_cmd(args, output_format: str) -> None:
     secrets_mask = bool(getattr(args, "secrets_mask", False)) or all_mask
 
     try:
+        from ...ingestion import ingest_path, summarize_result
+
         result = ingest_path(
             args.input_path,
             output_path=args.output,
