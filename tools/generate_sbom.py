@@ -50,9 +50,15 @@ def _installed_packages() -> list[dict[str, str]]:
     except FileNotFoundError as exc:
         raise RuntimeError(f"pip list failed: {exc}") from exc
     try:
-        return json.loads(result.stdout)
+        payload = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"pip list returned invalid JSON: {exc}") from exc
+    if not isinstance(payload, list) or not all(isinstance(p, dict) for p in payload):
+        raise RuntimeError(
+            f"pip list returned unexpected payload shape (expected list of dicts, "
+            f"got {type(payload).__name__}): {payload!r:.200}"
+        )
+    return payload
 
 
 def _purl(name: str, ver: str) -> str:
@@ -120,12 +126,20 @@ def build_sbom() -> dict[str, Any]:
     }
 
 
+_EXIT_SUCCESS = 0
+_EXIT_CONFIG_ERROR = 1  # invalid input / missing data
+_EXIT_RUNTIME_ERROR = 2  # subprocess / I/O / JSON parse failure
+
+
 def main() -> int:
     try:
         sbom = build_sbom()
-    except (RuntimeError, ValueError) as exc:
+    except ValueError as exc:
+        print(f"error: invalid input — {exc}", file=sys.stderr)
+        return _EXIT_CONFIG_ERROR
+    except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        return 1
+        return _EXIT_RUNTIME_ERROR
     json.dump(sbom, sys.stdout, indent=2, sort_keys=False)
     sys.stdout.write("\n")
     return 0

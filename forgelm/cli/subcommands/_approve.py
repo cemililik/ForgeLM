@@ -198,7 +198,9 @@ def _build_approval_notifier(output_dir: str):
         try:
             with open(config_path, "r", encoding="utf-8") as fh:
                 report = json.load(fh)
-            webhook_cfg = report.get("webhook_config")
+            if isinstance(report, dict):
+                raw_cfg = report.get("webhook_config")
+                webhook_cfg = raw_cfg if isinstance(raw_cfg, dict) else None
         except (OSError, json.JSONDecodeError) as exc:
             logger.debug("Could not load co-located webhook config from %s: %s", config_path, exc)
     return WebhookNotifier(_Carrier(webhook_cfg))
@@ -245,11 +247,12 @@ def _run_approve_cmd(args, output_format: str) -> None:
         )
 
     staging_path = required_event.get("staging_path") or os.path.join(output_dir, f"final_model{_STAGING_SUFFIX}")
-    final_path = (
-        staging_path[: -len(_STAGING_SUFFIX)]
-        if staging_path.endswith(_STAGING_SUFFIX)
-        else staging_path.replace(_STAGING_SUFFIX, "")
-    )
+    # Derive final_path by stripping the staging suffix (and any runtime suffix
+    # appended after it, such as ".<run_id>") from staging_path. rfind locates
+    # the last occurrence of _STAGING_SUFFIX so "final_model.staging.abc123"
+    # correctly yields "final_model" regardless of any trailing run_id segment.
+    _idx = staging_path.rfind(_STAGING_SUFFIX)
+    final_path = staging_path[:_idx] if _idx != -1 else staging_path
 
     if not os.path.isdir(staging_path):
         _output_error_and_exit(

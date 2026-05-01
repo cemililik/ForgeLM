@@ -157,7 +157,11 @@ def _run_quickstart_chat_subprocess(args, config_path: Path) -> None:
     # argv list-form, sys.executable head, _CLI_MODULE literal, only the
     # final_model_dir is dynamic and passed as a single argv element. No
     # shell, no concatenation → no injection surface.
-    chat_rc = subprocess.run(chat_cmd, check=False).returncode  # noqa: S603  # nosec B603
+    try:
+        chat_rc = subprocess.run(chat_cmd, check=False).returncode  # noqa: S603  # nosec B603
+    except OSError as exc:
+        logger.warning("Failed to launch chat REPL (%s); run `forgelm chat <model_path>` manually.", exc)
+        return
     # 130 == SIGINT (Ctrl-C is the normal way to leave the REPL). Anything else
     # non-zero is a crash worth surfacing, but chat exit is not the operator's
     # training-success signal so we still exit 0 — the training run already
