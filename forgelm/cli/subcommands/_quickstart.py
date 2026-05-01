@@ -14,14 +14,14 @@ from .._logging import _CLI_MODULE, logger
 def _build_quickstart_inherited_flags(args) -> tuple[list[str], list[str]]:
     """Return (train_flags, chat_flags) propagated from parent argv.
 
-    Both lists carry --quiet / --log-level / --offline. Only the train
-    list carries --output-format json — chat is interactive and JSON
-    mode would muddy its stdout.
+    Both lists carry --quiet / --log-level / --offline. Neither list
+    carries --output-format json: the quickstart parent owns the JSON
+    envelope, and forwarding it to the training subprocess produces two
+    top-level JSON objects on stdout (subprocess result + parent envelope)
+    making the stream unparseable by any JSON consumer.
     """
     train_flags: list[str] = []
     chat_flags: list[str] = []
-    if getattr(args, "output_format", None) == "json":
-        train_flags += ["--output-format", "json"]
     if getattr(args, "quiet", False):
         train_flags.append("--quiet")
         chat_flags.append("--quiet")
