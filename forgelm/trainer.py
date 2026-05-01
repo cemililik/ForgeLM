@@ -1045,7 +1045,7 @@ class ForgeTrainer:
 
         try:
             return self._run_training_pipeline(resume_from_checkpoint)
-        except Exception as e:  # noqa: BLE001 — best-effort: top-of-pipeline catch must record an audit event and notify before re-raising regardless of failure type (CUDA, dataloader, optimizer, etc.); the bare re-raise preserves the original traceback.
+        except Exception as e:  # noqa: BLE001 — best-effort: top-of-pipeline catch must record an audit event and notify before re-raising regardless of failure type (CUDA, dataloader, optimizer, etc.); the bare re-raise preserves the original traceback.  # NOSONAR
             logger.exception("Training pipeline failed.")
             self.audit.log_event("pipeline.failed", error=str(e))
             self.notifier.notify_failure(run_name=self.run_name, reason=str(e))
@@ -1387,7 +1387,7 @@ class ForgeTrainer:
                     dataset_count=len(self.dataset),
                 )
                 governance_ok = True
-            except Exception as e:  # noqa: BLE001 — best-effort; broad catch keeps the audit trail honest
+            except Exception as e:  # noqa: BLE001 — best-effort; broad catch keeps the audit trail honest  # NOSONAR
                 # OSError covers filesystem failures, but the governance
                 # report can also fail with TypeError (config schema drift),
                 # ValueError (dataset shape), AttributeError (mocked deps in
@@ -1412,7 +1412,7 @@ class ForgeTrainer:
                     output_dir=compliance_dir,
                     files=files,
                 )
-        except Exception as e:  # noqa: BLE001 — best-effort: outer compliance-export gate. Article 11/12 export plumbing crosses pydantic validation, json serialization, hashing, filesystem writes, and audit emission; any leak from the inner narrow-class catches must not abort the surrounding training pipeline that already succeeded.
+        except Exception as e:  # noqa: BLE001 — best-effort: outer compliance-export gate. Article 11/12 export plumbing crosses pydantic validation, json serialization, hashing, filesystem writes, and audit emission; any leak from the inner narrow-class catches must not abort the surrounding training pipeline that already succeeded.  # NOSONAR
             logger.warning("Failed to export compliance artifacts: %s", e)
 
     def _generate_model_integrity(self, final_path: str) -> None:

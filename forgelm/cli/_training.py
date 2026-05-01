@@ -20,12 +20,12 @@ def _report_training_error(
     ``with_traceback=True`` for unexpected exceptions where the stack trace
     is more useful than a one-line message.
     """
-    if json_output:
-        print(json.dumps(payload))
-    elif with_traceback:
+    if with_traceback:
         logger.exception(log_msg)
     else:
         logger.error(log_msg)
+    if json_output:
+        print(json.dumps(payload))
     sys.exit(exit_code)
 
 

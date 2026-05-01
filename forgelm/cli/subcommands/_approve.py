@@ -59,7 +59,7 @@ def _find_human_approval_required_event(audit_log_path: str, run_id: str) -> Opt
     if not os.path.isfile(audit_log_path):
         return None
 
-    matches = []
+    latest_match = None
     skipped_lines = 0
     with open(audit_log_path, "r", encoding="utf-8") as fh:
         for raw in fh:
@@ -75,10 +75,10 @@ def _find_human_approval_required_event(audit_log_path: str, run_id: str) -> Opt
                 skipped_lines += 1
                 continue
             if event.get("event") == "human_approval.required" and event.get("run_id") == run_id:
-                matches.append(event)
+                latest_match = event
     if skipped_lines:
         logger.warning("Skipped %d malformed line(s) while parsing %s.", skipped_lines, audit_log_path)
-    return matches[-1] if matches else None
+    return latest_match
 
 
 def _atomic_rename_or_move(src: str, dst: str) -> str:
@@ -154,6 +154,15 @@ def _build_approval_notifier(output_dir: str):
     return WebhookNotifier(_Carrier(webhook_cfg))
 
 
+def _output_error_and_exit(output_format: str, msg: str, exit_code: int) -> None:
+    """Emit *msg* as a structured JSON error or a log record, then exit."""
+    if output_format == "json":
+        print(json.dumps({"success": False, "error": msg}))
+    else:
+        logger.error(msg)
+    sys.exit(exit_code)
+
+
 def _run_approve_cmd(args, output_format: str) -> None:
     """Promote ``final_model.staging/`` → ``final_model/`` after human review."""
     # Late import via the package facade so monkeypatched
@@ -168,45 +177,37 @@ def _run_approve_cmd(args, output_format: str) -> None:
     audit_log_path = os.path.join(output_dir, "audit_log.jsonl")
 
     if not os.path.isdir(staging_path):
-        msg = (
+        _output_error_and_exit(
+            output_format,
             f"Staging directory not found at {staging_path!r}. "
-            "Either the run did not exit with code 4, or it was already approved/cleaned up."
+            "Either the run did not exit with code 4, or it was already approved/cleaned up.",
+            EXIT_CONFIG_ERROR,
         )
-        if output_format == "json":
-            print(json.dumps({"success": False, "error": msg}))
-        else:
-            logger.error(msg)
-        sys.exit(EXIT_CONFIG_ERROR)
 
     required_event = _cli_facade._find_human_approval_required_event(audit_log_path, run_id)
     if required_event is None:
-        msg = (
+        _output_error_and_exit(
+            output_format,
             f"No human_approval.required event for run_id={run_id!r} found in {audit_log_path!r}. "
-            "Refusing to promote — verify the run_id matches the original training run."
+            "Refusing to promote — verify the run_id matches the original training run.",
+            EXIT_CONFIG_ERROR,
         )
-        if output_format == "json":
-            print(json.dumps({"success": False, "error": msg}))
-        else:
-            logger.error(msg)
-        sys.exit(EXIT_CONFIG_ERROR)
 
-    if os.path.exists(final_path):
-        msg = f"Cannot promote: final directory already exists at {final_path!r}. Move or delete it first."
-        if output_format == "json":
-            print(json.dumps({"success": False, "error": msg}))
-        else:
-            logger.error(msg)
-        sys.exit(EXIT_CONFIG_ERROR)
+    if os.path.lexists(final_path):
+        _output_error_and_exit(
+            output_format,
+            f"Cannot promote: final directory already exists at {final_path!r}. Move or delete it first.",
+            EXIT_CONFIG_ERROR,
+        )
 
     try:
         promote_strategy = _cli_facade._atomic_rename_or_move(staging_path, final_path)
     except OSError as exc:
-        msg = f"Failed to promote {staging_path!r} → {final_path!r}: {exc}"
-        if output_format == "json":
-            print(json.dumps({"success": False, "error": msg}))
-        else:
-            logger.error(msg)
-        sys.exit(EXIT_TRAINING_ERROR)
+        _output_error_and_exit(
+            output_format,
+            f"Failed to promote {staging_path!r} → {final_path!r}: {exc}",
+            EXIT_TRAINING_ERROR,
+        )
 
     from ...compliance import AuditLogger
 
@@ -254,24 +255,20 @@ def _run_reject_cmd(args, output_format: str) -> None:
     audit_log_path = os.path.join(output_dir, "audit_log.jsonl")
 
     if not os.path.isdir(staging_path):
-        msg = f"Staging directory not found at {staging_path!r}. Nothing to reject."
-        if output_format == "json":
-            print(json.dumps({"success": False, "error": msg}))
-        else:
-            logger.error(msg)
-        sys.exit(EXIT_CONFIG_ERROR)
+        _output_error_and_exit(
+            output_format,
+            f"Staging directory not found at {staging_path!r}. Nothing to reject.",
+            EXIT_CONFIG_ERROR,
+        )
 
     required_event = _cli_facade._find_human_approval_required_event(audit_log_path, run_id)
     if required_event is None:
-        msg = (
+        _output_error_and_exit(
+            output_format,
             f"No human_approval.required event for run_id={run_id!r} found in {audit_log_path!r}. "
-            "Refusing to record a rejection on a run that did not request one."
+            "Refusing to record a rejection on a run that did not request one.",
+            EXIT_CONFIG_ERROR,
         )
-        if output_format == "json":
-            print(json.dumps({"success": False, "error": msg}))
-        else:
-            logger.error(msg)
-        sys.exit(EXIT_CONFIG_ERROR)
 
     from ...compliance import AuditLogger
 

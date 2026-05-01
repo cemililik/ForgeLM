@@ -75,7 +75,7 @@ def _find_class(module: ast.Module, name: str) -> ast.ClassDef | None:
     return None
 
 
-def _find_assignment(scope: Iterable[ast.stmt], name: str) -> ast.AST | None:
+def _find_assignment(scope: Iterable[ast.stmt], name: str) -> ast.AST | None:  # NOSONAR
     """Return the value AST of ``name = …`` inside *scope*, or None."""
     for node in scope:
         if isinstance(node, ast.Assign):
@@ -88,7 +88,7 @@ def _find_assignment(scope: Iterable[ast.stmt], name: str) -> ast.AST | None:
     return None
 
 
-def _string_literals_from_function(fn: ast.FunctionDef) -> list[str]:
+def _string_literals_from_function(fn: ast.FunctionDef) -> list[str]:  # NOSONAR
     """Walk a function body and return every string literal found in
     ``os.path.join(output_dir, "<filename>")`` calls — the convention
     :func:`forgelm.compliance.export_compliance_artifacts` follows.
@@ -330,7 +330,7 @@ def check_templates() -> CheckResult:
     )
 
 
-def check_gpu_count() -> CheckResult:
+def check_gpu_count() -> CheckResult:  # NOSONAR
     code = gpu_pricing_count()
     site = site_gpu_count()
     if site is None:
@@ -367,7 +367,7 @@ def _version_tuple(v: str) -> tuple[int, int, int, int] | None:
     return (a, b, c, rank)
 
 
-def check_version() -> CheckResult:
+def check_version() -> CheckResult:  # NOSONAR
     code = pyproject_version()
     mentions = site_version_mentions()
     code_t = _version_tuple(code)

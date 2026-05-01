@@ -179,7 +179,7 @@ def _atomic_write_json(target: Path, payload: Dict[str, Any]) -> None:
                 pass
 
 
-def audit_dataset(
+def audit_dataset(  # NOSONAR — cognitive complexity is inherent to the audit orchestration logic; extraction would fragment cohesive pipeline steps
     source: str,
     *,
     output_dir: Optional[str] = None,

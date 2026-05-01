@@ -440,13 +440,27 @@ def _render_outputs(languages: list, sections: list[Section], default_lang: str)
     return written
 
 
+def _extra_generated_files(written: dict[Path, str]) -> list[Path]:
+    """Return OUTPUT_DIR/*.js paths that exist on disk but are not in *written*.
+
+    These are stale bundles left behind when a language moves from
+    SUPPORTED_LANGUAGES to DEFERRED_LANGUAGES — the build no longer emits
+    them, but the old files linger in the working tree.
+    """
+    if not OUTPUT_DIR.exists():
+        return []
+    return [p for p in OUTPUT_DIR.glob("*.js") if p not in written]
+
+
 def _check_stale(written: dict[Path, str]) -> int:
     """Compare in-memory output against on-disk files. Return CI exit code."""
-    stale = [
+    stale: list[Path] = [
         path.relative_to(REPO_ROOT)
         for path, content in written.items()
         if not path.exists() or path.read_text(encoding="utf-8") != content
     ]
+    for extra in _extra_generated_files(written):
+        stale.append(extra.relative_to(REPO_ROOT))
     if stale:
         print("\nstale generated files (run tools/build_usermanuals.py):")
         for s in stale:
@@ -457,6 +471,9 @@ def _check_stale(written: dict[Path, str]) -> int:
 
 
 def _write_outputs(written: dict[Path, str]) -> None:
+    for extra in _extra_generated_files(written):
+        extra.unlink()
+        print(f"  removed stale {extra.relative_to(REPO_ROOT)}")
     for path, content in written.items():
         path.write_text(content, encoding="utf-8")
         print(f"  wrote {path.relative_to(REPO_ROOT)} ({len(content):,} bytes)")

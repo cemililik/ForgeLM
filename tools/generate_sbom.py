@@ -30,25 +30,21 @@ from typing import Any
 
 
 def _installed_packages() -> list[dict[str, str]]:
-    """Return ``pip list --format=json`` output as a list of dicts.
-
-    Falls back to an empty list if pip is unavailable; the SBOM will still be
-    syntactically valid (just empty ``components``).
-    """
+    """Return ``pip list --format=json`` output as a list of dicts."""
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # NOSONAR — intentional subprocess call, input is fully controlled
             [sys.executable, "-m", "pip", "list", "--format=json", "--disable-pip-version-check"],
             capture_output=True,
             text=True,
             check=True,
             timeout=60,
         )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
-        return []
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        raise RuntimeError(f"pip list failed: {exc}") from exc
     try:
         return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return []
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"pip list returned invalid JSON: {exc}") from exc
 
 
 def _purl(name: str, ver: str) -> str:
@@ -115,7 +111,11 @@ def build_sbom() -> dict[str, Any]:
 
 
 def main() -> int:
-    sbom = build_sbom()
+    try:
+        sbom = build_sbom()
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     json.dump(sbom, sys.stdout, indent=2, sort_keys=False)
     sys.stdout.write("\n")
     return 0

@@ -256,26 +256,30 @@ class TestBuildTextLengthStatsNarrowing:
     def test_keyerror_on_column_drop_returns_none(self):
         from forgelm.compliance import _build_text_length_stats
 
-        split = MagicMock()
-        split.column_names = ["text"]
+        class _Split:
+            column_names = ["text"]
 
-        def __getitem__(self, key):
-            raise KeyError(key)
+            def __getitem__(self, key):
+                raise KeyError(key)
 
-        type(split).__getitem__ = __getitem__
-        assert _build_text_length_stats(split, "train") is None
+            def __len__(self):
+                return 1
+
+        assert _build_text_length_stats(_Split(), "train") is None
 
     def test_oserror_on_lazy_load_returns_none(self):
         from forgelm.compliance import _build_text_length_stats
 
-        split = MagicMock()
-        split.column_names = ["text"]
+        class _Split:
+            column_names = ["text"]
 
-        def __getitem__(self, key):
-            raise OSError("arrow shard unreachable")
+            def __getitem__(self, key):
+                raise OSError("arrow shard unreachable")
 
-        type(split).__getitem__ = __getitem__
-        assert _build_text_length_stats(split, "train") is None
+            def __len__(self):
+                return 1
+
+        assert _build_text_length_stats(_Split(), "train") is None
 
     def test_typeerror_on_non_iterable_returns_none(self):
         from forgelm.compliance import _build_text_length_stats

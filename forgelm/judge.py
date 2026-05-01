@@ -372,7 +372,7 @@ def run_judge_evaluation(
     if not is_api_judge:
         try:
             local_judge_model, local_judge_tokenizer = _load_local_judge(judge_model)
-        except Exception as e:  # noqa: BLE001 — best-effort: HF AutoModel/AutoTokenizer load surface raises a wide error tail (OSError for filesystem/repo, ValueError for config drift, RuntimeError for dtype/device, ImportError for missing extras, HuggingFace-specific repo errors). The JudgeResult(passed=False) return is the documented hard-failure surface so the caller can react.
+        except Exception as e:  # noqa: BLE001 — best-effort: HF AutoModel/AutoTokenizer load surface raises a wide error tail (OSError for filesystem/repo, ValueError for config drift, RuntimeError for dtype/device, ImportError for missing extras, HuggingFace-specific repo errors). The JudgeResult(passed=False) return is the documented hard-failure surface so the caller can react.  # NOSONAR
             logger.error("Failed to load local judge model: %s", e)
             return JudgeResult(passed=False, failure_reason=f"Judge model load failed: {e}")
 

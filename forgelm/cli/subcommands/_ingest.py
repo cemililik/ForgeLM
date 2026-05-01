@@ -34,7 +34,13 @@ def _run_ingest_cmd(args, output_format: str) -> None:
             overlap_tokens=getattr(args, "overlap_tokens", 0),
             tokenizer=getattr(args, "tokenizer", None),
         )
-    except (FileNotFoundError, ValueError, PermissionError, IsADirectoryError, OSError) as exc:
+    except (
+        FileNotFoundError,
+        ValueError,
+        PermissionError,
+        IsADirectoryError,
+        OSError,
+    ) as exc:  # NOSONAR — explicit exception list is intentional; subclasses listed for readability
         # FileNotFoundError / PermissionError / IsADirectoryError are all
         # OSError subclasses, but listed explicitly so the error class is
         # visible to readers; OSError covers ENOSPC, broken-symlink walk

@@ -12,7 +12,11 @@ def _run_chat_cmd(args) -> None:
     """Dispatch the ``forgelm chat`` subcommand."""
     try:
         from ...chat import run_chat
+    except ImportError as e:
+        logger.error("Missing dependency for chat: %s", e)
+        sys.exit(EXIT_TRAINING_ERROR)
 
+    try:
         run_chat(
             model_path=args.model_path,
             adapter=args.adapter,
@@ -25,9 +29,6 @@ def _run_chat_cmd(args) -> None:
             trust_remote_code=args.trust_remote_code,
             backend=args.backend,
         )
-    except ImportError as e:
-        logger.error("Missing dependency for chat: %s", e)
-        sys.exit(EXIT_TRAINING_ERROR)
     except Exception as e:
         logger.exception("Chat session failed: %s", e)
         sys.exit(EXIT_TRAINING_ERROR)
