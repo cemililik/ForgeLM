@@ -43,7 +43,11 @@ def _installed_packages() -> list[dict[str, str]]:
         stderr = (exc.stderr or "").strip()
         detail = f" — stderr: {stderr}" if stderr else ""
         raise RuntimeError(f"pip list failed: {exc}{detail}") from exc
-    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+    except subprocess.TimeoutExpired as exc:
+        stdout = (exc.stdout or "").strip()
+        stderr = (exc.stderr or "").strip()
+        raise RuntimeError(f"pip list timed out: {exc}; stdout={stdout!r}; stderr={stderr!r}") from exc
+    except FileNotFoundError as exc:
         raise RuntimeError(f"pip list failed: {exc}") from exc
     try:
         return json.loads(result.stdout)
@@ -60,6 +64,8 @@ def _purl(name: str, ver: str) -> str:
 def _component(pkg: dict[str, str]) -> dict[str, Any]:
     name = pkg.get("name", "")
     ver = pkg.get("version", "")
+    if not name or not ver:
+        raise ValueError(f"Package entry is missing required 'name' or 'version' field: {pkg!r}")
     return {
         "type": "library",
         "name": name,
@@ -117,7 +123,7 @@ def build_sbom() -> dict[str, Any]:
 def main() -> int:
     try:
         sbom = build_sbom()
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     json.dump(sbom, sys.stdout, indent=2, sort_keys=False)

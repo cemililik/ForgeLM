@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import types
 from typing import Optional
 
 import yaml
@@ -145,7 +146,14 @@ def _build_approval_notifier(output_dir: str):
 
     class _Carrier:
         def __init__(self, webhook_cfg):
-            self.webhook = webhook_cfg
+            # WebhookNotifier accesses self.config (= config.webhook) via attribute
+            # lookup (.url, .notify_on_success, etc.). The co-located config is a
+            # plain JSON dict, so convert it to a SimpleNamespace before handing it
+            # to WebhookNotifier to avoid AttributeError on dict-style values.
+            if isinstance(webhook_cfg, dict):
+                self.webhook = types.SimpleNamespace(**webhook_cfg)
+            else:
+                self.webhook = webhook_cfg  # None → _resolve_url returns None cleanly
 
     config_path = os.path.join(output_dir, "compliance", "compliance_report.json")
     webhook_cfg = None

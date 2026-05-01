@@ -106,17 +106,14 @@ class TestExpertNamePatterns:
         try:
             with caplog.at_level(logging.INFO, logger="forgelm.model"):
                 result = _expert_index_in_name("model.weird_expert_layout.weight", 8)
-            assert result is None
-            # Name contains "expert" but no pattern matched — operator must see it.
-            assert "Unrecognized MoE expert parameter naming" in caplog.text
-            first_count = caplog.text.count("Unrecognized MoE expert parameter naming")
+                assert result is None
+                # Name contains "expert" but no pattern matched — operator must see it.
+                assert caplog.text.count("Unrecognized MoE expert parameter naming") == 1
 
-            # Dedup: a second call with the same unrecognized layout must NOT emit again.
-            caplog.clear()
-            _expert_index_in_name("model.weird_expert_layout.weight", 8)
-            assert "Unrecognized MoE expert parameter naming" not in caplog.text
-            assert caplog.text.count("Unrecognized MoE expert parameter naming") == 0
-            _ = first_count  # used only to assert the first call fired exactly once
+                # Dedup: a second call with the same unrecognized layout must NOT emit again.
+                caplog.clear()
+                _expert_index_in_name("model.weird_expert_layout.weight", 8)
+                assert caplog.text.count("Unrecognized MoE expert parameter naming") == 0
         finally:
             _LOGGED_UNKNOWN_EXPERT_NAMES.discard("_UNKNOWN_EXPERT_LAYOUT_")
 

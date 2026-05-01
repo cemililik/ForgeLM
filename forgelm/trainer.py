@@ -1003,6 +1003,10 @@ class ForgeTrainer:
             if os.path.isdir(gate_path):
                 shutil.rmtree(gate_path)
             self.save_final_model(gate_path)
+            # Point final_model_path at the actual on-disk location (staging dir)
+            # so downstream reporters (log, JSON output) reflect reality.
+            # staging_path carries the same value so approval commands can find it.
+            train_result.final_model_path = gate_path
             train_result.staging_path = gate_path
         else:
             gate_path = final_path
