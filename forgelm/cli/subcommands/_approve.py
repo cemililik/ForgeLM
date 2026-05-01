@@ -71,6 +71,9 @@ def _find_human_approval_required_event(audit_log_path: str, run_id: str) -> Opt
             except json.JSONDecodeError:
                 skipped_lines += 1
                 continue
+            if not isinstance(event, dict):
+                skipped_lines += 1
+                continue
             if event.get("event") == "human_approval.required" and event.get("run_id") == run_id:
                 matches.append(event)
     if skipped_lines:

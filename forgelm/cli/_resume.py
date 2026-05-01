@@ -24,7 +24,11 @@ def _resolve_resume_checkpoint(checkpoint_dir: str, resume_arg: str) -> Optional
         return None
 
     checkpoint_dirs = sorted(
-        [d for d in os.listdir(checkpoint_dir) if d.startswith("checkpoint-")],
+        [
+            d
+            for d in os.listdir(checkpoint_dir)
+            if d.startswith("checkpoint-") and os.path.isdir(os.path.join(checkpoint_dir, d))
+        ],
         key=lambda x: int(x.split("-")[-1]) if x.split("-")[-1].isdigit() else 0,
     )
 

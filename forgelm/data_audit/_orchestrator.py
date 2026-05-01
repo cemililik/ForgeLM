@@ -74,9 +74,9 @@ def _pair_leak_payload(
         leaked_in_b = _count_leaked_rows(sigs_b, sigs_a, threshold)
     return {
         f"leaked_rows_in_{a}": leaked_in_a,
-        f"leak_rate_{a}": round(leaked_in_a / len(sigs_a), 4),
+        f"leak_rate_{a}": round(leaked_in_a / len(sigs_a), 4) if sigs_a else 0.0,
         f"leaked_rows_in_{b}": leaked_in_b,
-        f"leak_rate_{b}": round(leaked_in_b / len(sigs_b), 4),
+        f"leak_rate_{b}": round(leaked_in_b / len(sigs_b), 4) if sigs_b else 0.0,
     }
 
 

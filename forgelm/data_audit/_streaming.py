@@ -38,7 +38,7 @@ def _detect_language(text: str) -> str:
             # "unknown" rather than crashing the audit.
             return "unknown"
     except ImportError:
-        return "unknown (install forgelm[ingestion])"
+        return "unknown"
 
 
 def _length_stats(lengths: List[int]) -> Dict[str, float]:

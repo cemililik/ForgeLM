@@ -15,7 +15,7 @@ logger = logging.getLogger("forgelm.trainer")
 
 # Audit event names — kept as constants so the audit-log schema stays grep-able
 # and downstream consumers don't break on a typo.
-_EVT_REVERT_TRIGGERED = "eval.revert_triggered"
+_EVT_REVERT_TRIGGERED = "model.reverted"
 
 
 # ---------------------------------------------------------------------------

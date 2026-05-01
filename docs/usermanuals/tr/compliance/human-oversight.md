@@ -53,7 +53,7 @@ Trainer eval'den sonra durur ve yazdırır:
   Bundle: checkpoints/run/artifacts/
 
   Onaylamak için: forgelm approve abc123 --output-dir checkpoints/run --comment "..."
-  Reddetmek için: forgelm reject  abc123 --output-dir checkpoints/run --comment "..."
+  Reddetmek için: forgelm reject abc123 --output-dir checkpoints/run --comment "..."
 ```
 
 Reviewer artifacts dizinine erişimi olan herhangi bir makineden onay komutunu çalıştırır. ForgeLM SSH key signing veya env-set token üzerinden kimliği doğrular, audit log'u imzalar ve terfiyi sürdürür.

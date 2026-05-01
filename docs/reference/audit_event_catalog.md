@@ -35,9 +35,9 @@ The hash chain advances after the line lands on disk (`flush` + `fsync`), so an 
 
 | Event                        | When emitted                                                                                            | Payload                                              | Article |
 |------------------------------|---------------------------------------------------------------------------------------------------------|------------------------------------------------------|---------|
-| `human_approval.required`    | A gate marked `requires_human_approval: true` paused the pipeline awaiting an operator decision.        | `gate`, `reason`, `metrics`                          | 14      |
-| `human_approval.granted`     | Operator approved the paused gate via `forgelm approve`.                                                | `gate`, `approver`, `comment`                        | 14      |
-| `human_approval.rejected`    | Operator rejected the paused gate via `forgelm reject`.                                                 | `gate`, `approver`, `comment`                        | 14      |
+| `human_approval.required`    | A gate marked `requires_human_approval: true` paused the pipeline awaiting an operator decision.        | `gate`, `reason`, `metrics`, `staging_path`, `run_id`                      | 14      |
+| `human_approval.granted`     | Operator approved the paused gate via `forgelm approve`.                                                | `gate`, `approver`, `comment`, `run_id`, `promote_strategy`                | 14      |
+| `human_approval.rejected`    | Operator rejected the paused gate via `forgelm reject`.                                                 | `gate`, `approver`, `comment`, `run_id`, `staging_path`                    | 14      |
 
 ### Article 15 — Model Integrity (auto-revert + safety)
 

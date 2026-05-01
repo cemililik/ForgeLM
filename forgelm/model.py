@@ -283,6 +283,10 @@ def _parse_selected_experts(experts_to_train: str, num_experts: int) -> Optional
     return selected
 
 
+# Tracks parameter names already logged as unrecognized so repeated calls on
+# the same checkpoint don't produce a log line per-parameter.
+_LOGGED_UNKNOWN_EXPERT_NAMES: set = set()
+
 # Per-architecture regex registry for resolving the expert index inside an
 # MoE state-dict parameter name. ASCII-bound \d so we can't match exotic
 # Unicode digits, anchored on a literal trailing dot/underscore so we don't
@@ -322,7 +326,8 @@ def _expert_index_in_name(name: str, num_experts: int) -> Optional[int]:
             # num_experts is wrong, or the regex caught a non-expert
             # field whose number happens to exceed the count.
             return None
-    if "expert" in name.lower():
+    if "expert" in name.lower() and name not in _LOGGED_UNKNOWN_EXPERT_NAMES:
+        _LOGGED_UNKNOWN_EXPERT_NAMES.add(name)
         logger.info(
             "Unrecognized MoE expert parameter naming: %r — falling back to "
             "trainable. Add a regex to forgelm.model._EXPERT_NAME_PATTERNS "

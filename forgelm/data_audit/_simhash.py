@@ -10,6 +10,7 @@ bare install still produces reproducible fingerprints.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from functools import lru_cache
 from typing import Dict, List, Tuple
@@ -69,11 +70,13 @@ def _token_digest(token: str, bits: int = 64) -> int:
     encoded = token.encode("utf-8")
     if _optional._HAS_XXHASH and bits == 64:
         return _optional._xxhash.xxh3_64(encoded).intdigest()
-    digest_bytes = bits // 8
-    return int.from_bytes(
+    digest_bytes = math.ceil(bits / 8)
+    raw = int.from_bytes(
         hashlib.blake2b(encoded, digest_size=digest_bytes).digest(),
         "big",
     )
+    # Shift off any extra bits introduced by rounding up to the nearest byte.
+    return raw >> (digest_bytes * 8 - bits)
 
 
 def _compute_simhash_numpy(weights: Dict[str, int], bits: int) -> int:

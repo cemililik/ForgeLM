@@ -156,11 +156,11 @@ All notable changes to ForgeLM are documented here.
   `DeprecationWarning` and an `cli.legacy_flag_invoked` audit-log event
   on every invocation. Behaviour is unchanged; the flag is scheduled for
   removal in **v0.7.0**. Migrate to the `forgelm audit PATH` subcommand
-  (same output, same exit codes). Tracking issue:
-  [#&lt;TBD&gt;](https://github.com/cemililik/ForgeLM/issues/&lt;TBD&gt;) —
-  to be opened for the v0.7.0 removal milestone.
+  (same output, same exit codes). See
+  [docs/standards/release.md](docs/standards/release.md#deprecation-cadence) for
+  the removal timeline.
 
-### Changed
+### Changed (Wave 1)
 
 - `WebhookNotifier.notify_awaiting_approval(run_name, model_path)` is now
   wired into the human-approval gate so an operator-facing webhook fires the
@@ -183,6 +183,24 @@ All notable changes to ForgeLM are documented here.
   See
   [split-design-data_audit-cli-202604300906.md](docs/analysis/code_reviews/split-design-data_audit-cli-202604300906.md)
   §1 for the design.
+- **`forgelm/cli.py` → `forgelm/cli/` package (Faz 15)** — the ~2300-line
+  monolith was split into a 24-module package (subcommands/, `_dispatch`,
+  `_training`, `_dry_run`, `_result`, `_resume`, `_logging`, `_exit_codes`,
+  etc.). The `forgelm.cli:main` entry point and `python -m forgelm.cli` are
+  preserved; dispatcher uses late-binding facade re-resolution so test
+  monkeypatches (`forgelm.cli._run_chat_cmd` etc.) keep resolving correctly.
+  Closes F-code-104. See split-design §2.
+- **16 broad `except Exception` sites narrowed (Faz 27)** — `_streaming.py`,
+  `trainer.py`, `safety.py`, `judge.py`, `compliance.py`, `ingestion.py`
+  narrow to specific exception classes; 7 sites retained with `# noqa: BLE001`
+  and rationale comments per `docs/standards/error-handling.md` carve-out.
+  C-55 resolved: MoE expert-name resolver migrated from hardcoded substring
+  match to regex-registry (`_EXPERT_NAME_PATTERNS`) covering Mixtral, Qwen 3
+  MoE, DeepSeek-V3, Phi-MoE. Closes F-code-106.
+- **Audit event catalog and CLI sample drift fixed (Faz 29)** — placeholder
+  `<TBD>` entries in `audit_event_catalog.md` filled; trailing-whitespace
+  cleaned; CLI help sample in `docs/reference/usage.md` brought in sync with
+  current subcommand surface.
 
 ### Removed
 

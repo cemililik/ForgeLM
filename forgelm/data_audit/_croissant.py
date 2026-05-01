@@ -143,7 +143,7 @@ def _build_croissant_metadata(
                 "dataType": "sc:Text",
                 "source": {
                     "fileObject": {_JSONLD_ID_KEY: file_id},
-                    "extract": {"jsonPath": f"$.{column}"},
+                    "extract": {"jsonPath": f"$['{column}']"},
                 },
             }
             for column in columns

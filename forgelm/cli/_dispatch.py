@@ -98,15 +98,12 @@ def main():
         # only read the JSONL trail see the migration signal too. Cadence
         # for the v0.7.0 removal follows the "Deprecation cadence" section
         # in ``docs/standards/release.md`` (one-minor warning window
-        # minimum). Tracking issue:
-        # https://github.com/cemililik/ForgeLM/issues/<TBD> (open to track
-        # removal — no GitHub issue number assigned yet).
+        # minimum).
         warnings.warn(
             "`forgelm --data-audit PATH` is deprecated and will be removed "
             "in v0.7.0. Use the `forgelm audit PATH` subcommand instead — "
-            "same behaviour, same output. See "
-            "https://github.com/cemililik/ForgeLM/issues/<TBD> for the "
-            "tracking issue.",
+            "same behaviour, same output. "
+            "See docs/standards/release.md#deprecation-cadence for the removal timeline.",
             DeprecationWarning,
             stacklevel=2,
         )

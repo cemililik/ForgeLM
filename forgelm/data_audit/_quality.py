@@ -158,6 +158,8 @@ def _check_low_punct_endings(lines: List[str]) -> Optional[str]:
 
 def _check_abnormal_mean_word_length(words: List[str]) -> Optional[str]:
     """Flag mean word length outside the 3-12 char window."""
+    if not words:
+        return None
     mean_wl = sum(len(w) for w in words) / len(words)
     return "abnormal_mean_word_length" if mean_wl < 3.0 or mean_wl > 12.0 else None
 
