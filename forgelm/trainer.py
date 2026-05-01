@@ -764,12 +764,12 @@ class ForgeTrainer:
             try:
                 with model_obj.disable_adapter():
                     baseline_metrics = self.trainer.evaluate()
-            except (RuntimeError, AttributeError, ValueError, NotImplementedError) as e:
+            except (RuntimeError, AttributeError, ValueError) as e:
                 # PEFT disable_adapter context can fail when the active model
                 # isn't a PeftModel (AttributeError), when the underlying
                 # adapter graph is in a state that disallows toggling
-                # (RuntimeError / NotImplementedError), or when evaluate()
-                # rejects the temporarily-base configuration (ValueError).
+                # (RuntimeError — NotImplementedError is a RuntimeError subclass),
+                # or when evaluate() rejects the temporarily-base configuration (ValueError).
                 # Fall back to evaluating with adapters active.
                 logger.warning("Failed to disable adapters for baseline eval, evaluating with adapters instead: %s", e)
                 baseline_metrics = self.trainer.evaluate()

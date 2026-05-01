@@ -20,6 +20,8 @@ import yaml
 from .._exit_codes import EXIT_CONFIG_ERROR, EXIT_TRAINING_ERROR
 from .._logging import logger
 
+_STAGING_SUFFIX = ".staging"
+
 
 def _resolve_approver_identity() -> str:
     """Resolve the operator identity for an approve/reject audit entry.
@@ -197,9 +199,11 @@ def _run_approve_cmd(args, output_format: str) -> None:
             EXIT_CONFIG_ERROR,
         )
 
-    staging_path = required_event.get("staging_path") or os.path.join(output_dir, "final_model.staging")
+    staging_path = required_event.get("staging_path") or os.path.join(output_dir, f"final_model{_STAGING_SUFFIX}")
     final_path = (
-        staging_path[: -len(".staging")] if staging_path.endswith(".staging") else staging_path.replace(".staging", "")
+        staging_path[: -len(_STAGING_SUFFIX)]
+        if staging_path.endswith(_STAGING_SUFFIX)
+        else staging_path.replace(_STAGING_SUFFIX, "")
     )
 
     if not os.path.isdir(staging_path):
@@ -278,7 +282,7 @@ def _run_reject_cmd(args, output_format: str) -> None:
             EXIT_CONFIG_ERROR,
         )
 
-    staging_path = required_event.get("staging_path") or os.path.join(output_dir, "final_model.staging")
+    staging_path = required_event.get("staging_path") or os.path.join(output_dir, f"final_model{_STAGING_SUFFIX}")
 
     if not os.path.isdir(staging_path):
         _output_error_and_exit(

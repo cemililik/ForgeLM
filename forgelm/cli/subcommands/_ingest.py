@@ -35,12 +35,12 @@ def _run_ingest_cmd(args, output_format: str) -> None:
             tokenizer=getattr(args, "tokenizer", None),
         )
     except (
-        FileNotFoundError,
+        FileNotFoundError,  # NOSONAR — OSError subclass; listed explicitly so the error type is visible to readers
         ValueError,
-        PermissionError,
-        IsADirectoryError,
+        PermissionError,  # NOSONAR — OSError subclass; listed explicitly so the error type is visible to readers
+        IsADirectoryError,  # NOSONAR — OSError subclass; listed explicitly so the error type is visible to readers
         OSError,
-    ) as exc:  # NOSONAR — explicit exception list is intentional; subclasses listed for readability
+    ) as exc:
         # FileNotFoundError / PermissionError / IsADirectoryError are all
         # OSError subclasses, but listed explicitly so the error class is
         # visible to readers; OSError covers ENOSPC, broken-symlink walk

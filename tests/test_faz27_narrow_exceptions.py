@@ -316,7 +316,7 @@ class TestStreamingNoSilentExceptRegression:
         from forgelm.data_audit._streaming import _detect_language
 
         with pytest.raises((TypeError, AttributeError)):
-            _detect_language(12345)  # type: ignore[arg-type]
+            _detect_language(12345)  # type: ignore[arg-type]  # NOSONAR — intentional wrong-type test
 
 
 # ---------------------------------------------------------------------------

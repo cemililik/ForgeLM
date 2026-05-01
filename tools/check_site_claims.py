@@ -204,7 +204,10 @@ def _read_site(path: str) -> str:
 
 
 _HTML_TAG = re.compile(r"<[^>]+>")
-_FILENAME_RE = re.compile(r"\b[a-zA-Z0-9_]+\.(?:json|yaml|jsonl|md)\b")
+_FILENAME_RE = re.compile(r"\b\w+\.(?:json|yaml|jsonl|md)\b", re.ASCII)
+
+_CHECK_GPU_PROFILE_COUNT = "GPU profile count"
+_CHECK_PYPI_VERSION = "PyPI version mention"
 
 
 def site_artifact_filenames() -> set[str]:
@@ -233,7 +236,9 @@ def site_template_names() -> set[str]:
         found.add(match.group(1))
     # Add any standalone slug that appears in the snippet body (e.g. the
     # bulleted list of templates in <pre>).
-    for match in re.finditer(r"^\s+([a-z][a-z0-9-]+-[a-z0-9-]+)\s{2,}", cleaned, flags=re.MULTILINE):
+    for match in re.finditer(
+        r"^\s+([a-z][a-z0-9-]+-[a-z0-9-]+)\s{2,}", cleaned, flags=re.MULTILINE
+    ):  # NOSONAR — applied to controlled static HTML, not user input; ReDoS risk is not exploitable here
         found.add(match.group(1))
     return found
 
@@ -335,18 +340,18 @@ def check_gpu_count() -> CheckResult:  # NOSONAR
     site = site_gpu_count()
     if site is None:
         return CheckResult(
-            "GPU profile count",
+            _CHECK_GPU_PROFILE_COUNT,
             ok=False,
             message="home.stats.gpus stat tile not found in site/index.html",
         )
     if code != site:
         return CheckResult(
-            "GPU profile count",
+            _CHECK_GPU_PROFILE_COUNT,
             ok=False,
             message=f"site says {site}, _GPU_PRICING has {code}",
         )
     return CheckResult(
-        "GPU profile count",
+        _CHECK_GPU_PROFILE_COUNT,
         ok=True,
         message=f"site and _GPU_PRICING both report {code}",
     )
@@ -373,7 +378,7 @@ def check_version() -> CheckResult:  # NOSONAR
     code_t = _version_tuple(code)
     if code_t is None:
         return CheckResult(
-            "PyPI version mention",
+            _CHECK_PYPI_VERSION,
             ok=False,
             message=f"pyproject version {code!r} is not parseable as A.B.C[rcN]",
         )
@@ -397,14 +402,14 @@ def check_version() -> CheckResult:  # NOSONAR
         bad.append(m)
     if bad:
         return CheckResult(
-            "PyPI version mention",
+            _CHECK_PYPI_VERSION,
             ok=False,
             message=f"pyproject={code}; site mentions inconsistent versions",
             details=sorted(bad),
         )
     shown = sorted(mentions) or ["(no version badges)"]
     return CheckResult(
-        "PyPI version mention",
+        _CHECK_PYPI_VERSION,
         ok=True,
         message=f"site mentions {shown} (pyproject={code})",
     )
