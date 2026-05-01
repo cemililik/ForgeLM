@@ -237,6 +237,8 @@ def audit_dataset(  # NOSONAR — cognitive complexity is inherent to the audit 
     Returns:
         :class:`AuditReport`. JSON-serialize via ``asdict(report)``.
     """
+    if not isinstance(near_dup_threshold, int) or isinstance(near_dup_threshold, bool) or near_dup_threshold < 0:
+        raise ValueError(f"near_dup_threshold must be a non-negative integer; got {near_dup_threshold!r}.")
     if dedup_method not in DEDUP_METHODS:
         raise ValueError(f"dedup_method must be one of {DEDUP_METHODS}; got {dedup_method!r}.")
     if dedup_method == "minhash":

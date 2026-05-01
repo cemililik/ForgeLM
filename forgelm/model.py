@@ -300,9 +300,9 @@ _LOGGED_UNKNOWN_EXPERT_NAMES: set = set()
 # Add new architectures by appending one regex; the resolver below short-
 # circuits on the first match and returns the captured index.
 _EXPERT_NAME_PATTERNS: Tuple[re.Pattern[str], ...] = (
-    re.compile(r"experts\.(\d+)\.", re.ASCII),  # Mixtral / Qwen 3 / DeepSeek-V3
-    re.compile(r"experts\.expert_(\d+)\.", re.ASCII),  # nested expert_{i} under experts/
-    re.compile(r"expert_(\d+)\.", re.ASCII),  # Phi-MoE / GShard-style flat
+    re.compile(r"(?:^|\.)experts\.(\d+)\.", re.ASCII),  # Mixtral / Qwen 3 / DeepSeek-V3
+    re.compile(r"(?:^|\.)experts\.expert_(\d+)\.", re.ASCII),  # nested expert_{i} under experts/
+    re.compile(r"(?:^|\.)expert_(\d+)\.", re.ASCII),  # Phi-MoE / GShard-style flat
 )
 
 
@@ -326,8 +326,8 @@ def _expert_index_in_name(name: str, num_experts: int) -> Optional[int]:
             # num_experts is wrong, or the regex caught a non-expert
             # field whose number happens to exceed the count.
             return None
-    if "expert" in name.lower() and name not in _LOGGED_UNKNOWN_EXPERT_NAMES:
-        _LOGGED_UNKNOWN_EXPERT_NAMES.add(name)
+    if "expert" in name.lower() and "_UNKNOWN_EXPERT_LAYOUT_" not in _LOGGED_UNKNOWN_EXPERT_NAMES:
+        _LOGGED_UNKNOWN_EXPERT_NAMES.add("_UNKNOWN_EXPERT_LAYOUT_")
         logger.info(
             "Unrecognized MoE expert parameter naming: %r — falling back to "
             "trainable. Add a regex to forgelm.model._EXPERT_NAME_PATTERNS "

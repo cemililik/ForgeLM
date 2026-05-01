@@ -171,25 +171,29 @@ def _run_approve_cmd(args, output_format: str) -> None:
 
     output_dir = args.output_dir
     run_id = args.run_id
-
-    staging_path = os.path.join(output_dir, "final_model.staging")
-    final_path = os.path.join(output_dir, "final_model")
     audit_log_path = os.path.join(output_dir, "audit_log.jsonl")
 
-    if not os.path.isdir(staging_path):
-        _output_error_and_exit(
-            output_format,
-            f"Staging directory not found at {staging_path!r}. "
-            "Either the run did not exit with code 4, or it was already approved/cleaned up.",
-            EXIT_CONFIG_ERROR,
-        )
-
+    # Read the audit event first so we can use the trainer-recorded staging_path
+    # (which reflects the configured final_model_dir) rather than a hardcoded default.
     required_event = _cli_facade._find_human_approval_required_event(audit_log_path, run_id)
     if required_event is None:
         _output_error_and_exit(
             output_format,
             f"No human_approval.required event for run_id={run_id!r} found in {audit_log_path!r}. "
             "Refusing to promote — verify the run_id matches the original training run.",
+            EXIT_CONFIG_ERROR,
+        )
+
+    staging_path = required_event.get("staging_path") or os.path.join(output_dir, "final_model.staging")
+    final_path = (
+        staging_path[: -len(".staging")] if staging_path.endswith(".staging") else staging_path.replace(".staging", "")
+    )
+
+    if not os.path.isdir(staging_path):
+        _output_error_and_exit(
+            output_format,
+            f"Staging directory not found at {staging_path!r}. "
+            "Either the run did not exit with code 4, or it was already approved/cleaned up.",
             EXIT_CONFIG_ERROR,
         )
 
@@ -250,16 +254,7 @@ def _run_reject_cmd(args, output_format: str) -> None:
 
     output_dir = args.output_dir
     run_id = args.run_id
-
-    staging_path = os.path.join(output_dir, "final_model.staging")
     audit_log_path = os.path.join(output_dir, "audit_log.jsonl")
-
-    if not os.path.isdir(staging_path):
-        _output_error_and_exit(
-            output_format,
-            f"Staging directory not found at {staging_path!r}. Nothing to reject.",
-            EXIT_CONFIG_ERROR,
-        )
 
     required_event = _cli_facade._find_human_approval_required_event(audit_log_path, run_id)
     if required_event is None:
@@ -267,6 +262,15 @@ def _run_reject_cmd(args, output_format: str) -> None:
             output_format,
             f"No human_approval.required event for run_id={run_id!r} found in {audit_log_path!r}. "
             "Refusing to record a rejection on a run that did not request one.",
+            EXIT_CONFIG_ERROR,
+        )
+
+    staging_path = required_event.get("staging_path") or os.path.join(output_dir, "final_model.staging")
+
+    if not os.path.isdir(staging_path):
+        _output_error_and_exit(
+            output_format,
+            f"Staging directory not found at {staging_path!r}. Nothing to reject.",
             EXIT_CONFIG_ERROR,
         )
 

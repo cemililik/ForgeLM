@@ -997,9 +997,11 @@ class ForgeTrainer:
             # have an on-disk model to evaluate. The gate's audit event +
             # webhook notification fire after compliance artefacts are
             # generated so reviewers see a complete bundle.
+            # final_model_path retains the intended final location; staging_path
+            # records where the adapters currently live pending human sign-off.
             gate_path = final_path + ".staging"
             self.save_final_model(gate_path)
-            train_result.final_model_path = gate_path
+            train_result.staging_path = gate_path
         else:
             gate_path = final_path
             self.save_final_model(gate_path)

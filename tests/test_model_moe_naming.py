@@ -95,7 +95,11 @@ class TestExpertNamePatterns:
     def test_unfamiliar_expert_name_logs_info(self, caplog):
         import logging
 
-        from forgelm.model import _expert_index_in_name
+        from forgelm.model import _LOGGED_UNKNOWN_EXPERT_NAMES, _expert_index_in_name
+
+        # Clear the module-level sentinel so prior tests with unrecognized names
+        # (e.g. the Arabic-digit test) don't suppress this run's log emission.
+        _LOGGED_UNKNOWN_EXPERT_NAMES.discard("_UNKNOWN_EXPERT_LAYOUT_")
 
         with caplog.at_level(logging.INFO, logger="forgelm.model"):
             result = _expert_index_in_name("model.weird_expert_layout.weight", 8)

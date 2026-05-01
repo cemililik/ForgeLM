@@ -23,12 +23,14 @@ def _resolve_resume_checkpoint(checkpoint_dir: str, resume_arg: str) -> Optional
         logger.warning("No checkpoint directory found at %s. Starting fresh.", checkpoint_dir)
         return None
 
+    try:
+        entries = os.listdir(checkpoint_dir)
+    except OSError as exc:
+        logger.error("Cannot list checkpoint directory %s: %s", checkpoint_dir, exc)
+        sys.exit(EXIT_CONFIG_ERROR)
+
     checkpoint_dirs = sorted(
-        [
-            d
-            for d in os.listdir(checkpoint_dir)
-            if d.startswith("checkpoint-") and os.path.isdir(os.path.join(checkpoint_dir, d))
-        ],
+        [d for d in entries if d.startswith("checkpoint-") and os.path.isdir(os.path.join(checkpoint_dir, d))],
         key=lambda x: int(x.split("-")[-1]) if x.split("-")[-1].isdigit() else 0,
     )
 

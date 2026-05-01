@@ -40,6 +40,7 @@ _CROISSANT_CONTEXT: Dict[str, Any] = {
     "dataType": {"@id": "cr:dataType", "@type": "@vocab"},
     "extract": "cr:extract",
     "field": "cr:field",
+    "fileObject": "cr:fileObject",
     "fileProperty": "cr:fileProperty",
     "format": "cr:format",
     "includes": "cr:includes",
@@ -143,7 +144,7 @@ def _build_croissant_metadata(
                 "dataType": "sc:Text",
                 "source": {
                     "fileObject": {_JSONLD_ID_KEY: file_id},
-                    "extract": {"jsonPath": f"$['{column}']"},
+                    "extract": {"jsonPath": "$['" + column.replace("\\", "\\\\").replace("'", "\\'") + "']"},
                 },
             }
             for column in columns

@@ -11,7 +11,7 @@ import sys
 import warnings
 
 from ._config_load import _apply_offline_flag, _load_config_or_exit
-from ._exit_codes import EXIT_CONFIG_ERROR, EXIT_SUCCESS
+from ._exit_codes import EXIT_CONFIG_ERROR, EXIT_SUCCESS, EXIT_TRAINING_ERROR
 from ._logging import _setup_logging, logger
 from ._no_train_modes import _maybe_run_no_train_mode
 from ._parser import parse_args
@@ -41,7 +41,7 @@ def _dispatch_subcommand(command: str, args) -> None:
         try:
             _cli_facade._run_chat_cmd(args)
         except KeyboardInterrupt:
-            pass
+            sys.exit(EXIT_TRAINING_ERROR)
         sys.exit(EXIT_SUCCESS)
     elif command == "export":
         _cli_facade._run_export_cmd(args, getattr(args, "output_format", "text"))
@@ -53,7 +53,7 @@ def _dispatch_subcommand(command: str, args) -> None:
         try:
             _cli_facade._run_quickstart_cmd(args, getattr(args, "output_format", "text"))
         except KeyboardInterrupt:
-            pass
+            sys.exit(EXIT_TRAINING_ERROR)
         sys.exit(EXIT_SUCCESS)
     elif command == "ingest":
         _cli_facade._run_ingest_cmd(args, getattr(args, "output_format", "text"))
@@ -69,6 +69,9 @@ def _dispatch_subcommand(command: str, args) -> None:
     elif command == "reject":
         _cli_facade._run_reject_cmd(args, getattr(args, "output_format", "text"))
         sys.exit(EXIT_SUCCESS)
+    else:
+        logger.error("Unrecognized subcommand: %r. This is a bug — please report it.", command)
+        sys.exit(EXIT_TRAINING_ERROR)
 
 
 def main():
