@@ -177,16 +177,18 @@ def _run_quickstart_train_then_chat(args, result) -> None:
     sequence of steps. ``_run_quickstart_train_subprocess`` exits on
     non-zero training rc; if it returns we know training succeeded, so the
     chat branch is reachable without an explicit success check.
+
+    Returns normally on success so callers can emit a final JSON result
+    after training completes.
     """
     # Spec: invoke training automatically. Use a subprocess so each phase keeps
     # its own clean process state and Ctrl-C is honoured cleanly.
     _run_quickstart_train_subprocess(args, result.config_path)
 
     if args.no_chat:
-        sys.exit(EXIT_SUCCESS)
+        return
 
     _run_quickstart_chat_subprocess(args, result.config_path)
-    sys.exit(EXIT_SUCCESS)
 
 
 def _run_quickstart_cmd(args, output_format: str) -> None:
@@ -229,9 +231,21 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
             logger.error("Quickstart failed: %s", e)
         sys.exit(EXIT_CONFIG_ERROR)
 
-    _emit_quickstart_result(result, output_format)
+    # Text mode: emit before training so humans see the config summary immediately.
+    # JSON mode non-dry-run: defer until after training so {"success": True} is
+    # never printed before we know training actually succeeded.
+    if output_format != "json":
+        _emit_quickstart_result(result, output_format)
 
     if result.dry_run:
+        if output_format == "json":
+            _emit_quickstart_result(result, output_format)
         sys.exit(EXIT_SUCCESS)
 
     _run_quickstart_train_then_chat(args, result)
+
+    # Training + chat completed without error.  Emit JSON summary now that
+    # outcome is confirmed; text mode already emitted above.
+    if output_format == "json":
+        _emit_quickstart_result(result, output_format)
+    sys.exit(EXIT_SUCCESS)
