@@ -13,6 +13,22 @@ All notable changes to ForgeLM are documented here.
 > Per-PR CHANGELOG entries below collapse into the v0.5.5 release
 > notes at tag time.
 
+### Added — Wave 2a / Phase 18 — Library API design
+
+- **Library API analysis & design document** —
+  `docs/analysis/code_reviews/library-api-design-202605021414.md` is the
+  Phase 18 deliverable: 12 sections + 16-row task plan that pin the public
+  Python surface for downstream consumers.  Resolves the stable / experimental /
+  internal tier split; documents the lazy-import invariant
+  (`import forgelm` does not pull `torch`); enumerates the new public symbols
+  (`audit_dataset`, `verify_audit_log`, `AuditLogger`, `VerifyResult`,
+  `AuditReport`, `WebhookNotifier`, `detect_pii` / `mask_pii` / `detect_secrets` /
+  `mask_secrets` / `compute_simhash`); spells out the `py.typed` + `mypy --strict`
+  contract for the public surface; resolves the Wave 1 round-5 carry-over
+  (lazy `__getattr__` migration for `forgelm/cli/__init__.py`); spec'es the
+  `tests/test_library_api.py` integration suite Phase 19 must ship.  No code
+  changes in this PR — design only; Phase 19 implements.
+
 ### Added — Wave 1 closure (Faz 9, 11, 12, 13, 25, 31, 32 — see PR description)
 
 - **Article 14 staging directory + `forgelm approve` / `forgelm reject` (Faz 9)** —
