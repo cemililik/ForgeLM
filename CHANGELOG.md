@@ -13,6 +13,41 @@ All notable changes to ForgeLM are documented here.
 > Per-PR CHANGELOG entries below collapse into the v0.5.5 release
 > notes at tag time.
 
+### Added — Wave 2a / Phase 34 — `forgelm doctor` env-check subcommand
+
+- **`forgelm doctor`** — the first command an operator should run after
+  installation.  Probes Python version, torch + CUDA, GPU inventory,
+  every optional extra advertised in `pyproject.toml`, HuggingFace Hub
+  reachability, workspace disk space, and the `FORGELM_OPERATOR`
+  audit-identity hint.  Tabular text report or a structured JSON
+  envelope (`--output-format json`).
+- **`forgelm doctor --offline`** skips the HF Hub network probe and
+  inspects the local cache (`HF_HOME` / `~/.cache/huggingface/hub`).
+  Useful for air-gap deployments.
+- **Honest pass / warn / fail:** warn = operator-actionable but does
+  not block (missing optional extra, CPU-only torch); fail = ForgeLM
+  cannot work this way (Python <3.10, no torch).  Exit codes follow
+  the public contract — 0 every check passed (warns OK), 1 at least
+  one fail (config-error class), 2 if a probe itself crashed
+  (runtime-error class).
+- **Self-contained probes.**  Heavy deps (torch, huggingface_hub) are
+  imported lazily inside individual check functions so `forgelm doctor`
+  can run on a brand-new machine where torch is not yet installed
+  without crashing.  One crashing probe does not abort the rest of
+  the report.
+- Closes the `ghost-features-analysis-20260502` GH-001 onboarding
+  bloker (30 doc references across 8 files in `docs/usermanuals/` no
+  longer point at a non-existent command).
+- New module `forgelm/cli/subcommands/_doctor.py` (~430 lines).
+- 38 new tests in `tests/test_doctor.py` covering per-probe behaviour
+  (Python 3.9/3.10/3.11/3.12, torch presence + CUDA, GPU inventory,
+  optional-extra detection, HF Hub HEAD, HF cache populated/empty,
+  disk-space thresholds, operator identity), exit-code mapping,
+  text/JSON renderers, probe-crash isolation, plan composition,
+  CLI subprocess smoke, facade re-exports.
+- Operator docs updated: `first-run.md` (en + tr) sample output now
+  matches the shipped table format.
+
 ### Added — Wave 1 closure (Faz 9, 11, 12, 13, 25, 31, 32 — see PR description)
 
 - **Article 14 staging directory + `forgelm approve` / `forgelm reject` (Faz 9)** —
