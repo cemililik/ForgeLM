@@ -209,36 +209,117 @@ class TestHfHubReachableCheck:
 
 
 class TestHfCacheOfflineCheck:
+    """Wave 2a Round-1 review (gemini bot): HF cache resolution honours
+    HF_HUB_CACHE > HF_HOME/hub > ~/.cache/huggingface/hub.  Tests must
+    set up the *correct* cache dir layout (HF_HOME/hub subdirectory)
+    or use HF_HUB_CACHE directly."""
+
     def test_missing_cache_warns(self, tmp_path, monkeypatch) -> None:
         from forgelm.cli.subcommands._doctor import _check_hf_cache_offline
 
-        monkeypatch.setenv("HF_HOME", str(tmp_path / "nonexistent_cache"))
+        monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "nonexistent_cache"))
+        monkeypatch.delenv("HF_HOME", raising=False)
         result = _check_hf_cache_offline()
         assert result.status == "warn"
         assert result.extras["exists"] is False
 
-    def test_populated_cache_passes(self, tmp_path, monkeypatch) -> None:
+    def test_populated_cache_passes_via_hf_hub_cache(self, tmp_path, monkeypatch) -> None:
         from forgelm.cli.subcommands._doctor import _check_hf_cache_offline
 
-        cache_dir = tmp_path / "hf_cache"
+        cache_dir = tmp_path / "hub_cache"
         cache_dir.mkdir()
-        # Write a small fake blob.
         (cache_dir / "model_blob").write_bytes(b"x" * 1024)
-        monkeypatch.setenv("HF_HOME", str(cache_dir))
+        monkeypatch.setenv("HF_HUB_CACHE", str(cache_dir))
+        monkeypatch.delenv("HF_HOME", raising=False)
         result = _check_hf_cache_offline()
         assert result.status == "pass"
         assert result.extras["file_count"] == 1
-        assert result.extras["size_gib"] >= 0  # tiny but non-negative
+        assert result.extras["size_gib"] >= 0
+
+    def test_populated_cache_passes_via_hf_home_hub_subdir(self, tmp_path, monkeypatch) -> None:
+        """gemini bot fix: HF_HOME → ``HF_HOME/hub`` (sub-directory)."""
+        from forgelm.cli.subcommands._doctor import _check_hf_cache_offline
+
+        hf_home = tmp_path / "hf_home"
+        hub_dir = hf_home / "hub"
+        hub_dir.mkdir(parents=True)
+        (hub_dir / "model_blob").write_bytes(b"x" * 1024)
+        monkeypatch.delenv("HF_HUB_CACHE", raising=False)
+        monkeypatch.setenv("HF_HOME", str(hf_home))
+        result = _check_hf_cache_offline()
+        assert result.status == "pass"
+        assert "hub" in result.extras["cache_dir"]
 
     def test_empty_cache_dir_warns(self, tmp_path, monkeypatch) -> None:
         from forgelm.cli.subcommands._doctor import _check_hf_cache_offline
 
         cache_dir = tmp_path / "hf_cache_empty"
         cache_dir.mkdir()
-        monkeypatch.setenv("HF_HOME", str(cache_dir))
+        monkeypatch.setenv("HF_HUB_CACHE", str(cache_dir))
+        monkeypatch.delenv("HF_HOME", raising=False)
         result = _check_hf_cache_offline()
         assert result.status == "warn"
         assert result.extras["file_count"] == 0
+
+
+class TestHfEndpointResolution:
+    """Wave 2a Round-1 (gemini bot): HF_ENDPOINT must be respected for
+    self-hosted mirrors / enterprise installs."""
+
+    def test_default_endpoint_when_unset(self, monkeypatch) -> None:
+        from forgelm.cli.subcommands._doctor import _resolve_hf_endpoint
+
+        monkeypatch.delenv("HF_ENDPOINT", raising=False)
+        assert _resolve_hf_endpoint() == "https://huggingface.co"
+
+    def test_env_var_override(self, monkeypatch) -> None:
+        from forgelm.cli.subcommands._doctor import _resolve_hf_endpoint
+
+        monkeypatch.setenv("HF_ENDPOINT", "https://internal-mirror.example/")
+        assert _resolve_hf_endpoint() == "https://internal-mirror.example"
+
+
+class TestOperatorIdentityAnonymousOptIn:
+    """Wave 2a Round-1 (qodo bot): respect FORGELM_ALLOW_ANONYMOUS_OPERATOR
+    like AuditLogger.__init__ does — no-username + opt-in => warn (not fail)."""
+
+    def test_no_username_with_opt_in_warns(self, monkeypatch) -> None:
+        from forgelm.cli.subcommands._doctor import _check_operator_identity
+
+        monkeypatch.delenv("FORGELM_OPERATOR", raising=False)
+        monkeypatch.setenv("FORGELM_ALLOW_ANONYMOUS_OPERATOR", "1")
+        with patch("getpass.getuser", side_effect=OSError("no user")):
+            result = _check_operator_identity()
+        assert result.status == "warn"
+        assert "anonymous" in result.detail.lower()
+        assert result.extras["source"] == "anonymous_opt_in"
+
+    def test_no_username_without_opt_in_fails(self, monkeypatch) -> None:
+        from forgelm.cli.subcommands._doctor import _check_operator_identity
+
+        monkeypatch.delenv("FORGELM_OPERATOR", raising=False)
+        monkeypatch.delenv("FORGELM_ALLOW_ANONYMOUS_OPERATOR", raising=False)
+        with patch("getpass.getuser", side_effect=OSError("no user")):
+            result = _check_operator_identity()
+        assert result.status == "fail"
+
+
+class TestSecretEnvMasking:
+    """Wave 2a Round-1 (F-27-05): secret env-var values must not echo
+    into doctor output."""
+
+    def test_mask_helper_redacts_secret_names(self) -> None:
+        from forgelm.cli.subcommands._doctor import _mask_env_value_for_audit
+
+        masked = _mask_env_value_for_audit("FORGELM_AUDIT_SECRET", "super-secret-key-32-chars-long-x")
+        assert "super-secret" not in masked
+        assert "<set" in masked
+
+    def test_mask_helper_passes_through_non_secret_names(self) -> None:
+        from forgelm.cli.subcommands._doctor import _mask_env_value_for_audit
+
+        passthrough = _mask_env_value_for_audit("FORGELM_OPERATOR", "alice")
+        assert passthrough == "alice"
 
 
 class TestDiskSpaceCheck:
