@@ -70,7 +70,7 @@ def _run_training_pipeline(config, args, json_output: bool) -> None:
             sys.exit(EXIT_AWAITING_APPROVAL)
         sys.exit(EXIT_SUCCESS if result.success else EXIT_EVAL_FAILURE)
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort: top-of-CLI training catch.  ForgeTrainer.train() crosses every concern (HF model load, dataset load, TRL trainer, safety eval, judge eval, audit emission, compliance export, webhook notify); any leak from the inner narrow-class catches must surface as a structured CLI failure (with traceback in the log) rather than a Python traceback dumped to stdout that breaks JSON parsers.  # NOSONAR
         _report_training_error(
             json_output,
             payload={"success": False, "error": str(e)},

@@ -227,7 +227,7 @@ def _read_pdf_pages(reader: Any, path: Path) -> List[str]:
     for idx, page in enumerate(reader.pages):
         try:
             text = page.extract_text() or ""
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — best-effort: pypdf's per-page extraction surface is wide (KeyError on malformed object refs, AssertionError on broken cross-ref tables, UnicodeDecodeError on font encodings, plus its own internal errors); per-page soft-fail keeps the run going so a single bad page cannot abort a multi-thousand-document corpus ingest.  # NOSONAR
             logger.warning(
                 "PDF page extraction failed (file=%s, page_index=%d): %s — page skipped, run continues.",
                 path,
@@ -257,7 +257,7 @@ def _extract_pdf(path: Path, *, dedup_state: Optional[Dict[str, int]] = None) ->
 
     try:
         reader = PdfReader(str(path))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — best-effort: PdfReader open surfaces OSError (file/permission), pypdf-internal errors (bad header, unsupported version, malformed xref), and on rare adversarial inputs InfiniteLoopError; converting all to a typed ValueError keeps the per-file error path uniform with DOCX/EPUB extractors.  # NOSONAR
         raise ValueError(f"Could not open PDF '{path}': {exc}") from exc
 
     if getattr(reader, "is_encrypted", False):
@@ -1055,7 +1055,7 @@ def _extract_text_for_ingest(
         return extractor(fpath)
     except ImportError:
         raise
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — best-effort: per-file dispatcher catch — each format-specific extractor (PDF/DOCX/EPUB/TXT/MD) raises its own typed ValueError above + a wide tail of corpus-data-driven failures; per-file soft-fail with skip-and-continue keeps a multi-thousand-file corpus ingest running.  ImportError stays narrow above so missing-extra failures still propagate.  # NOSONAR
         logger.warning("Skipping '%s' (extraction failed): %s", fpath, exc)
         return None
 

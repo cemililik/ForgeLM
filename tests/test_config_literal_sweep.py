@@ -62,14 +62,49 @@ class TestSafetyScoringLiteral:
 
 
 class TestRiskClassificationLiteral:
-    @pytest.mark.parametrize("value", ["high-risk", "limited-risk", "minimal-risk"])
+    @pytest.mark.parametrize(
+        "value",
+        ["unknown", "minimal-risk", "limited-risk", "high-risk", "unacceptable"],
+    )
     def test_valid_classification(self, value):
         c = ComplianceMetadataConfig(risk_classification=value)
         assert c.risk_classification == value
 
     def test_invalid_classification_raises(self):
         with pytest.raises(ValidationError, match="risk_classification"):
-            ComplianceMetadataConfig(risk_classification="unknown")
+            ComplianceMetadataConfig(risk_classification="not-a-risk-tier")
+
+    def test_minimal_risk_default(self):
+        # Default stays "minimal-risk" so existing configs validate unchanged
+        # after the value-set extension (Faz 10 closure: 3 → 5 EU AI Act
+        # tiers covering Article 5 prohibited + unknown/unclassified).
+        c = ComplianceMetadataConfig()
+        assert c.risk_classification == "minimal-risk"
+
+
+class TestRiskCategoryLiteral:
+    """``RiskAssessmentConfig.risk_category`` mirrors ``risk_classification``.
+
+    The two fields are deliberately kept in lockstep (single source of truth
+    for the EU AI Act tier list); changing one without the other would
+    silently drift the validation of the two halves of a compliance config.
+    """
+
+    @pytest.mark.parametrize(
+        "value",
+        ["unknown", "minimal-risk", "limited-risk", "high-risk", "unacceptable"],
+    )
+    def test_valid_category(self, value):
+        from forgelm.config import RiskAssessmentConfig
+
+        r = RiskAssessmentConfig(risk_category=value)
+        assert r.risk_category == value
+
+    def test_invalid_category_raises(self):
+        from forgelm.config import RiskAssessmentConfig
+
+        with pytest.raises(ValidationError, match="risk_category"):
+            RiskAssessmentConfig(risk_category="not-a-risk-tier")
 
 
 class TestGaloreOptimLiteral:

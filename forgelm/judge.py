@@ -163,8 +163,12 @@ def _load_local_judge(judge_model: str) -> Tuple[Any, Any]:
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     logger.info("Loading local judge model: %s", judge_model)
-    tok = AutoTokenizer.from_pretrained(judge_model)
-    mdl = AutoModelForCausalLM.from_pretrained(judge_model, device_map="auto")
+    # ``trust_remote_code=False`` is the secure default (Faz 7 acceptance): a
+    # judge model is consulted by the auto-revert gate, so loading must not
+    # execute arbitrary repo code at load time.  Operators with a custom
+    # architecture should fork and pre-convert.
+    tok = AutoTokenizer.from_pretrained(judge_model, trust_remote_code=False)
+    mdl = AutoModelForCausalLM.from_pretrained(judge_model, device_map="auto", trust_remote_code=False)
     return mdl, tok
 
 

@@ -231,7 +231,7 @@ def _detect_available_vram_gb() -> Optional[float]:
         # Use total (capacity) rather than free (current snapshot) for the
         # "will this template fit at all" question.
         return max_total_bytes / (1024**3)
-    except Exception as exc:  # pragma: no cover — best-effort only
+    except Exception as exc:  # noqa: BLE001 — best-effort: VRAM probe runs ``nvidia-smi`` parsing + torch.cuda introspection + pynvml fallback; surface includes FileNotFoundError (no nvidia-smi), RuntimeError (no CUDA), AttributeError (older torch), and parser errors.  Returning None falls back to a conservative VRAM estimate.  # pragma: no cover — best-effort only.  # NOSONAR
         logger.debug("VRAM probe failed: %s", exc)
         return None
 
@@ -366,7 +366,12 @@ def _append_audit_event(audit_dir: Path, event: Dict[str, Any]) -> None:
         log_path = audit_dir / "quickstart_audit.jsonl"
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, default=str) + "\n")
-    except Exception as exc:
+    except (OSError, TypeError, ValueError) as exc:
+        # OSError: filesystem write (ENOSPC, permission, broken parent dir).
+        # TypeError / ValueError: ``json.dumps`` rejecting an unserialisable
+        # object even with ``default=str`` (e.g. a circular reference).
+        # The quickstart audit log is supplementary; the primary audit
+        # chain in compliance.AuditLogger remains authoritative.
         logger.warning("Failed to write quickstart audit event: %s", exc)
 
 

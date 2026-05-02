@@ -297,6 +297,6 @@ def generate_deploy_config(
         logger.info("Deploy config written to %s", output_path)
         return DeployResult(success=True, target=target, output_path=output_path, content=content)
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort: deploy-config generators cross filesystem writes (OSError), template rendering (KeyError/ValueError), and target-specific YAML/JSON serialisation; surfacing every variant as a structured DeployResult is the documented public contract.  # NOSONAR
         logger.error("Failed to generate deploy config for target '%s': %s", target, e)
         return DeployResult(success=False, target=target, error=str(e))

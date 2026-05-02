@@ -148,8 +148,14 @@ def _merge_adapter(model_path: str, adapter_path: str, merged_dir: str) -> None:
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     logger.info("Merging adapter %s into base model %s ...", adapter_path, model_path)
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16, device_map="cpu")
+    # ``trust_remote_code=False`` is the secure default (Faz 7 acceptance):
+    # the merge step is part of the GGUF export pipeline; loading the base
+    # model must not execute repo-bundled code.  Operators with a custom
+    # architecture should fork and pre-convert before exporting.
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=False)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path, torch_dtype=torch.float16, device_map="cpu", trust_remote_code=False
+    )
     model = PeftModel.from_pretrained(model, adapter_path)
     model = model.merge_and_unload()
 
@@ -203,7 +209,11 @@ def _update_integrity_manifest(model_dir: str, export_result: ExportResult) -> N
             json.dump(data, f, indent=2)
 
         logger.info("model_integrity.json updated with exported artifact.")
-    except Exception as e:
+    except (OSError, ValueError, json.JSONDecodeError) as e:
+        # OSError: filesystem write / read failure on integrity_path.
+        # ValueError / JSONDecodeError: corrupt or partial existing manifest.
+        # Updating the manifest is non-fatal: the artefact itself was already
+        # exported successfully and its on-disk SHA-256 is recoverable.
         logger.debug("Could not update model_integrity.json: %s", e)
 
 
@@ -299,7 +309,7 @@ def _run_converter(cmd: List[str], fmt: str, actual_quant: str) -> Optional[Expo
             quant=actual_quant,
             error="GGUF conversion timed out after 3600 seconds.",
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort: subprocess.run for the GGUF converter (llama.cpp / convert-hf-to-gguf.py) crosses OSError (binary missing), CalledProcessError (non-zero exit before check=False catches it), and the converter's own deep-stack errors; ExportResult(success=False) is the documented public contract for the export pipeline.  # NOSONAR
         return ExportResult(success=False, format=fmt, quant=actual_quant, error=str(e))
 
     if proc.returncode == 0:
@@ -385,7 +395,7 @@ def export_model(
         try:
             _merge_adapter(model_path, adapter, merged_dir)
             source_path = merged_dir
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort: _merge_adapter loads HF base + PEFT adapter and writes the merged dir; failure surface includes OSError (disk/path), RuntimeError (CUDA/dtype), KeyError (missing adapter config), and HF/PEFT-internal errors.  ExportResult(success=False) is the documented hard-failure contract.  # NOSONAR
             return ExportResult(success=False, format=fmt, quant=quant, error=f"Adapter merge failed: {e}")
 
     actual_quant, actual_output_path = _resolve_kquant_path(quant, output_path)

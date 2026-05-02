@@ -317,7 +317,13 @@ class RiskAssessmentConfig(BaseModel):
 
     intended_use: str = ""
     foreseeable_misuse: List[str] = []
-    risk_category: Literal["high-risk", "limited-risk", "minimal-risk"] = "minimal-risk"
+    # EU AI Act risk taxonomy. ``unacceptable`` covers Article 5 prohibited
+    # practices; ``high-risk`` covers Article 6 systems requiring full Annex
+    # IV documentation; ``limited-risk`` and ``minimal-risk`` cover the
+    # transparency-only and unrestricted tiers; ``unknown`` is the explicit
+    # placeholder for systems that have not yet been classified.  The default
+    # stays ``"minimal-risk"`` so existing configs validate unchanged.
+    risk_category: Literal["unknown", "minimal-risk", "limited-risk", "high-risk", "unacceptable"] = "minimal-risk"
     mitigation_measures: List[str] = []
     vulnerable_groups_considered: bool = False
 
@@ -346,7 +352,12 @@ class ComplianceMetadataConfig(BaseModel):
     intended_purpose: str = ""
     known_limitations: str = ""
     system_version: str = ""
-    risk_classification: Literal["high-risk", "limited-risk", "minimal-risk"] = "minimal-risk"
+    # See ``RiskAssessmentConfig.risk_category`` for the taxonomy rationale;
+    # the two Literal sets are kept in lockstep so the canonical EU AI Act
+    # tiers remain a single source of truth.
+    risk_classification: Literal["unknown", "minimal-risk", "limited-risk", "high-risk", "unacceptable"] = (
+        "minimal-risk"
+    )
 
 
 class SyntheticConfig(BaseModel):
