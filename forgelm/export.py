@@ -148,7 +148,7 @@ def _merge_adapter(model_path: str, adapter_path: str, merged_dir: str) -> None:
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     logger.info("Merging adapter %s into base model %s ...", adapter_path, model_path)
-    # ``trust_remote_code=False`` is the secure default (Faz 7 acceptance):
+    # ``trust_remote_code=False`` is the secure default (Phase 7 acceptance):
     # the merge step is part of the GGUF export pipeline; loading the base
     # model must not execute repo-bundled code.  Operators with a custom
     # architecture should fork and pre-convert before exporting.
@@ -209,9 +209,11 @@ def _update_integrity_manifest(model_dir: str, export_result: ExportResult) -> N
             json.dump(data, f, indent=2)
 
         logger.info("model_integrity.json updated with exported artifact.")
-    except (OSError, ValueError, json.JSONDecodeError) as e:
+    except (OSError, TypeError, ValueError) as e:
         # OSError: filesystem write / read failure on integrity_path.
-        # ValueError / JSONDecodeError: corrupt or partial existing manifest.
+        # TypeError: ``json.dump`` rejecting an unserialisable artefact field.
+        # ValueError: corrupt or partial existing manifest (covers
+        # ``json.JSONDecodeError`` since it subclasses ``ValueError``).
         # Updating the manifest is non-fatal: the artefact itself was already
         # exported successfully and its on-disk SHA-256 is recoverable.
         logger.debug("Could not update model_integrity.json: %s", e)

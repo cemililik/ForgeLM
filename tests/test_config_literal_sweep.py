@@ -1,4 +1,4 @@
-"""Faz 10: parse-time Literal validation sweep.
+"""Phase 10: parse-time Literal validation sweep.
 
 Each enum-shaped string field that was tightened from `str` to `Literal[...]`
 must accept every documented value and raise `pydantic.ValidationError`
@@ -76,7 +76,7 @@ class TestRiskClassificationLiteral:
 
     def test_minimal_risk_default(self):
         # Default stays "minimal-risk" so existing configs validate unchanged
-        # after the value-set extension (Faz 10 closure: 3 → 5 EU AI Act
+        # after the value-set extension (Phase 10 closure: 3 → 5 EU AI Act
         # tiers covering Article 5 prohibited + unknown/unclassified).
         c = ComplianceMetadataConfig()
         assert c.risk_classification == "minimal-risk"
@@ -105,6 +105,15 @@ class TestRiskCategoryLiteral:
 
         with pytest.raises(ValidationError, match="risk_category"):
             RiskAssessmentConfig(risk_category="not-a-risk-tier")
+
+    def test_minimal_risk_default(self):
+        # Mirror of TestRiskClassificationLiteral.test_minimal_risk_default —
+        # the two fields share the RiskTier alias and must therefore share
+        # the default; surfaces any future divergence between them.
+        from forgelm.config import RiskAssessmentConfig
+
+        r = RiskAssessmentConfig()
+        assert r.risk_category == "minimal-risk"
 
 
 class TestGaloreOptimLiteral:

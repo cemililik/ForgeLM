@@ -123,7 +123,43 @@ class TestForgeConfigCompliance:
                     risk_assessment={"risk_category": "high-risk"},
                 )
             )
-        assert "High-risk AI" in caplog.text
+        assert "high-risk" in caplog.text
+        assert "auto_revert" in caplog.text
+
+    def test_unacceptable_risk_warnings(self, caplog, minimal_config):
+        """``unacceptable`` (Article 5) must trip the strict gate AND emit
+        the dedicated prohibited-practices warning on top of the auto_revert
+        nudge.  Closes the runtime-propagation gap CodeRabbit flagged after
+        the 3 → 5 RiskTier expansion."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="forgelm.config"):
+            ForgeConfig(
+                **minimal_config(
+                    risk_assessment={"risk_category": "unacceptable"},
+                )
+            )
+        # Strict gate fires: same auto_revert nudge as high-risk.
+        assert "unacceptable" in caplog.text
+        assert "auto_revert" in caplog.text
+        # Dedicated Article 5 prohibited-practices notice fires too.
+        assert "Article 5" in caplog.text
+        assert "prohibited" in caplog.text
+
+    def test_minimal_risk_does_not_warn(self, caplog, minimal_config):
+        """``minimal-risk`` and ``limited-risk`` must NOT trip the strict
+        gate — keeps the friction off operators running unrestricted /
+        transparency-tier systems."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="forgelm.config"):
+            ForgeConfig(
+                **minimal_config(
+                    risk_assessment={"risk_category": "minimal-risk"},
+                )
+            )
+        assert "auto_revert" not in caplog.text
+        assert "Article 5" not in caplog.text
 
     def test_yaml_round_trip(self, tmp_path, minimal_config):
         data = minimal_config(

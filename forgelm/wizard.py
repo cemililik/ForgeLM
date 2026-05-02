@@ -218,9 +218,12 @@ def _collect_compliance_config() -> Optional[dict]:
         "provider_name": _prompt("Organization name"),
         "intended_purpose": _prompt("Intended purpose of the model"),
         "risk_classification": _prompt_choice(
+            # Five-tier set kept in lockstep with ``forgelm.config.RiskTier``
+            # so the wizard never offers a value the Pydantic schema would
+            # reject (and never hides a value the schema accepts).
             "Risk classification:",
-            ["minimal-risk", "limited-risk", "high-risk"],
-            default=1,
+            ["unknown", "minimal-risk", "limited-risk", "high-risk", "unacceptable"],
+            default=1,  # ``minimal-risk`` — same default as the Pydantic field.
         ),
     }
 

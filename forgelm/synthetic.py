@@ -257,7 +257,7 @@ class SyntheticDataGenerator:
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         logger.info("Loading local teacher model: %s", self.synth_cfg.teacher_model)
-        # ``trust_remote_code=False`` is the secure default (Faz 7 acceptance):
+        # ``trust_remote_code=False`` is the secure default (Phase 7 acceptance):
         # synthetic-data generation must never execute repo-bundled code from
         # an arbitrary teacher checkpoint.  Operators that genuinely need a
         # custom architecture should fork and pre-convert.
