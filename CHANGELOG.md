@@ -25,7 +25,7 @@ All notable changes to ForgeLM are documented here.
   `AuditReport`, `WebhookNotifier`, `detect_pii` / `mask_pii` / `detect_secrets` /
   `mask_secrets` / `compute_simhash`); spells out the `py.typed` + `mypy --strict`
   contract for the public surface; resolves the Wave 1 round-5 carry-over
-  (lazy `__getattr__` migration for `forgelm/cli/__init__.py`); spec'es the
+  (lazy `__getattr__` migration for `forgelm/cli/__init__.py`); specifies the
   `tests/test_library_api.py` integration suite Phase 19 must ship.  No code
   changes in this PR — design only; Phase 19 implements.
 
