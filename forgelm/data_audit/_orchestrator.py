@@ -323,19 +323,40 @@ def audit_dataset(  # NOSONAR — cognitive complexity is inherent to the audit 
     effective_workers = min(workers, len(splits_paths)) if splits_paths else 1
     if effective_workers > 1:
         # Pool.map preserves input order so ``outcomes`` lines up with
-        # ``splits_paths.items()`` 1:1.  We bound the pool to len(splits_paths)
-        # — extra workers would idle since the unit of work is one split.
+        # ``splits_paths.items()`` 1:1.  We bound the pool to
+        # ``len(splits_paths)`` — extra workers would idle since the unit
+        # of work is one split.
+        #
+        # Wave 2a Round-1 review (F-26-03): pin the start method to
+        # ``"spawn"`` so the determinism contract is platform-independent.
+        # ``Pool()`` defaults to fork on Linux + spawn on macOS / Windows;
+        # Linux CI never exercises the spawn path otherwise.  Spawn also
+        # gives every worker a fresh interpreter (no shared
+        # langdetect.DetectorFactory state, no copied open file handles)
+        # which is exactly what the byte-identical contract requires.
+        logger.info(
+            "audit: spawning %d worker process(es) over %d split(s)",
+            effective_workers,
+            len(splits_paths),
+        )
+        ctx = multiprocessing.get_context("spawn")
         pool_args = [(name, path, split_kwargs) for name, path in splits_paths.items()]
-        with multiprocessing.Pool(effective_workers) as pool:
-            outcomes_list = pool.map(_process_split_for_pool, pool_args)
+        with ctx.Pool(effective_workers) as pool:
+            try:
+                outcomes_list = pool.map(_process_split_for_pool, pool_args)
+            except Exception:  # noqa: BLE001 — best-effort: re-raise unchanged so the operator sees the worker traceback through Pool.map's wrapping; we log at ERROR first so the contextual "which split failed" hint lands even when the traceback is opaque.
+                logger.error(
+                    "audit: parallel worker raised inside the pool; the original "
+                    "traceback is wrapped — re-run with --workers 1 to surface it "
+                    "with full context."
+                )
+                raise
         outcomes_iter = zip(splits_paths.keys(), outcomes_list)
     else:
-
-        def _sequential_outcomes() -> Any:
-            for split_name, path in splits_paths.items():
-                yield split_name, _process_split(split_name, path, **split_kwargs)
-
-        outcomes_iter = _sequential_outcomes()
+        logger.info("audit: sequential mode (workers=%d, splits=%d)", workers, len(splits_paths))
+        outcomes_iter = (
+            (split_name, _process_split(split_name, path, **split_kwargs)) for split_name, path in splits_paths.items()
+        )
 
     for split_name, outcome in outcomes_iter:
         splits_info[split_name] = outcome.info

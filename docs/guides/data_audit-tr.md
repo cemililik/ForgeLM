@@ -37,6 +37,9 @@ forgelm audit data/large_corpus.jsonl --dedup-method minhash --jaccard-threshold
 
 # Faz 12: opt-in heuristic kalite filtresi (Gopher/C4 stili)
 forgelm audit data/ --quality-filter
+
+# Faz 17: çoklu-split corpora için split-seviyesi paralelizm
+forgelm audit data/ --workers 4
 ```
 
 > **Eski alias:** `forgelm --data-audit PATH` deprecation alias'ı
@@ -485,9 +488,24 @@ forgelm audit PATH \
   [--pii-ml] \
   [--pii-ml-language LANG] \
   [--croissant] \
+  [--workers N] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```
+
+`--workers N` (Faz 17) split-seviyesi paralelizmi açar: her split kendi
+worker process'inde, bir `multiprocessing.Pool` içinde koşar. Varsayılan
+`1` (sıralı, Faz-17-öncesi yol ile byte-identical). Speed-up *split sayısı*
+ile ölçeklenir, satır sayısıyla değil — tek-split corpus'lar 1'den büyük
+değerleri görmezden gelir. Tipik çoklu-split koşular (`train` /
+`validation` / `test`) `--workers 3` ile neredeyse-doğrusal hızlanma görür.
+
+Raporu üreten merge adımı tek-thread'li kalır, dolayısıyla diskteki JSON
+worker sayısından bağımsız **byte-identical**'dir (yalnızca
+`generated_at` wall-clock zaman damgası değişir). Bu invariant
+`tests/test_data_audit_workers.py` tarafından pinlenir; CI gate
+audit-report hash'ini karşılaştırırken `--workers 1`'den `--workers 4`'e
+geçiş yapan bir operatör için çalışmaya devam eder.
 
 `PATH` bir `.jsonl` dosyası veya bir dizin olabilir. `--output`
 varsayılan olarak `./audit/`'tir. `--verbose`, insan-okunabilir özette
