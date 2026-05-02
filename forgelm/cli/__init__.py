@@ -80,6 +80,7 @@ from ._no_train_modes import (
 
 # Parser (registrars + parse_args).
 from ._parser import (
+    _add_approvals_subcommand,  # noqa: F401 — re-export for tests
     _add_approve_subcommand,  # noqa: F401 — re-export for tests
     _add_audit_subcommand,  # noqa: F401 — re-export for tests
     _add_chat_subcommand,  # noqa: F401 — re-export for tests
@@ -112,6 +113,13 @@ from ._training import (
 
 # Wizard mode.
 from ._wizard import _maybe_run_wizard  # noqa: F401 — re-export for tests
+
+# Approvals listing subcommand (Phase 9 follow-up).
+from .subcommands._approvals import (
+    _collect_pending_runs,  # noqa: F401 — re-export for tests
+    _collect_run_audit_chain,  # noqa: F401 — re-export for tests
+    _run_approvals_cmd,  # noqa: F401 — re-export for tests
+)
 
 # Approve / reject subcommands (Article 14 human-approval gate).
 from .subcommands._approve import (

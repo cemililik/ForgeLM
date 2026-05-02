@@ -70,6 +70,9 @@ def _dispatch_subcommand(command: str, args) -> None:
     elif command == "reject":
         _cli_facade._run_reject_cmd(args, getattr(args, "output_format", "text"))
         sys.exit(EXIT_SUCCESS)
+    elif command == "approvals":
+        _cli_facade._run_approvals_cmd(args, getattr(args, "output_format", "text"))
+        sys.exit(EXIT_SUCCESS)
     else:
         logger.error("Unrecognized subcommand: %r. This is a bug — please report it.", command)
         sys.exit(EXIT_TRAINING_ERROR)

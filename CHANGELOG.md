@@ -13,6 +13,35 @@ All notable changes to ForgeLM are documented here.
 > Per-PR CHANGELOG entries below collapse into the v0.5.5 release
 > notes at tag time.
 
+### Added — Wave 2a / Phase 37 — `forgelm approvals` listing subcommand
+
+- **`forgelm approvals --pending [--output-dir DIR]`** lists every run whose
+  audit log carries a `human_approval.required` event without a matching
+  terminal decision.  Tabular text output or a JSON envelope
+  (`{"success": true, "pending": [...], "count": N}`) when
+  `--output-format json` is set, so CI can filter the queue programmatically.
+- **`forgelm approvals --show RUN_ID --output-dir DIR`** prints the full
+  approval-gate audit chain (request → terminal decision) plus the on-disk
+  staging directory layout.  Useful for forensic review of granted /
+  rejected runs and confirming the staging contents match what the
+  operator approved.
+- Closes the Phase 9 follow-up gap from `ghost-features-analysis-20260502`
+  (GH-007 — listing was missing; an operator could not discover pending
+  runs without `ls`-ing the filesystem by hand).
+- New module: `forgelm/cli/subcommands/_approvals.py`.  Reuses the audit-
+  log parsing pattern from `_approve.py` (skip malformed lines, emit one
+  summary warning at end).
+- 15 new tests in `tests/test_approvals_listing.py` covering: empty
+  audit log, three-runs-one-decided, rejected runs excluded from
+  pending, JSON envelope structure, table rendering, `--show` pending /
+  granted / unknown run_id, `--show` with no audit log, monkeypatch
+  facade resolution, malformed-line robustness, dispatcher defensive
+  double-check.
+- Operator docs updated: `docs/usermanuals/{en,tr}/compliance/human-
+  oversight.md` "Inspecting pending runs" section now matches the
+  shipped output (table format, `--output-dir` flag) instead of the
+  pre-implementation sketch.
+
 ### Added — Wave 1 closure (Faz 9, 11, 12, 13, 25, 31, 32 — see PR description)
 
 - **Article 14 staging directory + `forgelm approve` / `forgelm reject` (Faz 9)** —

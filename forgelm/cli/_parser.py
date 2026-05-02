@@ -499,6 +499,49 @@ def _add_approve_subcommand(subparsers) -> None:
     _add_common_subparser_flags(p, include_output_format=True)
 
 
+def _add_approvals_subcommand(subparsers) -> None:
+    """Article 14 follow-up: list / inspect pending approval requests.
+
+    Exactly one of ``--pending`` and ``--show RUN_ID`` must be set; argparse
+    enforces this with a mutually-exclusive group so the dispatcher only
+    sees a validated args namespace.  ``--output-dir`` is required in both
+    modes — there is no useful default; an operator running on a freshly-
+    cloned workstation must point at the training output explicitly.
+    """
+    p = subparsers.add_parser(
+        "approvals",
+        help="List pending Article 14 approval requests or inspect a single run.",
+        description=(
+            "Discovery counterpart to `forgelm approve` / `forgelm reject`.  "
+            "`--pending` lists every run whose audit log carries a "
+            "`human_approval.required` event without a matching terminal "
+            "decision.  `--show RUN_ID` prints the full approval-gate audit "
+            "chain plus the on-disk staging directory layout for one run."
+        ),
+    )
+    mode = p.add_mutually_exclusive_group(required=True)
+    mode.add_argument(
+        "--pending",
+        action="store_true",
+        help="List every run awaiting an approval decision.",
+    )
+    mode.add_argument(
+        "--show",
+        type=str,
+        default=None,
+        metavar="RUN_ID",
+        help="Show the full audit chain + staging contents for a single run.",
+    )
+    p.add_argument(
+        "--output-dir",
+        type=str,
+        required=True,
+        metavar="DIR",
+        help="Training output directory containing audit_log.jsonl and final_model.staging/.",
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
 def _add_reject_subcommand(subparsers) -> None:
     """Article 14: discard a staged model (preserves staging dir for forensics)."""
     p = subparsers.add_parser(
@@ -563,6 +606,7 @@ def parse_args():
     _add_verify_audit_subcommand(subparsers)
     _add_approve_subcommand(subparsers)
     _add_reject_subcommand(subparsers)
+    _add_approvals_subcommand(subparsers)
 
     # --- Top-level flags (training / config-driven mode) ---
     parser.add_argument("--config", type=str, help="Path to the YAML configuration file.")
