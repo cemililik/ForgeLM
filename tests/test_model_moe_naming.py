@@ -88,12 +88,16 @@ class TestExpertNamePatterns:
         assert _expert_index_in_name("model.layers.0.mlp.experts.12.up_proj.weight", 8) is None
 
     def test_unicode_digit_is_not_matched(self):
+        import forgelm.model
         from forgelm.model import _expert_index_in_name
 
         # ASCII flag rejects exotic Unicode digit characters so we do not
         # mis-resolve adversarial / corrupted state-dict keys.
         # U+0660 = Arabic-Indic digit zero. ASCII \d does not match it.
-        assert _expert_index_in_name("model.experts.٠.weight", 8) is None
+        try:
+            assert _expert_index_in_name("model.experts.٠.weight", 8) is None
+        finally:
+            forgelm.model._LOGGED_UNKNOWN_EXPERT_NAMES.discard("_UNKNOWN_EXPERT_LAYOUT_")
 
     def test_unfamiliar_expert_name_logs_info(self, caplog):
         import logging

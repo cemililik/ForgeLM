@@ -15,7 +15,7 @@ def _run_ingest_cmd(args, output_format: str) -> None:
     # masking flags. Resolve it here at the CLI boundary so ``ingest_path``
     # keeps its narrow API (only ``pii_mask`` / ``secrets_mask`` booleans).
     all_mask = getattr(args, "all_mask", False)
-    pii_mask = bool(args.pii_mask) or all_mask
+    pii_mask = bool(getattr(args, "pii_mask", False)) or all_mask
     secrets_mask = bool(getattr(args, "secrets_mask", False)) or all_mask
 
     try:

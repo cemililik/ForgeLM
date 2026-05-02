@@ -952,7 +952,7 @@ class ForgeTrainer:
         logger.info("Human approval required. Model staged at: %s", staging_path)
         logger.info(
             "Review results in %s/compliance/ and run `forgelm approve %s --output-dir %s` "
-            "to promote, or `forgelm reject %s --output-dir %s` to discard.",
+            "to promote, or `forgelm reject %s --output-dir %s` to preserve for forensic review.",
             self.checkpoint_dir,
             self.audit.run_id,
             self.checkpoint_dir,

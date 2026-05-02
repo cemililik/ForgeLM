@@ -22,6 +22,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import platform
+import re
 import subprocess
 import sys
 import uuid
@@ -62,9 +63,15 @@ def _installed_packages() -> list[dict[str, str]]:
 
 
 def _purl(name: str, ver: str) -> str:
-    """Build a Package URL (purl) for a PyPI package."""
-    # CycloneDX expects RFC-style purls; pkg:pypi/<name>@<version>.
-    return f"pkg:pypi/{name}@{ver}"
+    """Build a Package URL (purl) for a PyPI package.
+
+    Package name is normalized per PEP 503 (runs of [-_.] → '-', lowercased)
+    so ``My.Package`` and ``my-package`` produce identical purls.
+    """
+    # PEP 503 canonical form: collapse any run of [-_.] to a single dash,
+    # then lowercase — equivalent to packaging.utils.canonicalize_name().
+    normalized = re.sub(r"[-_.]+", "-", name).lower()
+    return f"pkg:pypi/{normalized}@{ver}"
 
 
 def _component(pkg: dict[str, str]) -> dict[str, Any]:
