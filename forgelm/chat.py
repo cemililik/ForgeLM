@@ -271,7 +271,7 @@ class ChatSession:
                 ):
                     self._print_inline_raw(token)
                     response += token
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — best-effort: streaming generate crosses CUDA OOM (RuntimeError), tokenizer issues (ValueError), and stop-token race conditions; the chat REPL must keep running after a single failed turn so the operator can retry / change parameters.  # NOSONAR
                 self._print(f"\n[Generation error: {e}]")
                 return
             self._print("")  # trailing newline
@@ -285,7 +285,7 @@ class ChatSession:
                     temperature=self.temperature,
                     max_new_tokens=self.max_new_tokens,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — best-effort: see streaming branch above; same broad torch / tokenizer surface, same per-turn soft-fail policy in the REPL loop.  # NOSONAR
                 self._print(f"[Generation error: {e}]")
                 return
             # Non-streaming path: full response is also untrusted model output

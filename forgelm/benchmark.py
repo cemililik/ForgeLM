@@ -93,7 +93,12 @@ def _save_benchmark_json(
                 indent=2,
             )
         logger.info("Benchmark results saved to %s", results_path)
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
+        # OSError: filesystem (ENOSPC, permission, broken parent dir).
+        # TypeError/ValueError: ``json.dump`` rejecting an unserialisable
+        # object inside the lm-eval result tree.  Saving the artefact is
+        # non-fatal: the run already completed and metrics live in the
+        # returned BenchmarkResult.
         logger.warning("Failed to save benchmark results: %s", e)
 
 
@@ -135,7 +140,7 @@ def run_benchmark(
 
     try:
         lm_obj = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=batch_size)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort: lm-eval HFLM wrapper construction crosses HF model introspection (AttributeError on architecture mismatch), tokenizer compatibility (ValueError), CUDA init (RuntimeError), and lm-eval-internal config parsing; surfacing as BenchmarkResult(passed=False) is the documented hard-failure surface so the trainer auto-revert gate can react.  # NOSONAR
         logger.error("Failed to initialize lm-eval model wrapper: %s", e)
         return BenchmarkResult(passed=False, failure_reason=f"Model wrapper initialization failed: {e}")
 
@@ -145,7 +150,7 @@ def run_benchmark(
 
     try:
         results = lm_eval.simple_evaluate(model=lm_obj, tasks=tasks, limit=limit, **task_kwargs)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort: lm-eval simple_evaluate runs a wide task surface (dataset download OSError, task spec ValueError, model.generate RuntimeError on CUDA OOM/dtype mismatch, lm-eval-internal AssertionError); BenchmarkResult(passed=False) is the documented hard-failure surface for the auto-revert gate.  # NOSONAR
         logger.error("Benchmark evaluation failed: %s", e)
         return BenchmarkResult(passed=False, failure_reason=f"Evaluation execution failed: {e}")
 

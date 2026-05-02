@@ -225,7 +225,7 @@ def _recast_expert_weight(name: str, module, target_dtype) -> bool:
         return False
     try:
         module.weight.data = module.weight.data.to(target_dtype)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort: per-expert weight recast runs across hundreds of MoE expert tensors; surface includes RuntimeError (dtype unsupported on device), AttributeError (frozen / shared parameter), and torch internal errors on edge architectures.  Returning False keeps the per-expert loop running so a single recast failure cannot abort the whole sweep.  # NOSONAR
         logger.debug("Could not optimize %s: %s", name, e)
         return False
     return True

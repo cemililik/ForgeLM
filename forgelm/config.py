@@ -310,6 +310,24 @@ class EvaluationConfig(BaseModel):
     )
 
 
+# EU AI Act risk taxonomy — single source of truth shared by
+# ``RiskAssessmentConfig.risk_category`` and
+# ``ComplianceMetadataConfig.risk_classification`` so the two Pydantic fields
+# can never drift.  ``unacceptable`` covers Article 5 prohibited practices;
+# ``high-risk`` covers Article 6 systems requiring full Annex IV documentation;
+# ``limited-risk`` and ``minimal-risk`` cover the transparency-only and
+# unrestricted tiers; ``unknown`` is the explicit placeholder for systems that
+# have not yet been classified.  The default for both fields stays
+# ``"minimal-risk"`` so existing configs validate unchanged.
+RiskTier = Literal["unknown", "minimal-risk", "limited-risk", "high-risk", "unacceptable"]
+
+# Tiers that demand full Annex IV documentation + auto-revert + safety gates
+# under the EU AI Act.  Keep this set in lockstep with
+# ``ForgeConfig._warn_high_risk_compliance`` and the wizard prompt so the new
+# tier is reachable + enforced everywhere the old high-risk-only set was.
+_STRICT_RISK_TIERS: frozenset[str] = frozenset({"high-risk", "unacceptable"})
+
+
 class RiskAssessmentConfig(BaseModel):
     """Art. 9: Risk management — declare risks before training."""
 
@@ -317,7 +335,7 @@ class RiskAssessmentConfig(BaseModel):
 
     intended_use: str = ""
     foreseeable_misuse: List[str] = []
-    risk_category: Literal["high-risk", "limited-risk", "minimal-risk"] = "minimal-risk"
+    risk_category: RiskTier = "minimal-risk"
     mitigation_measures: List[str] = []
     vulnerable_groups_considered: bool = False
 
@@ -346,7 +364,7 @@ class ComplianceMetadataConfig(BaseModel):
     intended_purpose: str = ""
     known_limitations: str = ""
     system_version: str = ""
-    risk_classification: Literal["high-risk", "limited-risk", "minimal-risk"] = "minimal-risk"
+    risk_classification: RiskTier = "minimal-risk"
 
 
 class SyntheticConfig(BaseModel):
@@ -478,16 +496,38 @@ class ForgeConfig(BaseModel):
             )
 
     def _warn_high_risk_compliance(self) -> None:
-        """EU AI Act high-risk compliance recommendations."""
-        is_high_risk = (self.risk_assessment and self.risk_assessment.risk_category == "high-risk") or (
-            self.compliance and self.compliance.risk_classification == "high-risk"
+        """EU AI Act compliance recommendations for strict risk tiers.
+
+        ``unacceptable`` (Article 5 prohibited practices) is treated at least
+        as strictly as ``high-risk`` for ForgeLM's purposes — the gate exists
+        to nudge the operator into running with auto-revert + safety eval,
+        and ``unacceptable`` should never get *less* gating than ``high-risk``
+        because the underlying use case is not allowed at all under the Act.
+        """
+        is_strict = (self.risk_assessment and self.risk_assessment.risk_category in _STRICT_RISK_TIERS) or (
+            self.compliance and self.compliance.risk_classification in _STRICT_RISK_TIERS
         )
-        if not is_high_risk:
+        if not is_strict:
             return
         if not self.evaluation or not self.evaluation.auto_revert:
             logger.warning(
-                "High-risk AI classification requires evaluation.auto_revert: true "
-                "for EU AI Act compliance. Safety gates should be enabled."
+                "Risk classification %r requires evaluation.auto_revert: true "
+                "for EU AI Act compliance. Safety gates should be enabled.",
+                # Use whichever field is set; both share the same RiskTier.
+                (self.compliance and self.compliance.risk_classification)
+                or (self.risk_assessment and self.risk_assessment.risk_category),
+            )
+        # Article 5 prohibited practices warrant a louder operator notice on
+        # top of the auto_revert nudge — the deployment itself is unlawful in
+        # the EU regardless of how well the safety gates are wired up.
+        unacceptable = (self.risk_assessment and self.risk_assessment.risk_category == "unacceptable") or (
+            self.compliance and self.compliance.risk_classification == "unacceptable"
+        )
+        if unacceptable:
+            logger.warning(
+                "Risk classification 'unacceptable' corresponds to EU AI Act Article 5 prohibited "
+                "practices. ForgeLM will not refuse the run, but deploying such a system inside the "
+                "EU is unlawful — confirm operator intent before continuing."
             )
         safety = self.evaluation.safety if self.evaluation else None
         if not safety or not safety.enabled:

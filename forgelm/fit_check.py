@@ -88,7 +88,7 @@ def _load_arch_params(model_name_or_path: str, trust_remote_code: bool = False) 
         params["num_attention_heads"] = getattr(cfg, "num_attention_heads", None)
         params["num_key_value_heads"] = getattr(cfg, "num_key_value_heads", None)
         logger.debug("Loaded architecture config from %s", model_name_or_path)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort: AutoConfig.from_pretrained surfaces OSError (network/cache miss), HF repo errors, ValueError on unknown architecture, and ImportError when the optional config-class module is missing.  fit-check fallback uses regex name-hints (3b/7b/13b/...) so a config probe failure does not abort the VRAM estimate.  # NOSONAR
         logger.debug("Could not load AutoConfig for %s: %s — using size hint fallback.", model_name_or_path, e)
 
     # Fill in missing values using size-hint lookup on the model name.
@@ -299,7 +299,7 @@ def _detect_available_vram_gb(torch_module: Any) -> tuple[Optional[float], bool]
             free_bytes, _ = torch_module.cuda.mem_get_info()
             return free_bytes / (1024**3), False
         return None, True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort: ``torch.cuda.mem_get_info`` surfaces RuntimeError (driver / CUDA init), AttributeError (older torch / no CUDA), and OSError (corrupt driver state).  Returning ``(None, True)`` falls back to a hypothetical-only fit verdict.  # NOSONAR
         logger.debug("Could not query GPU memory: %s", e)
         return None, True
 

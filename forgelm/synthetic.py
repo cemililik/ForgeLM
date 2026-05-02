@@ -62,7 +62,7 @@ class SyntheticDataGenerator:
         """
         try:
             response = self._call_teacher(prompt)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort: per-prompt teacher invocation crosses three backends (api / local model / pre-recorded file) each with their own failure tail (network HTTPError, RuntimeError on CUDA OOM, KeyError on missing seed entry); per-prompt soft-fail with structured error capture is the documented contract so a single bad prompt cannot abort a corpus-scale run.  # NOSONAR
             result.failed += 1
             result.errors.append(f"Prompt {idx}: {e}")
             logger.warning("Generation failed for prompt %d: %s", idx, e)
@@ -257,11 +257,16 @@ class SyntheticDataGenerator:
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         logger.info("Loading local teacher model: %s", self.synth_cfg.teacher_model)
-        tokenizer = AutoTokenizer.from_pretrained(self.synth_cfg.teacher_model)
+        # ``trust_remote_code=False`` is the secure default (Phase 7 acceptance):
+        # synthetic-data generation must never execute repo-bundled code from
+        # an arbitrary teacher checkpoint.  Operators that genuinely need a
+        # custom architecture should fork and pre-convert.
+        tokenizer = AutoTokenizer.from_pretrained(self.synth_cfg.teacher_model, trust_remote_code=False)
         model = AutoModelForCausalLM.from_pretrained(
             self.synth_cfg.teacher_model,
             torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
             device_map="auto" if torch.cuda.is_available() else None,
+            trust_remote_code=False,
         )
         self._teacher = (model, tokenizer)
 
