@@ -22,6 +22,12 @@ from .._logging import logger
 
 _STAGING_SUFFIX = ".staging"
 
+# Audit event vocabulary for the human-approval gate.  Centralised so a future
+# rename or typo cannot drift across the registry, the emitter call sites, and
+# the guard that blocks double decisions.
+_EVT_HUMAN_APPROVAL_GRANTED = "human_approval.granted"
+_EVT_HUMAN_APPROVAL_REJECTED = "human_approval.rejected"
+
 
 def _resolve_approver_identity() -> str:
     """Resolve the operator identity for an approve/reject audit entry.
@@ -89,7 +95,7 @@ def _find_human_approval_required_event(audit_log_path: str, run_id: str) -> Opt
     return latest_match
 
 
-_TERMINAL_DECISION_EVENTS = frozenset({"human_approval.granted", "human_approval.rejected"})
+_TERMINAL_DECISION_EVENTS = frozenset({_EVT_HUMAN_APPROVAL_GRANTED, _EVT_HUMAN_APPROVAL_REJECTED})
 
 
 def _find_human_approval_decision_event(audit_log_path: str, run_id: str) -> Optional[dict]:
@@ -98,11 +104,16 @@ def _find_human_approval_decision_event(audit_log_path: str, run_id: str) -> Opt
     A terminal decision is either ``human_approval.granted`` or
     ``human_approval.rejected``. Finding one before attempting promotion
     prevents double-approve and approve-after-reject races.
+
+    Mirrors :func:`_find_human_approval_required_event`'s malformed-line
+    accounting so a corrupt entry cannot silently mask a real terminal
+    decision and let the caller re-promote.
     """
     if not os.path.isfile(audit_log_path):
         return None
 
     latest_decision = None
+    skipped_lines = 0
     try:
         fh = open(audit_log_path, "r", encoding="utf-8")
     except OSError as exc:
@@ -116,11 +127,15 @@ def _find_human_approval_decision_event(audit_log_path: str, run_id: str) -> Opt
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
+                skipped_lines += 1
                 continue
             if not isinstance(event, dict):
+                skipped_lines += 1
                 continue
             if event.get("event") in _TERMINAL_DECISION_EVENTS and event.get("run_id") == run_id:
                 latest_decision = event
+    if skipped_lines:
+        logger.warning("Skipped %d malformed line(s) while parsing %s.", skipped_lines, audit_log_path)
     return latest_decision
 
 
@@ -273,6 +288,21 @@ def _run_approve_cmd(args, output_format: str) -> None:
             EXIT_CONFIG_ERROR,
         )
 
+    from ...compliance import AuditLogger
+    from ...config import ConfigError
+
+    # Construct the audit logger BEFORE the atomic rename.  If we promoted
+    # first and ``AuditLogger.__init__`` then raised (e.g. CI/container env
+    # with no resolvable operator identity), the model would already be on
+    # disk at ``final_path`` with no corresponding ``human_approval.granted``
+    # event — an audit gap that breaks Article 12 record-keeping.  Validating
+    # operator identity up front means the gate either succeeds with both
+    # promotion and audit, or fails with neither.
+    try:
+        audit = AuditLogger(output_dir, run_id=run_id)
+    except ConfigError as exc:
+        _output_error_and_exit(output_format, str(exc), EXIT_CONFIG_ERROR)
+
     try:
         promote_strategy = _cli_facade._atomic_rename_or_move(staging_path, final_path)
     except OSError as exc:
@@ -282,18 +312,6 @@ def _run_approve_cmd(args, output_format: str) -> None:
             EXIT_TRAINING_ERROR,
         )
 
-    from ...compliance import AuditLogger
-    from ...config import ConfigError
-
-    # ``AuditLogger.__init__`` raises ``ConfigError`` when no operator identity
-    # can be resolved (no FORGELM_OPERATOR + getpass.getuser() fails + no
-    # FORGELM_ALLOW_ANONYMOUS_OPERATOR=1) — typical in CI/container envs.
-    # Catch here so the JSON output contract is preserved instead of leaking
-    # a Python traceback to stdout.
-    try:
-        audit = AuditLogger(output_dir, run_id=run_id)
-    except ConfigError as exc:
-        _output_error_and_exit(output_format, str(exc), EXIT_CONFIG_ERROR)
     # ``approver`` records the human who ran ``forgelm approve``; this is a
     # complement to ``audit.operator`` (the FORGELM_OPERATOR-pinned identity
     # carried on every event for HMAC scope and chain attribution).  When
@@ -302,7 +320,7 @@ def _run_approve_cmd(args, output_format: str) -> None:
     # "which pipeline ran this" *and* "which human approved it".
     approver = _cli_facade._resolve_approver_identity()
     audit.log_event(
-        "human_approval.granted",
+        _EVT_HUMAN_APPROVAL_GRANTED,
         gate="final_model",
         run_id=run_id,
         approver=approver,
@@ -379,7 +397,7 @@ def _run_reject_cmd(args, output_format: str) -> None:
         _output_error_and_exit(output_format, str(exc), EXIT_CONFIG_ERROR)
     approver = _cli_facade._resolve_approver_identity()
     audit.log_event(
-        "human_approval.rejected",
+        _EVT_HUMAN_APPROVAL_REJECTED,
         gate="final_model",
         run_id=run_id,
         approver=approver,
@@ -389,7 +407,7 @@ def _run_reject_cmd(args, output_format: str) -> None:
 
     notifier = _cli_facade._build_approval_notifier(output_dir)
     run_name = os.path.basename(os.path.normpath(output_dir)) or "rejected"
-    reason = f"human_approval.rejected: {args.comment}" if args.comment else "human_approval.rejected"
+    reason = f"{_EVT_HUMAN_APPROVAL_REJECTED}: {args.comment}" if args.comment else _EVT_HUMAN_APPROVAL_REJECTED
     notifier.notify_failure(run_name=run_name, reason=reason)
 
     if output_format == "json":

@@ -220,11 +220,14 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
             output_path=args.output,
             dry_run=args.dry_run,
         )
-    except (FileNotFoundError, FileExistsError, ValueError) as e:
-        # FileExistsError is raised by _resolve_dataset when an explicit
-        # --output dir already contains a seed dataset (refuses to clobber);
-        # treat it as a config-level error so the user gets the actionable
-        # message instead of a Python traceback.
+    except (ValueError, OSError) as e:
+        # ValueError covers invalid template / model / dataset arguments.
+        # OSError covers the full filesystem failure surface raised by
+        # ``run_quickstart`` and helpers like ``_resolve_dataset``:
+        # FileNotFoundError (missing template/dataset), FileExistsError (refuses
+        # to clobber a populated --output dir), PermissionError (read-only
+        # target), IsADirectoryError, and other I/O failures all reach here
+        # with the same actionable error path instead of a Python traceback.
         if output_format == "json":
             print(json.dumps({"success": False, "error": str(e)}))
         else:

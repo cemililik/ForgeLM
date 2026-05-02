@@ -107,13 +107,21 @@ def build_sbom() -> dict[str, Any]:
         "version": 1,
         "metadata": {
             "timestamp": now,
-            "tools": [
-                {
-                    "vendor": "ForgeLM",
-                    "name": "generate_sbom.py",
-                    "version": "1.0.0",
-                }
-            ],
+            # CycloneDX 1.5 introduces the object-shaped ``tools`` payload
+            # (``{"components": [...]}``).  The plain-array form is the
+            # 1.4-and-earlier shape, kept readable by 1.5 consumers but flagged
+            # as deprecated.  Emit the 1.5-native form so downstream tooling
+            # (Dependency-Track ≥4.10 etc.) does not log a deprecation warning.
+            "tools": {
+                "components": [
+                    {
+                        "type": "application",
+                        "author": "ForgeLM",
+                        "name": "generate_sbom.py",
+                        "version": "1.0.0",
+                    }
+                ]
+            },
             "component": {
                 "type": "application",
                 "name": "forgelm",
