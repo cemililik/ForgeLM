@@ -14,11 +14,11 @@ Two query modes:
   approval-related audit chain for a single run plus the on-disk staging
   directory layout.
 
-The dispatcher reuses the helpers shipped with Phase 9 in
-:mod:`forgelm.cli.subcommands._approve` (`_find_human_approval_required_event`,
-`_find_human_approval_decision_event`) so the JSONL parser, the malformed-line
-accounting, and the ``output_dir/audit_log.jsonl`` convention live in exactly
-one place.
+The audit-log JSONL parser (skip malformed, emit one summary warning at
+end) lives in :mod:`._audit_log_reader` and is shared with
+:mod:`._approve` (and the upcoming :mod:`._purge`).  The
+``output_dir/audit_log.jsonl`` convention + Article 14 event vocabulary
+live here so the dispatcher stays cohesive; only the *parser* is shared.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from .._exit_codes import EXIT_CONFIG_ERROR, EXIT_SUCCESS, EXIT_TRAINING_ERROR
 from .._logging import logger
@@ -58,44 +58,12 @@ def _output_error_and_exit(output_format: str, msg: str, exit_code: int) -> None
     sys.exit(exit_code)
 
 
-def _iter_audit_events(audit_log_path: str) -> Iterator[Tuple[int, Dict[str, Any]]]:
-    """Yield ``(line_number, event_dict)`` from an append-only JSONL audit log.
-
-    Skips blank lines and malformed JSON / non-dict roots silently — emitting
-    a per-skip warning here would be very noisy on a long-lived audit log.
-    The number of skipped lines is tracked by the caller and surfaced once.
-
-    Parameters
-    ----------
-    audit_log_path
-        Path to ``<output_dir>/audit_log.jsonl``.  Caller is responsible for
-        verifying the file exists; this generator yields nothing when the
-        file is missing or unreadable, after logging at the ERROR level.
-    """
-    if not os.path.isfile(audit_log_path):
-        return
-    try:
-        fh = open(audit_log_path, "r", encoding="utf-8")
-    except OSError as exc:
-        logger.error("Cannot open audit log %s: %s", audit_log_path, exc)
-        return
-    skipped_lines = 0
-    with fh:
-        for line_number, raw in enumerate(fh, start=1):
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                skipped_lines += 1
-                continue
-            if not isinstance(event, dict):
-                skipped_lines += 1
-                continue
-            yield line_number, event
-    if skipped_lines:
-        logger.warning("Skipped %d malformed line(s) while parsing %s.", skipped_lines, audit_log_path)
+# Wave 2a Round-1 review (XPR-01): the JSONL parser was extracted into
+# the shared :mod:`._audit_log_reader` module so a future malformed-line
+# policy fix lands in one place across the approve / approvals / purge
+# family.  The local re-export below preserves the import name tests
+# already use (``from forgelm.cli import _iter_audit_events``).
+from ._audit_log_reader import iter_audit_events as _iter_audit_events  # noqa: F401,E402
 
 
 def _collect_pending_runs(audit_log_path: str) -> List[Dict[str, Any]]:
@@ -103,15 +71,29 @@ def _collect_pending_runs(audit_log_path: str) -> List[Dict[str, Any]]:
 
     A "pending" run is one whose audit log carries a
     ``human_approval.required`` event whose ``run_id`` does **not** appear
-    in any later ``human_approval.granted`` / ``human_approval.rejected``
-    event.  The order is by the *first* ``human_approval.required`` event
-    timestamp (oldest first when sorted ascending; we reverse to surface
-    the most-recent request at the top of the operator's listing).
-    """
-    required_by_run: Dict[str, Dict[str, Any]] = {}
-    decided_run_ids: set[str] = set()
+    in any *later* ``human_approval.granted`` / ``human_approval.rejected``
+    event after that requirement was issued.
 
-    for _line_no, event in _iter_audit_events(audit_log_path):
+    **Latest-wins semantics** (Wave 2a Round-1 review F-25-03 fix): when a
+    run is restarted with the same ``run_id`` after a prior decision —
+    e.g. a rejected run is re-staged for a second review — the latest
+    ``human_approval.required`` event reflects the current pending state
+    and earlier terminal decisions for that ``run_id`` are no longer the
+    operative status.  Mirrors :func:`._approve._find_human_approval_decision_event`'s
+    "most-recent matching event wins" semantic so the family stays
+    consistent.
+
+    Implementation: walk the log in append order, recording the latest
+    ``required`` and the latest terminal decision per ``run_id``.  A run
+    is pending iff its last ``required`` event came strictly after its
+    last terminal decision (or no terminal decision exists).  Line-number
+    fallback is used when timestamp is missing so re-imported logs without
+    timestamps still have a deterministic ordering.
+    """
+    latest_required: Dict[str, tuple[int, Dict[str, Any]]] = {}
+    latest_decision_line: Dict[str, int] = {}
+
+    for line_no, event in _iter_audit_events(audit_log_path):
         run_id = event.get("run_id")
         if not isinstance(run_id, str):
             # Required field on every approval-gate event; if missing the
@@ -119,15 +101,13 @@ def _collect_pending_runs(audit_log_path: str) -> List[Dict[str, Any]]:
             continue
         event_name = event.get("event")
         if event_name == _EVT_HUMAN_APPROVAL_REQUIRED:
-            # Keep the first (oldest) requirement event for the run.  A
-            # second `required` for the same run_id would be unusual but
-            # not malformed — we keep the first because that is the
-            # original request the operator is reviewing.
-            required_by_run.setdefault(run_id, event)
+            latest_required[run_id] = (line_no, event)
         elif event_name in _TERMINAL_DECISION_EVENTS:
-            decided_run_ids.add(run_id)
+            latest_decision_line[run_id] = line_no
 
-    pending = [event for run_id, event in required_by_run.items() if run_id not in decided_run_ids]
+    pending = [
+        event for run_id, (req_line, event) in latest_required.items() if req_line > latest_decision_line.get(run_id, 0)
+    ]
     # Newest-pending first so an operator opening the list sees the most
     # recent request at the top.  ``timestamp`` may be missing on
     # synthetic / hand-edited entries — sort missing values to the bottom.
@@ -159,8 +139,31 @@ def _staging_dir_for_event(output_dir: str, event: Dict[str, Any]) -> Optional[s
     pre-date that addition; for those we synthesise the canonical path
     ``<output_dir>/final_model.staging`` and let the caller decide whether
     to fall back when ``os.path.isdir`` is False.
+
+    **Defence in depth (Wave 2a Round-1 review fix):** when an audit log
+    lives on shared / unsigned storage, an attacker who can append events
+    could plant a ``staging_path`` value pointing outside ``output_dir``
+    (e.g. ``/etc``).  ``_staging_contents`` would then leak directory
+    listings as a tampered-audit-log oracle.  We reuse the
+    ``_staging_path_inside_output_dir`` guard Phase 9's :mod:`._approve`
+    module already ships and refuse declared paths that escape the
+    operator-supplied ``output_dir`` boundary.
     """
+    # Late import via the package facade so the helper resolves through
+    # the same monkeypatch surface tests already use for _approve.py.
+    from forgelm import cli as _cli_facade
+
     declared = event.get("staging_path")
+    if isinstance(declared, str) and declared:
+        if not _cli_facade._staging_path_inside_output_dir(declared, output_dir):
+            logger.warning(
+                "Refusing staging_path %r from audit event for output_dir %r: "
+                "resolved path escapes the output_dir boundary (audit-log tampering "
+                "guard).  Falling back to canonical final_model.staging if present.",
+                declared,
+                output_dir,
+            )
+            declared = None
     if isinstance(declared, str) and declared:
         return declared
     fallback = os.path.join(output_dir, "final_model.staging")

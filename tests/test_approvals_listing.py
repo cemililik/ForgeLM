@@ -370,3 +370,157 @@ class TestApprovalsErrorMessages:
                     _run_approvals_cmd(_build_args(output_dir, show="fg-fake00000000"), output_format="text")
         assert ei.value.code == 1
         assert "fg-fake00000000" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Wave 2a Round-1 review fixes — security + bot-suggested coverage
+# ---------------------------------------------------------------------------
+
+
+class TestApprovalsPathTraversalGuard:
+    """F-25-01: tampered audit log with staging_path outside output_dir
+    must not produce a directory-listing oracle via _staging_contents."""
+
+    def test_show_refuses_external_staging_path(self, tmp_path: Path, capsys) -> None:
+        output_dir = tmp_path / "run"
+        output_dir.mkdir()
+        # Malicious audit event: staging_path points outside output_dir.
+        _write_event(
+            output_dir / "audit_log.jsonl",
+            "human_approval.required",
+            "fg-tampered00000",
+            staging_path="/etc",  # would expose /etc listing if guard absent
+        )
+        # Provide a benign fallback so the test can verify the listing
+        # is empty (not /etc/...).
+        from forgelm.cli import _run_approvals_cmd
+
+        with pytest.raises(SystemExit):
+            _run_approvals_cmd(_build_args(output_dir, show="fg-tampered00000"), output_format="json")
+        payload = json.loads(capsys.readouterr().out)
+        # The dispatcher must NOT have leaked /etc entries into staging_contents.
+        assert all("etc" not in entry for entry in payload["staging_contents"]), (
+            f"path-traversal guard failed: leaked /etc entries: {payload['staging_contents']}"
+        )
+
+    def test_pending_refuses_external_staging_path(self, tmp_path: Path, capsys) -> None:
+        output_dir = tmp_path / "run"
+        output_dir.mkdir()
+        _write_event(
+            output_dir / "audit_log.jsonl",
+            "human_approval.required",
+            "fg-tampered00000",
+            staging_path="/etc",
+        )
+        from forgelm.cli import _run_approvals_cmd
+
+        with pytest.raises(SystemExit):
+            _run_approvals_cmd(_build_args(output_dir, pending=True), output_format="json")
+        payload = json.loads(capsys.readouterr().out)
+        # staging_path field falls back to None / canonical when the
+        # declared one is rejected; staging_exists must be False.
+        summary = payload["pending"][0]
+        assert summary["staging_exists"] is False
+        # staging_path is either None (no fallback found) or the
+        # canonical final_model.staging — never the rejected /etc.
+        assert summary["staging_path"] != "/etc"
+
+
+class TestApprovalsLatestWinsRunIdReuse:
+    """F-25-03: latest-wins semantics for re-staged runs.
+
+    A run that was rejected and then re-staged with the same run_id
+    (a second human_approval.required event) must show as PENDING
+    again; the older terminal decision is no longer operative."""
+
+    def test_re_staged_run_shows_as_pending(self, tmp_path: Path, capsys) -> None:
+        output_dir = tmp_path / "run"
+        _seed_run(output_dir, "fg-restaged00000", decision="rejected")
+        # Now re-stage: append another human_approval.required AFTER the
+        # rejection.  Latest-wins → pending again.
+        _write_event(
+            output_dir / "audit_log.jsonl",
+            "human_approval.required",
+            "fg-restaged00000",
+            staging_path=str(output_dir / "final_model.staging"),
+            metrics={"eval_loss": 0.30},
+        )
+        from forgelm.cli import _run_approvals_cmd
+
+        with pytest.raises(SystemExit):
+            _run_approvals_cmd(_build_args(output_dir, pending=True), output_format="json")
+        payload = json.loads(capsys.readouterr().out)
+        run_ids = {summary["run_id"] for summary in payload["pending"]}
+        assert "fg-restaged00000" in run_ids
+
+
+class TestApprovalsShowRejectedAndMissingStaging:
+    """Bot-suggested coverage: rejected --show + MISSING staging table."""
+
+    def test_show_rejected_run_status_rejected(self, tmp_path: Path, capsys) -> None:
+        output_dir = tmp_path / "run"
+        _seed_run(output_dir, "fg-rj0000000000", decision="rejected")
+
+        from forgelm.cli import _run_approvals_cmd
+
+        with pytest.raises(SystemExit) as ei:
+            _run_approvals_cmd(_build_args(output_dir, show="fg-rj0000000000"), output_format="json")
+        assert ei.value.code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "rejected"
+        # Two events: required + rejected.
+        assert len(payload["chain"]) == 2
+        assert payload["chain"][-1]["event"] == "human_approval.rejected"
+
+    def test_pending_table_renders_missing_when_staging_absent(self, tmp_path: Path, capsys) -> None:
+        # Seed without creating the staging directory.
+        output_dir = tmp_path / "run"
+        _seed_run(output_dir, "fg-nostaging000", create_staging=False)
+
+        from forgelm.cli import _run_approvals_cmd
+
+        with pytest.raises(SystemExit):
+            _run_approvals_cmd(_build_args(output_dir, pending=True), output_format="text")
+        out = capsys.readouterr().out
+        assert "MISSING" in out
+
+    def test_pending_empty_audit_log_json_envelope(self, tmp_path: Path, capsys) -> None:
+        output_dir = tmp_path / "run"
+        output_dir.mkdir()
+        from forgelm.cli import _run_approvals_cmd
+
+        with pytest.raises(SystemExit) as ei:
+            _run_approvals_cmd(_build_args(output_dir, pending=True), output_format="json")
+        assert ei.value.code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload == {"success": True, "pending": [], "count": 0}
+
+    def test_show_unknown_run_id_json_envelope(self, tmp_path: Path, capsys) -> None:
+        output_dir = tmp_path / "run"
+        _seed_run(output_dir, "fg-real00000000")
+
+        from forgelm.cli import _run_approvals_cmd
+
+        with pytest.raises(SystemExit) as ei:
+            _run_approvals_cmd(_build_args(output_dir, show="fg-fake00000000"), output_format="json")
+        assert ei.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["success"] is False
+        assert "fg-fake00000000" in payload["error"]
+
+    def test_show_robust_to_malformed_lines(self, tmp_path: Path, capsys) -> None:
+        # --show must skip malformed lines the same way --pending does.
+        output_dir = tmp_path / "run"
+        _seed_run(output_dir, "fg-real00000000")
+        with open(output_dir / "audit_log.jsonl", "a", encoding="utf-8") as fh:
+            fh.write("not even json\n")
+            fh.write('["array", "root"]\n')
+
+        from forgelm.cli import _run_approvals_cmd
+
+        with pytest.raises(SystemExit) as ei:
+            _run_approvals_cmd(_build_args(output_dir, show="fg-real00000000"), output_format="json")
+        assert ei.value.code == 0
+        payload = json.loads(capsys.readouterr().out)
+        # Real human_approval.required event is still surfaced.
+        assert any(e.get("event") == "human_approval.required" for e in payload["chain"])

@@ -131,6 +131,7 @@ from .subcommands._approve import (
     _resolve_approver_identity,  # noqa: F401 — re-export for tests
     _run_approve_cmd,  # noqa: F401 — re-export for tests
     _run_reject_cmd,  # noqa: F401 — re-export for tests
+    _staging_path_inside_output_dir,  # noqa: F401 — re-export for tests + _approvals reuse
 )
 
 # Audit subcommand (+ legacy --data-audit worker).
