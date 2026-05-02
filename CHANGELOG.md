@@ -13,6 +13,21 @@ All notable changes to ForgeLM are documented here.
 > Per-PR CHANGELOG entries below collapse into the v0.5.5 release
 > notes at tag time.
 
+### Added — Wave 2a / Phase 20 — GDPR right-to-erasure design
+
+- **GDPR Article 17 erasure analysis & design document** —
+  `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md` is the
+  Phase 20 deliverable: 12 sections + 11-test plan + file map that pin the
+  scope of Phase 21's `forgelm purge` implementation.  Maps every Article
+  17(1) trigger to a ForgeLM action; enumerates the seven artefact kinds
+  that may carry personal data; specifies the `RetentionConfig` Pydantic
+  block (Article 5(1)(e) storage limitation); spec'es the three new
+  audit events (`data.erasure_requested` / `data.erasure_completed` /
+  `data.erasure_failed`); resolves three Wave 1 carry-overs (GH-023, GH-013,
+  Round-5 concurrent-approve lock), six open questions; supplies the
+  marketing-claim replacement copy for `safety_compliance.md`.  No code
+  changes in this PR — design only; Phase 21 implements.
+
 ### Added — Wave 1 closure (Faz 9, 11, 12, 13, 25, 31, 32 — see PR description)
 
 - **Article 14 staging directory + `forgelm approve` / `forgelm reject` (Faz 9)** —
