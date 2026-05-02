@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import argparse
 
-from ._argparse_types import _add_common_subparser_flags, _non_negative_float, _non_negative_int
+from ._argparse_types import _add_common_subparser_flags, _non_negative_float, _non_negative_int, _positive_int
 from ._logging import _get_version
 
 
@@ -407,6 +407,21 @@ def _add_audit_subcommand(subparsers) -> None:
             "the requested language — surface it to the operator instead of silently "
             "running an English NER on a non-English corpus. Set to e.g. 'tr' on a Turkish "
             "corpus AND make sure the matching spaCy model is installed."
+        ),
+    )
+    p.add_argument(
+        "--workers",
+        type=_positive_int,
+        default=1,
+        metavar="N",
+        help=(
+            "Phase 17: number of worker processes for the split-level pipeline "
+            "(default: 1 — sequential, byte-identical to the pre-Phase-17 path). "
+            "Set to 2-4 on multi-split corpora (train / validation / test) for a "
+            "near-linear speed-up.  Speed-up scales with the number of splits, "
+            "not row count — single-split corpora ignore values > 1.  The merge "
+            "step is single-threaded so the audit JSON is byte-identical across "
+            "worker counts (determinism contract pinned by the test suite)."
         ),
     )
     _add_common_subparser_flags(p, include_output_format=True)

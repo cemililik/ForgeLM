@@ -38,6 +38,9 @@ forgelm audit data/large_corpus.jsonl --dedup-method minhash --jaccard-threshold
 
 # Phase 12: opt-in heuristic quality filter (Gopher/C4 style)
 forgelm audit data/ --quality-filter
+
+# Phase 17: split-level parallelism for multi-split corpora
+forgelm audit data/ --workers 4
 ```
 
 > **Legacy alias:** `forgelm --data-audit PATH` keeps working unchanged
@@ -479,6 +482,7 @@ forgelm audit PATH \
   [--pii-ml] \
   [--pii-ml-language LANG] \
   [--croissant] \
+  [--workers N] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```
@@ -502,6 +506,20 @@ is no flag to disable it.
 > always written to `--output` via `tempfile.NamedTemporaryFile` +
 > `os.replace` — Phase 11.5 hardening so a crashed audit can never leave
 > a half-written report on disk.
+
+`--workers N` (Phase 17) opts into split-level parallelism: each split
+runs in its own worker process inside a `multiprocessing.Pool`.  Default
+is `1` (sequential, byte-identical to the pre-Phase-17 path).  Speed-up
+scales with the number of *splits*, not with row count — a single-split
+corpus ignores values >1.  Typical multi-split runs (`train` /
+`validation` / `test`) see a near-linear speed-up at `--workers 3`.
+
+The merge step that builds the final report stays single-threaded so
+the on-disk JSON is **byte-identical** across worker counts (the only
+field that varies is `generated_at`, the wall-clock timestamp).  This
+invariant is pinned by `tests/test_data_audit_workers.py` so a CI gate
+that compares the audit-report hash across runs continues to work
+when an operator switches from `--workers 1` to `--workers 4`.
 
 The legacy `forgelm --data-audit PATH` flag is preserved as a
 deprecation alias and logs a one-line notice. Behaviour is identical;

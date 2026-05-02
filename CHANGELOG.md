@@ -13,6 +13,34 @@ All notable changes to ForgeLM are documented here.
 > Per-PR CHANGELOG entries below collapse into the v0.5.5 release
 > notes at tag time.
 
+### Added — Wave 2a / Phase 17 — `forgelm audit --workers N` determinism
+
+- **Split-level parallelism for the audit pipeline.**  `--workers N`
+  (default 1) runs each split in its own `multiprocessing.Pool` worker.
+  Speed-up scales with the number of splits — `--workers 3` on a
+  `train` / `validation` / `test` corpus typically yields a near-linear
+  speed-up.  Single-split corpora ignore values >1.
+- **Determinism contract pinned by tests.**  The merge step that
+  builds the final report stays single-threaded so
+  `data_audit_report.json` is byte-identical across worker counts (only
+  `generated_at` differs as expected).  18 tests in
+  `tests/test_data_audit_workers.py` cover: byte-identical JSON for
+  workers={1,2,4}; per-split `lang_sample` equality; identical
+  `pii_summary` / `secrets_summary` / `near_duplicate_summary` /
+  `total_samples` across worker counts; CLI `--workers 0` rejected at
+  parse time; library `audit_dataset(workers=0/-1/bool/str)` raises
+  typed `ValueError`; default-when-omitted equals `--workers 1`;
+  single-split corpus tolerates `workers > 1`.
+- **CLI exposure.**  `forgelm audit --workers N` registered on the
+  audit subparser with a new `_positive_int` argparse type validator
+  (rejects 0 / negatives at parse time).
+- New module-level helper `_process_split_for_pool` in
+  `forgelm/data_audit/_orchestrator.py` so worker pickling stays
+  spawn-method safe.
+- Operator docs updated: `docs/guides/data_audit.md` Run-it section
+  shows the `--workers 4` example, CLI reference includes the flag,
+  and a dedicated explanation of the determinism contract was added.
+
 ### Added — Wave 1 closure (Faz 9, 11, 12, 13, 25, 31, 32 — see PR description)
 
 - **Article 14 staging directory + `forgelm approve` / `forgelm reject` (Faz 9)** —

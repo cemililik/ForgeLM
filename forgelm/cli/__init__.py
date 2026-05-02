@@ -25,6 +25,7 @@ from ._argparse_types import (
     _add_common_subparser_flags,  # noqa: F401 — re-export for tests
     _non_negative_float,  # noqa: F401 — re-export for tests
     _non_negative_int,  # noqa: F401 — re-export for tests
+    _positive_int,  # noqa: F401 — re-export for tests
 )
 
 # Config loading + offline flag application (training mode).
