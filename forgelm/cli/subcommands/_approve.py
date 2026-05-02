@@ -254,7 +254,11 @@ def _run_approve_cmd(args, output_format: str) -> None:
     _idx = staging_path.rfind(_STAGING_SUFFIX)
     final_path = staging_path[:_idx] if _idx != -1 else staging_path
 
-    if not os.path.isdir(staging_path):
+    # Path-existence guards: lexists/islink instead of isdir alone so a broken
+    # symlink (target deleted but link kept) surfaces a sensible message rather
+    # than the misleading "not found" string.  Mirrors the final_path guard
+    # below for consistency.
+    if not (os.path.isdir(staging_path) or os.path.islink(staging_path)):
         _output_error_and_exit(
             output_format,
             f"Staging directory not found at {staging_path!r}. "
@@ -279,8 +283,23 @@ def _run_approve_cmd(args, output_format: str) -> None:
         )
 
     from ...compliance import AuditLogger
+    from ...config import ConfigError
 
-    audit = AuditLogger(output_dir, run_id=run_id)
+    # ``AuditLogger.__init__`` raises ``ConfigError`` when no operator identity
+    # can be resolved (no FORGELM_OPERATOR + getpass.getuser() fails + no
+    # FORGELM_ALLOW_ANONYMOUS_OPERATOR=1) — typical in CI/container envs.
+    # Catch here so the JSON output contract is preserved instead of leaking
+    # a Python traceback to stdout.
+    try:
+        audit = AuditLogger(output_dir, run_id=run_id)
+    except ConfigError as exc:
+        _output_error_and_exit(output_format, str(exc), EXIT_CONFIG_ERROR)
+    # ``approver`` records the human who ran ``forgelm approve``; this is a
+    # complement to ``audit.operator`` (the FORGELM_OPERATOR-pinned identity
+    # carried on every event for HMAC scope and chain attribution).  When
+    # FORGELM_OPERATOR is set both fields collapse to the same value; on a
+    # shared workstation they intentionally diverge so the audit answers
+    # "which pipeline ran this" *and* "which human approved it".
     approver = _cli_facade._resolve_approver_identity()
     audit.log_event(
         "human_approval.granted",
@@ -342,7 +361,8 @@ def _run_reject_cmd(args, output_format: str) -> None:
 
     staging_path = required_event.get("staging_path") or os.path.join(output_dir, f"final_model{_STAGING_SUFFIX}")
 
-    if not os.path.isdir(staging_path):
+    # See approve handler for the islink rationale (broken-symlink edge case).
+    if not (os.path.isdir(staging_path) or os.path.islink(staging_path)):
         _output_error_and_exit(
             output_format,
             f"Staging directory not found at {staging_path!r}. Nothing to reject.",
@@ -350,8 +370,13 @@ def _run_reject_cmd(args, output_format: str) -> None:
         )
 
     from ...compliance import AuditLogger
+    from ...config import ConfigError
 
-    audit = AuditLogger(output_dir, run_id=run_id)
+    # See approve handler — same operator-identity ConfigError contract.
+    try:
+        audit = AuditLogger(output_dir, run_id=run_id)
+    except ConfigError as exc:
+        _output_error_and_exit(output_format, str(exc), EXIT_CONFIG_ERROR)
     approver = _cli_facade._resolve_approver_identity()
     audit.log_event(
         "human_approval.rejected",

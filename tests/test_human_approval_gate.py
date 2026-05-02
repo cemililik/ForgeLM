@@ -402,6 +402,122 @@ class TestForgelmReject:
 
 
 # ---------------------------------------------------------------------------
+# CLI-level: terminal-decision idempotency guard (approve/reject after a prior
+# decision must refuse via _find_human_approval_decision_event regardless of
+# whether the staging directory still exists).
+# ---------------------------------------------------------------------------
+
+
+class TestDoubleDecisionGuard:
+    """Cover ``_find_human_approval_decision_event`` regression scenarios.
+
+    The earlier ``test_approve_concurrent_second_call_fails`` only exercises
+    the missing-staging guard.  The decision-event guard is the only thing
+    standing between an operator and *re-deciding* a run whose staging dir
+    survived a prior reject (the dir is preserved on reject by design).
+    """
+
+    def _seed_run(self, tmp_path: Path, run_id: str) -> Path:
+        output_dir = tmp_path / "decision_guard_run"
+        output_dir.mkdir()
+        staging_dir = output_dir / "final_model.staging"
+        staging_dir.mkdir()
+        (staging_dir / "adapter_config.json").write_text('{"r": 8}', encoding="utf-8")
+        _write_required_event(output_dir / "audit_log.jsonl", run_id, str(staging_dir))
+        return output_dir
+
+    def test_approve_after_reject_blocked_by_decision_guard(self, tmp_path: Path, monkeypatch) -> None:
+        """Reject preserves staging; a follow-up approve must hit the decision guard, not silently succeed."""
+        run_id = "fg-rejected00abc"
+        output_dir = self._seed_run(tmp_path, run_id)
+        monkeypatch.setenv("FORGELM_OPERATOR", "alice")
+
+        from forgelm.cli import _run_approve_cmd, _run_reject_cmd
+
+        args = MagicMock()
+        args.run_id = run_id
+        args.output_dir = str(output_dir)
+        args.comment = None
+
+        with patch("forgelm.cli._build_approval_notifier", return_value=MagicMock()):
+            _run_reject_cmd(args, output_format="text")
+
+        # Sanity: staging dir is preserved (reject's documented behaviour).
+        assert (output_dir / "final_model.staging").is_dir()
+
+        # Approve attempt now must fail via the decision-event guard, not the
+        # missing-staging guard (the staging dir is still there).
+        with patch("forgelm.cli._build_approval_notifier", return_value=MagicMock()):
+            with pytest.raises(SystemExit) as ei:
+                _run_approve_cmd(args, output_format="text")
+        assert ei.value.code == 1
+
+        events = _read_audit_events(output_dir / "audit_log.jsonl")
+        granted = [e for e in events if e["event"] == "human_approval.granted"]
+        assert granted == [], "approve must not write a granted event after a prior rejection"
+
+    def test_reject_after_approve_blocked_by_decision_guard(self, tmp_path: Path, monkeypatch) -> None:
+        """Approve removes staging; a follow-up reject must hit the decision guard before missing-staging."""
+        run_id = "fg-approved0abc"
+        output_dir = self._seed_run(tmp_path, run_id)
+        monkeypatch.setenv("FORGELM_OPERATOR", "alice")
+
+        from forgelm.cli import _run_approve_cmd, _run_reject_cmd
+
+        args = MagicMock()
+        args.run_id = run_id
+        args.output_dir = str(output_dir)
+        args.comment = None
+
+        with patch("forgelm.cli._build_approval_notifier", return_value=MagicMock()):
+            _run_approve_cmd(args, output_format="text")
+
+        # Sanity: approve promoted staging → final.
+        assert (output_dir / "final_model").is_dir()
+        assert not (output_dir / "final_model.staging").exists()
+
+        # Re-instate the staging dir so the decision-event guard is the one
+        # that fires (otherwise the missing-staging guard would shadow it).
+        (output_dir / "final_model.staging").mkdir()
+
+        with patch("forgelm.cli._build_approval_notifier", return_value=MagicMock()):
+            with pytest.raises(SystemExit) as ei:
+                _run_reject_cmd(args, output_format="text")
+        assert ei.value.code == 1
+
+        events = _read_audit_events(output_dir / "audit_log.jsonl")
+        rejected = [e for e in events if e["event"] == "human_approval.rejected"]
+        assert rejected == [], "reject must not write a rejected event after a prior approval"
+
+    def test_double_reject_blocked_by_decision_guard(self, tmp_path: Path, monkeypatch) -> None:
+        """Two rejects on the same run: only the first must persist a rejection event."""
+        run_id = "fg-doublereject"
+        output_dir = self._seed_run(tmp_path, run_id)
+        monkeypatch.setenv("FORGELM_OPERATOR", "alice")
+
+        from forgelm.cli import _run_reject_cmd
+
+        args = MagicMock()
+        args.run_id = run_id
+        args.output_dir = str(output_dir)
+        args.comment = None
+
+        with patch("forgelm.cli._build_approval_notifier", return_value=MagicMock()):
+            _run_reject_cmd(args, output_format="text")
+
+        # Staging is preserved by reject, so the decision-event guard is the
+        # only thing blocking a second rejection.
+        with patch("forgelm.cli._build_approval_notifier", return_value=MagicMock()):
+            with pytest.raises(SystemExit) as ei:
+                _run_reject_cmd(args, output_format="text")
+        assert ei.value.code == 1
+
+        events = _read_audit_events(output_dir / "audit_log.jsonl")
+        rejected = [e for e in events if e["event"] == "human_approval.rejected"]
+        assert len(rejected) == 1, "second reject must not append another rejection event"
+
+
+# ---------------------------------------------------------------------------
 # CLI-level: subcommand registration smoke + EXIT_AWAITING_APPROVAL contract
 # ---------------------------------------------------------------------------
 

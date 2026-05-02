@@ -1320,9 +1320,12 @@ class ForgeTrainer:
     def _export_compliance_if_needed(self, metrics: Dict[str, float], result: TrainResult) -> None:
         """Export compliance artifacts if evaluation config is present.
 
-        Produces three sibling files under ``<checkpoint_dir>/compliance/``:
+        Produces five sibling files under ``<checkpoint_dir>/compliance/``:
 
-        - ``training_manifest.json`` — Article 11 / Annex IV technical doc.
+        - ``compliance_report.json`` — Article 11 full manifest (canonical machine-readable bundle).
+        - ``training_manifest.yaml`` — operator-readable summary (consumed by
+          ``forgelm approve``'s ``_load_metrics_from_manifest``).
+        - ``data_provenance.json`` — Article 10 provenance subset.
         - ``annex_iv_metadata.json`` — flat-key Annex IV index.
         - ``data_governance_report.json`` — Article 10 data-governance evidence
           (per-split sample counts, schema, length distribution; inlines the

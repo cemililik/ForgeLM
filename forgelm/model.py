@@ -285,6 +285,8 @@ def _parse_selected_experts(experts_to_train: str, num_experts: int) -> Optional
 
 # Tracks parameter names already logged as unrecognized so repeated calls on
 # the same checkpoint don't produce a log line per-parameter.
+# Per-process state; deduplication scope is the running process only — under
+# DDP / DeepSpeed each rank holds its own copy and may emit the warning once.
 _LOGGED_UNKNOWN_EXPERT_NAMES: set = set()
 
 # Per-architecture regex registry for resolving the expert index inside an
@@ -324,7 +326,21 @@ def _expert_index_in_name(name: str, num_experts: int) -> Optional[int]:
                 return idx
             # Index outside the configured expert range — caller's
             # num_experts is wrong, or the regex caught a non-expert
-            # field whose number happens to exceed the count.
+            # field whose number happens to exceed the count.  Surface a
+            # single warning per (num_experts) so an operator with a
+            # mis-configured count notices instead of silently ending up
+            # with every expert trainable.
+            sentinel = f"_OUT_OF_RANGE_{num_experts}_"
+            if sentinel not in _LOGGED_UNKNOWN_EXPERT_NAMES:
+                _LOGGED_UNKNOWN_EXPERT_NAMES.add(sentinel)
+                logger.warning(
+                    "Expert index %d in %r exceeds configured num_experts=%d. "
+                    "Either the model's expert count was misread or this is a "
+                    "non-expert field whose suffix happens to be numeric.",
+                    idx,
+                    name,
+                    num_experts,
+                )
             return None
     if "expert" in name.lower() and "_UNKNOWN_EXPERT_LAYOUT_" not in _LOGGED_UNKNOWN_EXPERT_NAMES:
         _LOGGED_UNKNOWN_EXPERT_NAMES.add("_UNKNOWN_EXPERT_LAYOUT_")
