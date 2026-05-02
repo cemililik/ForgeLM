@@ -243,7 +243,14 @@ def _read_pdf_pages(reader: Any, path: Path) -> List[str]:
 def _extract_pdf(path: Path, *, dedup_state: Optional[Dict[str, int]] = None) -> str:
     try:
         from pypdf import PdfReader
-    except ImportError as exc:  # pragma: no cover — covered by extras
+    except ModuleNotFoundError as exc:  # pragma: no cover — covered by extras
+        # Narrow on ModuleNotFoundError + name match so we only convert
+        # genuine "extra not installed" failures.  A corrupt install or
+        # circular-import in pypdf raises a plain ImportError (or
+        # ModuleNotFoundError with a different ``name``); re-raising those
+        # preserves the original traceback for debugging.
+        if exc.name != "pypdf":
+            raise
         raise OptionalDependencyError(
             "PDF ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
         ) from exc
@@ -352,7 +359,12 @@ def _extract_docx(path: Path) -> str:
     try:
         from docx import Document
         from docx.table import Table
-    except ImportError as exc:  # pragma: no cover
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        # See PDF block above for the narrowing rationale.  ``python-docx``
+        # imports as ``docx``; ``docx.table`` is in the same package so a
+        # missing-extra failure surfaces as exc.name == "docx".
+        if exc.name not in ("docx", "docx.table"):
+            raise
         raise OptionalDependencyError(
             "DOCX ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
         ) from exc
@@ -381,7 +393,13 @@ def _extract_epub(path: Path) -> str:
     try:
         from bs4 import BeautifulSoup
         from ebooklib import ITEM_DOCUMENT, epub
-    except ImportError as exc:  # pragma: no cover
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        # See PDF block above for the narrowing rationale.  EPUB ingestion
+        # depends on ``beautifulsoup4`` (imported as ``bs4``) and
+        # ``ebooklib``; ``ebooklib.epub`` is a submodule so a missing extra
+        # surfaces as one of these three names.
+        if exc.name not in ("bs4", "ebooklib", "ebooklib.epub"):
+            raise
         raise OptionalDependencyError(
             "EPUB ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
         ) from exc

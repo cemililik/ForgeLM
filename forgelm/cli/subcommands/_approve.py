@@ -29,6 +29,28 @@ _EVT_HUMAN_APPROVAL_GRANTED = "human_approval.granted"
 _EVT_HUMAN_APPROVAL_REJECTED = "human_approval.rejected"
 
 
+def _staging_path_inside_output_dir(staging_path: str, output_dir: str) -> bool:
+    """Return True iff ``staging_path`` resolves inside ``output_dir``.
+
+    Defence-in-depth against a tampered audit log: ``staging_path`` is read
+    from ``audit_log.jsonl`` which is HMAC-signed only when
+    ``FORGELM_AUDIT_SECRET`` is set.  Without the HMAC, an attacker who can
+    rewrite the log could plant an absolute or ``..``-traversing path; this
+    helper rejects anything whose realpath escapes the operator-supplied
+    ``output_dir``.  Symlinks are honoured (``realpath`` follows them) so a
+    legitimate symlink whose target lives inside ``output_dir`` still
+    validates — only paths that *escape* the boundary are blocked.
+    """
+    real_output = os.path.realpath(output_dir)
+    real_staging = os.path.realpath(staging_path)
+    try:
+        return os.path.commonpath([real_output, real_staging]) == real_output
+    except ValueError:
+        # commonpath raises ValueError when the paths live on different
+        # drives (Windows) — treat as out-of-bounds.
+        return False
+
+
 def _resolve_approver_identity() -> str:
     """Resolve the operator identity for an approve/reject audit entry.
 
@@ -273,6 +295,15 @@ def _run_approve_cmd(args, output_format: str) -> None:
         )
 
     staging_path = required_event.get("staging_path") or os.path.join(output_dir, f"final_model{_STAGING_SUFFIX}")
+    # Defence-in-depth: refuse a staging_path that escapes output_dir (a
+    # tampered audit log without HMAC signing could otherwise plant an
+    # absolute path or ``..`` traversal).
+    if not _staging_path_inside_output_dir(staging_path, output_dir):
+        _output_error_and_exit(
+            output_format,
+            f"Refusing to act on staging_path {staging_path!r}: it resolves outside output_dir {output_dir!r}.",
+            EXIT_CONFIG_ERROR,
+        )
     # Derive final_path by stripping the staging suffix (and any runtime suffix
     # appended after it, such as ".<run_id>") from staging_path. rfind locates
     # the last occurrence of _STAGING_SUFFIX so "final_model.staging.abc123"
@@ -389,6 +420,15 @@ def _run_reject_cmd(args, output_format: str) -> None:
         )
 
     staging_path = required_event.get("staging_path") or os.path.join(output_dir, f"final_model{_STAGING_SUFFIX}")
+
+    # Same defence-in-depth check as the approve handler: refuse a
+    # staging_path that escapes output_dir.
+    if not _staging_path_inside_output_dir(staging_path, output_dir):
+        _output_error_and_exit(
+            output_format,
+            f"Refusing to act on staging_path {staging_path!r}: it resolves outside output_dir {output_dir!r}.",
+            EXIT_CONFIG_ERROR,
+        )
 
     # See approve handler for the islink rationale (broken-symlink edge case).
     if not (os.path.isdir(staging_path) or os.path.islink(staging_path)):

@@ -90,7 +90,7 @@
 ### GH-001 — `forgelm doctor`
 
 **Severity:** Critical (user-onboarding blocker)  
-**References in usermanuals:** 30 occurrences across 8 files
+**References in usermanuals:** 30 occurrences across 10 files (5 EN source pages mirrored to TR; the table below lists every entry rather than collapsing pairs)
 
 | File | Lines | Context |
 |---|---|---|

@@ -615,11 +615,17 @@ class TestCroissantFileIdReflectsRealFilename:
             "distribution.name must reference the real on-disk filename"
         )
         for filename, entry in by_name.items():
-            assert entry["contentUrl"].endswith(filename), (
-                f"contentUrl {entry['contentUrl']!r} must point at the real file {filename!r}, "
-                "not the canonical split label or the slugged @id"
+            # Compare the URL's final path segment exactly so a leaked
+            # filesystem path (``/abs/dir/dev.jsonl``) cannot pass a fuzzy
+            # ``endswith(filename)`` check.  Reject backslashes too — they
+            # would indicate a Windows-style path leak.
+            url = entry["contentUrl"]
+            assert "\\" not in url, f"contentUrl {url!r} contains a backslash (Windows path leak?)"
+            assert url.split("/")[-1] == filename, (
+                f"contentUrl {url!r} final path segment must equal {filename!r}, "
+                "not the canonical split label, the slugged @id, or a leaked absolute path"
             )
-            assert "validation" not in entry["contentUrl"], (
+            assert "validation" not in url, (
                 "contentUrl must not leak the canonical split label (e.g. 'validation' for dev.jsonl)"
             )
 
@@ -631,7 +637,10 @@ class TestCroissantFileIdReflectsRealFilename:
         self._write_jsonl(ds, [{"text": "alpha"}])
         out_dir = tmp_path / "audit"
         absolute_input = str(ds.resolve())
-        assert absolute_input.startswith("/"), "test precondition: absolute path"
+        # ``Path.is_absolute()`` is OS-neutral: ``/Users/...`` on POSIX,
+        # ``C:\Users\...`` on Windows.  ``startswith("/")`` would fail the
+        # precondition on Windows even though the path is genuinely absolute.
+        assert Path(absolute_input).is_absolute(), "test precondition: absolute path"
         with patch(
             "sys.argv",
             [

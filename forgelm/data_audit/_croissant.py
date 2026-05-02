@@ -154,11 +154,23 @@ def _build_croissant_metadata(
         # consumer-side concern).
         # ``@id`` uses the slugged column name for JSON-LD validity; ``name``
         # preserves the original so consumers can correlate back to the data.
+        # _slug is many-to-one (e.g. "a.b" and "a-b" both collapse to "a_b");
+        # without dedup two distinct columns would emit identical ``@id``s and
+        # the resulting JSON-LD would fail schema validation.  Track per-base
+        # counts and append a numeric suffix on the second+ occurrence so each
+        # field keeps a unique identifier while the first one stays clean.
         columns = info.get("columns") or []
+        slug_counts: Dict[str, int] = {}
+        unique_slugs: List[str] = []
+        for column in columns:
+            base = _slug(column, fallback="field")
+            seen = slug_counts.get(base, 0)
+            unique_slugs.append(base if seen == 0 else f"{base}-{seen}")
+            slug_counts[base] = seen + 1
         fields = [
             {
                 _JSONLD_TYPE_KEY: "cr:Field",
-                _JSONLD_ID_KEY: f"{split_id}/{_slug(column, fallback='field')}",
+                _JSONLD_ID_KEY: f"{split_id}/{unique_slug}",
                 "name": column,
                 "dataType": "sc:Text",
                 "source": {
@@ -166,7 +178,7 @@ def _build_croissant_metadata(
                     "extract": {"jsonPath": "$['" + column.replace("\\", "\\\\").replace("'", "\\'") + "']"},
                 },
             }
-            for column in columns
+            for column, unique_slug in zip(columns, unique_slugs)
         ]
         record_sets.append(
             {

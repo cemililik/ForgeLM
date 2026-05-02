@@ -5,6 +5,14 @@ from __future__ import annotations
 import json
 import sys
 
+# ``OptionalDependencyError`` MUST be imported at module load time, not inside
+# the dispatcher's try-block: if the lazy import there fails (e.g. ingestion.py
+# itself has a syntax error or a missing transitive dep), the symbol would be
+# unbound by the time Python reaches ``except OptionalDependencyError``,
+# raising NameError on top of the original failure.  The class itself is a
+# trivial ImportError subclass with no heavy dependencies, so importing it at
+# module load adds no measurable cost.
+from ...ingestion import OptionalDependencyError
 from .._exit_codes import EXIT_CONFIG_ERROR, EXIT_TRAINING_ERROR
 from .._logging import logger
 
@@ -19,7 +27,7 @@ def _run_ingest_cmd(args, output_format: str) -> None:
     secrets_mask = bool(getattr(args, "secrets_mask", False)) or all_mask
 
     try:
-        from ...ingestion import OptionalDependencyError, ingest_path, summarize_result
+        from ...ingestion import ingest_path, summarize_result
 
         result = ingest_path(
             args.input_path,

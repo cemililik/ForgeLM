@@ -101,13 +101,18 @@ def _load_quickstart_train_paths(config_path: Path) -> tuple[str, str]:
     )
 
 
-def _run_quickstart_train_subprocess(args, config_path: Path) -> None:
-    """Spawn `forgelm --config <generated>` as a child process; exit on non-zero.
+def _run_quickstart_train_subprocess(args, config_path: Path) -> int:
+    """Spawn `forgelm --config <generated>` as a child process and return a mapped exit code.
 
-    The child's raw return code is logged for debuggability but is mapped to
-    one of ForgeLM's documented exit codes (0/1/2/3/4) before propagating —
-    signal-derived codes like 137 (SIGKILL) or 139 (SIGSEGV) shouldn't leak
-    out of the public CLI contract.
+    Returns the documented public exit code (0/1/2/3/4) — never the raw
+    subprocess returncode. Signal-derived codes like 137 (SIGKILL) or 139
+    (SIGSEGV) collapse to ``EXIT_TRAINING_ERROR`` so they do not leak out
+    of the public CLI contract.
+
+    Returning instead of calling ``sys.exit`` lets the parent dispatcher
+    own the JSON failure envelope: a JSON consumer must see one structured
+    ``{"success": false, ...}`` document on stdout, not an unannotated
+    non-zero exit + bare log line.
     """
     import subprocess  # nosec B404 — argv-list usage only
 
@@ -126,11 +131,11 @@ def _run_quickstart_train_subprocess(args, config_path: Path) -> None:
         train_rc = subprocess.run(train_cmd, check=False).returncode  # noqa: S603  # nosec B603
     except OSError as exc:
         logger.error("Failed to launch training subprocess: %s", exc)
-        sys.exit(EXIT_TRAINING_ERROR)
+        return EXIT_TRAINING_ERROR
     if train_rc != 0:
         logger.error("Training exited with code %d", train_rc)
-        exit_code = train_rc if train_rc in _PUBLIC_EXIT_CODES else EXIT_TRAINING_ERROR
-        sys.exit(exit_code)
+        return train_rc if train_rc in _PUBLIC_EXIT_CODES else EXIT_TRAINING_ERROR
+    return EXIT_SUCCESS
 
 
 def _run_quickstart_chat_subprocess(args, config_path: Path) -> None:
@@ -170,20 +175,33 @@ def _run_quickstart_chat_subprocess(args, config_path: Path) -> None:
         logger.warning("Chat subprocess exited with code %d", chat_rc)
 
 
-def _run_quickstart_train_then_chat(args, result) -> None:
+def _run_quickstart_train_then_chat(args, result, output_format: str) -> None:
     """Run training then (unless --no-chat) auto-launch the chat REPL.
 
     Extracted from ``_run_quickstart_cmd`` so the dispatcher stays a flat
-    sequence of steps. ``_run_quickstart_train_subprocess`` exits on
-    non-zero training rc; if it returns we know training succeeded, so the
-    chat branch is reachable without an explicit success check.
-
-    Returns normally on success so callers can emit a final JSON result
-    after training completes.
+    sequence of steps.  When training fails, emit the JSON failure envelope
+    (so machine consumers see a structured error) and exit with the mapped
+    code; when training succeeds, return so the caller can emit the success
+    envelope.
     """
     # Spec: invoke training automatically. Use a subprocess so each phase keeps
     # its own clean process state and Ctrl-C is honoured cleanly.
-    _run_quickstart_train_subprocess(args, result.config_path)
+    train_rc = _run_quickstart_train_subprocess(args, result.config_path)
+    if train_rc != EXIT_SUCCESS:
+        if output_format == "json":
+            print(
+                json.dumps(
+                    {
+                        "success": False,
+                        "error": f"Training subprocess failed with exit code {train_rc}.",
+                        "exit_code": train_rc,
+                        "template": result.template.name,
+                        "config_path": str(result.config_path),
+                    },
+                    indent=2,
+                )
+            )
+        sys.exit(train_rc)
 
     if args.no_chat:
         return
@@ -245,7 +263,7 @@ def _run_quickstart_cmd(args, output_format: str) -> None:
             _emit_quickstart_result(result, output_format)
         sys.exit(EXIT_SUCCESS)
 
-    _run_quickstart_train_then_chat(args, result)
+    _run_quickstart_train_then_chat(args, result, output_format)
 
     # Training + chat completed without error.  Emit JSON summary now that
     # outcome is confirmed; text mode already emitted above.
