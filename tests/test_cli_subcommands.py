@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 import pytest
 import yaml
-from conftest import minimal_config as _minimal_config
 
 from forgelm.cli import (
     EXIT_CONFIG_ERROR,
@@ -18,8 +17,8 @@ from forgelm.config import ForgeConfig
 
 
 class TestComplianceExportCLI:
-    def test_compliance_export_creates_files(self, tmp_path):
-        config = ForgeConfig(**_minimal_config())
+    def test_compliance_export_creates_files(self, tmp_path, minimal_config):
+        config = ForgeConfig(**minimal_config())
         output_dir = str(tmp_path / "compliance")
         _run_compliance_export(config, output_dir, "text")
 
@@ -27,8 +26,8 @@ class TestComplianceExportCLI:
         assert os.path.isfile(os.path.join(output_dir, "training_manifest.yaml"))
         assert os.path.isfile(os.path.join(output_dir, "data_provenance.json"))
 
-    def test_compliance_export_json_output(self, tmp_path, capsys):
-        config = ForgeConfig(**_minimal_config())
+    def test_compliance_export_json_output(self, tmp_path, capsys, minimal_config):
+        config = ForgeConfig(**minimal_config())
         output_dir = str(tmp_path / "compliance")
         _run_compliance_export(config, output_dir, "json")
 
@@ -37,11 +36,11 @@ class TestComplianceExportCLI:
         assert result["success"] is True
         assert len(result["files"]) == 3
 
-    def test_compliance_export_via_main(self, tmp_path):
+    def test_compliance_export_via_main(self, tmp_path, minimal_config):
         cfg_path = str(tmp_path / "config.yaml")
         output_dir = str(tmp_path / "audit")
         with open(cfg_path, "w") as f:
-            yaml.dump(_minimal_config(), f)
+            yaml.dump(minimal_config(), f)
 
         with patch("sys.argv", ["forgelm", "--config", cfg_path, "--compliance-export", output_dir]):
             with pytest.raises(SystemExit) as exc_info:
@@ -52,19 +51,19 @@ class TestComplianceExportCLI:
 
 
 class TestMergeCLI:
-    def test_merge_without_config_exits(self, tmp_path):
+    def test_merge_without_config_exits(self, tmp_path, minimal_config):
         cfg_path = str(tmp_path / "config.yaml")
         with open(cfg_path, "w") as f:
-            yaml.dump(_minimal_config(), f)
+            yaml.dump(minimal_config(), f)
 
         with patch("sys.argv", ["forgelm", "--config", cfg_path, "--merge"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == EXIT_CONFIG_ERROR
 
-    def test_merge_with_disabled_config_exits(self, tmp_path):
+    def test_merge_with_disabled_config_exits(self, tmp_path, minimal_config):
         cfg_path = str(tmp_path / "config.yaml")
-        data = _minimal_config(merge={"enabled": False})
+        data = minimal_config(merge={"enabled": False})
         with open(cfg_path, "w") as f:
             yaml.dump(data, f)
 
@@ -137,6 +136,46 @@ class TestAuditSubcommand:
             assert exc_info.value.code == EXIT_SUCCESS
 
         # Same on-disk product as the subcommand path.
+        assert (out_dir / "data_audit_report.json").is_file()
+
+    def test_legacy_data_audit_flag_emits_deprecation_warning_and_audit_event(self, tmp_path):
+        """Phase 13 (Faz 13) — `--data-audit` is a documented deprecation path.
+
+        Verifies three contract points the deprecation must satisfy:
+          1. A real ``DeprecationWarning`` fires (so `python -Wd` / CI
+             warning gates surface it).
+          2. The append-only audit log records `cli.legacy_flag_invoked`
+             with the documented payload (flag / replacement / version).
+          3. The deprecated invocation still completes successfully — the
+             warning is informational, never aborts the run.
+        """
+        data_path = tmp_path / "data.jsonl"
+        self._make_jsonl(data_path, [{"text": "deprecation contract probe"}])
+        out_dir = tmp_path / "audit"
+
+        with patch(
+            "sys.argv",
+            ["forgelm", "--data-audit", str(data_path), "--output", str(out_dir)],
+        ):
+            with pytest.warns(DeprecationWarning, match=r"--data-audit"):
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+            # Contract point #3: deprecated path must still exit 0.
+            assert exc_info.value.code == EXIT_SUCCESS
+
+        # Contract point #2: audit log carries the legacy-flag breadcrumb.
+        audit_log_path = out_dir / "audit_log.jsonl"
+        assert audit_log_path.is_file(), "legacy flag should produce an audit_log.jsonl entry"
+        events = [json.loads(line) for line in audit_log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        legacy_events = [e for e in events if e.get("event") == "cli.legacy_flag_invoked"]
+        assert len(legacy_events) == 1, f"expected exactly one legacy-flag event, got {legacy_events}"
+        evt = legacy_events[0]
+        assert evt["flag"] == "--data-audit"
+        assert evt["replacement"] == "forgelm audit"
+        assert evt["version"] == "v0.7.0 removal"
+
+        # Sanity: the deprecated path still produced the report — the
+        # warning is purely informational.
         assert (out_dir / "data_audit_report.json").is_file()
 
     def test_audit_quality_filter_flag(self, tmp_path):

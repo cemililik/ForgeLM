@@ -35,9 +35,9 @@ Hash zinciri, satır diske düştükten (`flush` + `fsync`) sonra ilerler; kirli
 
 | Event                        | Ne zaman emit edilir                                                                                             | Payload                                              | Madde |
 |------------------------------|-------------------------------------------------------------------------------------------------------------------|------------------------------------------------------|-------|
-| `human_approval.required`    | `requires_human_approval: true` işaretli bir kapı pipeline'ı duraklatıp operatör kararını bekler.                | `gate`, `reason`, `metrics`                          | 14    |
-| `human_approval.granted`     | Operatör duraklatılan kapıyı onayladı. _(Faz 9 — placeholder; henüz emit edilmiyor.)_                            | `gate`, `approver`, `comment`                        | 14    |
-| `human_approval.rejected`    | Operatör duraklatılan kapıyı reddetti. _(Faz 9 — placeholder; henüz emit edilmiyor.)_                            | `gate`, `approver`, `comment`                        | 14    |
+| `human_approval.required`    | `requires_human_approval: true` işaretli bir kapı pipeline'ı duraklatıp operatör kararını bekler.                | `gate`, `reason`, `metrics`, `staging_path`, `run_id`                    | 14    |
+| `human_approval.granted`     | Operatör duraklatılan kapıyı `forgelm approve` ile onayladı.                                                     | `gate`, `approver`, `comment`, `run_id`, `promote_strategy`              | 14    |
+| `human_approval.rejected`    | Operatör duraklatılan kapıyı `forgelm reject` ile reddetti.                                                      | `gate`, `approver`, `comment`, `run_id`, `staging_path`                  | 14    |
 
 ### Madde 15 — Model Bütünlüğü (auto-revert + güvenlik)
 
@@ -58,7 +58,7 @@ Hash zinciri, satır diske düştükten (`flush` + `fsync`) sonra ilerler; kirli
 
 | Event                       | Ne zaman emit edilir                                                                                  | Payload                          | Madde |
 |-----------------------------|--------------------------------------------------------------------------------------------------------|----------------------------------|-------|
-| `cli.legacy_flag_invoked`   | Deprecated bir CLI flag'i kullanıldı. _(Faz 13 — placeholder; henüz emit edilmiyor.)_                  | `flag`, `replacement`, `version` | 12    |
+| `cli.legacy_flag_invoked`   | Deprecated bir CLI flag'i kullanıldı (örn. `--data-audit`).                                            | `flag`, `replacement`, `version` | 12    |
 
 ### Audit-sistem event'leri (meta)
 

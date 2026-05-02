@@ -69,7 +69,7 @@ class TestGaloreConfig:
             assert config.training.galore_optim == optim
 
     def test_galore_invalid_optim_raises(self):
-        with pytest.raises(ValueError, match="Invalid galore_optim"):
+        with pytest.raises(ValueError, match="galore_optim"):
             _config(training={"galore_enabled": True, "galore_optim": "invalid_optim"})
 
     def test_galore_with_lora_is_valid(self):

@@ -93,6 +93,8 @@ def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: 
         "max_tokens": 200,
     }
 
+    import requests
+
     try:
         response = safe_post(url, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
@@ -108,7 +110,13 @@ def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: 
     except json.JSONDecodeError as e:
         logger.warning("API judge returned invalid JSON: %s", e)
         return {"score": None, "reason": f"Invalid JSON from API: {e}"}
-    except Exception as e:
+    except (requests.RequestException, KeyError, IndexError, TypeError, ValueError) as e:
+        # requests.RequestException: HTTPError (4xx/5xx via raise_for_status),
+        # ConnectionError, Timeout, SSLError. KeyError/IndexError: provider
+        # response shape drift on choices[0].message.content. TypeError /
+        # ValueError: response.json() returning non-subscriptable payloads.
+        # Per-prompt transient errors are surfaced as score=None so the
+        # surrounding loop can keep going.
         logger.warning("API judge call failed: %s", e)
         return {"score": None, "reason": f"API error: {e}"}
 
@@ -124,7 +132,12 @@ def _call_local_judge(prompt: str, model: Any, tokenizer: Any) -> Dict[str, Any]
             outputs = model.generate(**inputs, max_new_tokens=200, do_sample=False)
         response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
         return _parse_judge_json(response)
-    except Exception as e:
+    except (RuntimeError, ValueError, TypeError, IndexError, KeyError) as e:
+        # Tokenizer + generate boundary, mirroring _generate_response.
+        # RuntimeError covers CUDA OOM / driver errors, ValueError /
+        # TypeError cover bad-shape inputs, IndexError covers oversize
+        # sequences, KeyError covers BatchEncoding key drift. Per-prompt
+        # failure becomes score=None so the loop continues.
         logger.warning("Local judge evaluation failed: %s", e)
         return {"score": None, "reason": f"Local judge error: {e}"}
 
@@ -165,7 +178,12 @@ def _generate_response(model: Any, tokenizer: Any, prompt: str, max_new_tokens: 
         with _torch.no_grad():
             outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
         return tokenizer.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
-    except Exception as e:
+    except (RuntimeError, ValueError, TypeError, IndexError, KeyError) as e:
+        # Tokenizer + generate boundary. RuntimeError covers CUDA OOM /
+        # driver errors, ValueError/TypeError cover bad-shape inputs,
+        # IndexError covers oversize sequences, KeyError covers
+        # BatchEncoding key drift. Empty response is the documented
+        # fallback so one bad prompt never blanks out the whole batch.
         logger.warning("Failed to generate response: %s", e)
         return ""
 
@@ -210,7 +228,10 @@ def _generate_batch_with_oom_retry(
         except RuntimeError:
             pass
         return [_generate_response(model, tokenizer, p, max_new_tokens) for p in batch]
-    except Exception as e:
+    except (RuntimeError, ValueError, TypeError, IndexError, KeyError) as e:
+        # Non-OOM batch failure — fall back to per-prompt so a single
+        # malformed input can't blank out the whole batch. Same boundary
+        # as _generate_response but at the batched-padding layer.
         logger.warning(
             "Judge-generation batch failed (start=%d, size=%d), retrying per-prompt: %s",
             batch_start,
@@ -351,7 +372,7 @@ def run_judge_evaluation(
     if not is_api_judge:
         try:
             local_judge_model, local_judge_tokenizer = _load_local_judge(judge_model)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort: HF AutoModel/AutoTokenizer load surface raises a wide error tail (OSError for filesystem/repo, ValueError for config drift, RuntimeError for dtype/device, ImportError for missing extras, HuggingFace-specific repo errors). The JudgeResult(passed=False) return is the documented hard-failure surface so the caller can react.  # NOSONAR
             logger.error("Failed to load local judge model: %s", e)
             return JudgeResult(passed=False, failure_reason=f"Judge model load failed: {e}")
 

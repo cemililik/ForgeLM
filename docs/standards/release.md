@@ -122,12 +122,15 @@ Done manually by the maintainer (or a bot when automated):
 
 ### Automated (by `publish.yml`)
 
-On tag push matching `v*`:
+On tag push matching `v*` the workflow chains three jobs (full description
+under [Release prep workflow](#release-prep-workflow) below):
 
-1. Build wheel and sdist (`python -m build`).
-2. Verify with `twine check`.
-3. Publish to PyPI using OIDC trusted publishing (no API key needed).
-4. Create GitHub Release with auto-extracted changelog excerpt.
+1. **`build`** — produce wheel + sdist, verify with `twine check`, upload
+   as the `dist` artifact.
+2. **`cross-os-tests`** — 3 OS × 4 Python = 12 combos install the packaged
+   wheel (not editable), run pytest, generate a per-combo CycloneDX SBOM.
+3. **`publish`** — OIDC trusted publishing to PyPI; only runs after every
+   matrix combo is green.
 
 ### After the release
 
@@ -137,6 +140,102 @@ On tag push matching `v*`:
 4. [ ] Open a new `[Unreleased]` section in `CHANGELOG.md` for the next cycle.
 5. [ ] Bump `pyproject.toml` version to next pre-release (`0.4.1rc1`).
 6. [ ] Update [marketing/marketing_strategy_roadmap.md](../marketing/marketing_strategy_roadmap.md) metrics row.
+
+## Release prep workflow
+
+The release pipeline is a single GitHub Actions workflow,
+[`.github/workflows/publish.yml`](../../.github/workflows/publish.yml). It
+fires when a tag matching `v*` is pushed (e.g. `v0.5.0`, `v0.5.1rc1`) and
+chains three jobs whose `needs:` dependencies form a strict DAG.
+
+### Trigger
+
+```yaml
+on:
+  push:
+    tags: ['v*']
+```
+
+Pushing the tag is the contract — no manual `workflow_dispatch`, no
+release-event listener. The same procedure works whether you tag locally
+and `git push --tags` or cut the tag from the GitHub Releases UI.
+
+### Job 1 — `build` (`ubuntu-latest`, Python 3.11)
+
+Runs `python -m build` to produce both `dist/*.whl` and `dist/*.tar.gz`,
+then `twine check dist/*` to validate metadata, then uploads `dist/` as a
+workflow artifact named `dist`. Subsequent jobs download this same
+artifact rather than rebuilding, so every matrix combo and the publish
+step exercise byte-identical files.
+
+### Job 2 — `cross-os-tests` (matrix: 3 OS × 4 Python = 12 combos)
+
+`needs: build`. Strategy:
+
+```yaml
+fail-fast: false
+matrix:
+  os: [ubuntu-latest, macos-latest, windows-latest]
+  python: ['3.10', '3.11', '3.12', '3.13']
+```
+
+`fail-fast: false` is deliberate — one Python version blowing up on one
+OS must not abort the other 11 combos, otherwise the matrix loses its job
+as a breadth probe.
+
+Each combo:
+
+1. Downloads the `dist` artifact.
+2. Installs the wheel via `python -m pip install dist/*.whl` — **packaged
+   wheel, not editable**. This is the load-bearing detail. An editable
+   install (`pip install -e .`) does not exercise wheel build, package
+   data inclusion, console-script generation, or cross-OS path handling.
+   By installing the same wheel that PyPI users will pull we guarantee
+   that what passes here is what they get.
+3. On Linux only, additionally installs `forgelm[qlora,ingestion,eval]`
+   to cover the heaviest extras path. `qlora` pulls `bitsandbytes`, which
+   only ships Linux wheels — we never claim Windows / macOS support for
+   that extra.
+4. Runs `pytest tests/ -q --ignore=tests/test_cost_estimation.py`. The
+   cost-estimation test is excluded because its pricing fixture drifts on
+   a different cadence than the release matrix; a stale fixture would
+   break the chain for reasons unrelated to packaging health.
+5. Generates a CycloneDX 1.5 SBOM via `python tools/generate_sbom.py`,
+   redirected to `sbom-${{ matrix.os }}-py${{ matrix.python }}.json`.
+6. Uploads each SBOM as its own artifact — 12 per release tag, retained
+   alongside the workflow run for downstream supply-chain audits.
+
+All steps that may run on Windows declare `shell: bash` so the same
+script fragments work on Linux, macOS, and Windows runners (Windows
+defaults to PowerShell otherwise).
+
+### Job 3 — `publish` (`ubuntu-latest`, environment: `pypi`)
+
+`needs: cross-os-tests`. Downloads the `dist` artifact and hands it to
+[`pypa/gh-action-pypi-publish@release/v1`](https://github.com/pypa/gh-action-pypi-publish).
+Authentication is OIDC trusted publishing — no PyPI API token is stored;
+GitHub Actions mints a short-lived token scoped to the `pypi` environment.
+The job sets `permissions: { id-token: write, contents: read }`; nothing
+else is granted.
+
+The `pypi` GitHub environment is configured in repository settings to
+require manual approval for production tags if extra control is wanted;
+the workflow itself does not gate beyond the `needs:` chain.
+
+### Failure semantics
+
+The `needs:` chain is the safety net:
+
+- If `build` fails → neither `cross-os-tests` nor `publish` runs.
+- If **any** `cross-os-tests` combo fails (with `fail-fast: false`, the
+  other 11 still run so the failure surface is visible) → `publish` does
+  not run. Nothing reaches PyPI.
+- The tag remains in git either way; re-running the workflow after a fix
+  is the recovery path, not deleting + recreating the tag.
+
+This is by design: a release that ships only on Linux/3.11 because the
+3.13 wheel was broken would silently degrade users on the un-tested
+combos. Packaging hygiene is gated, not advisory.
 
 ## Release cadence
 

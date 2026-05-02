@@ -47,6 +47,18 @@ logger = logging.getLogger("forgelm.ingestion")
 SUPPORTED_EXTENSIONS: Tuple[str, ...] = (".pdf", ".docx", ".epub", ".txt", ".md")
 
 
+class OptionalDependencyError(ImportError):
+    """Raised when an optional ingestion extra (PDF / DOCX / EPUB) is missing.
+
+    Subclasses :class:`ImportError` so existing call sites that catch the
+    broader class keep working, while CLI dispatchers can opt into the narrower
+    type to distinguish operator-actionable "install the extra" failures from
+    genuine import bugs inside ``forgelm`` itself (which should propagate with
+    their original traceback rather than be swallowed and re-emitted as a
+    generic install hint).
+    """
+
+
 CHUNK_STRATEGIES: Tuple[str, ...] = ("sliding", "paragraph", "markdown", "semantic")
 
 # Validation messages — pinned as module constants so ruff / SonarCloud
@@ -231,8 +243,15 @@ def _read_pdf_pages(reader: Any, path: Path) -> List[str]:
 def _extract_pdf(path: Path, *, dedup_state: Optional[Dict[str, int]] = None) -> str:
     try:
         from pypdf import PdfReader
-    except ImportError as exc:  # pragma: no cover — covered by extras
-        raise ImportError(
+    except ModuleNotFoundError as exc:  # pragma: no cover — covered by extras
+        # Narrow on ModuleNotFoundError + name match so we only convert
+        # genuine "extra not installed" failures.  A corrupt install or
+        # circular-import in pypdf raises a plain ImportError (or
+        # ModuleNotFoundError with a different ``name``); re-raising those
+        # preserves the original traceback for debugging.
+        if exc.name != "pypdf":
+            raise
+        raise OptionalDependencyError(
             "PDF ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
         ) from exc
 
@@ -340,8 +359,13 @@ def _extract_docx(path: Path) -> str:
     try:
         from docx import Document
         from docx.table import Table
-    except ImportError as exc:  # pragma: no cover
-        raise ImportError(
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        # See PDF block above for the narrowing rationale.  ``python-docx``
+        # imports as ``docx``; ``docx.table`` is in the same package so a
+        # missing-extra failure surfaces as exc.name == "docx".
+        if exc.name not in ("docx", "docx.table"):
+            raise
+        raise OptionalDependencyError(
             "DOCX ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
         ) from exc
 
@@ -369,8 +393,14 @@ def _extract_epub(path: Path) -> str:
     try:
         from bs4 import BeautifulSoup
         from ebooklib import ITEM_DOCUMENT, epub
-    except ImportError as exc:  # pragma: no cover
-        raise ImportError(
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        # See PDF block above for the narrowing rationale.  EPUB ingestion
+        # depends on ``beautifulsoup4`` (imported as ``bs4``) and
+        # ``ebooklib``; ``ebooklib.epub`` is a submodule so a missing extra
+        # surfaces as one of these three names.
+        if exc.name not in ("bs4", "ebooklib", "ebooklib.epub"):
+            raise
+        raise OptionalDependencyError(
             "EPUB ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
         ) from exc
 

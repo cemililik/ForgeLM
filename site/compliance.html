@@ -10,10 +10,14 @@
   <meta property="og:title" data-i18n-attr="content:meta.title.compliance" content="Compliance — ForgeLM">
   <meta property="og:description" data-i18n-attr="content:meta.desc.compliance" content="EU AI Act compliance wired into ForgeLM.">
   <meta property="og:type" content="website">
-  <meta property="og:image" content="https://YOUR_DOMAIN/assets/og.png">
-  <meta property="og:url" content="https://YOUR_DOMAIN/compliance.html">
+  <meta property="og:image" content="https://forgelm.dev/assets/og.png">
+  <meta property="og:url" content="https://forgelm.dev/compliance.html">
   <meta property="og:locale" content="en_US">
-  <link rel="canonical" href="https://YOUR_DOMAIN/compliance.html">
+  <meta property="og:locale:alternate" content="tr_TR">
+  <link rel="alternate" hreflang="en" href="https://forgelm.dev/compliance.html">
+  <link rel="alternate" hreflang="tr" href="https://forgelm.dev/compliance.html">
+  <link rel="alternate" hreflang="x-default" href="https://forgelm.dev/compliance.html">
+  <link rel="canonical" href="https://forgelm.dev/compliance.html">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="icon" href="favicon.ico">
@@ -164,6 +168,10 @@
         </div>
         <pre class="code-block-body">artifacts/
 ├── annex_iv_metadata.json         <span class="comment"># Article 11 technical documentation (flat JSON, not Markdown)</span>
+├── compliance_report.json         <span class="comment"># Full Article 9-17 manifest — superset of the per-artefact files</span>
+├── training_manifest.yaml         <span class="comment"># Human-readable summary (model, data, params, final metrics)</span>
+├── data_provenance.json           <span class="comment"># Data lineage extracted from the manifest (Article 10)</span>
+├── risk_assessment.json           <span class="comment"># Article 9 risk-management output (when risk fields are set)</span>
 ├── audit_log.jsonl                <span class="comment"># Article 12 append-only event log</span>
 ├── audit_log.jsonl.manifest.json  <span class="comment"># SHA-256 sidecar over the audit log</span>
 ├── data_audit_report.json         <span class="comment"># Article 10 data governance — quality/PII/bias scan</span>

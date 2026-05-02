@@ -3,8 +3,9 @@
 These tests cover three defects fixed in :func:`forgelm.cli._run_quickstart_cmd`:
 
 1. ``--offline`` was not propagated to the child training / chat subprocesses.
-2. ``--output-format json`` was forwarded to the interactive chat REPL where
-   it has no consumer.
+2. ``--output-format json`` was forwarded to the training and chat subprocesses,
+   producing two top-level JSON objects on stdout (unparseable by any JSON consumer).
+   The quickstart parent now owns the JSON envelope; neither subprocess receives it.
 3. The chat subprocess return code was silently swallowed.
 
 Pattern (re-usable by other agents):
@@ -131,9 +132,14 @@ class TestOfflinePropagation:
 # ---------------------------------------------------------------------------
 
 
-class TestOutputFormatNotForwardedToChat:
-    def test_json_forwarded_to_train_only(self, tmp_path, fake_train_paths):
-        """JSON output is fine for the training child but meaningless for chat."""
+class TestOutputFormatNotForwardedToSubprocesses:
+    def test_json_not_forwarded_to_either_subprocess(self, tmp_path, fake_train_paths):
+        """--output-format json must not reach either subprocess.
+
+        The quickstart parent owns the JSON envelope. Forwarding to the training
+        child would produce two top-level JSON objects on stdout, making the stream
+        unparseable. Forwarding to chat is equally wrong (REPL has no JSON consumer).
+        """
         config_out = tmp_path / "cfg.yaml"
         recorder = _RunRecorder()
         argv = [
@@ -150,14 +156,8 @@ class TestOutputFormatNotForwardedToChat:
         assert len(recorder.calls) == 2
         train_argv, chat_argv = recorder.calls
 
-        # Training child: JSON propagates so the CI/CD pipeline still gets
-        # machine-readable status from the actual training run.
-        assert "--output-format" in train_argv
-        json_idx = train_argv.index("--output-format")
-        assert train_argv[json_idx + 1] == "json"
-
-        # Chat child: --output-format must be absent. The REPL is interactive
-        # and has no consumer for JSON-shaped events.
+        assert "--output-format" not in train_argv
+        assert "json" not in train_argv
         assert "--output-format" not in chat_argv
         assert "json" not in chat_argv
 

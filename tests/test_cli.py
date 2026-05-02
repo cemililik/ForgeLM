@@ -21,15 +21,6 @@ from forgelm.cli import (
 from forgelm.config import ForgeConfig
 
 
-def _minimal_config_dict():
-    return {
-        "model": {"name_or_path": "org/model"},
-        "lora": {},
-        "training": {},
-        "data": {"dataset_name_or_path": "org/dataset"},
-    }
-
-
 class TestExitCodes:
     def test_exit_code_values(self):
         assert EXIT_SUCCESS == 0
@@ -57,12 +48,12 @@ class TestSetupLogging:
 
 
 class TestDryRun:
-    def test_dry_run_text_format(self):
-        config = ForgeConfig(**_minimal_config_dict())
+    def test_dry_run_text_format(self, minimal_config):
+        config = ForgeConfig(**minimal_config())
         _run_dry_run(config, "text")
 
-    def test_dry_run_json_format(self, capsys):
-        config = ForgeConfig(**_minimal_config_dict())
+    def test_dry_run_json_format(self, capsys, minimal_config):
+        config = ForgeConfig(**minimal_config())
         _run_dry_run(config, "json")
         captured = capsys.readouterr()
         result = json.loads(captured.out)
@@ -70,26 +61,26 @@ class TestDryRun:
         assert result["model"] == "org/model"
         assert result["offline"] is False
 
-    def test_dry_run_with_evaluation(self):
-        data = _minimal_config_dict()
+    def test_dry_run_with_evaluation(self, minimal_config):
+        data = minimal_config()
         data["evaluation"] = {"auto_revert": True, "max_acceptable_loss": 2.0}
         config = ForgeConfig(**data)
         _run_dry_run(config, "text")
 
-    def test_dry_run_with_webhook(self):
-        data = _minimal_config_dict()
+    def test_dry_run_with_webhook(self, minimal_config):
+        data = minimal_config()
         data["webhook"] = {"url": "https://example.com/hook"}
         config = ForgeConfig(**data)
         _run_dry_run(config, "text")
 
-    def test_dry_run_trust_remote_code_warning(self):
-        data = _minimal_config_dict()
+    def test_dry_run_trust_remote_code_warning(self, minimal_config):
+        data = minimal_config()
         data["model"]["trust_remote_code"] = True
         config = ForgeConfig(**data)
         _run_dry_run(config, "text")
 
-    def test_dry_run_offline_mode(self, capsys):
-        data = _minimal_config_dict()
+    def test_dry_run_offline_mode(self, capsys, minimal_config):
+        data = minimal_config()
         data["model"]["offline"] = True
         config = ForgeConfig(**data)
         _run_dry_run(config, "json")
@@ -133,20 +124,20 @@ class TestMainEntrypoint:
                 main()
             assert exc_info.value.code == EXIT_CONFIG_ERROR
 
-    def test_dry_run_exits_success(self, tmp_path):
+    def test_dry_run_exits_success(self, tmp_path, minimal_config):
         cfg_path = str(tmp_path / "config.yaml")
         with open(cfg_path, "w") as f:
-            yaml.dump(_minimal_config_dict(), f)
+            yaml.dump(minimal_config(), f)
 
         with patch("sys.argv", ["forgelm", "--config", cfg_path, "--dry-run"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == EXIT_SUCCESS
 
-    def test_dry_run_json_output(self, tmp_path, capsys):
+    def test_dry_run_json_output(self, tmp_path, capsys, minimal_config):
         cfg_path = str(tmp_path / "config.yaml")
         with open(cfg_path, "w") as f:
-            yaml.dump(_minimal_config_dict(), f)
+            yaml.dump(minimal_config(), f)
 
         with patch("sys.argv", ["forgelm", "--config", cfg_path, "--dry-run", "--output-format", "json"]):
             with pytest.raises(SystemExit) as exc_info:
@@ -168,10 +159,10 @@ class TestMainEntrypoint:
         assert result["success"] is False
         assert "error" in result
 
-    def test_offline_flag_sets_env(self, tmp_path):
+    def test_offline_flag_sets_env(self, tmp_path, minimal_config):
         cfg_path = str(tmp_path / "config.yaml")
         with open(cfg_path, "w") as f:
-            yaml.dump(_minimal_config_dict(), f)
+            yaml.dump(minimal_config(), f)
 
         with patch("sys.argv", ["forgelm", "--config", cfg_path, "--dry-run", "--offline"]):
             with pytest.raises(SystemExit):

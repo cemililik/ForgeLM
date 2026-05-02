@@ -36,7 +36,7 @@ ForgeLM, LLM ince ayarını (fine-tuning) **güvenli, denetlenebilir ve tekrarla
   - Mad. 14 İnsan Gözetimi → `require_human_approval: true` + çıkış kodu 4
   - Mad. 15 Doğruluk ve Sağlamlık → `model_integrity.json` + güvenlik değerlendirme sonuçları
 - **Müdahaleye dayanıklı denetim günlüğü**: SHA-256 zinciri — her kayıt bir öncekinin hash'ini içerir; silme veya değiştirme tespit edilebilir
-- **İnsan onayı kapısı**: Çıkış kodu 4, CI/CD orchestrator'larına "insan onayı bekleniyor" sinyali verir — özel pipeline mantığı gerekmez
+- **İnsan onayı kapısı**: Çıkış kodu 4, CI/CD orchestrator'larına "insan onayı bekleniyor" sinyali verir; nihai model `final_model.staging/` dizinine iner — operatörler `forgelm approve <run_id>` ile promote eder (atomik rename → `final_model/`) veya `forgelm reject <run_id>` ile reddeder; her iki karar da denetim zincirine işlenir
 
 ### 3. Config-Tabanlı CI/CD
 
@@ -65,7 +65,7 @@ ForgeLM'in temel mimari kimliği: bir YAML dosyası bir eğitim çalışmasını
 
 **Profil:** Bankacılık, sağlık, savunma, kamu. Tescilli veriyi harici API'lere gönderemez. EU AI Act (AB), KVKK/BDDK (Türkiye), HIPAA (ABD) veya eşdeğer düzenlemelere tabidir. Tam denetim izleriyle şirket içi veya izole ortamda çalışmayı gerektirir.
 
-**ForgeLM'i neden seçerler:** Tam EU AI Act compliance kanıt paketini otomatik üreten tek ince ayar aracı. Şirket içi Docker dağıtımı. `trust_remote_code: false` varsayılan. İnsan onayı kapısı (çıkış kodu 4) mevcut yönetişim süreçlerine uyar. SHA-256 zinciriyle denetim günlüğü kayıt tutma gereksinimlerini karşılar.
+**ForgeLM'i neden seçerler:** Tam EU AI Act compliance kanıt paketini otomatik üreten tek ince ayar aracı. Şirket içi Docker dağıtımı. `trust_remote_code: false` varsayılan. İnsan onayı kapısı (çıkış kodu 4) üretim dağıtımını erteler; nihai model `final_model.staging/` dizinine iner; operatörler promote için `forgelm approve <run_id>`, reddetmek içinse `forgelm reject <run_id>` çalıştırır. SHA-256 zinciriyle denetim günlüğü kayıt tutma gereksinimlerini karşılar.
 
 ### Üçüncül: Bağımsız Araştırmacılar ve Geliştiriciler
 

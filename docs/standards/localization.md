@@ -7,6 +7,13 @@
 
 **User-facing documentation is bilingual (EN + TR). Code, CLI output, config keys, logs, and internal dev docs are English only.**
 
+## Supported languages
+
+- **EN + TR (authored).** All user-facing docs and user-manual pages are written and reviewed in both English and Turkish. EN+TR mirror parity is mandatory for the doc tree — see "Structural mirror rule" below.
+- **DE / FR / ES / ZH (site UI translated; user-manual content English-fallback).** The site language picker exposes all six languages, and `site/js/translations.js` carries the marketing/product copy in DE/FR/ES/ZH. The user-manual content (`docs/usermanuals/...`) is **only authored in EN + TR**; when a deferred-language user picks DE/FR/ES/ZH, the manual side falls back to English via the i18n chain (`tableForLang(...) → DEFAULT='en'`). `tools/build_usermanuals.py` therefore emits JS bags only for the authored set (`en`, `tr`); the deferred languages reuse the EN bag through the fallback path.
+
+A language is "site-translated" when its strings live in `site/js/translations.js`. A language is "manual-authored" only when `docs/usermanuals/<lang>/` content is reviewed by a native or near-native speaker.
+
 Rationale:
 
 - ForgeLM's market includes a significant Turkish-speaking segment (banking + regulatory + research) served by Turkish-language docs.

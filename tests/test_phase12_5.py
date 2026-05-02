@@ -275,7 +275,7 @@ class TestPresidioPIIAdapter:
         # When the extra isn't installed, the require-helper raises a typed
         # ImportError pointing at the install command — same pattern as
         # ``_require_datasketch`` / ``_require_detect_secrets``.
-        with patch("forgelm.data_audit._HAS_PRESIDIO", False):
+        with patch("forgelm.data_audit._optional._HAS_PRESIDIO", False):
             with pytest.raises(ImportError) as exc_info:
                 _require_presidio()
         msg = str(exc_info.value)
@@ -330,8 +330,8 @@ class TestPresidioPIIAdapter:
                 def __init__(self):
                     raise OSError("Can't find model 'en_core_web_lg'")
 
-            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
-                with patch("forgelm.data_audit._PresidioAnalyzer", _BoomAnalyzer):
+            with patch("forgelm.data_audit._optional._HAS_PRESIDIO", True):
+                with patch("forgelm.data_audit._optional._PresidioAnalyzer", _BoomAnalyzer):
                     with pytest.raises(ImportError) as exc_info:
                         _require_presidio()
         finally:
@@ -372,8 +372,8 @@ class TestPresidioPIIAdapter:
 
         _get_presidio_analyzer.cache_clear()
         try:
-            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
-                with patch("forgelm.data_audit._get_presidio_analyzer", return_value=_StubAnalyzer()):
+            with patch("forgelm.data_audit._optional._HAS_PRESIDIO", True):
+                with patch("forgelm.data_audit._pii_ml._get_presidio_analyzer", return_value=_StubAnalyzer()):
                     counts = detect_pii_ml("Alice works at Acme Corp in Berlin.")
         finally:
             _get_presidio_analyzer.cache_clear()
@@ -426,13 +426,13 @@ class TestCroissantMultiSplit:
         report = json.loads((out_dir / "data_audit_report.json").read_text(encoding="utf-8"))
         crois = report["croissant"]
         ids = {entry["@id"] for entry in crois["distribution"]}
-        assert ids == {"train.jsonl", "validation.jsonl", "test.jsonl"}
+        assert ids == {"train_jsonl", "validation_jsonl", "test_jsonl"}
         record_ids = {entry["@id"] for entry in crois["recordSet"]}
         assert record_ids == {"train", "validation", "test"}
-        # contentUrl must be the relative file_id, not an absolute
+        # contentUrl must be the raw filename (not the slug), not an absolute
         # filesystem path — see the Phase 12.5 review m3 finding.
         for entry in crois["distribution"]:
-            assert entry["contentUrl"] == entry["@id"]
+            assert entry["contentUrl"] == entry["name"]
             assert "/" not in entry["contentUrl"]
 
 
@@ -570,7 +570,7 @@ class TestCroissantFileIdReflectsRealFilename:
             assert exc_info.value.code == 0
         crois = json.loads((out_dir / "data_audit_report.json").read_text(encoding="utf-8"))["croissant"]
         ids = {entry["@id"] for entry in crois["distribution"]}
-        assert ids == {"policies.jsonl"}
+        assert ids == {"policies_jsonl"}
         for entry in crois["distribution"]:
             assert entry["contentUrl"] == "policies.jsonl"
             assert entry["name"] == "policies.jsonl"
@@ -601,9 +601,33 @@ class TestCroissantFileIdReflectsRealFilename:
             assert exc_info.value.code == 0
         crois = json.loads((out_dir / "data_audit_report.json").read_text(encoding="utf-8"))["croissant"]
         ids = {entry["@id"] for entry in crois["distribution"]}
-        assert ids == {"train.jsonl", "dev.jsonl"}, (
-            "alias layout must keep the real filename, not the canonical split label"
+        assert ids == {"train_jsonl", "dev_jsonl"}, (
+            "alias layout must keep the real filename (slugged for JSON-LD), not the canonical split label"
         )
+        # ``name`` and ``contentUrl`` are the operator-facing fields; they must
+        # carry the *raw* filename (``dev.jsonl``) so a Croissant consumer can
+        # actually fetch the file.  ``@id`` is the slugged JSON-LD identifier
+        # (``dev_jsonl``) and is intentionally distinct.  Asserting both halves
+        # protects against a regression that rewrites contentUrl to the
+        # canonical split label or the slug form.
+        by_name = {entry["name"]: entry for entry in crois["distribution"]}
+        assert set(by_name) == {"train.jsonl", "dev.jsonl"}, (
+            "distribution.name must reference the real on-disk filename"
+        )
+        for filename, entry in by_name.items():
+            # Compare the URL's final path segment exactly so a leaked
+            # filesystem path (``/abs/dir/dev.jsonl``) cannot pass a fuzzy
+            # ``endswith(filename)`` check.  Reject backslashes too — they
+            # would indicate a Windows-style path leak.
+            url = entry["contentUrl"]
+            assert "\\" not in url, f"contentUrl {url!r} contains a backslash (Windows path leak?)"
+            assert url.split("/")[-1] == filename, (
+                f"contentUrl {url!r} final path segment must equal {filename!r}, "
+                "not the canonical split label, the slugged @id, or a leaked absolute path"
+            )
+            assert "validation" not in url, (
+                "contentUrl must not leak the canonical split label (e.g. 'validation' for dev.jsonl)"
+            )
 
     def test_url_does_not_leak_absolute_path(self, tmp_path):
         # When the operator passes an absolute path, the published card
@@ -613,7 +637,10 @@ class TestCroissantFileIdReflectsRealFilename:
         self._write_jsonl(ds, [{"text": "alpha"}])
         out_dir = tmp_path / "audit"
         absolute_input = str(ds.resolve())
-        assert absolute_input.startswith("/"), "test precondition: absolute path"
+        # ``Path.is_absolute()`` is OS-neutral: ``/Users/...`` on POSIX,
+        # ``C:\Users\...`` on Windows.  ``startswith("/")`` would fail the
+        # precondition on Windows even though the path is genuinely absolute.
+        assert Path(absolute_input).is_absolute(), "test precondition: absolute path"
         with patch(
             "sys.argv",
             [
@@ -630,7 +657,7 @@ class TestCroissantFileIdReflectsRealFilename:
             assert exc_info.value.code == 0
         crois = json.loads((out_dir / "data_audit_report.json").read_text(encoding="utf-8"))["croissant"]
         assert "/" not in crois["url"], f"url field leaks absolute path: {crois['url']!r}"
-        assert crois["url"] == "policies.jsonl"
+        assert crois["url"] == "policies_jsonl"
 
 
 class TestPresidioLanguagePreflight:
@@ -653,9 +680,9 @@ class TestPresidioLanguagePreflight:
 
         _get_presidio_analyzer.cache_clear()
         try:
-            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
+            with patch("forgelm.data_audit._optional._HAS_PRESIDIO", True):
                 with patch(
-                    "forgelm.data_audit._get_presidio_analyzer",
+                    "forgelm.data_audit._pii_ml._get_presidio_analyzer",
                     return_value=_StubAnalyzer(),
                 ):
                     with pytest.raises(ValueError) as exc_info:
@@ -674,9 +701,9 @@ class TestPresidioLanguagePreflight:
 
         _get_presidio_analyzer.cache_clear()
         try:
-            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
+            with patch("forgelm.data_audit._optional._HAS_PRESIDIO", True):
                 with patch(
-                    "forgelm.data_audit._get_presidio_analyzer",
+                    "forgelm.data_audit._pii_ml._get_presidio_analyzer",
                     return_value=_StubAnalyzer(),
                 ):
                     _require_presidio(language="en")  # must not raise
@@ -694,7 +721,7 @@ class TestPresidioLanguagePreflight:
 
         _get_presidio_analyzer.cache_clear()
         try:
-            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
+            with patch("forgelm.data_audit._optional._HAS_PRESIDIO", True):
                 with pytest.raises(ValueError) as exc_info:
                     _get_presidio_analyzer(language="qq")
         finally:
@@ -724,9 +751,9 @@ class TestPresidioPerRowErrorLogging:
 
         _get_presidio_analyzer.cache_clear()
         try:
-            with patch("forgelm.data_audit._HAS_PRESIDIO", True):
+            with patch("forgelm.data_audit._optional._HAS_PRESIDIO", True):
                 with patch(
-                    "forgelm.data_audit._get_presidio_analyzer",
+                    "forgelm.data_audit._pii_ml._get_presidio_analyzer",
                     return_value=_AngryAnalyzer(),
                 ):
                     with caplog.at_level(logging.DEBUG, logger="forgelm.data_audit"):

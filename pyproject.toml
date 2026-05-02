@@ -104,14 +104,6 @@ ingestion-scale = [
   "datasketch>=1.6.0,<2.0.0",
 ]
 
-# Phase 12: optional code/credential leakage scanner for SFT corpora.
-# detect-secrets is the de-facto standard; without it ForgeLM falls back
-# to a regex-only set covering ~10 common patterns (AWS, GitHub, Slack,
-# OpenAI, Google, JWT, OpenSSH/PGP private-key headers).
-ingestion-secrets = [
-  "detect-secrets>=1.5.0,<2.0.0",
-]
-
 # Phase 12.5: optional Presidio ML-NER PII detector. Adds the
 # unstructured-identifier categories (person / organization / location)
 # that the regex detector inherently misses. Heavyweight install
@@ -184,7 +176,7 @@ skips = ["B101"]
 
 [tool.coverage.run]
 source = ["forgelm"]
-omit = ["forgelm/wizard.py"]
+omit = []
 
 [tool.coverage.report]
 fail_under = 40

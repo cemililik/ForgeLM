@@ -15,7 +15,7 @@ logger = logging.getLogger("forgelm.trainer")
 
 # Audit event names — kept as constants so the audit-log schema stays grep-able
 # and downstream consumers don't break on a typo.
-_EVT_REVERT_TRIGGERED = "eval.revert_triggered"
+_EVT_REVERT_TRIGGERED = "model.reverted"
 
 
 # ---------------------------------------------------------------------------
@@ -764,7 +764,13 @@ class ForgeTrainer:
             try:
                 with model_obj.disable_adapter():
                     baseline_metrics = self.trainer.evaluate()
-            except Exception as e:
+            except (RuntimeError, AttributeError, ValueError) as e:
+                # PEFT disable_adapter context can fail when the active model
+                # isn't a PeftModel (AttributeError), when the underlying
+                # adapter graph is in a state that disallows toggling
+                # (RuntimeError — NotImplementedError is a RuntimeError subclass),
+                # or when evaluate() rejects the temporarily-base configuration (ValueError).
+                # Fall back to evaluating with adapters active.
                 logger.warning("Failed to disable adapters for baseline eval, evaluating with adapters instead: %s", e)
                 baseline_metrics = self.trainer.evaluate()
         else:
@@ -898,28 +904,64 @@ class ForgeTrainer:
         self._generate_deployer_instructions(final_path, metrics)
         self._export_compliance_if_needed(metrics, train_result)
 
-    def _handle_human_approval_gate(self, final_path: str, train_result: TrainResult) -> bool:
-        """Return True if the run should pause for human approval (Art. 14)."""
+    def _handle_human_approval_gate(
+        self,
+        staging_path: str,
+        train_result: TrainResult,
+        *,
+        already_saved: bool = False,
+    ) -> bool:
+        """Pause the run for human approval (Art. 14) and emit the gate event.
+
+        The honest behaviour for an "awaiting human approval" pipeline: the
+        final model must NOT land in the canonical ``final_model/`` directory
+        before a human signs off, otherwise downstream consumers that watch
+        that path treat the run as already deployed. Instead, the adapters
+        live in a sibling ``final_model.staging/`` directory until
+        ``forgelm approve <run_id>`` atomically renames it.
+
+        ``staging_path`` is the on-disk staging directory (``final_path +
+        ".staging"``). When ``already_saved=False`` (default) the method
+        also saves the model to ``staging_path``; this preserves backwards
+        compatibility for callers who reach the gate without having staged
+        the model themselves. The pipeline orchestrator passes
+        ``already_saved=True`` because it stages early so the post-train
+        gates can evaluate against on-disk artefacts.
+
+        Returns ``True`` when the gate fires (caller must skip the regular
+        ``save_final_model(final_path)`` / ``notify_success`` calls),
+        ``False`` when the gate is disabled.
+        """
         eval_cfg = self.config.evaluation
         if not (eval_cfg and eval_cfg.require_human_approval):
             return False
+
+        if not already_saved:
+            self.save_final_model(staging_path)
+
         self.audit.log_event(
             "human_approval.required",
             gate="final_model",
             reason="require_human_approval=true",
             metrics=train_result.metrics,
-            model_path=final_path,
+            staging_path=staging_path,
+            run_id=self.audit.run_id,
         )
-        # Webhook lifecycle: surface the approval gate to operators in
-        # real-time instead of forcing them to tail the audit JSONL.
-        self.notifier.notify_awaiting_approval(run_name=self.run_name, model_path=final_path)
-        logger.info("Human approval required. Model saved to staging: %s", final_path)
+        self.notifier.notify_awaiting_approval(run_name=self.run_name, model_path=staging_path)
+
+        logger.info("Human approval required. Model staged at: %s", staging_path)
         logger.info(
-            "Review results in %s/compliance/ and redeploy when ready. Run ID: %s",
+            "Review results in %s/compliance/ and run `forgelm approve %s --output-dir %s` "
+            "to promote, or `forgelm reject %s --output-dir %s` to preserve for forensic review.",
             self.checkpoint_dir,
             self.audit.run_id,
+            self.checkpoint_dir,
+            self.audit.run_id,
+            self.checkpoint_dir,
         )
+
         train_result.success = True
+        train_result.staging_path = staging_path
         return True
 
     def _run_training_pipeline(self, resume_from_checkpoint: Optional[str]) -> TrainResult:
@@ -940,27 +982,51 @@ class ForgeTrainer:
             self.checkpoint_dir,
             getattr(self.config.training, "final_model_dir", "final_model"),
         )
-        self.save_final_model(final_path)
 
-        if not self.execute_evaluation_checks(final_path, metrics):
+        # Article 14 (honest path): when ``require_human_approval`` is on the
+        # adapters land in ``final_model.staging/`` rather than the canonical
+        # ``final_model/`` directory — and the canonical directory is created
+        # only by ``forgelm approve <run_id>`` after a human signs off.
+        # ``_handle_human_approval_gate`` performs both the staging save and
+        # the audit-event / webhook emit, returning True when it fires so we
+        # can skip the regular ``save_final_model`` call below.
+        train_result = TrainResult(success=True, metrics=metrics, final_model_path=final_path)
+        approval_required = bool(self.config.evaluation and self.config.evaluation.require_human_approval)
+        if approval_required:
+            # Save to staging first so post-train gates (safety/judge/etc.)
+            # have an on-disk model to evaluate. The gate's audit event +
+            # webhook notification fire after compliance artefacts are
+            # generated so reviewers see a complete bundle.
+            # final_model_path retains the intended final location; staging_path
+            # records where the adapters currently live pending human sign-off.
+            gate_path = os.path.abspath(f"{final_path}.staging.{self.audit.run_id}")
+            self.save_final_model(gate_path)
+            # Point final_model_path at the actual on-disk location (staging dir)
+            # so downstream reporters (log, JSON output) reflect reality.
+            # staging_path carries the same value so approval commands can find it.
+            train_result.final_model_path = gate_path
+            train_result.staging_path = gate_path
+        else:
+            gate_path = final_path
+            self.save_final_model(gate_path)
+
+        if not self.execute_evaluation_checks(gate_path, metrics):
             return TrainResult(success=False, metrics=metrics, reverted=True)
 
-        train_result = TrainResult(success=True, metrics=metrics, final_model_path=final_path)
-
-        if not self._apply_benchmark_result(self._run_benchmark_if_configured(), train_result, metrics, final_path):
+        if not self._apply_benchmark_result(self._run_benchmark_if_configured(), train_result, metrics, gate_path):
             return train_result
 
         self._apply_resource_usage(train_result, metrics)
 
-        if not self._apply_safety_result(self._run_safety_if_configured(), train_result, metrics, final_path):
+        if not self._apply_safety_result(self._run_safety_if_configured(), train_result, metrics, gate_path):
             return train_result
 
-        if not self._apply_judge_result(self._run_judge_if_configured(), train_result, metrics, final_path):
+        if not self._apply_judge_result(self._run_judge_if_configured(), train_result, metrics, gate_path):
             return train_result
 
-        self._finalize_artifacts(final_path, metrics, train_result)
+        self._finalize_artifacts(gate_path, metrics, train_result)
 
-        if self._handle_human_approval_gate(final_path, train_result):
+        if self._handle_human_approval_gate(gate_path, train_result, already_saved=True):
             return train_result
 
         self.audit.log_event("pipeline.completed", success=True, metrics_summary=metrics)
@@ -985,7 +1051,7 @@ class ForgeTrainer:
 
         try:
             return self._run_training_pipeline(resume_from_checkpoint)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort: top-of-pipeline catch must record an audit event and notify before re-raising regardless of failure type (CUDA, dataloader, optimizer, etc.); the bare re-raise preserves the original traceback.  # NOSONAR
             logger.exception("Training pipeline failed.")
             self.audit.log_event("pipeline.failed", error=str(e))
             self.notifier.notify_failure(run_name=self.run_name, reason=str(e))
@@ -1001,7 +1067,13 @@ class ForgeTrainer:
             logger.info("Saving final adapters to %s...", final_path)
             try:
                 self.trainer.model.save_pretrained(final_path)
-            except Exception as e:
+            except (OSError, RuntimeError, AttributeError, ValueError) as e:
+                # OSError: filesystem (permissions, disk full, missing dir).
+                # RuntimeError: torch / CUDA-side serialization error.
+                # AttributeError: non-PEFT models without save_pretrained
+                # contract drift. ValueError: safetensors / state_dict
+                # validation. Fall back to trainer.save_model which goes
+                # through HF Trainer's hardened save path.
                 logger.warning("Direct model save failed, falling back to trainer.save_model: %s", e)
                 self.trainer.save_model(final_path)
             self.tokenizer.save_pretrained(final_path)
@@ -1013,7 +1085,12 @@ class ForgeTrainer:
         try:
             merged = model_to_save.merge_and_unload()
             merged.save_pretrained(final_path, safe_serialization=True)
-        except Exception as e:
+        except (OSError, RuntimeError, AttributeError, ValueError) as e:
+            # AttributeError: non-PEFT model lacking merge_and_unload.
+            # RuntimeError: torch-side merge / dtype / device errors.
+            # OSError + ValueError: serialization paths (filesystem,
+            # safetensors validation). Fall back to the unmerged save so
+            # the run still produces a usable artefact.
             logger.warning("Adapter merge failed, saving model state as-is: %s", e)
             self.trainer.save_model(final_path)
         self.tokenizer.save_pretrained(final_path)
@@ -1067,7 +1144,13 @@ class ForgeTrainer:
                 safety_score=result.safety_score,
                 safety_categories=result.safety_categories,
             )
-        except Exception as e:
+        except (OSError, ValueError, TypeError, AttributeError, KeyError) as e:
+            # OSError: filesystem write of README.md.
+            # ValueError/TypeError: jinja template rendering on unexpected
+            # config / metrics shapes. AttributeError/KeyError: schema drift
+            # between TrainResult and the model card template. Card is a
+            # documentation artefact — failure must not abort a successful
+            # training run.
             logger.warning("Failed to generate model card: %s", e)
 
     # Known GPU on-demand pricing ($/hour, approximate mid-2026 cloud averages)
@@ -1161,7 +1244,12 @@ class ForgeTrainer:
                         gpu_hours,
                         cost_per_hour,
                     )
-        except Exception as e:
+        except (RuntimeError, AttributeError, KeyError, OSError, ValueError) as e:
+            # RuntimeError/AttributeError: torch.cuda surface (driver
+            # uninit, missing device). KeyError: log_history shape drift.
+            # OSError: rare GPU device-info read errors. ValueError:
+            # dataclass / config attribute coercion. Resource metrics are
+            # advisory; a failure must not abort the surrounding run.
             logger.warning("Failed to collect resource usage: %s", e)
         return usage if usage else None
 
@@ -1232,9 +1320,12 @@ class ForgeTrainer:
     def _export_compliance_if_needed(self, metrics: Dict[str, float], result: TrainResult) -> None:
         """Export compliance artifacts if evaluation config is present.
 
-        Produces three sibling files under ``<checkpoint_dir>/compliance/``:
+        Produces five sibling files under ``<checkpoint_dir>/compliance/``:
 
-        - ``training_manifest.json`` — Article 11 / Annex IV technical doc.
+        - ``compliance_report.json`` — Article 11 full manifest (canonical machine-readable bundle).
+        - ``training_manifest.yaml`` — operator-readable summary (consumed by
+          ``forgelm approve``'s ``_load_metrics_from_manifest``).
+        - ``data_provenance.json`` — Article 10 provenance subset.
         - ``annex_iv_metadata.json`` — flat-key Annex IV index.
         - ``data_governance_report.json`` — Article 10 data-governance evidence
           (per-split sample counts, schema, length distribution; inlines the
@@ -1305,7 +1396,7 @@ class ForgeTrainer:
                     dataset_count=len(self.dataset),
                 )
                 governance_ok = True
-            except Exception as e:  # noqa: BLE001 — best-effort; broad catch keeps the audit trail honest
+            except Exception as e:  # noqa: BLE001 — best-effort; broad catch keeps the audit trail honest  # NOSONAR
                 # OSError covers filesystem failures, but the governance
                 # report can also fail with TypeError (config schema drift),
                 # ValueError (dataset shape), AttributeError (mocked deps in
@@ -1330,7 +1421,7 @@ class ForgeTrainer:
                     output_dir=compliance_dir,
                     files=files,
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort: outer compliance-export gate. Article 11/12 export plumbing crosses pydantic validation, json serialization, hashing, filesystem writes, and audit emission; any leak from the inner narrow-class catches must not abort the surrounding training pipeline that already succeeded.  # NOSONAR
             logger.warning("Failed to export compliance artifacts: %s", e)
 
     def _generate_model_integrity(self, final_path: str) -> None:
@@ -1346,7 +1437,12 @@ class ForgeTrainer:
                 json.dump(integrity, f, indent=2)
             self.audit.log_event("model.integrity_verified", artifacts=len(integrity.get("artifacts", [])))
             logger.info("Model integrity checksums saved to %s", integrity_path)
-        except Exception as e:
+        except (OSError, ValueError, TypeError) as e:
+            # OSError: filesystem walk + write of model_integrity.json.
+            # TypeError: json.dump rejecting unexpected payload shape.
+            # ValueError: hash digest construction on empty input. Article
+            # 15 checksum is an artefact; failure must not abort a
+            # successful run.
             logger.warning("Failed to generate model integrity: %s", e)
 
     def _generate_deployer_instructions(self, final_path: str, metrics: Dict[str, float]) -> None:
@@ -1355,5 +1451,10 @@ class ForgeTrainer:
             from .compliance import generate_deployer_instructions
 
             generate_deployer_instructions(self.config, metrics, final_path)
-        except Exception as e:
+        except (OSError, ValueError, TypeError, AttributeError, KeyError) as e:
+            # OSError: filesystem write. ValueError/TypeError: template
+            # rendering on unexpected metrics shape. AttributeError /
+            # KeyError: config schema drift. Article 13 deployer
+            # instructions are documentation; failure must not abort a
+            # successful run.
             logger.warning("Failed to generate deployer instructions: %s", e)

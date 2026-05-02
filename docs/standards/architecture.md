@@ -172,7 +172,6 @@ From [`pyproject.toml`](../../pyproject.toml):
 | `merging` | mergekit | Any |
 | `ingestion` | pypdf, python-docx, ebooklib, beautifulsoup4, langdetect, xxhash | Any |
 | `ingestion-scale` | datasketch (MinHash LSH dedup; Phase 12, opt-in) | Any |
-| `ingestion-secrets` | detect-secrets (credential leakage scanner; Phase 12, opt-in regex fallback when missing) | Any |
 | `ingestion-pii-ml` | presidio-analyzer (ML-NER for person/organization/location PII; Phase 12.5, opt-in) | Any |
 | `export` | llama-cpp-python (GGUF conversion) | Linux/macOS |
 | `chat` | rich (terminal rendering) | Any |

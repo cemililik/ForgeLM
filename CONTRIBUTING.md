@@ -95,6 +95,37 @@ ruff format .
 
 Configuration is in `pyproject.toml` under `[tool.ruff]`.
 
+### Pre-commit hooks (optional)
+
+ForgeLM ships a [`.pre-commit-config.yaml`](.pre-commit-config.yaml) that mirrors
+the CI checks (`ruff`, `ruff-format`, `gitleaks`, plus a few hygiene hooks for
+trailing whitespace, EOF newlines, and YAML/TOML syntax). The hooks are an
+**optional ergonomic optimization** — CI enforces the same checks on every PR,
+so installing them locally is purely about getting feedback before you push.
+
+To opt in:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+Run all hooks against the whole tree at any time:
+
+```bash
+pre-commit run --all-files
+```
+
+If a hook ever flags a known-good fixture (e.g. a credential-shaped test
+string the gitleaks hook can't tell apart from a real secret), skip just that
+hook for the commit:
+
+```bash
+SKIP=gitleaks git commit -m "test: add credential-shape fixture"
+```
+
+CI remains the enforcement boundary; skipping a hook locally never bypasses CI.
+
 ## Guidelines
 
 ### Code

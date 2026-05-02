@@ -350,7 +350,12 @@ def _build_text_length_stats(split_data: Any, split_name: str) -> Optional[Dict[
     try:
         texts = split_data["text"]
         lengths = sorted(len(t) for t in texts if isinstance(t, str))
-    except Exception as exc:
+    except (KeyError, ValueError, TypeError, OSError, IndexError) as exc:
+        # KeyError: column dropped between the membership check and access.
+        # OSError: HF Datasets lazy-load failure on Arrow / Parquet shard.
+        # ValueError/TypeError: column dtype not coercible into Python str
+        # iteration (e.g., binary blobs, nested struct columns). Stats are
+        # advisory — return None and let the caller record an empty entry.
         logger.debug("Could not compute text stats for %s: %s", split_name, exc)
         return None
     if not lengths:

@@ -191,3 +191,16 @@ forgelm --config config_template.yaml --dry-run
 ```
 
 If that passes and the PR template is honest, you're ready.
+
+## Pre-commit hooks (optional)
+
+The repository ships a [`.pre-commit-config.yaml`](../../.pre-commit-config.yaml)
+that mirrors the lint, format, and secret-scanning steps already run in CI.
+Pre-commit hooks are an **optional ergonomic optimization** for local
+development — contributors who run `pre-commit install` get faster feedback,
+but the hooks are **not** part of the PR enforcement contract. CI is the
+single enforcement boundary: every required check (`ruff check`, `ruff format
+--check`, `gitleaks`, the test matrix, the validate job) runs on every push
+and pull request regardless of whether the author installed the hooks
+locally. Skipping a hook with `SKIP=...` only suppresses the local run; it
+never bypasses CI.

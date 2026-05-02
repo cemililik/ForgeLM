@@ -4,7 +4,6 @@ import json
 import os
 
 import yaml
-from conftest import minimal_config as _minimal_config
 
 from forgelm.compliance import (
     AuditLogger,
@@ -77,9 +76,9 @@ class TestDataGovernanceConfig:
 
 
 class TestForgeConfigCompliance:
-    def test_compliance_in_config(self):
+    def test_compliance_in_config(self, minimal_config):
         cfg = ForgeConfig(
-            **_minimal_config(
+            **minimal_config(
                 compliance={
                     "provider_name": "Test Corp",
                     "intended_purpose": "Testing",
@@ -89,9 +88,9 @@ class TestForgeConfigCompliance:
         )
         assert cfg.compliance.provider_name == "Test Corp"
 
-    def test_risk_assessment_in_config(self):
+    def test_risk_assessment_in_config(self, minimal_config):
         cfg = ForgeConfig(
-            **_minimal_config(
+            **minimal_config(
                 risk_assessment={
                     "intended_use": "Test use",
                     "risk_category": "limited-risk",
@@ -100,9 +99,9 @@ class TestForgeConfigCompliance:
         )
         assert cfg.risk_assessment.risk_category == "limited-risk"
 
-    def test_data_governance_in_config(self):
+    def test_data_governance_in_config(self, minimal_config):
         cfg = ForgeConfig(
-            **_minimal_config(
+            **minimal_config(
                 data={
                     "dataset_name_or_path": "org/dataset",
                     "governance": {"collection_method": "Web scraping"},
@@ -111,23 +110,23 @@ class TestForgeConfigCompliance:
         )
         assert cfg.data.governance.collection_method == "Web scraping"
 
-    def test_human_approval_in_eval(self):
-        cfg = ForgeConfig(**_minimal_config(evaluation={"require_human_approval": True}))
+    def test_human_approval_in_eval(self, minimal_config):
+        cfg = ForgeConfig(**minimal_config(evaluation={"require_human_approval": True}))
         assert cfg.evaluation.require_human_approval is True
 
-    def test_high_risk_warnings(self, caplog):
+    def test_high_risk_warnings(self, caplog, minimal_config):
         import logging
 
         with caplog.at_level(logging.WARNING, logger="forgelm.config"):
             ForgeConfig(
-                **_minimal_config(
+                **minimal_config(
                     risk_assessment={"risk_category": "high-risk"},
                 )
             )
         assert "High-risk AI" in caplog.text
 
-    def test_yaml_round_trip(self, tmp_path):
-        data = _minimal_config(
+    def test_yaml_round_trip(self, tmp_path, minimal_config):
+        data = minimal_config(
             compliance={"provider_name": "Acme", "intended_purpose": "Support"},
             risk_assessment={"intended_use": "Chat", "risk_category": "limited-risk"},
             data={
@@ -208,9 +207,9 @@ class TestModelIntegrity:
 
 
 class TestDeployerInstructions:
-    def test_generates_document(self, tmp_path):
+    def test_generates_document(self, tmp_path, minimal_config):
         config = ForgeConfig(
-            **_minimal_config(
+            **minimal_config(
                 compliance={"provider_name": "TestCo", "intended_purpose": "Customer support"},
             )
         )
@@ -226,8 +225,8 @@ class TestDeployerInstructions:
         # for the test (renderers do the same when displaying the document).
         assert "eval_loss" in content.replace("\\", "")
 
-    def test_without_compliance_config(self, tmp_path):
-        config = ForgeConfig(**_minimal_config())
+    def test_without_compliance_config(self, tmp_path, minimal_config):
+        config = ForgeConfig(**minimal_config())
         final_path = str(tmp_path / "model")
         doc_path = generate_deployer_instructions(config, {}, final_path)
         assert os.path.isfile(doc_path)
@@ -258,9 +257,9 @@ class TestEvidenceBundle:
 
 
 class TestManifestAnnexIV:
-    def test_includes_annex_iv(self):
+    def test_includes_annex_iv(self, minimal_config):
         config = ForgeConfig(
-            **_minimal_config(
+            **minimal_config(
                 compliance={"provider_name": "Corp", "system_name": "Bot", "risk_classification": "high-risk"},
             )
         )
@@ -269,9 +268,9 @@ class TestManifestAnnexIV:
         assert manifest["annex_iv"]["provider_name"] == "Corp"
         assert manifest["annex_iv"]["risk_classification"] == "high-risk"
 
-    def test_includes_risk_assessment(self):
+    def test_includes_risk_assessment(self, minimal_config):
         config = ForgeConfig(
-            **_minimal_config(
+            **minimal_config(
                 risk_assessment={"intended_use": "Chat", "risk_category": "high-risk"},
             )
         )
@@ -279,8 +278,8 @@ class TestManifestAnnexIV:
         assert "risk_assessment" in manifest
         assert manifest["risk_assessment"]["risk_category"] == "high-risk"
 
-    def test_without_compliance(self):
-        config = ForgeConfig(**_minimal_config())
+    def test_without_compliance(self, minimal_config):
+        config = ForgeConfig(**minimal_config())
         manifest = generate_training_manifest(config, {})
         assert "annex_iv" not in manifest
         assert "risk_assessment" not in manifest

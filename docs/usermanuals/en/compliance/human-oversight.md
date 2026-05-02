@@ -51,9 +51,9 @@ The trainer halts after eval and prints:
 [2026-04-29 14:33:10] Human approval required.
   Run ID: abc123
   Bundle: checkpoints/run/artifacts/
-  
-  To approve: forgelm approve --run-id abc123 --reviewer "Cemil <cemil@example>"
-  To reject:  forgelm approve --run-id abc123 --reject --reason "..."
+
+  To approve: forgelm approve abc123 --output-dir checkpoints/run --comment "..."
+  To reject:  forgelm reject  abc123 --output-dir checkpoints/run --comment "..."
 ```
 
 The reviewer runs the approval command from any machine with access to the artifacts directory. ForgeLM verifies their identity via SSH key signing or env-set token, signs the audit log, and resumes promotion.

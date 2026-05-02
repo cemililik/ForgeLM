@@ -211,6 +211,42 @@ class WebhookNotifier:
                 metrics=metrics,
             )
 
+    def notify_awaiting_approval(self, run_name: str, model_path: str) -> None:
+        """Post an "awaiting human approval" notification (Art. 14 gate).
+
+        Fired by :meth:`ForgeTrainer._handle_human_approval_gate` after the
+        adapters have been saved to the staging directory. ``model_path`` is
+        the on-disk staging location (``final_model.staging/``) so an
+        approver can inspect the artefacts before running
+        ``forgelm approve <run_id>``.
+
+        Only the directory path is sent — the payload deliberately carries
+        no model weights, tokenizer files, or compliance-bundle contents.
+        Webhook receivers (Slack/Teams/Discord) regularly persist or echo
+        message bodies, and we treat the approval signal as a notification,
+        not an artefact transfer channel.
+        """
+        # Approval is only emitted on otherwise-successful runs, so it
+        # piggy-backs on notify_on_success per the audit_event_catalog
+        # webhook section. Operators who silenced success notifications do
+        # not want approval pings either.
+        if not (self.config and self.config.notify_on_success):
+            return
+        self._send(
+            event="approval.required",
+            run_name=run_name,
+            status="awaiting_approval",
+            title=f"Awaiting Human Approval: {run_name}",
+            text=(
+                "Training completed; the model is staged at "
+                f"`{model_path}` and awaiting reviewer sign-off.\n"
+                "Run `forgelm approve <run_id>` to promote, or "
+                "`forgelm reject <run_id>` to discard."
+            ),
+            color="#f2c744",
+            model_path=model_path,
+        )
+
     def notify_failure(self, run_name: str, reason: str) -> None:
         """Post a training-failure notification.
 
@@ -282,33 +318,4 @@ class WebhookNotifier:
             ),
             color="#ff9900",
             reason=masked_reason,
-        )
-
-    def notify_awaiting_approval(self, run_name: str, model_path: str) -> None:
-        """Post an ``approval.required`` notification (Art. 14 human-in-the-loop).
-
-        Fired right after the audit log records ``human_approval.required``
-        so the operator gets a real-time ping instead of having to poll the
-        audit JSONL. ``model_path`` is included as plain text — it's a
-        local filesystem path that the operator already controls. Model
-        weights themselves are *never* in the payload; only the path and
-        the run name are.
-        """
-        if not (self.config and self.config.notify_on_success):
-            # Approval is only emitted on otherwise-successful runs, so it
-            # piggy-backs on notify_on_success. An operator who silenced
-            # success notifications doesn't want approval pings either.
-            return
-        self._send(
-            event="approval.required",
-            run_name=run_name,
-            status="awaiting_approval",
-            title=f"Approval Required: {run_name}",
-            text=(
-                "Training succeeded and is staged for human review (EU AI Act "
-                f"Art. 14). Review the compliance artifacts, then redeploy.\n\n"
-                f"Staging path: {model_path}"
-            ),
-            color="#ffcc00",
-            model_path=model_path,
         )

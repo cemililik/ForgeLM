@@ -74,7 +74,7 @@ class LoraConfigModel(BaseModel):
     r: int = 8
     alpha: int = 16
     dropout: float = 0.1
-    bias: str = "none"
+    bias: Literal["none", "all", "lora_only"] = "none"
     method: Literal["lora", "dora", "pissa", "rslora"] = "lora"
     use_dora: bool = False  # kept for backward compat; method="dora" also works
     use_rslora: bool = False  # rank-stabilized LoRA for high ranks (r>64)
@@ -146,11 +146,18 @@ class TrainingConfig(BaseModel):
     )
     # --- GaLore (optimizer-level memory optimization, alternative to LoRA) ---
     galore_enabled: bool = False
-    galore_optim: str = "galore_adamw"  # galore_adamw, galore_adamw_8bit, galore_adafactor, + _layerwise variants
+    galore_optim: Literal[
+        "galore_adamw",
+        "galore_adamw_8bit",
+        "galore_adafactor",
+        "galore_adamw_layerwise",
+        "galore_adamw_8bit_layerwise",
+        "galore_adafactor_layerwise",
+    ] = "galore_adamw"
     galore_rank: int = 128  # Low-rank subspace dimension for gradient projection
     galore_update_proj_gap: int = 200  # Steps between SVD re-computations
     galore_scale: float = 0.25  # Gradient scaling factor (analogous to LoRA alpha)
-    galore_proj_type: str = "std"  # "std", "reverse_std", "right", "left", "full"
+    galore_proj_type: Literal["std", "reverse_std", "right", "left", "full"] = "std"
     galore_target_modules: Optional[List[str]] = None  # Regex list; None = auto [r".*.attn.*", r".*.mlp.*"]
     # --- Long-context optimizations ---
     rope_scaling: Optional[Dict[str, Any]] = (
@@ -183,8 +190,8 @@ class DistributedConfig(BaseModel):
     fsdp_strategy: Literal["full_shard", "shard_grad_op", "no_shard", "hybrid_shard"] = "full_shard"
     fsdp_auto_wrap: bool = True  # auto wrap transformer layers
     fsdp_offload: bool = False  # offload parameters to CPU
-    fsdp_backward_prefetch: str = "backward_pre"  # "backward_pre" or "backward_post"
-    fsdp_state_dict_type: str = "FULL_STATE_DICT"  # "FULL_STATE_DICT" or "SHARDED_STATE_DICT"
+    fsdp_backward_prefetch: Literal["backward_pre", "backward_post"] = "backward_pre"
+    fsdp_state_dict_type: Literal["FULL_STATE_DICT", "SHARDED_STATE_DICT"] = "FULL_STATE_DICT"
 
 
 class DataGovernanceConfig(BaseModel):
@@ -245,7 +252,7 @@ class SafetyConfig(BaseModel):
     test_prompts: str = "safety_prompts.jsonl"  # adversarial test prompts file
     max_safety_regression: float = 0.05  # max allowed unsafe ratio (0.0–1.0)
     # Phase 9: Advanced scoring
-    scoring: str = "binary"  # "binary" (default) or "confidence_weighted"
+    scoring: Literal["binary", "confidence_weighted"] = "binary"
     min_safety_score: Optional[float] = (
         None  # weighted score threshold (0.0-1.0), used when scoring="confidence_weighted"
     )
@@ -285,6 +292,22 @@ class EvaluationConfig(BaseModel):
     safety: Optional[SafetyConfig] = None  # post-training safety evaluation
     llm_judge: Optional[JudgeConfig] = None  # LLM-as-Judge scoring
     require_human_approval: bool = False  # Art. 14: pause pipeline for human review before final save
+    # ``final_model.staging/`` retention horizon for `forgelm reject` paths.
+    # Documented now (v0.5.5) so operators can plan their evidence-preservation
+    # policy; auto-deletion enforcement is deferred to Phase 21 (GDPR
+    # right-to-erasure) where it lands alongside the broader retention
+    # framework. Setting the value today has no runtime effect — it is
+    # surfaced in the compliance manifest so reviewers can audit the policy.
+    staging_ttl_days: int = Field(
+        default=7,
+        ge=0,
+        description=(
+            "Article 14: number of days to retain `final_model.staging/` after a "
+            "`forgelm reject` decision before scheduled cleanup. Zero means retain "
+            "indefinitely. Auto-deletion enforcement is deferred to Phase 21 "
+            "(GDPR right-to-erasure)."
+        ),
+    )
 
 
 class RiskAssessmentConfig(BaseModel):
@@ -323,7 +346,7 @@ class ComplianceMetadataConfig(BaseModel):
     intended_purpose: str = ""
     known_limitations: str = ""
     system_version: str = ""
-    risk_classification: str = "minimal-risk"  # "high-risk", "limited-risk", "minimal-risk"
+    risk_classification: Literal["high-risk", "limited-risk", "minimal-risk"] = "minimal-risk"
 
 
 class SyntheticConfig(BaseModel):
@@ -481,19 +504,6 @@ class ForgeConfig(BaseModel):
     def _validate_galore(self) -> None:
         if not self.training.galore_enabled:
             return
-        valid_galore_optims = {
-            "galore_adamw",
-            "galore_adamw_8bit",
-            "galore_adafactor",
-            "galore_adamw_layerwise",
-            "galore_adamw_8bit_layerwise",
-            "galore_adafactor_layerwise",
-        }
-        if self.training.galore_optim not in valid_galore_optims:
-            raise ValueError(
-                f"Invalid galore_optim: '{self.training.galore_optim}'. "
-                f"Must be one of: {', '.join(sorted(valid_galore_optims))}"
-            )
         if self.lora.r > 0:
             logger.info(
                 "GaLore (gradient rank=%d) enabled alongside LoRA (adapter rank=%d). "
