@@ -155,9 +155,22 @@ def main() -> int:
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return _EXIT_RUNTIME_ERROR
-    json.dump(sbom, sys.stdout, indent=2, sort_keys=False)
-    sys.stdout.write("\n")
-    return 0
+    # ``BrokenPipeError`` (an ``OSError`` subclass) fires when the consumer of
+    # our stdout closes the pipe early — e.g. ``generate_sbom.py | head``.
+    # Without an explicit catch, Python turns that into an uncaught exception
+    # at interpreter shutdown and exits non-zero, breaking the documented
+    # exit-code contract for downstream automation.  Other ``OSError``
+    # variants (ENOSPC on a redirect target, write-after-close on a teed pipe)
+    # land in the same bucket — operator-actionable I/O failure → runtime err.
+    try:
+        json.dump(sbom, sys.stdout, indent=2, sort_keys=False)
+        sys.stdout.write("\n")
+    except OSError as exc:
+        # ``stderr`` is the right channel here: stdout is the SBOM payload and
+        # we just established it is unwritable.
+        print(f"error: failed to write SBOM to stdout — {exc}", file=sys.stderr)
+        return _EXIT_RUNTIME_ERROR
+    return _EXIT_SUCCESS
 
 
 if __name__ == "__main__":

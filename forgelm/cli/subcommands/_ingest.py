@@ -19,7 +19,7 @@ def _run_ingest_cmd(args, output_format: str) -> None:
     secrets_mask = bool(getattr(args, "secrets_mask", False)) or all_mask
 
     try:
-        from ...ingestion import ingest_path, summarize_result
+        from ...ingestion import OptionalDependencyError, ingest_path, summarize_result
 
         result = ingest_path(
             args.input_path,
@@ -53,11 +53,14 @@ def _run_ingest_cmd(args, output_format: str) -> None:
         else:
             logger.error("Ingest failed: %s", exc)
         sys.exit(EXIT_CONFIG_ERROR)
-    except ImportError as exc:
-        # Convention across subcommands (chat/export/etc.): a missing optional
-        # extra is a *runtime* failure of the dispatched feature, not a config
-        # validation failure — exit with EXIT_TRAINING_ERROR so CI/CD retry
-        # logic treats it the same way.
+    except OptionalDependencyError as exc:
+        # Catch the narrow optional-extras subclass only.  Plain ``ImportError``
+        # would mask genuine bugs (e.g. an internal forgelm import error) under
+        # the same install-hint envelope; letting those propagate preserves the
+        # original traceback for the operator.  Convention across subcommands:
+        # a missing optional extra is a *runtime* failure of the dispatched
+        # feature, not a config validation failure — exit with
+        # EXIT_TRAINING_ERROR so CI/CD retry logic treats it the same way.
         if output_format == "json":
             print(json.dumps({"success": False, "error": str(exc)}))
         else:

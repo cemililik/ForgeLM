@@ -181,6 +181,17 @@ def _load_metrics_from_manifest(output_dir: str) -> dict:
     except (OSError, yaml.YAMLError) as exc:
         logger.warning("Could not read training manifest at %s: %s", manifest_path, exc)
         return {}
+    # ``yaml.safe_load`` happily returns a list or scalar at the document root
+    # if a hand-edited or corrupt manifest reshapes the top level; guard the
+    # ``.get`` call so an unexpected root type degrades to empty metrics with a
+    # warning instead of raising AttributeError into the approval dispatcher.
+    if not isinstance(manifest, dict):
+        logger.warning(
+            "Unexpected manifest root type %s at %s; expected a YAML mapping.",
+            type(manifest).__name__,
+            manifest_path,
+        )
+        return {}
     metrics = manifest.get("final_metrics", {})
     return metrics if isinstance(metrics, dict) else {}
 

@@ -18,7 +18,7 @@
 
 ## Summary
 
-**13 ghost entries** found: 11 subcommands that do not exist in the codebase, 1 subcommand documented under the wrong form, 1 planned but not yet implemented.
+**15 ghost subcommands** found in Category A: 12 subcommands that do not exist in the codebase, 1 documented under the wrong form (GH-011 — flag form `--benchmark-only` rather than a subcommand), 1 with alias-only confusion (GH-008 — `verify-log` vs the implemented `verify-audit`), 1 planned but not yet implemented (GH-013 — `forgelm purge`, scheduled for Faz 21). The complete document spans **28 entries**: 15 subcommands + 10 flags/options + 1 config key + 2 env vars (see the standalone "Total ghost count" line below the implemented-subcommand reference).
 
 ### Category A — Ghost subcommands (documented, not implemented)
 
@@ -346,7 +346,7 @@
 **Documented behavior:** Standalone benchmark run against an existing model (no training). Flags: `--model`, `--tasks`.
 
 **Code reality:** The functionality exists but is exposed as a **flag on the main command**, not a subcommand. `forgelm/cli/_parser.py:598`:
-```
+```text
 --benchmark-only   Run benchmark evaluation on an existing model without training.
                    Requires evaluation.benchmark config.
 ```
@@ -501,7 +501,7 @@ The documented form `forgelm benchmark --model ... --tasks ...` does not work. A
 **References:** `docs/usermanuals/en/reference/cli.md` chat section
 
 **Documented form:**
-```
+```text
 forgelm chat CHECKPOINT [--base BASE_MODEL] [--temperature 0.7] [--top-p 0.9]
     [--max-tokens 1024] [--system "..."] [--safety on|off] [--load PATH]
 ```
@@ -521,7 +521,7 @@ Missing: `--base`, `--top-p`, `--safety`, `--load`, `--max-tokens` (actual flag 
 **References:** `docs/usermanuals/en/reference/cli.md` ingest section
 
 **Documented form:**
-```
+```text
 forgelm ingest INPUT_DIR --output PATH.jsonl
     [--strategy tokens|markdown|paragraph|sentence]
     [--max-tokens N] [--pii-mask] [--secrets-mask]
@@ -702,7 +702,7 @@ These represent real user value but are clearly out of v0.5.5 scope. Until imple
 | GH-015 | `merge-sweep` | Phase 14 pipeline chains or new phase |
 
 **Until implemented:** Remove from usermanuals or add:
-```
+```markdown
 > **Note:** This command is planned for a future release and not yet available in v0.5.5.
 ```
 
@@ -712,7 +712,7 @@ These represent real user value but are clearly out of v0.5.5 scope. Until imple
 
 Quick reference for cleanup or implementation work:
 
-```
+```text
 GH-001 (doctor):
   docs/usermanuals/en/getting-started/installation.md:100,103,111
   docs/usermanuals/en/getting-started/first-run.md:12,29,32,41

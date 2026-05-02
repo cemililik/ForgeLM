@@ -604,6 +604,24 @@ class TestCroissantFileIdReflectsRealFilename:
         assert ids == {"train_jsonl", "dev_jsonl"}, (
             "alias layout must keep the real filename (slugged for JSON-LD), not the canonical split label"
         )
+        # ``name`` and ``contentUrl`` are the operator-facing fields; they must
+        # carry the *raw* filename (``dev.jsonl``) so a Croissant consumer can
+        # actually fetch the file.  ``@id`` is the slugged JSON-LD identifier
+        # (``dev_jsonl``) and is intentionally distinct.  Asserting both halves
+        # protects against a regression that rewrites contentUrl to the
+        # canonical split label or the slug form.
+        by_name = {entry["name"]: entry for entry in crois["distribution"]}
+        assert set(by_name) == {"train.jsonl", "dev.jsonl"}, (
+            "distribution.name must reference the real on-disk filename"
+        )
+        for filename, entry in by_name.items():
+            assert entry["contentUrl"].endswith(filename), (
+                f"contentUrl {entry['contentUrl']!r} must point at the real file {filename!r}, "
+                "not the canonical split label or the slugged @id"
+            )
+            assert "validation" not in entry["contentUrl"], (
+                "contentUrl must not leak the canonical split label (e.g. 'validation' for dev.jsonl)"
+            )
 
     def test_url_does_not_leak_absolute_path(self, tmp_path):
         # When the operator passes an absolute path, the published card
