@@ -21,7 +21,7 @@ All notable changes to ForgeLM are documented here.
   scope of Phase 21's `forgelm purge` implementation.  Maps every Article
   17(1) trigger to a ForgeLM action; enumerates the seven artefact kinds
   that may carry personal data; specifies the `RetentionConfig` Pydantic
-  block (Article 5(1)(e) storage limitation); spec'es the three new
+  block (Article 5(1)(e) storage limitation); specifies the three new
   audit events (`data.erasure_requested` / `data.erasure_completed` /
   `data.erasure_failed`); resolves three Wave 1 carry-overs (GH-023, GH-013,
   Round-5 concurrent-approve lock), six open questions; supplies the
