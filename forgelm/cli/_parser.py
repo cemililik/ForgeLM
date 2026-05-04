@@ -599,6 +599,286 @@ def _add_approvals_subcommand(subparsers) -> None:
     _add_common_subparser_flags(p, include_output_format=True)
 
 
+def _add_verify_annex_iv_subcommand(subparsers) -> None:
+    """Phase 36 — verify an EU AI Act Annex IV artifact JSON file."""
+    p = subparsers.add_parser(
+        "verify-annex-iv",
+        help="Verify an EU AI Act Annex IV artifact (field completeness + manifest hash).",
+        description=(
+            "Reads an Annex IV technical-documentation JSON file, validates "
+            "the nine required field categories per Annex IV §1-9, and "
+            "recomputes the manifest hash to detect post-generation tampering. "
+            "Exits 0 on valid; 1 on missing field or hash mismatch."
+        ),
+    )
+    p.add_argument("path", help="Path to the Annex IV JSON artifact (typically `compliance/annex_iv_<run>.json`).")
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
+def _add_safety_eval_subcommand(subparsers) -> None:
+    """Phase 36 — standalone safety evaluation against a deployed model."""
+    p = subparsers.add_parser(
+        "safety-eval",
+        help="Run safety evaluation on a model without going through training.",
+        description=(
+            "Standalone counterpart to the training-time safety gate.  "
+            "Loads --model, runs each prompt in --probes (or --default-probes "
+            "for the bundled set) through the harm classifier, and emits a "
+            "structured per-category breakdown.  GGUF models are supported "
+            "via llama-cpp-python (requires `[export]` extra)."
+        ),
+    )
+    p.add_argument(
+        "--model",
+        type=str,
+        required=True,
+        metavar="PATH",
+        help="HuggingFace Hub ID, local checkpoint dir, or `.gguf` file.",
+    )
+    p.add_argument(
+        "--classifier",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Harm classifier (default: `meta-llama/Llama-Guard-3-8B`).",
+    )
+    probes_group = p.add_mutually_exclusive_group(required=True)
+    probes_group.add_argument(
+        "--probes",
+        type=str,
+        default=None,
+        metavar="JSONL",
+        help='Path to JSONL probe file (each line is `{"prompt": ..., "category": ...}`).',
+    )
+    probes_group.add_argument(
+        "--default-probes",
+        action="store_true",
+        help="Use the bundled 50-prompt probe set covering ~14 harm categories.",
+    )
+    p.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="Where to write per-prompt results + audit log (default: cwd).",
+    )
+    p.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=512,
+        help="Max tokens per generated response (default: 512).",
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
+def _add_verify_gguf_subcommand(subparsers) -> None:
+    """Phase 36 — verify a GGUF model file's integrity."""
+    p = subparsers.add_parser(
+        "verify-gguf",
+        help="Verify a GGUF model file (magic header + metadata + optional SHA-256 sidecar).",
+        description=(
+            "Three-layer GGUF integrity check: 4-byte `GGUF` magic header, "
+            "metadata block parse via the optional `gguf` package, and a "
+            "SHA-256 comparison against `<path>.sha256` sidecar (when "
+            "present).  Exits 0 on valid; 1 on magic / metadata / sha "
+            "mismatch."
+        ),
+    )
+    p.add_argument("path", help="Path to the GGUF model file.")
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
+def _add_cache_models_subcommand(subparsers) -> None:
+    """Phase 35 — Pre-populate the HuggingFace Hub cache for offline use.
+
+    The connected-machine half of the air-gap workflow.  ``--model`` is
+    repeatable so the operator can stage every model the next training
+    run will need in a single invocation; ``--safety`` is a convenience
+    alias for the harm-classifier that the eval pipeline will load
+    (typically Llama Guard).
+    """
+    p = subparsers.add_parser(
+        "cache-models",
+        help="Pre-populate the HuggingFace Hub cache with one or more models.",
+        description=(
+            "Download models from the HuggingFace Hub into the local cache "
+            "(typically before air-gapping the host).  --model is repeatable; "
+            "--safety adds a harm-classifier (e.g. meta-llama/Llama-Guard-3-8B). "
+            "Cache directory resolves via --output > HF_HUB_CACHE > HF_HOME/hub > "
+            "~/.cache/huggingface/hub."
+        ),
+    )
+    p.add_argument(
+        "--model",
+        type=str,
+        action="append",
+        default=None,
+        metavar="HUB_ID",
+        help="HuggingFace Hub ID (e.g. `meta-llama/Llama-3.2-3B`) or local path.  Repeat for multiple models.",
+    )
+    p.add_argument(
+        "--safety",
+        type=str,
+        default=None,
+        metavar="HUB_ID",
+        help="Optional safety classifier to pre-cache (e.g. `meta-llama/Llama-Guard-3-8B`).",
+    )
+    p.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="Cache directory override (default: HF_HUB_CACHE > HF_HOME/hub > ~/.cache/huggingface/hub).",
+    )
+    p.add_argument(
+        "--audit-dir",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="Where to write the audit chain entries (default: same as --output).  Use this when the operator stages artefacts under a different output_dir than the audit log lives in.",
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
+def _add_cache_tasks_subcommand(subparsers) -> None:
+    """Phase 35 — Pre-populate the lm-evaluation-harness task dataset cache.
+
+    Downloads the upstream HuggingFace datasets that backs each named
+    lm-eval task into the datasets-library cache so that air-gapped
+    benchmark runs find them via ``HF_DATASETS_OFFLINE=1``.
+    """
+    p = subparsers.add_parser(
+        "cache-tasks",
+        help="Pre-populate the lm-eval task dataset cache.  Requires `pip install 'forgelm[eval]'`.",
+        description=(
+            "Download lm-evaluation-harness task datasets into the local "
+            "HuggingFace datasets cache (before air-gapping the host).  "
+            "--tasks accepts a comma-separated list of lm-eval task names "
+            "(e.g. `hellaswag,arc_easy,truthfulqa,mmlu`)."
+        ),
+    )
+    p.add_argument(
+        "--tasks",
+        type=str,
+        required=True,
+        metavar="CSV",
+        help="Comma-separated lm-eval task names (e.g. `hellaswag,arc_easy,truthfulqa`).",
+    )
+    p.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="Cache directory override (default: HF_HUB_CACHE > HF_HOME/hub > ~/.cache/huggingface/hub).",
+    )
+    p.add_argument(
+        "--audit-dir",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="Where to write the audit chain entries (default: same as --output).",
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
+def _add_purge_subcommand(subparsers) -> None:
+    """Phase 21 / GDPR Article 17: erase corpus rows or run-scoped artefacts.
+
+    Three mutually-exclusive modes:
+
+    - ``--row-id <id> --corpus <path>`` — atomic JSONL row erasure with
+      hashed audit event (Article 17 right-to-erasure for training rows).
+    - ``--run-id <id> --kind {staging,artefacts}`` — run-scoped artefact
+      erasure (staging directory or compliance bundle).
+    - ``--check-policy`` — read-only retention-policy violation report
+      against the loaded config's ``retention:`` block.
+
+    Always emits ``data.erasure_requested`` BEFORE any deletion + a
+    matching ``data.erasure_completed`` (or ``data.erasure_failed``)
+    AFTER, so a forensic reviewer sees the full chain even when the
+    disk operation crashes mid-flight.  See
+    ``docs/guides/gdpr_erasure.md`` for the operator how-to.
+    """
+    p = subparsers.add_parser(
+        "purge",
+        help="GDPR Article 17 erasure: remove corpus rows or run-scoped artefacts.",
+        description=(
+            "Article 17 right-to-erasure: deletes a corpus row, a staging "
+            "directory, or a run's compliance bundle, and records a tamper-evident "
+            "audit-event chain (request → completed / failed).  Use --check-policy "
+            "for a read-only retention-violation report against the loaded config."
+        ),
+    )
+    mode = p.add_mutually_exclusive_group(required=False)
+    mode.add_argument(
+        "--row-id",
+        type=str,
+        default=None,
+        metavar="ID",
+        help="Row id to erase from --corpus.  Requires --corpus.  The id is hashed before audit emission.",
+    )
+    mode.add_argument(
+        "--run-id",
+        type=str,
+        default=None,
+        metavar="RUN_ID",
+        help="Run id whose artefacts to erase.  Requires --kind {staging,artefacts}.",
+    )
+    mode.add_argument(
+        "--check-policy",
+        action="store_true",
+        help="Read-only retention-policy violation report.  Always exits 0 (report-not-gate).",
+    )
+    p.add_argument(
+        "--corpus",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Single JSONL file path (corpus mode).  Directory mode is rejected — operators loop in script.",
+    )
+    p.add_argument(
+        "--kind",
+        type=str,
+        default=None,
+        choices=["staging", "artefacts"],
+        help="Run-scoped erasure target: staging directory OR compliance bundle.  `logs` is intentionally absent (audit logs are append-only Article 17(3)(b)).",
+    )
+    p.add_argument(
+        "--row-matches",
+        type=str,
+        default="one",
+        choices=["one", "all"],
+        help="Multi-row policy in --row-id mode.  `one` (default) refuses on >=2 matches; `all` deletes every match (operator confirms intent).",
+    )
+    p.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="Output directory containing audit_log.jsonl + the per-output-dir salt file.  Defaults to corpus parent dir in row mode; required in run mode.",
+    )
+    p.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="YAML config (optional in row/run mode; required for --check-policy).  Detects the webhook block + retention horizons.",
+    )
+    p.add_argument(
+        "--justification",
+        type=str,
+        default=None,
+        metavar="TEXT",
+        help="Operator-supplied reason recorded on every erasure event.  WARNING: avoid pasting subject identifiers; reference your internal ticket id instead.",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be deleted; do not modify disk.  Audit events still emit (with dry_run=True) so the chain reflects intent.",
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
 def _add_reject_subcommand(subparsers) -> None:
     """Article 14: discard a staged model (preserves staging dir for forensics)."""
     p = subparsers.add_parser(
@@ -650,6 +930,12 @@ def parse_args():
             "  forgelm approve RUN_ID          Promote a staged model after human review (Art. 14)\n"
             "  forgelm reject  RUN_ID          Reject a staged model (preserves staging dir for forensics)\n"
             "  forgelm approvals --pending     List runs awaiting human approval (or --show RUN_ID)\n"
+            "  forgelm purge --row-id ID       GDPR Article 17 erasure (corpus row / run artefacts / --check-policy)\n"
+            "  forgelm cache-models --model M  Pre-populate HF Hub cache (air-gap workflow)\n"
+            "  forgelm cache-tasks --tasks CSV Pre-populate lm-eval task datasets (requires [eval] extra)\n"
+            "  forgelm verify-annex-iv PATH    Verify EU AI Act Annex IV artifact (field set + manifest hash)\n"
+            "  forgelm safety-eval --model M   Standalone safety evaluation (HF or GGUF model)\n"
+            "  forgelm verify-gguf PATH        Verify GGUF model integrity (magic + metadata + SHA-256)\n"
             "\nRun 'forgelm <subcommand> --help' for subcommand details."
         ),
     )
@@ -667,6 +953,12 @@ def parse_args():
     _add_approve_subcommand(subparsers)
     _add_reject_subcommand(subparsers)
     _add_approvals_subcommand(subparsers)
+    _add_purge_subcommand(subparsers)
+    _add_cache_models_subcommand(subparsers)
+    _add_cache_tasks_subcommand(subparsers)
+    _add_verify_annex_iv_subcommand(subparsers)
+    _add_safety_eval_subcommand(subparsers)
+    _add_verify_gguf_subcommand(subparsers)
 
     # --- Top-level flags (training / config-driven mode) ---
     parser.add_argument("--config", type=str, help="Path to the YAML configuration file.")

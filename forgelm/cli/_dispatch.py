@@ -80,6 +80,12 @@ def _dispatch_subcommand(command: str, args) -> None:
         "approve": "_run_approve_cmd",
         "reject": "_run_reject_cmd",
         "approvals": "_run_approvals_cmd",
+        "purge": "_run_purge_cmd",
+        "cache-models": "_run_cache_models_cmd",
+        "cache-tasks": "_run_cache_tasks_cmd",
+        "verify-annex-iv": "_run_verify_annex_iv_cmd",
+        "safety-eval": "_run_safety_eval_cmd",
+        "verify-gguf": "_run_verify_gguf_cmd",
     }
     dispatcher_name = table.get(command)
     if dispatcher_name is None:

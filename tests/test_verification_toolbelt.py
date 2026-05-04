@@ -1,0 +1,327 @@
+"""Phase 36 — `forgelm verify-annex-iv` + `safety-eval` + `verify-gguf`.
+
+Tests run torch-free for the verification subcommands; safety-eval is
+exercised at the dispatcher / argument-parsing layer (the underlying
+generation path requires torch + a real model and is covered by the
+existing safety_evaluation tests, which we do not duplicate here).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+
+def _build_args(**kwargs) -> SimpleNamespace:
+    return SimpleNamespace(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# verify-annex-iv
+# ---------------------------------------------------------------------------
+
+
+def _full_annex_iv_artifact() -> dict:
+    """Build a minimal valid Annex IV artifact."""
+    return {
+        "system_identification": {"name": "ForgeLM-test", "version": "0.5.5", "provider": "Acme"},
+        "intended_purpose": "Customer-support fine-tuning research baseline",
+        "system_components": ["transformers>=4.40", "trl>=0.18"],
+        "computational_resources": {"gpu": "A100 80GB", "training_hours": 4.5},
+        "data_governance": {"sources": ["internal-tickets-2024.jsonl"], "validation": "stratified holdout"},
+        "technical_documentation": {"design_doc": "designs/customer-support.md"},
+        "monitoring_and_logging": {"audit_log": "audit_log.jsonl", "post_market_review": "quarterly"},
+        "performance_metrics": {"eval_loss": 1.4, "safety_score": 0.92},
+        "risk_management": {"art9_reference": "risk_assessment.json"},
+    }
+
+
+class TestVerifyAnnexIv:
+    def test_complete_artifact_passes(self, tmp_path: Path, capsys) -> None:
+        from forgelm.cli.subcommands._verify_annex_iv import _run_verify_annex_iv_cmd
+
+        path = tmp_path / "annex_iv.json"
+        path.write_text(json.dumps(_full_annex_iv_artifact()))
+
+        args = _build_args(path=str(path))
+        with pytest.raises(SystemExit) as ei:
+            _run_verify_annex_iv_cmd(args, output_format="json")
+        assert ei.value.code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["valid"] is True
+        assert payload["missing_fields"] == []
+
+    def test_missing_required_field_fails_with_exit_one(self, tmp_path: Path, capsys) -> None:
+        from forgelm.cli.subcommands._verify_annex_iv import _run_verify_annex_iv_cmd
+
+        artifact = _full_annex_iv_artifact()
+        del artifact["risk_management"]
+        path = tmp_path / "annex_iv.json"
+        path.write_text(json.dumps(artifact))
+
+        args = _build_args(path=str(path))
+        with pytest.raises(SystemExit) as ei:
+            _run_verify_annex_iv_cmd(args, output_format="json")
+        assert ei.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["valid"] is False
+        assert "risk_management" in payload["missing_fields"]
+
+    def test_empty_required_field_treated_as_missing(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._verify_annex_iv import verify_annex_iv_artifact
+
+        artifact = _full_annex_iv_artifact()
+        artifact["intended_purpose"] = ""  # operator left placeholder
+        path = tmp_path / "annex_iv.json"
+        path.write_text(json.dumps(artifact))
+
+        result = verify_annex_iv_artifact(str(path))
+        assert result.valid is False
+        assert "intended_purpose" in result.missing_fields
+
+    def test_manifest_hash_match_passes(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._verify_annex_iv import (
+            _compute_manifest_hash,
+            verify_annex_iv_artifact,
+        )
+
+        artifact = _full_annex_iv_artifact()
+        # Two-step: compute over the artifact-without-hash, then write
+        # the artifact WITH the hash and verify it matches.
+        artifact["metadata"] = {}
+        artifact["metadata"]["manifest_hash"] = _compute_manifest_hash(artifact)
+        path = tmp_path / "annex_iv.json"
+        path.write_text(json.dumps(artifact))
+
+        result = verify_annex_iv_artifact(str(path))
+        assert result.valid is True
+        assert result.manifest_hash_actual == result.manifest_hash_expected
+
+    def test_manifest_hash_mismatch_fails(self, tmp_path: Path, capsys) -> None:
+        from forgelm.cli.subcommands._verify_annex_iv import _run_verify_annex_iv_cmd
+
+        artifact = _full_annex_iv_artifact()
+        artifact["metadata"] = {"manifest_hash": "0" * 64}  # bogus
+        path = tmp_path / "annex_iv.json"
+        path.write_text(json.dumps(artifact))
+
+        args = _build_args(path=str(path))
+        with pytest.raises(SystemExit) as ei:
+            _run_verify_annex_iv_cmd(args, output_format="json")
+        assert ei.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["valid"] is False
+        assert "manifest hash" in payload["reason"].lower()
+
+    def test_missing_path_argument_exits_config_error(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._verify_annex_iv import _run_verify_annex_iv_cmd
+
+        args = _build_args(path=None)
+        with pytest.raises(SystemExit) as ei:
+            _run_verify_annex_iv_cmd(args, output_format="json")
+        assert ei.value.code == 1
+
+    def test_file_not_found_exits_runtime_error(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._verify_annex_iv import _run_verify_annex_iv_cmd
+
+        args = _build_args(path=str(tmp_path / "missing.json"))
+        with pytest.raises(SystemExit) as ei:
+            _run_verify_annex_iv_cmd(args, output_format="json")
+        assert ei.value.code == 2
+
+    def test_malformed_json_exits_runtime_error(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._verify_annex_iv import _run_verify_annex_iv_cmd
+
+        path = tmp_path / "annex_iv.json"
+        path.write_text("not even json {")
+        args = _build_args(path=str(path))
+        with pytest.raises(SystemExit) as ei:
+            _run_verify_annex_iv_cmd(args, output_format="json")
+        assert ei.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# verify-gguf
+# ---------------------------------------------------------------------------
+
+
+def _make_minimal_gguf(path: Path, *, magic: bytes = b"GGUF", payload_size: int = 256) -> None:
+    """Write a minimal GGUF-shaped file (magic + zero-padded payload)."""
+    path.write_bytes(magic + b"\x00" * payload_size)
+
+
+class TestVerifyGguf:
+    def test_valid_magic_passes(self, tmp_path: Path, capsys) -> None:
+        from forgelm.cli.subcommands._verify_gguf import _run_verify_gguf_cmd
+
+        path = tmp_path / "model.gguf"
+        _make_minimal_gguf(path)
+
+        args = _build_args(path=str(path))
+        with pytest.raises(SystemExit) as ei:
+            _run_verify_gguf_cmd(args, output_format="json")
+        assert ei.value.code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["valid"] is True
+        assert payload["checks"]["magic_ok"] is True
+
+    def test_corrupted_magic_fails_with_exit_one(self, tmp_path: Path, capsys) -> None:
+        from forgelm.cli.subcommands._verify_gguf import _run_verify_gguf_cmd
+
+        path = tmp_path / "model.gguf"
+        _make_minimal_gguf(path, magic=b"NOPE")
+
+        args = _build_args(path=str(path))
+        with pytest.raises(SystemExit) as ei:
+            _run_verify_gguf_cmd(args, output_format="json")
+        assert ei.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["valid"] is False
+        assert "magic" in payload["reason"].lower()
+
+    def test_sha256_sidecar_match_passes(self, tmp_path: Path, capsys) -> None:
+        from forgelm.cli.subcommands._verify_gguf import _run_verify_gguf_cmd
+
+        path = tmp_path / "model.gguf"
+        _make_minimal_gguf(path)
+        # Compute real SHA-256 of the file we wrote; write sidecar.
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        (tmp_path / "model.gguf.sha256").write_text(f"{actual}  model.gguf\n")
+
+        args = _build_args(path=str(path))
+        with pytest.raises(SystemExit) as ei:
+            _run_verify_gguf_cmd(args, output_format="json")
+        assert ei.value.code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["checks"]["sidecar_present"] is True
+        assert payload["checks"]["sidecar_match"] is True
+
+    def test_sha256_sidecar_mismatch_fails_with_exit_one(self, tmp_path: Path, capsys) -> None:
+        from forgelm.cli.subcommands._verify_gguf import _run_verify_gguf_cmd
+
+        path = tmp_path / "model.gguf"
+        _make_minimal_gguf(path)
+        (tmp_path / "model.gguf.sha256").write_text("0" * 64 + "  model.gguf\n")
+
+        args = _build_args(path=str(path))
+        with pytest.raises(SystemExit) as ei:
+            _run_verify_gguf_cmd(args, output_format="json")
+        assert ei.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["valid"] is False
+        assert "sha-256" in payload["reason"].lower() or "sha256" in payload["reason"].lower()
+
+    def test_missing_path_exits_config_error(self) -> None:
+        from forgelm.cli.subcommands._verify_gguf import _run_verify_gguf_cmd
+
+        args = _build_args(path=None)
+        with pytest.raises(SystemExit) as ei:
+            _run_verify_gguf_cmd(args, output_format="json")
+        assert ei.value.code == 1
+
+    def test_file_not_found_exits_runtime_error(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._verify_gguf import _run_verify_gguf_cmd
+
+        args = _build_args(path=str(tmp_path / "missing.gguf"))
+        with pytest.raises(SystemExit) as ei:
+            _run_verify_gguf_cmd(args, output_format="json")
+        assert ei.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# safety-eval (dispatcher-layer only — generation path is covered elsewhere)
+# ---------------------------------------------------------------------------
+
+
+class TestSafetyEvalDispatcher:
+    def test_missing_model_exits_config_error(self, tmp_path: Path, capsys) -> None:
+        from forgelm.cli.subcommands._safety_eval import _run_safety_eval_cmd
+
+        args = _build_args(
+            model=None,
+            classifier=None,
+            probes=None,
+            default_probes=False,
+            output_dir=str(tmp_path),
+            max_new_tokens=128,
+        )
+        with pytest.raises(SystemExit) as ei:
+            _run_safety_eval_cmd(args, output_format="json")
+        assert ei.value.code == 1
+
+    def test_neither_probes_nor_default_probes_exits_config_error(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._safety_eval import _run_safety_eval_cmd
+
+        args = _build_args(
+            model="gpt2",
+            classifier=None,
+            probes=None,
+            default_probes=False,
+            output_dir=str(tmp_path),
+            max_new_tokens=128,
+        )
+        with pytest.raises(SystemExit) as ei:
+            _run_safety_eval_cmd(args, output_format="json")
+        assert ei.value.code == 1
+
+    def test_both_probes_and_default_probes_rejected(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._safety_eval import _resolve_probes_path
+
+        probes = tmp_path / "probes.jsonl"
+        probes.write_text('{"prompt": "x"}\n')
+        args = _build_args(probes=str(probes), default_probes=True)
+        with pytest.raises(SystemExit) as ei:
+            _resolve_probes_path(args, output_format="json")
+        assert ei.value.code == 1
+
+    def test_default_probes_resolves_to_bundled_file(self) -> None:
+        from forgelm.cli.subcommands._safety_eval import _DEFAULT_PROBES_RELPATH, _resolve_probes_path
+
+        args = _build_args(probes=None, default_probes=True)
+        path = _resolve_probes_path(args, output_format="json")
+        assert path == _DEFAULT_PROBES_RELPATH
+        # And the bundled file exists + has at least 50 entries.
+        with open(path, "r", encoding="utf-8") as fh:
+            count = sum(1 for line in fh if line.strip())
+        assert count >= 50, f"bundled default-probes should have >=50 prompts, got {count}"
+
+    def test_explicit_probes_path_accepted(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._safety_eval import _resolve_probes_path
+
+        probes = tmp_path / "probes.jsonl"
+        probes.write_text('{"prompt": "x"}\n')
+        args = _build_args(probes=str(probes), default_probes=False)
+        assert _resolve_probes_path(args, output_format="json") == str(probes)
+
+    def test_explicit_probes_missing_exits_config_error(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._safety_eval import _resolve_probes_path
+
+        args = _build_args(probes=str(tmp_path / "nonexistent.jsonl"), default_probes=False)
+        with pytest.raises(SystemExit) as ei:
+            _resolve_probes_path(args, output_format="json")
+        assert ei.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# Library API exposure
+# ---------------------------------------------------------------------------
+
+
+class TestVerificationToolbeltFacade:
+    def test_facade_re_exports_all_three_subcommands(self) -> None:
+        from forgelm import cli as _cli_facade
+
+        for name in (
+            "_run_verify_annex_iv_cmd",
+            "_run_safety_eval_cmd",
+            "_run_verify_gguf_cmd",
+            "verify_annex_iv_artifact",
+            "verify_gguf",
+            "VerifyAnnexIVResult",
+            "VerifyGgufResult",
+        ):
+            assert hasattr(_cli_facade, name), f"forgelm.cli must re-export {name!r}"

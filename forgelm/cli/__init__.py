@@ -142,6 +142,15 @@ from .subcommands._audit import (
     _run_data_audit,
 )
 
+# Cache subcommands (Phase 35 — air-gap pre-cache).
+from .subcommands._cache import (
+    _resolve_cache_dir,  # noqa: F401 — re-export for tests
+    _run_cache_models_cmd,  # noqa: F401 — re-export for tests
+    _run_cache_tasks_cmd,  # noqa: F401 — re-export for tests
+    _validate_model_name,  # noqa: F401 — re-export for tests
+    _walk_directory_size,  # noqa: F401 — re-export for tests
+)
+
 # Chat / export / deploy / ingest subcommand dispatchers.
 from .subcommands._chat import _run_chat_cmd  # noqa: F401 — re-export for tests
 from .subcommands._deploy import _run_deploy_cmd  # noqa: F401 — re-export for tests
@@ -165,6 +174,20 @@ from .subcommands._doctor import (
 from .subcommands._export import _run_export_cmd  # noqa: F401 — re-export for tests
 from .subcommands._ingest import _run_ingest_cmd  # noqa: F401 — re-export for tests
 
+# Purge subcommand (Phase 21 — GDPR Article 17 erasure).
+from .subcommands._purge import (
+    _atomic_rewrite_dropping_lines,  # noqa: F401 — re-export for tests
+    _detect_warning_conditions,  # noqa: F401 — re-export for tests
+    _find_matching_rows,  # noqa: F401 — re-export for tests
+    _hash_target_id,  # noqa: F401 — re-export for tests
+    _resolve_salt,  # noqa: F401 — re-export for tests
+    _run_purge_check_policy,  # noqa: F401 — re-export for tests
+    _run_purge_cmd,  # noqa: F401 — re-export for tests
+    _run_purge_row_id,  # noqa: F401 — re-export for tests
+    _run_purge_run_id,  # noqa: F401 — re-export for tests
+    _scan_retention_violations,  # noqa: F401 — re-export for tests
+)
+
 # Quickstart subcommand (multi-step orchestrator).
 from .subcommands._quickstart import (
     _build_quickstart_inherited_flags,
@@ -177,8 +200,24 @@ from .subcommands._quickstart import (
     _run_quickstart_train_then_chat,  # noqa: F401 — re-export for tests
 )
 
+# Compliance verification toolbelt (Phase 36).
+from .subcommands._safety_eval import (
+    _resolve_probes_path,  # noqa: F401 — re-export for tests
+    _run_safety_eval_cmd,  # noqa: F401 — re-export for tests
+)
+from .subcommands._verify_annex_iv import (
+    VerifyAnnexIVResult,  # noqa: F401 — public library type
+    _run_verify_annex_iv_cmd,  # noqa: F401 — re-export for tests
+    verify_annex_iv_artifact,  # noqa: F401 — public library function
+)
+
 # Verify-audit subcommand.
 from .subcommands._verify_audit import _run_verify_audit_cmd  # noqa: F401 — re-export for tests
+from .subcommands._verify_gguf import (
+    VerifyGgufResult,  # noqa: F401 — public library type
+    _run_verify_gguf_cmd,  # noqa: F401 — re-export for tests
+    verify_gguf,  # noqa: F401 — public library function
+)
 
 __all__ = [
     # Public exit codes

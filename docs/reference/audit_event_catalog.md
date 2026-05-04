@@ -54,6 +54,28 @@ The hash chain advances after the line lands on disk (`flush` + `fsync`), so an 
 | `compliance.governance_failed`   | Governance report generation aborted (e.g., schema mismatch).               | `failure_reason`                                 | 10         |
 | `compliance.artifacts_exported`  | Annex IV technical documentation bundle (manifest, model card, audit zip). | `output_dir`, `files`                            | 11, Annex IV |
 
+### Article 17 — GDPR Right-to-Erasure (Phase 21 — `forgelm purge`)
+
+| Event                                      | When emitted                                                                                                  | Payload                                                                                                  | Article |
+|--------------------------------------------|---------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|---------|
+| `data.erasure_requested`                   | First step of any `forgelm purge` invocation, BEFORE any deletion.                                            | `target_kind` ∈ `{row, staging, artefacts, policy_check}`, `target_id` (hashed in row mode), `salt_source`, `corpus_path` (row), `output_dir` (run), `justification`, `dry_run` | 17      |
+| `data.erasure_completed`                   | Successful deletion finished.                                                                                 | All `requested` fields + `bytes_freed`, `files_modified`, `pre_erasure_line_number` (row mode), `match_count` (row mode) | 17      |
+| `data.erasure_failed`                      | Disk operation raised, OR no matching row/run found, OR multi-row policy refused on ambiguity.                | All `requested` fields + `error_class`, `error_message`                                                  | 17      |
+| `data.erasure_warning_memorisation`        | Row erasure × `final_model/` exists for any run that consumed this corpus.                                    | All `completed` fields + `affected_run_ids`                                                              | 17      |
+| `data.erasure_warning_synthetic_data_present` | Row erasure × `synthetic_data*.jsonl` exists in `output_dir`.                                              | All `completed` fields + `synthetic_files`                                                               | 17      |
+| `data.erasure_warning_external_copies`     | Loaded config has a non-empty `webhook` block; downstream consumers may have received notices.                | All `completed` fields + `webhook_targets` (redacted URLs)                                               | 17      |
+
+### Air-gap pre-cache (Phase 35 — `forgelm cache-models` / `cache-tasks`)
+
+| Event                                | When emitted                                                                  | Payload                                                                | Article |
+|--------------------------------------|-------------------------------------------------------------------------------|------------------------------------------------------------------------|---------|
+| `cache.populate_models_requested`    | `forgelm cache-models` invocation begins.                                     | `models`, `cache_dir`, `safety_classifier`                             | 12      |
+| `cache.populate_models_completed`    | Every model downloaded successfully.                                          | All `requested` fields + `total_size_bytes`, `count`                   | 12      |
+| `cache.populate_models_failed`       | One or more model downloads failed (transport, disk-full, HF auth).           | All `requested` fields + `models_completed`, `error_class`, `error_message` | 12 |
+| `cache.populate_tasks_requested`     | `forgelm cache-tasks` invocation begins.                                      | `tasks`, `cache_dir`                                                   | 12      |
+| `cache.populate_tasks_completed`     | Every lm-eval task dataset prepared successfully.                             | All `requested` fields + `count`                                       | 12      |
+| `cache.populate_tasks_failed`        | Unknown task name OR dataset download failure.                                | All `requested` fields + `tasks_completed`, `error_class`, `error_message` | 12 |
+
 ### CLI / migration
 
 | Event                       | When emitted                                                                                       | Payload                          | Article |

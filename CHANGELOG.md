@@ -4,6 +4,133 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+### Added — Wave 2b — Phase 16 + 19 + 21 + 35 + 36 (closure plan)
+
+Five-phase consolidated integration covering the dependency-free batch
+unblocked by the Wave 2a merge.  All work lives on
+`closure/wave2b-integration` and is reviewable as a single PR.
+
+**Phase 21 — GDPR Article 17 right-to-erasure (`forgelm purge`):**
+
+- `forgelm/cli/subcommands/_purge.py` — three-mode dispatcher:
+  - `--row-id <id> --corpus <path>` — atomic JSONL row erasure with
+    SHA-256(salt + id) hashed audit event.  Per-output-dir salt at
+    `<output_dir>/.forgelm_audit_salt` (mode 0600, persistent
+    regardless of `FORGELM_AUDIT_SECRET` toggle); env-var-set
+    invocations XOR the persistent salt with the secret prefix and
+    record `salt_source="env_var"` so a salt-source toggle is
+    visible in the chain.
+  - `--run-id <id> --kind {staging,artefacts}` — run-scoped artefact
+    erasure (staging directory or compliance bundle).
+  - `--check-policy` — read-only retention-policy violation report
+    (always exits 0; report-not-gate per design §10 Q5).
+- `forgelm/config.py` — new `RetentionConfig` Pydantic block with
+  four horizons (`audit_log_retention_days=1825`, `staging_ttl_days=7`,
+  `ephemeral_artefact_retention_days=90`, `raw_documents_retention_days=90`)
+  + `enforce ∈ {log_only, warn_on_excess, block_on_excess}`.
+- `EvaluationConfig.staging_ttl_days` deprecation cadence:
+  alias-forwards to `retention.staging_ttl_days` with a single
+  `DeprecationWarning`; conflicting values raise `ConfigError`.
+  Removal scheduled for v0.7.0.
+- Six new audit events (`data.erasure_*`) catalogued in
+  `docs/reference/audit_event_catalog.md` (+ TR mirror).
+- Bilingual operator guide:
+  `docs/guides/gdpr_erasure.md` + `gdpr_erasure-tr.md`.
+- 28 regression tests in `tests/test_gdpr_erasure.py` covering
+  every design §7 acceptance row.
+
+**Phase 35 — Air-gap pre-cache (`forgelm cache-models` / `cache-tasks`):**
+
+- `forgelm/cli/subcommands/_cache.py` — two subcommands hosted in
+  one module (shared `cache.populate_*` audit-event vocabulary +
+  shared exit-code contract):
+  - `cache-models --model M [--safety S] [--output DIR]` — repeatable
+    `--model` flag; `huggingface_hub.snapshot_download` populates the
+    HF cache.  Cache resolution: `--output > HF_HUB_CACHE > HF_HOME/hub > ~/.cache/huggingface/hub`.
+  - `cache-tasks --tasks CSV` — `lm_eval.tasks.get_task_dict` +
+    `dataset.download_and_prepare()` populates the lm-eval task
+    dataset cache (requires `[eval]` extra; missing-extra surfaces
+    a clear install hint).
+- Six new `cache.populate_*` audit events.
+- 14 regression tests in `tests/test_cache_subcommands.py`
+  (mocked `huggingface_hub` + `lm_eval` so the suite stays
+  network-free + extra-free).
+
+**Phase 36 — Compliance verification toolbelt:**
+
+- `forgelm verify-annex-iv <path>` — verifies an EU AI Act Annex IV
+  artifact JSON file: nine required field categories per Annex IV
+  §1-9 + manifest-hash recompute (canonical-JSON SHA-256 against
+  `metadata.manifest_hash`).  `verify_annex_iv_artifact(path) → VerifyAnnexIVResult`
+  exposed as a public library function.
+- `forgelm safety-eval --model <path> {--probes <jsonl> | --default-probes}` —
+  standalone counterpart to the training-time safety gate.  Wraps
+  `forgelm.safety.run_safety_evaluation`; supports HF + GGUF
+  models (GGUF requires `[export]` extra).
+- `forgelm verify-gguf <path>` — three-layer GGUF integrity check:
+  4-byte `GGUF` magic header, optional metadata parse via the
+  `gguf` package, optional SHA-256 sidecar (`<path>.sha256`)
+  comparison.  `verify_gguf(path) → VerifyGgufResult` exposed as a
+  public library function.
+- New bundled probe set:
+  `forgelm/safety_prompts/default_probes.jsonl` (50 prompts × 14
+  harm categories — controlled-substances, jailbreak,
+  hate-speech, self-harm, csam, etc.).
+- 21 regression tests in `tests/test_verification_toolbelt.py`.
+
+**Phase 16 — Pydantic `description=` migration with CI guard:**
+
+- `tools/check_field_descriptions.py` — AST-based scanner of
+  Pydantic `BaseModel` subclasses.  `--strict` mode exits 1 on any
+  field missing a `description=`.
+- `.github/workflows/ci.yml` — new "Pydantic description= guard"
+  step in the lint job runs the scanner in strict mode.
+- All 174 fields across 19 Pydantic config classes migrated to
+  `Field(default=..., description=...)` form.  Operator-facing copy
+  pulled from existing inline comments + variable semantics; the
+  configuration reference can now be auto-generated from the
+  schema in lockstep with the code.
+
+**Phase 19 — Library API support (Implementation):**
+
+- `forgelm/__init__.py` rewritten as a strict lazy-import facade:
+  - PEP 562 `__getattr__` resolves stable symbols on first access
+    via a `_LAZY_SYMBOLS: dict[str, tuple[str, str]]` registry; each
+    resolved value is cached in `globals()` so subsequent accesses
+    are zero-cost.
+  - `__dir__` lists the full public surface for IDE autocomplete +
+    `help(forgelm)` discovery before any attribute has been
+    accessed.
+  - `TYPE_CHECKING` block with eager imports so `mypy --strict` /
+    pyright consumers see the public surface without losing the
+    runtime lazy semantics.
+- `forgelm/_version.py` — separates `__version__` (package) from
+  `__api_version__` (Python library API contract); anchored at
+  `1.0.0` for the v0.5.5 publication.
+- `forgelm/py.typed` (PEP 561 marker) shipped via the
+  `pyproject.toml` `[tool.setuptools.package-data]` block.
+- `__all__` expanded to enumerate every Phase 19 stable symbol:
+  configuration (`load_config` / `ForgeConfig` / `ConfigError`),
+  training (`ForgeTrainer` / `TrainResult`), data (`prepare_dataset`
+  / `get_model_and_tokenizer` / `audit_dataset` / `AuditReport`),
+  PII / secrets / dedup utility belt (`detect_pii` / `mask_pii` /
+  `detect_secrets` / `mask_secrets` / `compute_simhash`),
+  compliance (`AuditLogger` / `verify_audit_log` / `VerifyResult`),
+  Phase 36 verification toolbelt (`verify_annex_iv_artifact` /
+  `VerifyAnnexIVResult` / `verify_gguf` / `VerifyGgufResult`),
+  webhooks (`WebhookNotifier`), auxiliary (`setup_authentication`
+  / `manage_checkpoints` / `run_benchmark` / `BenchmarkResult` /
+  `SyntheticDataGenerator`).
+- 13 integration tests in `tests/test_library_api.py` — public
+  surface enumeration, `dir()` exposure, lazy-import discipline
+  (subprocess-based), `__getattr__` resolution + `globals()`
+  caching, end-to-end library entry points.
+
+Verification: `ruff check .` clean, `ruff format .` clean, full
+pytest suite **1237 passed, 14 skipped** in 47 s.  All five new
+subcommands surface in `forgelm --help` and the help epilog.
+`forgelm --config config_template.yaml --dry-run` green.
+
 > **Active cycle:** v0.5.5 closure — a single-release consolidation of
 > the master review's 175 findings + 4 new feature tracks (Library API,
 > ISO 27001 / SOC 2 alignment, GDPR right-to-erasure, Article 14 real

@@ -54,6 +54,28 @@ Hash zinciri, satır diske düştükten (`flush` + `fsync`) sonra ilerler; kirli
 | `compliance.governance_failed`   | Yönetişim raporu üretimi iptal edildi (örn. şema uyumsuzluğu).                | `failure_reason`                                 | 10            |
 | `compliance.artifacts_exported`  | Ek IV teknik dokümantasyon paketi (manifest, model card, audit zip) yazıldı.  | `output_dir`, `files`                            | 11, Ek IV     |
 
+### Madde 17 — GDPR Silinme Hakkı (Phase 21 — `forgelm purge`)
+
+| Event                                      | Ne zaman yayılır                                                                                                  | Payload                                                                                                  | Madde |
+|--------------------------------------------|-------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|-------|
+| `data.erasure_requested`                   | Herhangi bir `forgelm purge` çağrısının ilk adımı, herhangi bir silmeden ÖNCE.                                    | `target_kind` ∈ `{row, staging, artefacts, policy_check}`, `target_id` (row mode'da hash'lenmiş), `salt_source`, `corpus_path` (row), `output_dir` (run), `justification`, `dry_run` | 17    |
+| `data.erasure_completed`                   | Başarılı silme tamamlandı.                                                                                        | Tüm `requested` field'ları + `bytes_freed`, `files_modified`, `pre_erasure_line_number` (row mode), `match_count` (row mode) | 17    |
+| `data.erasure_failed`                      | Disk operasyonu raise etti VEYA eşleşen satır/koşum bulunamadı VEYA çoklu-satır policy belirsizliği reddetti.    | Tüm `requested` field'ları + `error_class`, `error_message`                                              | 17    |
+| `data.erasure_warning_memorisation`        | Row erasure × bu corpus'u tüketen herhangi bir koşum için `final_model/` mevcut.                                  | Tüm `completed` field'ları + `affected_run_ids`                                                          | 17    |
+| `data.erasure_warning_synthetic_data_present` | Row erasure × `output_dir`'de `synthetic_data*.jsonl` mevcut.                                                  | Tüm `completed` field'ları + `synthetic_files`                                                           | 17    |
+| `data.erasure_warning_external_copies`     | Yüklü config boş-olmayan `webhook` block'u içeriyor; downstream tüketiciler bildirim almış olabilir.              | Tüm `completed` field'ları + `webhook_targets` (redact'li URL'ler)                                       | 17    |
+
+### Air-gap pre-cache (Phase 35 — `forgelm cache-models` / `cache-tasks`)
+
+| Event                                | Ne zaman yayılır                                                              | Payload                                                                | Madde |
+|--------------------------------------|-------------------------------------------------------------------------------|------------------------------------------------------------------------|-------|
+| `cache.populate_models_requested`    | `forgelm cache-models` çağrısı başlar.                                        | `models`, `cache_dir`, `safety_classifier`                             | 12    |
+| `cache.populate_models_completed`    | Her model başarıyla indirildi.                                                | Tüm `requested` field'ları + `total_size_bytes`, `count`               | 12    |
+| `cache.populate_models_failed`       | Bir veya daha fazla model indirme başarısız (transport, disk-full, HF auth). | Tüm `requested` field'ları + `models_completed`, `error_class`, `error_message` | 12 |
+| `cache.populate_tasks_requested`     | `forgelm cache-tasks` çağrısı başlar.                                         | `tasks`, `cache_dir`                                                   | 12    |
+| `cache.populate_tasks_completed`     | Her lm-eval task dataset'i başarıyla hazırlandı.                              | Tüm `requested` field'ları + `count`                                   | 12    |
+| `cache.populate_tasks_failed`        | Bilinmeyen task adı VEYA dataset download başarısız.                          | Tüm `requested` field'ları + `tasks_completed`, `error_class`, `error_message` | 12 |
+
 ### CLI / göç
 
 | Event                       | Ne zaman emit edilir                                                                                  | Payload                          | Madde |
