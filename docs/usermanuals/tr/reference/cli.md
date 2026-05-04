@@ -92,7 +92,7 @@ $ forgelm audit DATAFILE_OR_DIR \
     [--verbose]
 ```
 
-`--workers N` split düzeyinde paraleliz; on-disk JSON worker sayısından bağımsız olarak byte-identical (sadece `generated_at` zamanı değişir). Tam semantik için bkz. [Veri Denetimi](#/data/audit).
+`--workers N` split düzeyinde paralellik sağlar; on-disk JSON worker sayısından bağımsız olarak byte-identical (sadece `generated_at` zamanı değişir). Tam semantik için bkz. [Veri Denetimi](#/data/audit).
 
 ## Ingest: `forgelm ingest`
 
@@ -221,7 +221,7 @@ Tam kontrat için bkz. [Exit Kodları](#/reference/exit-codes).
 | `TRANSFORMERS_OFFLINE=1` | transformers kütüphanesi ağ çağrılarını kapat |
 | `HF_DATASETS_OFFLINE=1` | datasets kütüphanesi ağ çağrılarını kapat |
 | `FORGELM_OPERATOR` | Audit event'lerinde kaydedilen operator kimliği (`getpass.getuser()@hostname`'i override eder) |
-| `FORGELM_ALLOW_ANONYMOUS_OPERATOR` | `1` olduğunda audit log'un anonim operator kaydetmesine izin verir (aksi halde çözülemeyen kimlik hata) |
+| `FORGELM_ALLOW_ANONYMOUS_OPERATOR` | `1` olduğunda audit log'un anonim operatör kaydetmesine izin verir (aksi halde çözülemeyen kimlik hatası) |
 | `FORGELM_AUDIT_SECRET` | Audit log chain için HMAC imza anahtarı (tahrif tespitini açar) |
 | `FORGELM_GGUF_CONVERTER` | Özel `convert-hf-to-gguf.py` script'inin yolu |
 

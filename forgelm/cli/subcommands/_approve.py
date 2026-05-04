@@ -13,7 +13,7 @@ import json
 import os
 import sys
 import types
-from typing import Optional
+from typing import NoReturn, Optional
 
 import yaml
 
@@ -213,8 +213,16 @@ def _build_approval_notifier(output_dir: str):
     return WebhookNotifier(_Carrier(webhook_cfg))
 
 
-def _output_error_and_exit(output_format: str, msg: str, exit_code: int) -> None:
-    """Emit *msg* as a structured JSON error or a log record, then exit."""
+def _output_error_and_exit(output_format: str, msg: str, exit_code: int) -> NoReturn:
+    """Emit *msg* as a structured JSON error or a log record, then exit.
+
+    ``-> NoReturn`` (Wave 2a Round-2 review nit): mypy / pyright otherwise
+    treat callers as if control could continue past this helper, producing
+    spurious "possibly-unbound variable" warnings for ``required_event`` /
+    ``decision_event`` further down ``_run_approve_cmd`` /
+    ``_run_reject_cmd``.  ``sys.exit`` raises ``SystemExit`` so this never
+    returns; pinning the type makes the contract visible to the typechecker.
+    """
     if output_format == "json":
         print(json.dumps({"success": False, "error": msg}))
     else:

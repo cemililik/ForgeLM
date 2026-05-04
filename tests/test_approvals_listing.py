@@ -17,6 +17,7 @@ import json
 # Tests that need a specific timestamp pass it via the ``timestamp`` kwarg.
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -105,13 +106,17 @@ def _seed_run(
     return staging_dir
 
 
-def _build_args(output_dir: Path, *, pending: bool = False, show: str | None = None) -> MagicMock:
-    """Build a MagicMock ``args`` namespace mimicking argparse output."""
-    args = MagicMock()
-    args.pending = pending
-    args.show = show
-    args.output_dir = str(output_dir)
-    return args
+def _build_args(output_dir: Path, *, pending: bool = False, show: str | None = None) -> SimpleNamespace:
+    """Build a strict argparse-shaped namespace.
+
+    Wave 2a Round-2 nit: was a ``MagicMock`` which silently allowed
+    misspelled or missing CLI attributes (``args.pendng`` would have
+    returned a Mock instead of failing the test).  ``SimpleNamespace``
+    raises ``AttributeError`` on any access the harness did not declare,
+    so a future refactor that reads a new attribute lights up here
+    instead of silently passing.
+    """
+    return SimpleNamespace(pending=pending, show=show, output_dir=str(output_dir))
 
 
 # ---------------------------------------------------------------------------
@@ -829,7 +834,6 @@ class TestApproveStrictModeOnCorruptLog:
         """A malformed line in the audit log must produce
         EXIT_CONFIG_ERROR with an actionable message — NOT silently skip
         the line and let the operator double-grant."""
-        from unittest.mock import MagicMock
 
         from forgelm.cli.subcommands._approve import _run_approve_cmd
 
@@ -854,3 +858,63 @@ class TestApproveStrictModeOnCorruptLog:
         assert payload["success"] is False
         assert "corrupted" in payload["error"].lower()
         assert "line" in payload["error"].lower()
+
+
+class TestApprovalsTimestampTypeSafety:
+    """F-37-TS-TYPE: tampered / hand-rolled audit log carrying a non-string
+    timestamp (e.g. epoch int) must not crash --pending sort.
+
+    The previous sort key was ``e.get("timestamp") or ""`` which only
+    replaces *falsy* values; an int timestamp would crash sorted() with
+    TypeError when compared against a real ISO-8601 string from another
+    event.
+    """
+
+    def test_pending_with_int_timestamp_does_not_crash(self, tmp_path: Path, capsys) -> None:
+        from forgelm.cli.subcommands._approvals import _run_approvals_cmd
+
+        output_dir = tmp_path / "run"
+        output_dir.mkdir()
+        audit = output_dir / "audit_log.jsonl"
+        # Run A: legitimate ISO-8601 string timestamp.
+        _write_event(
+            audit,
+            "human_approval.required",
+            "fg-string0000000",
+            staging_path=str(output_dir / "final_model.staging"),
+        )
+        # Run B: hand-rolled / tampered audit event with int timestamp.
+        _write_event(
+            audit,
+            "human_approval.required",
+            "fg-numeric000000",
+            staging_path=str(output_dir / "final_model.staging.b"),
+            timestamp=1730500000,  # epoch int — not a string
+        )
+        # Run C: non-string non-int (list) — also must not crash.
+        _write_event(
+            audit,
+            "human_approval.required",
+            "fg-listts0000000",
+            staging_path=str(output_dir / "final_model.staging.c"),
+            timestamp=["bogus", "shape"],
+        )
+        with pytest.raises(SystemExit) as ei:
+            _run_approvals_cmd(_build_args(output_dir, pending=True), output_format="json")
+        assert ei.value.code == 0
+        payload = json.loads(capsys.readouterr().out)
+        run_ids = {s["run_id"] for s in payload["pending"]}
+        # All three runs must surface — the type-safe sort key must not
+        # have hidden any of them.
+        assert run_ids == {"fg-string0000000", "fg-numeric000000", "fg-listts0000000"}, (
+            f"non-string timestamp must not hide pending runs; got {run_ids!r}"
+        )
+
+    def test_safe_timestamp_key_returns_empty_for_non_strings(self) -> None:
+        from forgelm.cli.subcommands._approvals import _safe_timestamp_key
+
+        assert _safe_timestamp_key({"timestamp": "2026-01-01T00:00:00+00:00"}) == "2026-01-01T00:00:00+00:00"
+        assert _safe_timestamp_key({"timestamp": 1730500000}) == ""
+        assert _safe_timestamp_key({"timestamp": None}) == ""
+        assert _safe_timestamp_key({"timestamp": ["bogus"]}) == ""
+        assert _safe_timestamp_key({}) == ""

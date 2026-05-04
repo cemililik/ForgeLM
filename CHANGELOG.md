@@ -130,6 +130,114 @@ in this revision.  Full delta:
   catalog count corrected (3 → 6 events listed in §8 file map +
   §12 sign-off + closure-plan §8 line 700).
 
+**Inline review-bot follow-ups (this revision):**
+
+- `forgelm/cli/subcommands/_doctor.py::_check_hf_cache_offline` — OSError
+  on `os.path.getsize` is no longer silently swallowed.  Track an
+  `unreadable_count`, surface it in `detail` + `extras`, and downgrade
+  the verdict from `pass` to `warn` when any file in the cache could not
+  be sized.  Operator now sees a chmod / mount issue instead of a clean
+  total that hides partial visibility.
+- `forgelm/cli/subcommands/_doctor.py::_render_text` — text renderer
+  glyphs migrated from Unicode `✓` / `✗` to ASCII `+` / `x` (warn
+  unchanged at `!`).  The renderer docstring promises "Plain ASCII" for
+  redirected logs / non-UTF8 terminals; the previous Unicode glyphs
+  would `UnicodeEncodeError` on `PYTHONIOENCODING=ascii`.
+- `forgelm/cli/subcommands/_doctor.py::_check_python_version` — comparison
+  pinned to `(version.major, version.minor)` 2-tuple slice rather than
+  comparing the 5-tuple `sys.version_info` against a 2-tuple literal.
+  Functionally equivalent in CPython today; the slice makes the intent
+  explicit and is robust against future tuple-shape changes upstream.
+- `forgelm/cli/subcommands/_approvals.py::_collect_pending_runs` — sort
+  key now uses `_safe_timestamp_key` which returns `""` for any non-string
+  `timestamp` value.  The previous `e.get("timestamp") or ""` only
+  replaced falsy values, so a tampered or hand-rolled audit log carrying
+  `"timestamp": 1730500000` (epoch int) crashed `sorted()` with
+  `TypeError`.  Three regression tests cover string + int + list
+  timestamps in the same log.
+- Module docstring of `_doctor.py` now explicitly documents that the
+  env-var reads (`FORGELM_OPERATOR`, `FORGELM_ALLOW_ANONYMOUS_OPERATOR`,
+  `HF_ENDPOINT`, `HF_HUB_CACHE`, `HF_HOME`, `HF_HUB_OFFLINE`,
+  `TRANSFORMERS_OFFLINE`) are deliberate mirrors of what
+  `forgelm/compliance.py::AuditLogger` and `huggingface_hub` upstream
+  read at runtime — moving them to YAML would make doctor lie about what
+  training will see.  Documented inline so future review bots stop
+  re-flagging the pattern.
+
+**Inline review-bot follow-ups (round 2 of inline absorption):**
+
+Verified each finding against current code; below are the ones that
+shipped a fix.  Three were rejected with rationale:
+
+- *Rejected — Phase 21 scope leak.*  Bot suggested adding
+  `RetentionConfig` to `ForgeConfig`, wiring `--kind` to `forgelm purge`,
+  deprecation-aliasing `EvaluationConfig.staging_ttl_days` etc.  All of
+  those are already specified in the **Phase 20 design** (this PR) and
+  scheduled for **Phase 21 implementation** (separate PR).  Implementing
+  them in the integration PR would leapfrog Phase 21 and break the
+  design-only / implementation-only split this wave was structured
+  around.  closure-plan §15.5 v2.5 already documents the alignment.
+- *Rejected — false positive on env-var reads.*  Doctor must mirror what
+  `compliance.py::AuditLogger` and `huggingface_hub` read; covered above.
+- *Rejected — false positive on `sys.version_info` deprecation.*  The
+  comparison was never deprecated; that said, the 2-tuple slice fix
+  shipped anyway because it improves intent clarity (cosmetic NIT).
+
+Fixed:
+
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md` —
+  unescaped `|` in markdown table cell (`compliance/*.json|yaml` →
+  `compliance/*.{json,yaml}`); outdated hard-coded line count "445" in
+  §12 sign-off replaced with a "recheck with `wc -l`" note that won't
+  rot; relative link to `gdpr_erasure.md` corrected to
+  `../../guides/gdpr_erasure.md` (the guide is a Phase 21 deliverable;
+  link target now resolves correctly when the marketing copy is pasted
+  into `docs/usermanuals/{en,tr}/compliance/safety_compliance.md`).
+- `docs/usermanuals/tr/reference/cli.md` — TR copy fixes: "paraleliz" →
+  "paralellik sağlar" (L95 `--workers N` description); "kimlik hata" →
+  "kimlik hatası" (L224 `FORGELM_ALLOW_ANONYMOUS_OPERATOR` row); also
+  "operator" → "operatör" in the same row for consistency with the rest
+  of the TR docs.
+- `forgelm/_http.py` — module docstring rewritten to cover GET / HEAD
+  alongside POST (`safe_get` was added in this wave but the docstring
+  still claimed POST-only).  Acceptance grep examples updated to include
+  `requests.{get,head}` and `urllib.request.urlopen` so the
+  `lint-http-discipline` CI gate matches what the prose advertises.
+- `forgelm/cli/subcommands/_approve.py::_output_error_and_exit` and the
+  matching helper in `_approvals.py` re-typed `-> NoReturn`.  The
+  helpers always `sys.exit`, so the previous `-> None` annotation made
+  type-checkers think control could continue past them and produced
+  spurious "possibly-unbound variable" warnings for `required_event` /
+  `decision_event` further down `_run_approve_cmd` / `_run_reject_cmd`.
+- `forgelm/cli/subcommands/_doctor.py` — text renderer header
+  "forgelm doctor — environment check" was using an em-dash (U+2014)
+  that the new `test_text_output_is_pure_ascii` regression test caught;
+  replaced with a plain ASCII hyphen so the renderer's "Plain ASCII"
+  promise actually holds.  Also: dead helper `_maybe_unused()` removed
+  along with the `Optional` import it kept alive (no longer used after
+  the helper was deleted).
+- `forgelm/cli/subcommands/_doctor.py` — extracted `_walk_hf_cache_bounded`
+  helper from `_check_hf_cache_offline` so the cache check function
+  reads top-down (resolve → walk → render) rather than inlining the
+  per-file accounting + caps + OSError handling.  Pure refactor; same
+  behaviour, same `extras` keys.
+- `forgelm/cli/subcommands/_doctor.py` — added module-level `_PROBE_*`
+  string constants for the eight probe names (`python.version`,
+  `torch.installed`, `torch.cuda`, `gpu.inventory`, `hf_hub.reachable`,
+  `hf_hub.offline_cache`, `disk.workspace`, `operator.identity`) and
+  replaced the scattered string literals across the probes and
+  `_build_check_plan`.  Renaming a probe (e.g. `operator.identity` →
+  `audit.operator`) is now a single-line change.
+- `forgelm/cli/subcommands/_audit_log_reader.py::iter_audit_events` —
+  per-line parsing extracted into `_parse_nonempty_line` so the
+  iterator stays at one level of nesting and the strict-vs-lenient
+  policy lives in one helper.  Behaviour-preserving refactor.
+- `tests/test_approvals_listing.py::_build_args` — `MagicMock` swapped
+  for `types.SimpleNamespace`.  A misspelled CLI attribute on a
+  `MagicMock` returned a Mock instead of raising; `SimpleNamespace`
+  raises `AttributeError` so a future refactor that reads a new
+  attribute lights up here instead of silently passing.
+
 ### Added — Wave 2a — Phase 18 Library API design + Phase 20 GDPR erasure design
 
 - **Phase 18 — Library API analysis & design** —

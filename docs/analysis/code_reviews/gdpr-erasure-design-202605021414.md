@@ -53,7 +53,7 @@ The take-away: erasure operates on **training data + derived artefacts**, not on
 | **Audit log entries** | `<output_dir>/audit_log.jsonl` (append-only) | Indirectly (operator name, run config, possibly file paths that name a subject) | **Never delete original** — append a `data.erasure_completed` event that references the deleted row's `row_id`.  Article 17(3)(b) exemption. |
 | **Model adapters** | `<output_dir>/final_model/` (PEFT adapter + tokenizer) | **Memorised** training samples — extraction risk for high-overfit models | **Document escalation**: full retraining is the only proper resolution.  Tool emits `data.erasure_warning_memorisation` audit event flagging the gap. |
 | **Final model staging** | `<output_dir>/final_model.staging.<run_id>/` | Same memorisation risk | Operator chooses: delete staging (pre-promotion) or treat as adapters above |
-| **Compliance artefacts** | `<output_dir>/compliance/*.json|yaml` | References to corpus paths (could disclose subject names via filename) | **Regenerate** after erasure (or `forgelm purge --kind artefacts` rewrites them) |
+| **Compliance artefacts** | `<output_dir>/compliance/*.{json,yaml}` | References to corpus paths (could disclose subject names via filename) | **Regenerate** after erasure (or `forgelm purge --kind artefacts` rewrites them) |
 | **Data audit reports** | `<output_dir>/data_audit_report.json` | `lang_sample` field carries up-to-512-char snippets from random rows (could include subject text) | **Regenerate** post-erasure (or hand-edit the snippets — the report is operator-facing only) |
 | **Synthetic / GRPO logs** | `<output_dir>/synthetic_data.jsonl`, GRPO completions | Yes if generated from a prompt that named the subject | **Delete row** with the same row-id mechanism as training corpus |
 | **Webhook history** | (external system; ForgeLM does not store) | Possibly | Out of scope — operator handles in the receiving system |
@@ -338,8 +338,9 @@ What ForgeLM does **not** do:
 - Pushing erasure notices to downstream processors (Article 17(2)) — that
   is your runtime layer's responsibility, not the training toolkit's.
 
-See [`docs/guides/gdpr_erasure.md`](gdpr_erasure.md) for the operator how-to
-and the audit-event reference.
+See [`docs/guides/gdpr_erasure.md`](../../guides/gdpr_erasure.md) for the operator how-to
+and the audit-event reference (Phase 21 deliverable; the file is added by
+the same PR that ships `forgelm purge`).
 ```
 
 A new dedicated guide `docs/guides/gdpr_erasure.md` walks through the three commands with concrete examples.
@@ -445,7 +446,7 @@ The closure plan §15.5 lists three open items that intersect Phase 21:
 
 ## 12. Sign-off checklist (Phase 20 acceptance)
 
-- [x] Document is ≥400 lines.  (Line count = 445 actual at v2 — review-pass added §3.1 prior-state, §3.3 mtime caveat, §5.4 audit-PII minimisation, §4.4 commit ordering recovery paths, scope-limitation paragraph + 3 new warning events.)
+- [x] Document is ≥400 lines.  (Concrete line count drifts as later review passes amend in place — recheck with `wc -l` rather than relying on a hard-coded count.  Sections added through Round-1 + Round-2 review: §3.1 prior-state, §3.3 mtime caveat, §5.4 audit-PII minimisation, §4.4 commit-ordering recovery paths, scope-limitation paragraph + 3 new warning events.)
 - [x] §1 maps every Article 17(1) trigger to ForgeLM scope.
 - [x] §2 enumerates every artefact kind and its erasure strategy.
 - [x] §3 specifies the `RetentionConfig` Pydantic schema (Phase 21 implements it verbatim).

@@ -72,6 +72,45 @@ class AuditLogParseError(ValueError):
         super().__init__(f"{audit_log_path}:{line_number}: {reason}")
 
 
+def _parse_nonempty_line(
+    audit_log_path: str,
+    line_number: int,
+    line: str,
+    *,
+    strict: bool,
+) -> Optional[Dict[str, Any]]:
+    """Parse one non-empty audit-log line.
+
+    Returns the parsed dict, or ``None`` when the line is malformed and
+    ``strict=False`` (the caller treats ``None`` as "skip + count").  In
+    strict mode raises :class:`AuditLogParseError` on JSON-decode failure
+    or non-dict root.
+
+    Wave 2a Round-2 nit: extracted from :func:`iter_audit_events` so the
+    iterator stays at one level of nesting (open → for line → maybe-yield)
+    and the per-line policy lives in one place.
+    """
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError as exc:
+        if strict:
+            raise AuditLogParseError(
+                audit_log_path,
+                line_number,
+                f"invalid JSON ({exc.msg})",
+            ) from exc
+        return None
+    if not isinstance(event, dict):
+        if strict:
+            raise AuditLogParseError(
+                audit_log_path,
+                line_number,
+                f"JSON root is {type(event).__name__}, not dict",
+            )
+        return None
+    return event
+
+
 def iter_audit_events(
     audit_log_path: str,
     *,
@@ -116,24 +155,8 @@ def iter_audit_events(
             line = raw.strip()
             if not line:
                 continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError as exc:
-                if strict:
-                    raise AuditLogParseError(
-                        audit_log_path,
-                        line_number,
-                        f"invalid JSON ({exc.msg})",
-                    ) from exc
-                skipped_lines += 1
-                continue
-            if not isinstance(event, dict):
-                if strict:
-                    raise AuditLogParseError(
-                        audit_log_path,
-                        line_number,
-                        f"JSON root is {type(event).__name__}, not dict",
-                    )
+            event = _parse_nonempty_line(audit_log_path, line_number, line, strict=strict)
+            if event is None:
                 skipped_lines += 1
                 continue
             yield line_number, event

@@ -1,12 +1,22 @@
-"""Centralized HTTP discipline for outbound POST requests.
+"""Centralized HTTP discipline for outbound HTTP calls (GET / HEAD / POST).
 
 Extracted from ``webhook._post_payload`` to enforce SSRF guard, redirect
 refusal, ``http://`` refusal, timeout floor, and secret-mask error reasons
 across every outbound HTTP call site in the codebase (webhook, judge,
-synthetic). Future call sites (telemetry, registry pings, etc.) MUST go
-through :func:`safe_post` rather than calling ``requests.post`` directly —
-the acceptance gate ``grep -rn "requests\\.post" forgelm/ | grep -v _http\\.py``
-should stay empty.
+synthetic, doctor).  POST traffic goes through :func:`safe_post`; read-side
+GET / HEAD traffic goes through :func:`safe_get` (added in Wave 2a Round-2
+when ``forgelm doctor`` migrated off ``urllib.request.urlopen``).
+
+Future call sites (telemetry, registry pings, etc.) MUST go through one of
+those helpers rather than calling ``requests.{post,get,head}`` (or
+``urllib.request.urlopen`` / ``httpx.*``) directly — the CI acceptance
+gate ``lint-http-discipline`` greps ``forgelm/`` for those patterns and
+fails on any hit outside ``forgelm/_http.py``:
+
+    grep -rn "requests\\.\\(post\\|get\\|head\\)\\(" forgelm/ | grep -v _http\\.py
+    grep -rn "urllib\\.request\\.urlopen\\(" forgelm/ | grep -v _http\\.py
+
+both must stay empty.
 
 Policy summary (each enforced before the network call):
 

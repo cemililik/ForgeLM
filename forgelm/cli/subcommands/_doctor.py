@@ -20,6 +20,20 @@ Design goals (closure plan §9.5 Phase 34):
 - **Public exit-code contract.**  0 when every check passes, 1 when at
   least one fails (config-error class), 2 when a probe itself crashed
   (runtime-error class — operator-actionable bug, not config).
+
+Note on env-var reads (CLAUDE.md "config-driven runtime" rule):
+``forgelm doctor`` deliberately reads ``FORGELM_OPERATOR``,
+``FORGELM_ALLOW_ANONYMOUS_OPERATOR``, ``HF_ENDPOINT``, ``HF_HUB_CACHE``,
+``HF_HOME``, and ``HF_HUB_OFFLINE`` / ``TRANSFORMERS_OFFLINE`` directly
+from ``os.environ`` rather than from validated YAML.  This is *not* a
+violation of the config-driven principle — those env vars are read
+verbatim by downstream code (``forgelm/compliance.py::AuditLogger`` for
+the FORGELM_* identity vars; ``huggingface_hub`` upstream for the HF_*
+vars).  Doctor's job is to predict what training will see; if doctor
+read them from YAML while the training-time code read them from env,
+doctor would silently lie.  The broader question of moving the audit
+identity to YAML is a Phase 20 / RetentionConfig design topic, not a
+doctor bug — flagging this here so future review bots do not refile it.
 """
 
 from __future__ import annotations
@@ -31,7 +45,7 @@ import shutil
 import socket
 import sys
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from .._exit_codes import EXIT_CONFIG_ERROR, EXIT_SUCCESS, EXIT_TRAINING_ERROR
 from .._logging import logger
@@ -41,6 +55,19 @@ from .._logging import logger
 _STATUS_PASS = "pass"
 _STATUS_WARN = "warn"
 _STATUS_FAIL = "fail"
+
+# Probe name vocabulary.  Centralised the same way the status tokens are,
+# so renaming a probe (e.g. ``operator.identity`` → ``audit.operator``) is
+# a single-line edit and downstream JSON consumers can grep for these
+# constants rather than scattered string literals.  Wave 2a Round-2 nit.
+_PROBE_PYTHON_VERSION = "python.version"
+_PROBE_TORCH_INSTALLED = "torch.installed"
+_PROBE_TORCH_CUDA = "torch.cuda"
+_PROBE_GPU_INVENTORY = "gpu.inventory"
+_PROBE_HF_HUB_REACHABLE = "hf_hub.reachable"
+_PROBE_HF_HUB_OFFLINE_CACHE = "hf_hub.offline_cache"
+_PROBE_DISK_WORKSPACE = "disk.workspace"
+_PROBE_OPERATOR_IDENTITY = "operator.identity"
 
 # Optional extras advertised in pyproject.toml [project.optional-dependencies].
 # Each entry is ``(extra_name, importable_module, human_purpose_blurb)``.
@@ -109,22 +136,29 @@ def _check_python_version() -> _CheckResult:
     """
     version = sys.version_info
     label = f"{version.major}.{version.minor}.{version.micro}"
-    if version < (3, 10):
+    # Compare on the (major, minor) prefix only.  ``sys.version_info`` is
+    # a 5-tuple; comparing it directly to ``(3, 10)`` works in CPython
+    # today but is harder to reason about (the trailing slots compare
+    # ``int`` vs absent).  Wave 2a Round-2 review F-34-VERSIONCMP: pin to
+    # a 2-tuple slice so the intent is explicit and future tuple-shape
+    # changes upstream cannot break the comparison.
+    version_pair = (version.major, version.minor)
+    if version_pair < (3, 10):
         return _CheckResult(
-            name="python.version",
+            name=_PROBE_PYTHON_VERSION,
             status=_STATUS_FAIL,
             detail=f"Python {label} is below the supported floor (>=3.10). Upgrade Python to >=3.11.",
             extras={"version": label, "minimum": "3.10", "recommended": "3.11"},
         )
-    if version < (3, 11):
+    if version_pair < (3, 11):
         return _CheckResult(
-            name="python.version",
+            name=_PROBE_PYTHON_VERSION,
             status=_STATUS_WARN,
             detail=f"Python {label} is supported but >=3.11 is recommended for performance + typing improvements.",
             extras={"version": label, "minimum": "3.10", "recommended": "3.11"},
         )
     return _CheckResult(
-        name="python.version",
+        name=_PROBE_PYTHON_VERSION,
         status=_STATUS_PASS,
         detail=f"Python {label} ({platform.python_implementation()}).",
         extras={"version": label, "implementation": platform.python_implementation()},
@@ -142,7 +176,7 @@ def _check_torch_cuda() -> _CheckResult:
         import torch
     except ImportError:
         return _CheckResult(
-            name="torch.installed",
+            name=_PROBE_TORCH_INSTALLED,
             status=_STATUS_FAIL,
             detail="torch is not installed. Install with: pip install 'forgelm'.",
             extras={"installed": False},
@@ -151,7 +185,7 @@ def _check_torch_cuda() -> _CheckResult:
     cuda_version = getattr(torch.version, "cuda", None) if cuda_available else None
     if not cuda_available:
         return _CheckResult(
-            name="torch.cuda",
+            name=_PROBE_TORCH_CUDA,
             status=_STATUS_WARN,
             detail=(
                 f"torch {torch.__version__} installed but CUDA is unavailable. "
@@ -164,7 +198,7 @@ def _check_torch_cuda() -> _CheckResult:
             },
         )
     return _CheckResult(
-        name="torch.cuda",
+        name=_PROBE_TORCH_CUDA,
         status=_STATUS_PASS,
         detail=f"torch {torch.__version__} with CUDA {cuda_version}.",
         extras={
@@ -185,14 +219,14 @@ def _check_gpu_inventory() -> _CheckResult:
         import torch
     except ImportError:
         return _CheckResult(
-            name="gpu.inventory",
+            name=_PROBE_GPU_INVENTORY,
             status=_STATUS_FAIL,
             detail="torch is not installed.",
             extras={"installed": False},
         )
     if not torch.cuda.is_available():
         return _CheckResult(
-            name="gpu.inventory",
+            name=_PROBE_GPU_INVENTORY,
             status=_STATUS_WARN,
             detail="No CUDA devices visible; CPU-only mode.",
             extras={"device_count": 0},
@@ -223,14 +257,14 @@ def _check_gpu_inventory() -> _CheckResult:
         )
     if count == 0:
         return _CheckResult(
-            name="gpu.inventory",
+            name=_PROBE_GPU_INVENTORY,
             status=_STATUS_WARN,
             detail="CUDA reports no visible devices.",
             extras={"device_count": 0},
         )
     summary = ", ".join(f"GPU{d['index']}: {d.get('name', '?')} ({d.get('vram_gib', '?')} GiB)" for d in devices)
     return _CheckResult(
-        name="gpu.inventory",
+        name=_PROBE_GPU_INVENTORY,
         status=_STATUS_PASS,
         detail=f"{count} GPU(s) — {summary}.",
         extras={"device_count": count, "devices": devices},
@@ -323,7 +357,7 @@ def _check_hf_hub_reachable(timeout_seconds: float = 5.0) -> _CheckResult:
         # configured something the discipline blocks (e.g. http:// endpoint
         # or private IP without --offline).
         return _CheckResult(
-            name="hf_hub.reachable",
+            name=_PROBE_HF_HUB_REACHABLE,
             status=_STATUS_FAIL,
             detail=(
                 f"HuggingFace Hub probe rejected by HTTP discipline: {exc}. "
@@ -336,7 +370,7 @@ def _check_hf_hub_reachable(timeout_seconds: float = 5.0) -> _CheckResult:
         # Transport / TLS / network failure — caught and warned (same
         # behaviour as the previous urllib URLError branch).
         return _CheckResult(
-            name="hf_hub.reachable",
+            name=_PROBE_HF_HUB_REACHABLE,
             status=_STATUS_WARN,
             detail=f"Could not reach HuggingFace Hub at {probe_url}: {exc}. Check network / proxy / HF_ENDPOINT.",
             extras={"reachable": False, "endpoint": endpoint, "error": str(exc)},
@@ -344,7 +378,7 @@ def _check_hf_hub_reachable(timeout_seconds: float = 5.0) -> _CheckResult:
 
     if 200 <= status_code < 400:
         return _CheckResult(
-            name="hf_hub.reachable",
+            name=_PROBE_HF_HUB_REACHABLE,
             status=_STATUS_PASS,
             detail=f"HuggingFace Hub reachable at {endpoint} (HTTP {status_code}).",
             extras={"reachable": True, "endpoint": endpoint, "status_code": status_code},
@@ -356,7 +390,7 @@ def _check_hf_hub_reachable(timeout_seconds: float = 5.0) -> _CheckResult:
             status_code = response.status_code
             if 200 <= status_code < 400:
                 return _CheckResult(
-                    name="hf_hub.reachable",
+                    name=_PROBE_HF_HUB_REACHABLE,
                     status=_STATUS_PASS,
                     detail=f"HuggingFace Hub reachable at {endpoint} (HTTP {status_code}; GET fallback after HEAD 405).",
                     extras={
@@ -369,7 +403,7 @@ def _check_hf_hub_reachable(timeout_seconds: float = 5.0) -> _CheckResult:
         except _requests.RequestException:  # pragma: no cover — second-attempt failure
             pass
     return _CheckResult(
-        name="hf_hub.reachable",
+        name=_PROBE_HF_HUB_REACHABLE,
         status=_STATUS_WARN,
         detail=f"HuggingFace Hub at {endpoint} returned HTTP {status_code}.",
         extras={"reachable": False, "endpoint": endpoint, "status_code": status_code},
@@ -407,6 +441,48 @@ def _resolve_hf_cache_dir() -> str:
     return os.path.expanduser("~/.cache/huggingface/hub")
 
 
+def _walk_hf_cache_bounded(cache_dir_abs: str) -> Tuple[int, int, int, bool]:
+    """Bounded ``os.walk`` over the HF cache.  Returns ``(file_count,
+    total_bytes, unreadable_count, walk_truncated)``.
+
+    Wave 2a Round-2 nit: extracted from :func:`_check_hf_cache_offline`
+    so the cache-status check function can read top-down (resolve dir →
+    walk → render result) without the per-file accounting being inlined.
+    Sums regular-file sizes only; symlinks in the HF cache point at the
+    blob store and would be double-counted.  Depth + file caps keep the
+    walk bounded on NFS-mounted 50 GiB+ caches so the doctor probe stays
+    snappy.  ``unreadable_count`` is surfaced so the renderer can warn
+    when permissions broke part of the scan (F-34-OSE).
+    """
+    file_count = 0
+    total_bytes = 0
+    unreadable_count = 0
+    walk_truncated = False
+    base_depth = cache_dir_abs.rstrip(os.sep).count(os.sep)
+    for root, dirs, files in os.walk(cache_dir_abs):
+        depth = root.count(os.sep) - base_depth
+        if depth > _HF_CACHE_WALK_DEPTH:
+            dirs[:] = []
+            walk_truncated = True
+            continue
+        for filename in files:
+            if file_count >= _HF_CACHE_WALK_FILE_LIMIT:
+                walk_truncated = True
+                break
+            full = os.path.join(root, filename)
+            if os.path.islink(full):
+                continue
+            try:
+                total_bytes += os.path.getsize(full)
+                file_count += 1
+            except OSError:
+                unreadable_count += 1
+                continue
+        if file_count >= _HF_CACHE_WALK_FILE_LIMIT:
+            break
+    return file_count, total_bytes, unreadable_count, walk_truncated
+
+
 def _check_hf_cache_offline() -> _CheckResult:
     """Inspect the local HF cache (``--offline`` mode replacement for the Hub probe).
 
@@ -428,7 +504,7 @@ def _check_hf_cache_offline() -> _CheckResult:
     cache_dir = _resolve_hf_cache_dir()
     if not os.path.isdir(cache_dir):
         return _CheckResult(
-            name="hf_hub.offline_cache",
+            name=_PROBE_HF_HUB_OFFLINE_CACHE,
             status=_STATUS_WARN,
             detail=(
                 f"HF cache not found at {cache_dir}. Air-gapped runs need pre-cached models — "
@@ -437,52 +513,36 @@ def _check_hf_cache_offline() -> _CheckResult:
             ),
             extras={"cache_dir": cache_dir, "exists": False},
         )
-    # Bytes used by the cache.  Sum regular-file sizes only; symlinks in
-    # the HF cache point at the blob store and would be double-counted.
-    # Depth + file caps keep the walk bounded so the doctor probe stays
-    # snappy on populated caches.
-    total_bytes = 0
-    file_count = 0
-    walk_truncated = False
     cache_dir_abs = os.path.abspath(cache_dir)
-    base_depth = cache_dir_abs.rstrip(os.sep).count(os.sep)
-    for root, dirs, files in os.walk(cache_dir_abs):
-        depth = root.count(os.sep) - base_depth
-        if depth > _HF_CACHE_WALK_DEPTH:
-            # Trim sub-directories so os.walk stops descending.
-            dirs[:] = []
-            walk_truncated = True
-            continue
-        for filename in files:
-            if file_count >= _HF_CACHE_WALK_FILE_LIMIT:
-                walk_truncated = True
-                break
-            full = os.path.join(root, filename)
-            if os.path.islink(full):
-                continue
-            try:
-                total_bytes += os.path.getsize(full)
-                file_count += 1
-            except OSError:
-                continue
-        if file_count >= _HF_CACHE_WALK_FILE_LIMIT:
-            break
+    file_count, total_bytes, unreadable_count, walk_truncated = _walk_hf_cache_bounded(cache_dir_abs)
     cache_gib = round(total_bytes / (1024**3), 2)
     offline_env = os.environ.get("HF_HUB_OFFLINE")
+    truncation_note = " (scan truncated at depth/file cap)" if walk_truncated else ""
+    unreadable_note = f" [{unreadable_count} file(s) unreadable, totals are partial]" if unreadable_count else ""
     detail = (
         f"HF cache at {cache_dir}: {cache_gib} GiB across {file_count} file(s)"
-        f"{' (scan truncated at depth/file cap)' if walk_truncated else ''}. "
-        f"HF_HUB_OFFLINE={offline_env or 'unset'}."
+        f"{truncation_note}{unreadable_note}. HF_HUB_OFFLINE={offline_env or 'unset'}."
     )
+    # Status: warn when files were unreadable even if we scanned
+    # *something* — partial visibility into the cache is operator-
+    # actionable (likely a chmod / mount issue) and should not silently
+    # pass as healthy.
+    if file_count == 0:
+        status = _STATUS_WARN
+    elif unreadable_count:
+        status = _STATUS_WARN
+    else:
+        status = _STATUS_PASS
     return _CheckResult(
-        name="hf_hub.offline_cache",
-        status=_STATUS_PASS if file_count > 0 else _STATUS_WARN,
+        name=_PROBE_HF_HUB_OFFLINE_CACHE,
+        status=status,
         detail=detail,
         extras={
             "cache_dir": cache_dir,
             "exists": True,
             "size_gib": cache_gib,
             "file_count": file_count,
+            "unreadable_count": unreadable_count,
             "walk_truncated": walk_truncated,
             "hf_hub_offline_env": offline_env,
         },
@@ -501,7 +561,7 @@ def _check_disk_space(path: str = ".") -> _CheckResult:
         usage = shutil.disk_usage(path)
     except OSError as exc:  # pragma: no cover — defensive (permission denied)
         return _CheckResult(
-            name="disk.workspace",
+            name=_PROBE_DISK_WORKSPACE,
             status=_STATUS_FAIL,
             detail=f"Could not query disk usage at {path!r}: {exc}.",
             extras={"path": os.path.abspath(path), "error": str(exc)},
@@ -515,7 +575,7 @@ def _check_disk_space(path: str = ".") -> _CheckResult:
     else:
         status = _STATUS_PASS
     return _CheckResult(
-        name="disk.workspace",
+        name=_PROBE_DISK_WORKSPACE,
         status=status,
         detail=f"Workspace {os.path.abspath(path)} — {free_gib} GiB free of {total_gib} GiB.",
         extras={
@@ -590,7 +650,7 @@ def _check_operator_identity() -> _CheckResult:
     if explicit:
         masked = _mask_env_value_for_audit("FORGELM_OPERATOR", explicit)
         return _CheckResult(
-            name="operator.identity",
+            name=_PROBE_OPERATOR_IDENTITY,
             status=_STATUS_PASS,
             detail=f"FORGELM_OPERATOR set to {masked!r}; audit events will carry this identity.",
             extras={"FORGELM_OPERATOR": masked, "source": "env"},
@@ -607,7 +667,7 @@ def _check_operator_identity() -> _CheckResult:
     if username:
         fallback = f"{username}@{hostname}"
         return _CheckResult(
-            name="operator.identity",
+            name=_PROBE_OPERATOR_IDENTITY,
             status=_STATUS_WARN,
             detail=(
                 f"FORGELM_OPERATOR not set; audit events will fall back to {fallback!r}. "
@@ -623,7 +683,7 @@ def _check_operator_identity() -> _CheckResult:
     if allow_anonymous:
         anon = f"anonymous@{hostname}"
         return _CheckResult(
-            name="operator.identity",
+            name=_PROBE_OPERATOR_IDENTITY,
             status=_STATUS_WARN,
             detail=(
                 f"FORGELM_OPERATOR not set, getpass.getuser() unavailable, but "
@@ -637,7 +697,7 @@ def _check_operator_identity() -> _CheckResult:
             },
         )
     return _CheckResult(
-        name="operator.identity",
+        name=_PROBE_OPERATOR_IDENTITY,
         status=_STATUS_FAIL,
         detail=(
             "FORGELM_OPERATOR not set AND getpass.getuser() could not resolve a username. "
@@ -662,18 +722,18 @@ def _build_check_plan(*, offline: bool) -> List[Tuple[str, Callable[[], _CheckRe
     each ``_CheckResult`` carries its own ``name`` for the renderer.
     """
     plan: List[Tuple[str, Callable[[], _CheckResult]]] = [
-        ("python.version", _check_python_version),
-        ("torch.cuda", _check_torch_cuda),
-        ("gpu.inventory", _check_gpu_inventory),
+        (_PROBE_PYTHON_VERSION, _check_python_version),
+        (_PROBE_TORCH_CUDA, _check_torch_cuda),
+        (_PROBE_GPU_INVENTORY, _check_gpu_inventory),
     ]
     for extra_name, module, purpose in _OPTIONAL_EXTRAS:
         plan.append((f"extras.{extra_name}", _make_extra_probe(extra_name, module, purpose)))
     if offline:
-        plan.append(("hf_hub.offline_cache", _check_hf_cache_offline))
+        plan.append((_PROBE_HF_HUB_OFFLINE_CACHE, _check_hf_cache_offline))
     else:
-        plan.append(("hf_hub.reachable", _check_hf_hub_reachable))
-    plan.append(("disk.workspace", _check_disk_space))
-    plan.append(("operator.identity", _check_operator_identity))
+        plan.append((_PROBE_HF_HUB_REACHABLE, _check_hf_hub_reachable))
+    plan.append((_PROBE_DISK_WORKSPACE, _check_disk_space))
+    plan.append((_PROBE_OPERATOR_IDENTITY, _check_operator_identity))
     return plan
 
 
@@ -720,10 +780,17 @@ def _run_all_checks(*, offline: bool) -> List[_CheckResult]:
 # ---------------------------------------------------------------------------
 
 
+# Wave 2a Round-2 review F-34-ASCII: the renderer docstring promises
+# "Plain ASCII" output for redirected logs / non-UTF8 terminals, but the
+# original glyphs (✓ U+2713, ✗ U+2717) are Unicode and would raise
+# UnicodeEncodeError on a strict ASCII locale (PYTHONIOENCODING=ascii or
+# a CI runner with C.US-ASCII).  Replaced with single-byte ASCII so the
+# output matches the documented contract.  ``+`` / ``!`` / ``x`` keep
+# the visual asymmetry (`x` for fail reads as "no" at a glance).
 _STATUS_GLYPHS: Dict[str, str] = {
-    _STATUS_PASS: "✓",
+    _STATUS_PASS: "+",
     _STATUS_WARN: "!",
-    _STATUS_FAIL: "✗",
+    _STATUS_FAIL: "x",
 }
 
 
@@ -738,7 +805,11 @@ def _render_text(results: List[_CheckResult]) -> str:
     warn_count = sum(1 for r in results if r.status == _STATUS_WARN)
     fail_count = sum(1 for r in results if r.status == _STATUS_FAIL)
 
-    lines: List[str] = ["forgelm doctor — environment check", ""]
+    # F-34-ASCII: header was "forgelm doctor — environment check" with an
+    # em-dash (U+2014).  Replaced with a plain ASCII hyphen so the
+    # docstring's "plain ASCII" promise holds for redirected logs / strict
+    # ASCII locales.
+    lines: List[str] = ["forgelm doctor - environment check", ""]
     name_width = max(len(r.name) for r in results) if results else 0
     for result in results:
         glyph = _STATUS_GLYPHS.get(result.status, "?")
@@ -853,7 +924,3 @@ __all__ = [
     "_run_doctor_cmd",
     "_OPTIONAL_EXTRAS",
 ]
-
-
-def _maybe_unused() -> Optional[None]:  # pragma: no cover — kept for typing import alignment
-    return None

@@ -27,7 +27,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NoReturn, Optional
 
 from .._exit_codes import EXIT_CONFIG_ERROR, EXIT_SUCCESS, EXIT_TRAINING_ERROR
 from .._logging import logger
@@ -44,12 +44,13 @@ _TERMINAL_DECISION_EVENTS = frozenset({_EVT_HUMAN_APPROVAL_GRANTED, _EVT_HUMAN_A
 _AUDIT_LOG_FILENAME = "audit_log.jsonl"
 
 
-def _output_error_and_exit(output_format: str, msg: str, exit_code: int) -> None:
+def _output_error_and_exit(output_format: str, msg: str, exit_code: int) -> NoReturn:
     """Emit ``msg`` as a structured JSON error or a log record, then exit.
 
     Mirrors :func:`forgelm.cli.subcommands._approve._output_error_and_exit`
     so the JSON envelope contract is identical across the approval family
-    of subcommands.
+    of subcommands.  ``-> NoReturn`` (Wave 2a Round-2 nit) so the type
+    checker knows control never returns past this helper.
     """
     if output_format == "json":
         print(json.dumps({"success": False, "error": msg}))
@@ -118,8 +119,23 @@ def _collect_pending_runs(audit_log_path: str) -> List[Dict[str, Any]]:
     # events can collide; falling through to insertion order is correct
     # but undocumented — pinning the line-number tiebreaker makes the
     # contract explicit.
-    pending_pairs.sort(key=lambda pair: (pair[1].get("timestamp") or "", pair[0]), reverse=True)
+    pending_pairs.sort(key=lambda pair: (_safe_timestamp_key(pair[1]), pair[0]), reverse=True)
     return [event for _line_no, event in pending_pairs]
+
+
+def _safe_timestamp_key(event: Dict[str, Any]) -> str:
+    """Type-safe sort key for ``event["timestamp"]``.
+
+    Wave 2a Round-2 review F-37-TS-TYPE: the previous ``e.get("timestamp")
+    or ""`` only replaced *falsy* values; a tampered or hand-rolled audit
+    log carrying ``"timestamp": 1730500000`` (epoch int) or any other
+    non-string would crash ``sorted()`` with ``TypeError`` in Python 3
+    when the comparator hit a string-vs-int comparison.  Coerce to ``""``
+    on anything that is not a string so the sort always succeeds; the
+    operator still sees the entry, just sorted to the bottom of the list.
+    """
+    ts = event.get("timestamp")
+    return ts if isinstance(ts, str) else ""
 
 
 def _collect_run_audit_chain(audit_log_path: str, run_id: str) -> List[Dict[str, Any]]:

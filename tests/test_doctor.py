@@ -305,6 +305,40 @@ class TestHfCacheOfflineCheck:
         assert result.status == "warn"
         assert result.extras["file_count"] == 0
 
+    def test_unreadable_files_surface_as_warn_not_pass(self, tmp_path, monkeypatch) -> None:
+        """F-34-OSE: previously OSError on getsize was swallowed silently
+        and the doctor reported a clean ``pass`` with a misleading total.
+        After the fix, any unreadable file flips the verdict to ``warn``
+        and surfaces ``unreadable_count`` so the operator sees the issue.
+        """
+        import os
+
+        from forgelm.cli.subcommands import _doctor
+
+        cache_dir = tmp_path / "hub_cache"
+        cache_dir.mkdir()
+        # One readable, one unreadable.
+        (cache_dir / "readable_blob").write_bytes(b"x" * 256)
+        (cache_dir / "unreadable_blob").write_bytes(b"y" * 256)
+        monkeypatch.setenv("HF_HUB_CACHE", str(cache_dir))
+        monkeypatch.delenv("HF_HOME", raising=False)
+
+        original_getsize = os.path.getsize
+
+        def _fake_getsize(path: str) -> int:
+            if path.endswith("unreadable_blob"):
+                raise OSError("simulated permission denied")
+            return original_getsize(path)
+
+        monkeypatch.setattr(os.path, "getsize", _fake_getsize)
+        result = _doctor._check_hf_cache_offline()
+        assert result.status == "warn", f"unreadable file in cache must downgrade verdict to warn, got {result.status}"
+        assert result.extras["unreadable_count"] == 1
+        assert result.extras["file_count"] == 1  # only the readable one counted
+        assert "unreadable" in result.detail.lower(), (
+            f"detail must surface unreadable count to the operator, got: {result.detail!r}"
+        )
+
 
 class TestHfEndpointResolution:
     """Wave 2a Round-1 (gemini bot): HF_ENDPOINT must be respected for
@@ -490,6 +524,25 @@ class TestRenderers:
         results = _make_results("pass", "warn", "pass")
         payload = json.loads(_render_json(results))
         assert payload["success"] is True
+
+    def test_text_output_is_pure_ascii(self) -> None:
+        """F-34-ASCII: the docstring promises plain ASCII for redirected
+        logs and non-UTF8 terminals.  Previously used ✓ / ✗ (Unicode)
+        which would crash with UnicodeEncodeError on PYTHONIOENCODING=ascii.
+        Pinning the contract: every byte of the rendered text must encode
+        cleanly as ASCII.
+        """
+        from forgelm.cli.subcommands._doctor import _render_text
+
+        results = _make_results("pass", "warn", "fail")
+        out = _render_text(results)
+        # If a Unicode glyph leaks back in, this raises UnicodeEncodeError
+        # exactly the way an ASCII-locale terminal would.
+        out.encode("ascii")  # must not raise
+        # And the glyphs are the documented ASCII tokens.
+        assert "[+ pass]" in out
+        assert "[! warn]" in out
+        assert "[x fail]" in out
 
 
 # ---------------------------------------------------------------------------
