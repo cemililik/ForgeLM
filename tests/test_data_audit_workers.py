@@ -26,6 +26,7 @@ import json
 import sys
 from dataclasses import asdict
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -79,22 +80,31 @@ def _audit_to_canonical_json(corpus: Path, workers: int, output_dir: Path) -> st
 
 
 def _strip_generated_at_for_hash(text: str) -> str:
-    """Remove the wall-clock ``generated_at`` line so file hashes can compare.
+    """Remove the top-level ``generated_at`` line so file hashes can compare.
 
     The audit report's only intentionally non-deterministic field is the
     ISO-8601 timestamp captured at write time.  We strip it textually
-    (regex on the JSON line) before SHA-256-ing so the rest of the file
-    can be compared byte-for-byte across worker counts.
+    before SHA-256-ing so the rest of the file can be compared
+    byte-for-byte across worker counts.
+
+    Wave 2a Round-2 F-TEST-17-07: anchored to the **top-level** key
+    position only.  The audit JSON is written via ``json.dumps(..., indent=2)``
+    so top-level keys live at indent level 2 (``  "key": value``).  A
+    future schema addition that puts a per-split ``generated_at`` deeper
+    in the tree (e.g. ``"croissant": {"dateCreated": ...}``) is NOT
+    stripped — only the report-level timestamp is.  This protects against
+    the false-negative where a real determinism regression would be
+    silently masked by an over-broad regex.
     """
     import re
 
-    # Single-line per JSON entry — replace the timestamp value with a
-    # constant placeholder; preserve indentation + commas so the
-    # surrounding bytes stay identical.
+    # ^  "generated_at": "..." anchored to start-of-line + 2-space indent.
+    # MULTILINE so ^ matches every line, not just file start.
     return re.sub(
-        r'"generated_at"\s*:\s*"[^"]+"',
-        '"generated_at": "<stripped>"',
+        r'^  "generated_at"\s*:\s*"[^"]+"',
+        '  "generated_at": "<stripped>"',
         text,
+        flags=re.MULTILINE,
     )
 
 
@@ -173,7 +183,22 @@ class TestWorkersDeterminism:
         under non-deterministic ordering since langdetect picks a sample
         deterministically per-process but the worker spawn order can
         affect which sample lands first.
+
+        Wave 2a Round-2 F-TEST-17-01: gated on ``langdetect`` being
+        installed.  Without the optional ``[ingestion]`` extra,
+        ``_detect_language`` returns the literal ``"unknown"`` for every
+        row, so seq vs par equality is structurally trivial and a real
+        ordering regression would not surface.  CI runs ``[dev]`` only,
+        so this test runs locally for developers with ``[ingestion]``
+        installed; CI exercises the determinism contract via
+        ``test_audit_json_byte_identical_to_sequential`` (which is also
+        SHA-256 byte-equal at the file level).
         """
+        pytest.importorskip(
+            "langdetect",
+            reason="languages_top3 is a flat 'unknown' constant without langdetect; "
+            "install '[ingestion]' extra to exercise the actual ordering contract.",
+        )
         corpus = _seed_three_split_corpus(tmp_path)
 
         baseline_dir = tmp_path / "out-w1"
@@ -306,16 +331,30 @@ class TestWorkersEdgeCases:
     def test_default_workers_is_one(self, tmp_path: Path) -> None:
         """Backwards compatibility: omitting ``workers`` must produce the
         sequential path so the default behaviour for every existing caller
-        is unchanged."""
-        corpus = _seed_three_split_corpus(tmp_path)
+        is unchanged.
+
+        Wave 2a Round-2 F-TEST-17-06: previously this only asserted
+        ``total_samples == 26`` which is a sanity check, not a contract
+        test.  The CHANGELOG-promised contract is "the default produces
+        byte-identical output to ``--workers 1``".  Now compares the
+        canonical JSON file content.
+        """
+        from dataclasses import asdict
 
         from forgelm.data_audit import audit_dataset
 
-        # No keyword: should run sequentially.  Asserting absence of error
-        # is the contract; the JSON-equivalence test above confirms the
-        # numerical equivalence.
-        report = audit_dataset(str(corpus))
-        assert report.total_samples == 26
+        corpus = _seed_three_split_corpus(tmp_path)
+
+        # Compare the canonical report dicts (modulo generated_at) so a
+        # silent default-flip from 1 → e.g. 2 would surface here.
+        default_report = audit_dataset(str(corpus))
+        explicit_report = audit_dataset(str(corpus), workers=1)
+        default_dict = asdict(default_report)
+        explicit_dict = asdict(explicit_report)
+        # generated_at is wall-clock; strip per the determinism contract.
+        default_dict.pop("generated_at", None)
+        explicit_dict.pop("generated_at", None)
+        assert default_dict == explicit_dict, "audit_dataset() default behaviour drifted from explicit workers=1"
 
     @pytest.mark.parametrize("invalid", [0, -1, -10])
     def test_workers_below_one_raises_valueerror(self, tmp_path: Path, invalid: int) -> None:
@@ -446,18 +485,79 @@ class TestWorkersCLI:
         explicit_payload.pop("generated_at", None)
         assert default_payload == explicit_payload
 
-    def test_cli_workers_non_integer_rejected_at_parse_time(self) -> None:
-        """``--workers four`` must trip ``_positive_int`` at parse time."""
+    @pytest.mark.parametrize(
+        "invalid",
+        ["four", "1.5", "True", "False", "1e2", "0x1", ""],
+        ids=["word", "float-string", "bool-True", "bool-False", "scientific", "hex", "empty"],
+    )
+    def test_cli_workers_non_integer_rejected_at_parse_time(self, invalid: str) -> None:
+        """``--workers <non-int>`` must trip ``_positive_int`` at parse time.
+
+        Wave 2a Round-2 F-TEST-17-02: parametrise to cover the canonical
+        Python "looks like an int but isn't" cases — float-strings,
+        bool-strings, scientific notation, hex.  A future refactor that
+        swapped ``int(value)`` for ``float(value)`` truncation (a
+        well-meaning but wrong simplification) would silently start
+        accepting ``--workers 1.5 → 1``; this parametrisation pins the
+        strict-int contract."""
         import subprocess
 
         result = subprocess.run(
-            [sys.executable, "-m", "forgelm.cli", "audit", "/nonexistent", "--workers", "four"],
+            [sys.executable, "-m", "forgelm.cli", "audit", "/nonexistent", "--workers", invalid],
             capture_output=True,
             text=True,
             timeout=30,
         )
-        assert result.returncode != 0
-        assert "invalid integer" in result.stderr.lower() or "invalid" in result.stderr.lower()
+        assert result.returncode != 0, f"--workers {invalid!r} should be rejected, got returncode 0"
+        assert (
+            "invalid integer" in result.stderr.lower()
+            or "invalid" in result.stderr.lower()
+            or "must be" in result.stderr.lower()
+        )
+
+
+class TestWorkersSpawnPinning:
+    """Wave 2a Round-2 F-TEST-17-03: regression-pin spawn context."""
+
+    def test_orchestrator_uses_spawn_context(self, tmp_path: Path) -> None:
+        """The determinism contract requires the spawn start method
+        unconditionally so Linux fork-by-default does not silently slip
+        through (langdetect.DetectorFactory state, file-descriptor
+        inheritance, etc.).  Spy on ``multiprocessing.get_context`` to
+        confirm 'spawn' is what the orchestrator asks for."""
+        from forgelm.data_audit import _orchestrator, audit_dataset
+
+        called_with: list[str] = []
+        original = _orchestrator.multiprocessing.get_context
+
+        def _spy(method: str):
+            called_with.append(method)
+            return original(method)
+
+        corpus = _seed_three_split_corpus(tmp_path)
+        with patch.object(_orchestrator.multiprocessing, "get_context", _spy):
+            audit_dataset(str(corpus), workers=2, output_dir=str(tmp_path / "out"))
+
+        assert "spawn" in called_with, f"orchestrator must request 'spawn' start method, got {called_with!r}"
+
+
+class TestWorkersClamp:
+    """Wave 2a Round-2 F-TEST-17-08: workers > num_splits clamps."""
+
+    def test_workers_above_split_count_logged(self, tmp_path: Path, caplog) -> None:
+        """When operator passes ``--workers 10`` on a 3-split corpus, the
+        orchestrator clamps to 3 and logs the reduction so the
+        wall-clock-vs-expected gap doesn't surprise the operator."""
+        import logging
+
+        from forgelm.data_audit import audit_dataset
+
+        corpus = _seed_three_split_corpus(tmp_path)
+        with caplog.at_level(logging.INFO):
+            audit_dataset(str(corpus), workers=10, output_dir=str(tmp_path / "out"))
+        assert any("requested workers=10" in r.message for r in caplog.records), (
+            f"expected workers-reduction log, got: {[r.message for r in caplog.records]}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -544,33 +644,38 @@ class TestWorkersErrorPropagation:
                 audit_dataset(str(corpus), workers=1)
 
     def test_parallel_path_does_not_silently_complete_on_split_failure(self, tmp_path: Path) -> None:
-        """Parallel path: a per-split failure (here: corrupt-byte JSONL
-        that the streaming reader cannot decode) must not leave a
-        silently-incomplete report behind.  ``_process_split`` swallows
-        OSError today and reports a `read_failed` info on the split,
-        which IS the documented behaviour — so the assertion here is
-        narrower: the report still finishes, the failed split is
-        flagged, and the other splits land cleanly."""
+        """Parallel path: a per-split read failure must surface as a
+        structured per-split error, not a silent completion that drops
+        the failed split, AND the other splits must finish cleanly.
+
+        Wave 2a Round-2 F-TEST-17-04 fix: previously this test ``unlink``'d
+        the validation.jsonl which let split discovery drop the file
+        BEFORE scheduling — bypassing the worker error path entirely.
+        The fix preserves the file (so split discovery schedules it)
+        but corrupts the contents with bytes the streaming JSON reader
+        cannot decode, exercising the actual ``_process_split`` OSError
+        catch on the worker side."""
         corpus = _seed_three_split_corpus(tmp_path)
-        # Replace one split file with a path that does not exist; the
-        # split discovery accepts the layout and the per-split open()
-        # fails with FileNotFoundError, which _process_split converts
-        # into a structured `read_failed` info entry.
-        (corpus / "validation.jsonl").unlink()
+        # Corrupt the validation split so split discovery still sees it
+        # and schedules a worker, but the streaming reader inside the
+        # worker hits a decode failure on first read.  Invalid UTF-8
+        # bytes plus a NUL byte ensure both ``json.loads`` and any
+        # raw-bytes decode path fail.
+        (corpus / "validation.jsonl").write_bytes(b"\xff\xfe not json at all \x00\x01\x02\n")
 
         from forgelm.data_audit import audit_dataset
 
         report = audit_dataset(str(corpus), workers=2)
-        # Train + test still landed cleanly; validation surfaces the
-        # error inline.  This is the same behaviour as workers=1.
-        # The point of the test is that workers > 1 doesn't make a
-        # missing split silently disappear or hang.
+        # Train + test must still land cleanly — the parallel path's
+        # error isolation is the contract being defended.
         assert "train" in report.splits
         assert "test" in report.splits
-        # Validation either has an "error" key (read_failed surfaced)
-        # OR is absent (split discovery dropped it before scheduling).
-        # Both behaviours are acceptable — what matters is that the
-        # parallel path completed without a worker crash bubbling up.
-        if "validation" in report.splits:
-            # Documented `read_failed: ...` info shape.
-            assert "error" in report.splits["validation"] or report.splits["validation"].get("sample_count", 0) == 0
+        # Validation must appear in the report (the file existed at
+        # discovery time) with either an explicit error marker or a
+        # zero sample count — both are documented `read_failed` shapes.
+        assert "validation" in report.splits, (
+            "validation split must appear in report.splits — "
+            "the parallel worker path must not silently drop a corrupted split"
+        )
+        validation = report.splits["validation"]
+        assert "error" in validation or validation.get("sample_count", 0) == 0

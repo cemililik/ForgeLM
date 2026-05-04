@@ -5,7 +5,7 @@
 **Author:** Closure Wave 2a
 **Companion:** [`closure-plan-202604300906.md §7 Phase 18`](./closure-plan-202604300906.md)
 **Implements (next phase):** Phase 19 — Library API Implementation
-**Base commit:** `0ffdfd6` (post-Wave-1 merge into `development`)
+**Base commit:** `0ffdfd6` (post-Wave-1 merge into `development`); Round-1 + Round-2 review fixes absorbed in the same wave (PR #28 `closure/wave2a-integration`).
 
 ---
 
@@ -33,7 +33,7 @@ The decisions below are written so an engineer reading just this document can im
 | `get_model_and_tokenizer` | `forgelm.model` | lazy | `torch`, `transformers`, `peft` |
 | `ForgeTrainer` | `forgelm.trainer` | lazy | `torch`, `transformers`, `trl` |
 | `TrainResult` | `forgelm.results` | lazy | (lightweight dataclass) |
-| `run_benchmark` | `forgelm.benchmark` | lazy | `lm-eval` (optional `[evaluation]` extra) |
+| `run_benchmark` | `forgelm.benchmark` | lazy | `lm-eval` (optional `[eval]` extra) |
 | `BenchmarkResult` | `forgelm.benchmark` | lazy | (lightweight dataclass) |
 | `setup_authentication` | `forgelm.utils` | lazy | `huggingface_hub` |
 | `manage_checkpoints` | `forgelm.utils` | lazy | (stdlib only) |
@@ -115,7 +115,7 @@ Anything starting with an underscore at any level (`forgelm._http`, `forgelm.cli
 | `forgelm.results` | Stable | `TrainResult` re-exported |
 | `forgelm.safety` | **Internal today** (no re-export) | direct `forgelm.safety.run_safety_evaluation` reach-in is undocumented; Phase 36 promotes it to Stable via re-export when the standalone subcommand ships |
 | `forgelm.judge` | **Internal today** (no re-export) | callers reach in via `forgelm.judge.run_judge_evaluation`; not stable until ranked into a future re-export |
-| `forgelm.ingestion` | **Internal today** (no re-export) | `OptionalDependencyError` + `ingest_path` reachable via direct submodule import; promotion to Experimental is a Phase 19 follow-up decision |
+| `forgelm.ingestion` (the module) | **Internal today** (no re-export) | `OptionalDependencyError` + `ingest_path` reachable via direct submodule import; promotion to Experimental is a Phase 19 follow-up decision |
 | `forgelm.export`, `forgelm.deploy`, `forgelm.merging`, `forgelm.inference`, `forgelm.fit_check`, `forgelm.chat`, `forgelm.quickstart`, `forgelm.wizard`, `forgelm.model_card`, `forgelm.grpo_rewards` | **Internal** | CLI dispatchers; reach-in is unsupported. The CLI is the public surface for these features. |
 | `forgelm.cli` (the package) | Internal | `forgelm` console script + `python -m forgelm.cli` are the public entries; the dispatchers themselves are internal even though tests reach in via `forgelm.cli._run_*_cmd` |
 | `forgelm.templates` | Internal data | template registry; consumers should use `forgelm quickstart --list` |
@@ -244,7 +244,7 @@ def __dir__() -> list[str]:
 
 ### 4.3 Wave 1 round-5 carry-over: `forgelm/cli/__init__.py`
 
-The CLI facade currently has 153 lines of eager `from .submodule import ...` calls.  That makes `import forgelm.cli` heavyweight even though most of those subcommand dispatchers are not needed for any single command.
+The CLI facade currently has ~200 lines of eager `from .submodule import ...` calls (23 import statements pulling 50+ names; verified 2026-05-04 against `forgelm/cli/__init__.py`).  That makes `import forgelm.cli` heavyweight even though most of those subcommand dispatchers are not needed for any single command.
 
 **Decision:** Phase 19 ports the same `__getattr__` + `__dir__` pattern to `forgelm/cli/__init__.py`.  A symbol → submodule lookup table replaces the eager imports.  The shape:
 
@@ -316,7 +316,7 @@ Phase 19 ships a `tools/check_api_compat.py` script that compares the **stable**
 2. `python -c "import forgelm; print(json.dumps({n: inspect.signature(getattr(forgelm, n)).__str__() for n in <STABLE>}))"`.
 3. Diff against the same dump from the working tree.
 
-CI trigger: **runs on `push` to a `release-*` branch** (not on every commit; not on tag-only because we want the diff visible *before* the tag).  No-op for the v0.5.5 release itself: there is no prior `__api_version__`-bearing release to diff against, so the script's first useful run is at v0.5.6 cut time.  Phase 19 ships the script + the `release-*` workflow step; Phase 33 (v0.5.5 release) treats the script as a documented future contract rather than an immediate gate.
+CI trigger: **`pull_request` job that runs whenever the PR targets `main` AND modifies `forgelm/__init__.py` or `forgelm/api.py`**, plus a manual `workflow_dispatch` step the `cut-release` skill invokes before tagging.  We do **not** use `release-*` branches as the trigger: `docs/standards/release.md:259` explicitly forbids release branches ("**No release branches** — if a hotfix is needed for an old version that has diverged, create a branch at that tag and cherry-pick — rare").  A `release-*` trigger would ship a CI step that never fires because no `release-*` branch ever exists.  No-op for the v0.5.5 release itself: there is no prior `__api_version__`-bearing release to diff against, so the script's first useful run is at v0.5.6 cut time.  Phase 19 ships the script + the `pull_request` + `workflow_dispatch` workflow steps; Phase 33 (v0.5.5 release) treats the script as a documented future contract rather than an immediate gate.
 
 This is not a blocking gate; it is a notification.  A genuinely-needed signature change still merges, but the release notes get an automatic "BREAKING:" line.
 
@@ -341,14 +341,15 @@ A new test module `tests/test_library_api.py` covers the **stable** surface end-
 | Test | Journey |
 |---|---|
 | `test_train_then_chat_pure_python` | `from forgelm import ForgeTrainer, ForgeConfig`; build a tiny config in-memory (no YAML); train 1 step on a fixture dataset; assert `TrainResult.success`. |
-| `test_audit_dataset_one_shot` | `from forgelm import audit_dataset`; pass a 100-row JSONL; assert the returned `AuditReport.total_samples == 100` and `cross_split_overlap.pairs == {}`. |
+| `test_audit_dataset_one_shot` | `from forgelm import audit_dataset`; pass a 100-row JSONL; assert the returned `AuditReport.total_samples == 100` and `cross_split_overlap["pairs"] == {}` (note: `cross_split_overlap` is a `Dict[str, Any]` per `forgelm/data_audit/_types.py:122`, accessed by key not attribute). |
 | `test_verify_audit_log_valid_chain` | `from forgelm import verify_audit_log`; emit two events via `AuditLogger`; assert the returned `VerifyResult.valid is True`. |
 | `test_pii_utilities_standalone` | `from forgelm import detect_pii, mask_pii`; assert detection + masking on a fixture string. |
 | `test_audit_dataset_with_croissant` | Calls `audit_dataset(..., emit_croissant=True)` and asserts the `report.croissant` block has the expected JSON-LD shape. |
 | `test_lazy_import_no_torch` | Subprocess: `import forgelm; assert "torch" not in sys.modules`. |
-| `test_lazy_import_torch_loads_on_trainer_access` | Subprocess: `import forgelm; _ = forgelm.ForgeTrainer; assert "torch" in sys.modules`. |
+| `test_lazy_import_attribute_access_metadata_only` | Subprocess: `import forgelm; _ = forgelm.ForgeTrainer; assert "torch" not in sys.modules`.  Attribute access through the package facade resolves the class object via `__getattr__` → `from .trainer import ForgeTrainer`; `forgelm/trainer.py` defers `import torch` to function bodies (per `tests/test_lazy_imports.py`), so merely *referencing* the class must NOT pull torch.  Torch is loaded only when the class is *used* (instantiated + `train()` called), which is exercised by `test_train_then_chat_pure_python` above. |
 | `test_dir_lists_stable_symbols` | `assert "ForgeTrainer" in dir(forgelm)` etc. for every name in §2.1. |
 | `test_internal_symbols_excluded_from_public_surface` | `assert "_http" not in dir(forgelm)` AND `assert "_http" not in forgelm.__all__`.  We do **not** assert `pytest.raises(AttributeError)` here: `forgelm/_http.py` is a real submodule, so the moment any other test does `from forgelm import _http` (or `import forgelm._http`) the attribute is set on the package object as a side-effect and a `raises` test would silently flip.  The contract we actually want is "internal = not in `__all__` / not in `dir()`", not "import-protected". |
+| `test_config_from_dict` | `from forgelm import ForgeConfig`; build via `ForgeConfig(**dict_payload)`; assert validation errors raise on bad input; assert the round-tripped object matches a YAML-loaded equivalent.  Pins the `**dict_payload` path called out in §8.2. |
 
 ### 6.2 Heavy-dep gating
 
@@ -437,13 +438,13 @@ This section is the implementation spec for the next phase.  It is intentionally
 
 | # | Task | Files | Acceptance |
 |---|---|---|---|
-| 1 | Add `forgelm/py.typed` (zero-byte marker) | `forgelm/py.typed` (new) | `pip install . && python -c "import forgelm; help(forgelm)"` shows hints. |
-| 2 | Create `forgelm/api.py` with `__api_version__ = "0.5"` | `forgelm/api.py` (new) | `from forgelm.api import __api_version__` works. |
+| 1 | Add `forgelm/py.typed` (zero-byte marker) | `forgelm/py.typed` (new) | From a fresh venv, `pip install dist/forgelm-*.whl && mypy --strict <test_file_importing_forgelm.py>` does NOT report `missing library stubs or py.typed marker`. |
+| 2 | Create `forgelm/api.py` with `__api_version__ = "0.5"` and re-export it from `forgelm/__init__.py` | `forgelm/api.py` (new), `forgelm/__init__.py` | Both `from forgelm.api import __api_version__` and `from forgelm import __api_version__` work. |
 | 3 | Extend `forgelm/__init__.py` `__getattr__` with the §4.2 entries (`audit_dataset`, `verify_audit_log`, `AuditLogger`, `VerifyResult`, `AuditReport`, `WebhookNotifier`, `detect_pii`, `mask_pii`, `detect_secrets`, `mask_secrets`, `compute_simhash`) | `forgelm/__init__.py` | Each name is reachable; `import forgelm` does not import torch (see §4.1 regression test). |
-| 4 | Add `__all__` entries for every name introduced in §3 | `forgelm/__init__.py` | `dir(forgelm)` lists them. |
-| 5 | Add `__dir__()` returning sorted `__all__` | `forgelm/__init__.py` | IDE auto-complete works on a fresh import. |
+| 4 | Add `__all__` entries for every name introduced in §2.1 + §2.2 | `forgelm/__init__.py` | `dir(forgelm)` lists them. |
+| 5 | Add `__dir__()` returning the union of `globals()` keys and `_LAZY_SYMBOLS` keys (per §4.2 sketch — superset of `__all__` so a name in the lazy table that the developer forgot to add to `__all__` still surfaces in IDE auto-complete) | `forgelm/__init__.py` | `dir(forgelm)` is a superset of `forgelm.__all__` and a superset of `_LAZY_SYMBOLS.keys()`. |
 | 6 | Port `forgelm/cli/__init__.py` to the lazy `__getattr__` + `_SYMBOL_TO_MODULE` pattern (§4.3) | `forgelm/cli/__init__.py` | `tests/test_cli_lazy_imports.py` passes. |
-| 7 | Add `tests/test_library_api.py` with the §6.1 cases | `tests/test_library_api.py` (new) | All 9 tests green. |
+| 7 | Add `tests/test_library_api.py` with the §6.1 cases | `tests/test_library_api.py` (new) | All 10 tests green (9 user-journey + `test_config_from_dict`). |
 | 8 | Add `tests/test_cli_lazy_imports.py` for the §4.3 invariant | `tests/test_cli_lazy_imports.py` (new) | `import forgelm.cli` does not trigger any `forgelm.cli.subcommands.*` import; lazy access does. |
 | 9 | Run `mypy --strict --follow-imports=silent forgelm/__init__.py forgelm/api.py` and fix every error | (any module touched by §3) | `mypy` clean on the public surface. |
 | 10 | Add the CI step from §3.2 | `.github/workflows/ci.yml` | Step appears, fails on a deliberate type regression in a sandbox commit. |

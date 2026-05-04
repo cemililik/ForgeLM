@@ -7,14 +7,28 @@ log fixtures so the tests stay torch-free and run on every CI matrix combo.
 from __future__ import annotations
 
 import json
+
+# ---------------------------------------------------------------------------
+# Helpers (mirror tests/test_human_approval_gate.py)
+# ---------------------------------------------------------------------------
+# Wave 2a Round-2 F-TEST-37-03: monotonically-increasing default timestamp
+# so any sort-order assertion in the suite has a real signal to compare
+# against (the prior single-hardcoded-value made every sort test vacuous).
+# Tests that need a specific timestamp pass it via the ``timestamp`` kwarg.
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# ---------------------------------------------------------------------------
-# Helpers (mirror tests/test_human_approval_gate.py)
-# ---------------------------------------------------------------------------
+_DEFAULT_TS_BASE = datetime(2026, 4, 30, 12, 0, tzinfo=timezone.utc)
+_NEXT_DEFAULT_TS = [_DEFAULT_TS_BASE]
+
+
+def _next_default_ts() -> str:
+    """Return the next monotonic ISO-8601 timestamp for fixture events."""
+    _NEXT_DEFAULT_TS[0] += timedelta(seconds=1)
+    return _NEXT_DEFAULT_TS[0].isoformat()
 
 
 def _write_event(audit_path: Path, event: str, run_id: str, **fields: object) -> None:
@@ -24,9 +38,14 @@ def _write_event(audit_path: Path, event: str, run_id: str, **fields: object) ->
     a ``timestamp`` / ``operator`` / ``event`` / ``run_id`` core, and
     whatever extra fields the caller passes (``staging_path``, ``metrics``,
     ``approver``, ``comment`` etc.).
+
+    ``timestamp`` defaults to a monotonically-increasing value per call
+    (Wave 2a Round-2 F-TEST-37-03 fix).  Pass ``timestamp="..."`` in
+    ``**fields`` to override.
     """
+    if "timestamp" not in fields:
+        fields = {**fields, "timestamp": _next_default_ts()}
     entry = {
-        "timestamp": "2026-04-30T12:00:00+00:00",
         "operator": "tester",
         "event": event,
         "run_id": run_id,
@@ -524,3 +543,314 @@ class TestApprovalsShowRejectedAndMissingStaging:
         payload = json.loads(capsys.readouterr().out)
         # Real human_approval.required event is still surfaced.
         assert any(e.get("event") == "human_approval.required" for e in payload["chain"])
+
+
+# ---------------------------------------------------------------------------
+# Wave 2a Round-2 hardening: sort order, latest-wins, path-traversal,
+# format helpers, classify-chain re-stage semantics.
+# ---------------------------------------------------------------------------
+
+
+class TestApprovalsPendingSortOrder:
+    """F-TEST-37-02: pending list is sorted newest-first."""
+
+    def test_pending_sorted_newest_first(self, tmp_path: Path, capsys) -> None:
+        from forgelm.cli.subcommands._approvals import _run_approvals_cmd
+
+        output_dir = tmp_path / "run"
+        output_dir.mkdir()
+        # Three runs with monotonically-increasing default timestamps.
+        # Default _next_default_ts is monotonically incrementing across
+        # _write_event calls — so writing in order [old, mid, new] produces
+        # ascending timestamps and the pending list should reverse to
+        # [new, mid, old].
+        _seed_run(output_dir, "fg-old0000000000")
+        _seed_run(output_dir, "fg-mid0000000000")
+        _seed_run(output_dir, "fg-new0000000000")
+        with pytest.raises(SystemExit):
+            _run_approvals_cmd(_build_args(output_dir, pending=True), output_format="json")
+        payload = json.loads(capsys.readouterr().out)
+        run_ids = [s["run_id"] for s in payload["pending"]]
+        assert run_ids == ["fg-new0000000000", "fg-mid0000000000", "fg-old0000000000"], (
+            f"pending should be newest-first, got {run_ids!r}"
+        )
+
+
+class TestFormatAge:
+    """F-TEST-37-06: _format_age bucket rendering."""
+
+    @pytest.mark.parametrize(
+        "seconds,expected",
+        [
+            (None, "unknown"),
+            (5, "5s"),
+            (59, "59s"),
+            (60, "1m"),
+            (90, "1m"),
+            (3599, "59m"),
+            (3600, "1h"),
+            (7200, "2h"),
+            (7260, "2h 1m"),
+            (86399, "23h 59m"),
+            (86400, "1d"),
+            (90000, "1d"),
+        ],
+    )
+    def test_buckets(self, seconds, expected) -> None:
+        from forgelm.cli.subcommands._approvals import _format_age
+
+        assert _format_age(seconds) == expected
+
+
+class TestClassifyChainLatestWins:
+    """F-37-01 + user inline: _classify_chain agrees with _collect_pending_runs."""
+
+    def test_re_stage_after_grant_returns_pending(self, tmp_path: Path) -> None:
+        """A run that was granted, then re-staged for a second review,
+        must classify as ``pending`` — not ``granted``.  The previous
+        implementation only looked at decisions and would silently
+        report a stale ``granted`` even though the operator's pending
+        list correctly surfaced the run."""
+        from forgelm.cli.subcommands._approvals import (
+            _classify_chain,
+            _collect_run_audit_chain,
+        )
+
+        output_dir = tmp_path / "run"
+        output_dir.mkdir()
+        audit = output_dir / "audit_log.jsonl"
+        _write_event(audit, "human_approval.required", "fg-x", staging_path=str(output_dir / "final_model.staging"))
+        _write_event(audit, "human_approval.granted", "fg-x", approver="alice")
+        _write_event(audit, "human_approval.required", "fg-x", staging_path=str(output_dir / "final_model.staging.2"))
+        chain = _collect_run_audit_chain(str(audit), "fg-x")
+        assert _classify_chain(chain) == "pending"
+
+    def test_re_stage_after_reject_returns_pending(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._approvals import (
+            _classify_chain,
+            _collect_run_audit_chain,
+        )
+
+        output_dir = tmp_path / "run"
+        output_dir.mkdir()
+        audit = output_dir / "audit_log.jsonl"
+        _write_event(audit, "human_approval.required", "fg-x")
+        _write_event(audit, "human_approval.rejected", "fg-x", approver="alice")
+        _write_event(audit, "human_approval.required", "fg-x")
+        chain = _collect_run_audit_chain(str(audit), "fg-x")
+        assert _classify_chain(chain) == "pending"
+
+    def test_required_then_granted_returns_granted(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._approvals import (
+            _classify_chain,
+            _collect_run_audit_chain,
+        )
+
+        output_dir = tmp_path / "run"
+        output_dir.mkdir()
+        audit = output_dir / "audit_log.jsonl"
+        _write_event(audit, "human_approval.required", "fg-x")
+        _write_event(audit, "human_approval.granted", "fg-x", approver="alice")
+        chain = _collect_run_audit_chain(str(audit), "fg-x")
+        assert _classify_chain(chain) == "granted"
+
+    def test_only_required_returns_pending(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._approvals import (
+            _classify_chain,
+            _collect_run_audit_chain,
+        )
+
+        output_dir = tmp_path / "run"
+        output_dir.mkdir()
+        audit = output_dir / "audit_log.jsonl"
+        _write_event(audit, "human_approval.required", "fg-x")
+        chain = _collect_run_audit_chain(str(audit), "fg-x")
+        assert _classify_chain(chain) == "pending"
+
+    def test_empty_chain_returns_unknown(self) -> None:
+        from forgelm.cli.subcommands._approvals import _classify_chain
+
+        assert _classify_chain([]) == "unknown"
+
+
+class TestStagingPathTraversalSandwich:
+    """F-TEST-37-01: path-traversal guard is the load-bearing protection.
+
+    The previous test could NOT distinguish a working guard from a no-op
+    because the canonical fallback dir didn't exist — so an empty
+    staging_contents could mean either "guard fired and fell back to
+    nothing" OR "guard was a no-op and the listdir returned nothing".
+    The fix: create the fallback dir with a sentinel file so the test
+    SEES the difference (guard fires → sentinel surfaces; guard no-ops
+    → /etc contents leak).  Also assert the warning was logged.
+    """
+
+    def test_show_refuses_external_staging_path_with_caplog(self, tmp_path: Path, capsys, caplog) -> None:
+        import logging
+
+        from forgelm.cli.subcommands._approvals import _run_approvals_cmd
+
+        output_dir = tmp_path / "run"
+        output_dir.mkdir()
+        # Create the canonical fallback with a sentinel so a working
+        # guard surfaces ["fallback_marker.txt"] (NOT /etc contents).
+        fallback = output_dir / "final_model.staging"
+        fallback.mkdir()
+        (fallback / "fallback_marker.txt").write_text("ok")
+        audit = output_dir / "audit_log.jsonl"
+        # Plant an attacker-controlled staging_path pointing outside output_dir.
+        _write_event(
+            audit,
+            "human_approval.required",
+            "fg-attack0000000",
+            staging_path="/etc",
+        )
+
+        with caplog.at_level(logging.WARNING):
+            with pytest.raises(SystemExit) as ei:
+                _run_approvals_cmd(
+                    _build_args(output_dir, show="fg-attack0000000"),
+                    output_format="json",
+                )
+        assert ei.value.code == 0
+        payload = json.loads(capsys.readouterr().out)
+        # Sentinel proves the fallback path was used (not /etc contents).
+        assert payload["staging_contents"] == ["fallback_marker.txt"]
+        # Warning proves the guard actually fired.
+        assert any("Refusing staging_path" in r.message for r in caplog.records), (
+            f"path-traversal guard must log a warning; got: {[r.message for r in caplog.records]}"
+        )
+        assert any("/etc" in r.message for r in caplog.records)
+
+
+class TestShowUsesLatestRequired:
+    """User inline: _run_approvals_show should pick latest required, not first.
+
+    Previously the code did ``next((e for e in chain if ... required), {})``
+    which returned the FIRST required event.  After a re-stage with a fresh
+    staging directory, --show would surface the STALE original directory.
+    The fix walks reversed(chain).
+    """
+
+    def test_show_re_staged_run_surfaces_latest_staging_dir(self, tmp_path: Path, capsys) -> None:
+        from forgelm.cli.subcommands._approvals import _run_approvals_cmd
+
+        output_dir = tmp_path / "run"
+        output_dir.mkdir()
+        old_staging = output_dir / "final_model.staging.old"
+        old_staging.mkdir()
+        (old_staging / "old_marker.txt").write_text("v1")
+        new_staging = output_dir / "final_model.staging.new"
+        new_staging.mkdir()
+        (new_staging / "new_marker.txt").write_text("v2")
+        audit = output_dir / "audit_log.jsonl"
+        _write_event(
+            audit,
+            "human_approval.required",
+            "fg-restage000000",
+            staging_path=str(old_staging),
+        )
+        _write_event(audit, "human_approval.rejected", "fg-restage000000", approver="alice")
+        _write_event(
+            audit,
+            "human_approval.required",
+            "fg-restage000000",
+            staging_path=str(new_staging),
+        )
+
+        with pytest.raises(SystemExit) as ei:
+            _run_approvals_cmd(
+                _build_args(output_dir, show="fg-restage000000"),
+                output_format="json",
+            )
+        assert ei.value.code == 0
+        payload = json.loads(capsys.readouterr().out)
+        # Latest staging dir wins (the re-stage), not the original.
+        assert payload["staging_contents"] == ["new_marker.txt"], (
+            f"--show must surface the LATEST staging dir, got {payload['staging_contents']}"
+        )
+        # And classify_chain agrees (latest required > latest decision = pending).
+        assert payload["status"] == "pending"
+
+
+class TestAuditLogReaderStrictMode:
+    """User inline + Phase D2: strict mode raises AuditLogParseError on malformed lines."""
+
+    def test_strict_mode_raises_on_malformed_json(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._audit_log_reader import (
+            AuditLogParseError,
+            iter_audit_events,
+        )
+
+        audit_path = tmp_path / "audit_log.jsonl"
+        audit_path.write_text("not json at all\n", encoding="utf-8")
+
+        with pytest.raises(AuditLogParseError) as exc_info:
+            list(iter_audit_events(str(audit_path), strict=True))
+        assert exc_info.value.line_number == 1
+        assert str(audit_path) in str(exc_info.value)
+
+    def test_strict_mode_raises_on_non_dict_root(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._audit_log_reader import (
+            AuditLogParseError,
+            iter_audit_events,
+        )
+
+        audit_path = tmp_path / "audit_log.jsonl"
+        audit_path.write_text('["list", "not", "dict"]\n', encoding="utf-8")
+
+        with pytest.raises(AuditLogParseError) as exc_info:
+            list(iter_audit_events(str(audit_path), strict=True))
+        assert exc_info.value.line_number == 1
+        assert "not dict" in str(exc_info.value) or "list" in str(exc_info.value)
+
+    def test_lenient_mode_skips_silently(self, tmp_path: Path, caplog) -> None:
+        import logging
+
+        from forgelm.cli.subcommands._audit_log_reader import iter_audit_events
+
+        audit_path = tmp_path / "audit_log.jsonl"
+        audit_path.write_text(
+            'not json\n{"event": "ok", "run_id": "fg-x"}\n["list"]\n',
+            encoding="utf-8",
+        )
+        with caplog.at_level(logging.WARNING):
+            events = list(iter_audit_events(str(audit_path), strict=False))
+        assert len(events) == 1
+        # Summary warning fires for the 2 skipped lines.
+        assert any("Skipped 2 malformed line" in r.message for r in caplog.records)
+
+
+class TestApproveStrictModeOnCorruptLog:
+    """User inline + Phase D2: approve / reject use strict mode and surface
+    a clear error rather than silently skipping a corrupted decision record."""
+
+    def test_approve_aborts_on_corrupted_audit_log(self, tmp_path: Path, capsys) -> None:
+        """A malformed line in the audit log must produce
+        EXIT_CONFIG_ERROR with an actionable message — NOT silently skip
+        the line and let the operator double-grant."""
+        from unittest.mock import MagicMock
+
+        from forgelm.cli.subcommands._approve import _run_approve_cmd
+
+        output_dir = tmp_path / "run"
+        output_dir.mkdir()
+        audit = output_dir / "audit_log.jsonl"
+        # Real required event followed by a corrupt line — strict mode
+        # should fail-fast on the corruption rather than skip past it.
+        _write_event(audit, "human_approval.required", "fg-x", staging_path=str(output_dir / "final_model.staging"))
+        with open(audit, "a", encoding="utf-8") as fh:
+            fh.write("CORRUPTED LINE NOT JSON\n")
+
+        args = MagicMock()
+        args.run_id = "fg-x"
+        args.output_dir = str(output_dir)
+        args.comment = None
+        with pytest.raises(SystemExit) as ei:
+            _run_approve_cmd(args, output_format="json")
+        # EXIT_CONFIG_ERROR (1) — operator must repair log, not retry.
+        assert ei.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["success"] is False
+        assert "corrupted" in payload["error"].lower()
+        assert "line" in payload["error"].lower()

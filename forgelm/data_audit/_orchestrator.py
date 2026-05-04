@@ -321,6 +321,16 @@ def audit_dataset(  # NOSONAR — cognitive complexity is inherent to the audit 
         "pii_ml_language": pii_ml_language,
     }
     effective_workers = min(workers, len(splits_paths)) if splits_paths else 1
+    if workers > effective_workers:
+        # Operator asked for more parallelism than we can use; surface
+        # the clamp so the wall-clock-vs-expected gap doesn't surprise
+        # them (Wave 2a Round-2 review F-17-01).
+        logger.info(
+            "audit: requested workers=%d but only %d split(s) found; running %d worker(s)",
+            workers,
+            len(splits_paths) if splits_paths else 0,
+            effective_workers,
+        )
     if effective_workers > 1:
         # Pool.map preserves input order so ``outcomes`` lines up with
         # ``splits_paths.items()`` 1:1.  We bound the pool to

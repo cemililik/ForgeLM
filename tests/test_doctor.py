@@ -158,8 +158,8 @@ class TestGpuInventoryCheck:
         assert result.status == "pass"
         assert result.extras["device_count"] == 2
         assert len(result.extras["devices"]) == 2
-        assert result.extras["devices"][0]["vram_gib"] == 24.0
-        assert result.extras["devices"][1]["vram_gib"] == 80.0
+        assert result.extras["devices"][0]["vram_gib"] == pytest.approx(24.0)
+        assert result.extras["devices"][1]["vram_gib"] == pytest.approx(80.0)
 
 
 class TestOptionalExtraCheck:
@@ -183,15 +183,27 @@ class TestOptionalExtraCheck:
 
 
 class TestHfHubReachableCheck:
+    """Probe verifies the HF Hub is reachable.
+
+    Wave 2a Round-2 (F-XPR-02-01): the probe was migrated from raw
+    ``urllib.request.urlopen`` to :func:`forgelm._http.safe_get` so it
+    inherits the project HTTP discipline (SSRF guard, scheme policy,
+    timeout floor, secret-mask).  Tests now monkeypatch ``safe_get`` at
+    its module location.
+    """
+
     def test_unreachable_warns_not_fails(self) -> None:
         """A network outage must NOT flip the gate to fail; doctor exists
         precisely to surface that fact."""
-        import urllib.error
+        import requests as _requests
 
         from forgelm.cli.subcommands._doctor import _check_hf_hub_reachable
 
-        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("DNS lookup failed")):
-            result = _check_hf_hub_reachable(timeout_seconds=0.1)
+        with patch(
+            "forgelm._http.safe_get",
+            side_effect=_requests.ConnectionError("DNS lookup failed"),
+        ):
+            result = _check_hf_hub_reachable(timeout_seconds=5.0)
         assert result.status == "warn"
         assert result.extras["reachable"] is False
 
@@ -199,13 +211,45 @@ class TestHfHubReachableCheck:
         from forgelm.cli.subcommands._doctor import _check_hf_hub_reachable
 
         fake_response = MagicMock()
-        fake_response.status = 200
-        fake_response.__enter__ = MagicMock(return_value=fake_response)
-        fake_response.__exit__ = MagicMock(return_value=None)
-        with patch("urllib.request.urlopen", return_value=fake_response):
-            result = _check_hf_hub_reachable(timeout_seconds=0.1)
+        fake_response.status_code = 200
+        with patch("forgelm._http.safe_get", return_value=fake_response):
+            result = _check_hf_hub_reachable(timeout_seconds=5.0)
         assert result.status == "pass"
         assert result.extras["status_code"] == 200
+
+    def test_http_discipline_rejection_fails(self) -> None:
+        """Wave 2a Round-2 F-XPR-02-01: when the HTTP discipline rejects
+        the URL (e.g. http:// without opt-in, private IP without opt-in),
+        the probe should emit ``fail`` with an actionable detail —
+        operator misconfigured something the policy blocks."""
+        from forgelm._http import HttpSafetyError
+        from forgelm.cli.subcommands._doctor import _check_hf_hub_reachable
+
+        with patch(
+            "forgelm._http.safe_get",
+            side_effect=HttpSafetyError("Private/loopback/IMDS destination blocked: host=10.0.0.1"),
+        ):
+            result = _check_hf_hub_reachable(timeout_seconds=5.0)
+        assert result.status == "fail"
+        assert result.extras["reachable"] is False
+        assert "Private" in result.extras["error"] or "blocked" in result.extras["error"]
+
+    def test_hf_hub_probe_uses_safe_get_layer(self) -> None:
+        """Wave 2a Round-2 F-XPR-02-01: regression-pin that the doctor
+        probe routes through forgelm._http.safe_get rather than calling
+        urllib / requests directly.  Catches a future refactor that
+        reverts to undisciplined HTTP."""
+        from forgelm.cli.subcommands._doctor import _check_hf_hub_reachable
+
+        fake_response = MagicMock()
+        fake_response.status_code = 200
+        with patch("forgelm._http.safe_get", return_value=fake_response) as spy:
+            _check_hf_hub_reachable(timeout_seconds=5.0)
+        assert spy.call_count == 1
+        call = spy.call_args
+        # Method must be HEAD by default (no body download); UA header set.
+        assert call.kwargs["method"] == "HEAD"
+        assert "User-Agent" in call.kwargs["headers"]
 
 
 class TestHfCacheOfflineCheck:
@@ -437,7 +481,7 @@ class TestRenderers:
         results = _make_results("pass", "fail")
         payload = json.loads(_render_json(results))
         assert payload["success"] is False  # has a fail
-        assert payload["summary"] == {"pass": 1, "warn": 0, "fail": 1}
+        assert payload["summary"] == {"pass": 1, "warn": 0, "fail": 1, "crashed": 0}
         assert len(payload["checks"]) == 2
 
     def test_json_success_true_when_only_passes_and_warns(self) -> None:
@@ -463,20 +507,26 @@ class TestProbeCrashIsolation:
         def _boom() -> _doctor._CheckResult:
             raise RuntimeError("synthetic crash")
 
-        # Replace the doctor's check plan with one passing probe + one
-        # crashing probe so we can observe the isolation.
+        # Sandwich pattern (Wave 2a Round-2 F-TEST-34-01): a [ok, crash]
+        # pair would silently pass even if the dispatcher aborted on the
+        # crash, because nothing comes after it.  Putting an `ok_after`
+        # probe at the end is what actually proves "the crash did not
+        # truncate the rest of the plan".
         def _fake_plan(*, offline: bool):
             return [
-                ("ok.probe", lambda: _doctor._CheckResult(name="ok.probe", status="pass", detail="ok")),
-                ("crash.probe", _boom),
+                ("ok_before", lambda: _doctor._CheckResult(name="ok_before", status="pass", detail="a")),
+                ("middle.crash", _boom),
+                ("ok_after", lambda: _doctor._CheckResult(name="ok_after", status="pass", detail="b")),
             ]
 
         monkeypatch.setattr(_doctor, "_build_check_plan", _fake_plan)
         results = _doctor._run_all_checks(offline=False)
-        assert len(results) == 2
-        ok_result = next(r for r in results if r.name == "ok.probe")
-        crash_result = next(r for r in results if r.name == "crash.probe")
-        assert ok_result.status == "pass"
+        assert [r.name for r in results] == ["ok_before", "middle.crash", "ok_after"]
+        ok_before = next(r for r in results if r.name == "ok_before")
+        ok_after = next(r for r in results if r.name == "ok_after")
+        crash_result = next(r for r in results if r.name == "middle.crash")
+        assert ok_before.status == "pass"
+        assert ok_after.status == "pass"
         assert crash_result.status == "fail"
         assert crash_result.extras.get("crashed") is True
         assert "RuntimeError" in crash_result.detail
@@ -578,7 +628,15 @@ class TestDoctorCLISmoke:
 
     def test_doctor_offline_runs_end_to_end(self) -> None:
         """`forgelm doctor --offline --output-format json` produces a valid
-        JSON envelope and exits with one of the public exit codes."""
+        JSON envelope and exits with one of the public exit codes.
+
+        Smoke-level scope (Wave 2a Round-2 F-TEST-34-02): the runtime
+        environment is unconstrained (CI runners may lack a populated HF
+        cache, may set FORGELM_OPERATOR or not, etc.), so this test
+        only pins (a) the JSON envelope shape and (b) that the exit
+        code is one of the documented contract values.  Strict per-
+        scenario assertions live in :class:`TestDispatcherStrictExit`
+        below, where the plan is monkeypatched."""
         import subprocess
 
         result = subprocess.run(
@@ -595,13 +653,203 @@ class TestDoctorCLISmoke:
             text=True,
             timeout=120,
         )
-        # Public exit codes: 0 (all pass) / 1 (some fail) / 2 (probe crashed).
+        # Public exit codes: 0 (all pass+warn) / 1 (some fail) / 2 (probe crashed).
         assert result.returncode in (0, 1, 2), result.stderr
         # The JSON envelope is on stdout regardless.
         payload = json.loads(result.stdout)
-        assert "success" in payload
-        assert "checks" in payload
+        # Contract: top-level keys are stable; consumers read these names.
+        assert set(payload.keys()) == {"success", "checks", "summary"}
+        assert isinstance(payload["success"], bool)
         assert isinstance(payload["checks"], list)
+        assert set(payload["summary"].keys()) == {"pass", "warn", "fail", "crashed"}
+        # success: bool aligns with exit code per docs/standards/error-handling.md
+        if payload["success"]:
+            assert result.returncode == 0
+        else:
+            assert result.returncode in (1, 2)
+
+
+class TestDispatcherStrictExit:
+    """Strict per-scenario exit code assertions (monkeypatched plan)."""
+
+    def test_all_pass_exits_zero(self, capsys, monkeypatch) -> None:
+        from forgelm.cli.subcommands import _doctor
+
+        def _all_pass_plan(*, offline: bool):
+            return [("a.pass", lambda: _doctor._CheckResult(name="a.pass", status="pass", detail="ok"))]
+
+        monkeypatch.setattr(_doctor, "_build_check_plan", _all_pass_plan)
+        args = MagicMock()
+        args.offline = True
+        with pytest.raises(SystemExit) as exc_info:
+            _doctor._run_doctor_cmd(args, output_format="json")
+        assert exc_info.value.code == 0
+
+    def test_any_fail_exits_one(self, capsys, monkeypatch) -> None:
+        from forgelm.cli.subcommands import _doctor
+
+        def _has_fail_plan(*, offline: bool):
+            return [
+                ("a.pass", lambda: _doctor._CheckResult(name="a.pass", status="pass", detail="ok")),
+                ("b.fail", lambda: _doctor._CheckResult(name="b.fail", status="fail", detail="bad")),
+            ]
+
+        monkeypatch.setattr(_doctor, "_build_check_plan", _has_fail_plan)
+        args = MagicMock()
+        args.offline = True
+        with pytest.raises(SystemExit) as exc_info:
+            _doctor._run_doctor_cmd(args, output_format="json")
+        assert exc_info.value.code == 1
+
+    def test_any_crashed_exits_two(self, capsys, monkeypatch) -> None:
+        from forgelm.cli.subcommands import _doctor
+
+        def _boom() -> _doctor._CheckResult:
+            raise RuntimeError("boom")
+
+        def _has_crash_plan(*, offline: bool):
+            return [
+                ("a.pass", lambda: _doctor._CheckResult(name="a.pass", status="pass", detail="ok")),
+                ("b.crash", _boom),
+            ]
+
+        monkeypatch.setattr(_doctor, "_build_check_plan", _has_crash_plan)
+        args = MagicMock()
+        args.offline = True
+        with pytest.raises(SystemExit) as exc_info:
+            _doctor._run_doctor_cmd(args, output_format="json")
+        assert exc_info.value.code == 2
+
+    def test_secrets_never_appear_in_json_envelope(self, monkeypatch, capsys) -> None:
+        """Wave 2a Round-2 F-TEST-34-03: end-to-end secret-masking proof.
+
+        Sets a sentinel value for HF_TOKEN and confirms it never surfaces
+        anywhere in the JSON envelope, even though FORGELM_OPERATOR (a
+        non-secret env) is allowed to surface its value.  Pins the
+        masking discipline against the *full dispatcher path*, not just
+        the helper function in isolation."""
+        from forgelm.cli.subcommands import _doctor
+
+        sentinel = "ghs_test_token_DO_NOT_LEAK_42"
+        monkeypatch.setenv("HF_TOKEN", sentinel)
+
+        # Use a minimal plan that includes the operator-identity probe
+        # (which is the one most likely to surface env values).
+        def _identity_only_plan(*, offline: bool):
+            return [("operator.identity", _doctor._check_operator_identity)]
+
+        monkeypatch.setattr(_doctor, "_build_check_plan", _identity_only_plan)
+        args = MagicMock()
+        args.offline = True
+        with pytest.raises(SystemExit):
+            _doctor._run_doctor_cmd(args, output_format="json")
+        captured = capsys.readouterr().out
+        assert sentinel not in captured, "HF_TOKEN value must be masked in JSON envelope"
+
+    def test_offline_inferred_from_hf_hub_offline_env(self, capsys, monkeypatch) -> None:
+        """Wave 2a Round-2 F-XPR-07-01: HF_HUB_OFFLINE=1 should imply --offline.
+
+        Without an explicit --offline flag, the dispatcher resolves the
+        offline mode from HF_HUB_OFFLINE / TRANSFORMERS_OFFLINE.  This
+        spares air-gapped operators from having to pass --offline on
+        every doctor invocation when their shell already has the standard
+        HF airgap envs set."""
+        from forgelm.cli.subcommands import _doctor
+
+        captured_offline = []
+
+        def _spy_plan(*, offline: bool):
+            captured_offline.append(offline)
+            return [("a.pass", lambda: _doctor._CheckResult(name="a.pass", status="pass", detail="ok"))]
+
+        monkeypatch.setattr(_doctor, "_build_check_plan", _spy_plan)
+        monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+        # Argparse default is offline=False but env should flip it.
+        args = MagicMock()
+        args.offline = False
+        with pytest.raises(SystemExit):
+            _doctor._run_doctor_cmd(args, output_format="json")
+        assert captured_offline == [True], "HF_HUB_OFFLINE=1 must promote dispatcher to offline mode"
+
+
+class TestHfCacheWalkBoundaries:
+    """Wave 2a Round-2 F-TEST-34-04: depth + file-count cap boundaries."""
+
+    def test_walk_truncated_at_file_cap(self, tmp_path, monkeypatch) -> None:
+        from forgelm.cli.subcommands._doctor import (
+            _HF_CACHE_WALK_FILE_LIMIT,
+            _check_hf_cache_offline,
+        )
+
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        for i in range(_HF_CACHE_WALK_FILE_LIMIT + 50):
+            (cache / f"f{i:06d}").write_bytes(b"x")
+        monkeypatch.setenv("HF_HUB_CACHE", str(cache))
+        monkeypatch.delenv("HF_HOME", raising=False)
+        result = _check_hf_cache_offline()
+        # The walk should have hit the file cap and flagged truncation.
+        assert result.extras.get("walk_truncated") is True
+        assert result.extras.get("file_count") == _HF_CACHE_WALK_FILE_LIMIT
+
+    def test_walk_not_truncated_at_exactly_file_cap(self, tmp_path, monkeypatch) -> None:
+        from forgelm.cli.subcommands._doctor import (
+            _HF_CACHE_WALK_FILE_LIMIT,
+            _check_hf_cache_offline,
+        )
+
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        for i in range(_HF_CACHE_WALK_FILE_LIMIT):
+            (cache / f"f{i:06d}").write_bytes(b"x")
+        monkeypatch.setenv("HF_HUB_CACHE", str(cache))
+        monkeypatch.delenv("HF_HOME", raising=False)
+        result = _check_hf_cache_offline()
+        # Exactly at cap: walked clean, no truncation.
+        assert result.extras.get("walk_truncated") is False
+        assert result.extras.get("file_count") == _HF_CACHE_WALK_FILE_LIMIT
+
+    def test_walk_truncated_at_depth_cap(self, tmp_path, monkeypatch) -> None:
+        from forgelm.cli.subcommands._doctor import (
+            _HF_CACHE_WALK_DEPTH,
+            _check_hf_cache_offline,
+        )
+
+        cache = tmp_path / "cache"
+        # Build a tree deeper than the cap with a file at the bottom; the
+        # bottom file is below the depth cap so it should NOT be counted.
+        deep = cache.joinpath(*[f"d{i}" for i in range(_HF_CACHE_WALK_DEPTH + 2)])
+        deep.mkdir(parents=True)
+        (deep / "blob").write_bytes(b"x")
+        monkeypatch.setenv("HF_HUB_CACHE", str(cache))
+        monkeypatch.delenv("HF_HOME", raising=False)
+        result = _check_hf_cache_offline()
+        # The walk should report truncation since a non-empty subtree was
+        # below the cap.
+        assert result.extras.get("walk_truncated") is True
+
+
+class TestDoctorSecretEnvNames:
+    """Wave 2a Round-2 F-34-02: secret-env mask covers third-party tokens."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "FORGELM_AUDIT_SECRET",
+            "HF_TOKEN",
+            "HUGGING_FACE_HUB_TOKEN",
+            "HUGGINGFACE_TOKEN",
+            "FORGELM_RESUME_TOKEN",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "WANDB_API_KEY",
+            "COHERE_API_KEY",
+        ],
+    )
+    def test_known_secret_env_names_are_masked(self, name: str) -> None:
+        from forgelm.cli.subcommands._doctor import _DOCTOR_SECRET_ENV_NAMES
+
+        assert name in _DOCTOR_SECRET_ENV_NAMES
 
 
 # ---------------------------------------------------------------------------

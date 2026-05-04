@@ -228,3 +228,98 @@ def safe_post(
             masked_reason[:200],
         )
         raise
+
+
+def safe_get(
+    url: str,
+    *,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: float = 10.0,
+    verify: Any = True,
+    ca_bundle: Optional[str] = None,
+    allow_insecure_http: bool = False,
+    allow_private: bool = False,
+    min_timeout: float = 5.0,
+    method: str = "GET",
+) -> requests.Response:
+    """Disciplined outbound GET / HEAD; raises early on policy violation.
+
+    Mirrors :func:`safe_post`'s policy contract (scheme / SSRF / timeout
+    floor / redirect refusal / TLS verify / header secret-masking) for
+    read-side calls.  Used by ``forgelm doctor`` for the HuggingFace Hub
+    reachability probe and by any future probe / telemetry / registry
+    ping that needs an outbound GET or HEAD.
+
+    Args:
+        url: Target URL. Must be ``http://`` or ``https://``.
+        headers: Outbound headers. ``Authorization`` / ``X-API-Key`` values
+            are masked in the failure log.
+        timeout: Per-request timeout in seconds. Must be ``>= min_timeout``.
+        verify: Forwarded as ``requests``'s ``verify=`` argument.
+        ca_bundle: Path to a custom CA bundle. When non-empty, takes
+            precedence over ``verify``.
+        allow_insecure_http: Set ``True`` only for paths where the operator
+            has explicitly opted into ``http://``.
+        allow_private: Set ``True`` to bypass the SSRF guard. Required for
+            in-cluster mirrors / on-prem registry endpoints.
+        min_timeout: Lower bound for ``timeout``. Defaults to ``5.0``
+            (read probes are typically cheaper than POST bodies).
+        method: ``"GET"`` (default) or ``"HEAD"``. The doctor's HF Hub
+            probe uses HEAD to skip body download.
+
+    Returns:
+        The :class:`requests.Response` from the underlying call. The caller
+        is responsible for inspecting ``response.ok`` / ``status_code``.
+
+    Raises:
+        HttpSafetyError: On policy violation — ``http://`` without opt-in,
+            unsupported scheme, sub-floor timeout, private destination
+            without opt-in, or unsupported method.
+        requests.RequestException: On transport / TLS / network failure.
+            Headers are masked in the warning log before the re-raise.
+    """
+    parsed = urlparse(url)
+
+    # Scheme policy.
+    if parsed.scheme == "http":
+        if not allow_insecure_http:
+            raise HttpSafetyError(  # NOSONAR — operator-facing rejection
+                f"http:// blocked (use https://); url={_mask_netloc(url)}"
+            )
+    elif parsed.scheme != "https":
+        raise HttpSafetyError(f"Unsupported URL scheme {parsed.scheme!r}; only http(s) allowed.")
+
+    # SSRF guard.
+    host = parsed.hostname or ""
+    if not allow_private and _is_private_destination(host):
+        raise HttpSafetyError(f"Private/loopback/IMDS destination blocked: host={host or '<empty>'}")
+
+    # Timeout floor.
+    if not isinstance(timeout, (int, float)) or timeout < min_timeout:
+        raise HttpSafetyError(f"Timeout below {min_timeout}s floor: timeout={timeout!r}")
+
+    # Method policy — only GET / HEAD allowed (read-side helper).
+    method_upper = method.upper()
+    if method_upper not in ("GET", "HEAD"):
+        raise HttpSafetyError(f"safe_get only supports GET / HEAD, got {method!r}.")
+
+    verify_param: Any = ca_bundle if ca_bundle else verify
+
+    try:
+        return requests.request(
+            method_upper,
+            url,
+            headers=headers,
+            timeout=timeout,
+            verify=verify_param,
+            allow_redirects=False,
+        )
+    except requests.RequestException as exc:
+        masked_reason = _mask_secrets_in_text(str(exc), headers)
+        logger.warning(
+            "safe_get failed url=%s method=%s reason=%s",
+            _mask_netloc(url),
+            method_upper,
+            masked_reason[:200],
+        )
+        raise

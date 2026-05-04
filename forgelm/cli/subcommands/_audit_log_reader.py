@@ -13,16 +13,37 @@ This module is the single place that policy lives.  Two helpers cover the
 two read patterns the family uses:
 
 - :func:`iter_audit_events` — generator yielding ``(line_number, event)``
-  pairs.  Skips blank lines + malformed JSON + non-dict roots silently;
-  emits one summary warning at the end.  Used by anything that needs to
-  walk the whole log (e.g. ``forgelm approvals --pending``).
+  pairs.  Two parsing modes: ``strict=False`` (default) skips malformed
+  entries and emits a single summary warning at end (best for ``--pending``
+  enumeration where partial corruption shouldn't bail).  ``strict=True``
+  raises :class:`AuditLogParseError` on the first malformed entry (best
+  for approve / reject decision guards where silently skipping a corrupted
+  decision record could cause a wrong "approval not yet granted" verdict).
 - :func:`find_latest_event_for_run` — convenience wrapper that returns the
   most-recent event matching a predicate, or ``None``.  Used by the
-  approve / reject decision-guard checks.
+  approve / reject decision-guard checks; defaults to ``strict=True`` so
+  decision lookups fail fast on log corruption.
 
 Both helpers route OSError on file-open through the module logger and
 return an empty result so the caller sees a missing log as "no matching
 event" rather than as a crash.
+
+**Performance note (Wave 2a Round-2 review F-INFRA-01):** both helpers are
+``O(n)`` over the full audit log per call.  Live-tested at 10K events:
+~42 ms per walk on Python 3.11.  Multi-tenant operator dirs that accumulate
+audit events for a year may trip into seconds-per-call territory — at that
+scale, callers should batch their lookups (do a single ``iter_audit_events``
+walk and accumulate all needed events) rather than calling
+``find_latest_event_for_run`` repeatedly.
+
+**Deliberate scope (Wave 2a Round-2 review F-XPR-01-01):**
+``forgelm/compliance.py::verify_audit_log`` keeps its own JSONL parser
+because it must hash the *raw line bytes* for SHA-256 chain verification;
+this module yields decoded ``dict`` events without preserving raw bytes,
+so the verifier cannot adopt it as-is.  That divergence is intentional and
+documented.  If a future refactor extends ``iter_audit_events`` to
+optionally yield ``(line_no, raw_line, event)`` tuples, the verifier can
+adopt the shared parser.
 """
 
 from __future__ import annotations
@@ -35,17 +56,45 @@ from typing import Any, Callable, Dict, Iterator, Optional, Tuple
 logger = logging.getLogger("forgelm.cli.audit_log_reader")
 
 
-def iter_audit_events(audit_log_path: str) -> Iterator[Tuple[int, Dict[str, Any]]]:
+class AuditLogParseError(ValueError):
+    """Raised by :func:`iter_audit_events` in strict mode when a line is malformed.
+
+    Carries ``audit_log_path`` and ``line_number`` so callers / log
+    consumers can pinpoint the corrupted record.  Subclass of
+    :class:`ValueError` so callers that want broad handling can still use
+    ``except ValueError`` without catching unrelated I/O errors.
+    """
+
+    def __init__(self, audit_log_path: str, line_number: int, reason: str) -> None:
+        self.audit_log_path = audit_log_path
+        self.line_number = line_number
+        self.reason = reason
+        super().__init__(f"{audit_log_path}:{line_number}: {reason}")
+
+
+def iter_audit_events(
+    audit_log_path: str,
+    *,
+    strict: bool = False,
+) -> Iterator[Tuple[int, Dict[str, Any]]]:
     """Yield ``(line_number, event_dict)`` from an append-only JSONL audit log.
 
-    Skips blank lines and malformed entries (non-JSON lines, JSON whose
-    root is not a ``dict``) silently — emitting a per-skip warning here
-    would be very noisy on a long-lived audit log.  The number of skipped
-    lines is summarised in a single ``logger.warning`` call when iteration
-    finishes (so callers learn about corruption without paying per-line
-    log cost).
+    Two modes:
 
-    Returns nothing (no events yielded, no warning) when:
+    - ``strict=False`` (default): skips blank lines, malformed JSON, and
+      non-dict roots silently.  Emits a single ``logger.warning`` at the
+      end summarising the skip count (so callers learn about corruption
+      without paying per-line log cost).  Use this for enumeration paths
+      where partial corruption should not bail (e.g.
+      ``forgelm approvals --pending``).
+    - ``strict=True``: raises :class:`AuditLogParseError` on the first
+      malformed entry.  Use this for paths where silently skipping a
+      corrupted record could cause a wrong verdict (e.g. approve / reject
+      decision guards: a corrupted ``human_approval.granted`` line that
+      gets skipped looks identical to "no approval yet" and would
+      double-grant on the operator's next attempt).
+
+    Returns nothing (no events yielded, no warning, no raise) when:
     - the file does not exist (a freshly-bootstrapped output dir
       legitimately has no audit log yet); or
     - the file cannot be opened (OSError logged at ERROR level so
@@ -69,10 +118,22 @@ def iter_audit_events(audit_log_path: str) -> Iterator[Tuple[int, Dict[str, Any]
                 continue
             try:
                 event = json.loads(line)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                if strict:
+                    raise AuditLogParseError(
+                        audit_log_path,
+                        line_number,
+                        f"invalid JSON ({exc.msg})",
+                    ) from exc
                 skipped_lines += 1
                 continue
             if not isinstance(event, dict):
+                if strict:
+                    raise AuditLogParseError(
+                        audit_log_path,
+                        line_number,
+                        f"JSON root is {type(event).__name__}, not dict",
+                    )
                 skipped_lines += 1
                 continue
             yield line_number, event
@@ -89,22 +150,29 @@ def find_latest_event_for_run(
     *,
     run_id: str,
     matches: Callable[[Dict[str, Any]], bool],
+    strict: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """Return the most-recent event matching ``matches`` for ``run_id``.
 
     Walks the entire log (audit logs are append-only so "most recent"
     means the last matching entry encountered).  Returns ``None`` when
-    no event matches.
+    no event matches.  ``O(n)`` over the full log per call — see the
+    module docstring's performance note.
 
     ``matches`` is the predicate the caller cares about — typically
     ``lambda e: e.get("event") == "human_approval.required"`` or a
     membership check against a frozenset of decision-event names.
     Keeping the predicate as a callable lets every caller in the
     approve / approvals / purge family share the parser without
-    couping it to a specific event vocabulary.
+    coupling it to a specific event vocabulary.
+
+    Defaults to ``strict=True`` so the approve / reject decision-guard
+    callers fail fast if the log is corrupted; an enumeration caller
+    (``--pending``) may pass ``strict=False`` to keep scanning past
+    individually-corrupted lines.
     """
     latest: Optional[Dict[str, Any]] = None
-    for _line_no, event in iter_audit_events(audit_log_path):
+    for _line_no, event in iter_audit_events(audit_log_path, strict=strict):
         if event.get("run_id") != run_id:
             continue
         if matches(event):
@@ -113,6 +181,7 @@ def find_latest_event_for_run(
 
 
 __all__ = [
+    "AuditLogParseError",
     "iter_audit_events",
     "find_latest_event_for_run",
 ]

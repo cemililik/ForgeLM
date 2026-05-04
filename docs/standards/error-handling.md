@@ -235,19 +235,30 @@ Reverting is a deliberate gate, not a panic. Treat it that way.
 
 ## What errors look like in JSON output
 
-When `--output-format json` is set, errors still go to stdout as a single JSON object:
+When `--output-format json` is set, errors still go to stdout as a single JSON object.  **Shipped envelope (canonical, used by every CLI subcommand as of v0.5.5):**
 
 ```json
 {
-  "status": "error",
-  "exit_code": 1,
-  "error_type": "ConfigError",
-  "message": "training.trainer_type must be one of [sft, dpo, simpo, kto, orpo, grpo], got 'spo'",
-  "details": {"field": "training.trainer_type", "value": "spo"}
+  "success": false,
+  "error": "training.trainer_type must be one of [sft, dpo, simpo, kto, orpo, grpo], got 'spo'"
 }
 ```
 
+The 2-key shape is intentionally minimal so every subcommand can emit it without coupling to a richer error model: `success: false` is the unambiguous CI gate signal (paired with the non-zero exit code from `$?`); `error` is the operator-actionable message.
+
+**Optional richer fields** that subcommands MAY add when they have the information at hand (none required, but consumers can rely on them being absent rather than wrong-typed):
+
+| Field | Type | When to emit |
+|---|---|---|
+| `exit_code` | int | When the dispatcher knows the exit code at JSON-emit time and wants to save consumers from reading `$?` separately. |
+| `error_type` | str | Exception class name (`ConfigError`, `OSError`, etc.) for callers that want to branch on category. |
+| `details` | object | Field-level error data (e.g. `{"field": "training.trainer_type", "value": "spo"}`). |
+
 Human-friendly logs still go to **stderr**. Pipeline consumers read stdout. Never mix the two.
+
+### Success envelope
+
+Each subcommand's success envelope wraps the result in a per-command collection key (`checks` for doctor, `pending` / `chain` for approvals, etc.).  The full per-subcommand schema lives in [`docs/usermanuals/en/reference/json-output.md`](../usermanuals/en/reference/json-output.md) (+ TR mirror) — that page is the locked contract per `release.md` ("Changed JSON output key names → MAJOR bump").  Adding a new subcommand without updating that page is a documentation-drift defect.
 
 ## Testing error paths
 

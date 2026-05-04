@@ -64,21 +64,23 @@ $ pip install 'forgelm[export]'
 
 Adds quantized GGUF export for local inference (Ollama, llama.cpp). Pulls in the `gguf` writer and supporting libraries. Optional because not every workflow ends in GGUF — many users hand off to vLLM or TGI directly.
 
-### Distributed training (`[deepspeed]`)
+### Distributed training (`[distributed]`)
 
 ```shell
-$ pip install 'forgelm[deepspeed]'
+$ pip install 'forgelm[distributed]'
 ```
 
-Adds DeepSpeed ZeRO-2 / ZeRO-3 support for multi-GPU training. Required only if you're training a model larger than fits on a single GPU.
+Adds DeepSpeed ZeRO-2 / ZeRO-3 support for multi-GPU training. Required only if you're training a model larger than fits on a single GPU. (The extra name is `distributed`; the actual dep it pulls is `deepspeed>=0.14.0`.)
 
-### Everything (`[all]`)
+### Combining extras
+
+`pyproject.toml` does not define an `[all]` aggregate. Combine the extras you actually need by listing them comma-separated:
 
 ```shell
-$ pip install 'forgelm[all]'
+$ pip install 'forgelm[qlora,eval,tracking,merging,export,ingestion]'
 ```
 
-Pulls in every extra. Useful for CI runners that need to test all code paths; not recommended for production environments where you want a minimal dependency tree.
+This is intentional — pulling DeepSpeed / bitsandbytes / Presidio / sentence-transformers all at once on a CPU-only laptop is rarely what an operator wants, so we keep the choice explicit.
 
 ## Container install
 

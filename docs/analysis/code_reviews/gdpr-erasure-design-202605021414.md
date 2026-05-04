@@ -5,7 +5,7 @@
 **Author:** Closure Wave 2a
 **Companion:** [`closure-plan-202604300906.md §8 Phase 20`](./closure-plan-202604300906.md)
 **Implements (next phase):** Phase 21 — GDPR right-to-erasure implementation
-**Base commit:** `0ffdfd6` (post-Wave-1 merge into `development`)
+**Base commit:** `0ffdfd6` (post-Wave-1 merge into `development`); Round-1 + Round-2 review fixes absorbed in the same wave (PR #28 `closure/wave2a-integration`).
 **Regulatory anchor:** EU GDPR Article 17 ("right to erasure" / "right to be forgotten") + Article 5(1)(e) ("storage limitation")
 
 ---
@@ -18,7 +18,7 @@ ForgeLM today has no operator-actionable tool for either obligation:
 
 - An operator who receives an Article 17 erasure request has to grep the corpus by hand, edit the JSONL, and hope nothing else references the row.
 - There is no retention policy in the config schema, so no signal that the audit log has outgrown its lawful basis.
-- Marketing copy in `safety_compliance.md` claims "GDPR-aware" without backing tooling.
+- The user-manual page `docs/usermanuals/en/compliance/gdpr.md:51-64` documents `ingestion.retention.raw_documents.ttl_days` enforcement that no implementation backs.
 
 Phase 21 closes the gap with a real implementation.  This Phase 20 document specifies exactly what that implementation must do — what to delete, what to record, what to preserve, what to refuse — so the next phase has a single source of truth instead of redoing legal mapping in code review.
 
@@ -71,6 +71,17 @@ Article 5(1)(e) requires personal data to be kept "no longer than is necessary".
 Two pre-existing surfaces overlap with this design and must be resolved up front so Phase 21 does not ship a second source of truth:
 
 - **`EvaluationConfig.staging_ttl_days`** (`forgelm/config.py:301`, shipped in Wave 1 Faz 9) is a doc-only field — its docstring promises Phase 21 enforcement.  Phase 21 implements the enforcement under the new `RetentionConfig.staging_ttl_days` (this design); the `EvaluationConfig` field is **deprecated** in the same release per `docs/standards/release.md` cadence: emit a `DeprecationWarning` on access in v0.5.5, alias-forward the value to `retention.staging_ttl_days`, keep both working in v0.6.x, remove `evaluation.staging_ttl_days` in v0.7.0.
+
+  **Conflict-resolution semantics (dual-set window v0.5.5–v0.6.x):**
+
+  - If only `evaluation.staging_ttl_days` is set → alias-forward to `retention.staging_ttl_days` and emit a single `DeprecationWarning` naming the new field + the v0.7.0 removal target.
+  - If only `retention.staging_ttl_days` is set → no warning; canonical path.
+  - If **both** are set with **identical** values → emit `DeprecationWarning` for the deprecated field; the canonical `retention.staging_ttl_days` value is used; the operator's intent is unambiguous.
+  - If **both** are set with **different** values → raise `ConfigError` at validation time naming both keys, both values, and instructing the operator to remove the deprecated entry.  Silent winner = wrong winner; ambiguous configs are refused.
+
+  Phase 21 ships `tests/test_config.py::test_staging_ttl_days_dual_set_with_different_values_refused` asserting the `ConfigError` and that the message mentions both keys + both values.
+
+  **Tracking issue (per `docs/standards/release.md:95`):** Phase 21 also files a tracking issue `'Remove EvaluationConfig.staging_ttl_days in v0.7.0'` and links it from both the `DeprecationWarning` message text and the v0.5.5 CHANGELOG `### Deprecated` entry.  The v0.7.0 removal PR closes that issue.
 - **`docs/usermanuals/en/compliance/gdpr.md` lines 51-64** + closure plan §15.5 row GH-023 reference an `ingestion.retention.raw_documents.ttl_days` shape.  This design (§10 Q1) standardises on the top-level `retention.*` form because the policy covers more than ingestion artefacts (audit logs, staging dirs, ephemeral snapshots).  Phase 21 updates the GDPR user-manual page in the same PR; closure plan §15.5 GH-023 entry is amended to "absorbed under top-level `retention.*`" rather than carrying the `ingestion.retention.*` shape forward.
 
 ### 3.2 Schema
@@ -169,7 +180,7 @@ A single invocation does exactly one of the three.  Combining flags is a `Config
 | `--check-policy` | policy mode | bool | Dry-run scan; reports violations against the loaded config's `retention` block. |
 | `--config <path>` | policy mode (optional) | str | Config to load for the retention block; defaults to `./forgelm.yaml` then walks up. |
 | `--justification <text>` | always optional | str | Free-text reason recorded in the audit event.  Strongly recommended for compliance review. |
-| `--dry-run` | always optional | bool | Print what would be deleted; do not modify. |
+| `--dry-run` | always optional (corpus / run mode only) | bool | Print what would be deleted; do not modify.  **Mutually exclusive with `--check-policy`** (which is itself a dry-run report); combining the two is a `ConfigError`. |
 | `--yes` | always optional | bool | Skip the interactive "confirm erasure of row X?" prompt.  Required for unattended / scripted use; an interactive `forgelm purge` without `--yes` always prompts on a TTY and aborts (`EXIT_CONFIG_ERROR`) on a non-TTY. |
 | `--output-format {text,json}` | always optional | enum | Output format.  Default `text`. |
 
@@ -182,10 +193,10 @@ Standard ForgeLM 0/1/2/3/4 contract — all codes from `forgelm.cli._exit_codes`
 | 0 | `EXIT_SUCCESS` | Erasure completed (or `--dry-run` reported successfully). |
 | 1 | `EXIT_CONFIG_ERROR` | Config-level error: missing flag, flag combination, unknown row-id (corpus mode), unknown run-id (run mode), `--row-id` directory mode without `--row-matches=all`, multi-row match without `--row-matches=all`, missing `--yes` on a non-TTY. |
 | 2 | `EXIT_TRAINING_ERROR` | Runtime / I/O failure: corpus unreadable, audit-log write failure, atomic-rename failure, partial commit recovery. |
-| 3 | `EXIT_EVAL_FAILURE` | `--check-policy` found violations against the loaded `retention.*` policy (re-using the eval-failure semantic — "the gate detected something the operator must address" — so CI scripts can treat retention violations the same way they treat eval threshold breaches). |
-| 4 | `EXIT_AWAITING_APPROVAL` | Interactive confirmation pending: a TTY operator declined the prompt, or an unattended invocation without `--yes` saw a TTY and printed the prompt rather than auto-deleting. |
+| 3 | `EXIT_EVAL_FAILURE` | Reserved for the trainer pre-flight gate when `enforce: block_on_excess` is configured (see §3.4 in the spirit of the master `error-handling.md` exit-code contract).  **Not** used by `forgelm purge --check-policy` — that path is a report, not a gate; see §10 Q5 + the paragraph below. |
+| 4 | `EXIT_AWAITING_APPROVAL` | Reserved for its trainer-pipeline meaning per `docs/standards/error-handling.md:24` ("Training + evals passed, but `require_human_approval: true` — staged, awaiting human sign-off").  **Not** reused by `forgelm purge`; an interactive `--yes`-less TTY operator who declines the prompt exits **`EXIT_CONFIG_ERROR` (1)** — the operator deliberately did not provide consent (analogous to a missing required flag), which is exactly "user must adjust input and re-run". |
 
-`--check-policy` returns **3** when violations exist (not 0).  An operator who wants the report only without the gate behaviour passes `--check-policy --output-format json` and inspects the `violations` array directly without checking the exit code.  This aligns with `docs/standards/release.md` which treats every documented code as a CI-actionable contract.
+**`--check-policy` always exits 0** (per §10 Q5 — the resolved decision: report-not-gate semantic).  Operators who want a CI gate use `--output-format json` and pipe to `jq '.violations | length'` themselves; CI then branches on that count rather than on the exit code.  This keeps the public contract `docs/standards/error-handling.md` 0/1/2/3/4 consistent across every ForgeLM subcommand: a code-3 from `forgelm purge` always means "trainer pre-flight gate failed", never "report found something".
 
 ### 4.4 Atomicity
 
@@ -275,7 +286,13 @@ The take-away: **the only field this design hashes by default is `target_id` in 
 
 ## 6. Marketing claim revision
 
-`docs/guides/safety_compliance.md` currently has a one-paragraph "GDPR-aware" claim with no implementation backing.  Phase 21 rewrites it as a real section:
+**Two surfaces** need updating in Phase 21 (verified 2026-05-04):
+
+1. **`docs/guides/safety_compliance.md`** — does NOT currently contain a "GDPR-aware" paragraph (verified by `grep -n "GDPR" docs/guides/safety_compliance.md` — only an example training prompt at line 227).  Phase 21 adds a new top-level `## GDPR right-to-erasure (Article 17)` section after the existing PII section so the guide explicitly covers the new tooling.
+
+2. **`docs/usermanuals/en/compliance/gdpr.md` lines 51-64 (+ TR mirror)** — currently documents an `ingestion.retention.raw_documents.ttl_days` enforcement that no implementation backs.  Phase 21 rewrites the YAML example to point at the new top-level `retention.*` block (per §3.1) and updates the `forgelm purge` subsection to match the shipped flag surface (per §4.2).
+
+The replacement section text (used for both surfaces with appropriate adaptation):
 
 ```markdown
 ## GDPR right-to-erasure (Article 17)
@@ -365,9 +382,10 @@ Tests 1-7 are the closure-plan minimum (7 tests in §8 Phase 21 acceptance); 8-1
 | `forgelm/trainer.py` | Pre-flight retention check in `ForgeTrainer.train()` (when `config.retention` is set). |
 | `tests/test_gdpr_erasure.py` (new) | The 11 tests from §7. |
 | `docs/guides/gdpr_erasure.md` (new) | Operator how-to. |
-| `docs/guides/safety_compliance.md` | Replace the "GDPR-aware" paragraph with the §6 section. |
+| `docs/guides/safety_compliance.md` | Add a new `## GDPR right-to-erasure (Article 17)` section after the PII section using the §6 text. |
+| `docs/usermanuals/en/compliance/gdpr.md` (+ `docs/usermanuals/tr/compliance/gdpr.md`) | Rewrite lines 51-64 YAML example: replace `ingestion.retention.raw_documents.ttl_days` with the top-level `retention.*` block per §3.1; update the `forgelm purge` subsection to match the §4.2 flag surface. |
 | `docs/qms/sop_data_management.md` | Add a "Retention + erasure procedure" subsection cross-linking to the new guide. |
-| `docs/reference/audit_event_catalog.md` (+ -tr) | Three new event rows (§5.1). |
+| `docs/reference/audit_event_catalog.md` (+ -tr) | Six new event rows (§5.1): `data.erasure_requested`, `data.erasure_completed`, `data.erasure_failed`, `data.erasure_warning_memorisation`, `data.erasure_warning_synthetic_data_present`, `data.erasure_warning_external_copies`. |
 | `docs/reference/configuration.md` | (auto-gen via Phase 16 once that lands; for Phase 21 we hand-add the rows so they appear immediately). |
 | `CHANGELOG.md` | `[Unreleased]` → "GDPR right-to-erasure" entry. |
 | `forgelm/__init__.py` | (Phase 19 territory — Library API exposes `forgelm.purge_row` etc. — Phase 21 only ships the subcommand.) |
@@ -432,7 +450,7 @@ The closure plan §15.5 lists three open items that intersect Phase 21:
 - [x] §2 enumerates every artefact kind and its erasure strategy.
 - [x] §3 specifies the `RetentionConfig` Pydantic schema (Phase 21 implements it verbatim).
 - [x] §4 specifies the `forgelm purge` flag surface, exit codes, and atomicity guarantees.
-- [x] §5 names the three new audit events + how chain integrity holds.
+- [x] §5 names the six new audit events (three core erasure events + three operator-warning events) + how chain integrity holds.
 - [x] §6 supplies the marketing-claim replacement text.
 - [x] §7 enumerates the 11 tests Phase 21 must ship (≥ closure-plan minimum 7).
 - [x] §8 file map covers every change Phase 21 will make.

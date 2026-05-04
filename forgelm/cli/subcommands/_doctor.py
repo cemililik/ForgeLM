@@ -292,37 +292,53 @@ def _check_hf_hub_reachable(timeout_seconds: float = 5.0) -> _CheckResult:
     - bot (gemini): now resolves the endpoint via ``_resolve_hf_endpoint``
       so ``HF_ENDPOINT=https://internal-mirror.example`` is respected
       (mirrors how ``huggingface_hub`` resolves it).
-    - F-27-02 partial: routed the request through a single User-Agent
-      header so server logs identify the probe.  Full migration to
-      ``forgelm._http`` is deferred (no `safe_get` exists yet; adding
-      it is XPR-02 cross-PR scope).
+    - Wave 2a Round-2 (F-XPR-02-01): migrated from raw
+      ``urllib.request.urlopen`` to :func:`forgelm._http.safe_get` so
+      the probe inherits the project-wide HTTP discipline (SSRF guard,
+      scheme policy, timeout floor, secret-mask error path,
+      redirect-refusal).  An air-gapped mirror at a private IP requires
+      ``allow_private=True`` — that gate is not crossed here because an
+      operator with a private HF endpoint should run ``--offline`` (which
+      swaps to the cache probe) rather than have doctor punch through to
+      a metadata service.
     """
-    import urllib.error
-    import urllib.request
+    import requests as _requests  # only for the exception type
+
+    from forgelm._http import HttpSafetyError, safe_get
 
     endpoint = _resolve_hf_endpoint()
     probe_url = f"{endpoint}/api/models"
     headers = {"User-Agent": "forgelm-doctor/Phase-34"}
 
     try:
-        request = urllib.request.Request(probe_url, method="HEAD", headers=headers)
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            status_code = response.status
-    except urllib.error.URLError as exc:
-        # urlopen wraps both DNS failures AND timeouts as URLError, so a
-        # single branch covers both.  reason may be a string or another
-        # exception object; coerce to str for the operator-facing detail.
-        return _CheckResult(
-            name="hf_hub.reachable",
-            status=_STATUS_WARN,
-            detail=f"Could not reach HuggingFace Hub at {probe_url}: {exc.reason}. Check network / proxy / HF_ENDPOINT.",
-            extras={"reachable": False, "endpoint": endpoint, "error": str(exc.reason)},
+        response = safe_get(
+            probe_url,
+            headers=headers,
+            timeout=timeout_seconds,
+            method="HEAD",
         )
-    except OSError as exc:  # pragma: no cover — defensive
+        status_code = response.status_code
+    except HttpSafetyError as exc:
+        # Policy rejection — surface as a fail, not a warn: the operator
+        # configured something the discipline blocks (e.g. http:// endpoint
+        # or private IP without --offline).
+        return _CheckResult(
+            name="hf_hub.reachable",
+            status=_STATUS_FAIL,
+            detail=(
+                f"HuggingFace Hub probe rejected by HTTP discipline: {exc}. "
+                "Set HF_ENDPOINT to a public https:// URL, or pass --offline "
+                "to inspect the local cache instead."
+            ),
+            extras={"reachable": False, "endpoint": endpoint, "error": str(exc)},
+        )
+    except _requests.RequestException as exc:
+        # Transport / TLS / network failure — caught and warned (same
+        # behaviour as the previous urllib URLError branch).
         return _CheckResult(
             name="hf_hub.reachable",
             status=_STATUS_WARN,
-            detail=f"Network error reaching HuggingFace Hub at {probe_url}: {exc}.",
+            detail=f"Could not reach HuggingFace Hub at {probe_url}: {exc}. Check network / proxy / HF_ENDPOINT.",
             extras={"reachable": False, "endpoint": endpoint, "error": str(exc)},
         )
 
@@ -333,6 +349,25 @@ def _check_hf_hub_reachable(timeout_seconds: float = 5.0) -> _CheckResult:
             detail=f"HuggingFace Hub reachable at {endpoint} (HTTP {status_code}).",
             extras={"reachable": True, "endpoint": endpoint, "status_code": status_code},
         )
+    if status_code == 405:
+        # Some corp proxies block HEAD; retry with GET as a courtesy.
+        try:
+            response = safe_get(probe_url, headers=headers, timeout=timeout_seconds, method="GET")
+            status_code = response.status_code
+            if 200 <= status_code < 400:
+                return _CheckResult(
+                    name="hf_hub.reachable",
+                    status=_STATUS_PASS,
+                    detail=f"HuggingFace Hub reachable at {endpoint} (HTTP {status_code}; GET fallback after HEAD 405).",
+                    extras={
+                        "reachable": True,
+                        "endpoint": endpoint,
+                        "status_code": status_code,
+                        "fallback_method": "GET",
+                    },
+                )
+        except _requests.RequestException:  # pragma: no cover — second-attempt failure
+            pass
     return _CheckResult(
         name="hf_hub.reachable",
         status=_STATUS_WARN,
@@ -501,7 +536,17 @@ _DOCTOR_SECRET_ENV_NAMES: frozenset[str] = frozenset(
         "FORGELM_AUDIT_SECRET",  # HMAC key for audit-log signing
         "HF_TOKEN",  # HuggingFace Hub auth token
         "HUGGING_FACE_HUB_TOKEN",  # legacy alias of HF_TOKEN
+        "HUGGINGFACE_TOKEN",  # alternative spelling read by forgelm/utils.py
         "FORGELM_RESUME_TOKEN",  # API resume token (Phase 13 future)
+        # Defence-in-depth: third-party API keys ForgeLM accepts via YAML
+        # interpolation (auth.openai_api_key etc.).  No probe surfaces them
+        # today, but pre-listing them means a future probe that adds env
+        # visibility (e.g. an "auth provenance" probe) cannot accidentally
+        # leak them in --output-format json.
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "WANDB_API_KEY",
+        "COHERE_API_KEY",
     }
 )
 
@@ -707,9 +752,12 @@ def _render_json(results: List[_CheckResult]) -> str:
     """Render the JSON envelope.
 
     Shape mirrors other ForgeLM subcommand contracts:
-    ``{"success": bool, "checks": [...], "summary": {"pass": N, "warn": N, "fail": N}}``.
-    ``success`` is True iff no check failed (warns are operator-actionable
-    but do not flip the contract).
+    ``{"success": bool, "checks": [...], "summary": {"pass": N, "warn": N, "fail": N, "crashed": N}}``.
+    ``success`` is True iff no check failed AND no probe crashed (warns are
+    operator-actionable but do not flip the contract; crashes count as
+    failures *and* surface separately so consumers can distinguish a
+    misconfigured environment from a doctor bug).  Locked schema lives in
+    ``docs/usermanuals/en/reference/json-output.md``.
     """
     payload_checks = [
         {
@@ -720,10 +768,14 @@ def _render_json(results: List[_CheckResult]) -> str:
         }
         for r in results
     ]
+    crashed_count = sum(1 for r in results if r.extras.get("crashed") is True)
     summary = {
         "pass": sum(1 for r in results if r.status == _STATUS_PASS),
         "warn": sum(1 for r in results if r.status == _STATUS_WARN),
+        # `fail` includes the crashed count (a crashed probe surfaces as
+        # status="fail" + extras.crashed=True, see _run_all_checks).
         "fail": sum(1 for r in results if r.status == _STATUS_FAIL),
+        "crashed": crashed_count,
     }
     envelope = {
         "success": summary["fail"] == 0,
@@ -758,8 +810,22 @@ def _run_doctor_cmd(args, output_format: str) -> None:
     Reads ``args.offline`` (argparse default ``False``) and emits either
     the text report or the JSON envelope.  Exits with the public
     contract code resolved by :func:`_resolve_exit_code`.
+
+    Also honours the standard HuggingFace airgap environment variables —
+    ``HF_HUB_OFFLINE=1`` or ``TRANSFORMERS_OFFLINE=1`` — so an air-gapped
+    operator who already has those set in their shell does not need to
+    remember to also pass ``--offline``.  An operator who explicitly
+    passes ``--offline`` always gets offline behaviour regardless of env.
     """
     offline = bool(getattr(args, "offline", False))
+    if not offline:
+        # Standard HF airgap signals — empty string and "0" do NOT
+        # activate offline mode (the documented HF behaviour).
+        for env_name in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE"):
+            value = os.environ.get(env_name)
+            if value and value not in ("0", "false", "False"):
+                offline = True
+                break
     results = _run_all_checks(offline=offline)
     if output_format == "json":
         print(_render_json(results))

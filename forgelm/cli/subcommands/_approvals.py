@@ -105,14 +105,21 @@ def _collect_pending_runs(audit_log_path: str) -> List[Dict[str, Any]]:
         elif event_name in _TERMINAL_DECISION_EVENTS:
             latest_decision_line[run_id] = line_no
 
-    pending = [
-        event for run_id, (req_line, event) in latest_required.items() if req_line > latest_decision_line.get(run_id, 0)
+    pending_pairs = [
+        (req_line, event)
+        for run_id, (req_line, event) in latest_required.items()
+        if req_line > latest_decision_line.get(run_id, 0)
     ]
     # Newest-pending first so an operator opening the list sees the most
     # recent request at the top.  ``timestamp`` may be missing on
     # synthetic / hand-edited entries — sort missing values to the bottom.
-    pending.sort(key=lambda e: e.get("timestamp") or "", reverse=True)
-    return pending
+    # Tie-break on file line number (Wave 2a Round-2 F-37-02): the audit
+    # writer emits second-granularity timestamps so two sub-second-spaced
+    # events can collide; falling through to insertion order is correct
+    # but undocumented — pinning the line-number tiebreaker makes the
+    # contract explicit.
+    pending_pairs.sort(key=lambda pair: (pair[1].get("timestamp") or "", pair[0]), reverse=True)
+    return [event for _line_no, event in pending_pairs]
 
 
 def _collect_run_audit_chain(audit_log_path: str, run_id: str) -> List[Dict[str, Any]]:
@@ -307,17 +314,37 @@ def _run_approvals_list_pending(args, output_format: str) -> None:
 
 
 def _classify_chain(chain: List[Dict[str, Any]]) -> str:
-    """Return ``pending`` / ``granted`` / ``rejected`` / ``unknown``."""
-    decisions = [e.get("event") for e in chain if e.get("event") in _TERMINAL_DECISION_EVENTS]
-    if not decisions:
-        # If we have a `required` but no decision, it is pending.  If we
-        # have neither, the run is unknown to the audit log.
-        if any(e.get("event") == _EVT_HUMAN_APPROVAL_REQUIRED for e in chain):
-            return "pending"
+    """Return ``pending`` / ``granted`` / ``rejected`` / ``unknown``.
+
+    **Latest-wins semantics (mirrors :func:`_collect_pending_runs`):** when a
+    run is restarted with the same ``run_id`` after a prior decision — e.g.
+    a rejected run is re-staged for a second review — the latest
+    ``human_approval.required`` event reflects the current pending state
+    even if an earlier ``granted`` / ``rejected`` event exists in the
+    chain. The previous implementation looked only at decisions and would
+    declare such a re-stage as ``granted``/``rejected``, contradicting the
+    pending-list view (Wave 2a Round-2 review F-37-01 fix).
+
+    Algorithm: walk the chain in append order recording the last index of
+    each event class. A run is ``pending`` iff its last ``required`` index
+    is strictly greater than its last terminal-decision index, otherwise
+    the most-recent decision wins.
+    """
+    latest_required_idx = -1
+    latest_decision_idx = -1
+    latest_decision_event: Optional[str] = None
+    for idx, event in enumerate(chain):
+        name = event.get("event")
+        if name == _EVT_HUMAN_APPROVAL_REQUIRED:
+            latest_required_idx = idx
+        elif name in _TERMINAL_DECISION_EVENTS:
+            latest_decision_idx = idx
+            latest_decision_event = name
+    if latest_required_idx == -1 and latest_decision_idx == -1:
         return "unknown"
-    # Most-recent decision wins (the chain is already in append order).
-    last = decisions[-1]
-    if last == _EVT_HUMAN_APPROVAL_GRANTED:
+    if latest_required_idx > latest_decision_idx:
+        return "pending"
+    if latest_decision_event == _EVT_HUMAN_APPROVAL_GRANTED:
         return "granted"
     return "rejected"
 
@@ -392,10 +419,16 @@ def _run_approvals_show(args, output_format: str) -> None:
         )
 
     status = _classify_chain(chain)
-    # Staging path is read from the *first* required event so a
-    # post-rename layout (final/ exists, staging/ deleted) still surfaces
-    # the originally-staged directory name.
-    required_event = next((e for e in chain if e.get("event") == _EVT_HUMAN_APPROVAL_REQUIRED), {})
+    # Staging path is read from the *latest* required event so a re-staged
+    # run (rejected → required again, with a fresh staging dir on disk)
+    # surfaces the *current* staging directory rather than the stale
+    # original.  This matches `_collect_pending_runs`'s latest-wins
+    # semantic; previously the *first* required event was used and a
+    # re-stage would `--show` the wrong directory (Wave 2a Round-2 fix).
+    required_event = next(
+        (e for e in reversed(chain) if e.get("event") == _EVT_HUMAN_APPROVAL_REQUIRED),
+        {},
+    )
     staging_path = _staging_dir_for_event(output_dir, required_event) if required_event else None
     staging_listing = _staging_contents(staging_path)
 

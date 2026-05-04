@@ -234,7 +234,21 @@ def _run_approve_cmd(args, output_format: str) -> None:
 
     # Read the audit event first so we can use the trainer-recorded staging_path
     # (which reflects the configured final_model_dir) rather than a hardcoded default.
-    required_event = _cli_facade._find_human_approval_required_event(audit_log_path, run_id)
+    # Strict-mode parsing (Wave 2a Round-2 hardening): a corrupted decision
+    # record that gets silently skipped looks identical to "no approval yet",
+    # which would let an operator double-grant. Convert AuditLogParseError into
+    # an actionable EXIT_CONFIG_ERROR so the operator fixes the log first.
+    from ._audit_log_reader import AuditLogParseError
+
+    try:
+        required_event = _cli_facade._find_human_approval_required_event(audit_log_path, run_id)
+    except AuditLogParseError as exc:
+        _output_error_and_exit(
+            output_format,
+            f"Audit log {audit_log_path!r} is corrupted at line {exc.line_number} ({exc.reason}). "
+            "Refusing to promote — repair or rotate the audit log first.",
+            EXIT_CONFIG_ERROR,
+        )
     if required_event is None:
         _output_error_and_exit(
             output_format,
@@ -243,7 +257,15 @@ def _run_approve_cmd(args, output_format: str) -> None:
             EXIT_CONFIG_ERROR,
         )
 
-    decision_event = _cli_facade._find_human_approval_decision_event(audit_log_path, run_id)
+    try:
+        decision_event = _cli_facade._find_human_approval_decision_event(audit_log_path, run_id)
+    except AuditLogParseError as exc:
+        _output_error_and_exit(
+            output_format,
+            f"Audit log {audit_log_path!r} is corrupted at line {exc.line_number} ({exc.reason}). "
+            "Refusing to promote — repair or rotate the audit log first.",
+            EXIT_CONFIG_ERROR,
+        )
     if decision_event is not None:
         prior = decision_event.get("event", "unknown")
         _output_error_and_exit(
@@ -359,7 +381,20 @@ def _run_reject_cmd(args, output_format: str) -> None:
     run_id = args.run_id
     audit_log_path = os.path.join(output_dir, "audit_log.jsonl")
 
-    required_event = _cli_facade._find_human_approval_required_event(audit_log_path, run_id)
+    # Strict-mode parsing: surface audit-log corruption to the operator
+    # rather than skip the line and produce a misleading "no decision yet"
+    # result.  See _run_approve_cmd for the same hardening pattern.
+    from ._audit_log_reader import AuditLogParseError
+
+    try:
+        required_event = _cli_facade._find_human_approval_required_event(audit_log_path, run_id)
+    except AuditLogParseError as exc:
+        _output_error_and_exit(
+            output_format,
+            f"Audit log {audit_log_path!r} is corrupted at line {exc.line_number} ({exc.reason}). "
+            "Refusing to record a rejection — repair or rotate the audit log first.",
+            EXIT_CONFIG_ERROR,
+        )
     if required_event is None:
         _output_error_and_exit(
             output_format,
@@ -368,7 +403,15 @@ def _run_reject_cmd(args, output_format: str) -> None:
             EXIT_CONFIG_ERROR,
         )
 
-    decision_event = _cli_facade._find_human_approval_decision_event(audit_log_path, run_id)
+    try:
+        decision_event = _cli_facade._find_human_approval_decision_event(audit_log_path, run_id)
+    except AuditLogParseError as exc:
+        _output_error_and_exit(
+            output_format,
+            f"Audit log {audit_log_path!r} is corrupted at line {exc.line_number} ({exc.reason}). "
+            "Refusing to record a rejection — repair or rotate the audit log first.",
+            EXIT_CONFIG_ERROR,
+        )
     if decision_event is not None:
         prior = decision_event.get("event", "unknown")
         _output_error_and_exit(

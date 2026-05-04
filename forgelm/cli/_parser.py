@@ -318,8 +318,10 @@ def _add_doctor_subcommand(subparsers) -> None:
         action="store_true",
         help=(
             "Skip the HuggingFace Hub network probe.  Inspects the local HF cache "
-            "(HF_HOME or ~/.cache/huggingface/hub) instead — useful for air-gapped "
-            "deployments where the network probe would always fail."
+            "(precedence: HF_HUB_CACHE > HF_HOME/hub > ~/.cache/huggingface/hub) "
+            "instead — useful for air-gapped deployments where the network probe "
+            "would always fail.  Implicitly true when HF_HUB_OFFLINE=1 or "
+            "TRANSFORMERS_OFFLINE=1 is set in the environment."
         ),
     )
     _add_common_subparser_flags(p, include_output_format=True)
@@ -631,6 +633,7 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Subcommands:\n"
+            "  forgelm doctor                  Environment check (Python/torch/CUDA/GPU/extras/HF/disk)\n"
             "  forgelm quickstart [TEMPLATE]   Generate a config from a curated template\n"
             "  forgelm ingest PATH             Convert raw docs (PDF/DOCX/EPUB/TXT/Markdown) → JSONL\n"
             "  forgelm audit PATH              Run dataset audit (length/lang/PII/leakage)\n"
@@ -640,6 +643,7 @@ def parse_args():
             "  forgelm deploy MODEL_PATH       Generate serving config\n"
             "  forgelm approve RUN_ID          Promote a staged model after human review (Art. 14)\n"
             "  forgelm reject  RUN_ID          Reject a staged model (preserves staging dir for forensics)\n"
+            "  forgelm approvals --pending     List runs awaiting human approval (or --show RUN_ID)\n"
             "\nRun 'forgelm <subcommand> --help' for subcommand details."
         ),
     )

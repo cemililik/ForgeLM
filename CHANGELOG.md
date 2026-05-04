@@ -13,6 +13,123 @@ All notable changes to ForgeLM are documented here.
 > Per-PR CHANGELOG entries below collapse into the v0.5.5 release
 > notes at tag time.
 
+### Added — Wave 2a Round-2 review absorption (2026-05-04)
+
+Round-2 multi-agent review of PR #28 surfaced 52 findings (4 specialist
+agents) plus 9 maintainer inline comments.  All verified findings either
+fixed or explicitly skipped with rationale; the pre-merge fix set landed
+in this revision.  Full delta:
+[`docs/analysis/code_reviews/wave2a-round2-fix-summary-20260504.md`](docs/analysis/code_reviews/wave2a-round2-fix-summary-20260504.md).
+
+**New surfaces (additive, forward-compatible):**
+
+- `forgelm/_http.py::safe_get(url, *, headers, timeout, ..., method="GET"|"HEAD")`
+  — disciplined outbound GET / HEAD mirroring `safe_post`'s policy
+  contract (scheme allowlist, SSRF guard, timeout floor, redirect
+  refusal, secret-mask error path, TLS verify).  Used by `forgelm doctor`
+  and any future probe / telemetry / registry ping that needs an
+  outbound read.  See `docs/standards/architecture.md` "HTTP discipline".
+- `forgelm/cli/subcommands/_audit_log_reader.py::AuditLogParseError` +
+  `iter_audit_events(..., strict=False)` parameter +
+  `find_latest_event_for_run(..., strict=True)` parameter.  Strict mode
+  raises `AuditLogParseError(audit_log_path, line_number, reason)` on
+  the first malformed entry instead of silently skipping — the approve
+  / reject decision-guard callers default to strict so a corrupted
+  decision record cannot silently look like "no approval yet" (which
+  would let an operator double-grant).
+- `forgelm doctor` `--output-format json` envelope `summary` block now
+  includes a `crashed` count alongside `pass` / `warn` / `fail` (additive
+  schema change; consumers that ignored the key still work).  Locked
+  schema in [`docs/usermanuals/en/reference/json-output.md`](docs/usermanuals/en/reference/json-output.md)
+  (+ TR mirror).
+- `docs/standards/architecture.md` "HTTP discipline" section — codifies
+  the `_http.py` chokepoint, the CI grep-guard acceptance gate, and the
+  deliberate-exceptions policy.  Pairs with the new
+  `.github/workflows/ci.yml` `lint-http-discipline` step.
+
+**Behavioural improvements:**
+
+- `forgelm doctor` HF Hub probe migrated from raw
+  `urllib.request.urlopen` to `forgelm._http.safe_get` (HEAD with GET-on-
+  405 fallback) — inherits SSRF / scheme / timeout / secret-mask
+  discipline.  Operator-rejecting policy violations (e.g. http:// HF
+  endpoint or private-IP mirror without `--offline`) now surface as
+  `fail` with an actionable `detail`, not as a silent warn.
+- `forgelm doctor` honours `HF_HUB_OFFLINE=1` / `TRANSFORMERS_OFFLINE=1`
+  env vars implicitly (no need to also pass `--offline`).  Explicit
+  `--offline` always wins.
+- `forgelm doctor` `--offline` help text now lists the full HF cache
+  resolution chain (`HF_HUB_CACHE > HF_HOME/hub > ~/.cache/huggingface/hub`).
+- `forgelm doctor` `_DOCTOR_SECRET_ENV_NAMES` extended with
+  `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `WANDB_API_KEY`, `COHERE_API_KEY`,
+  `HUGGINGFACE_TOKEN` (defence-in-depth: a future probe surfacing env
+  values cannot accidentally leak third-party API keys).
+- `forgelm approvals --show RUN_ID` now picks the **latest**
+  `human_approval.required` event when a run was re-staged after a prior
+  decision (was: first event, surfaced stale staging directory).
+  `_classify_chain` now correctly classifies re-staged runs as `pending`
+  (was: stale `granted` / `rejected` based on first-decision-only logic).
+  `_collect_pending_runs` adds a line-number tiebreaker on identical-
+  timestamp pairs.
+- `forgelm approve` / `forgelm reject` now catch `AuditLogParseError` and
+  emit `EXIT_CONFIG_ERROR` (1) with `"Audit log {path} is corrupted at
+  line N (reason). Repair or rotate the audit log first."` instead of
+  silently scanning past the corruption.
+- `forgelm audit --workers N` logs an INFO line when N is silently
+  clamped to fewer splits ("requested workers=N but only M split(s)
+  found; running M worker(s)") so the wall-clock-vs-expected gap doesn't
+  surprise operators.
+- Top-level `forgelm --help` epilog now lists `forgelm doctor` and
+  `forgelm approvals` (were missing).
+
+**CI hardening:**
+
+- `.github/workflows/ci.yml` `lint` job grew a `lint-http-discipline`
+  step that greps `forgelm/` for `requests.*(...)`,
+  `urllib.request.urlopen(...)`, `httpx.*(...)` outside `forgelm/_http.py`
+  and fails on any hit.  Pattern is paren-anchored so docstring prose
+  mentioning the same names is not flagged.
+
+**Documentation cleanup:**
+
+- `docs/usermanuals/{en,tr}/getting-started/installation.md`:
+  `[deepspeed]` → `[distributed]` (matches `pyproject.toml` extras
+  reality; `deepspeed` is the dep INSIDE the `distributed` extra, not
+  the extra name itself).  Also removed the non-existent `[all]`
+  aggregate; replaced with an explicit comma-separated example.
+- `docs/usermanuals/{en,tr}/reference/cli.md` — full rewrite (Round-1
+  carry-over absorbed earlier in the wave) eliminating 11 phantom
+  subcommands + 30+ phantom flags + 3 phantom env vars; matches
+  `forgelm/cli/_parser.py` reality.
+- `docs/standards/error-handling.md` — "What errors look like in JSON
+  output" rewritten to document the SHIPPED `{"success": false,
+  "error": "..."}` envelope (replaces aspirational 5-key form);
+  optional richer fields (`exit_code`, `error_type`, `details`)
+  documented as MAY-emit.
+
+**Design-doc fixes** (no behavioural change to v0.5.5; tightens Phase 19
+/ 21 implementer guidance):
+
+- Library API design (`library-api-design-202605021414.md`): CI trigger
+  fixed (was `release-*` branch which release.md:259 forbids; now
+  `pull_request` to main + `workflow_dispatch`); `[evaluation]` extra
+  name fixed to `[eval]`; lazy-import test #9 promise corrected
+  (`forgelm.ForgeTrainer` access stays metadata-only — torch only
+  loads on actual training execution); `cross_split_overlap.pairs`
+  attribute access fixed to `["pairs"]` dict key access; tier table
+  10th test row added (`test_config_from_dict`); `__dir__()` recipe
+  alignment; `forgelm.ingestion` correctly labelled "the module".
+- GDPR erasure design (`gdpr-erasure-design-202605021414.md`):
+  `staging_ttl_days` dual-set semantics resolved (ConfigError on
+  conflict + tracking issue per release.md:95); §4.3 vs §10 Q5
+  contradiction resolved (`--check-policy` always exits 0; report-not-
+  gate); `EXIT_AWAITING_APPROVAL` no longer reused for TTY-decline
+  (now `EXIT_CONFIG_ERROR`); marketing copy targets corrected (the
+  "GDPR-aware" paragraph being "rewritten" in safety_compliance.md
+  doesn't exist; design now points at the real surfaces); audit-event
+  catalog count corrected (3 → 6 events listed in §8 file map +
+  §12 sign-off + closure-plan §8 line 700).
+
 ### Added — Wave 2a — Phase 18 Library API design + Phase 20 GDPR erasure design
 
 - **Phase 18 — Library API analysis & design** —
