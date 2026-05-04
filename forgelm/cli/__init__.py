@@ -86,6 +86,7 @@ from ._parser import (
     _add_audit_subcommand,  # noqa: F401 — re-export for tests
     _add_chat_subcommand,  # noqa: F401 — re-export for tests
     _add_deploy_subcommand,  # noqa: F401 — re-export for tests
+    _add_doctor_subcommand,  # noqa: F401 — re-export for tests
     _add_export_subcommand,  # noqa: F401 — re-export for tests
     _add_ingest_subcommand,  # noqa: F401 — re-export for tests
     _add_quickstart_subcommand,  # noqa: F401 — re-export for tests
@@ -144,6 +145,23 @@ from .subcommands._audit import (
 # Chat / export / deploy / ingest subcommand dispatchers.
 from .subcommands._chat import _run_chat_cmd  # noqa: F401 — re-export for tests
 from .subcommands._deploy import _run_deploy_cmd  # noqa: F401 — re-export for tests
+
+# Doctor subcommand (Phase 34 environment diagnostics).
+from .subcommands._doctor import (
+    _check_disk_space,  # noqa: F401 — re-export for tests
+    _check_gpu_inventory,  # noqa: F401 — re-export for tests
+    _check_hf_cache_offline,  # noqa: F401 — re-export for tests
+    _check_hf_hub_reachable,  # noqa: F401 — re-export for tests
+    _check_operator_identity,  # noqa: F401 — re-export for tests
+    _check_optional_extra,  # noqa: F401 — re-export for tests
+    _check_python_version,  # noqa: F401 — re-export for tests
+    _check_torch_cuda,  # noqa: F401 — re-export for tests
+    _render_json,  # noqa: F401 — re-export for tests
+    _render_text,  # noqa: F401 — re-export for tests
+    _resolve_exit_code,  # noqa: F401 — re-export for tests
+    _run_all_checks,  # noqa: F401 — re-export for tests
+    _run_doctor_cmd,  # noqa: F401 — re-export for tests
+)
 from .subcommands._export import _run_export_cmd  # noqa: F401 — re-export for tests
 from .subcommands._ingest import _run_ingest_cmd  # noqa: F401 — re-export for tests
 

@@ -113,15 +113,22 @@ evaluation:
 
 ```shell
 $ forgelm doctor --offline
-ForgeLM 0.5.2 (offline mode verified)
-✓ HF_HUB_OFFLINE set
-✓ TRANSFORMERS_OFFLINE set
-✓ Local cache: airgap-bundle/huggingface (3.4 GB cached models)
-✓ Llama Guard 3 8B available locally
-✓ lm-evaluation-harness: 4 tasks cached
+forgelm doctor — environment check
+
+  [✓ pass] python.version          Python 3.11.4 (CPython).
+  [✓ pass] torch.cuda              torch 2.4.0 with CUDA 12.4.
+  [✓ pass] gpu.inventory           1 GPU(s) — GPU0: NVIDIA A100 (80.0 GiB).
+  [✓ pass] extras.qlora            Installed (module bitsandbytes, purpose: 4-bit / 8-bit QLoRA training).
+  [✓ pass] extras.eval             Installed (module lm_eval, purpose: lm-evaluation-harness benchmark scoring).
+  [! warn] extras.tracking         Optional extra missing — install with: pip install 'forgelm[tracking]' (purpose: Weights & Biases experiment tracking).
+  [✓ pass] hf_hub.offline_cache    HF cache at /opt/airgap/huggingface/hub: 3.4 GiB across 47 file(s). HF_HUB_OFFLINE=1.
+  [✓ pass] disk.workspace          Workspace /opt/airgap — 412.0 GiB free of 500.0 GiB.
+  [! warn] operator.identity       FORGELM_OPERATOR not set; audit events will fall back to 'airgap-op@nodeA'. Pin FORGELM_OPERATOR=<id> for CI / pipeline runs.
+
+Summary: 7 pass, 2 warn, 0 fail.
 ```
 
-If `forgelm doctor --offline` reports anything unavailable, fix that *before* the air-gapped operator wastes their time.
+If `forgelm doctor --offline` reports anything as `fail`, fix that *before* the air-gapped operator wastes their time. The HF cache scan honours `HF_HUB_CACHE` first, then `HF_HOME/hub`, then the default `~/.cache/huggingface/hub` — point `HF_HUB_CACHE` at your bundled cache to make the scan deterministic.
 
 ## Bundle size estimate
 

@@ -291,6 +291,40 @@ def _add_ingest_subcommand(subparsers) -> None:
     _add_common_subparser_flags(p, include_output_format=True)
 
 
+def _add_doctor_subcommand(subparsers) -> None:
+    """Phase 34: environment check (`forgelm doctor`).
+
+    The first command an operator should run after installation.  Probes
+    Python version, torch / CUDA, GPU inventory, optional extras, HF Hub
+    reachability (or local cache when ``--offline``), workspace disk
+    space, and the FORGELM_OPERATOR audit-identity hint.
+
+    Exit codes follow the public contract: 0 = all pass, 1 = at least
+    one check failed (config-error class), 2 = probe crashed.
+    """
+    p = subparsers.add_parser(
+        "doctor",
+        help="Run environment + dependency diagnostics (the first command after install).",
+        description=(
+            "Probe Python, torch + CUDA, GPU inventory, optional ForgeLM extras, "
+            "HuggingFace Hub reachability, workspace disk space, and the "
+            "FORGELM_OPERATOR audit-identity hint.  Emits a tabular text report or "
+            "a structured JSON envelope (`--output-format json`).  Pass `--offline` "
+            "to skip the HF Hub network probe and instead inspect the local cache."
+        ),
+    )
+    p.add_argument(
+        "--offline",
+        action="store_true",
+        help=(
+            "Skip the HuggingFace Hub network probe.  Inspects the local HF cache "
+            "(HF_HOME or ~/.cache/huggingface/hub) instead — useful for air-gapped "
+            "deployments where the network probe would always fail."
+        ),
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
 def _add_audit_subcommand(subparsers) -> None:
     p = subparsers.add_parser(
         "audit",
@@ -618,6 +652,7 @@ def parse_args():
     _add_quickstart_subcommand(subparsers)
     _add_ingest_subcommand(subparsers)
     _add_audit_subcommand(subparsers)
+    _add_doctor_subcommand(subparsers)
     _add_verify_audit_subcommand(subparsers)
     _add_approve_subcommand(subparsers)
     _add_reject_subcommand(subparsers)

@@ -100,12 +100,16 @@ If you've installed ForgeLM for GPU training, confirm CUDA is wired up correctly
 $ forgelm doctor
 ```
 
-`forgelm doctor` reports:
-- Python and PyTorch versions
-- CUDA availability and driver version
-- Detected GPU model and VRAM
-- Available compute capability
-- bitsandbytes / Unsloth detection (if installed)
+`forgelm doctor` reports a tabular pass / warn / fail diagnostic over:
+- Python version (>=3.10 floor; >=3.11 recommended)
+- torch + CUDA availability (CPU-only is a `warn`, not a `fail`)
+- GPU inventory (per-device VRAM in GiB)
+- Optional extras: `qlora`, `unsloth`, `distributed`, `eval`, `tracking`, `merging`, `export`, `ingestion`, `ingestion-pii-ml`, `ingestion-scale` — missing extras `warn` with the exact `pip install 'forgelm[<name>]'` hint
+- HuggingFace Hub reachability (via `HF_ENDPOINT` if set; skipped under `--offline`)
+- Workspace disk space (<10 GiB → `fail`, <50 GiB → `warn`)
+- `FORGELM_OPERATOR` audit-identity hint (Article 12)
+
+Pass `--output-format json` for a structured envelope (`{"success": bool, "checks": [...], "summary": {pass, warn, fail}}`); pass `--offline` for air-gap mode (skips the network probe and instead inspects the local HF cache).
 
 :::tip
 Run `forgelm doctor` *before* `forgelm --config ...` for any new environment. It catches missing CUDA libraries, version mismatches, and GPU-not-found errors in two seconds rather than two hours into training.

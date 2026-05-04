@@ -62,6 +62,14 @@ def _dispatch_subcommand(command: str, args) -> None:
     elif command == "audit":
         _cli_facade._run_audit_cmd(args, getattr(args, "output_format", "text"))
         sys.exit(EXIT_SUCCESS)
+    elif command == "doctor":
+        # _run_doctor_cmd does its own sys.exit with a result-mapped exit
+        # code (0/1/2) so we don't fall through to a blanket EXIT_SUCCESS.
+        _cli_facade._run_doctor_cmd(args, getattr(args, "output_format", "text"))
+        # Defensive: _run_doctor_cmd always exits.  This line is unreachable
+        # in practice but keeps the dispatch table exhaustive against a
+        # future doctor refactor that might forget the sys.exit.
+        sys.exit(EXIT_SUCCESS)
     elif command == "verify-audit":
         sys.exit(_cli_facade._run_verify_audit_cmd(args))
     elif command == "approve":
