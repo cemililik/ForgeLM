@@ -203,8 +203,30 @@ def find_latest_event_for_run(
     return latest
 
 
+def is_audit_log_readable(audit_log_path: str) -> bool:
+    """Return ``True`` iff the audit log exists and is readable by the
+    current process.
+
+    Wave 2a Round-5 review (F-R5-01): the approve / reject / approvals
+    family all need the same pre-iteration readability gate so a
+    chmod-broken audit log does not masquerade as "no events found".
+    Centralised here so the policy lives next to the parser it gates.
+
+    The check is a non-binding hint:  ``iter_audit_events`` still has to
+    swallow OSError on open because TOCTOU windows + race conditions
+    around `chmod` can fire between this call and the open.  Callers
+    that want a clear operator-facing error use this helper for the
+    common case and trust the parser's logger.error fallback for the
+    sub-millisecond race.
+    """
+    if not os.path.isfile(audit_log_path):
+        return False
+    return os.access(audit_log_path, os.R_OK)
+
+
 __all__ = [
     "AuditLogParseError",
     "iter_audit_events",
     "find_latest_event_for_run",
+    "is_audit_log_readable",
 ]

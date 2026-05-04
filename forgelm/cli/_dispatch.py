@@ -40,20 +40,34 @@ def _dispatch_subcommand(command: str, args) -> None:
     drop SonarCloud S3776 cognitive complexity (was 16, ceiling 15) and
     to keep the registry literal — adding a new subcommand is now a
     single-row edit.
+
+    **SIGINT exit-code policy (Round-3 + Round-5 reconciliation):**
+
+    The dispatcher catches ``KeyboardInterrupt`` and exits with
+    ``EXIT_TRAINING_ERROR`` (= 2, "runtime-error class") so CI/CD
+    branches on a documented public code, not Python's shell-shaped
+    ``130`` (= ``128 + SIGINT``).  Two subcommands have nuance the
+    blanket policy does not capture:
+
+    - ``chat`` REPL catches ``KeyboardInterrupt`` at its input prompt
+      itself (``forgelm/chat.py:125``), prints ``[Goodbye]``, and
+      returns normally — exit ``EXIT_SUCCESS`` (0) by REPL design.  An
+      in-flight ``KeyboardInterrupt`` *during* generation bubbles past
+      the REPL and lands on this dispatcher's catch → 2.
+    - ``verify-audit`` is wrapped in the same try/except as the dict-
+      table dispatch (Round-5 fix), so ``SIGINT`` during a long
+      verify-of-100K-events lands on 2 just like the others.  Returns
+      its own exit code on success (the only dispatcher that does so).
     """
     # Late import via the package facade so monkeypatched
     # ``forgelm.cli._run_*_cmd`` references resolve correctly.
     from forgelm import cli as _cli_facade
 
-    # ``verify-audit`` is the one subcommand whose dispatcher returns an
-    # exit code instead of calling sys.exit itself, so it is special-cased
-    # below the table rather than wedging an extra branch into every entry.
-    if command == "verify-audit":
-        sys.exit(_cli_facade._run_verify_audit_cmd(args))
-
     # name -> dispatcher attribute on the package facade.  Resolved lazily
     # so test-time monkeypatches against ``forgelm.cli._run_*_cmd`` are
-    # honoured.
+    # honoured.  ``verify-audit`` is in the table but takes a different
+    # call shape (returns int exit code instead of sys.exit-ing) — see
+    # the special-case branch below.
     table = {
         "chat": "_run_chat_cmd",
         "export": "_run_export_cmd",
@@ -62,6 +76,7 @@ def _dispatch_subcommand(command: str, args) -> None:
         "ingest": "_run_ingest_cmd",
         "audit": "_run_audit_cmd",
         "doctor": "_run_doctor_cmd",
+        "verify-audit": "_run_verify_audit_cmd",
         "approve": "_run_approve_cmd",
         "reject": "_run_reject_cmd",
         "approvals": "_run_approvals_cmd",
@@ -72,22 +87,24 @@ def _dispatch_subcommand(command: str, args) -> None:
         sys.exit(EXIT_TRAINING_ERROR)
     dispatcher = getattr(_cli_facade, dispatcher_name)
 
-    # Two call shapes: ``chat`` only takes ``args`` (its REPL handles
-    # output formatting itself); everything else takes ``(args, output_format)``.
+    # Three call shapes: ``chat`` takes only ``args`` (its REPL handles
+    # output formatting itself); ``verify-audit`` returns an exit code
+    # instead of sys.exit-ing; everything else takes ``(args,
+    # output_format)`` and exits internally.  All three flow through
+    # the same KeyboardInterrupt handler so SIGINT lands on the
+    # documented public exit-code contract regardless of subcommand
+    # (Round-5 F-R5-02 fix — verify-audit was previously special-cased
+    # outside the try/except, leaving SIGINT during a long verify to
+    # bubble up as Python's shell-shaped 130).
     output_format = _output_format_for(args)
     try:
         if command == "chat":
             dispatcher(args)
+        elif command == "verify-audit":
+            sys.exit(dispatcher(args))
         else:
             dispatcher(args, output_format)
     except KeyboardInterrupt:
-        # All SIGINTs route through the public exit-code contract
-        # (EXIT_TRAINING_ERROR = 2, "runtime-error class").  ``raise`` would
-        # have let Python convert SIGINT into the shell-shaped 128+SIGINT
-        # = 130 code, which is outside the documented 0/1/2/3/4 surface
-        # and would surprise CI/CD scripts that branch on exit code.
-        # Wave 2a Round-3 review (CodeRabbit): every SIGINT path lands on a
-        # public code regardless of subcommand.
         sys.exit(EXIT_TRAINING_ERROR)
     sys.exit(EXIT_SUCCESS)
 

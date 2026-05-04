@@ -364,6 +364,93 @@ Fixed:
   Single-config approach beats scattering inline `<!-- markdownlint-
   disable -->` directives in every Markdown file.
 
+**Inline review-bot follow-ups (round 5 — pre-merge audit):**
+
+A multi-area review pass surfaced 8 findings + 4 inline comments + 1
+duplicate locator nit; 11 fixed (Round-5 skipped F-R5-07: TOCTOU
+window is sub-microsecond and `iter_audit_events` already logs the
+OSError at ERROR level which `--quiet`'s WARNING floor surfaces).
+
+- `forgelm/cli/subcommands/_approve.py::_run_approve_cmd` and
+  `_run_reject_cmd` — added the same `is_audit_log_readable` gate the
+  approvals listing already had.  A chmod-broken `audit_log.jsonl`
+  was previously surfaced as "No human_approval.required event for
+  run_id={X}.  Refusing to promote — verify the run_id matches the
+  original training run." which sent operators down the wrong
+  debugging path on the Article 14 critical path.  Now surfaces
+  `EXIT_CONFIG_ERROR` with `"Audit log {path} exists but is not
+  readable.  Check filesystem permissions (chmod / mount opts) and
+  re-run."`.  Helper extracted to
+  `forgelm/cli/subcommands/_audit_log_reader.py::is_audit_log_readable`
+  so all four dispatchers (approve / reject / approvals-pending /
+  approvals-show) share one definition.  (F-R5-01)
+- `forgelm/cli/_dispatch.py::_dispatch_subcommand` — moved
+  `verify-audit` into the dict-table dispatch so SIGINT during a long
+  verify-of-100K-events lands on `EXIT_TRAINING_ERROR` (= 2) like
+  every other subcommand instead of bypassing the try/except and
+  exiting 130 (= shell-shaped 128+SIGINT).  Dispatcher docstring
+  rewritten to acknowledge the one legitimate exception: `chat`
+  REPL catches Ctrl-C at its own input prompt
+  (`forgelm/chat.py:125`) and exits 0 by graceful-REPL design — an
+  in-flight Ctrl-C *during* generation still bubbles to the
+  dispatcher's catch and lands on 2.  (F-R5-02 + Inline D)
+- `forgelm/data_audit/_orchestrator.py::_process_split_for_pool` —
+  added the test-only `FORGELM_AUDIT_TEST_WORKER_RAISES=<split>`
+  injection point.  Spawn-method workers cannot see monkeypatches
+  applied in the parent test process, so this env-var hook is the
+  only way to exercise the orchestrator's `pool.map` re-raise branch
+  with a worker exception that genuinely escapes `_process_split`'s
+  internal catches.  New regression test
+  `tests/test_data_audit_workers.py::TestWorkersErrorPropagation::test_parallel_path_raises_when_worker_function_raises_uncaught`
+  asserts the synthetic `RuntimeError` reaches the caller.  (F-R5-03)
+- `forgelm/cli/subcommands/_doctor.py::_walk_hf_cache_bounded` —
+  pass an `onerror` callback to `os.walk` so a chmod-broken cache
+  *root* or *sub-directory* (which `os.walk` otherwise silently skips)
+  bumps a `walk_errors` counter.  Verdict policy: `walk_errors > 0
+  AND file_count == 0` → `fail` (operator cannot read the cache, an
+  air-gapped run would otherwise fail later with a misleading
+  missing-model error).  `extras` gains a `walk_errors` field.
+  (F-R5-04)
+- `forgelm/cli/subcommands/_doctor.py::_render_json` — added
+  `default=str` to the `json.dumps` call so a future probe author
+  surfacing a non-JSON-native type (`Path`, `datetime`, `bytes`)
+  cannot crash with `TypeError` and exit with a Python traceback to
+  stderr instead of the documented JSON envelope.  (F-R5-06)
+- `forgelm/cli/subcommands/_approvals.py:67` — corrected the
+  `# noqa: F401,E402` annotation to `# noqa: E402` (the F401 was
+  unnecessary because `_iter_audit_events` is used in-module at
+  lines 97 and 151) and rewrote the prose comment that incorrectly
+  claimed the symbol was a re-export for tests.  (F-R5-08)
+- `CHANGELOG.md` — inserted blank line before the
+  `### Added — Wave 2a / Phase 34` heading (MD022 fix).  (Inline A)
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+  §5.3 reconciled with §5.4: clarified that `target_id` handling
+  depends on `target_kind` (run mode = clear, row mode = SHA-256
+  hash), and that the `row_id=42` examples in operator-facing prose
+  show what the operator typed on the CLI rather than what lands in
+  the audit chain.  (Inline B)
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+  §3.4 reconciled with §4.1: `compliance/*.json` IS deletable via
+  `forgelm purge --run-id <id> --kind artefacts`; the previous
+  "deleting them requires deleting the whole `<output_dir>`" claim
+  contradicted the purge-mode table.  Whole-`<output_dir>` deletion
+  is now framed as the operator's manual escalation when the entire
+  run is being scrubbed.  (Inline C)
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+  §5.4 — `target_id` salt-fallback semantics tightened: the
+  per-output-dir salt is **persistent** (written at
+  `<output_dir>/.forgelm_audit_salt`, mode 0600, on first emission)
+  regardless of `FORGELM_AUDIT_SECRET` presence; `salt_source` is
+  now a recorded field on every row-mode erasure event (one of
+  `"env_var"` / `"per_dir"`) so a salt-source change between
+  invocations is detectable in the chain rather than silently
+  producing a "different subject" misreading for compliance review.
+  Cleaner than introducing a 7th audit-event type.  (F-R5-05)
+- `docs/usermanuals/tr/reference/cli.md:223` — `operator` →
+  `operatör` on the `FORGELM_OPERATOR` row (Round-2 fixed L224 but
+  missed L223).  Repo-wide TR orthography now consistent.
+  (Duplicate E)
+
 ### Added — Wave 2a — Phase 18 Library API design + Phase 20 GDPR erasure design
 
 - **Phase 18 — Library API analysis & design** —
@@ -459,6 +546,7 @@ Both are design-only PRs — Phase 19 + Phase 21 implementations follow.
   `find_latest_event_for_run` here, so a future malformed-line policy
   fix lands in one place.  Phase 21 `forgelm purge` will use the same
   module.
+
 ### Added — Wave 2a / Phase 34 — `forgelm doctor` env-check subcommand
 
 - **`forgelm doctor`** — the first command an operator should run after

@@ -473,9 +473,9 @@ def _accumulate_files_in_dir(
     return file_count, total_bytes, unreadable_count, cap_hit
 
 
-def _walk_hf_cache_bounded(cache_dir_abs: str) -> Tuple[int, int, int, bool]:
+def _walk_hf_cache_bounded(cache_dir_abs: str) -> Tuple[int, int, int, int, bool]:
     """Bounded ``os.walk`` over the HF cache.  Returns ``(file_count,
-    total_bytes, unreadable_count, walk_truncated)``.
+    total_bytes, unreadable_count, walk_errors, walk_truncated)``.
 
     Wave 2a Round-2 nit: extracted from :func:`_check_hf_cache_offline`
     so the cache-status check function can read top-down (resolve dir →
@@ -487,13 +487,29 @@ def _walk_hf_cache_bounded(cache_dir_abs: str) -> Tuple[int, int, int, bool]:
     when permissions broke part of the scan (F-34-OSE).  Per-directory
     accounting lives in :func:`_accumulate_files_in_dir` so each helper
     stays under SonarCloud's S3776 cognitive-complexity ceiling.
+
+    Wave 2a Round-5 (F-R5-04): ``os.walk`` defaults to silently
+    *swallowing* ``os.scandir`` errors — a chmod-broken cache root or
+    sub-directory simply vanishes from the walk, so a fully-unreadable
+    cache reports ``file_count=0, unreadable_count=0`` and falls into
+    the empty-cache branch.  The ``onerror`` callback now bumps
+    ``walk_errors`` so the caller can distinguish "cache is empty" from
+    "cache exists but the operator cannot read it" — the latter is a
+    *fail*, not a warn.
     """
     file_count = 0
     total_bytes = 0
     unreadable_count = 0
+    walk_errors = 0
     walk_truncated = False
+
+    def _on_walk_error(exc: OSError) -> None:
+        nonlocal walk_errors
+        walk_errors += 1
+        logger.warning("Doctor HF cache walk hit %s on %s", exc.__class__.__name__, getattr(exc, "filename", "?"))
+
     base_depth = cache_dir_abs.rstrip(os.sep).count(os.sep)
-    for root, dirs, files in os.walk(cache_dir_abs):
+    for root, dirs, files in os.walk(cache_dir_abs, onerror=_on_walk_error):
         if (root.count(os.sep) - base_depth) > _HF_CACHE_WALK_DEPTH:
             dirs[:] = []
             walk_truncated = True
@@ -508,7 +524,7 @@ def _walk_hf_cache_bounded(cache_dir_abs: str) -> Tuple[int, int, int, bool]:
         if cap_hit:
             walk_truncated = True
             break
-    return file_count, total_bytes, unreadable_count, walk_truncated
+    return file_count, total_bytes, unreadable_count, walk_errors, walk_truncated
 
 
 def _check_hf_cache_offline() -> _CheckResult:
@@ -542,22 +558,32 @@ def _check_hf_cache_offline() -> _CheckResult:
             extras={"cache_dir": cache_dir, "exists": False},
         )
     cache_dir_abs = os.path.abspath(cache_dir)
-    file_count, total_bytes, unreadable_count, walk_truncated = _walk_hf_cache_bounded(cache_dir_abs)
+    file_count, total_bytes, unreadable_count, walk_errors, walk_truncated = _walk_hf_cache_bounded(cache_dir_abs)
     cache_gib = round(total_bytes / (1024**3), 2)
     offline_env = os.environ.get("HF_HUB_OFFLINE")
     truncation_note = " (scan truncated at depth/file cap)" if walk_truncated else ""
     unreadable_note = f" [{unreadable_count} file(s) unreadable, totals are partial]" if unreadable_count else ""
+    walk_error_note = f" [{walk_errors} directory walk error(s) — check chmod / mount]" if walk_errors else ""
     detail = (
         f"HF cache at {cache_dir}: {cache_gib} GiB across {file_count} file(s)"
-        f"{truncation_note}{unreadable_note}. HF_HUB_OFFLINE={offline_env or 'unset'}."
+        f"{truncation_note}{unreadable_note}{walk_error_note}. "
+        f"HF_HUB_OFFLINE={offline_env or 'unset'}."
     )
-    # Status: warn when files were unreadable even if we scanned
-    # *something* — partial visibility into the cache is operator-
-    # actionable (likely a chmod / mount issue) and should not silently
-    # pass as healthy.
-    if file_count == 0:
+    # Status policy:
+    #   fail — the operator cannot READ the cache (walk_errors > 0 AND
+    #     no files visible).  Air-gapped run will fail later with a
+    #     misleading missing-model error if we let this masquerade as
+    #     "empty cache". (F-R5-04)
+    #   warn — files visible but partial (walk_errors > 0 but some
+    #     files were sized OK), or fully readable but empty cache, or
+    #     individual files unreadable.  All operator-actionable but
+    #     do not block the doctor verdict.
+    #   pass — every file visible + sized.
+    if walk_errors and file_count == 0:
+        status = _STATUS_FAIL
+    elif file_count == 0:
         status = _STATUS_WARN
-    elif unreadable_count:
+    elif unreadable_count or walk_errors:
         status = _STATUS_WARN
     else:
         status = _STATUS_PASS
@@ -571,6 +597,7 @@ def _check_hf_cache_offline() -> _CheckResult:
             "size_gib": cache_gib,
             "file_count": file_count,
             "unreadable_count": unreadable_count,
+            "walk_errors": walk_errors,
             "walk_truncated": walk_truncated,
             "hf_hub_offline_env": offline_env,
         },
@@ -881,7 +908,14 @@ def _render_json(results: List[_CheckResult]) -> str:
         "checks": payload_checks,
         "summary": summary,
     }
-    return json.dumps(envelope, indent=2)
+    # ``default=str`` (Wave 2a Round-5 F-R5-06): ``extras`` is typed
+    # ``Dict[str, Any]``; today every probe surfaces only JSON-native
+    # types but a future probe author dropping a ``Path`` / ``datetime``
+    # / ``bytes`` value would otherwise crash with ``TypeError`` and
+    # exit with a Python traceback to stderr instead of the documented
+    # JSON envelope.  ``default=str`` defangs the contract violation by
+    # falling back to the value's ``__str__`` repr.
+    return json.dumps(envelope, indent=2, default=str)
 
 
 def _resolve_exit_code(results: List[_CheckResult]) -> int:

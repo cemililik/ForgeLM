@@ -297,6 +297,21 @@ def _run_approve_cmd(args, output_format: str) -> None:
     run_id = args.run_id
     audit_log_path = os.path.join(output_dir, "audit_log.jsonl")
 
+    # Wave 2a Round-5 (F-R5-01): pre-iteration readability gate.  A
+    # chmod-broken audit log otherwise reaches ``iter_audit_events`` →
+    # OSError-on-open is logged + swallowed → ``required_event is None``
+    # → operator sees "verify the run_id" (wrong debugging path).  Surface
+    # the chmod / mount issue with an actionable message instead.
+    from ._audit_log_reader import is_audit_log_readable
+
+    if os.path.isfile(audit_log_path) and not is_audit_log_readable(audit_log_path):
+        _output_error_and_exit(
+            output_format,
+            f"Audit log {audit_log_path!r} exists but is not readable. "
+            "Check filesystem permissions (chmod / mount opts) and re-run.",
+            EXIT_CONFIG_ERROR,
+        )
+
     # Read the audit event first so we can use the trainer-recorded staging_path
     # (which reflects the configured final_model_dir) rather than a hardcoded default.
     # Strict-mode parsing (Wave 2a Round-2 hardening): a corrupted decision
@@ -411,10 +426,22 @@ def _run_reject_cmd(args, output_format: str) -> None:
     run_id = args.run_id
     audit_log_path = os.path.join(output_dir, "audit_log.jsonl")
 
+    # Wave 2a Round-5 (F-R5-01): same readability gate as approve so a
+    # chmod-broken audit log surfaces a clear error instead of "verify
+    # the run_id".
+    from ._audit_log_reader import AuditLogParseError, is_audit_log_readable
+
+    if os.path.isfile(audit_log_path) and not is_audit_log_readable(audit_log_path):
+        _output_error_and_exit(
+            output_format,
+            f"Audit log {audit_log_path!r} exists but is not readable. "
+            "Check filesystem permissions (chmod / mount opts) and re-run.",
+            EXIT_CONFIG_ERROR,
+        )
+
     # Strict-mode parsing: surface audit-log corruption to the operator
     # rather than skip the line and produce a misleading "no decision yet"
     # result.  See _run_approve_cmd for the same hardening pattern.
-    from ._audit_log_reader import AuditLogParseError
 
     try:
         required_event = _cli_facade._find_human_approval_required_event(audit_log_path, run_id)

@@ -62,9 +62,14 @@ def _output_error_and_exit(output_format: str, msg: str, exit_code: int) -> NoRe
 # Wave 2a Round-1 review (XPR-01): the JSONL parser was extracted into
 # the shared :mod:`._audit_log_reader` module so a future malformed-line
 # policy fix lands in one place across the approve / approvals / purge
-# family.  The local re-export below preserves the import name tests
-# already use (``from forgelm.cli import _iter_audit_events``).
-from ._audit_log_reader import iter_audit_events as _iter_audit_events  # noqa: F401,E402
+# family.  The ``_`` prefix on the local alias marks the reader as
+# parser-internal use; callers reach in via the module-prefixed
+# ``iter_audit_events`` directly.
+# Round-5 F-R5-08: ``E402`` retained — the import sits below the
+# in-module helpers by design (the module's other late imports follow
+# the same pattern); ``F401`` no longer needed because the symbol is
+# actively used at lines 97 + 151 of this file.
+from ._audit_log_reader import iter_audit_events as _iter_audit_events  # noqa: E402
 
 
 def _collect_pending_runs(audit_log_path: str) -> List[Dict[str, Any]]:
@@ -311,16 +316,13 @@ def _run_approvals_list_pending(args, output_format: str) -> None:
         else:
             print(f"No audit log at {audit_log_path}; nothing to list.")
         sys.exit(EXIT_SUCCESS)
-    # Wave 2a Round-2 review (CodeRabbit): a permission-denied audit log
-    # masquerading as "no pending approvals" is the worst-case mode for
-    # this subcommand — an operator could miss a real pending decision
-    # because the file is unreadable.  ``iter_audit_events`` itself
-    # logger.error()s + yields nothing on OSError-on-open, which means
-    # the empty list below would otherwise look identical to a healthy
-    # zero-pending result.  Pin the readability check here so the
-    # operator sees a clear EXIT_CONFIG_ERROR with the path + chmod
-    # hint instead of a misleading "no pending approvals".
-    if not os.access(audit_log_path, os.R_OK):
+    # Wave 2a Round-2 / Round-5 readability gate: a permission-denied
+    # audit log otherwise masquerades as "no pending approvals".  The
+    # check now lives in :func:`_audit_log_reader.is_audit_log_readable`
+    # so approve / reject / approvals all share one definition.
+    from ._audit_log_reader import is_audit_log_readable
+
+    if not is_audit_log_readable(audit_log_path):
         _output_error_and_exit(
             output_format,
             f"Audit log {audit_log_path!r} exists but is not readable. "
@@ -446,10 +448,12 @@ def _run_approvals_show(args, output_format: str) -> None:
             f"No audit log at {audit_log_path!r}; cannot show run {run_id!r}.",
             EXIT_CONFIG_ERROR,
         )
-    # Same readability check as _run_approvals_list_pending: a permission-
-    # denied audit log must surface a clear error rather than masquerade as
-    # "no events for this run".
-    if not os.access(audit_log_path, os.R_OK):
+    # Same readability check as _run_approvals_list_pending — see the
+    # shared :func:`_audit_log_reader.is_audit_log_readable` for the
+    # canonical definition.
+    from ._audit_log_reader import is_audit_log_readable
+
+    if not is_audit_log_readable(audit_log_path):
         _output_error_and_exit(
             output_format,
             f"Audit log {audit_log_path!r} exists but is not readable. "

@@ -644,6 +644,44 @@ class TestWorkersErrorPropagation:
             with pytest.raises(RuntimeError, match="synthetic per-split failure"):
                 audit_dataset(str(corpus), workers=1)
 
+    def test_parallel_path_raises_when_worker_function_raises_uncaught(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Parallel path: an uncaught worker exception (one that escapes
+        ``_process_split``'s own catches — e.g. a worker pickling error,
+        ImportError on a worker process, segfault, OOM) must surface
+        through ``Pool.map`` rather than being silently swallowed.
+
+        Wave 2a Round-5 F-R5-03 fix: the previous parallel-failure test
+        used corrupt UTF-8 bytes that ``_process_split`` catches
+        internally and returns as a degraded outcome — the orchestrator's
+        ``try: pool.map(...) except Exception: logger.error(...); raise``
+        branch (``forgelm/data_audit/_orchestrator.py:355-363``) was
+        therefore dead in tests.  This test exercises it via the
+        worker-side env-var test injection point in
+        ``_process_split_for_pool``: spawn-method workers see env vars
+        inherited at spawn time, so ``FORGELM_AUDIT_TEST_WORKER_RAISES=validation``
+        causes the validation worker to raise unconditionally.
+        """
+        corpus = _seed_three_split_corpus(tmp_path)
+        monkeypatch.setenv("FORGELM_AUDIT_TEST_WORKER_RAISES", "validation")
+
+        from forgelm.data_audit import audit_dataset
+
+        # Pool.map wraps the worker exception; we expect the orchestrator's
+        # broad re-raise to surface it (any subclass of Exception is
+        # acceptable — the contract is "fails loud, not silent").
+        with pytest.raises(Exception) as exc_info:
+            audit_dataset(str(corpus), workers=2)
+        # The original exception class + message survive the Pool wrap;
+        # assert the synthetic marker so we know we hit the injected
+        # raise, not some unrelated failure.
+        assert "synthetic test-injected worker failure" in str(exc_info.value), (
+            f"orchestrator did not surface the worker-side RuntimeError; got: {exc_info.value!r}"
+        )
+
     def test_parallel_path_does_not_silently_complete_on_split_failure(self, tmp_path: Path) -> None:
         """Parallel path: a per-split read failure must surface as a
         structured per-split error, not a silent completion that drops

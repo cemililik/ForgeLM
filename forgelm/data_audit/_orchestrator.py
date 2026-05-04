@@ -189,8 +189,24 @@ def _process_split_for_pool(
     to be picklable.  Lambdas and ``functools.partial`` over keyword-only
     args don't pickle cleanly across spawn-method workers, so we accept a
     single positional tuple and unpack the kwargs inside the worker.
+
+    **Test injection point** (Wave 2a Round-5 F-R5-03): spawn-method
+    workers do not see monkeypatches applied in the parent test process,
+    so the only way to exercise the orchestrator's ``pool.map`` re-raise
+    branch is via an env var that the worker reads on entry.  Setting
+    ``FORGELM_AUDIT_TEST_WORKER_RAISES=<split_name>`` causes this
+    wrapper to raise ``RuntimeError`` for the matching split — used by
+    ``tests/test_data_audit_workers.py::TestWorkersErrorPropagation``
+    to verify that an uncaught worker exception surfaces through
+    ``Pool.map`` instead of being silently swallowed.  Production code
+    should never set this variable; the check is fail-closed (env var
+    must equal the exact split name being processed) to minimise blast
+    radius if an operator sets it by mistake.
     """
     split_name, path, kwargs = args_tuple
+    test_raise_split = os.environ.get("FORGELM_AUDIT_TEST_WORKER_RAISES")
+    if test_raise_split and test_raise_split == split_name:
+        raise RuntimeError(f"synthetic test-injected worker failure for split {split_name!r}")
     return _process_split(split_name, path, **kwargs)
 
 

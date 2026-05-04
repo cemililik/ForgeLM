@@ -151,7 +151,7 @@ For each retention horizon:
 - If older, the artefact has overstayed the declared lawful basis.
 - The audit log itself is **never deleted automatically** even when the policy says it has overstayed — Article 17(3)(b) exemption applies and the operator must make the deletion call by hand.  The tool only flags.
 
-The compliance artefacts (`compliance/*.json`) are tied to a specific run; their lifetime is the run's lifetime, not a separate horizon.  Deleting them requires deleting the whole `<output_dir>` (which the operator does manually).
+The compliance artefacts (`compliance/*.json`) are tied to a specific run; their lifetime is the run's lifetime, not a separate horizon.  In-place deletion is supported via `forgelm purge --run-id <id> --kind artefacts` (§4.1) which removes `<output_dir>/compliance/*.json` for the named run while leaving the audit log + final model intact — useful when an operator wants to regenerate the bundle after an Article 17 corpus erasure changed the lineage.  Whole-`<output_dir>` deletion remains the operator's manual escalation when the entire run is being scrubbed.
 
 ---
 
@@ -256,9 +256,12 @@ Because erasure only **appends** events (never edits), the SHA-256 chain stays v
 
 ### 5.3 Identifier hashing in audit events
 
-Event bodies carry the `target_id` (e.g. `row_id=42` or `run_id=fg-abc123`).  These are **operational identifiers**, not PII themselves; they can stay in the clear.
+Event bodies carry a `target_id` field whose handling depends on `target_kind`:
 
-If the **justification** field includes something that *might* be PII (e.g. operator accidentally pastes the data subject's email into the justification), we do **not** scrub it automatically — the operator chose to write it.  We document this in the operator guide: "Do not paste subject identifiers into `--justification`; reference your internal ticket id instead."
+- **Run mode** (`target_kind ∈ {staging, artefacts, policy_check}`):  `target_id` is an operational identifier the trainer minted (`fg-abc123…`) — not derived from any subject input.  Stays in the clear.
+- **Row mode** (`target_kind = "row"`):  `target_id` is operator-supplied and may be subject-derived (email, username, ticket reference).  Hashed at emit time per §5.4 — see the table row for the salt rules.  Operator-facing examples in this section that show `row_id=42` are illustrative of *what the operator typed* on the CLI; the *persisted audit-event field* carries the SHA-256(salt + value) digest, never the raw row id.
+
+If the **justification** field includes something that *might* be PII (e.g. operator accidentally pastes the data subject's email into the justification), we do **not** scrub it automatically — the operator chose to write it.  We document this in the operator guide: "Do not paste subject identifiers into `--justification`; reference your internal ticket id instead."  Note that `target_id` in row mode is hashed regardless (§5.4) — the justification is the only operator-controlled field that can leak subject text into the chain in cleartext.
 
 ### 5.4 Personal-data minimisation across every audit-event field
 
@@ -267,7 +270,8 @@ Article 17(3)(b) preserves the audit log itself, but Article 5(1)(c) (data minim
 | Event field | Source / shape | Personal-data category | Phase 21 policy |
 |---|---|---|---|
 | `target_kind` | enum: `row` / `staging` / `artefacts` / `policy_check` | None | clear |
-| `target_id` (row mode) | Row id from the JSONL `id` (or `row_id`) field — canonical and only source.  Line-number fallback is **rejected** at the CLI per §4.2; operators with id-less corpora must run `forgelm audit --add-row-ids <path>` (Phase 28 follow-up) before invoking `forgelm purge --row-id`. | **Possibly personal** (operator-supplied row IDs may be email / username / ticket numbers) | **SHA-256(salt + value)** when emitted; salt = first 16 bytes of `FORGELM_AUDIT_SECRET` if set, else a per-output-dir salt persisted at first use.  Raw value never lands in the chain. |
+| `target_id` (row mode) | Row id from the JSONL `id` (or `row_id`) field — canonical and only source.  Line-number fallback is **rejected** at the CLI per §4.2; operators with id-less corpora must run `forgelm audit --add-row-ids <path>` (Phase 28 follow-up) before invoking `forgelm purge --row-id`. | **Possibly personal** (operator-supplied row IDs may be email / username / ticket numbers) | **SHA-256(salt + value)** when emitted.  Salt = first 16 bytes of `FORGELM_AUDIT_SECRET` if set, else a per-output-dir salt persisted at `<output_dir>/.forgelm_audit_salt` (16 random bytes, mode 0600, written on first emission). |
+| `salt_source` (row mode, all erasure events) | Resolved salt source for the row's `target_id` hash | None (operational metadata) | One of `"env_var"` / `"per_dir"`.  Persisted on every `data.erasure_requested` / `data.erasure_completed` / `data.erasure_failed` event in row mode so a compliance reviewer reconciling two erasure events for the same subject can detect a salt-source change.  Salt-source mismatch across events for the same operator-supplied row id IS a hash discontinuity (different salt → different hash); the field exists so the discontinuity is visible in the chain instead of silently producing a "different subject" misreading. |
 | `target_id` (run mode) | `fg-<hex>` from AuditLogger | None (operational) | clear |
 | `corpus_path` | filesystem path | **Possibly personal** when path includes a subject name (rare but real) | clear by default; operator guide flags the risk + recommends symlinking through a stable name |
 | `output_dir` | filesystem path | Same risk as `corpus_path` | clear; same guide note |
