@@ -925,16 +925,32 @@ def _scan_retention_violations(retention, output_dir: str) -> List[Dict[str, Any
     now = time.time()
 
     audit_log_path = os.path.join(output_dir, "audit_log.jsonl")
-    audit_age_seconds = _age_from_audit_log(audit_log_path, now)
+    # Wave 2b Round-5 review F-W2B-PURGE: build a per-run audit-age
+    # lookup so each `final_model.staging.<run_id>/` (and each
+    # `raw_documents/<run_id>/` when it exists) is aged from *its
+    # own* first audit event rather than the merged-log genesis.
+    # The genesis remains the fallback for artefacts that have no
+    # owning run_id (audit_log itself, the legacy flat staging dir,
+    # the compliance bundle, the data audit report).
+    audit_ages = _build_audit_age_lookup(audit_log_path, now)
 
-    horizons: List[Tuple[str, str, int]] = [
-        ("audit_log", audit_log_path, retention.audit_log_retention_days),
-        ("staging_dir", os.path.join(output_dir, "final_model.staging"), retention.staging_ttl_days),
-        ("compliance_bundle", os.path.join(output_dir, "compliance"), retention.ephemeral_artefact_retention_days),
+    # 4-tuples: (kind, path, horizon_days, run_id_or_None).  The
+    # discovery helpers tag entries with the owning run_id so the
+    # per-artefact age lookup hits the right audit timestamp.
+    horizons: List[Tuple[str, str, int, Optional[str]]] = [
+        ("audit_log", audit_log_path, retention.audit_log_retention_days, None),
+        ("staging_dir", os.path.join(output_dir, "final_model.staging"), retention.staging_ttl_days, None),
+        (
+            "compliance_bundle",
+            os.path.join(output_dir, "compliance"),
+            retention.ephemeral_artefact_retention_days,
+            None,
+        ),
         (
             "data_audit_report",
             os.path.join(output_dir, "data_audit_report.json"),
             retention.ephemeral_artefact_retention_days,
+            None,
         ),
     ]
     # Wave 2b Round-2 review: the canonical scan above missed the
@@ -944,10 +960,10 @@ def _scan_retention_violations(retention, output_dir: str) -> List[Dict[str, Any
     # reflects every artefact kind the retention block covers.
     horizons.extend(_discover_per_run_staging_horizons(output_dir, retention.staging_ttl_days))
     horizons.extend(_discover_raw_documents_horizons(output_dir, retention.raw_documents_retention_days))
-    for kind, path, horizon_days in horizons:
+    for kind, path, horizon_days, run_id in horizons:
         if horizon_days == 0 or not os.path.exists(path):
             continue
-        age_seconds, age_source = _resolve_artefact_age(path, audit_age_seconds, now)
+        age_seconds, age_source = _resolve_artefact_age(path, audit_ages, run_id, now)
         age_days = age_seconds / 86400.0
         if age_days > horizon_days:
             violations.append(
@@ -983,64 +999,22 @@ def _parse_iso_timestamp_to_posix(ts: str) -> Optional[float]:
     return when.timestamp()
 
 
-def _genesis_timestamp_from_lines(lines) -> Optional[float]:
-    """Walk audit-log JSONL lines; return the first POSIX timestamp.
-
-    The audit log is append-only so the first non-empty, well-formed
-    event with a string ``timestamp`` is the genesis.  Skips blank /
-    malformed lines.  ``None`` when the loop falls off the end without
-    finding any usable timestamp.
-    """
-    for raw in lines:
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(event, dict):
-            continue
-        ts = event.get("timestamp")
-        if not isinstance(ts, str):
-            return None
-        return _parse_iso_timestamp_to_posix(ts)
-    return None
-
-
-def _age_from_audit_log(audit_log_path: str, now: float) -> Optional[float]:
-    """Extract the genesis-event timestamp from the audit log; return age.
-
-    Returns ``None`` when the log is missing, unreadable, has no
-    well-formed events, or carries a malformed timestamp.  Cognitive
-    complexity is kept under the SonarCloud S3776 ceiling by
-    delegating per-line parsing to
-    :func:`_genesis_timestamp_from_lines` and ISO parsing to
-    :func:`_parse_iso_timestamp_to_posix`.
-    """
-    if not os.path.isfile(audit_log_path):
-        return None
-    try:
-        with open(audit_log_path, "r", encoding="utf-8") as fh:
-            genesis_ts = _genesis_timestamp_from_lines(fh)
-    except OSError:
-        return None
-    if genesis_ts is None:
-        return None
-    return now - genesis_ts
-
-
-def _discover_per_run_staging_horizons(output_dir: str, horizon_days: int) -> List[Tuple[str, str, int]]:
+def _discover_per_run_staging_horizons(output_dir: str, horizon_days: int) -> List[Tuple[str, str, int, Optional[str]]]:
     """Enumerate ``final_model.staging.<run_id>/`` directories under
     ``output_dir`` so the retention scan reports each one separately.
 
     Returns ``[]`` when the horizon is disabled (``horizon_days == 0``)
     or the output dir cannot be listed (callers handle the empty
     iterable as "nothing to scan").
+
+    Wave 2b Round-5 review F-W2B-PURGE: each tuple now carries the
+    ``run_id`` extracted from the directory name so the caller can
+    age each staging dir against *that run's* first audit event
+    instead of the merged-log genesis.
     """
     if horizon_days == 0:
         return []
-    discovered: List[Tuple[str, str, int]] = []
+    discovered: List[Tuple[str, str, int, Optional[str]]] = []
     try:
         entries = os.listdir(output_dir)
     except OSError:
@@ -1052,11 +1026,11 @@ def _discover_per_run_staging_horizons(output_dir: str, horizon_days: int) -> Li
         if not os.path.isdir(full):
             continue
         run_id = entry[len("final_model.staging.") :]
-        discovered.append((f"staging_dir[{run_id}]", full, horizon_days))
+        discovered.append((f"staging_dir[{run_id}]", full, horizon_days, run_id))
     return discovered
 
 
-def _discover_raw_documents_horizons(output_dir: str, horizon_days: int) -> List[Tuple[str, str, int]]:
+def _discover_raw_documents_horizons(output_dir: str, horizon_days: int) -> List[Tuple[str, str, int, Optional[str]]]:
     """Locate raw-documents directories ForgeLM ingest may have written.
 
     The retention block covers ``raw_documents_retention_days`` (Phase
@@ -1064,25 +1038,88 @@ def _discover_raw_documents_horizons(output_dir: str, horizon_days: int) -> List
     ``<output_dir>/raw_documents/`` (when ``forgelm ingest --output``
     points at the same dir).  We also recognise the legacy
     ``ingestion_output/`` from earlier templates.
+
+    Raw-documents directories are not run-scoped (the ingest pipeline
+    writes one shared corpus per output_dir), so the run_id slot is
+    ``None`` and the caller falls back to the genesis age.
     """
     if horizon_days == 0:
         return []
-    discovered: List[Tuple[str, str, int]] = []
+    discovered: List[Tuple[str, str, int, Optional[str]]] = []
     for candidate in ("raw_documents", "ingestion_output"):
         path = os.path.join(output_dir, candidate)
         if os.path.exists(path):
-            discovered.append((f"raw_documents[{candidate}]", path, horizon_days))
+            discovered.append((f"raw_documents[{candidate}]", path, horizon_days, None))
     return discovered
+
+
+def _build_audit_age_lookup(audit_log_path: str, now: float) -> Dict[Optional[str], float]:
+    """Walk the audit log once; return ``{None: genesis_age, run_id: age_for_run}``.
+
+    Wave 2b Round-5 review F-W2B-PURGE: the previous
+    ``_age_from_audit_log`` returned a single genesis age that the
+    scanner reused for every artefact kind, so a `final_model.staging.
+    <run_id>/` created weeks after the genesis event aged from the
+    *wrong* timestamp.  This walk records the first POSIX timestamp
+    per ``run_id`` (and the global genesis under the ``None`` key) so
+    the per-artefact age is the right one.
+    """
+    out: Dict[Optional[str], float] = {}
+    if not os.path.isfile(audit_log_path):
+        return out
+    try:
+        with open(audit_log_path, "r", encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                ts = event.get("timestamp")
+                if not isinstance(ts, str):
+                    continue
+                posix = _parse_iso_timestamp_to_posix(ts)
+                if posix is None:
+                    continue
+                age = now - posix
+                if None not in out:
+                    out[None] = age
+                run_id = event.get("run_id")
+                if isinstance(run_id, str) and run_id and run_id not in out:
+                    out[run_id] = age
+    except OSError:
+        return out
+    return out
 
 
 def _resolve_artefact_age(
     path: str,
-    audit_age_seconds: Optional[float],
+    audit_ages: Dict[Optional[str], float],
+    run_id: Optional[str],
     now: float,
 ) -> Tuple[float, str]:
-    """Belt + suspenders age resolution; return ``(age_seconds, source)``."""
-    if audit_age_seconds is not None:
-        return audit_age_seconds, "audit"
+    """Belt + suspenders age resolution; return ``(age_seconds, source)``.
+
+    Resolution order:
+
+    1. Per-run audit timestamp (when ``run_id`` matches a recorded run
+       in the audit log) — the canonical signal for run-scoped
+       artefacts like ``final_model.staging.<run_id>/``.
+    2. Global genesis audit timestamp — the canonical signal for
+       artefacts that are not run-scoped (audit_log itself, the
+       compliance bundle, the data audit report).
+    3. Filesystem ``mtime`` — last-resort fallback when the audit log
+       is missing / unreadable / empty.
+    """
+    if run_id is not None and run_id in audit_ages:
+        return audit_ages[run_id], "audit"
+    genesis = audit_ages.get(None)
+    if genesis is not None:
+        return genesis, "audit"
     try:
         mtime = os.path.getmtime(path)
     except OSError:

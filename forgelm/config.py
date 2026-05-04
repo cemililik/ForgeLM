@@ -964,7 +964,19 @@ class ForgeConfig(BaseModel):
             self.evaluation is not None and "staging_ttl_days" in self.evaluation.model_fields_set
         )
         legacy = self.evaluation.staging_ttl_days if legacy_was_explicitly_set else None
-        canonical = self.retention.staging_ttl_days if self.retention else None
+        # Wave 2b Round-5 review F-W2B-RETENTION: applying the same
+        # ``model_fields_set`` test to the canonical block.  An operator
+        # who writes ``retention: {audit_log_retention_days: 1825}``
+        # (no staging key) leaves ``staging_ttl_days`` at its default
+        # of 7; treating that 7 as an explicit canonical value would
+        # spuriously raise ``ConfigError`` when paired with
+        # ``evaluation.staging_ttl_days: 14``.  We only treat
+        # ``retention.staging_ttl_days`` as canonical when the operator
+        # actually wrote it.
+        canonical_was_explicitly_set = bool(
+            self.retention is not None and "staging_ttl_days" in self.retention.model_fields_set
+        )
+        canonical = self.retention.staging_ttl_days if canonical_was_explicitly_set else None
 
         # Both unset → nothing to do.
         if legacy is None and canonical is None:

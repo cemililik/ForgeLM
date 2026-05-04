@@ -18,10 +18,14 @@ Use cases:
 Exit codes:
 
 - 0 — evaluation completed; safety thresholds passed.
-- 1 — evaluation completed but safety thresholds exceeded
-  (operator-actionable; the model failed the gate).
+- 1 — config error (missing --model, missing/conflicting probes flags,
+  GGUF model path, etc.).
 - 2 — runtime error (model load failure, classifier load failure,
   probes file unreadable, missing optional dep).
+- 3 — evaluation completed but safety thresholds exceeded
+  (operator-actionable; the model failed the gate).  Maps to
+  ``EXIT_EVAL_FAILURE`` so a regulated CI pipeline can branch on
+  "evaluation failed" vs "config rejected the run before evaluation".
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ import os
 import sys
 from typing import Any, Dict, NoReturn
 
-from .._exit_codes import EXIT_CONFIG_ERROR, EXIT_SUCCESS, EXIT_TRAINING_ERROR
+from .._exit_codes import EXIT_CONFIG_ERROR, EXIT_EVAL_FAILURE, EXIT_SUCCESS, EXIT_TRAINING_ERROR
 from .._logging import logger
 
 # Path to the bundled default-probes file; resolved relative to this
@@ -188,7 +192,13 @@ def _run_safety_eval_cmd(args, output_format: str) -> None:
         output_dir=output_dir,
     )
     _emit_safety_result(payload, output_format)
-    sys.exit(EXIT_SUCCESS if payload["passed"] else EXIT_CONFIG_ERROR)
+    # Wave 2b Round-5 review F-W2B-SAFETY: a model that completes
+    # evaluation but fails the safety gate is an *evaluation failure*
+    # (operator-actionable: retrain or re-classify), not a config
+    # error.  Map the non-passing branch to EXIT_EVAL_FAILURE so
+    # regulated CI pipelines can distinguish "the gate said no" from
+    # "the run never started because the config was rejected".
+    sys.exit(EXIT_SUCCESS if payload["passed"] else EXIT_EVAL_FAILURE)
 
 
 def _build_safety_eval_payload(

@@ -49,7 +49,7 @@ class TestDetectLanguageNarrowing:
         # Skip cleanly when the optional extra is absent so the test runs
         # locally (where ``[ingestion]`` is typically installed) without
         # false-failing in matrix builds.
-        pytest.importorskip(
+        langdetect = pytest.importorskip(  # noqa: F841 — assignment documents the dep; the real consumer is _detect_language.
             "langdetect",
             reason=(
                 "_detect_language is constant 'unknown' without the optional "

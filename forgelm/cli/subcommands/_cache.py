@@ -308,6 +308,20 @@ def _run_cache_tasks_cmd(args, output_format: str) -> None:
     output_arg = getattr(args, "output", None)
     cache_dir = _resolve_cache_dir(output_arg)
     _warn_on_cache_dir_divergence(cache_dir, output_arg)
+    os.makedirs(cache_dir, exist_ok=True)
+
+    # Wave 2b Round-5 review F-W2B-CACHE: ``_prepare_one_task`` calls
+    # ``dataset.download_and_prepare()`` with no explicit cache_dir
+    # argument; the underlying ``datasets`` library reads
+    # ``HF_DATASETS_CACHE`` from the environment.  Without this stamp the
+    # operator's ``--output <dir>`` (or the env-resolved cache_dir) would
+    # be advertised in the JSON envelope but the actual parquet shards
+    # would land under ``~/.cache/huggingface/datasets`` — a silent
+    # divergence that defeats the whole air-gap workflow.  Setting
+    # ``HF_DATASETS_CACHE`` here keeps the audit/log claim and the
+    # on-disk artefacts in sync.
+    os.environ["HF_DATASETS_CACHE"] = cache_dir
+
     audit = _maybe_audit_logger(getattr(args, "audit_dir", None) or cache_dir)
     request_fields = {"tasks": task_names, "cache_dir": cache_dir}
     if audit is not None:
@@ -332,7 +346,7 @@ def _run_cache_tasks_cmd(args, output_format: str) -> None:
 
     try:
         for name, task_obj in task_dict.items():
-            results.append(_prepare_one_task(name, task_obj))
+            results.append(_prepare_one_task(name, task_obj, cache_dir))
     except Exception as exc:  # noqa: BLE001 — best-effort: dataset download failures, parquet decode failures, all funnel into the same operator-facing message with the partial results so the operator knows what completed. # NOSONAR
         if audit is not None:
             audit.log_event(
@@ -360,7 +374,7 @@ def _run_cache_tasks_cmd(args, output_format: str) -> None:
     sys.exit(EXIT_SUCCESS)
 
 
-def _prepare_one_task(name: str, task_obj) -> Dict[str, Any]:
+def _prepare_one_task(name: str, task_obj, cache_dir: str | None = None) -> Dict[str, Any]:
     """Trigger the underlying datasets-library download for a single task.
 
     ``lm-eval`` tasks expose a ``dataset`` (or callable that returns one);
@@ -368,7 +382,19 @@ def _prepare_one_task(name: str, task_obj) -> Dict[str, Any]:
     versions.  When neither is reachable we mark the task as cached
     pessimistically (the operator can re-run with verbose lm-eval logging
     to inspect the task's own download path).
+
+    Wave 2b Round-5 review F-W2B-CACHE: the caller pre-stamps
+    ``HF_DATASETS_CACHE`` so the underlying ``datasets`` library writes
+    parquet shards under ``cache_dir``.  ``cache_dir`` is accepted here
+    as a defence-in-depth signal so test code calling
+    ``_prepare_one_task`` directly (or future call sites that bypass
+    the dispatcher) can still pin the destination explicitly.
     """
+    if cache_dir is not None:
+        # Belt-and-suspenders: keep the env stamp current per call so
+        # repeated invocations from a long-lived test process don't
+        # leak the previous run's cache_dir.
+        os.environ["HF_DATASETS_CACHE"] = cache_dir
     cached = False
     error_msg: str | None = None
     try:

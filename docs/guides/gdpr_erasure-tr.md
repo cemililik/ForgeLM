@@ -68,7 +68,7 @@ $ forgelm purge --check-policy --config configs/run.yaml --output-dir ./outputs
 
 Salt-okunur tarama. Output dizinini gezer, her artefact'ın yaşını (canonical: audit-log genesis `timestamp`'i; fallback: filesystem `mtime` + `age_source=mtime` flag'i ile) yüklü config'in `retention:` horizon'larına karşı kıyaslar ve structured violation list yayar.
 
-**Her zaman 0 ile çıkar** (rapor-değil-gate semantiği — design §10 Q5). CI gate isteyen operatörler `--output-format json` kullanır ve `jq '.violations | length'`'e pipe'lar; bu, public exit-code kontratını `0/1/2/3/4` her ForgeLM subcommand'ında tutarlı tutar.
+**Başarılı policy raporları 0 ile çıkar** (rapor-değil-gate semantiği — design §10 Q5). Config-load başarısızlıkları `EXIT_CONFIG_ERROR` (sıfır olmayan) ile çıkar: eksik / okunamayan / Pydantic validation'ı geçemeyen explicit `--config`, "loader failed" durumunu "ihlal yok" sanmamak için `EXIT_CONFIG_ERROR` olarak yüzeye çıkar. CI gate isteyen operatörler `--output-format json` kullanır ve `jq '.violations | length'`'e pipe'lar; bu, public exit-code kontratını `0/1/2/3/4` her ForgeLM subcommand'ında tutarlı tutar.
 
 ## `retention:` config block'u
 
@@ -87,10 +87,11 @@ Herhangi bir horizon'u `0` olarak ayarlamak o artefact kind'ı için policy'yi d
 
 Wave 1 `evaluation.staging_ttl_days` field'ı (v0.5.5'te shipped) **deprecate** edildi. Yerine `retention.staging_ttl_days` kullan:
 
-- Sadece legacy field set'liyse (default-olmayan değerle) `retention.staging_ttl_days`'e alias-forward edilir ve tek bir `DeprecationWarning` yayılır.
-- Sadece canonical field set'liyse sessiz canonical path.
-- İkisi de **aynı** değerlerle set'liyse `DeprecationWarning` yayılır (canonical block kazanır).
-- İkisi de **farklı** değerlerle set'liyse config-load zamanında `ConfigError` raise edilir. Sessiz kazanan = yanlış kazanan.
+- "Set" kararı Pydantic v2'nin `model_fields_set` setine bakılarak verilir: bir field YAML'de açıkça yazıldıysa (örn. `evaluation.staging_ttl_days: 7`) Pydantic'in default'la doldurmasından bağımsız olarak "set" sayılır. Bu, "default değerle eşit" gibi heuristik tahminlerin operatörü yanıltmasını engeller.
+- Sadece legacy field açıkça set'liyse `retention.staging_ttl_days`'e alias-forward edilir ve tek bir `DeprecationWarning` yayılır.
+- Sadece canonical field açıkça set'liyse sessiz canonical path.
+- İkisi de **aynı** değerlerle açıkça set'liyse `DeprecationWarning` yayılır (canonical block kazanır).
+- İkisi de **farklı** değerlerle açıkça set'liyse config-load zamanında `ConfigError` raise edilir. Sessiz kazanan = yanlış kazanan.
 
 Deprecate edilen field **v0.7.0**'da kaldırılır.
 
@@ -115,11 +116,11 @@ Deprecate edilen field **v0.7.0**'da kaldırılır.
 
 | Kod | Anlamı |
 |---|---|
-| 0 | Başarı veya `--check-policy` raporu (rapor-değil-gate semantiği). |
-| 1 | Config hatası: bilinmeyen `--row-id`, eksik `--corpus`, mutually-exclusive flag kombinasyonu, çelişen `staging_ttl_days` değerleri. |
+| 0 | Başarı veya başarılı `--check-policy` raporu (rapor-değil-gate semantiği). |
+| 1 | Config hatası: bilinmeyen `--row-id`, eksik `--corpus`, mutually-exclusive flag kombinasyonu, çelişen `staging_ttl_days` değerleri veya eksik / okunamayan / Pydantic validation'ı geçemeyen `--check-policy --config <path>`. |
 | 2 | Runtime hatası: I/O failure, permission denied, atomic-rename failure. |
 
-`--check-policy` asla 3 kodu döndürmez. CI gate isteyen operatörler ihlal sayısını JSON çıktıdan kendileri hesaplar (design §10 Q5).
+`--check-policy` asla 3 kodu döndürmez. Başarılı bir rapor 0 ile çıkar; verilen `--config`'i yükleme başarısızlığı ise yanıltıcı bir "ihlal yok" raporuna düşmek yerine `EXIT_CONFIG_ERROR` (sıfır olmayan) ile çıkar. CI gate isteyen operatörler ihlal sayısını JSON çıktıdan kendileri hesaplar (design §10 Q5).
 
 ## Bkz.
 

@@ -68,7 +68,7 @@ $ forgelm purge --check-policy --config configs/run.yaml --output-dir ./outputs
 
 Read-only scan. Walks the output directory, compares each artefact's age (canonical: audit-log genesis `timestamp`; fallback: filesystem `mtime` with `age_source=mtime` flag) against the loaded config's `retention:` horizons, and emits a structured violation list.
 
-**Always exits 0** (report-not-gate semantic per design §10 Q5). Operators wiring a CI gate use `--output-format json` and pipe to `jq '.violations | length'` themselves; this keeps the public exit-code contract `0/1/2/3/4` consistent across every ForgeLM subcommand.
+**Successful policy reports exit 0** (report-not-gate semantic per design §10 Q5). Config-load failures exit with `EXIT_CONFIG_ERROR` (non-zero): an explicit `--config` that is missing, unreadable, or fails Pydantic validation surfaces as `EXIT_CONFIG_ERROR` so the operator does not mistake "loader failed" for "no violations". Operators wiring a CI gate use `--output-format json` and pipe to `jq '.violations | length'` themselves; this keeps the public exit-code contract `0/1/2/3/4` consistent across every ForgeLM subcommand.
 
 ## The `retention:` config block
 
@@ -87,10 +87,11 @@ Setting any horizon to `0` disables the policy for that artefact kind (retain in
 
 The Wave 1 `evaluation.staging_ttl_days` field (shipped in v0.5.5) is **deprecated**. Use `retention.staging_ttl_days` instead:
 
-- Setting only the legacy field (with a non-default value) alias-forwards to `retention.staging_ttl_days` and emits a single `DeprecationWarning`.
-- Setting only the canonical field is the silent canonical path.
-- Setting both with **identical** values emits a `DeprecationWarning` (the canonical block wins).
-- Setting both with **different** values raises `ConfigError` at config-load time. Silent winner = wrong winner.
+- "Set" is determined by Pydantic v2's `model_fields_set`: a field is "set" when the operator wrote it in YAML (e.g. `evaluation.staging_ttl_days: 7`), independent of whether the value matches the Pydantic default. This replaces the earlier "non-default value" heuristic that mishandled operators who explicitly re-stated the default.
+- Setting only the legacy field explicitly alias-forwards to `retention.staging_ttl_days` and emits a single `DeprecationWarning`.
+- Setting only the canonical field explicitly is the silent canonical path.
+- Setting both explicitly with **identical** values emits a `DeprecationWarning` (the canonical block wins).
+- Setting both explicitly with **different** values raises `ConfigError` at config-load time. Silent winner = wrong winner.
 
 The deprecated field is removed in **v0.7.0**.
 
@@ -115,11 +116,11 @@ Six new events ship with `forgelm purge` (catalogued in `docs/reference/audit_ev
 
 | Code | Meaning |
 |---|---|
-| 0 | Success or `--check-policy` report (report-not-gate semantic). |
-| 1 | Config error: unknown `--row-id`, missing `--corpus`, mutually-exclusive flag combination, conflicting `staging_ttl_days` values. |
+| 0 | Success, or a successful `--check-policy` report (report-not-gate semantic). |
+| 1 | Config error: unknown `--row-id`, missing `--corpus`, mutually-exclusive flag combination, conflicting `staging_ttl_days` values, or `--check-policy --config <path>` that is missing / unreadable / fails Pydantic validation. |
 | 2 | Runtime error: I/O failure, permission denied, atomic-rename failure. |
 
-`--check-policy` never returns code 3. Operators wiring a CI gate compute the violation count from JSON output themselves (per design §10 Q5).
+`--check-policy` never returns code 3. A successful report exits 0; a failure to load the supplied `--config` exits with `EXIT_CONFIG_ERROR` (non-zero) rather than degrading to a misleading "no violations" report. Operators wiring a CI gate compute the violation count from JSON output themselves (per design §10 Q5).
 
 ## See also
 

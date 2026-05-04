@@ -287,6 +287,7 @@ class TestGrpoRewardCallable:
         )
 
 
+@pytest.mark.skipif(not torch_available, reason="ForgeTrainer requires torch")
 class TestGrpoClassifierTrustRemoteCode:
     """Phase 7 (M-202): the GRPO classifier reward must load HF artifacts with
     ``trust_remote_code=False``.

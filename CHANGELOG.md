@@ -47,7 +47,7 @@ behaviour-preserving where possible, validated against the full
   `_run_safety_eval_cmd` to drop cognitive complexity (Sonar S3776).
   Behaviour-preserving.  Both helpers added to `__all__` for unit-
   test reach.
-- `forgelm/cli/subcommands/_safety_eval.py` — appended ` # NOSONAR`
+- `forgelm/cli/subcommands/_safety_eval.py` — appended `# NOSONAR`
   to the broad-except suppression comments so SonarCloud's
   suppression-comment syntax is satisfied alongside ruff's
   `# noqa: BLE001`.
