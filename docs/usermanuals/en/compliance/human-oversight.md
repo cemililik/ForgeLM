@@ -127,17 +127,36 @@ Default is 48 hours. Set to 0 for "no timeout — wait forever" (not recommended
 
 ## Inspecting pending runs
 
-```shell
-$ forgelm approvals --pending
-RUN_ID    REQUESTED_AT          ARTIFACTS                                EXPIRES
-abc123    2026-04-29T14:33Z     checkpoints/run/artifacts/                in 47h
-def456    2026-04-29T09:12Z     checkpoints/sft-only/artifacts/           in 42h
-```
+`forgelm approvals` is the discovery counterpart to `approve` / `reject`. It scans the audit log under `--output-dir` and reports every run whose `human_approval.required` event has no matching terminal decision.
 
 ```shell
-$ forgelm approvals --show abc123
-... full artifact summary including audit, benchmarks, safety, model card ...
+$ forgelm approvals --pending --output-dir checkpoints/
+Pending approvals (2):
+
+RUN_ID            AGE   REQUESTED_AT               STAGING
+----------------  ----  -------------------------  -------
+fg-abc123def456   3h    2026-04-30T11:33:10+00:00  present
+fg-def456abc789   1d    2026-04-29T14:12:55+00:00  present
 ```
+
+`--output-format json` returns a structured envelope (`{"success": true, "pending": [...], "count": 2}`) so CI can filter the queue programmatically.
+
+```shell
+$ forgelm approvals --show fg-abc123def456 --output-dir checkpoints/
+Run: fg-abc123def456
+Status: pending
+
+Audit chain (oldest first):
+  [2026-04-30T11:33:10+00:00] human_approval.required — require_human_approval=true
+
+Staging contents (4 entries):
+  - adapter_config.json
+  - adapter_model.safetensors
+  - tokenizer.json
+  - tokenizer_config.json
+```
+
+A `--show` against a granted / rejected run prints the full timeline (request → decision) plus the final approver and comment. `--show` against an unknown `run_id` exits 1 with a clear error.
 
 ## Common pitfalls
 

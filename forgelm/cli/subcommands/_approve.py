@@ -81,40 +81,19 @@ def _resolve_approver_identity() -> str:
 def _find_human_approval_required_event(audit_log_path: str, run_id: str) -> Optional[dict]:
     """Return the most-recent ``human_approval.required`` event for *run_id*.
 
-    Reads ``audit_log.jsonl`` line-by-line to keep memory usage flat for
-    long-lived training directories. Returns ``None`` when no matching event
-    exists. Malformed lines are skipped and counted; the operator gets a
-    warning if any lines were skipped so a corrupt entry can't silently mask
-    a genuine "no event" result.
+    Wave 2a Round-1 review consolidated the audit-log JSONL parser into
+    :mod:`._audit_log_reader` so a future malformed-line policy fix lands
+    in one place.  This helper now delegates; the original line-by-line
+    streaming + skipped-line warning behaviour is preserved exactly
+    (verified by the existing approve / reject test suites).
     """
-    if not os.path.isfile(audit_log_path):
-        return None
+    from ._audit_log_reader import find_latest_event_for_run
 
-    latest_match = None
-    skipped_lines = 0
-    try:
-        fh = open(audit_log_path, "r", encoding="utf-8")
-    except OSError as exc:
-        logger.error("Cannot open audit log %s: %s", audit_log_path, exc)
-        return None
-    with fh:
-        for raw in fh:
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                skipped_lines += 1
-                continue
-            if not isinstance(event, dict):
-                skipped_lines += 1
-                continue
-            if event.get("event") == "human_approval.required" and event.get("run_id") == run_id:
-                latest_match = event
-    if skipped_lines:
-        logger.warning("Skipped %d malformed line(s) while parsing %s.", skipped_lines, audit_log_path)
-    return latest_match
+    return find_latest_event_for_run(
+        audit_log_path,
+        run_id=run_id,
+        matches=lambda e: e.get("event") == "human_approval.required",
+    )
 
 
 _TERMINAL_DECISION_EVENTS = frozenset({_EVT_HUMAN_APPROVAL_GRANTED, _EVT_HUMAN_APPROVAL_REJECTED})
@@ -127,38 +106,18 @@ def _find_human_approval_decision_event(audit_log_path: str, run_id: str) -> Opt
     ``human_approval.rejected``. Finding one before attempting promotion
     prevents double-approve and approve-after-reject races.
 
-    Mirrors :func:`_find_human_approval_required_event`'s malformed-line
-    accounting so a corrupt entry cannot silently mask a real terminal
-    decision and let the caller re-promote.
+    Same Wave 2a Round-1 consolidation as
+    :func:`_find_human_approval_required_event` — delegates to the shared
+    :mod:`._audit_log_reader` so the malformed-line policy lives in
+    one place.
     """
-    if not os.path.isfile(audit_log_path):
-        return None
+    from ._audit_log_reader import find_latest_event_for_run
 
-    latest_decision = None
-    skipped_lines = 0
-    try:
-        fh = open(audit_log_path, "r", encoding="utf-8")
-    except OSError as exc:
-        logger.error("Cannot open audit log %s: %s", audit_log_path, exc)
-        return None
-    with fh:
-        for raw in fh:
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                skipped_lines += 1
-                continue
-            if not isinstance(event, dict):
-                skipped_lines += 1
-                continue
-            if event.get("event") in _TERMINAL_DECISION_EVENTS and event.get("run_id") == run_id:
-                latest_decision = event
-    if skipped_lines:
-        logger.warning("Skipped %d malformed line(s) while parsing %s.", skipped_lines, audit_log_path)
-    return latest_decision
+    return find_latest_event_for_run(
+        audit_log_path,
+        run_id=run_id,
+        matches=lambda e: e.get("event") in _TERMINAL_DECISION_EVENTS,
+    )
 
 
 def _atomic_rename_or_move(src: str, dst: str) -> str:

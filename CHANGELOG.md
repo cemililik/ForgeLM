@@ -13,7 +13,6 @@ All notable changes to ForgeLM are documented here.
 > Per-PR CHANGELOG entries below collapse into the v0.5.5 release
 > notes at tag time.
 
-<<<<<<< HEAD
 ### Added — Wave 2a — Phase 18 Library API design + Phase 20 GDPR erasure design
 
 - **Phase 18 — Library API analysis & design** —
@@ -75,6 +74,40 @@ Both are design-only PRs — Phase 19 + Phase 21 implementations follow.
   Run-it section shows the `--workers 4` example, CLI reference
   includes the flag, and a dedicated explanation of the determinism
   contract was added.
+
+### Added — Wave 2a / Phase 37 — `forgelm approvals` listing subcommand
+
+- **`forgelm approvals --pending [--output-dir DIR]`** lists every run
+  whose audit log carries a `human_approval.required` event without a
+  matching terminal decision.  Tabular text output or a JSON envelope
+  (`{"success": true, "pending": [...], "count": N}`) under
+  `--output-format json`.
+- **`forgelm approvals --show RUN_ID --output-dir DIR`** prints the
+  full approval-gate audit chain (request → terminal decision) plus
+  the on-disk staging directory layout.  Useful for forensic review of
+  granted / rejected runs and confirming the staging contents match
+  what the operator approved.
+- **Defence-in-depth path-traversal guard** — `staging_path` from the
+  audit log is run through `_staging_path_inside_output_dir` before
+  any `os.listdir`, so a tampered audit log pointing at `/etc` no
+  longer leaks a directory listing.
+- **Latest-wins semantics** — re-staged runs (same `run_id`, second
+  `human_approval.required` event after a prior decision) correctly
+  re-surface as pending; the previous first-wins logic would have
+  hidden them.
+- Closes the Phase 9 follow-up gap from `ghost-features-analysis-20260502`
+  (GH-007).  New module `forgelm/cli/subcommands/_approvals.py`.
+
+### Added — Wave 2a infra — shared audit-log JSONL reader
+
+- **`forgelm/cli/subcommands/_audit_log_reader.py`** (new) is the
+  single source of truth for the audit-log JSONL parser.  Both
+  `_approve.py` (`_find_human_approval_required_event` /
+  `_find_human_approval_decision_event`) and `_approvals.py`
+  (`_iter_audit_events`) now delegate to `iter_audit_events` /
+  `find_latest_event_for_run` here, so a future malformed-line policy
+  fix lands in one place.  Phase 21 `forgelm purge` will use the same
+  module.
 
 ### Added — Wave 1 closure (Faz 9, 11, 12, 13, 25, 31, 32 — see PR description)
 
