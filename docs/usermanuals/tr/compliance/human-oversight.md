@@ -127,17 +127,36 @@ Varsayılan 48 saat. "Timeout yok — sonsuza kadar bekle" için 0 (CI'da öneri
 
 ## Bekleyen koşuları inceleme
 
-```shell
-$ forgelm approvals --pending
-RUN_ID    REQUESTED_AT          ARTIFACTS                                EXPIRES
-abc123    2026-04-29T14:33Z     checkpoints/run/artifacts/                47s sonra
-def456    2026-04-29T09:12Z     checkpoints/sft-only/artifacts/           42s sonra
-```
+`forgelm approvals`, `approve` / `reject` komutlarının tamamlayıcısıdır: `--output-dir` altındaki audit log'u tarar ve `human_approval.required` event'i için terminal kararı (granted/rejected) bulunmayan tüm koşuları raporlar.
 
 ```shell
-$ forgelm approvals --show abc123
-... audit, benchmark'lar, güvenlik, model card dahil tam artifact özeti ...
+$ forgelm approvals --pending --output-dir checkpoints/
+Pending approvals (2):
+
+RUN_ID            AGE   REQUESTED_AT               STAGING
+----------------  ----  -------------------------  -------
+fg-abc123def456   3h    2026-04-30T11:33:10+00:00  present
+fg-def456abc789   1d    2026-04-29T14:12:55+00:00  present
 ```
+
+`--output-format json` yapısal bir zarf döner (`{"success": true, "pending": [...], "count": 2}`); CI bu çıktıyla kuyruğu programatik olarak filtreleyebilir.
+
+```shell
+$ forgelm approvals --show fg-abc123def456 --output-dir checkpoints/
+Run: fg-abc123def456
+Status: pending
+
+Audit chain (oldest first):
+  [2026-04-30T11:33:10+00:00] human_approval.required — require_human_approval=true
+
+Staging contents (4 entries):
+  - adapter_config.json
+  - adapter_model.safetensors
+  - tokenizer.json
+  - tokenizer_config.json
+```
+
+Granted / rejected bir koşu üzerinde `--show` çalıştırıldığında tam zaman çizelgesi (talep → karar) ve son onaylayan + yorum yazdırılır. Bilinmeyen bir `run_id` üzerinde `--show` net bir hata mesajıyla 1 koduyla çıkar.
 
 ## Sık hatalar
 

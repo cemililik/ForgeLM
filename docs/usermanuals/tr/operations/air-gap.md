@@ -113,15 +113,22 @@ evaluation:
 
 ```shell
 $ forgelm doctor --offline
-ForgeLM 0.5.2 (offline mod doğrulandı)
-✓ HF_HUB_OFFLINE ayarlı
-✓ TRANSFORMERS_OFFLINE ayarlı
-✓ Yerel cache: airgap-bundle/huggingface (3.4 GB cache'li model)
-✓ Llama Guard 3 8B yerel olarak mevcut
-✓ lm-evaluation-harness: 4 görev cache'li
+forgelm doctor — environment check
+
+  [✓ pass] python.version          Python 3.11.4 (CPython).
+  [✓ pass] torch.cuda              torch 2.4.0 with CUDA 12.4.
+  [✓ pass] gpu.inventory           1 GPU(s) — GPU0: NVIDIA A100 (80.0 GiB).
+  [✓ pass] extras.qlora            Installed (module bitsandbytes, purpose: 4-bit / 8-bit QLoRA training).
+  [✓ pass] extras.eval             Installed (module lm_eval, purpose: lm-evaluation-harness benchmark scoring).
+  [! warn] extras.tracking         Optional extra missing — install with: pip install 'forgelm[tracking]' (purpose: Weights & Biases experiment tracking).
+  [✓ pass] hf_hub.offline_cache    HF cache at /opt/airgap/huggingface/hub: 3.4 GiB across 47 file(s). HF_HUB_OFFLINE=1.
+  [✓ pass] disk.workspace          Workspace /opt/airgap — 412.0 GiB free of 500.0 GiB.
+  [! warn] operator.identity       FORGELM_OPERATOR not set; audit events will fall back to 'airgap-op@nodeA'. Pin FORGELM_OPERATOR=<id> for CI / pipeline runs.
+
+Summary: 7 pass, 2 warn, 0 fail.
 ```
 
-`forgelm doctor --offline` herhangi bir şeyin erişilemediğini raporlarsa, air-gap operatörünün vaktini boşa harcamadan *önce* düzeltin.
+`forgelm doctor --offline` herhangi bir şeyi `fail` olarak raporlarsa, air-gap operatörünün vaktini boşa harcamadan *önce* düzeltin. HF cache taraması önce `HF_HUB_CACHE`'i, sonra `HF_HOME/hub`'ı, en son varsayılan `~/.cache/huggingface/hub`'ı dener — taramayı deterministik yapmak için `HF_HUB_CACHE`'i pakete dahil ettiğiniz cache'e işaret ettirin.
 
 ## Paket boyutu tahmini
 

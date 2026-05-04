@@ -25,6 +25,7 @@ from ._argparse_types import (
     _add_common_subparser_flags,  # noqa: F401 — re-export for tests
     _non_negative_float,  # noqa: F401 — re-export for tests
     _non_negative_int,  # noqa: F401 — re-export for tests
+    _positive_int,  # noqa: F401 — re-export for tests
 )
 
 # Config loading + offline flag application (training mode).
@@ -80,10 +81,12 @@ from ._no_train_modes import (
 
 # Parser (registrars + parse_args).
 from ._parser import (
+    _add_approvals_subcommand,  # noqa: F401 — re-export for tests
     _add_approve_subcommand,  # noqa: F401 — re-export for tests
     _add_audit_subcommand,  # noqa: F401 — re-export for tests
     _add_chat_subcommand,  # noqa: F401 — re-export for tests
     _add_deploy_subcommand,  # noqa: F401 — re-export for tests
+    _add_doctor_subcommand,  # noqa: F401 — re-export for tests
     _add_export_subcommand,  # noqa: F401 — re-export for tests
     _add_ingest_subcommand,  # noqa: F401 — re-export for tests
     _add_quickstart_subcommand,  # noqa: F401 — re-export for tests
@@ -113,6 +116,13 @@ from ._training import (
 # Wizard mode.
 from ._wizard import _maybe_run_wizard  # noqa: F401 — re-export for tests
 
+# Approvals listing subcommand (Phase 9 follow-up).
+from .subcommands._approvals import (
+    _collect_pending_runs,  # noqa: F401 — re-export for tests
+    _collect_run_audit_chain,  # noqa: F401 — re-export for tests
+    _run_approvals_cmd,  # noqa: F401 — re-export for tests
+)
+
 # Approve / reject subcommands (Article 14 human-approval gate).
 from .subcommands._approve import (
     _atomic_rename_or_move,  # noqa: F401 — re-export for tests
@@ -123,6 +133,7 @@ from .subcommands._approve import (
     _resolve_approver_identity,  # noqa: F401 — re-export for tests
     _run_approve_cmd,  # noqa: F401 — re-export for tests
     _run_reject_cmd,  # noqa: F401 — re-export for tests
+    _staging_path_inside_output_dir,  # noqa: F401 — re-export for tests + _approvals reuse
 )
 
 # Audit subcommand (+ legacy --data-audit worker).
@@ -134,6 +145,23 @@ from .subcommands._audit import (
 # Chat / export / deploy / ingest subcommand dispatchers.
 from .subcommands._chat import _run_chat_cmd  # noqa: F401 — re-export for tests
 from .subcommands._deploy import _run_deploy_cmd  # noqa: F401 — re-export for tests
+
+# Doctor subcommand (Phase 34 environment diagnostics).
+from .subcommands._doctor import (
+    _check_disk_space,  # noqa: F401 — re-export for tests
+    _check_gpu_inventory,  # noqa: F401 — re-export for tests
+    _check_hf_cache_offline,  # noqa: F401 — re-export for tests
+    _check_hf_hub_reachable,  # noqa: F401 — re-export for tests
+    _check_operator_identity,  # noqa: F401 — re-export for tests
+    _check_optional_extra,  # noqa: F401 — re-export for tests
+    _check_python_version,  # noqa: F401 — re-export for tests
+    _check_torch_cuda,  # noqa: F401 — re-export for tests
+    _render_json,  # noqa: F401 — re-export for tests
+    _render_text,  # noqa: F401 — re-export for tests
+    _resolve_exit_code,  # noqa: F401 — re-export for tests
+    _run_all_checks,  # noqa: F401 — re-export for tests
+    _run_doctor_cmd,  # noqa: F401 — re-export for tests
+)
 from .subcommands._export import _run_export_cmd  # noqa: F401 — re-export for tests
 from .subcommands._ingest import _run_ingest_cmd  # noqa: F401 — re-export for tests
 

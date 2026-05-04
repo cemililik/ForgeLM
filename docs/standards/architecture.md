@@ -179,6 +179,31 @@ From [`pyproject.toml`](../../pyproject.toml):
 
 **The core install must work on all three OSes (Linux/macOS/Windows) with no Linux-only deps.** CI enforces this by running Linux + macOS matrix.
 
+## HTTP discipline
+
+> **Rule:** every outbound HTTP call from `forgelm/` goes through `forgelm/_http.py` (`safe_post` / `safe_get`).  Direct use of `requests.*`, `urllib.request.urlopen`, `httpx.*` etc. outside `forgelm/_http.py` is forbidden.
+
+`forgelm/_http.py` is the single chokepoint that enforces:
+
+- **Scheme allowlist** — only `https://` by default; `http://` requires the caller to pass `allow_insecure_http=True` and is logged.
+- **SSRF guard** — pre-resolves hostnames + refuses RFC 1918 / link-local / loopback destinations unless the caller passes `allow_private=True`.
+- **Timeout floor** — minimum 5 s connect, 30 s read; callers cannot pass `timeout=0` to disable.
+- **Secret masking** — `_mask_secrets_in_text` redacts query-param tokens / `Authorization` headers in error messages so a `URLError(reason=...)` cannot leak `?api_key=ghp_...` into logs.
+- **Redirect refusal** — `allow_redirects=False` by default; redirects to a different host require explicit opt-in.
+
+**Why a single chokepoint:** the policy lives in one module so that a future fix (rotate to a stricter allowlist, add a new mask pattern, plug a new metric) lands in one place rather than `N` scattered call sites.  Webhook delivery (`forgelm/webhook.py`), the doctor's HF Hub probe (`forgelm/cli/subcommands/_doctor.py`), and any future telemetry / license / cloud integration all share the same policy.
+
+**Acceptance gate (CI-enforced — see `.github/workflows/ci.yml` `lint-http-discipline` step):**
+
+```bash
+! grep -rn -E "(requests\.(get|post|put|delete|patch)|urllib\.request\.urlopen|httpx\.[a-z]+)" forgelm/ \
+    --include='*.py' | grep -v "forgelm/_http.py"
+```
+
+The gate stays empty.  A new contributor who reaches for `requests.get` directly fails CI immediately and is redirected to `safe_get`.  If `_http.py` itself needs to expand (e.g., add `safe_get` because no helper covers an outbound HEAD probe yet — Phase 34's doctor surfaced this gap), the addition lands inside `_http.py` and gets a corresponding test in `tests/test_http.py`.
+
+**Deliberate exceptions:** `forgelm/compliance.py:1146-1182` (audit-log HMAC verifier) does its own JSONL line-byte parsing because it must hash raw bytes — but it does not perform outbound HTTP.  No HTTP-discipline carve-outs exist today; if one is ever needed (e.g., a cloud provider's SDK that wraps its own HTTP), document it inline + add a `# noqa: forgelm-http-discipline` style marker.
+
 ## Things we do not own
 
 Reaffirming [marketing/strategy/05-yapmayacaklarimiz.md](../marketing/strategy/05-yapmayacaklarimiz.md):

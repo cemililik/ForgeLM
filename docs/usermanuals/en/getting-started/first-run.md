@@ -30,12 +30,22 @@ Before anything else, run `forgelm doctor` to check that Python, PyTorch, CUDA, 
 
 ```shell
 $ forgelm doctor
-ForgeLM 0.5.2
-Python 3.11.4 · PyTorch 2.4.0
-CUDA available · driver 535.171 · NVIDIA RTX 4090 · 24 GB
-bitsandbytes ✓ (installed)
-Unsloth ✓ (installed)
+forgelm doctor — environment check
+
+  [✓ pass] python.version          Python 3.11.4 (CPython).
+  [✓ pass] torch.cuda              torch 2.4.0 with CUDA 12.4.
+  [✓ pass] gpu.inventory           1 GPU(s) — GPU0: NVIDIA RTX 4090 (24.0 GiB).
+  [✓ pass] extras.qlora            Installed (module bitsandbytes, purpose: 4-bit / 8-bit QLoRA training).
+  [✓ pass] extras.unsloth          Installed (module unsloth, purpose: Unsloth-accelerated training (Linux GPUs only)).
+  [! warn] extras.deepspeed        Optional extra missing — install with: pip install 'forgelm[deepspeed]' (purpose: DeepSpeed ZeRO + offload distributed training).
+  [✓ pass] hf_hub.reachable        HuggingFace Hub reachable (HTTP 200).
+  [✓ pass] disk.workspace          Workspace /home/me/forgelm — 387.0 GiB free of 500.0 GiB.
+  [! warn] operator.identity       FORGELM_OPERATOR not set; audit events will fall back to 'me@workstation'. Pin FORGELM_OPERATOR=<id> for CI / pipeline runs.
+
+Summary: 7 pass, 2 warn, 0 fail.
 ```
+
+`--output-format json` returns a structured envelope (`{"success": bool, "checks": [...], "summary": {...}}`) so CI can filter on individual probe results without parsing the table. Pass `--offline` to skip the HF Hub network probe and inspect the local cache instead — useful for air-gapped deployments.
 
 :::tip
 If `forgelm doctor` reports a problem (missing CUDA, version mismatch, no GPU), fix that first. Every other ForgeLM command will fail in confusing ways otherwise. See [Troubleshooting](#/operations/troubleshooting).

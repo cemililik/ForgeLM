@@ -13,6 +13,575 @@ All notable changes to ForgeLM are documented here.
 > Per-PR CHANGELOG entries below collapse into the v0.5.5 release
 > notes at tag time.
 
+### Added — Wave 2a Round-2 review absorption (2026-05-04)
+
+Round-2 multi-agent review of PR #28 surfaced 52 findings (4 specialist
+agents) plus 9 maintainer inline comments.  All verified findings either
+fixed or explicitly skipped with rationale; the pre-merge fix set landed
+in this revision.  Full delta:
+[`docs/analysis/code_reviews/wave2a-round2-fix-summary-20260504.md`](docs/analysis/code_reviews/wave2a-round2-fix-summary-20260504.md).
+
+**New surfaces (additive, forward-compatible):**
+
+- `forgelm/_http.py::safe_get(url, *, headers, timeout, ..., method="GET"|"HEAD")`
+  — disciplined outbound GET / HEAD mirroring `safe_post`'s policy
+  contract (scheme allowlist, SSRF guard, timeout floor, redirect
+  refusal, secret-mask error path, TLS verify).  Used by `forgelm doctor`
+  and any future probe / telemetry / registry ping that needs an
+  outbound read.  See `docs/standards/architecture.md` "HTTP discipline".
+- `forgelm/cli/subcommands/_audit_log_reader.py::AuditLogParseError` +
+  `iter_audit_events(..., strict=False)` parameter +
+  `find_latest_event_for_run(..., strict=True)` parameter.  Strict mode
+  raises `AuditLogParseError(audit_log_path, line_number, reason)` on
+  the first malformed entry instead of silently skipping — the approve
+  / reject decision-guard callers default to strict so a corrupted
+  decision record cannot silently look like "no approval yet" (which
+  would let an operator double-grant).
+- `forgelm doctor` `--output-format json` envelope `summary` block now
+  includes a `crashed` count alongside `pass` / `warn` / `fail` (additive
+  schema change; consumers that ignored the key still work).  Locked
+  schema in [`docs/usermanuals/en/reference/json-output.md`](docs/usermanuals/en/reference/json-output.md)
+  (+ TR mirror).
+- `docs/standards/architecture.md` "HTTP discipline" section — codifies
+  the `_http.py` chokepoint, the CI grep-guard acceptance gate, and the
+  deliberate-exceptions policy.  Pairs with the new
+  `.github/workflows/ci.yml` `lint-http-discipline` step.
+
+**Behavioural improvements:**
+
+- `forgelm doctor` HF Hub probe migrated from raw
+  `urllib.request.urlopen` to `forgelm._http.safe_get` (HEAD with GET-on-
+  405 fallback) — inherits SSRF / scheme / timeout / secret-mask
+  discipline.  Operator-rejecting policy violations (e.g. http:// HF
+  endpoint or private-IP mirror without `--offline`) now surface as
+  `fail` with an actionable `detail`, not as a silent warn.
+- `forgelm doctor` honours `HF_HUB_OFFLINE=1` / `TRANSFORMERS_OFFLINE=1`
+  env vars implicitly (no need to also pass `--offline`).  Explicit
+  `--offline` always wins.
+- `forgelm doctor` `--offline` help text now lists the full HF cache
+  resolution chain (`HF_HUB_CACHE > HF_HOME/hub > ~/.cache/huggingface/hub`).
+- `forgelm doctor` `_DOCTOR_SECRET_ENV_NAMES` extended with
+  `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `WANDB_API_KEY`, `COHERE_API_KEY`,
+  `HUGGINGFACE_TOKEN` (defence-in-depth: a future probe surfacing env
+  values cannot accidentally leak third-party API keys).
+- `forgelm approvals --show RUN_ID` now picks the **latest**
+  `human_approval.required` event when a run was re-staged after a prior
+  decision (was: first event, surfaced stale staging directory).
+  `_classify_chain` now correctly classifies re-staged runs as `pending`
+  (was: stale `granted` / `rejected` based on first-decision-only logic).
+  `_collect_pending_runs` adds a line-number tiebreaker on identical-
+  timestamp pairs.
+- `forgelm approve` / `forgelm reject` now catch `AuditLogParseError` and
+  emit `EXIT_CONFIG_ERROR` (1) with `"Audit log {path} is corrupted at
+  line N (reason). Repair or rotate the audit log first."` instead of
+  silently scanning past the corruption.
+- `forgelm audit --workers N` logs an INFO line when N is silently
+  clamped to fewer splits ("requested workers=N but only M split(s)
+  found; running M worker(s)") so the wall-clock-vs-expected gap doesn't
+  surprise operators.
+- Top-level `forgelm --help` epilog now lists `forgelm doctor` and
+  `forgelm approvals` (were missing).
+
+**CI hardening:**
+
+- `.github/workflows/ci.yml` `lint` job grew a `lint-http-discipline`
+  step that greps `forgelm/` for `requests.*(...)`,
+  `urllib.request.urlopen(...)`, `httpx.*(...)` outside `forgelm/_http.py`
+  and fails on any hit.  Pattern is paren-anchored so docstring prose
+  mentioning the same names is not flagged.
+
+**Documentation cleanup:**
+
+- `docs/usermanuals/{en,tr}/getting-started/installation.md`:
+  `[deepspeed]` → `[distributed]` (matches `pyproject.toml` extras
+  reality; `deepspeed` is the dep INSIDE the `distributed` extra, not
+  the extra name itself).  Also removed the non-existent `[all]`
+  aggregate; replaced with an explicit comma-separated example.
+- `docs/usermanuals/{en,tr}/reference/cli.md` — full rewrite (Round-1
+  carry-over absorbed earlier in the wave) eliminating 11 phantom
+  subcommands + 30+ phantom flags + 3 phantom env vars; matches
+  `forgelm/cli/_parser.py` reality.
+- `docs/standards/error-handling.md` — "What errors look like in JSON
+  output" rewritten to document the SHIPPED `{"success": false,
+  "error": "..."}` envelope (replaces aspirational 5-key form);
+  optional richer fields (`exit_code`, `error_type`, `details`)
+  documented as MAY-emit.
+
+**Design-doc fixes** (no behavioural change to v0.5.5; tightens Phase 19
+/ 21 implementer guidance):
+
+- Library API design (`library-api-design-202605021414.md`): CI trigger
+  fixed (was `release-*` branch which release.md:259 forbids; now
+  `pull_request` to main + `workflow_dispatch`); `[evaluation]` extra
+  name fixed to `[eval]`; lazy-import test #9 promise corrected
+  (`forgelm.ForgeTrainer` access stays metadata-only — torch only
+  loads on actual training execution); `cross_split_overlap.pairs`
+  attribute access fixed to `["pairs"]` dict key access; tier table
+  10th test row added (`test_config_from_dict`); `__dir__()` recipe
+  alignment; `forgelm.ingestion` correctly labelled "the module".
+- GDPR erasure design (`gdpr-erasure-design-202605021414.md`):
+  `staging_ttl_days` dual-set semantics resolved (ConfigError on
+  conflict + tracking issue per release.md:95); §4.3 vs §10 Q5
+  contradiction resolved (`--check-policy` always exits 0; report-not-
+  gate); `EXIT_AWAITING_APPROVAL` no longer reused for TTY-decline
+  (now `EXIT_CONFIG_ERROR`); marketing copy targets corrected (the
+  "GDPR-aware" paragraph being "rewritten" in safety_compliance.md
+  doesn't exist; design now points at the real surfaces); audit-event
+  catalog count corrected (3 → 6 events listed in §8 file map +
+  §12 sign-off + closure-plan §8 line 700).
+
+**Inline review-bot follow-ups (this revision):**
+
+- `forgelm/cli/subcommands/_doctor.py::_check_hf_cache_offline` — OSError
+  on `os.path.getsize` is no longer silently swallowed.  Track an
+  `unreadable_count`, surface it in `detail` + `extras`, and downgrade
+  the verdict from `pass` to `warn` when any file in the cache could not
+  be sized.  Operator now sees a chmod / mount issue instead of a clean
+  total that hides partial visibility.
+- `forgelm/cli/subcommands/_doctor.py::_render_text` — text renderer
+  glyphs migrated from Unicode `✓` / `✗` to ASCII `+` / `x` (warn
+  unchanged at `!`).  The renderer docstring promises "Plain ASCII" for
+  redirected logs / non-UTF8 terminals; the previous Unicode glyphs
+  would `UnicodeEncodeError` on `PYTHONIOENCODING=ascii`.
+- `forgelm/cli/subcommands/_doctor.py::_check_python_version` — comparison
+  pinned to `(version.major, version.minor)` 2-tuple slice rather than
+  comparing the 5-tuple `sys.version_info` against a 2-tuple literal.
+  Functionally equivalent in CPython today; the slice makes the intent
+  explicit and is robust against future tuple-shape changes upstream.
+- `forgelm/cli/subcommands/_approvals.py::_collect_pending_runs` — sort
+  key now uses `_safe_timestamp_key` which returns `""` for any non-string
+  `timestamp` value.  The previous `e.get("timestamp") or ""` only
+  replaced falsy values, so a tampered or hand-rolled audit log carrying
+  `"timestamp": 1730500000` (epoch int) crashed `sorted()` with
+  `TypeError`.  Three regression tests cover string + int + list
+  timestamps in the same log.
+- Module docstring of `_doctor.py` now explicitly documents that the
+  env-var reads (`FORGELM_OPERATOR`, `FORGELM_ALLOW_ANONYMOUS_OPERATOR`,
+  `HF_ENDPOINT`, `HF_HUB_CACHE`, `HF_HOME`, `HF_HUB_OFFLINE`,
+  `TRANSFORMERS_OFFLINE`) are deliberate mirrors of what
+  `forgelm/compliance.py::AuditLogger` and `huggingface_hub` upstream
+  read at runtime — moving them to YAML would make doctor lie about what
+  training will see.  Documented inline so future review bots stop
+  re-flagging the pattern.
+
+**Inline review-bot follow-ups (round 2 of inline absorption):**
+
+Verified each finding against current code; below are the ones that
+shipped a fix.  Three were rejected with rationale:
+
+- *Rejected — Phase 21 scope leak.*  Bot suggested adding
+  `RetentionConfig` to `ForgeConfig`, wiring `--kind` to `forgelm purge`,
+  deprecation-aliasing `EvaluationConfig.staging_ttl_days` etc.  All of
+  those are already specified in the **Phase 20 design** (this PR) and
+  scheduled for **Phase 21 implementation** (separate PR).  Implementing
+  them in the integration PR would leapfrog Phase 21 and break the
+  design-only / implementation-only split this wave was structured
+  around.  closure-plan §15.5 v2.5 already documents the alignment.
+- *Rejected — false positive on env-var reads.*  Doctor must mirror what
+  `compliance.py::AuditLogger` and `huggingface_hub` read; covered above.
+- *Rejected — false positive on `sys.version_info` deprecation.*  The
+  comparison was never deprecated; that said, the 2-tuple slice fix
+  shipped anyway because it improves intent clarity (cosmetic NIT).
+
+Fixed:
+
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md` —
+  unescaped `|` in markdown table cell (`compliance/*.json|yaml` →
+  `compliance/*.{json,yaml}`); outdated hard-coded line count "445" in
+  §12 sign-off replaced with a "recheck with `wc -l`" note that won't
+  rot; relative link to `gdpr_erasure.md` corrected to
+  `../../guides/gdpr_erasure.md` (the guide is a Phase 21 deliverable;
+  link target now resolves correctly when the marketing copy is pasted
+  into `docs/usermanuals/{en,tr}/compliance/safety_compliance.md`).
+- `docs/usermanuals/tr/reference/cli.md` — TR copy fixes: "paraleliz" →
+  "paralellik sağlar" (L95 `--workers N` description); "kimlik hata" →
+  "kimlik hatası" (L224 `FORGELM_ALLOW_ANONYMOUS_OPERATOR` row); also
+  "operator" → "operatör" in the same row for consistency with the rest
+  of the TR docs.
+- `forgelm/_http.py` — module docstring rewritten to cover GET / HEAD
+  alongside POST (`safe_get` was added in this wave but the docstring
+  still claimed POST-only).  Acceptance grep examples updated to include
+  `requests.{get,head}` and `urllib.request.urlopen` so the
+  `lint-http-discipline` CI gate matches what the prose advertises.
+- `forgelm/cli/subcommands/_approve.py::_output_error_and_exit` and the
+  matching helper in `_approvals.py` re-typed `-> NoReturn`.  The
+  helpers always `sys.exit`, so the previous `-> None` annotation made
+  type-checkers think control could continue past them and produced
+  spurious "possibly-unbound variable" warnings for `required_event` /
+  `decision_event` further down `_run_approve_cmd` / `_run_reject_cmd`.
+- `forgelm/cli/subcommands/_doctor.py` — text renderer header
+  "forgelm doctor — environment check" was using an em-dash (U+2014)
+  that the new `test_text_output_is_pure_ascii` regression test caught;
+  replaced with a plain ASCII hyphen so the renderer's "Plain ASCII"
+  promise actually holds.  Also: dead helper `_maybe_unused()` removed
+  along with the `Optional` import it kept alive (no longer used after
+  the helper was deleted).
+- `forgelm/cli/subcommands/_doctor.py` — extracted `_walk_hf_cache_bounded`
+  helper from `_check_hf_cache_offline` so the cache check function
+  reads top-down (resolve → walk → render) rather than inlining the
+  per-file accounting + caps + OSError handling.  Pure refactor; same
+  behaviour, same `extras` keys.
+- `forgelm/cli/subcommands/_doctor.py` — added module-level `_PROBE_*`
+  string constants for the eight probe names (`python.version`,
+  `torch.installed`, `torch.cuda`, `gpu.inventory`, `hf_hub.reachable`,
+  `hf_hub.offline_cache`, `disk.workspace`, `operator.identity`) and
+  replaced the scattered string literals across the probes and
+  `_build_check_plan`.  Renaming a probe (e.g. `operator.identity` →
+  `audit.operator`) is now a single-line change.
+- `forgelm/cli/subcommands/_audit_log_reader.py::iter_audit_events` —
+  per-line parsing extracted into `_parse_nonempty_line` so the
+  iterator stays at one level of nesting and the strict-vs-lenient
+  policy lives in one helper.  Behaviour-preserving refactor.
+- `tests/test_approvals_listing.py::_build_args` — `MagicMock` swapped
+  for `types.SimpleNamespace`.  A misspelled CLI attribute on a
+  `MagicMock` returned a Mock instead of raising; `SimpleNamespace`
+  raises `AttributeError` so a future refactor that reads a new
+  attribute lights up here instead of silently passing.
+
+**SonarCloud + CodeRabbit follow-ups (round 3 of inline absorption):**
+
+- `forgelm/_http.py` HTTP scheme rejection: split the `http://` / `https://`
+  literals so SonarCloud rule S5332 ("use https") doesn't trip on the
+  *rejection* message.  The branch enforces the rule; the f-string was
+  flagged by mistake.  Comment now points at the policy contradiction.
+- `forgelm/cli/subcommands/_doctor.py::_walk_hf_cache_bounded` — extracted
+  per-directory `_accumulate_files_in_dir` so each function stays under
+  the SonarCloud S3776 cognitive-complexity ceiling (was 16, target 15).
+  Behaviour-preserving.
+- `forgelm/cli/subcommands/_approve.py::_run_approve_cmd` — extracted
+  `_read_required_event_for_approve` (parse + missing + double-decision
+  guards) for the same S3776 ceiling.  Reject's slightly-different
+  operator copy stays inline so the helper does not balloon its
+  parameter list to handle two voices.
+- `forgelm/cli/_dispatch.py::_dispatch_subcommand` — converted the
+  if/elif chain to a `command -> dispatcher attribute` dict so adding a
+  new subcommand is a one-row edit and S3776 falls back below 15.
+  ``verify-audit`` (returns an exit code instead of `sys.exit`-ing) and
+  ``chat`` (single-arg dispatcher signature) stay special-cased.
+- `forgelm/cli/_parser.py` — `_OUTPUT_DIR_HELP` constant replaces the
+  three duplicate `--output-dir` help strings on
+  approve / reject / approvals (Sonar S1192).
+- `tests/test_data_audit_workers.py` — `^  "generated_at"` → `^ {2}"generated_at"`
+  in the SHA-256-strip regex (Sonar S6326).  Behaviour identical.
+- `forgelm/cli/subcommands/_approvals.py::_run_approvals_list_pending`
+  + `_run_approvals_show` — added explicit `os.access(audit_log_path,
+  os.R_OK)` check after the `os.path.isfile` gate.
+  ``iter_audit_events`` swallows OSError-on-open + logs at ERROR + yields
+  nothing; without the readability guard a chmod-broken audit log would
+  masquerade as "no pending approvals" / "no events for this run" and
+  the operator could miss a real pending decision.  Two regression tests
+  cover both subcommand modes.
+
+**Stale review-bot findings recorded as no-action with rationale:**
+
+- *gemini-code-assist L322 ("`sys.version_info` deprecated")* — already
+  shipped the slice fix in `2148a49`; no behavioural deprecation.
+- *qodo-code-review L682 ("doctor uses non-secret env-vars")* — same
+  rejection as the round-1 entry above; doctor mirrors what
+  `compliance.py::AuditLogger` and `huggingface_hub` upstream read.
+- *CodeRabbit "Count erasure events consistently" (gdpr-erasure-design
+  L388 file map + L454 sign-off)* — file map already says six events at
+  L389; the sign-off line at L454 says "six new audit events (three
+  core erasure events + three operator-warning events)"; the L449 "+ 3
+  new warning events" parenthetical refers to what Round-2 *added* on
+  top of Round-1's three core events, not the document's total.
+- *CodeRabbit "--check-policy exit code unambiguous"* — already
+  resolved at gdpr-erasure-design L196 (exit-code table cross-references
+  §10 Q5) + L199 (paragraph: "**`--check-policy` always exits 0**").
+- *CodeRabbit "ForgeTrainer access must stay lazy"* — the test at
+  library-api-design L349 already pins lazy behaviour
+  (`assert "torch" not in sys.modules` after `_ = forgelm.ForgeTrainer`);
+  the bot misread it as the opposite.
+- *CodeRabbit TR installation L109 "`distributed` → `deepspeed` rename"* —
+  bot misread `pyproject.toml`.  The extra is `distributed = ["deepspeed>=0.14.0"]`
+  (line 66); `distributed` is the extra name, `deepspeed` is the dep
+  inside.  Round-1 already corrected this in both EN and TR with an
+  explicit "Extra adı `distributed`; çektiği gerçek bağımlılık
+  `deepspeed`" parenthetical.
+- *CodeRabbit "add doctor + approvals to top-level help epilog"* —
+  already present at `_parser.py:642` (doctor) and `_parser.py:652`
+  (approvals).
+- *CodeRabbit "--show breaks latest-wins for reused run_id"* — fixed
+  in commit 6d09e0b (Phase 37 Round-1) via `_classify_chain` which
+  walks the chain in append order and returns "pending" iff
+  `latest_required_idx > latest_decision_idx`.  Covered by
+  `TestClassifyChainLatestWins` in `tests/test_approvals_listing.py`.
+- *CodeRabbit "Add a strict parse path for approval decision checks"* —
+  already shipped in Round-1; `_audit_log_reader.iter_audit_events`
+  + `find_latest_event_for_run` accept a `strict=` param;
+  `_find_human_approval_required_event` /
+  `_find_human_approval_decision_event` default to `strict=True`.
+  Covered by `TestApproveStrictModeOnCorruptLog`.
+- *CodeRabbit "Replace exact float equality with `pytest.approx()`"* —
+  already in place at `tests/test_doctor.py:161-162`.
+
+**Inline review-bot follow-ups (round 4 — extra prose / contract polish):**
+
+- `forgelm/cli/_dispatch.py` SIGINT handling — the
+  `KeyboardInterrupt` branch now `sys.exit(EXIT_TRAINING_ERROR)`
+  unconditionally rather than re-raising for non-guarded subcommands.
+  A bare `raise` would have let Python convert the interrupt into the
+  shell-shaped `128+SIGINT = 130` code, which is *outside* the
+  documented public exit-code contract (0/1/2/3/4) and would surprise
+  CI/CD scripts that branch on exit code.  The
+  `_SIGINT_GUARDED_SUBCOMMANDS` constant was deleted because the new
+  policy is uniform across every subcommand.
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+  §5.4 `target_id` row-mode source claim aligned with §4.2 — removed
+  the "or line number" fallback from the table cell (it was already
+  rejected at the CLI per L174); the cell now explicitly cites the
+  Phase 28 `forgelm audit --add-row-ids` follow-up that operators with
+  id-less corpora must run first.
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+  §3.1 dual-set conflict-resolution bullets — varied the leading
+  phrase across the four bullets ("When only X is set", "When only Y
+  is set", "In the case where both are set with identical values",
+  "If both are set with different values") so the LanguageTool /
+  prose-style lint stops flagging the four-in-a-row "If" pattern.
+  Behaviour spec (alias-forward / canonical / DeprecationWarning /
+  ConfigError) is unchanged.
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+  §3.3 mtime-distrust sentence reworded to remove the "consumer that
+  distrusts mtime" person/object ambiguity.
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+  §5.3 wording: "by mistake" → "accidentally" for concision.
+- `docs/usermanuals/tr/reference/cli.md`: `--output DIR` row "ya da"
+  → "veya" (more formal Turkish for the docs register); `forgelm
+  doctor` description "operator kimliği" → "operatör kimliği"
+  (matches the Turkish orthography used elsewhere in the docs).
+- New `.markdownlint.json` at the repo root pinning the project's
+  stance on two markdownlint rules:
+  - **MD051 (link-fragments-valid)** disabled because docs use SPA
+    hash-router routes like `#/data/audit` for in-app navigation;
+    markdownlint's anchor resolver doesn't understand SPA conventions
+    and would flag every cross-reference.
+  - **MD014 (commands-show-output)** disabled because shell examples
+    in operator docs deliberately show only the command (`$ forgelm
+    audit ...`) without sample output — output snippets rot quickly
+    across versions and would force a doc update on every CLI banner
+    change.
+
+  Single-config approach beats scattering inline `<!-- markdownlint-
+  disable -->` directives in every Markdown file.
+
+**Inline review-bot follow-ups (round 5 — pre-merge audit):**
+
+A multi-area review pass surfaced 8 findings + 4 inline comments + 1
+duplicate locator nit; 11 fixed (Round-5 skipped F-R5-07: TOCTOU
+window is sub-microsecond and `iter_audit_events` already logs the
+OSError at ERROR level which `--quiet`'s WARNING floor surfaces).
+
+- `forgelm/cli/subcommands/_approve.py::_run_approve_cmd` and
+  `_run_reject_cmd` — added the same `is_audit_log_readable` gate the
+  approvals listing already had.  A chmod-broken `audit_log.jsonl`
+  was previously surfaced as "No human_approval.required event for
+  run_id={X}.  Refusing to promote — verify the run_id matches the
+  original training run." which sent operators down the wrong
+  debugging path on the Article 14 critical path.  Now surfaces
+  `EXIT_CONFIG_ERROR` with `"Audit log {path} exists but is not
+  readable.  Check filesystem permissions (chmod / mount opts) and
+  re-run."`.  Helper extracted to
+  `forgelm/cli/subcommands/_audit_log_reader.py::is_audit_log_readable`
+  so all four dispatchers (approve / reject / approvals-pending /
+  approvals-show) share one definition.  (F-R5-01)
+- `forgelm/cli/_dispatch.py::_dispatch_subcommand` — moved
+  `verify-audit` into the dict-table dispatch so SIGINT during a long
+  verify-of-100K-events lands on `EXIT_TRAINING_ERROR` (= 2) like
+  every other subcommand instead of bypassing the try/except and
+  exiting 130 (= shell-shaped 128+SIGINT).  Dispatcher docstring
+  rewritten to acknowledge the one legitimate exception: `chat`
+  REPL catches Ctrl-C at its own input prompt
+  (`forgelm/chat.py:125`) and exits 0 by graceful-REPL design — an
+  in-flight Ctrl-C *during* generation still bubbles to the
+  dispatcher's catch and lands on 2.  (F-R5-02 + Inline D)
+- `forgelm/data_audit/_orchestrator.py::_process_split_for_pool` —
+  added the test-only `FORGELM_AUDIT_TEST_WORKER_RAISES=<split>`
+  injection point.  Spawn-method workers cannot see monkeypatches
+  applied in the parent test process, so this env-var hook is the
+  only way to exercise the orchestrator's `pool.map` re-raise branch
+  with a worker exception that genuinely escapes `_process_split`'s
+  internal catches.  New regression test
+  `tests/test_data_audit_workers.py::TestWorkersErrorPropagation::test_parallel_path_raises_when_worker_function_raises_uncaught`
+  asserts the synthetic `RuntimeError` reaches the caller.  (F-R5-03)
+- `forgelm/cli/subcommands/_doctor.py::_walk_hf_cache_bounded` —
+  pass an `onerror` callback to `os.walk` so a chmod-broken cache
+  *root* or *sub-directory* (which `os.walk` otherwise silently skips)
+  bumps a `walk_errors` counter.  Verdict policy: `walk_errors > 0
+  AND file_count == 0` → `fail` (operator cannot read the cache, an
+  air-gapped run would otherwise fail later with a misleading
+  missing-model error).  `extras` gains a `walk_errors` field.
+  (F-R5-04)
+- `forgelm/cli/subcommands/_doctor.py::_render_json` — added
+  `default=str` to the `json.dumps` call so a future probe author
+  surfacing a non-JSON-native type (`Path`, `datetime`, `bytes`)
+  cannot crash with `TypeError` and exit with a Python traceback to
+  stderr instead of the documented JSON envelope.  (F-R5-06)
+- `forgelm/cli/subcommands/_approvals.py:67` — corrected the
+  `# noqa: F401,E402` annotation to `# noqa: E402` (the F401 was
+  unnecessary because `_iter_audit_events` is used in-module at
+  lines 97 and 151) and rewrote the prose comment that incorrectly
+  claimed the symbol was a re-export for tests.  (F-R5-08)
+- `CHANGELOG.md` — inserted blank line before the
+  `### Added — Wave 2a / Phase 34` heading (MD022 fix).  (Inline A)
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+  §5.3 reconciled with §5.4: clarified that `target_id` handling
+  depends on `target_kind` (run mode = clear, row mode = SHA-256
+  hash), and that the `row_id=42` examples in operator-facing prose
+  show what the operator typed on the CLI rather than what lands in
+  the audit chain.  (Inline B)
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+  §3.4 reconciled with §4.1: `compliance/*.json` IS deletable via
+  `forgelm purge --run-id <id> --kind artefacts`; the previous
+  "deleting them requires deleting the whole `<output_dir>`" claim
+  contradicted the purge-mode table.  Whole-`<output_dir>` deletion
+  is now framed as the operator's manual escalation when the entire
+  run is being scrubbed.  (Inline C)
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+  §5.4 — `target_id` salt-fallback semantics tightened: the
+  per-output-dir salt is **persistent** (written at
+  `<output_dir>/.forgelm_audit_salt`, mode 0600, on first emission)
+  regardless of `FORGELM_AUDIT_SECRET` presence; `salt_source` is
+  now a recorded field on every row-mode erasure event (one of
+  `"env_var"` / `"per_dir"`) so a salt-source change between
+  invocations is detectable in the chain rather than silently
+  producing a "different subject" misreading for compliance review.
+  Cleaner than introducing a 7th audit-event type.  (F-R5-05)
+- `docs/usermanuals/tr/reference/cli.md:223` — `operator` →
+  `operatör` on the `FORGELM_OPERATOR` row (Round-2 fixed L224 but
+  missed L223).  Repo-wide TR orthography now consistent.
+  (Duplicate E)
+
+### Added — Wave 2a — Phase 18 Library API design + Phase 20 GDPR erasure design
+
+- **Phase 18 — Library API analysis & design** —
+  `docs/analysis/code_reviews/library-api-design-202605021414.md` (525 lines).
+  12 sections + 16-row task plan that pin the public Python surface for
+  downstream consumers.  Resolves the stable / experimental / internal tier
+  split; documents the lazy-import invariant (`import forgelm` does not pull
+  `torch`); enumerates the new public symbols (`audit_dataset`,
+  `verify_audit_log`, `AuditLogger`, `VerifyResult`, `AuditReport`,
+  `WebhookNotifier`, `detect_pii` / `mask_pii` / `detect_secrets` /
+  `mask_secrets` / `compute_simhash`); spells out the `py.typed` +
+  `mypy --strict` contract; resolves the Wave 1 round-5 carry-over (lazy
+  `__getattr__` migration for `forgelm/cli/__init__.py`); specifies the
+  `tests/test_library_api.py` integration suite Phase 19 must ship.
+- **Phase 20 — GDPR Article 17 erasure analysis & design** —
+  `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`.  12
+  sections + 11-test plan + file map that pin the scope of Phase 21's
+  `forgelm purge` implementation.  Maps every Article 17(1) trigger to a
+  ForgeLM action; enumerates the seven artefact kinds that may carry
+  personal data; specifies the `RetentionConfig` Pydantic block (Article
+  5(1)(e) storage limitation); specifies the six new audit events
+  (`data.erasure_requested` / `data.erasure_completed` / `data.erasure_failed`
+  + three operator-warning events for memorisation / synthetic-data
+  presence / external-copies); resolves three Wave 1 carry-overs (GH-023,
+  GH-013, Round-5 concurrent-approve lock), six open questions; supplies
+  the marketing-claim replacement copy for `safety_compliance.md`.
+
+Both are design-only PRs — Phase 19 + Phase 21 implementations follow.
+
+### Added — Wave 2a / Phase 17 — `forgelm audit --workers N` determinism
+
+- **Split-level parallelism for the audit pipeline.**  `--workers N`
+  (default 1) runs each split in its own `multiprocessing.Pool` worker
+  (spawn-method, pinned in code).  Speed-up scales with the number of
+  splits — `--workers 3` on a `train` / `validation` / `test` corpus
+  typically yields a near-linear speed-up.  Single-split corpora ignore
+  values >1.
+- **Determinism contract pinned by tests.**  The merge step that
+  builds the final report stays single-threaded so
+  `data_audit_report.json` is byte-identical across worker counts (only
+  `generated_at` differs as expected — stripped textually before SHA-256
+  comparison).  Tests cover: SHA-256 file hash equality for workers in
+  {1,2,4}; per-split `languages_top3` equality; identical `pii_summary` /
+  `secrets_summary` / `near_duplicate_summary` / `total_samples` across
+  worker counts; split-iteration order pinned (`train` → `validation` →
+  `test`); CLI `--workers 0` and non-integer rejected at parse time;
+  library `audit_dataset(workers=0/-1/bool/str)` raises typed
+  `ValueError`; default-when-omitted equals `--workers 1`; single-split
+  corpus tolerates `workers > 1`; minhash-method × workers byte-identical
+  (gated on `datasketch` extra); error-propagation path verified for
+  both sequential and parallel paths.
+- **CLI exposure.**  `forgelm audit --workers N` registered on the
+  audit subparser with a new `_positive_int` argparse type validator
+  (rejects 0 / negatives at parse time).
+- New module-level helper `_process_split_for_pool` in
+  `forgelm/data_audit/_orchestrator.py` so worker pickling stays
+  spawn-method safe.
+- Operator docs updated: `docs/guides/data_audit.md` (+ TR mirror)
+  Run-it section shows the `--workers 4` example, CLI reference
+  includes the flag, and a dedicated explanation of the determinism
+  contract was added.
+
+### Added — Wave 2a / Phase 37 — `forgelm approvals` listing subcommand
+
+- **`forgelm approvals --pending [--output-dir DIR]`** lists every run
+  whose audit log carries a `human_approval.required` event without a
+  matching terminal decision.  Tabular text output or a JSON envelope
+  (`{"success": true, "pending": [...], "count": N}`) under
+  `--output-format json`.
+- **`forgelm approvals --show RUN_ID --output-dir DIR`** prints the
+  full approval-gate audit chain (request → terminal decision) plus
+  the on-disk staging directory layout.  Useful for forensic review of
+  granted / rejected runs and confirming the staging contents match
+  what the operator approved.
+- **Defence-in-depth path-traversal guard** — `staging_path` from the
+  audit log is run through `_staging_path_inside_output_dir` before
+  any `os.listdir`, so a tampered audit log pointing at `/etc` no
+  longer leaks a directory listing.
+- **Latest-wins semantics** — re-staged runs (same `run_id`, second
+  `human_approval.required` event after a prior decision) correctly
+  re-surface as pending; the previous first-wins logic would have
+  hidden them.
+- Closes the Phase 9 follow-up gap from `ghost-features-analysis-20260502`
+  (GH-007).  New module `forgelm/cli/subcommands/_approvals.py`.
+
+### Added — Wave 2a infra — shared audit-log JSONL reader
+
+- **`forgelm/cli/subcommands/_audit_log_reader.py`** (new) is the
+  single source of truth for the audit-log JSONL parser.  Both
+  `_approve.py` (`_find_human_approval_required_event` /
+  `_find_human_approval_decision_event`) and `_approvals.py`
+  (`_iter_audit_events`) now delegate to `iter_audit_events` /
+  `find_latest_event_for_run` here, so a future malformed-line policy
+  fix lands in one place.  Phase 21 `forgelm purge` will use the same
+  module.
+
+### Added — Wave 2a / Phase 34 — `forgelm doctor` env-check subcommand
+
+- **`forgelm doctor`** — the first command an operator should run after
+  installation.  Probes Python version, torch + CUDA, GPU inventory,
+  every optional extra advertised in `pyproject.toml`, HuggingFace Hub
+  reachability, workspace disk space, and the `FORGELM_OPERATOR`
+  audit-identity hint.  Tabular text report or a structured JSON
+  envelope (`--output-format json`).
+- **`forgelm doctor --offline`** skips the HF Hub network probe and
+  inspects the local cache (`HF_HOME` / `~/.cache/huggingface/hub`).
+  Useful for air-gap deployments.
+- **Honest pass / warn / fail:** warn = operator-actionable but does
+  not block (missing optional extra, CPU-only torch); fail = ForgeLM
+  cannot work this way (Python <3.10, no torch).  Exit codes follow
+  the public contract — 0 every check passed (warns OK), 1 at least
+  one fail (config-error class), 2 if a probe itself crashed
+  (runtime-error class).
+- **Self-contained probes.**  Heavy deps (torch, huggingface_hub) are
+  imported lazily inside individual check functions so `forgelm doctor`
+  can run on a brand-new machine where torch is not yet installed
+  without crashing.  One crashing probe does not abort the rest of
+  the report.
+- Closes the `ghost-features-analysis-20260502` GH-001 onboarding
+  bloker (30 doc references across 8 files in `docs/usermanuals/` no
+  longer point at a non-existent command).
+- New module `forgelm/cli/subcommands/_doctor.py` (~430 lines).
+- 38 new tests in `tests/test_doctor.py` covering per-probe behaviour
+  (Python 3.9/3.10/3.11/3.12, torch presence + CUDA, GPU inventory,
+  optional-extra detection, HF Hub HEAD, HF cache populated/empty,
+  disk-space thresholds, operator identity), exit-code mapping,
+  text/JSON renderers, probe-crash isolation, plan composition,
+  CLI subprocess smoke, facade re-exports.
+- Operator docs updated: `first-run.md` (en + tr) sample output now
+  matches the shipped table format.
+
 ### Added — Wave 1 closure (Faz 9, 11, 12, 13, 25, 31, 32 — see PR description)
 
 - **Article 14 staging directory + `forgelm approve` / `forgelm reject` (Faz 9)** —

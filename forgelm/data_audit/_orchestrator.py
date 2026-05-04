@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import json
 import logging
+import multiprocessing
 import os
 import tempfile
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ._croissant import _build_croissant_metadata
 
@@ -179,6 +180,36 @@ def _atomic_write_json(target: Path, payload: Dict[str, Any]) -> None:
                 pass
 
 
+def _process_split_for_pool(
+    args_tuple: Tuple[str, Path, Dict[str, Any]],
+):
+    """Module-level wrapper: dispatches to :func:`_process_split` from a tuple.
+
+    ``multiprocessing.Pool.map`` requires the worker callable + its arguments
+    to be picklable.  Lambdas and ``functools.partial`` over keyword-only
+    args don't pickle cleanly across spawn-method workers, so we accept a
+    single positional tuple and unpack the kwargs inside the worker.
+
+    **Test injection point** (Wave 2a Round-5 F-R5-03): spawn-method
+    workers do not see monkeypatches applied in the parent test process,
+    so the only way to exercise the orchestrator's ``pool.map`` re-raise
+    branch is via an env var that the worker reads on entry.  Setting
+    ``FORGELM_AUDIT_TEST_WORKER_RAISES=<split_name>`` causes this
+    wrapper to raise ``RuntimeError`` for the matching split — used by
+    ``tests/test_data_audit_workers.py::TestWorkersErrorPropagation``
+    to verify that an uncaught worker exception surfaces through
+    ``Pool.map`` instead of being silently swallowed.  Production code
+    should never set this variable; the check is fail-closed (env var
+    must equal the exact split name being processed) to minimise blast
+    radius if an operator sets it by mistake.
+    """
+    split_name, path, kwargs = args_tuple
+    test_raise_split = os.environ.get("FORGELM_AUDIT_TEST_WORKER_RAISES")
+    if test_raise_split and test_raise_split == split_name:
+        raise RuntimeError(f"synthetic test-injected worker failure for split {split_name!r}")
+    return _process_split(split_name, path, **kwargs)
+
+
 def audit_dataset(  # NOSONAR — cognitive complexity is inherent to the audit orchestration logic; extraction would fragment cohesive pipeline steps
     source: str,
     *,
@@ -191,6 +222,7 @@ def audit_dataset(  # NOSONAR — cognitive complexity is inherent to the audit 
     enable_pii_ml: bool = False,
     pii_ml_language: str = "en",
     emit_croissant: bool = False,
+    workers: int = 1,
 ) -> AuditReport:
     """Run the audit pipeline over a JSONL file or split-keyed directory.
 
@@ -233,6 +265,15 @@ def audit_dataset(  # NOSONAR — cognitive complexity is inherent to the audit 
         enable_quality_filter: Phase 12 opt-in flag — when ``True``, run
             the heuristic quality checks (Gopher / C4 / RefinedWeb-style)
             and surface findings under ``quality_summary``.
+        workers: Phase 17 — number of worker processes used for the
+            split-level pipeline.  ``1`` (default) keeps the pre-Phase-17
+            single-process behaviour exactly.  ``> 1`` distributes the
+            per-split processing over ``min(workers, len(splits))``
+            ``multiprocessing.Pool`` workers; the merge step that builds
+            the final report stays single-threaded so the determinism
+            contract (byte-identical JSON across worker counts) is
+            preserved.  Speed-up scales with the number of *splits*, not
+            row count — single-split corpora ignore values >1.
 
     Returns:
         :class:`AuditReport`. JSON-serialize via ``asdict(report)``.
@@ -260,6 +301,9 @@ def audit_dataset(  # NOSONAR — cognitive complexity is inherent to the audit 
         # for per-row resilience on pathological strings).
         _require_presidio(language=pii_ml_language)
 
+    if not isinstance(workers, int) or isinstance(workers, bool) or workers < 1:
+        raise ValueError(f"workers must be a positive integer; got {workers!r}.")
+
     splits_paths, resolution_notes = _resolve_input(source)
 
     splits_info: Dict[str, Dict[str, Any]] = {}
@@ -276,18 +320,71 @@ def audit_dataset(  # NOSONAR — cognitive complexity is inherent to the audit 
     parse_errors_total = 0
     decode_errors_total = 0
 
-    for split_name, path in splits_paths.items():
-        outcome = _process_split(
-            split_name,
-            path,
-            near_dup_threshold=near_dup_threshold,
-            dedup_method=dedup_method,
-            minhash_jaccard=minhash_jaccard,
-            minhash_num_perm=minhash_num_perm,
-            enable_quality_filter=enable_quality_filter,
-            enable_pii_ml=enable_pii_ml,
-            pii_ml_language=pii_ml_language,
+    # Determinism contract: regardless of ``workers``, every aggregate is
+    # built up by walking the splits in the exact order ``splits_paths``
+    # yields them.  Multiprocessing only changes how the per-split outcomes
+    # are *computed*; the merge step below is single-threaded so byte-
+    # equivalent output is guaranteed across worker counts.  See the
+    # ``test_data_audit_workers.py`` regression suite for the test that
+    # pins this invariant.
+    split_kwargs: Dict[str, Any] = {
+        "near_dup_threshold": near_dup_threshold,
+        "dedup_method": dedup_method,
+        "minhash_jaccard": minhash_jaccard,
+        "minhash_num_perm": minhash_num_perm,
+        "enable_quality_filter": enable_quality_filter,
+        "enable_pii_ml": enable_pii_ml,
+        "pii_ml_language": pii_ml_language,
+    }
+    effective_workers = min(workers, len(splits_paths)) if splits_paths else 1
+    if workers > effective_workers:
+        # Operator asked for more parallelism than we can use; surface
+        # the clamp so the wall-clock-vs-expected gap doesn't surprise
+        # them (Wave 2a Round-2 review F-17-01).
+        logger.info(
+            "audit: requested workers=%d but only %d split(s) found; running %d worker(s)",
+            workers,
+            len(splits_paths) if splits_paths else 0,
+            effective_workers,
         )
+    if effective_workers > 1:
+        # Pool.map preserves input order so ``outcomes`` lines up with
+        # ``splits_paths.items()`` 1:1.  We bound the pool to
+        # ``len(splits_paths)`` — extra workers would idle since the unit
+        # of work is one split.
+        #
+        # Wave 2a Round-1 review (F-26-03): pin the start method to
+        # ``"spawn"`` so the determinism contract is platform-independent.
+        # ``Pool()`` defaults to fork on Linux + spawn on macOS / Windows;
+        # Linux CI never exercises the spawn path otherwise.  Spawn also
+        # gives every worker a fresh interpreter (no shared
+        # langdetect.DetectorFactory state, no copied open file handles)
+        # which is exactly what the byte-identical contract requires.
+        logger.info(
+            "audit: spawning %d worker process(es) over %d split(s)",
+            effective_workers,
+            len(splits_paths),
+        )
+        ctx = multiprocessing.get_context("spawn")
+        pool_args = [(name, path, split_kwargs) for name, path in splits_paths.items()]
+        with ctx.Pool(effective_workers) as pool:
+            try:
+                outcomes_list = pool.map(_process_split_for_pool, pool_args)
+            except Exception:  # noqa: BLE001 — best-effort: re-raise unchanged so the operator sees the worker traceback through Pool.map's wrapping; we log at ERROR first so the contextual "which split failed" hint lands even when the traceback is opaque.
+                logger.error(
+                    "audit: parallel worker raised inside the pool; the original "
+                    "traceback is wrapped — re-run with --workers 1 to surface it "
+                    "with full context."
+                )
+                raise
+        outcomes_iter = zip(splits_paths.keys(), outcomes_list)
+    else:
+        logger.info("audit: sequential mode (workers=%d, splits=%d)", workers, len(splits_paths))
+        outcomes_iter = (
+            (split_name, _process_split(split_name, path, **split_kwargs)) for split_name, path in splits_paths.items()
+        )
+
+    for split_name, outcome in outcomes_iter:
         splits_info[split_name] = outcome.info
         signatures_by_split[split_name] = outcome.signatures
         total_samples += outcome.row_count

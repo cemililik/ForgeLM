@@ -11,8 +11,14 @@ from __future__ import annotations
 
 import argparse
 
-from ._argparse_types import _add_common_subparser_flags, _non_negative_float, _non_negative_int
+from ._argparse_types import _add_common_subparser_flags, _non_negative_float, _non_negative_int, _positive_int
 from ._logging import _get_version
+
+# Shared `--output-dir` help text across approve / reject / approvals
+# subparsers.  Sonar S1192 flagged the literal as duplicated 3x; the
+# constant keeps the operator copy in one place so a future rename of
+# `final_model.staging/` lands in one diff hunk.
+_OUTPUT_DIR_HELP = "Training output directory containing audit_log.jsonl and final_model.staging/."
 
 
 def _add_chat_subcommand(subparsers) -> None:
@@ -291,6 +297,42 @@ def _add_ingest_subcommand(subparsers) -> None:
     _add_common_subparser_flags(p, include_output_format=True)
 
 
+def _add_doctor_subcommand(subparsers) -> None:
+    """Phase 34: environment check (`forgelm doctor`).
+
+    The first command an operator should run after installation.  Probes
+    Python version, torch / CUDA, GPU inventory, optional extras, HF Hub
+    reachability (or local cache when ``--offline``), workspace disk
+    space, and the FORGELM_OPERATOR audit-identity hint.
+
+    Exit codes follow the public contract: 0 = all pass, 1 = at least
+    one check failed (config-error class), 2 = probe crashed.
+    """
+    p = subparsers.add_parser(
+        "doctor",
+        help="Run environment + dependency diagnostics (the first command after install).",
+        description=(
+            "Probe Python, torch + CUDA, GPU inventory, optional ForgeLM extras, "
+            "HuggingFace Hub reachability, workspace disk space, and the "
+            "FORGELM_OPERATOR audit-identity hint.  Emits a tabular text report or "
+            "a structured JSON envelope (`--output-format json`).  Pass `--offline` "
+            "to skip the HF Hub network probe and instead inspect the local cache."
+        ),
+    )
+    p.add_argument(
+        "--offline",
+        action="store_true",
+        help=(
+            "Skip the HuggingFace Hub network probe.  Inspects the local HF cache "
+            "(precedence: HF_HUB_CACHE > HF_HOME/hub > ~/.cache/huggingface/hub) "
+            "instead — useful for air-gapped deployments where the network probe "
+            "would always fail.  Implicitly true when HF_HUB_OFFLINE=1 or "
+            "TRANSFORMERS_OFFLINE=1 is set in the environment."
+        ),
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
 def _add_audit_subcommand(subparsers) -> None:
     p = subparsers.add_parser(
         "audit",
@@ -409,6 +451,21 @@ def _add_audit_subcommand(subparsers) -> None:
             "corpus AND make sure the matching spaCy model is installed."
         ),
     )
+    p.add_argument(
+        "--workers",
+        type=_positive_int,
+        default=1,
+        metavar="N",
+        help=(
+            "Phase 17: number of worker processes for the split-level pipeline "
+            "(default: 1 — sequential, byte-identical to the pre-Phase-17 path). "
+            "Set to 2-4 on multi-split corpora (train / validation / test) for a "
+            "near-linear speed-up.  Speed-up scales with the number of splits, "
+            "not row count — single-split corpora ignore values > 1.  The merge "
+            "step is single-threaded so the audit JSON is byte-identical across "
+            "worker counts (determinism contract pinned by the test suite)."
+        ),
+    )
     _add_common_subparser_flags(p, include_output_format=True)
 
 
@@ -487,7 +544,7 @@ def _add_approve_subcommand(subparsers) -> None:
         type=str,
         required=True,
         metavar="DIR",
-        help="Training output directory containing audit_log.jsonl and final_model.staging/.",
+        help=_OUTPUT_DIR_HELP,
     )
     p.add_argument(
         "--comment",
@@ -495,6 +552,49 @@ def _add_approve_subcommand(subparsers) -> None:
         default=None,
         metavar="TEXT",
         help="Optional reviewer comment recorded in the human_approval.granted audit event.",
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
+def _add_approvals_subcommand(subparsers) -> None:
+    """Article 14 follow-up: list / inspect pending approval requests.
+
+    Exactly one of ``--pending`` and ``--show RUN_ID`` must be set; argparse
+    enforces this with a mutually-exclusive group so the dispatcher only
+    sees a validated args namespace.  ``--output-dir`` is required in both
+    modes — there is no useful default; an operator running on a freshly-
+    cloned workstation must point at the training output explicitly.
+    """
+    p = subparsers.add_parser(
+        "approvals",
+        help="List pending Article 14 approval requests or inspect a single run.",
+        description=(
+            "Discovery counterpart to `forgelm approve` / `forgelm reject`.  "
+            "`--pending` lists every run whose audit log carries a "
+            "`human_approval.required` event without a matching terminal "
+            "decision.  `--show RUN_ID` prints the full approval-gate audit "
+            "chain plus the on-disk staging directory layout for one run."
+        ),
+    )
+    mode = p.add_mutually_exclusive_group(required=True)
+    mode.add_argument(
+        "--pending",
+        action="store_true",
+        help="List every run awaiting an approval decision.",
+    )
+    mode.add_argument(
+        "--show",
+        type=str,
+        default=None,
+        metavar="RUN_ID",
+        help="Show the full audit chain + staging contents for a single run.",
+    )
+    p.add_argument(
+        "--output-dir",
+        type=str,
+        required=True,
+        metavar="DIR",
+        help=_OUTPUT_DIR_HELP,
     )
     _add_common_subparser_flags(p, include_output_format=True)
 
@@ -521,7 +621,7 @@ def _add_reject_subcommand(subparsers) -> None:
         type=str,
         required=True,
         metavar="DIR",
-        help="Training output directory containing audit_log.jsonl and final_model.staging/.",
+        help=_OUTPUT_DIR_HELP,
     )
     p.add_argument(
         "--comment",
@@ -539,6 +639,7 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Subcommands:\n"
+            "  forgelm doctor                  Environment check (Python/torch/CUDA/GPU/extras/HF/disk)\n"
             "  forgelm quickstart [TEMPLATE]   Generate a config from a curated template\n"
             "  forgelm ingest PATH             Convert raw docs (PDF/DOCX/EPUB/TXT/Markdown) → JSONL\n"
             "  forgelm audit PATH              Run dataset audit (length/lang/PII/leakage)\n"
@@ -548,6 +649,7 @@ def parse_args():
             "  forgelm deploy MODEL_PATH       Generate serving config\n"
             "  forgelm approve RUN_ID          Promote a staged model after human review (Art. 14)\n"
             "  forgelm reject  RUN_ID          Reject a staged model (preserves staging dir for forensics)\n"
+            "  forgelm approvals --pending     List runs awaiting human approval (or --show RUN_ID)\n"
             "\nRun 'forgelm <subcommand> --help' for subcommand details."
         ),
     )
@@ -560,9 +662,11 @@ def parse_args():
     _add_quickstart_subcommand(subparsers)
     _add_ingest_subcommand(subparsers)
     _add_audit_subcommand(subparsers)
+    _add_doctor_subcommand(subparsers)
     _add_verify_audit_subcommand(subparsers)
     _add_approve_subcommand(subparsers)
     _add_reject_subcommand(subparsers)
+    _add_approvals_subcommand(subparsers)
 
     # --- Top-level flags (training / config-driven mode) ---
     parser.add_argument("--config", type=str, help="Path to the YAML configuration file.")

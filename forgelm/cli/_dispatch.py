@@ -20,59 +20,93 @@ from ._training import _run_training_pipeline
 from ._wizard import _maybe_run_wizard
 
 
-def _dispatch_subcommand(command: str, args) -> None:
-    """Run a Phase 10 / 10.5 / 11 / 11.5 subcommand and exit.
+def _output_format_for(args) -> str:
+    """Pull the ``--output-format`` value off ``args`` with the standard default."""
+    return getattr(args, "output_format", "text")
 
-    Subcommands handled here: ``chat``, ``export``, ``deploy``, ``quickstart``,
-    ``ingest``, ``audit``, ``verify-audit``, ``approve``, ``reject``. Each
-    terminates the process via ``sys.exit`` after its own dispatcher returns —
-    the trainer/training code path never runs when a subcommand is in play.
+
+def _dispatch_subcommand(command: str, args) -> None:
+    """Run a Phase 10 / 10.5 / 11 / 11.5 / Wave 2a subcommand and exit.
+
+    Subcommands handled here: ``chat``, ``export``, ``deploy``,
+    ``quickstart``, ``ingest``, ``audit``, ``doctor``, ``verify-audit``,
+    ``approve``, ``reject``, ``approvals``.  Each terminates the process
+    via ``sys.exit`` after its own dispatcher returns — the trainer code
+    path never runs when a subcommand is in play.
 
     Dispatchers are looked up via the package facade so tests that
     ``patch("forgelm.cli._run_*_cmd", ...)`` see their mock invoked.
+    The dispatch table replaced an if/elif chain in Wave 2a Round-2 to
+    drop SonarCloud S3776 cognitive complexity (was 16, ceiling 15) and
+    to keep the registry literal — adding a new subcommand is now a
+    single-row edit.
+
+    **SIGINT exit-code policy (Round-3 + Round-5 reconciliation):**
+
+    The dispatcher catches ``KeyboardInterrupt`` and exits with
+    ``EXIT_TRAINING_ERROR`` (= 2, "runtime-error class") so CI/CD
+    branches on a documented public code, not Python's shell-shaped
+    ``130`` (= ``128 + SIGINT``).  Two subcommands have nuance the
+    blanket policy does not capture:
+
+    - ``chat`` REPL catches ``KeyboardInterrupt`` at its input prompt
+      itself (``forgelm/chat.py:125``), prints ``[Goodbye]``, and
+      returns normally — exit ``EXIT_SUCCESS`` (0) by REPL design.  An
+      in-flight ``KeyboardInterrupt`` *during* generation bubbles past
+      the REPL and lands on this dispatcher's catch → 2.
+    - ``verify-audit`` is wrapped in the same try/except as the dict-
+      table dispatch (Round-5 fix), so ``SIGINT`` during a long
+      verify-of-100K-events lands on 2 just like the others.  Returns
+      its own exit code on success (the only dispatcher that does so).
     """
     # Late import via the package facade so monkeypatched
     # ``forgelm.cli._run_*_cmd`` references resolve correctly.
     from forgelm import cli as _cli_facade
 
-    if command == "chat":
-        # _run_chat_cmd's REPL catches KeyboardInterrupt internally for the
-        # input prompt; this outer guard covers Ctrl-C during model load /
-        # welcome banner render, before the REPL loop has started.
-        try:
-            _cli_facade._run_chat_cmd(args)
-        except KeyboardInterrupt:
-            sys.exit(EXIT_TRAINING_ERROR)
-        sys.exit(EXIT_SUCCESS)
-    elif command == "export":
-        _cli_facade._run_export_cmd(args, getattr(args, "output_format", "text"))
-        sys.exit(EXIT_SUCCESS)
-    elif command == "deploy":
-        _cli_facade._run_deploy_cmd(args, getattr(args, "output_format", "text"))
-        sys.exit(EXIT_SUCCESS)
-    elif command == "quickstart":
-        try:
-            _cli_facade._run_quickstart_cmd(args, getattr(args, "output_format", "text"))
-        except KeyboardInterrupt:
-            sys.exit(EXIT_TRAINING_ERROR)
-        sys.exit(EXIT_SUCCESS)
-    elif command == "ingest":
-        _cli_facade._run_ingest_cmd(args, getattr(args, "output_format", "text"))
-        sys.exit(EXIT_SUCCESS)
-    elif command == "audit":
-        _cli_facade._run_audit_cmd(args, getattr(args, "output_format", "text"))
-        sys.exit(EXIT_SUCCESS)
-    elif command == "verify-audit":
-        sys.exit(_cli_facade._run_verify_audit_cmd(args))
-    elif command == "approve":
-        _cli_facade._run_approve_cmd(args, getattr(args, "output_format", "text"))
-        sys.exit(EXIT_SUCCESS)
-    elif command == "reject":
-        _cli_facade._run_reject_cmd(args, getattr(args, "output_format", "text"))
-        sys.exit(EXIT_SUCCESS)
-    else:
+    # name -> dispatcher attribute on the package facade.  Resolved lazily
+    # so test-time monkeypatches against ``forgelm.cli._run_*_cmd`` are
+    # honoured.  ``verify-audit`` is in the table but takes a different
+    # call shape (returns int exit code instead of sys.exit-ing) — see
+    # the special-case branch below.
+    table = {
+        "chat": "_run_chat_cmd",
+        "export": "_run_export_cmd",
+        "deploy": "_run_deploy_cmd",
+        "quickstart": "_run_quickstart_cmd",
+        "ingest": "_run_ingest_cmd",
+        "audit": "_run_audit_cmd",
+        "doctor": "_run_doctor_cmd",
+        "verify-audit": "_run_verify_audit_cmd",
+        "approve": "_run_approve_cmd",
+        "reject": "_run_reject_cmd",
+        "approvals": "_run_approvals_cmd",
+    }
+    dispatcher_name = table.get(command)
+    if dispatcher_name is None:
         logger.error("Unrecognized subcommand: %r. This is a bug — please report it.", command)
         sys.exit(EXIT_TRAINING_ERROR)
+    dispatcher = getattr(_cli_facade, dispatcher_name)
+
+    # Three call shapes: ``chat`` takes only ``args`` (its REPL handles
+    # output formatting itself); ``verify-audit`` returns an exit code
+    # instead of sys.exit-ing; everything else takes ``(args,
+    # output_format)`` and exits internally.  All three flow through
+    # the same KeyboardInterrupt handler so SIGINT lands on the
+    # documented public exit-code contract regardless of subcommand
+    # (Round-5 F-R5-02 fix — verify-audit was previously special-cased
+    # outside the try/except, leaving SIGINT during a long verify to
+    # bubble up as Python's shell-shaped 130).
+    output_format = _output_format_for(args)
+    try:
+        if command == "chat":
+            dispatcher(args)
+        elif command == "verify-audit":
+            sys.exit(dispatcher(args))
+        else:
+            dispatcher(args, output_format)
+    except KeyboardInterrupt:
+        sys.exit(EXIT_TRAINING_ERROR)
+    sys.exit(EXIT_SUCCESS)
 
 
 def main():
