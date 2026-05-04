@@ -543,9 +543,7 @@ class TestWorkersErrorPropagation:
             with pytest.raises(RuntimeError, match="synthetic per-split failure"):
                 audit_dataset(str(corpus), workers=1)
 
-    def test_parallel_path_does_not_silently_complete_on_split_failure(
-        self, tmp_path: Path
-    ) -> None:
+    def test_parallel_path_does_not_silently_complete_on_split_failure(self, tmp_path: Path) -> None:
         """Parallel path: a per-split failure (here: corrupt-byte JSONL
         that the streaming reader cannot decode) must not leave a
         silently-incomplete report behind.  ``_process_split`` swallows
