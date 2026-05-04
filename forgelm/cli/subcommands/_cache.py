@@ -139,7 +139,7 @@ def _run_cache_models_cmd(args, output_format: str) -> None:
             EXIT_CONFIG_ERROR,
         )
 
-    audit = _maybe_audit_logger(getattr(args, "audit_dir", None) or cache_dir, output_format)
+    audit = _maybe_audit_logger(getattr(args, "audit_dir", None) or cache_dir)
     request_fields = {
         "models": list(models),
         "cache_dir": cache_dir,
@@ -155,7 +155,7 @@ def _run_cache_models_cmd(args, output_format: str) -> None:
             entry = _download_one_model(name, cache_dir, snapshot_download)
             results.append(entry)
             total_size_bytes += entry.get("size_bytes", 0)
-    except Exception as exc:  # noqa: BLE001 — best-effort: hub failures, transport failures, disk-full all funnel into the same operator-facing failure path with a clear message.
+    except Exception as exc:  # noqa: BLE001 — best-effort: hub failures, transport failures, disk-full all funnel into the same operator-facing failure path with a clear message. # NOSONAR
         if audit is not None:
             audit.log_event(
                 _EVT_CACHE_MODELS_FAILED,
@@ -253,7 +253,7 @@ def _run_cache_tasks_cmd(args, output_format: str) -> None:
         )
 
     cache_dir = _resolve_cache_dir(getattr(args, "output", None))
-    audit = _maybe_audit_logger(getattr(args, "audit_dir", None) or cache_dir, output_format)
+    audit = _maybe_audit_logger(getattr(args, "audit_dir", None) or cache_dir)
     request_fields = {"tasks": task_names, "cache_dir": cache_dir}
     if audit is not None:
         audit.log_event(_EVT_CACHE_TASKS_REQUESTED, **request_fields)
@@ -278,7 +278,7 @@ def _run_cache_tasks_cmd(args, output_format: str) -> None:
     try:
         for name, task_obj in task_dict.items():
             results.append(_prepare_one_task(name, task_obj))
-    except Exception as exc:  # noqa: BLE001 — best-effort: dataset download failures, parquet decode failures, all funnel into the same operator-facing message with the partial results so the operator knows what completed.
+    except Exception as exc:  # noqa: BLE001 — best-effort: dataset download failures, parquet decode failures, all funnel into the same operator-facing message with the partial results so the operator knows what completed. # NOSONAR
         if audit is not None:
             audit.log_event(
                 _EVT_CACHE_TASKS_FAILED,
@@ -341,7 +341,7 @@ def _prepare_one_task(name: str, task_obj) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _maybe_audit_logger(audit_dir: str, output_format: str):
+def _maybe_audit_logger(audit_dir: str):
     """Best-effort construct the AuditLogger; warn + continue on failure.
 
     ``cache-models`` is often run on a connected machine that may not
@@ -359,7 +359,7 @@ def _maybe_audit_logger(audit_dir: str, output_format: str):
     except ConfigError as exc:
         logger.debug("cache subcommand: AuditLogger init failed (%s); continuing without audit log.", exc)
         return None
-    except Exception as exc:  # noqa: BLE001 — best-effort: audit is optional context here.
+    except Exception as exc:  # noqa: BLE001 — best-effort: audit is optional context here. # NOSONAR
         logger.debug("cache subcommand: AuditLogger init crashed (%s); continuing without audit log.", exc)
         return None
 

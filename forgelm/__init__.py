@@ -90,6 +90,17 @@ __all__ = [
 ]
 
 
+# Submodule path constants — kept here so a future rename (e.g.
+# ``forgelm.data_audit`` → ``forgelm.data_audit.api``) is a single-line
+# edit instead of a 7-row find-and-replace, and so SonarCloud's S1192
+# duplicate-literal check stays green.
+_M_DATA_AUDIT = "forgelm.data_audit"
+_M_COMPLIANCE = "forgelm.compliance"
+_M_VERIFY_ANNEX_IV = "forgelm.cli.subcommands._verify_annex_iv"
+_M_VERIFY_GGUF = "forgelm.cli.subcommands._verify_gguf"
+_M_UTILS = "forgelm.utils"
+_M_BENCHMARK = "forgelm.benchmark"
+
 # Mapping from public symbol name → ``(submodule_path, attr_name)``.
 # Centralised so adding a new lazy export is one row, the
 # ``__getattr__`` hook stays a generic dispatcher, and ``__dir__`` can
@@ -99,25 +110,25 @@ _LAZY_SYMBOLS: dict[str, tuple[str, str]] = {
     "TrainResult": ("forgelm.results", "TrainResult"),
     "prepare_dataset": ("forgelm.data", "prepare_dataset"),
     "get_model_and_tokenizer": ("forgelm.model", "get_model_and_tokenizer"),
-    "audit_dataset": ("forgelm.data_audit", "audit_dataset"),
-    "AuditReport": ("forgelm.data_audit", "AuditReport"),
-    "detect_pii": ("forgelm.data_audit", "detect_pii"),
-    "mask_pii": ("forgelm.data_audit", "mask_pii"),
-    "detect_secrets": ("forgelm.data_audit", "detect_secrets"),
-    "mask_secrets": ("forgelm.data_audit", "mask_secrets"),
-    "compute_simhash": ("forgelm.data_audit", "compute_simhash"),
-    "AuditLogger": ("forgelm.compliance", "AuditLogger"),
-    "verify_audit_log": ("forgelm.compliance", "verify_audit_log"),
-    "VerifyResult": ("forgelm.compliance", "VerifyResult"),
-    "verify_annex_iv_artifact": ("forgelm.cli.subcommands._verify_annex_iv", "verify_annex_iv_artifact"),
-    "VerifyAnnexIVResult": ("forgelm.cli.subcommands._verify_annex_iv", "VerifyAnnexIVResult"),
-    "verify_gguf": ("forgelm.cli.subcommands._verify_gguf", "verify_gguf"),
-    "VerifyGgufResult": ("forgelm.cli.subcommands._verify_gguf", "VerifyGgufResult"),
+    "audit_dataset": (_M_DATA_AUDIT, "audit_dataset"),
+    "AuditReport": (_M_DATA_AUDIT, "AuditReport"),
+    "detect_pii": (_M_DATA_AUDIT, "detect_pii"),
+    "mask_pii": (_M_DATA_AUDIT, "mask_pii"),
+    "detect_secrets": (_M_DATA_AUDIT, "detect_secrets"),
+    "mask_secrets": (_M_DATA_AUDIT, "mask_secrets"),
+    "compute_simhash": (_M_DATA_AUDIT, "compute_simhash"),
+    "AuditLogger": (_M_COMPLIANCE, "AuditLogger"),
+    "verify_audit_log": (_M_COMPLIANCE, "verify_audit_log"),
+    "VerifyResult": (_M_COMPLIANCE, "VerifyResult"),
+    "verify_annex_iv_artifact": (_M_VERIFY_ANNEX_IV, "verify_annex_iv_artifact"),
+    "VerifyAnnexIVResult": (_M_VERIFY_ANNEX_IV, "VerifyAnnexIVResult"),
+    "verify_gguf": (_M_VERIFY_GGUF, "verify_gguf"),
+    "VerifyGgufResult": (_M_VERIFY_GGUF, "VerifyGgufResult"),
     "WebhookNotifier": ("forgelm.webhook", "WebhookNotifier"),
-    "setup_authentication": ("forgelm.utils", "setup_authentication"),
-    "manage_checkpoints": ("forgelm.utils", "manage_checkpoints"),
-    "run_benchmark": ("forgelm.benchmark", "run_benchmark"),
-    "BenchmarkResult": ("forgelm.benchmark", "BenchmarkResult"),
+    "setup_authentication": (_M_UTILS, "setup_authentication"),
+    "manage_checkpoints": (_M_UTILS, "manage_checkpoints"),
+    "run_benchmark": (_M_BENCHMARK, "run_benchmark"),
+    "BenchmarkResult": (_M_BENCHMARK, "BenchmarkResult"),
     "SyntheticDataGenerator": ("forgelm.synthetic", "SyntheticDataGenerator"),
 }
 

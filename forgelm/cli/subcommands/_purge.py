@@ -371,6 +371,142 @@ def _extract_webhook_targets(config_loaded: Optional[Any]) -> List[str]:
     return sorted(set(targets))
 
 
+def _validate_match_count_or_fail(
+    matches: List[Tuple[int, Dict[str, Any]]],
+    *,
+    request_fields: Dict[str, Any],
+    audit: Any,
+    args: Any,
+    output_format: str,
+) -> None:
+    """Refuse no-match / multi-match-without-opt-in.  Emits
+    ``data.erasure_failed`` to the chain BEFORE exiting so a forensic
+    reviewer sees the refusal."""
+    if not matches:
+        audit.log_event(
+            _EVT_ERASURE_FAILED,
+            **request_fields,
+            error_class="NoMatchingRow",
+            error_message=f"No row with id matching {args.row_id!r} found in corpus.",
+        )
+        _output_error_and_exit(
+            output_format,
+            f"No row with id={args.row_id!r} in {args.corpus!r}.  Refusing to delete.",
+            EXIT_CONFIG_ERROR,
+        )
+    if len(matches) > 1 and getattr(args, "row_matches", "one") == "one":
+        audit.log_event(
+            _EVT_ERASURE_FAILED,
+            **request_fields,
+            error_class="MultiMatchRefused",
+            error_message=f"{len(matches)} rows matched id={args.row_id!r}; --row-matches=one refuses ambiguity.",
+            match_count=len(matches),
+        )
+        _output_error_and_exit(
+            output_format,
+            f"{len(matches)} rows matched id={args.row_id!r} in {args.corpus!r}; "
+            "--row-matches defaults to 'one' (refuse on ambiguity).  Pass --row-matches=all to "
+            "delete every match (operator confirms intent), or supply a unique id.",
+            EXIT_CONFIG_ERROR,
+        )
+
+
+def _emit_row_dry_run(
+    *,
+    audit: Any,
+    request_fields: Dict[str, Any],
+    matches: List[Tuple[int, Dict[str, Any]]],
+    pre_first_line: int,
+    target_id_hash: str,
+    salt_source: str,
+    output_format: str,
+) -> None:
+    """Dry-run shortcut: do not touch the corpus; emit a completed
+    event with ``dry_run=True`` so the chain reflects the intent."""
+    audit.log_event(
+        _EVT_ERASURE_COMPLETED,
+        **request_fields,
+        bytes_freed=0,
+        files_modified=[],
+        pre_erasure_line_number=pre_first_line,
+        match_count=len(matches),
+    )
+    _emit_purge_success(
+        output_format,
+        {
+            "mode": "row",
+            "dry_run": True,
+            "row_id_hash": target_id_hash,
+            "salt_source": salt_source,
+            "matches": len(matches),
+            "first_line": pre_first_line,
+            "warnings": [],
+        },
+    )
+
+
+def _perform_row_erasure_and_audit(
+    *,
+    audit: Any,
+    request_fields: Dict[str, Any],
+    args: Any,
+    output_dir: str,
+    line_numbers: List[int],
+    pre_first_line: int,
+    matches: List[Tuple[int, Dict[str, Any]]],
+    target_id_hash: str,
+    salt_source: str,
+    config_loaded: Any,
+    output_format: str,
+) -> None:
+    """Atomic rewrite + completion + warning audit emission.
+
+    Centralises the post-validation half of :func:`_run_purge_row_id`
+    so the dispatcher stays under SonarCloud S3776 cognitive
+    complexity ceiling.
+    """
+    try:
+        bytes_freed = _atomic_rewrite_dropping_lines(args.corpus, line_numbers)
+    except OSError as exc:
+        audit.log_event(
+            _EVT_ERASURE_FAILED,
+            **request_fields,
+            error_class=exc.__class__.__name__,
+            error_message=str(exc),
+        )
+        _output_error_and_exit(
+            output_format,
+            f"Atomic rewrite of {args.corpus!r} failed: {exc}.  Corpus left unchanged.",
+            EXIT_TRAINING_ERROR,
+        )
+
+    warning_events, warning_extras = _detect_warning_conditions(output_dir, config_loaded)
+    audit.log_event(
+        _EVT_ERASURE_COMPLETED,
+        **request_fields,
+        bytes_freed=bytes_freed,
+        files_modified=[os.path.abspath(args.corpus)],
+        pre_erasure_line_number=pre_first_line,
+        match_count=len(matches),
+    )
+    for event_name in warning_events:
+        audit.log_event(event_name, **request_fields, **warning_extras)
+
+    _emit_purge_success(
+        output_format,
+        {
+            "mode": "row",
+            "dry_run": False,
+            "row_id_hash": target_id_hash,
+            "salt_source": salt_source,
+            "matches": len(matches),
+            "first_line": pre_first_line,
+            "bytes_freed": bytes_freed,
+            "warnings": warning_events,
+        },
+    )
+
+
 def _run_purge_row_id(args, output_format: str) -> None:
     """Handle ``forgelm purge --row-id <id> --corpus <path>``."""
     _validate_row_id_args(args, output_format)
@@ -413,103 +549,41 @@ def _run_purge_row_id(args, output_format: str) -> None:
     audit.log_event(_EVT_ERASURE_REQUESTED, **request_fields)
 
     matches = _find_matching_rows(args.corpus, args.row_id)
-    row_matches_mode = getattr(args, "row_matches", "one")
-    if not matches:
-        # Audit a failed event so the chain shows request → fail.
-        audit.log_event(
-            _EVT_ERASURE_FAILED,
-            **request_fields,
-            error_class="NoMatchingRow",
-            error_message=f"No row with id matching {args.row_id!r} found in corpus.",
-        )
-        _output_error_and_exit(
-            output_format,
-            f"No row with id={args.row_id!r} in {args.corpus!r}.  Refusing to delete.",
-            EXIT_CONFIG_ERROR,
-        )
-    if len(matches) > 1 and row_matches_mode == "one":
-        audit.log_event(
-            _EVT_ERASURE_FAILED,
-            **request_fields,
-            error_class="MultiMatchRefused",
-            error_message=f"{len(matches)} rows matched id={args.row_id!r}; --row-matches=one refuses ambiguity.",
-            match_count=len(matches),
-        )
-        _output_error_and_exit(
-            output_format,
-            f"{len(matches)} rows matched id={args.row_id!r} in {args.corpus!r}; "
-            "--row-matches defaults to 'one' (refuse on ambiguity).  Pass --row-matches=all to "
-            "delete every match (operator confirms intent), or supply a unique id.",
-            EXIT_CONFIG_ERROR,
-        )
+    _validate_match_count_or_fail(
+        matches,
+        request_fields=request_fields,
+        audit=audit,
+        args=args,
+        output_format=output_format,
+    )
 
     line_numbers = [ln for ln, _row in matches]
     pre_first_line = line_numbers[0]
 
     if args.dry_run:
-        # Dry-run: do not touch the corpus; emit a completed event with
-        # ``dry_run=True`` so the chain reflects the intent.
-        audit.log_event(
-            _EVT_ERASURE_COMPLETED,
-            **request_fields,
-            bytes_freed=0,
-            files_modified=[],
-            pre_erasure_line_number=pre_first_line,
-            match_count=len(matches),
-        )
-        _emit_purge_success(
-            output_format,
-            {
-                "mode": "row",
-                "dry_run": True,
-                "row_id_hash": target_id_hash,
-                "salt_source": salt_source,
-                "matches": len(matches),
-                "first_line": pre_first_line,
-                "warnings": [],
-            },
+        _emit_row_dry_run(
+            audit=audit,
+            request_fields=request_fields,
+            matches=matches,
+            pre_first_line=pre_first_line,
+            target_id_hash=target_id_hash,
+            salt_source=salt_source,
+            output_format=output_format,
         )
         return
 
-    try:
-        bytes_freed = _atomic_rewrite_dropping_lines(args.corpus, line_numbers)
-    except OSError as exc:
-        audit.log_event(
-            _EVT_ERASURE_FAILED,
-            **request_fields,
-            error_class=exc.__class__.__name__,
-            error_message=str(exc),
-        )
-        _output_error_and_exit(
-            output_format,
-            f"Atomic rewrite of {args.corpus!r} failed: {exc}.  Corpus left unchanged.",
-            EXIT_TRAINING_ERROR,
-        )
-
-    warning_events, warning_extras = _detect_warning_conditions(output_dir, config_loaded)
-    audit.log_event(
-        _EVT_ERASURE_COMPLETED,
-        **request_fields,
-        bytes_freed=bytes_freed,
-        files_modified=[os.path.abspath(args.corpus)],
-        pre_erasure_line_number=pre_first_line,
-        match_count=len(matches),
-    )
-    for event_name in warning_events:
-        audit.log_event(event_name, **request_fields, **warning_extras)
-
-    _emit_purge_success(
-        output_format,
-        {
-            "mode": "row",
-            "dry_run": False,
-            "row_id_hash": target_id_hash,
-            "salt_source": salt_source,
-            "matches": len(matches),
-            "first_line": pre_first_line,
-            "bytes_freed": bytes_freed,
-            "warnings": warning_events,
-        },
+    _perform_row_erasure_and_audit(
+        audit=audit,
+        request_fields=request_fields,
+        args=args,
+        output_dir=output_dir,
+        line_numbers=line_numbers,
+        pre_first_line=pre_first_line,
+        matches=matches,
+        target_id_hash=target_id_hash,
+        salt_source=salt_source,
+        config_loaded=config_loaded,
+        output_format=output_format,
     )
 
 
@@ -717,16 +791,15 @@ def _run_purge_check_policy(args, output_format: str) -> None:
 
     try:
         config_loaded = _maybe_load_config(getattr(args, "config", None), strict=True)
-    except (ConfigError, FileNotFoundError, OSError) as exc:
+    except (ConfigError, OSError) as exc:
+        # OSError covers FileNotFoundError + permission denied; ConfigError
+        # wraps every Pydantic ValidationError raised by ``load_config``.
+        # Any other class would be a contract violation in the loader and
+        # should propagate so we fix the root cause rather than mask it
+        # behind a generic message.
         _output_error_and_exit(
             output_format,
             f"--check-policy could not load --config: {exc}",
-            EXIT_CONFIG_ERROR,
-        )
-    except Exception as exc:  # noqa: BLE001 — best-effort: any other ValueError / Pydantic ValidationError funnels into the same operator-facing failure with the underlying message.
-        _output_error_and_exit(
-            output_format,
-            f"--check-policy could not load --config: {exc.__class__.__name__}: {exc}",
             EXIT_CONFIG_ERROR,
         )
     if config_loaded is None or getattr(config_loaded, "retention", None) is None:
@@ -812,37 +885,72 @@ def _scan_retention_violations(retention, output_dir: str) -> List[Dict[str, Any
     return violations
 
 
+def _parse_iso_timestamp_to_posix(ts: str) -> Optional[float]:
+    """Parse an ISO-8601 timestamp string to POSIX seconds; ``None`` on failure.
+
+    Extracted from :func:`_age_from_audit_log` so the parsing branches
+    do not stack inside the file-walk loop.  Accepts both the ``Z``
+    suffix shape AuditLogger emits and the ``+00:00`` form Python 3.10's
+    ``datetime.fromisoformat`` requires.  Naive timestamps are treated
+    as UTC (matches AuditLogger emission policy; defensive against
+    external producers that drop the offset).
+    """
+    from datetime import datetime, timezone
+
+    try:
+        when = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when.timestamp()
+
+
+def _genesis_timestamp_from_lines(lines) -> Optional[float]:
+    """Walk audit-log JSONL lines; return the first POSIX timestamp.
+
+    The audit log is append-only so the first non-empty, well-formed
+    event with a string ``timestamp`` is the genesis.  Skips blank /
+    malformed lines.  ``None`` when the loop falls off the end without
+    finding any usable timestamp.
+    """
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        ts = event.get("timestamp")
+        if not isinstance(ts, str):
+            return None
+        return _parse_iso_timestamp_to_posix(ts)
+    return None
+
+
 def _age_from_audit_log(audit_log_path: str, now: float) -> Optional[float]:
-    """Extract the genesis-event timestamp from the audit log; return age."""
+    """Extract the genesis-event timestamp from the audit log; return age.
+
+    Returns ``None`` when the log is missing, unreadable, has no
+    well-formed events, or carries a malformed timestamp.  Cognitive
+    complexity is kept under the SonarCloud S3776 ceiling by
+    delegating per-line parsing to
+    :func:`_genesis_timestamp_from_lines` and ISO parsing to
+    :func:`_parse_iso_timestamp_to_posix`.
+    """
     if not os.path.isfile(audit_log_path):
         return None
     try:
         with open(audit_log_path, "r", encoding="utf-8") as fh:
-            for raw in fh:
-                line = raw.strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(event, dict):
-                    continue
-                ts = event.get("timestamp")
-                if isinstance(ts, str):
-                    from datetime import datetime, timezone
-
-                    try:
-                        when = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                    except ValueError:
-                        continue
-                    if when.tzinfo is None:
-                        when = when.replace(tzinfo=timezone.utc)
-                    return now - when.timestamp()
-                return None
+            genesis_ts = _genesis_timestamp_from_lines(fh)
     except OSError:
         return None
-    return None
+    if genesis_ts is None:
+        return None
+    return now - genesis_ts
 
 
 def _discover_per_run_staging_horizons(output_dir: str, horizon_days: int) -> List[Tuple[str, str, int]]:
@@ -940,37 +1048,56 @@ def _maybe_load_config(config_path: Optional[str], *, strict: bool = False):
         return None
 
 
+def _render_row_success(payload: Dict[str, Any]) -> None:
+    """Human-readable text rendering for ``--row-id`` mode."""
+    if payload.get("dry_run"):
+        print(
+            f"[dry-run] Would erase {payload.get('matches')} row(s) starting at line "
+            f"{payload.get('first_line')} (target_id_hash={payload.get('row_id_hash')[:16]}…, "
+            f"salt_source={payload.get('salt_source')})."
+        )
+        return
+    warns = payload.get("warnings") or []
+    warn_str = f"; warnings: {', '.join(warns)}" if warns else ""
+    print(f"Erased {payload.get('matches')} row(s); {payload.get('bytes_freed')} bytes freed{warn_str}.")
+
+
+def _render_run_success(payload: Dict[str, Any]) -> None:
+    """Human-readable text rendering for ``--run-id`` mode."""
+    kind = payload.get("kind")
+    run_id = payload.get("run_id")
+    if payload.get("dry_run"):
+        paths = payload.get("would_delete") or []
+        print(f"[dry-run] Would delete {len(paths)} {kind} artefact(s) for run {run_id!r}:")
+        for p in paths:
+            print(f"  - {p}")
+        return
+    deleted = payload.get("deleted") or []
+    print(f"Deleted {len(deleted)} {kind} artefact(s) for run {run_id!r}; {payload.get('bytes_freed')} bytes freed.")
+
+
+# Per-mode text-renderer dispatch table.  Adding a new ``forgelm purge``
+# mode is a one-row edit + one new ``_render_*_success`` helper.
+_TEXT_RENDERERS: Dict[str, Any] = {
+    "row": _render_row_success,
+    "run": _render_run_success,
+}
+
+
 def _emit_purge_success(output_format: str, payload: Dict[str, Any]) -> None:
-    """Emit the success envelope for a purge subcommand."""
+    """Emit the success envelope for a purge subcommand.
+
+    JSON output is shape-stable across modes; text output dispatches to
+    the per-mode renderer in :data:`_TEXT_RENDERERS`.  Cognitive
+    complexity stayed at S3776 ceiling (15) by replacing the nested
+    if/else chain with a dict lookup.
+    """
     if output_format == "json":
         print(json.dumps({"success": True, **payload}, indent=2))
-    else:
-        mode = payload.get("mode", "?")
-        if mode == "row":
-            if payload.get("dry_run"):
-                print(
-                    f"[dry-run] Would erase {payload.get('matches')} row(s) starting at line "
-                    f"{payload.get('first_line')} (target_id_hash={payload.get('row_id_hash')[:16]}…, "
-                    f"salt_source={payload.get('salt_source')})."
-                )
-            else:
-                warns = payload.get("warnings") or []
-                warn_str = f"; warnings: {', '.join(warns)}" if warns else ""
-                print(f"Erased {payload.get('matches')} row(s); {payload.get('bytes_freed')} bytes freed{warn_str}.")
-        elif mode == "run":
-            if payload.get("dry_run"):
-                paths = payload.get("would_delete") or []
-                print(
-                    f"[dry-run] Would delete {len(paths)} {payload.get('kind')} artefact(s) for run {payload.get('run_id')!r}:"
-                )
-                for p in paths:
-                    print(f"  - {p}")
-            else:
-                deleted = payload.get("deleted") or []
-                print(
-                    f"Deleted {len(deleted)} {payload.get('kind')} artefact(s) for run "
-                    f"{payload.get('run_id')!r}; {payload.get('bytes_freed')} bytes freed."
-                )
+        return
+    renderer = _TEXT_RENDERERS.get(payload.get("mode", "?"))
+    if renderer is not None:
+        renderer(payload)
 
 
 def _run_purge_cmd(args, output_format: str) -> None:

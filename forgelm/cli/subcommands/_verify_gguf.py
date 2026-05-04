@@ -176,7 +176,7 @@ def _maybe_parse_metadata(path: str) -> Dict[str, Any]:
         reader = GGUFReader(path, "r")
         tensor_count = len(getattr(reader, "tensors", []) or [])
         return {"parsed": True, "error": None, "tensor_count": tensor_count}
-    except Exception as exc:  # noqa: BLE001 — gguf surfaces a wide failure surface (struct.error, IndexError, ValueError).
+    except Exception as exc:  # noqa: BLE001 — gguf surfaces a wide failure surface (struct.error, IndexError, ValueError). # NOSONAR
         return {"parsed": False, "error": f"{exc.__class__.__name__}: {exc}", "tensor_count": None}
 
 
