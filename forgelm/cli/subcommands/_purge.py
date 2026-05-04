@@ -332,23 +332,42 @@ def _scan_run_ids_with_final_model(output_dir: str) -> List[str]:
 def _extract_webhook_targets(config_loaded: Optional[Any]) -> List[str]:
     """Return redacted webhook URLs from the loaded config, or ``[]``.
 
-    Pulls ``config.webhook.url_*`` if present; we redact the path /
-    query (which carries credentials) using the same ``_mask_netloc``
-    helper that the HTTP discipline uses for log emission.
+    Reads ``config.webhook.url`` (literal value) and resolves
+    ``config.webhook.url_env`` to the env var's value when set; the
+    matching ``WebhookConfig`` schema (``forgelm/config.py``) only
+    exposes those two URL-bearing fields.  Path / query (which may
+    carry credentials) is redacted via :func:`forgelm._http._mask_netloc`
+    so a `data.erasure_warning_external_copies` event does not leak the
+    full webhook URL into the audit chain.
     """
     if config_loaded is None or getattr(config_loaded, "webhook", None) is None:
         return []
     webhook = config_loaded.webhook
-    targets: List[str] = []
-    for attr in ("url_success", "url_failure", "url_safety_alert", "url_compliance_alert"):
-        url = getattr(webhook, attr, None)
-        if url:
-            try:
-                from forgelm._http import _mask_netloc
+    raw_targets: List[str] = []
 
-                targets.append(_mask_netloc(url))
-            except Exception:  # noqa: BLE001 — best-effort redaction
-                targets.append("<webhook-url-redacted>")
+    literal_url = getattr(webhook, "url", None)
+    if literal_url:
+        raw_targets.append(literal_url)
+
+    env_var_name = getattr(webhook, "url_env", None)
+    if env_var_name:
+        env_value = os.environ.get(env_var_name)
+        if env_value:
+            raw_targets.append(env_value)
+
+    targets: List[str] = []
+    for url in raw_targets:
+        try:
+            from forgelm._http import _mask_netloc
+
+            targets.append(_mask_netloc(url))
+        except (ImportError, AttributeError, ValueError):
+            # `_mask_netloc` is the documented redactor; if it cannot
+            # parse / import, drop a generic placeholder so the chain
+            # never carries the raw URL.  Caught exceptions narrowed
+            # from `Exception` per Round-3 review to surface unrelated
+            # bugs.
+            targets.append("<webhook-url-redacted>")
     return sorted(set(targets))
 
 

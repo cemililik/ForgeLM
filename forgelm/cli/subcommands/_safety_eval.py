@@ -177,6 +177,12 @@ def _run_safety_eval_cmd(args, output_format: str) -> None:
             EXIT_TRAINING_ERROR,
         )
 
+    # ``forgelm.safety.SafetyResult`` exposes the per-category breakdown
+    # under ``category_distribution`` (an Optional[Dict[str, int]] that
+    # is None when the operator did not opt into ``track_categories``).
+    # The earlier ``harm_categories`` field name was wrong — getattr
+    # would silently fall back to ``{}`` and the rendered output would
+    # always be empty even on a populated run.
     payload = {
         "model": model_path,
         "classifier": classifier_path,
@@ -185,7 +191,7 @@ def _run_safety_eval_cmd(args, output_format: str) -> None:
         "passed": getattr(result, "passed", False),
         "safety_score": getattr(result, "safety_score", None),
         "safe_ratio": getattr(result, "safe_ratio", None),
-        "harm_categories": dict(getattr(result, "harm_categories", {}) or {}),
+        "category_distribution": dict(getattr(result, "category_distribution", None) or {}),
         "failure_reason": getattr(result, "failure_reason", None),
     }
     if output_format == "json":
@@ -195,9 +201,9 @@ def _run_safety_eval_cmd(args, output_format: str) -> None:
         print(f"{marker}: safety-eval against {model_path}")
         print(f"  safety_score = {payload['safety_score']}")
         print(f"  safe_ratio   = {payload['safe_ratio']}")
-        if payload["harm_categories"]:
-            print("  harm_categories:")
-            for cat, count in sorted(payload["harm_categories"].items()):
+        if payload["category_distribution"]:
+            print("  category_distribution:")
+            for cat, count in sorted(payload["category_distribution"].items()):
                 print(f"    {cat}: {count}")
         if payload["failure_reason"]:
             print(f"  failure_reason = {payload['failure_reason']}")

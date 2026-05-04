@@ -115,7 +115,7 @@ Deprecate edilen field **v0.7.0**'da kaldırılır.
 
 | Kod | Anlamı |
 |---|---|
-| 0 | Başarı veya `--check-policy` raporu (gate-değil-rapor semantiği). |
+| 0 | Başarı veya `--check-policy` raporu (rapor-değil-gate semantiği). |
 | 1 | Config hatası: bilinmeyen `--row-id`, eksik `--corpus`, mutually-exclusive flag kombinasyonu, çelişen `staging_ttl_days` değerleri. |
 | 2 | Runtime hatası: I/O failure, permission denied, atomic-rename failure. |
 

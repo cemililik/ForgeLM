@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 from typing import Any, Dict, NoReturn
 
@@ -26,6 +27,12 @@ from .._logging import logger
 
 _GGUF_MAGIC = b"GGUF"
 _SIDECAR_SUFFIX = ".sha256"
+
+# A SHA-256 sidecar must contain a 64-character hex digest.  Anything
+# else (empty file, "TODO" placeholder, truncated paste, wrong-algorithm
+# digest) is malformed; verify_gguf fails closed rather than silently
+# accepting an unverifiable artefact.
+_SHA256_HEX_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
 class VerifyGgufResult:
@@ -98,7 +105,7 @@ def verify_gguf(path: str) -> VerifyGgufResult:
     if metadata_check.get("tensor_count") is not None:
         checks["tensor_count"] = metadata_check["tensor_count"]
 
-    # SHA-256 sidecar (optional).
+    # SHA-256 sidecar (optional, but fail-closed on malformed contents).
     sidecar_path = path + _SIDECAR_SUFFIX
     if os.path.isfile(sidecar_path):
         checks["sidecar_present"] = True
@@ -109,14 +116,31 @@ def verify_gguf(path: str) -> VerifyGgufResult:
         expected = expected_text.split()[0] if expected_text else ""
         checks["sha256_actual"] = actual
         checks["sha256_expected"] = expected
-        if expected and actual != expected:
+        if not _SHA256_HEX_RE.match(expected):
+            # Empty / non-hex / wrong-length sidecar.  Fail closed:
+            # ignoring it would let a malformed sidecar masquerade as
+            # "verified".  A genuinely-absent sidecar is the operator's
+            # explicit choice (no file → no check); a *present but
+            # malformed* sidecar is operator error we must surface.
+            checks["sidecar_match"] = False
+            return VerifyGgufResult(
+                valid=False,
+                reason=(
+                    "Malformed SHA-256 sidecar: expected a 64-character hex digest, "
+                    f"got {expected_text[:64]!r}.  Regenerate the sidecar (e.g. "
+                    "`sha256sum model.gguf > model.gguf.sha256`) or remove it to "
+                    "skip the check."
+                ),
+                checks=checks,
+            )
+        if actual != expected:
             checks["sidecar_match"] = False
             return VerifyGgufResult(
                 valid=False,
                 reason=f"SHA-256 sidecar mismatch — file modified after export.  Expected {expected[:16]}…, got {actual[:16]}….",
                 checks=checks,
             )
-        checks["sidecar_match"] = bool(expected)
+        checks["sidecar_match"] = True
 
     return VerifyGgufResult(
         valid=True,
@@ -131,8 +155,18 @@ def _maybe_parse_metadata(path: str) -> Dict[str, Any]:
     """Best-effort GGUF metadata parse via the optional ``gguf`` package.
 
     Returns ``{"parsed": bool, "error": str|None, "tensor_count": int|None}``.
-    Absent ``gguf`` package = parsed=False, no error (we can't tell from
-    here, that's fine — the magic-header check is the load-bearing one).
+
+    **Optional-dependency policy** (per ``CLAUDE.md`` and
+    ``docs/standards/coding.md``): ``gguf`` is *not* a core ForgeLM
+    dependency — operators using `verify-gguf` to spot-check exported
+    artefacts on a minimal install legitimately do not have it.
+    Absent ``gguf`` package = ``parsed=False``, ``error=None`` and the
+    caller treats this as "metadata check skipped" (the magic-header
+    + SHA-256-sidecar checks are the load-bearing integrity surface).
+    Raising ``ImportError`` here would break the subcommand for the
+    optional-extra-not-installed path and contradict the project
+    standard.  Genuine corruption (file present but reader crashes)
+    surfaces as a real ``error`` string and the caller fails closed.
     """
     try:
         from gguf import GGUFReader  # type: ignore[import-untyped]

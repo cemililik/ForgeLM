@@ -188,9 +188,16 @@ class TestCacheModels:
 
 class TestCacheTasks:
     def test_cache_tasks_missing_extra_emits_install_hint(self, tmp_path: Path, capsys, monkeypatch) -> None:
-        # Force the lm_eval import to fail by removing it from sys.modules
-        # AND patching __import__ to refuse it.
+        # Two-pronged isolation: pop any prior `lm_eval` entries from
+        # sys.modules so the `import lm_eval` statement inside
+        # `_run_cache_tasks_cmd` actually goes through the patched
+        # __import__ (otherwise Python short-circuits via the cached
+        # entry and our install-hint path never fires); AND patch
+        # builtins.__import__ to refuse fresh lm_eval imports.  Both
+        # are required because some other test in this run may have
+        # already pulled lm_eval into sys.modules.
         import builtins
+        import sys as _sys
 
         from forgelm.cli.subcommands._cache import _run_cache_tasks_cmd
 
@@ -200,6 +207,10 @@ class TestCacheTasks:
             if name == "lm_eval" or name.startswith("lm_eval."):
                 raise ImportError("No module named 'lm_eval'")
             return orig_import(name, *args, **kwargs)
+
+        # Wipe any preloaded lm_eval entries (only this test cares).
+        for cached in [k for k in list(_sys.modules) if k == "lm_eval" or k.startswith("lm_eval.")]:
+            monkeypatch.delitem(_sys.modules, cached, raising=False)
 
         with patch.object(builtins, "__import__", _block_lm_eval):
             args = _build_args(tasks="hellaswag", output=str(tmp_path / "cache"))

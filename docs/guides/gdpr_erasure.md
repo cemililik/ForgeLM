@@ -115,7 +115,7 @@ Six new events ship with `forgelm purge` (catalogued in `docs/reference/audit_ev
 
 | Code | Meaning |
 |---|---|
-| 0 | Success or `--check-policy` report (gate-not-report semantic). |
+| 0 | Success or `--check-policy` report (report-not-gate semantic). |
 | 1 | Config error: unknown `--row-id`, missing `--corpus`, mutually-exclusive flag combination, conflicting `staging_ttl_days` values. |
 | 2 | Runtime error: I/O failure, permission denied, atomic-rename failure. |
 

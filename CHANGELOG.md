@@ -4,6 +4,89 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+### Wave 2b inline review absorption (round 1)
+
+A round of inline review on the Wave 2b consolidation surfaced 7 valid
+defects + 5 non-actionable suggestions.  The fixes ride on top of the
+integration commit (`b89495f`).
+
+**Fixed:**
+
+- `docs/guides/gdpr_erasure.md:118` + `gdpr_erasure-tr.md:118` —
+  exit-code-table cells `gate-not-report` / `gate-değil-rapor` flipped
+  to `report-not-gate` / `rapor-değil-gate` to match the prose at L71
+  (and the design spec).  The tables previously contradicted the
+  paragraph immediately above them.
+- `forgelm/cli/subcommands/_purge.py::_extract_webhook_targets` —
+  iterated over fictitious `WebhookConfig` fields (`url_success`,
+  `url_failure`, etc.) so the `data.erasure_warning_external_copies`
+  event would always carry an empty `webhook_targets` list.  Now reads
+  the real schema (`webhook.url` literal + `webhook.url_env` resolved
+  via `os.environ`).  Caught exceptions narrowed from bare `Exception`
+  to `(ImportError, AttributeError, ValueError)` so unrelated
+  redaction bugs surface.
+- `forgelm/cli/subcommands/_safety_eval.py:188` — payload key
+  `harm_categories` → `category_distribution` to match the actual
+  `forgelm.safety.SafetyResult` dataclass field; the previous name
+  meant `getattr(result, "harm_categories", {})` always returned an
+  empty dict, so the standalone safety-eval rendered no per-category
+  output even on populated runs.
+- `forgelm/cli/subcommands/_verify_gguf.py::verify_gguf` —
+  malformed SHA-256 sidecars (empty file, "TODO" placeholder,
+  truncated paste, non-hex digest, wrong-length digest) now fail
+  closed with a clear "Malformed SHA-256 sidecar" reason instead of
+  being silently accepted.  Sidecar tokens are validated against
+  `^[0-9a-fA-F]{64}$` before any digest comparison.  Four new
+  parametrised regression cases in
+  `tests/test_verification_toolbelt.py::TestVerifyGguf::test_malformed_sidecar_fails_closed`.
+- `tests/test_cache_subcommands.py::test_cache_tasks_missing_extra_emits_install_hint`
+  — explicitly pops any preloaded `lm_eval` / `lm_eval.*` entries from
+  `sys.modules` before patching `builtins.__import__`.  Without the
+  pop, a sibling test that imports `lm_eval` first leaves the cached
+  module in `sys.modules` and Python short-circuits the `import` —
+  bypassing the patched handler so the test would never exercise the
+  install-hint path.
+- `tests/test_verification_toolbelt.py::TestVerifyGguf` success-path
+  tests — gained a `_stub_metadata_parse(monkeypatch)` helper that
+  patches `_maybe_parse_metadata` to a benign no-op.  The minimal
+  GGUF fixture is magic-header-only (no real metadata block) so when
+  the optional `gguf` package is installed in the CI matrix,
+  `GGUFReader` would reject it; the stub keeps the success-path
+  tests independent of whether the optional extra is present.  The
+  corrupted-magic test does **not** stub because the magic check
+  fires before the metadata branch.
+
+**Skipped (with rationale):**
+
+- *"Force `verify-gguf` to raise `ImportError` when the optional
+  `gguf` package is missing."*  Conflicts with the project standard
+  for optional extras (`CLAUDE.md`: "Heavy deps live under
+  `[project.optional-dependencies]` and raise `ImportError` with an
+  install hint when missing — but only for paths that actually
+  *require* the dep").  `verify-gguf`'s magic-header + SHA-256
+  sidecar checks remain useful integrity surface without `gguf`
+  installed; raising would break the subcommand on minimal-install
+  hosts that have no real reason to install the optional reader.
+  Documented inline in `_maybe_parse_metadata` docstring.
+- *"Refactor `_emit_purge_success` / `_age_from_audit_log` /
+  `_run_safety_eval_cmd` for cognitive complexity."*  Sonar gate
+  passes on these (no S3776 finding); the suggested refactors would
+  trade complexity for indirection without changing behaviour or
+  catching a real bug.  Deferred to a future maintenance pass.
+- *"Drop `output_format` parameter from `_maybe_audit_logger`."*
+  Real nit; the parameter is unused.  Deferred — touching the
+  signature now invalidates 4 call sites for a stylistic gain
+  smaller than the diff cost.
+- *"Narrow `except Exception` blocks at `_purge.py:147 / 261 / 347 /
+  797`."*  L347 narrowed in this round (redaction path).  L147 (audit
+  log emit), L261 (corpus rewrite cleanup), L797 (config load) are
+  intentionally broad: each is a best-effort recovery path where
+  *any* unexpected exception class must funnel into the same
+  operator-facing failure with `data.erasure_failed`.  Narrowing
+  would silently mask a regression class.  The `# noqa: BLE001`
+  comments on those lines already justify the breadth per project
+  standard.
+
 ### Added — Wave 2b — Phase 16 + 19 + 21 + 35 + 36 (closure plan)
 
 Five-phase consolidated integration covering the dependency-free batch

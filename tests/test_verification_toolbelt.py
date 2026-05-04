@@ -150,12 +150,41 @@ class TestVerifyAnnexIv:
 
 
 def _make_minimal_gguf(path: Path, *, magic: bytes = b"GGUF", payload_size: int = 256) -> None:
-    """Write a minimal GGUF-shaped file (magic + zero-padded payload)."""
+    """Write a minimal GGUF-shaped file (magic + zero-padded payload).
+
+    The file is *not* a real GGUF — it has the correct 4-byte magic
+    header but the rest is zero-padded.  When the optional ``gguf``
+    package is installed in the test env, ``GGUFReader`` would refuse
+    to parse the metadata block; success-path tests therefore patch
+    :func:`forgelm.cli.subcommands._verify_gguf._maybe_parse_metadata`
+    to return a benign "parsed=False" result via the
+    :func:`_stub_metadata_parse` helper below.
+    """
     path.write_bytes(magic + b"\x00" * payload_size)
 
 
+def _stub_metadata_parse(monkeypatch) -> None:
+    """Patch the metadata parse to a benign no-op.
+
+    The minimal GGUF fixture (magic + zero padding) does NOT carry a
+    real metadata block; the genuine ``gguf.GGUFReader`` would surface
+    that as an error and trip the success-path tests when the optional
+    ``gguf`` extra is installed.  Production code path is covered
+    elsewhere (the ``corrupted_magic_fails`` test still exercises the
+    real magic-header check).
+    """
+    from forgelm.cli.subcommands import _verify_gguf
+
+    monkeypatch.setattr(
+        _verify_gguf,
+        "_maybe_parse_metadata",
+        lambda _path: {"parsed": False, "error": None, "tensor_count": None},
+    )
+
+
 class TestVerifyGguf:
-    def test_valid_magic_passes(self, tmp_path: Path, capsys) -> None:
+    def test_valid_magic_passes(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        _stub_metadata_parse(monkeypatch)
         from forgelm.cli.subcommands._verify_gguf import _run_verify_gguf_cmd
 
         path = tmp_path / "model.gguf"
@@ -172,6 +201,9 @@ class TestVerifyGguf:
     def test_corrupted_magic_fails_with_exit_one(self, tmp_path: Path, capsys) -> None:
         from forgelm.cli.subcommands._verify_gguf import _run_verify_gguf_cmd
 
+        # No metadata-stub here: the magic check fires *before* the
+        # metadata branch, so the corrupted-magic path is identical
+        # whether or not gguf is installed.
         path = tmp_path / "model.gguf"
         _make_minimal_gguf(path, magic=b"NOPE")
 
@@ -183,7 +215,8 @@ class TestVerifyGguf:
         assert payload["valid"] is False
         assert "magic" in payload["reason"].lower()
 
-    def test_sha256_sidecar_match_passes(self, tmp_path: Path, capsys) -> None:
+    def test_sha256_sidecar_match_passes(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        _stub_metadata_parse(monkeypatch)
         from forgelm.cli.subcommands._verify_gguf import _run_verify_gguf_cmd
 
         path = tmp_path / "model.gguf"
@@ -200,7 +233,8 @@ class TestVerifyGguf:
         assert payload["checks"]["sidecar_present"] is True
         assert payload["checks"]["sidecar_match"] is True
 
-    def test_sha256_sidecar_mismatch_fails_with_exit_one(self, tmp_path: Path, capsys) -> None:
+    def test_sha256_sidecar_mismatch_fails_with_exit_one(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        _stub_metadata_parse(monkeypatch)
         from forgelm.cli.subcommands._verify_gguf import _run_verify_gguf_cmd
 
         path = tmp_path / "model.gguf"
@@ -214,6 +248,36 @@ class TestVerifyGguf:
         payload = json.loads(capsys.readouterr().out)
         assert payload["valid"] is False
         assert "sha-256" in payload["reason"].lower() or "sha256" in payload["reason"].lower()
+
+    @pytest.mark.parametrize(
+        "sidecar_text,expected_substring",
+        [
+            ("", "malformed sha-256"),  # empty
+            ("not-a-hash\n", "malformed sha-256"),  # garbage
+            ("abcdef\n", "malformed sha-256"),  # too short
+            ("z" * 64 + "\n", "malformed sha-256"),  # right length, wrong charset
+        ],
+    )
+    def test_malformed_sidecar_fails_closed(
+        self, tmp_path: Path, capsys, monkeypatch, sidecar_text: str, expected_substring: str
+    ) -> None:
+        """A present but malformed SHA-256 sidecar must surface as a
+        verification *failure* (operator error), not silently accept
+        the artefact as 'verified'."""
+        _stub_metadata_parse(monkeypatch)
+        from forgelm.cli.subcommands._verify_gguf import _run_verify_gguf_cmd
+
+        path = tmp_path / "model.gguf"
+        _make_minimal_gguf(path)
+        (tmp_path / "model.gguf.sha256").write_text(sidecar_text)
+
+        args = _build_args(path=str(path))
+        with pytest.raises(SystemExit) as ei:
+            _run_verify_gguf_cmd(args, output_format="json")
+        assert ei.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["valid"] is False
+        assert expected_substring in payload["reason"].lower()
 
     def test_missing_path_exits_config_error(self) -> None:
         from forgelm.cli.subcommands._verify_gguf import _run_verify_gguf_cmd
