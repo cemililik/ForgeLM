@@ -21,6 +21,23 @@ def _non_negative_int(value: str) -> int:
     return ivalue
 
 
+def _positive_int(value: str) -> int:
+    """argparse type for flags that must be >= 1 (e.g. ``--workers``).
+
+    Mirrors :func:`_non_negative_int` but rejects 0 so a typo
+    (``--workers 0``) produces an immediate, helpful CLI error instead
+    of getting validated downstream as ``ValueError`` deep inside an
+    audit call.
+    """
+    try:
+        ivalue = int(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(f"invalid integer: {value!r}") from exc
+    if ivalue < 1:
+        raise argparse.ArgumentTypeError(f"value must be >= 1, got {ivalue}")
+    return ivalue
+
+
 def _non_negative_float(value: str) -> float:
     """argparse type for ``--jaccard-threshold`` and similar floats.
 

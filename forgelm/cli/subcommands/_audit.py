@@ -29,6 +29,7 @@ def _run_data_audit(
     enable_pii_ml: bool = False,
     pii_ml_language: str = "en",
     emit_croissant: bool = False,
+    workers: int = 1,
 ) -> None:
     """Phase 11 / 11.5 / 12 dispatch: dataset quality + governance audit.
 
@@ -59,6 +60,7 @@ def _run_data_audit(
             enable_pii_ml=enable_pii_ml,
             pii_ml_language=pii_ml_language,
             emit_croissant=emit_croissant,
+            workers=workers,
         )
     except OSError as exc:
         # OSError covers FileNotFoundError / PermissionError / ENOSPC /
@@ -148,4 +150,5 @@ def _run_audit_cmd(args, output_format: str) -> None:
         enable_pii_ml=getattr(args, "pii_ml", False),
         pii_ml_language=getattr(args, "pii_ml_language", "en"),
         emit_croissant=getattr(args, "croissant", False),
+        workers=getattr(args, "workers", 1),
     )

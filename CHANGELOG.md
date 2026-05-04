@@ -13,6 +13,7 @@ All notable changes to ForgeLM are documented here.
 > Per-PR CHANGELOG entries below collapse into the v0.5.5 release
 > notes at tag time.
 
+<<<<<<< HEAD
 ### Added — Wave 2a — Phase 18 Library API design + Phase 20 GDPR erasure design
 
 - **Phase 18 — Library API analysis & design** —
@@ -41,6 +42,39 @@ All notable changes to ForgeLM are documented here.
   the marketing-claim replacement copy for `safety_compliance.md`.
 
 Both are design-only PRs — Phase 19 + Phase 21 implementations follow.
+
+### Added — Wave 2a / Phase 17 — `forgelm audit --workers N` determinism
+
+- **Split-level parallelism for the audit pipeline.**  `--workers N`
+  (default 1) runs each split in its own `multiprocessing.Pool` worker
+  (spawn-method, pinned in code).  Speed-up scales with the number of
+  splits — `--workers 3` on a `train` / `validation` / `test` corpus
+  typically yields a near-linear speed-up.  Single-split corpora ignore
+  values >1.
+- **Determinism contract pinned by tests.**  The merge step that
+  builds the final report stays single-threaded so
+  `data_audit_report.json` is byte-identical across worker counts (only
+  `generated_at` differs as expected — stripped textually before SHA-256
+  comparison).  Tests cover: SHA-256 file hash equality for workers in
+  {1,2,4}; per-split `languages_top3` equality; identical `pii_summary` /
+  `secrets_summary` / `near_duplicate_summary` / `total_samples` across
+  worker counts; split-iteration order pinned (`train` → `validation` →
+  `test`); CLI `--workers 0` and non-integer rejected at parse time;
+  library `audit_dataset(workers=0/-1/bool/str)` raises typed
+  `ValueError`; default-when-omitted equals `--workers 1`; single-split
+  corpus tolerates `workers > 1`; minhash-method × workers byte-identical
+  (gated on `datasketch` extra); error-propagation path verified for
+  both sequential and parallel paths.
+- **CLI exposure.**  `forgelm audit --workers N` registered on the
+  audit subparser with a new `_positive_int` argparse type validator
+  (rejects 0 / negatives at parse time).
+- New module-level helper `_process_split_for_pool` in
+  `forgelm/data_audit/_orchestrator.py` so worker pickling stays
+  spawn-method safe.
+- Operator docs updated: `docs/guides/data_audit.md` (+ TR mirror)
+  Run-it section shows the `--workers 4` example, CLI reference
+  includes the flag, and a dedicated explanation of the determinism
+  contract was added.
 
 ### Added — Wave 1 closure (Faz 9, 11, 12, 13, 25, 31, 32 — see PR description)
 
