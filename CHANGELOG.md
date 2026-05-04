@@ -223,6 +223,146 @@ subcommands surface in `forgelm --help` and the help epilog.
 > Per-PR CHANGELOG entries below collapse into the v0.5.5 release
 > notes at tag time.
 
+### Fixed — PR #29 (development → main) pre-merge dual-agent review (2026-05-04)
+
+Two pre-merge agent reviews of PR #29 (`development → main` release-PR
+consolidating Wave 1 + Wave 2a) — `opusreview-pr29.md` (Opus 4.7,
+correctness + cohesion + CI bütünlük) and `kimireview-pr29.md`
+(Kimi, code-correctness focus) — surfaced one HIGH that was load-bearing
+across the approve / reject family plus seven MEDIUM / LOW / NIT
+defensive-coding gaps.  10 of 11 findings shipped fixes; F-PR29-03
+(`_assert_audit_log_readable_or_exit` cohesion in `_approve.py` rather
+than `_audit_log_reader.py`) deferred to Phase 21 with rationale —
+`_purge.py` wiring will surface the import-direction problem clearly
+enough that the move can land alongside Phase 21's first commit.
+
+**Code:**
+
+- `forgelm/compliance.py::generate_training_manifest` — webhook config
+  now persisted into the manifest (and therefore into
+  `<output_dir>/compliance/compliance_report.json`).  `_build_approval_notifier`
+  reads `report["webhook_config"]` to rebuild the notifier on `forgelm
+  approve` / `forgelm reject` (which run with no `--config` flag, only
+  the output dir).  Without this stanza the notifier silently no-op'd:
+  `webhook_cfg=None → _Carrier.webhook=None → _resolve_url()=None →
+  notify_success / notify_failure both bypass the HTTP call`.  An
+  operator with a valid Slack / Teams webhook in their training YAML
+  was getting the "awaiting approval" notification at training time
+  but **never** the follow-up success / rejection notification —
+  webhook appeared broken even though the config was correct.  Uses
+  `model_dump(mode="json")` for pydantic v2; falls back to a
+  best-effort attribute dump for hand-rolled config dicts.  Operator
+  secrets resolve from env at runtime via `url_env` / `secret_env` so
+  persisting the config shape is safe (no plaintext secret in the
+  report).  (Kimi F-37-01 — HIGH)
+- `forgelm/cli/_result.py::_output_result` — added `default=str` to
+  `json.dumps` so a `TrainResult.resource_usage` dict containing a
+  `Path` / `datetime` / numpy scalar (anything a downstream monitor
+  injects) cannot crash with `TypeError` and dump a Python traceback
+  to stdout instead of the documented JSON envelope.  Mirrors the
+  Wave 2a Round-5 F-R5-06 fix on the doctor renderer.
+  (Kimi F-TRAIN-01 — MEDIUM)
+- `forgelm/cli/_dispatch.py::main` — extracted body to `_main_inner`
+  and wrapped the entry point in a top-level
+  `try/except KeyboardInterrupt → sys.exit(EXIT_TRAINING_ERROR)`.
+  A Ctrl-C struck while `parse_args()` is constructing argparse help
+  text, validating a long `--workers` integer, walking the
+  interactive wizard, or loading the YAML config previously bubbled
+  up to Python's default handler and exited with shell-shaped 130
+  (= 128+SIGINT) — outside the documented public 0/1/2/3/4 surface.
+  Now lands on `EXIT_TRAINING_ERROR` (= 2) like the dispatcher's
+  own SIGINT handler.  (Kimi F-CLI-01 — LOW)
+- `forgelm/cli/subcommands/_doctor.py::_render_json` — added
+  `ensure_ascii=False`.  A Turkish operator name, Unicode cache
+  path, or localized error message in `detail` / `extras` previously
+  rendered as `\uXXXX` escape sequences; operators piping the JSON
+  through `jq` / `less` / a CI log viewer now see literal characters.
+  (Kimi F-34-01 — LOW)
+- `forgelm/cli/subcommands/_doctor.py::_run_doctor_cmd` — env-var
+  scan for implicit offline mode now also checks
+  `HF_DATASETS_OFFLINE=1` (was: `HF_HUB_OFFLINE` / `TRANSFORMERS_OFFLINE`
+  only).  Mirrors what `forgelm/cli/_config_load.py::_apply_offline_flag`
+  already sets at training time; without the doctor-side mirror the
+  probe would attempt a network call on a host the training pipeline
+  correctly treats as offline.  (Kimi F-XPR-01 — LOW)
+- `forgelm/cli/subcommands/_doctor.py::_walk_hf_cache_bounded` — log
+  message now prints `?` (not literal `None`) when `OSError.filename`
+  is unset.  CPython's `os.scandir` errors normally carry a filename,
+  but Windows / WSL / FUSE platforms can produce `OSError(filename=None)`
+  — the log line `... on None` was unhelpful.  (Opus F-PR29-06 — LOW)
+- `forgelm/cli/subcommands/_approvals.py::_emit_show_json` and
+  `_emit_pending_json` — added `default=str` + `ensure_ascii=False` so
+  a hand-edited / tampered audit log carrying a non-JSON-native value
+  (datetime, Path) does not crash the operator's `--show` /
+  `--pending` listing, and Turkish operator names + Unicode comments
+  stay readable.  Defensive parity with Wave 2a Round-5 F-R5-06.
+  (Kimi F-37-02 — NIT)
+- `tests/test_grpo_reward.py::test_reward_funcs_is_callable_list` —
+  patch targets corrected from `forgelm.trainer.SFTTrainer` /
+  `forgelm.trainer.SFTConfig` to `trl.SFTTrainer` / `trl.SFTConfig`.
+  `forgelm/trainer.py:8-10` defers `from trl import SFTTrainer/SFTConfig`
+  to method bodies (closure-plan F-performance-101 lazy-import
+  contract) so they are NOT module-level attributes on
+  `forgelm.trainer`; patching that path raised
+  `AttributeError: module 'forgelm.trainer' does not have the attribute
+  'SFTTrainer'` on every CI matrix Python (3.10/3.11/3.12/3.13).  The
+  upstream-module patch resolves through the lazy import.
+  (Opus F-PR29-01.b — HIGH; CI matrix unblocker)
+- `tests/test_faz27_narrow_exceptions.py::test_english_payload_returns_en`
+  — added `pytest.importorskip("langdetect", reason=...)`.  CI matrix
+  installs `[dev]` only, which does not pull `langdetect` (lives under
+  the optional `[ingestion]` extra).  `_detect_language` returns the
+  literal `"unknown"` constant without `langdetect` installed, so the
+  happy-path assertion `== "en"` fails on every CI matrix Python.
+  Skip cleanly when the optional extra is absent so the test runs
+  locally (where `[ingestion]` is typically installed) without
+  false-failing in matrix builds.  (Opus F-PR29-01.a — HIGH; CI matrix
+  unblocker)
+
+**Docs:**
+
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md` §5.1
+  event catalog row for `data.erasure_requested` now lists `salt_source`
+  (row mode only).  Wave 2a Round-5 F-R5-05 introduced the field in
+  §5.4 (per-event personal-data table) but did not propagate it to
+  §5.1 (event catalog field listing).  Phase 21 implementer following
+  §5.1 alone would have missed the salt-source persistence and the
+  hash-discontinuity-detection property F-R5-05 was fixing would have
+  silently regressed.  `data.erasure_completed` and `data.erasure_failed`
+  inherit via "All `data.erasure_requested` fields + ..." so the single
+  edit covers all three events.  (Opus F-PR29-02 — HIGH)
+
+**Verification:** ruff format + check clean; pytest 1161 passed, 14
+skipped, 0 failed (was: 1160 passed, 2 failed on PR #29 CI matrix —
+both fails are now pinned via `pytest.importorskip` / corrected patch
+target so the matrix unblocks).  Round-5 absorption invariants
+(`is_audit_log_readable`, `_assert_audit_log_readable_or_exit`,
+`verify-audit` SIGINT, F-R5-04 walk_errors policy, F-R5-06 default=str)
+preserved verbatim.
+
+**Deferred with rationale:**
+
+- *Opus F-PR29-03* (cohesion: `_assert_audit_log_readable_or_exit`
+  lives in `_approve.py` but is imported from `_approvals.py`) —
+  Phase 21 (`_purge.py`) will surface the import-direction wrongness
+  clearly enough that consolidation lands alongside Phase 21's first
+  commit.  Today's wiring works; defer.
+- *Opus F-PR29-04* (collapse triple `os.path.isfile` into a single
+  `get_audit_log_state` enum-returning helper) — pure refactor; no
+  behavioural delta.  Defer to a future readability pass.
+- *Opus F-PR29-05* (test-injection env var harden against operator
+  mis-set) — operator coincidence-set risk near zero; documented in
+  orchestrator docstring + CHANGELOG; defer.
+- *Opus F-PR29-07* (verify-audit option-error exit code 2 vs
+  config-error 1 ambiguity post-Round-5 SIGINT routing) — cosmetic
+  semantic clarification; defer to a future error-code audit pass.
+- *Opus F-PR29-09* (orchestrator test-injection `# pragma: no cover`)
+  — coverage report cosmetic only; ignore.
+- *Kimi F-INFRA-01* (`_get_version` duplication between `cli/_logging.py`
+  and `compliance.py`) — `forgelm/__init__.py` covers the uninstalled
+  fallback today; consolidation is a future-refactor candidate, not a
+  pre-merge fix.
+
 ### Added — Wave 2a Round-2 review absorption (2026-05-04)
 
 Round-2 multi-agent review of PR #28 surfaced 52 findings (4 specialist

@@ -77,7 +77,14 @@ def _log_benchmark_summary(result) -> None:
 def _output_result(result, output_format: str) -> None:
     """Output training result in the requested format."""
     if output_format == "json":
-        print(json.dumps(_build_result_json_envelope(result), indent=2))
+        # ``default=str`` mirrors the doctor JSON renderer's defence
+        # (Wave 2a Round-5 F-R5-06): ``TrainResult.resource_usage`` is typed
+        # ``Optional[Dict[str, Any]]`` so a downstream monitor injecting a
+        # ``Path`` / ``datetime`` / ``numpy`` scalar would otherwise raise
+        # ``TypeError`` and dump a Python traceback to stdout — breaking
+        # CI pipelines that parse stdout as JSON.  Coercing to ``str`` for
+        # any non-JSON-native type preserves the documented envelope shape.
+        print(json.dumps(_build_result_json_envelope(result), indent=2, default=str))
         return
     _log_result_status(result)
     _log_cost_summary(result)

@@ -715,6 +715,44 @@ def generate_training_manifest(
             "check_interval_hours": mon_cfg.check_interval_hours,
         }
 
+    # Webhook config — preserved verbatim into the compliance report so the
+    # post-training approve / reject dispatchers (which run with no --config
+    # flag, only the output_dir) can rebuild a WebhookNotifier from the
+    # co-located JSON.  Without this the operator's Slack / Teams hook
+    # configured in the original training YAML produces a silent no-op on
+    # ``forgelm approve`` / ``forgelm reject`` because
+    # ``_build_approval_notifier`` reads ``webhook_config`` from this exact
+    # report and would otherwise see ``None``.  The full ``WebhookConfig``
+    # surface (url, url_env, notify_on_*, retry_*, timeout_*, secret_env)
+    # is serialized — operator-supplied secrets never live in the plain
+    # ``url`` field; secrets resolve from env at runtime via ``url_env`` /
+    # ``secret_env`` so persisting the *config* shape into the report is
+    # safe.
+    webhook_cfg = getattr(config, "webhook", None)
+    if webhook_cfg is not None:
+        try:
+            manifest["webhook_config"] = webhook_cfg.model_dump(mode="json")
+        except AttributeError:
+            # Defensive — pre-pydantic-v2 callers or hand-rolled config dicts.
+            # Falls through to a best-effort attribute dump so the approve /
+            # reject dispatchers still see *something* rather than a silent
+            # absent key.
+            manifest["webhook_config"] = {
+                k: getattr(webhook_cfg, k, None)
+                for k in (
+                    "url",
+                    "url_env",
+                    "notify_on_success",
+                    "notify_on_failure",
+                    "notify_on_revert",
+                    "notify_on_awaiting_approval",
+                    "secret_env",
+                    "timeout_seconds",
+                    "retry_count",
+                    "retry_backoff_seconds",
+                )
+            }
+
     if resource_usage:
         manifest["resource_usage"] = resource_usage
     if safety_result:

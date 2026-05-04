@@ -41,6 +41,23 @@ class TestDetectLanguageNarrowing:
         assert result == "unknown"
 
     def test_english_payload_returns_en(self):
+        # ``_detect_language`` returns the literal ``"unknown"`` constant
+        # without ``langdetect`` installed (see ``forgelm/data_audit/_streaming.py``
+        # — ImportError fallback).  CI matrix runs ``[dev]`` only and does
+        # not pull the optional ``[ingestion]`` extra that ships ``langdetect``,
+        # so the happy-path assertion below would never reach ``"en"`` in CI.
+        # Skip cleanly when the optional extra is absent so the test runs
+        # locally (where ``[ingestion]`` is typically installed) without
+        # false-failing in matrix builds.
+        pytest.importorskip(
+            "langdetect",
+            reason=(
+                "_detect_language is constant 'unknown' without the optional "
+                "[ingestion] extra; this happy-path assertion only meaningful "
+                "when langdetect is installed."
+            ),
+        )
+
         from forgelm.data_audit._streaming import _detect_language
 
         assert _detect_language("Hello world this is a sentence in English language here.") == "en"
