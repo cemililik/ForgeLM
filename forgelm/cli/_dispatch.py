@@ -19,10 +19,6 @@ from ._parser import parse_args
 from ._training import _run_training_pipeline
 from ._wizard import _maybe_run_wizard
 
-# Subcommands that need the chat-style outer KeyboardInterrupt guard.
-# The dispatcher fans out everything else through the standard handler.
-_SIGINT_GUARDED_SUBCOMMANDS = frozenset({"chat", "quickstart"})
-
 
 def _output_format_for(args) -> str:
     """Pull the ``--output-format`` value off ``args`` with the standard default."""
@@ -85,9 +81,14 @@ def _dispatch_subcommand(command: str, args) -> None:
         else:
             dispatcher(args, output_format)
     except KeyboardInterrupt:
-        if command in _SIGINT_GUARDED_SUBCOMMANDS:
-            sys.exit(EXIT_TRAINING_ERROR)
-        raise
+        # All SIGINTs route through the public exit-code contract
+        # (EXIT_TRAINING_ERROR = 2, "runtime-error class").  ``raise`` would
+        # have let Python convert SIGINT into the shell-shaped 128+SIGINT
+        # = 130 code, which is outside the documented 0/1/2/3/4 surface
+        # and would surprise CI/CD scripts that branch on exit code.
+        # Wave 2a Round-3 review (CodeRabbit): every SIGINT path lands on a
+        # public code regardless of subcommand.
+        sys.exit(EXIT_TRAINING_ERROR)
     sys.exit(EXIT_SUCCESS)
 
 

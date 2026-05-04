@@ -315,6 +315,55 @@ Fixed:
 - *CodeRabbit "Replace exact float equality with `pytest.approx()`"* —
   already in place at `tests/test_doctor.py:161-162`.
 
+**Inline review-bot follow-ups (round 4 — extra prose / contract polish):**
+
+- `forgelm/cli/_dispatch.py` SIGINT handling — the
+  `KeyboardInterrupt` branch now `sys.exit(EXIT_TRAINING_ERROR)`
+  unconditionally rather than re-raising for non-guarded subcommands.
+  A bare `raise` would have let Python convert the interrupt into the
+  shell-shaped `128+SIGINT = 130` code, which is *outside* the
+  documented public exit-code contract (0/1/2/3/4) and would surprise
+  CI/CD scripts that branch on exit code.  The
+  `_SIGINT_GUARDED_SUBCOMMANDS` constant was deleted because the new
+  policy is uniform across every subcommand.
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+  §5.4 `target_id` row-mode source claim aligned with §4.2 — removed
+  the "or line number" fallback from the table cell (it was already
+  rejected at the CLI per L174); the cell now explicitly cites the
+  Phase 28 `forgelm audit --add-row-ids` follow-up that operators with
+  id-less corpora must run first.
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+  §3.1 dual-set conflict-resolution bullets — varied the leading
+  phrase across the four bullets ("When only X is set", "When only Y
+  is set", "In the case where both are set with identical values",
+  "If both are set with different values") so the LanguageTool /
+  prose-style lint stops flagging the four-in-a-row "If" pattern.
+  Behaviour spec (alias-forward / canonical / DeprecationWarning /
+  ConfigError) is unchanged.
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+  §3.3 mtime-distrust sentence reworded to remove the "consumer that
+  distrusts mtime" person/object ambiguity.
+- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+  §5.3 wording: "by mistake" → "accidentally" for concision.
+- `docs/usermanuals/tr/reference/cli.md`: `--output DIR` row "ya da"
+  → "veya" (more formal Turkish for the docs register); `forgelm
+  doctor` description "operator kimliği" → "operatör kimliği"
+  (matches the Turkish orthography used elsewhere in the docs).
+- New `.markdownlint.json` at the repo root pinning the project's
+  stance on two markdownlint rules:
+  - **MD051 (link-fragments-valid)** disabled because docs use SPA
+    hash-router routes like `#/data/audit` for in-app navigation;
+    markdownlint's anchor resolver doesn't understand SPA conventions
+    and would flag every cross-reference.
+  - **MD014 (commands-show-output)** disabled because shell examples
+    in operator docs deliberately show only the command (`$ forgelm
+    audit ...`) without sample output — output snippets rot quickly
+    across versions and would force a doc update on every CLI banner
+    change.
+
+  Single-config approach beats scattering inline `<!-- markdownlint-
+  disable -->` directives in every Markdown file.
+
 ### Added — Wave 2a — Phase 18 Library API design + Phase 20 GDPR erasure design
 
 - **Phase 18 — Library API analysis & design** —

@@ -74,9 +74,9 @@ Two pre-existing surfaces overlap with this design and must be resolved up front
 
   **Conflict-resolution semantics (dual-set window v0.5.5–v0.6.x):**
 
-  - If only `evaluation.staging_ttl_days` is set → alias-forward to `retention.staging_ttl_days` and emit a single `DeprecationWarning` naming the new field + the v0.7.0 removal target.
-  - If only `retention.staging_ttl_days` is set → no warning; canonical path.
-  - If **both** are set with **identical** values → emit `DeprecationWarning` for the deprecated field; the canonical `retention.staging_ttl_days` value is used; the operator's intent is unambiguous.
+  - When only `evaluation.staging_ttl_days` is set → alias-forward to `retention.staging_ttl_days` and emit a single `DeprecationWarning` naming the new field + the v0.7.0 removal target.
+  - When only `retention.staging_ttl_days` is set → no warning; canonical path.
+  - In the case where **both** are set with **identical** values → emit `DeprecationWarning` for the deprecated field; the canonical `retention.staging_ttl_days` value is used; the operator's intent is unambiguous.
   - If **both** are set with **different** values → raise `ConfigError` at validation time naming both keys, both values, and instructing the operator to remove the deprecated entry.  Silent winner = wrong winner; ambiguous configs are refused.
 
   Phase 21 ships `tests/test_config.py::test_staging_ttl_days_dual_set_with_different_values_refused` asserting the `ConfigError` and that the message mentions both keys + both values.
@@ -134,7 +134,7 @@ The retention check uses filesystem `mtime` as the primary age signal, which is 
 1. **Belt:** for run-scoped artefacts (compliance/, data audit reports, staging dirs), the *canonical* age is the `timestamp` field on the run's audit-log genesis event — that field is HMAC-signed when `FORGELM_AUDIT_SECRET` is set and cannot be silently reset by a filesystem operation.  Phase 21 prefers this in-band timestamp; mtime is the fallback when no audit log is present.
 2. **Suspenders:** for stand-alone JSONL corpora (no audit log next to them), Phase 21 still uses mtime but logs a `data.retention_age_source=mtime` note on the violation so an operator reading the report knows the age signal is filesystem-derived.
 
-The `--check-policy` JSON output includes `age_source ∈ {audit, mtime}` per artefact so a consumer that distrusts mtime can filter for `audit`-sourced ages only.
+The `--check-policy` JSON output includes `age_source ∈ {audit, mtime}` per artefact; a downstream consumer can filter for `audit`-sourced ages if it distrusts `mtime`.
 
 ### 3.4 Where the policy is checked
 
@@ -258,7 +258,7 @@ Because erasure only **appends** events (never edits), the SHA-256 chain stays v
 
 Event bodies carry the `target_id` (e.g. `row_id=42` or `run_id=fg-abc123`).  These are **operational identifiers**, not PII themselves; they can stay in the clear.
 
-If the **justification** field includes something that *might* be PII (e.g. operator pastes the data subject's email into the justification by mistake), we do **not** scrub it automatically — the operator chose to write it.  We document this in the operator guide: "Do not paste subject identifiers into `--justification`; reference your internal ticket id instead."
+If the **justification** field includes something that *might* be PII (e.g. operator accidentally pastes the data subject's email into the justification), we do **not** scrub it automatically — the operator chose to write it.  We document this in the operator guide: "Do not paste subject identifiers into `--justification`; reference your internal ticket id instead."
 
 ### 5.4 Personal-data minimisation across every audit-event field
 
@@ -267,7 +267,7 @@ Article 17(3)(b) preserves the audit log itself, but Article 5(1)(c) (data minim
 | Event field | Source / shape | Personal-data category | Phase 21 policy |
 |---|---|---|---|
 | `target_kind` | enum: `row` / `staging` / `artefacts` / `policy_check` | None | clear |
-| `target_id` (row mode) | row id from JSONL `id` field, or line number | **Possibly personal** (operator-supplied row IDs may be email / username / ticket numbers) | **SHA-256(salt + value)** when emitted; salt = first 16 bytes of `FORGELM_AUDIT_SECRET` if set, else a per-output-dir salt persisted at first use.  Raw value never lands in the chain. |
+| `target_id` (row mode) | Row id from the JSONL `id` (or `row_id`) field — canonical and only source.  Line-number fallback is **rejected** at the CLI per §4.2; operators with id-less corpora must run `forgelm audit --add-row-ids <path>` (Phase 28 follow-up) before invoking `forgelm purge --row-id`. | **Possibly personal** (operator-supplied row IDs may be email / username / ticket numbers) | **SHA-256(salt + value)** when emitted; salt = first 16 bytes of `FORGELM_AUDIT_SECRET` if set, else a per-output-dir salt persisted at first use.  Raw value never lands in the chain. |
 | `target_id` (run mode) | `fg-<hex>` from AuditLogger | None (operational) | clear |
 | `corpus_path` | filesystem path | **Possibly personal** when path includes a subject name (rare but real) | clear by default; operator guide flags the risk + recommends symlinking through a stable name |
 | `output_dir` | filesystem path | Same risk as `corpus_path` | clear; same guide note |
