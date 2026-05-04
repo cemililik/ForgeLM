@@ -100,12 +100,12 @@ Deprecate edilen field **v0.7.0**'da kaldırılır.
 
 | Event | Ne zaman | Anahtar field'lar |
 |---|---|---|
-| `data.erasure_requested` | Herhangi bir purge çağrısının ilk adımı, herhangi bir silmeden önce | `target_kind` ∈ `{row, staging, artefacts, policy_check}`, `target_id` (row mode'da hash'lenmiş), `salt_source`, `corpus_path` (row), `output_dir` (run), `justification`, `dry_run` |
-| `data.erasure_completed` | Başarılı silme bittiğinde | Tüm `requested` field'ları + `bytes_freed`, `files_modified`, `pre_erasure_line_number` (row mode) |
-| `data.erasure_failed` | Disk operasyonu raise ettiğinde | Tüm `requested` field'ları + `error_class`, `error_message` (auto-redact via `_mask_secrets_in_text`) |
-| `data.erasure_warning_memorisation` | Row erasure × `final_model/` mevcut | Tüm `completed` field'ları + `affected_run_ids`, `recommendation` |
-| `data.erasure_warning_synthetic_data_present` | Row erasure × `synthetic_data*.jsonl` mevcut | Tüm `completed` field'ları + `synthetic_files`, `recommendation` |
-| `data.erasure_warning_external_copies` | Yüklü config webhook block'u içeriyor | Tüm `completed` field'ları + `webhook_targets`, `recommendation` |
+| `data.erasure_requested` | Herhangi bir `forgelm purge --row-id` / `--run-id` çağrısının ilk adımı, herhangi bir silmeden önce (`--check-policy` salt-okunur; audit event yaymaz) | `target_kind` ∈ `{row, staging, artefacts}`, `target_id` (row mode'da hash'lenmiş), `salt_source` (row mode), `corpus_path` (row), `output_dir` (run), `justification`, `dry_run` |
+| `data.erasure_completed` | Başarılı silme bittiğinde | Tüm `requested` field'ları + `bytes_freed`, `files_modified`, `pre_erasure_line_number` (row mode), `match_count` (row mode) |
+| `data.erasure_failed` | Disk operasyonu raise etti VEYA eşleşen satır/koşum bulunamadı VEYA çoklu-satır policy belirsizliği reddetti | Tüm `requested` field'ları + `error_class`, `error_message` |
+| `data.erasure_warning_memorisation` | Row erasure × `final_model/` mevcut | Tüm `completed` field'ları + `affected_run_ids` |
+| `data.erasure_warning_synthetic_data_present` | Row erasure × `synthetic_data*.jsonl` mevcut | Tüm `completed` field'ları + `synthetic_files` |
+| `data.erasure_warning_external_copies` | Yüklü config webhook block'u içeriyor | Tüm `completed` field'ları + `webhook_targets` |
 
 ## Silme sonrası zincir doğrulama
 

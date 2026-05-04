@@ -639,14 +639,48 @@ def _resolve_run_kind_targets(output_dir: str, run_id: str, kind: str) -> List[P
     elif kind == "artefacts":
         compliance_dir = base / "compliance"
         if compliance_dir.is_dir():
-            # Compliance bundle filenames embed the run_id; we match them
-            # generously to cover both ``compliance_<run_id>.json`` and
-            # raw ``annex_iv_<run_id>.json``.
+            # Compliance bundle filenames embed the run_id; we accept
+            # both `compliance_<run_id>.json` and `annex_iv_<run_id>.json`.
+            # Wave 2b Round-2 review: bare-substring `run_id in fname`
+            # was too loose — a run_id "fg-abc" would also match
+            # "compliance_fg-abc-extra.json" belonging to a different
+            # run.  Tightened to a token-boundary check: the run_id
+            # must be flanked by a recognised delimiter (`_`, `-`, `.`)
+            # or sit at a string edge.  The delimiters cover every
+            # filename shape ForgeLM's compliance writer emits today
+            # (`<prefix>_<run_id>.<ext>`) without false negatives on
+            # legitimate variants.
             for fname in os.listdir(compliance_dir):
                 fpath = compliance_dir / fname
-                if fpath.is_file() and run_id in fname:
+                if fpath.is_file() and _filename_contains_run_id(fname, run_id):
                     paths.append(fpath)
     return paths
+
+
+_RUN_ID_BOUNDARIES = ("_", "-", ".")
+
+
+def _filename_contains_run_id(filename: str, run_id: str) -> bool:
+    """Return True iff ``run_id`` appears in ``filename`` as a discrete
+    token (flanked by recognised delimiters or string edges).
+
+    Defends against the bare-substring failure mode where a short
+    ``run_id`` accidentally matched longer file names that merely
+    contained those characters.
+    """
+    if not run_id:
+        return False
+    idx = 0
+    while True:
+        found = filename.find(run_id, idx)
+        if found == -1:
+            return False
+        before_ok = found == 0 or filename[found - 1] in _RUN_ID_BOUNDARIES
+        end = found + len(run_id)
+        after_ok = end == len(filename) or filename[end] in _RUN_ID_BOUNDARIES
+        if before_ok and after_ok:
+            return True
+        idx = found + 1
 
 
 def _delete_path(path: Path) -> int:
@@ -671,8 +705,30 @@ def _run_purge_check_policy(args, output_format: str) -> None:
     Always exits 0 (per design §10 Q5: report-not-gate semantic).
     Operators wiring a CI gate use ``--output-format json`` and pipe
     to ``jq '.violations | length'`` themselves.
+
+    Strict config loading: ``--check-policy`` is the one purge mode
+    where the operator explicitly asked for a retention report.  A
+    malformed YAML or a Pydantic validation error must surface as
+    ``EXIT_CONFIG_ERROR`` rather than silently degrading to a
+    "no retention block" notice (which the operator would mistake
+    for "no violations").
     """
-    config_loaded = _maybe_load_config(getattr(args, "config", None))
+    from forgelm.config import ConfigError
+
+    try:
+        config_loaded = _maybe_load_config(getattr(args, "config", None), strict=True)
+    except (ConfigError, FileNotFoundError, OSError) as exc:
+        _output_error_and_exit(
+            output_format,
+            f"--check-policy could not load --config: {exc}",
+            EXIT_CONFIG_ERROR,
+        )
+    except Exception as exc:  # noqa: BLE001 — best-effort: any other ValueError / Pydantic ValidationError funnels into the same operator-facing failure with the underlying message.
+        _output_error_and_exit(
+            output_format,
+            f"--check-policy could not load --config: {exc.__class__.__name__}: {exc}",
+            EXIT_CONFIG_ERROR,
+        )
     if config_loaded is None or getattr(config_loaded, "retention", None) is None:
         msg = (
             "No `retention:` block in the loaded config; nothing to enforce.  "
@@ -721,7 +777,7 @@ def _scan_retention_violations(retention, output_dir: str) -> List[Dict[str, Any
     audit_log_path = os.path.join(output_dir, "audit_log.jsonl")
     audit_age_seconds = _age_from_audit_log(audit_log_path, now)
 
-    horizons = (
+    horizons: List[Tuple[str, str, int]] = [
         ("audit_log", audit_log_path, retention.audit_log_retention_days),
         ("staging_dir", os.path.join(output_dir, "final_model.staging"), retention.staging_ttl_days),
         ("compliance_bundle", os.path.join(output_dir, "compliance"), retention.ephemeral_artefact_retention_days),
@@ -730,7 +786,14 @@ def _scan_retention_violations(retention, output_dir: str) -> List[Dict[str, Any
             os.path.join(output_dir, "data_audit_report.json"),
             retention.ephemeral_artefact_retention_days,
         ),
-    )
+    ]
+    # Wave 2b Round-2 review: the canonical scan above missed the
+    # per-run staging layout (`final_model.staging.<run_id>/` — what
+    # the trainer actually creates since Phase 9 v2) and the raw
+    # documents horizon.  Discover both at scan time so the report
+    # reflects every artefact kind the retention block covers.
+    horizons.extend(_discover_per_run_staging_horizons(output_dir, retention.staging_ttl_days))
+    horizons.extend(_discover_raw_documents_horizons(output_dir, retention.raw_documents_retention_days))
     for kind, path, horizon_days in horizons:
         if horizon_days == 0 or not os.path.exists(path):
             continue
@@ -782,6 +845,51 @@ def _age_from_audit_log(audit_log_path: str, now: float) -> Optional[float]:
     return None
 
 
+def _discover_per_run_staging_horizons(output_dir: str, horizon_days: int) -> List[Tuple[str, str, int]]:
+    """Enumerate ``final_model.staging.<run_id>/`` directories under
+    ``output_dir`` so the retention scan reports each one separately.
+
+    Returns ``[]`` when the horizon is disabled (``horizon_days == 0``)
+    or the output dir cannot be listed (callers handle the empty
+    iterable as "nothing to scan").
+    """
+    if horizon_days == 0:
+        return []
+    discovered: List[Tuple[str, str, int]] = []
+    try:
+        entries = os.listdir(output_dir)
+    except OSError:
+        return []
+    for entry in entries:
+        if not entry.startswith("final_model.staging."):
+            continue
+        full = os.path.join(output_dir, entry)
+        if not os.path.isdir(full):
+            continue
+        run_id = entry[len("final_model.staging.") :]
+        discovered.append((f"staging_dir[{run_id}]", full, horizon_days))
+    return discovered
+
+
+def _discover_raw_documents_horizons(output_dir: str, horizon_days: int) -> List[Tuple[str, str, int]]:
+    """Locate raw-documents directories ForgeLM ingest may have written.
+
+    The retention block covers ``raw_documents_retention_days`` (Phase
+    21 design §3 + GH-023 absorption); the canonical location is
+    ``<output_dir>/raw_documents/`` (when ``forgelm ingest --output``
+    points at the same dir).  We also recognise the legacy
+    ``ingestion_output/`` from earlier templates.
+    """
+    if horizon_days == 0:
+        return []
+    discovered: List[Tuple[str, str, int]] = []
+    for candidate in ("raw_documents", "ingestion_output"):
+        path = os.path.join(output_dir, candidate)
+        if os.path.exists(path):
+            discovered.append((f"raw_documents[{candidate}]", path, horizon_days))
+    return discovered
+
+
 def _resolve_artefact_age(
     path: str,
     audit_age_seconds: Optional[float],
@@ -802,13 +910,21 @@ def _resolve_artefact_age(
 # ---------------------------------------------------------------------------
 
 
-def _maybe_load_config(config_path: Optional[str]):
-    """Best-effort load the ``ForgeConfig`` from YAML.
+def _maybe_load_config(config_path: Optional[str], *, strict: bool = False):
+    """Load the ``ForgeConfig`` from YAML.
 
-    Returns the loaded config or ``None`` when the path is absent /
-    unreadable / invalid — purge subcommands are still expected to run
-    when the operator did not pass ``--config`` (especially the row-id
-    erasure path, which is config-agnostic).
+    ``strict=False`` (default) is the best-effort mode used by the
+    row-id / run-id erasure paths: those subcommands work without a
+    config (the corpus-row erasure is intentionally config-agnostic),
+    so a missing / unreadable / invalid YAML degrades silently to
+    ``None``.
+
+    ``strict=True`` is used by ``--check-policy`` where the operator
+    is *explicitly* asking for a retention-policy report against the
+    loaded config.  In that mode a malformed YAML or a schema error
+    must surface as the original ``ConfigError`` / ``OSError`` so the
+    operator sees the validation failure instead of a misleading
+    "no `retention:` block" notice.
     """
     if not config_path:
         return None
@@ -816,8 +932,11 @@ def _maybe_load_config(config_path: Optional[str]):
         from forgelm.config import load_config
 
         return load_config(config_path)
-    except Exception as exc:  # noqa: BLE001 — best-effort: config is optional
-        logger.debug("purge: could not load config %s: %s", config_path, exc)
+    except Exception as exc:
+        if strict:
+            raise
+        # Best-effort fallback: row-id / run-id paths run config-free.
+        logger.debug("purge: could not load config %s: %s", config_path, exc)  # noqa: BLE001 — best-effort: config is optional in non-strict mode
         return None
 
 

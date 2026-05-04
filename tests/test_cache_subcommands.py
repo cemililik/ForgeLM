@@ -140,8 +140,13 @@ class TestCacheModels:
                 output=str(tmp_path / "hf_cache"),
                 audit_dir=str(audit_dir),
             )
-            with pytest.raises(SystemExit):
+            with pytest.raises(SystemExit) as ei:
                 _cache._run_cache_models_cmd(args, output_format="json")
+            # Anchor the audit-chain assertions below: the chain is only
+            # interesting when the run actually succeeded.  Without this
+            # the test would silently pass on a code-1 / code-2 run that
+            # also happened to write the request event.
+            assert ei.value.code == 0
 
         log = audit_dir / "audit_log.jsonl"
         events = []
@@ -209,7 +214,10 @@ class TestCacheTasks:
             return orig_import(name, *args, **kwargs)
 
         # Wipe any preloaded lm_eval entries (only this test cares).
-        for cached in [k for k in list(_sys.modules) if k == "lm_eval" or k.startswith("lm_eval.")]:
+        # The list comprehension materialises the keys snapshot before
+        # `monkeypatch.delitem` mutates `_sys.modules`, so we don't need
+        # the redundant `list()` wrapper around `_sys.modules`.
+        for cached in [k for k in _sys.modules if k == "lm_eval" or k.startswith("lm_eval.")]:
             monkeypatch.delitem(_sys.modules, cached, raising=False)
 
         with patch.object(builtins, "__import__", _block_lm_eval):

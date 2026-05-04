@@ -4,6 +4,87 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+### Wave 2b inline review absorption (round 2)
+
+A second inline review pass surfaced 6 valid defects + 3 actionable
+nits + 1 duplicate (already-skipped).  All fixes minimal,
+behaviour-preserving where possible, validated against the full
+1241-test suite.
+
+**Code fixes:**
+
+- `forgelm/cli/subcommands/_purge.py::_resolve_run_kind_targets` —
+  tightened the compliance-bundle filename match.  The previous
+  `run_id in fname` substring check could delete files whose names
+  merely *contained* the run-id as a substring (a short id `"fg-abc"`
+  would also match `"compliance_fg-abc-extra.json"` belonging to a
+  different run).  Now uses a token-boundary helper
+  `_filename_contains_run_id` that requires the run-id to be flanked
+  by `_` / `-` / `.` or sit at a string edge.
+- `forgelm/cli/subcommands/_purge.py::_scan_retention_violations` —
+  expanded the horizons tuple to include per-run staging directories
+  (`final_model.staging.<run_id>/` — what the trainer actually creates
+  since Phase 9 v2) and the `raw_documents_retention_days` horizon
+  (`raw_documents/` + legacy `ingestion_output/`).  Previously the
+  scan missed both.  New helpers `_discover_per_run_staging_horizons`
+  + `_discover_raw_documents_horizons`.
+- `forgelm/cli/subcommands/_purge.py::_maybe_load_config` — added
+  `strict: bool = False` parameter.  `--check-policy` now invokes with
+  `strict=True` so a malformed YAML / Pydantic validation error
+  surfaces as `EXIT_CONFIG_ERROR`; the row-id / run-id paths keep the
+  silent-degrade-to-None fallback (those are config-agnostic by
+  design).
+- `forgelm/cli/subcommands/_safety_eval.py::_load_model_for_safety` —
+  removed the phantom GGUF branch.  `forgelm.inference` does not
+  expose a `load_gguf_model` function, so the late
+  `from forgelm.inference import load_gguf_model` would always have
+  raised ImportError; the operator-facing "install [export] extra"
+  message was misleading.  Operators passing a `*.gguf` path now see
+  an honest "not yet supported" message naming the Phase 36+ shim
+  that will land the real path.
+- `forgelm/cli/subcommands/_safety_eval.py` — extracted
+  `_emit_safety_result` + `_build_safety_eval_payload` helpers from
+  `_run_safety_eval_cmd` to drop cognitive complexity (Sonar S3776).
+  Behaviour-preserving.  Both helpers added to `__all__` for unit-
+  test reach.
+- `forgelm/cli/subcommands/_safety_eval.py` — appended ` # NOSONAR`
+  to the broad-except suppression comments so SonarCloud's
+  suppression-comment syntax is satisfied alongside ruff's
+  `# noqa: BLE001`.
+
+**Doc fixes:**
+
+- `docs/guides/gdpr_erasure.md:103-108`,
+  `docs/guides/gdpr_erasure-tr.md:103-108`,
+  `docs/reference/audit_event_catalog.md:61`, and
+  `audit_event_catalog-tr.md:61` — the `target_kind` set listed
+  `policy_check`, but `_run_purge_check_policy` is read-only and
+  emits zero audit events.  The `recommendation` column on the
+  three `data.erasure_warning_*` rows in the gdpr guide claimed a
+  payload field `_detect_warning_conditions` does not emit (the
+  implementation only adds `affected_run_ids` / `synthetic_files` /
+  `webhook_targets`).  Both drift items removed; tables mirror what
+  the code emits.
+
+**Test fixes:**
+
+- `tests/test_cache_subcommands.py::TestCacheModels::test_cache_models_emits_audit_chain`
+  — added explicit `ei.value.code == 0` anchor to the
+  `pytest.raises(SystemExit)` block.  Without it the audit-chain
+  assertions could silently pass on a code-1 / code-2 run that also
+  happened to write the request event.
+- `tests/test_cache_subcommands.py::test_cache_tasks_missing_extra_emits_install_hint`
+  — dropped the redundant `list()` wrapper around `_sys.modules`.
+  The list-comprehension materialises the keys snapshot before
+  `monkeypatch.delitem` mutates the dict, so the wrapper was unnecessary.
+
+**Skipped (duplicate):**
+
+- *"Raise ImportError when optional `gguf` is missing in `verify-gguf`"*
+  — duplicate of Wave 2b Round-1.  Already documented as a skip
+  there; optional-extras project standard applies (the magic-header
+  + SHA-256 sidecar checks remain useful without `gguf`).
+
 ### Wave 2b inline review absorption (round 1)
 
 A round of inline review on the Wave 2b consolidation surfaced 7 valid

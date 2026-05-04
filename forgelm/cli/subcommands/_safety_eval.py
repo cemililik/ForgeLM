@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import NoReturn
+from typing import Any, Dict, NoReturn
 
 from .._exit_codes import EXIT_CONFIG_ERROR, EXIT_SUCCESS, EXIT_TRAINING_ERROR
 from .._logging import logger
@@ -93,23 +93,26 @@ def _load_model_for_safety(model_path: str, output_format: str):
     for ``.gguf`` (the standalone subcommand mirrors what training-time
     safety evaluation does).
     """
+    # GGUF safety-eval is not yet wired.  ``forgelm.inference`` exposes
+    # :func:`load_model` / :func:`generate` for HF + Unsloth backends but
+    # has no ``load_gguf_model`` entry point — historically the GGUF
+    # loading path was llama-cpp-python's own ``Llama(...)`` constructor
+    # (see ``forgelm/inference.py``).  Wave 2b Round-2 review caught this
+    # as a phantom branch (the late ``from forgelm.inference import
+    # load_gguf_model`` would always raise ImportError, and the outer
+    # message misleadingly suggested an extras install would fix it).
+    # Until Phase 36+ adds a real GGUF safety-eval path, refuse the
+    # request explicitly so an operator who passed `*.gguf` sees an
+    # honest "not supported" rather than a confusing install-hint.
     if model_path.endswith(".gguf"):
-        try:
-            from forgelm.inference import load_gguf_model
-        except ImportError as exc:
-            _output_error_and_exit(
-                output_format,
-                f"GGUF backend unavailable; install with: pip install 'forgelm[export]'.  ImportError: {exc}",
-                EXIT_CONFIG_ERROR,
-            )
-        try:
-            return load_gguf_model(model_path)
-        except Exception as exc:  # noqa: BLE001 — best-effort: GGUF loaders surface a wide failure surface (file truncation, magic mismatch, llama-cpp-python missing).
-            _output_error_and_exit(
-                output_format,
-                f"Failed to load GGUF model {model_path!r}: {exc}",
-                EXIT_TRAINING_ERROR,
-            )
+        _output_error_and_exit(
+            output_format,
+            "safety-eval does not yet support GGUF model loading.  Convert the GGUF "
+            "back to a HuggingFace checkpoint (or run safety-eval against the pre-export "
+            "HF model) and retry.  Tracking issue: GGUF safety-eval support is planned for "
+            "the Phase 36+ extension that lands a `forgelm.inference.load_gguf_model` shim.",
+            EXIT_CONFIG_ERROR,
+        )
 
     # Default path: HF / local-checkpoint loader.  We use the underlying
     # transformers loaders directly because in standalone mode we do
@@ -127,7 +130,7 @@ def _load_model_for_safety(model_path: str, output_format: str):
             f"transformers is required for safety-eval; install with: pip install forgelm.  ImportError: {exc}",
             EXIT_CONFIG_ERROR,
         )
-    except Exception as exc:  # noqa: BLE001 — broad surface from HF loaders (FileNotFoundError, OSError, ValueError, KeyError, etc.).
+    except Exception as exc:  # noqa: BLE001 — broad surface from HF loaders (FileNotFoundError, OSError, ValueError, KeyError, etc.). # NOSONAR
         _output_error_and_exit(
             output_format,
             f"Failed to load model {model_path!r}: {exc}",
@@ -170,20 +173,46 @@ def _run_safety_eval_cmd(args, output_format: str) -> None:
             max_new_tokens=max_new_tokens,
             output_dir=output_dir,
         )
-    except Exception as exc:  # noqa: BLE001 — broad surface: classifier load failure, OOM, generation crash all funnel into one operator-facing failure path.
+    except Exception as exc:  # noqa: BLE001 — broad surface: classifier load failure, OOM, generation crash all funnel into one operator-facing failure path. # NOSONAR
         _output_error_and_exit(
             output_format,
             f"safety-eval crashed during evaluation: {exc.__class__.__name__}: {exc}",
             EXIT_TRAINING_ERROR,
         )
 
-    # ``forgelm.safety.SafetyResult`` exposes the per-category breakdown
-    # under ``category_distribution`` (an Optional[Dict[str, int]] that
-    # is None when the operator did not opt into ``track_categories``).
-    # The earlier ``harm_categories`` field name was wrong — getattr
-    # would silently fall back to ``{}`` and the rendered output would
-    # always be empty even on a populated run.
-    payload = {
+    payload = _build_safety_eval_payload(
+        result,
+        model_path=model_path,
+        classifier_path=classifier_path,
+        probes_path=probes_path,
+        output_dir=output_dir,
+    )
+    _emit_safety_result(payload, output_format)
+    sys.exit(EXIT_SUCCESS if payload["passed"] else EXIT_CONFIG_ERROR)
+
+
+def _build_safety_eval_payload(
+    result: Any,
+    *,
+    model_path: str,
+    classifier_path: str,
+    probes_path: str,
+    output_dir: str,
+) -> Dict[str, Any]:
+    """Project a :class:`forgelm.safety.SafetyResult` onto the JSON envelope shape.
+
+    Wave 2b Round-2 nit: extracted from :func:`_run_safety_eval_cmd`
+    so the dispatcher reads top-down and the renderer (also extracted)
+    is unit-testable in isolation.
+
+    ``forgelm.safety.SafetyResult`` exposes the per-category breakdown
+    under ``category_distribution`` (an ``Optional[Dict[str, int]]``
+    that is None when the operator did not opt into
+    ``track_categories``).  The earlier ``harm_categories`` field name
+    was wrong (Wave 2b Round-1 fix); the helper preserves the corrected
+    accessor.
+    """
+    return {
         "model": model_path,
         "classifier": classifier_path,
         "probes": probes_path,
@@ -194,24 +223,36 @@ def _run_safety_eval_cmd(args, output_format: str) -> None:
         "category_distribution": dict(getattr(result, "category_distribution", None) or {}),
         "failure_reason": getattr(result, "failure_reason", None),
     }
+
+
+def _emit_safety_result(payload: Dict[str, Any], output_format: str) -> None:
+    """Render the safety-eval payload as JSON envelope or human text.
+
+    Wave 2b Round-2 nit (cognitive complexity): extracted from
+    :func:`_run_safety_eval_cmd` so the rendering path is unit-testable
+    independently of the model-loading + run-evaluation surface (which
+    requires torch + a real classifier and is covered by the existing
+    safety_evaluation tests).
+    """
     if output_format == "json":
         print(json.dumps({"success": payload["passed"], **payload}, indent=2, default=str))
-    else:
-        marker = "PASS" if payload["passed"] else "FAIL"
-        print(f"{marker}: safety-eval against {model_path}")
-        print(f"  safety_score = {payload['safety_score']}")
-        print(f"  safe_ratio   = {payload['safe_ratio']}")
-        if payload["category_distribution"]:
-            print("  category_distribution:")
-            for cat, count in sorted(payload["category_distribution"].items()):
-                print(f"    {cat}: {count}")
-        if payload["failure_reason"]:
-            print(f"  failure_reason = {payload['failure_reason']}")
-    sys.exit(EXIT_SUCCESS if payload["passed"] else EXIT_CONFIG_ERROR)
+        return
+    marker = "PASS" if payload["passed"] else "FAIL"
+    print(f"{marker}: safety-eval against {payload['model']}")
+    print(f"  safety_score = {payload['safety_score']}")
+    print(f"  safe_ratio   = {payload['safe_ratio']}")
+    if payload["category_distribution"]:
+        print("  category_distribution:")
+        for cat, count in sorted(payload["category_distribution"].items()):
+            print(f"    {cat}: {count}")
+    if payload["failure_reason"]:
+        print(f"  failure_reason = {payload['failure_reason']}")
 
 
 __all__ = [
     "_run_safety_eval_cmd",
     "_resolve_probes_path",
+    "_emit_safety_result",
+    "_build_safety_eval_payload",
     "_DEFAULT_PROBES_RELPATH",
 ]
