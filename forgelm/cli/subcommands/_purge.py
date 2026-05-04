@@ -1063,6 +1063,9 @@ def _build_audit_age_lookup(audit_log_path: str, now: float) -> Dict[Optional[st
     *wrong* timestamp.  This walk records the first POSIX timestamp
     per ``run_id`` (and the global genesis under the ``None`` key) so
     the per-artefact age is the right one.
+
+    Cognitive complexity is kept under the SonarCloud S3776 ceiling
+    by delegating per-line parsing to :func:`_parse_audit_event_age`.
     """
     out: Dict[Optional[str], float] = {}
     if not os.path.isfile(audit_log_path):
@@ -1070,30 +1073,41 @@ def _build_audit_age_lookup(audit_log_path: str, now: float) -> Dict[Optional[st
     try:
         with open(audit_log_path, "r", encoding="utf-8") as fh:
             for raw in fh:
-                line = raw.strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(event, dict):
-                    continue
-                ts = event.get("timestamp")
-                if not isinstance(ts, str):
-                    continue
-                posix = _parse_iso_timestamp_to_posix(ts)
-                if posix is None:
-                    continue
-                age = now - posix
-                if None not in out:
-                    out[None] = age
-                run_id = event.get("run_id")
-                if isinstance(run_id, str) and run_id and run_id not in out:
-                    out[run_id] = age
+                _absorb_audit_line(raw, now, out)
     except OSError:
         return out
     return out
+
+
+def _absorb_audit_line(raw: str, now: float, out: Dict[Optional[str], float]) -> None:
+    """Parse one audit-log line; record genesis + per-run ages into ``out``.
+
+    Skips blank, non-JSON, non-dict, and missing-timestamp lines.  Only
+    the *first* timestamp per run_id (and the *first* timestamp overall
+    for the genesis slot) is recorded — append-only invariant means
+    earlier writes anchor the age.
+    """
+    line = raw.strip()
+    if not line:
+        return
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return
+    if not isinstance(event, dict):
+        return
+    ts = event.get("timestamp")
+    if not isinstance(ts, str):
+        return
+    posix = _parse_iso_timestamp_to_posix(ts)
+    if posix is None:
+        return
+    age = now - posix
+    if None not in out:
+        out[None] = age
+    run_id = event.get("run_id")
+    if isinstance(run_id, str) and run_id and run_id not in out:
+        out[run_id] = age
 
 
 def _resolve_artefact_age(

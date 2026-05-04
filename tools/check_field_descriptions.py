@@ -118,35 +118,46 @@ def _scan_class(class_node: ast.ClassDef) -> List[MissingDescription]:
     """Walk a Pydantic class body; report fields whose Field() lacks description."""
     missing: List[MissingDescription] = []
     for stmt in class_node.body:
-        if not isinstance(stmt, ast.AnnAssign):
-            continue
-        target = stmt.target
-        if not isinstance(target, ast.Name):
-            continue
-        # Skip Pydantic's own machinery (``model_config``) and any
-        # private attributes — those aren't config knobs.
-        if target.id.startswith("_") or target.id == "model_config":
-            continue
-        # `Annotated[T, Field(..., description=...)]` form (Pydantic v2).
-        # The description lives in the annotation, not the RHS.
-        if _annotation_has_described_field(stmt.annotation):
-            continue
-        # Field(...) on the RHS?  When the field has no default at all,
-        # there's no Field() to inspect — those are bare type
-        # annotations; we still flag them so an operator reading the
-        # config docs sees the type-only fields without descriptions.
-        if stmt.value is None:
-            missing.append(MissingDescription(class_node.name, target.id, stmt.lineno))
-            continue
-        if _is_field_call(stmt.value):
-            if not _has_description_kwarg(stmt.value):
-                missing.append(MissingDescription(class_node.name, target.id, stmt.lineno))
-            continue
-        # RHS is a literal default (e.g. ``r: int = 8``).  Pydantic
-        # accepts those without ``Field(...)``; they have no
-        # description by construction.
-        missing.append(MissingDescription(class_node.name, target.id, stmt.lineno))
+        result = _scan_field_stmt(class_node.name, stmt)
+        if result is not None:
+            missing.append(result)
     return missing
+
+
+def _scan_field_stmt(class_name: str, stmt: ast.AST) -> Optional[MissingDescription]:
+    """Inspect one class-body statement; return a missing-description record or None.
+
+    Cognitive-complexity factor-out (SonarCloud S3776) of the per-stmt
+    branch chain inside :func:`_scan_class`.  Returns ``None`` when the
+    statement is irrelevant (non-AnnAssign, non-Name target, private,
+    ``model_config``, or carries a description in the annotation /
+    Field call); returns a populated :class:`MissingDescription` when
+    the field is config-eligible but lacks a description.
+    """
+    if not isinstance(stmt, ast.AnnAssign):
+        return None
+    target = stmt.target
+    if not isinstance(target, ast.Name):
+        return None
+    # Skip Pydantic's own machinery (``model_config``) and any
+    # private attributes — those aren't config knobs.
+    if target.id.startswith("_") or target.id == "model_config":
+        return None
+    # ``Annotated[T, Field(..., description=...)]`` (Pydantic v2):
+    # description lives in the annotation, not the RHS.
+    if _annotation_has_described_field(stmt.annotation):
+        return None
+    # Bare annotation (no default) → flag for the migration audit.
+    if stmt.value is None:
+        return MissingDescription(class_name, target.id, stmt.lineno)
+    # ``foo: int = Field(...)`` form: report when the call lacks description=.
+    if _is_field_call(stmt.value):
+        if _has_description_kwarg(stmt.value):
+            return None
+        return MissingDescription(class_name, target.id, stmt.lineno)
+    # RHS is a literal default (e.g. ``r: int = 8``); no Field(...) to
+    # inspect, so by construction there's no description.
+    return MissingDescription(class_name, target.id, stmt.lineno)
 
 
 def scan_file(path: str) -> List[MissingDescription]:

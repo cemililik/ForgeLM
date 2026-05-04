@@ -960,10 +960,14 @@ class ForgeConfig(BaseModel):
         "value differs from default" heuristic mis-handled the
         explicit-default + canonical-different scenario.
         """
-        legacy_was_explicitly_set = bool(
-            self.evaluation is not None and "staging_ttl_days" in self.evaluation.model_fields_set
-        )
-        legacy = self.evaluation.staging_ttl_days if legacy_was_explicitly_set else None
+        # Bind the optional sub-models locally so the type narrowing is
+        # visible to static analysers (SonarCloud S2259) and the field-
+        # explicitness checks below cannot race against another mutator.
+        evaluation = self.evaluation
+        retention = self.retention
+
+        legacy_was_explicitly_set = bool(evaluation is not None and "staging_ttl_days" in evaluation.model_fields_set)
+        legacy = evaluation.staging_ttl_days if (legacy_was_explicitly_set and evaluation is not None) else None
         # Wave 2b Round-5 review F-W2B-RETENTION: applying the same
         # ``model_fields_set`` test to the canonical block.  An operator
         # who writes ``retention: {audit_log_retention_days: 1825}``
@@ -973,10 +977,8 @@ class ForgeConfig(BaseModel):
         # ``evaluation.staging_ttl_days: 14``.  We only treat
         # ``retention.staging_ttl_days`` as canonical when the operator
         # actually wrote it.
-        canonical_was_explicitly_set = bool(
-            self.retention is not None and "staging_ttl_days" in self.retention.model_fields_set
-        )
-        canonical = self.retention.staging_ttl_days if canonical_was_explicitly_set else None
+        canonical_was_explicitly_set = bool(retention is not None and "staging_ttl_days" in retention.model_fields_set)
+        canonical = retention.staging_ttl_days if (canonical_was_explicitly_set and retention is not None) else None
 
         # Both unset → nothing to do.
         if legacy is None and canonical is None:
@@ -987,7 +989,16 @@ class ForgeConfig(BaseModel):
             return
         # Only legacy set explicitly → alias-forward.
         if legacy is not None and canonical is None:
-            self.retention = RetentionConfig(staging_ttl_days=legacy)
+            # Round-5 follow-up: ``model_copy(update=...)`` preserves any
+            # other ``retention.*`` keys the operator already wrote
+            # (e.g. ``retention.audit_log_retention_days: 1825`` paired
+            # with ``evaluation.staging_ttl_days: 14``).  The previous
+            # ``RetentionConfig(staging_ttl_days=legacy)`` constructor
+            # call would have silently discarded those.
+            if retention is not None:
+                self.retention = retention.model_copy(update={"staging_ttl_days": legacy})
+            else:
+                self.retention = RetentionConfig(staging_ttl_days=legacy)
             warnings.warn(
                 "`evaluation.staging_ttl_days` is deprecated and forwards to "
                 "`retention.staging_ttl_days` for the v0.5.5 → v0.6.x window. "

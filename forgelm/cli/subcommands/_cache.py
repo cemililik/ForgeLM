@@ -69,13 +69,18 @@ def _output_error_and_exit(output_format: str, msg: str, exit_code: int) -> NoRe
 
 
 def _resolve_env_cache_dir() -> str:
-    """Resolve the HF cache directory the *runtime* will see.
+    """Resolve the HF *Hub* cache directory the runtime will see.
 
     Mirrors :func:`forgelm.cli.subcommands._doctor._resolve_hf_cache_dir`
     byte-for-byte: ``HF_HUB_CACHE > HF_HOME/hub > ~/.cache/huggingface/hub``.
     Operator-supplied ``--output`` is *not* consulted here — the runtime
     reads the env-var chain at training time, not the cache subcommand's
     flag.
+
+    NOTE: this resolves the *Hub* cache (model snapshots), not the
+    *datasets* cache.  ``datasets`` library reads a separate chain
+    (``HF_DATASETS_CACHE > HF_HOME/datasets > ~/.cache/huggingface/datasets``)
+    — see :func:`_resolve_env_datasets_cache_dir`.
     """
     hf_hub_cache = os.environ.get("HF_HUB_CACHE")
     if hf_hub_cache:
@@ -84,6 +89,26 @@ def _resolve_env_cache_dir() -> str:
     if hf_home:
         return os.path.join(hf_home, "hub")
     return os.path.expanduser("~/.cache/huggingface/hub")
+
+
+def _resolve_env_datasets_cache_dir() -> str:
+    """Resolve the HF *Datasets* cache directory the runtime will see.
+
+    Round-5 follow-up: the ``datasets`` library uses a separate cache
+    from ``huggingface_hub`` (Arrow shards / processed splits live
+    under ``datasets/``, model snapshots live under ``hub/``).  Setting
+    ``HF_HUB_CACHE`` does NOT redirect dataset downloads.  This helper
+    mirrors the documented datasets chain so ``cache-tasks`` puts
+    parquet shards in the right subtree:
+    ``HF_DATASETS_CACHE > HF_HOME/datasets > ~/.cache/huggingface/datasets``.
+    """
+    hf_datasets_cache = os.environ.get("HF_DATASETS_CACHE")
+    if hf_datasets_cache:
+        return hf_datasets_cache
+    hf_home = os.environ.get("HF_HOME")
+    if hf_home:
+        return os.path.join(hf_home, "datasets")
+    return os.path.expanduser("~/.cache/huggingface/datasets")
 
 
 def _resolve_cache_dir(output_arg: str | None) -> str:
@@ -110,7 +135,30 @@ def _resolve_cache_dir(output_arg: str | None) -> str:
     return _resolve_env_cache_dir()
 
 
-def _warn_on_cache_dir_divergence(resolved: str, output_arg: str | None) -> None:
+def _resolve_datasets_cache_dir(output_arg: str | None) -> str:
+    """Pick the HF *Datasets* cache directory for ``cache-tasks`` downloads.
+
+    Resolution order (parallel to :func:`_resolve_cache_dir` but
+    targeting the datasets-flavored env chain):
+
+    1. Operator-supplied ``--output <dir>`` if given (one-shot
+       override; *does not* alter the runtime env-var resolution).
+    2. ``HF_DATASETS_CACHE`` env var.
+    3. ``HF_HOME/datasets`` (the *datasets* sub-directory).
+    4. ``~/.cache/huggingface/datasets`` documented default.
+
+    Round-5 follow-up: the previous behaviour reused
+    :func:`_resolve_cache_dir` (which targets the Hub chain) and then
+    stamped ``HF_DATASETS_CACHE`` to that Hub-shaped path, dropping
+    parquet shards under ``hub/`` instead of ``datasets/``.  Splitting
+    the resolver fixes that.
+    """
+    if output_arg:
+        return os.path.abspath(output_arg)
+    return _resolve_env_datasets_cache_dir()
+
+
+def _warn_on_cache_dir_divergence(resolved: str, output_arg: str | None, *, kind: str = "hub") -> None:
     """Warn when ``--output`` diverges from the env-var-resolved cache.
 
     Operators who pin a custom cache via ``--output`` and then run
@@ -121,21 +169,28 @@ def _warn_on_cache_dir_divergence(resolved: str, output_arg: str | None) -> None
 
     1. Drops ``--output`` and lets the env-var chain pick the same
        location doctor + the trainer will read.
-    2. Sets ``HF_HUB_CACHE`` to match ``--output`` for the air-gap
-       bundle transfer.
+    2. Sets the right env var to match ``--output`` for the air-gap
+       bundle transfer (``HF_HUB_CACHE`` for ``cache-models``,
+       ``HF_DATASETS_CACHE`` for ``cache-tasks``).
     """
     if output_arg is None:
         return
-    env_resolved = _resolve_env_cache_dir()
+    if kind == "datasets":
+        env_resolved = _resolve_env_datasets_cache_dir()
+        env_var = "HF_DATASETS_CACHE"
+    else:
+        env_resolved = _resolve_env_cache_dir()
+        env_var = "HF_HUB_CACHE"
     if os.path.abspath(resolved) == os.path.abspath(env_resolved):
         return
     logger.warning(
         "cache directory --output=%s diverges from the env-resolved location %s "
         "that `forgelm doctor --offline` and the trainer will read.  Either drop "
-        "--output (lets the env chain win) or set HF_HUB_CACHE=%s for the air-gap "
+        "--output (lets the env chain win) or set %s=%s for the air-gap "
         "bundle transfer.",
         os.path.abspath(resolved),
         env_resolved,
+        env_var,
         os.path.abspath(resolved),
     )
 
@@ -306,8 +361,12 @@ def _run_cache_tasks_cmd(args, output_format: str) -> None:
         )
 
     output_arg = getattr(args, "output", None)
-    cache_dir = _resolve_cache_dir(output_arg)
-    _warn_on_cache_dir_divergence(cache_dir, output_arg)
+    # Round-5 follow-up: resolve via the *datasets* env chain
+    # (``HF_DATASETS_CACHE > HF_HOME/datasets > ~/.cache/huggingface/datasets``)
+    # rather than the *Hub* chain — the two are separate caches and
+    # ``dataset.download_and_prepare()`` reads only the datasets one.
+    cache_dir = _resolve_datasets_cache_dir(output_arg)
+    _warn_on_cache_dir_divergence(cache_dir, output_arg, kind="datasets")
     os.makedirs(cache_dir, exist_ok=True)
 
     # Wave 2b Round-5 review F-W2B-CACHE: ``_prepare_one_task`` calls

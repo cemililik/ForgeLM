@@ -49,7 +49,7 @@ class TestDetectLanguageNarrowing:
         # Skip cleanly when the optional extra is absent so the test runs
         # locally (where ``[ingestion]`` is typically installed) without
         # false-failing in matrix builds.
-        langdetect = pytest.importorskip(  # noqa: F841 — assignment documents the dep; the real consumer is _detect_language.
+        langdetect = pytest.importorskip(
             "langdetect",
             reason=(
                 "_detect_language is constant 'unknown' without the optional "
@@ -57,6 +57,12 @@ class TestDetectLanguageNarrowing:
                 "when langdetect is installed."
             ),
         )
+        # Sanity: the importorskip target must expose the function our
+        # downstream consumer (forgelm.data_audit._streaming._detect_language)
+        # actually uses.  Touching the attribute also consumes the binding
+        # so SonarCloud S1481 (unused local) does not fire on the
+        # documentation-bound name.
+        assert hasattr(langdetect, "detect"), "langdetect must expose .detect()"
 
         from forgelm.data_audit._streaming import _detect_language
 
