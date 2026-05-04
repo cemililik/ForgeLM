@@ -316,19 +316,12 @@ def _run_approvals_list_pending(args, output_format: str) -> None:
         else:
             print(f"No audit log at {audit_log_path}; nothing to list.")
         sys.exit(EXIT_SUCCESS)
-    # Wave 2a Round-2 / Round-5 readability gate: a permission-denied
-    # audit log otherwise masquerades as "no pending approvals".  The
-    # check now lives in :func:`_audit_log_reader.is_audit_log_readable`
-    # so approve / reject / approvals all share one definition.
-    from ._audit_log_reader import is_audit_log_readable
+    # Wave 2a Round-2 / Round-5 readability gate via the shared helper
+    # in :mod:`._approve`.  A permission-denied audit log otherwise
+    # masquerades as "no pending approvals".
+    from ._approve import _assert_audit_log_readable_or_exit
 
-    if not is_audit_log_readable(audit_log_path):
-        _output_error_and_exit(
-            output_format,
-            f"Audit log {audit_log_path!r} exists but is not readable. "
-            "Check filesystem permissions (chmod / mount opts) and re-run.",
-            EXIT_CONFIG_ERROR,
-        )
+    _assert_audit_log_readable_or_exit(audit_log_path, output_format)
 
     try:
         pending_events = _collect_pending_runs(audit_log_path)
@@ -448,18 +441,10 @@ def _run_approvals_show(args, output_format: str) -> None:
             f"No audit log at {audit_log_path!r}; cannot show run {run_id!r}.",
             EXIT_CONFIG_ERROR,
         )
-    # Same readability check as _run_approvals_list_pending — see the
-    # shared :func:`_audit_log_reader.is_audit_log_readable` for the
-    # canonical definition.
-    from ._audit_log_reader import is_audit_log_readable
+    # Same readability gate as --pending via the shared helper.
+    from ._approve import _assert_audit_log_readable_or_exit
 
-    if not is_audit_log_readable(audit_log_path):
-        _output_error_and_exit(
-            output_format,
-            f"Audit log {audit_log_path!r} exists but is not readable. "
-            "Check filesystem permissions (chmod / mount opts) and re-run.",
-            EXIT_CONFIG_ERROR,
-        )
+    _assert_audit_log_readable_or_exit(audit_log_path, output_format)
 
     chain = _collect_run_audit_chain(audit_log_path, run_id)
     if not chain:
