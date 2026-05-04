@@ -950,42 +950,40 @@ class ForgeConfig(BaseModel):
           values, and instructing the operator to remove the deprecated
           entry.  Silent winner = wrong winner.
 
-        ``evaluation.staging_ttl_days`` is **default-7**; we cannot
-        distinguish "operator did not set it" from "operator set it
-        to 7 explicitly".  We therefore treat the legacy field as
-        "explicitly set" only when the value differs from the default,
-        OR when the operator omitted the canonical ``retention`` block
-        entirely.  This is the same heuristic Pydantic itself cannot
-        give us without ``model_fields_set``-tracking that the parent
-        ``ForgeConfig`` does not propagate from the YAML loader.
+        Wave 2b Round-4 review F-W2B-02 fix: Pydantic v2 exposes
+        ``model_fields_set`` exactly to distinguish "operator wrote
+        the field in YAML" from "Pydantic filled the default".  We
+        consult that set so an operator who follows the documented
+        deprecation cadence (delete the deprecated key, add the
+        canonical block) is not refused with ``ConfigError`` because
+        the deprecated default-7 was re-filled.  The previous
+        "value differs from default" heuristic mis-handled the
+        explicit-default + canonical-different scenario.
         """
-        legacy_field_default = 7
-        legacy = self.evaluation.staging_ttl_days if self.evaluation else None
+        legacy_was_explicitly_set = bool(
+            self.evaluation is not None and "staging_ttl_days" in self.evaluation.model_fields_set
+        )
+        legacy = self.evaluation.staging_ttl_days if legacy_was_explicitly_set else None
         canonical = self.retention.staging_ttl_days if self.retention else None
 
         # Both unset → nothing to do.
         if legacy is None and canonical is None:
             return
-        # Only canonical set → canonical path; no warning.
+        # Only canonical set (or operator deleted the deprecated key) →
+        # canonical path; no warning.
         if legacy is None and canonical is not None:
             return
-        # Only legacy set (no retention block) → alias-forward.
+        # Only legacy set explicitly → alias-forward.
         if legacy is not None and canonical is None:
-            if legacy != legacy_field_default:
-                # Operator picked a non-default legacy value.  Forward + warn.
-                self.retention = RetentionConfig(staging_ttl_days=legacy)
-                warnings.warn(
-                    "`evaluation.staging_ttl_days` is deprecated and forwards to "
-                    "`retention.staging_ttl_days` for the v0.5.5 → v0.6.x window. "
-                    "Move the value under the new top-level `retention:` block; the "
-                    "deprecated field is removed in v0.7.0.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-            # Legacy at default + no retention block → silent;
-            # `retention=None` means "no policy enforcement" anyway, so
-            # carrying the default into a synthetic retention block
-            # would change behaviour.
+            self.retention = RetentionConfig(staging_ttl_days=legacy)
+            warnings.warn(
+                "`evaluation.staging_ttl_days` is deprecated and forwards to "
+                "`retention.staging_ttl_days` for the v0.5.5 → v0.6.x window. "
+                "Move the value under the new top-level `retention:` block; the "
+                "deprecated field is removed in v0.7.0.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
             return
         # Both set.  Compare.
         if legacy == canonical:

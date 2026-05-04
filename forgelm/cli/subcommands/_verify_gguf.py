@@ -110,7 +110,8 @@ def verify_gguf(path: str) -> VerifyGgufResult:
     if os.path.isfile(sidecar_path):
         checks["sidecar_present"] = True
         actual = _file_sha256(path)
-        expected_text = open(sidecar_path, "r", encoding="utf-8").read().strip()
+        with open(sidecar_path, "r", encoding="utf-8") as fh:
+            expected_text = fh.read().strip()
         # Sidecars are typically `<hex> *<filename>` (sha256sum format)
         # OR plain `<hex>`.  Take the first whitespace-separated token.
         expected = expected_text.split()[0] if expected_text else ""

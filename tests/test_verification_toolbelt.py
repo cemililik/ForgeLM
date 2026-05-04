@@ -143,6 +143,82 @@ class TestVerifyAnnexIv:
             _run_verify_annex_iv_cmd(args, output_format="json")
         assert ei.value.code == 2
 
+    def test_writer_round_trip_passes_verifier(self, tmp_path: Path) -> None:
+        """F-W2B-01 + F-W2B-05 regression: a freshly-generated Annex IV
+        artefact must pass its own verifier (writer + verifier shape +
+        manifest hash all line up byte-for-byte)."""
+        from forgelm.cli.subcommands._verify_annex_iv import verify_annex_iv_artifact
+        from forgelm.compliance import build_annex_iv_artifact
+
+        # Synthetic manifest mirroring what generate_training_manifest
+        # would produce against a real ForgeConfig.  Only the keys the
+        # §1-9 layout consults need to be populated.
+        manifest = {
+            "forgelm_version": "0.5.5+test",
+            "generated_at": "2026-05-04T12:00:00+00:00",
+            "model_lineage": {"base_model": "gpt2", "backend": "transformers"},
+            "training_parameters": {"trainer_type": "sft", "epochs": 1},
+            "data_provenance": {"primary_dataset": "train.jsonl", "fingerprint": "sha256:abc"},
+            "evaluation_results": {"metrics": {"eval_loss": 1.4}},
+            "annex_iv": {
+                "provider_name": "Acme Compliance Ltd",
+                "provider_contact": "compliance@acme.example",
+                "system_name": "ForgeLM-test",
+                "intended_purpose": "Customer-support fine-tuning research baseline",
+                "known_limitations": "Tested on EN only",
+                "system_version": "0.5.5",
+                "risk_classification": "minimal-risk",
+            },
+            "risk_assessment": {"intended_use": "Internal QA assistant", "art9_reference": "RA-001"},
+        }
+        artifact = build_annex_iv_artifact(manifest)
+        assert artifact is not None, "writer must produce an artefact when annex_iv block is populated"
+
+        # Write + read round-trip to mirror the on-disk path the operator
+        # would invoke verify-annex-iv against.
+        path = tmp_path / "annex_iv_metadata.json"
+        path.write_text(json.dumps(artifact, indent=2, default=str))
+        result = verify_annex_iv_artifact(str(path))
+        assert result.valid is True, f"writer output must verify: {result.reason}"
+        assert result.missing_fields == []
+        # Tampering detection must have fired (manifest_hash present + matched).
+        assert result.manifest_hash_actual == result.manifest_hash_expected
+        assert result.manifest_hash_actual != ""
+
+    def test_writer_emits_manifest_hash_that_verifier_rejects_tampered(self, tmp_path: Path) -> None:
+        """F-W2B-05 regression: tampering-detection branch must actually fire.
+        Mutate one field after writing; assert verifier rejects."""
+        import json as _json
+
+        from forgelm.cli.subcommands._verify_annex_iv import verify_annex_iv_artifact
+        from forgelm.compliance import build_annex_iv_artifact
+
+        manifest = {
+            "forgelm_version": "0.5.5+test",
+            "model_lineage": {"base_model": "gpt2"},
+            "training_parameters": {"trainer_type": "sft"},
+            "data_provenance": {"primary_dataset": "train.jsonl"},
+            "evaluation_results": {"metrics": {"eval_loss": 1.0}},
+            "annex_iv": {
+                "provider_name": "Acme",
+                "provider_contact": "x@y",
+                "system_name": "S",
+                "intended_purpose": "P",
+                "known_limitations": "",
+                "system_version": "1",
+                "risk_classification": "minimal-risk",
+            },
+            "risk_assessment": {"art9_reference": "RA-001"},
+        }
+        artifact = build_annex_iv_artifact(manifest)
+        # Tamper with a populated field after the writer stamped the hash.
+        artifact["intended_purpose"] = "MALICIOUSLY MODIFIED"
+        path = tmp_path / "annex_iv_metadata.json"
+        path.write_text(_json.dumps(artifact, indent=2, default=str))
+        result = verify_annex_iv_artifact(str(path))
+        assert result.valid is False
+        assert "manifest hash" in result.reason.lower()
+
 
 # ---------------------------------------------------------------------------
 # verify-gguf

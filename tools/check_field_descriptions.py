@@ -82,6 +82,38 @@ def _has_description_kwarg(call: ast.Call) -> bool:
     return any(kw.arg == "description" for kw in call.keywords)
 
 
+def _annotation_has_described_field(annotation: ast.AST) -> bool:
+    """Return ``True`` when ``annotation`` is ``Annotated[T, Field(..., description=...)]``.
+
+    Pydantic v2 supports embedding ``Field(...)`` inside the type
+    annotation via :class:`typing.Annotated` — a field declared as
+    ``foo: Annotated[int, Field(default=8, description="...")]`` has
+    ``stmt.value = None`` (no RHS default) but the description lives
+    in the annotation.  Without recognising this form the scanner
+    would false-flag a perfectly-valid Pydantic v2 idiom as
+    "missing description".
+    """
+    if not isinstance(annotation, ast.Subscript):
+        return False
+    base = annotation.value
+    base_name: Optional[str] = None
+    if isinstance(base, ast.Name):
+        base_name = base.id
+    elif isinstance(base, ast.Attribute):
+        base_name = base.attr
+    if base_name != "Annotated":
+        return False
+    slice_node = annotation.slice
+    # Python 3.9+: ast.Subscript.slice is the inner expression directly
+    # (no wrapping ast.Index since 3.9).  For Annotated[T, X, Y, ...]
+    # that expression is a Tuple of the type + metadata args.
+    if isinstance(slice_node, ast.Tuple):
+        elts = slice_node.elts
+    else:
+        elts = [slice_node]
+    return any(_is_field_call(elt) and _has_description_kwarg(elt) for elt in elts)
+
+
 def _scan_class(class_node: ast.ClassDef) -> List[MissingDescription]:
     """Walk a Pydantic class body; report fields whose Field() lacks description."""
     missing: List[MissingDescription] = []
@@ -94,6 +126,10 @@ def _scan_class(class_node: ast.ClassDef) -> List[MissingDescription]:
         # Skip Pydantic's own machinery (``model_config``) and any
         # private attributes — those aren't config knobs.
         if target.id.startswith("_") or target.id == "model_config":
+            continue
+        # `Annotated[T, Field(..., description=...)]` form (Pydantic v2).
+        # The description lives in the annotation, not the RHS.
+        if _annotation_has_described_field(stmt.annotation):
             continue
         # Field(...) on the RHS?  When the field has no default at all,
         # there's no Field() to inspect — those are bare type

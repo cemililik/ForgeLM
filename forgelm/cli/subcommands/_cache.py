@@ -68,18 +68,15 @@ def _output_error_and_exit(output_format: str, msg: str, exit_code: int) -> NoRe
     sys.exit(exit_code)
 
 
-def _resolve_cache_dir(output_arg: str | None) -> str:
-    """Pick the HF cache directory for downloads.
+def _resolve_env_cache_dir() -> str:
+    """Resolve the HF cache directory the *runtime* will see.
 
-    Resolution order (mirrors :func:`forgelm.cli.subcommands._doctor._resolve_hf_cache_dir`):
-
-    1. Operator-supplied ``--output <dir>`` if given (overrides env).
-    2. ``HF_HUB_CACHE`` env var.
-    3. ``HF_HOME/hub`` (the *hub* sub-directory of the parent cache).
-    4. ``~/.cache/huggingface/hub`` documented default.
+    Mirrors :func:`forgelm.cli.subcommands._doctor._resolve_hf_cache_dir`
+    byte-for-byte: ``HF_HUB_CACHE > HF_HOME/hub > ~/.cache/huggingface/hub``.
+    Operator-supplied ``--output`` is *not* consulted here — the runtime
+    reads the env-var chain at training time, not the cache subcommand's
+    flag.
     """
-    if output_arg:
-        return os.path.abspath(output_arg)
     hf_hub_cache = os.environ.get("HF_HUB_CACHE")
     if hf_hub_cache:
         return hf_hub_cache
@@ -87,6 +84,60 @@ def _resolve_cache_dir(output_arg: str | None) -> str:
     if hf_home:
         return os.path.join(hf_home, "hub")
     return os.path.expanduser("~/.cache/huggingface/hub")
+
+
+def _resolve_cache_dir(output_arg: str | None) -> str:
+    """Pick the HF cache directory for downloads.
+
+    Resolution order:
+
+    1. Operator-supplied ``--output <dir>`` if given (one-shot
+       override; *does not* alter the runtime env-var resolution).
+    2. ``HF_HUB_CACHE`` env var.
+    3. ``HF_HOME/hub`` (the *hub* sub-directory of the parent cache).
+    4. ``~/.cache/huggingface/hub`` documented default.
+
+    Wave 2b Round-4 review F-W2B-04: ``--output`` is a one-shot
+    download target; ``forgelm doctor`` and the trainer both read the
+    env-var chain (no ``--output``).  Operators who pin a custom cache
+    via ``--output`` and then run ``forgelm doctor --offline`` will see
+    "0 GiB cache" because doctor probes the env-resolved location.
+    :func:`_warn_on_cache_dir_divergence` emits a warning to make the
+    footgun visible before the operator wastes egress quota.
+    """
+    if output_arg:
+        return os.path.abspath(output_arg)
+    return _resolve_env_cache_dir()
+
+
+def _warn_on_cache_dir_divergence(resolved: str, output_arg: str | None) -> None:
+    """Warn when ``--output`` diverges from the env-var-resolved cache.
+
+    Operators who pin a custom cache via ``--output`` and then run
+    ``forgelm doctor --offline`` get a misleading "0 GiB cache"
+    report because doctor reads ``HF_HUB_CACHE`` / ``HF_HOME/hub``,
+    not the cache subcommand's flag.  Surface the divergence early
+    so the operator either:
+
+    1. Drops ``--output`` and lets the env-var chain pick the same
+       location doctor + the trainer will read.
+    2. Sets ``HF_HUB_CACHE`` to match ``--output`` for the air-gap
+       bundle transfer.
+    """
+    if output_arg is None:
+        return
+    env_resolved = _resolve_env_cache_dir()
+    if os.path.abspath(resolved) == os.path.abspath(env_resolved):
+        return
+    logger.warning(
+        "cache directory --output=%s diverges from the env-resolved location %s "
+        "that `forgelm doctor --offline` and the trainer will read.  Either drop "
+        "--output (lets the env chain win) or set HF_HUB_CACHE=%s for the air-gap "
+        "bundle transfer.",
+        os.path.abspath(resolved),
+        env_resolved,
+        os.path.abspath(resolved),
+    )
 
 
 def _validate_model_name(name: str, output_format: str) -> None:
@@ -125,7 +176,9 @@ def _run_cache_models_cmd(args, output_format: str) -> None:
     for name in models:
         _validate_model_name(name, output_format)
 
-    cache_dir = _resolve_cache_dir(getattr(args, "output", None))
+    output_arg = getattr(args, "output", None)
+    cache_dir = _resolve_cache_dir(output_arg)
+    _warn_on_cache_dir_divergence(cache_dir, output_arg)
     os.makedirs(cache_dir, exist_ok=True)
 
     # Late import so a fresh-install operator running ``forgelm doctor``
@@ -252,7 +305,9 @@ def _run_cache_tasks_cmd(args, output_format: str) -> None:
             EXIT_CONFIG_ERROR,
         )
 
-    cache_dir = _resolve_cache_dir(getattr(args, "output", None))
+    output_arg = getattr(args, "output", None)
+    cache_dir = _resolve_cache_dir(output_arg)
+    _warn_on_cache_dir_divergence(cache_dir, output_arg)
     audit = _maybe_audit_logger(getattr(args, "audit_dir", None) or cache_dir)
     request_fields = {"tasks": task_names, "cache_dir": cache_dir}
     if audit is not None:

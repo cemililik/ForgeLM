@@ -255,6 +255,17 @@ def _atomic_rewrite_dropping_lines(corpus_path: str, line_numbers_to_drop: List[
                     if line_no in drop_set:
                         continue
                     out.write(line)
+            # Wave 2b Round-4 review F-W2B-03: flush + fsync the temp
+            # file's data blocks to disk BEFORE the namespace swap.
+            # ``os.replace`` is rename-atomic on POSIX, but without an
+            # explicit fsync the temp file's *contents* may still be
+            # buffered in the page cache.  A power loss between the
+            # swap and the cache flush would leave the corpus inode
+            # pointing at the new file with its data blocks unwritten
+            # — i.e. an empty corpus.  Mirrors the discipline in
+            # `forgelm/data_audit/_orchestrator.py::_atomic_write_json`.
+            out.flush()
+            os.fsync(out.fileno())
         os.replace(tmp_path, corpus_path)
     except OSError:
         # Best-effort cleanup of the temp file if the swap failed.
@@ -311,11 +322,17 @@ def _detect_warning_conditions(
 def _scan_run_ids_with_final_model(output_dir: str) -> List[str]:
     """Best-effort: enumerate run ids whose ``final_model/`` is present.
 
-    Looks for ``final_model.staging.<run_id>/`` left as forensic
-    artefacts after promotion (or any directory matching the staging
-    suffix pattern).  Empty list when nothing matches; the caller
-    treats it as "we know one run consumed the corpus, identity
-    unknown".
+    Looks for ``final_model.staging.<run_id>/`` directories left as
+    forensic artefacts after promotion.
+
+    Wave 2b Round-4 review F-W2B-06 fix: once an operator runs
+    ``forgelm approve <run_id>``, the staging directory is renamed to
+    ``final_model/`` — leaving no staging-suffix directory to match.
+    Falls back to the audit log's ``human_approval.granted`` events so
+    the warning event still names a concrete run id.  Empty list with
+    a sentinel placeholder when nothing matches and the audit log is
+    silent — the warning still fires (the ``final_model/`` is present,
+    that's what triggered it), but the operator gets a clear hint.
     """
     pattern = re.compile(r"final_model\.staging\.([A-Za-z0-9._-]+)$")
     run_ids: List[str] = []
@@ -324,6 +341,45 @@ def _scan_run_ids_with_final_model(output_dir: str) -> List[str]:
             match = pattern.match(entry)
             if match:
                 run_ids.append(match.group(1))
+    except OSError:
+        return []
+    if run_ids:
+        return sorted(set(run_ids))
+    # Staging dir is gone (run was promoted).  Walk the audit log for
+    # granted approvals; their run_id is the one that consumed this
+    # corpus.
+    audit_run_ids = _scan_run_ids_from_granted_events(os.path.join(output_dir, "audit_log.jsonl"))
+    if audit_run_ids:
+        return audit_run_ids
+    # Nothing on disk, nothing in audit chain — surface a clear hint
+    # so the operator knows where to look next.
+    return ["unknown — no matching staging directory or human_approval.granted event"]
+
+
+def _scan_run_ids_from_granted_events(audit_log_path: str) -> List[str]:
+    """Best-effort: scan ``audit_log.jsonl`` for ``human_approval.granted``
+    events; return their ``run_id`` values, deduplicated + sorted.
+    """
+    if not os.path.isfile(audit_log_path):
+        return []
+    run_ids: List[str] = []
+    try:
+        with open(audit_log_path, "r", encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                if event.get("event") != "human_approval.granted":
+                    continue
+                run_id = event.get("run_id")
+                if isinstance(run_id, str) and run_id:
+                    run_ids.append(run_id)
     except OSError:
         return []
     return sorted(set(run_ids))

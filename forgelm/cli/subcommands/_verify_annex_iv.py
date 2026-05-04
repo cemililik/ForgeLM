@@ -172,19 +172,16 @@ def verify_annex_iv_artifact(path: str) -> VerifyAnnexIVResult:
 def _compute_manifest_hash(artifact: Dict[str, Any]) -> str:
     """Recompute the manifest hash the same way ``compliance.py`` writes it.
 
-    Strips ``metadata.manifest_hash`` (and any signature blob), serialises
-    the rest with stable key ordering, hashes SHA-256.
+    Delegates to :func:`forgelm.compliance.compute_annex_iv_manifest_hash`
+    so the writer + verifier canonicalisation cannot drift byte-for-byte.
+    Wave 2b Round-4 review F-W2B-05 fix: the previous local
+    implementation duplicated the canonicalisation logic; if the writer
+    ever changed (added a new metadata key, switched separators, etc.)
+    legitimate artefacts would fail their own verifier.
     """
-    import hashlib
+    from forgelm.compliance import compute_annex_iv_manifest_hash
 
-    # Defensive copy so we don't mutate the caller's dict.
-    payload = json.loads(json.dumps(artifact))
-    metadata = payload.get("metadata")
-    if isinstance(metadata, dict):
-        metadata.pop("manifest_hash", None)
-        metadata.pop("manifest_signature", None)
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return compute_annex_iv_manifest_hash(artifact)
 
 
 def _run_verify_annex_iv_cmd(args, output_format: str) -> None:

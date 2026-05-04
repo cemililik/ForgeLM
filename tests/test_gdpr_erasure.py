@@ -359,6 +359,45 @@ retention:
 
 
 class TestAtomicity:
+    def test_atomic_rewrite_fsyncs_before_rename(self, tmp_path: Path, monkeypatch) -> None:
+        """F-W2B-03 regression: data blocks must be flushed to disk
+        BEFORE the namespace swap.  Without fsync, a power-loss between
+        the rename and the page-cache flush leaves the corpus pointing
+        at the new file with its data blocks unwritten (zero bytes after
+        reboot)."""
+        from forgelm.cli.subcommands import _purge
+
+        corpus = tmp_path / "train.jsonl"
+        _seed_corpus(
+            corpus,
+            [
+                {"id": "row-1", "text": "keep"},
+                {"id": "row-2", "text": "drop"},
+                {"id": "row-3", "text": "keep"},
+            ],
+        )
+
+        fsync_calls: list[int] = []
+        replace_call_position: list[int] = []
+        original_fsync = os.fsync
+        original_replace = os.replace
+
+        def _spy_fsync(fd: int) -> None:
+            fsync_calls.append(fd)
+            original_fsync(fd)
+
+        def _spy_replace(src, dst):
+            replace_call_position.append(len(fsync_calls))
+            return original_replace(src, dst)
+
+        monkeypatch.setattr(os, "fsync", _spy_fsync)
+        monkeypatch.setattr(os, "replace", _spy_replace)
+
+        _purge._atomic_rewrite_dropping_lines(str(corpus), [2])
+
+        assert fsync_calls, "_atomic_rewrite_dropping_lines must call os.fsync at least once"
+        assert replace_call_position[0] >= 1, "os.replace was called before os.fsync — data blocks may not be on disk"
+
     def test_atomic_rewrite_leaves_no_partial_file_on_io_failure(self, tmp_path: Path, monkeypatch) -> None:
         from forgelm.cli.subcommands import _purge
 
@@ -674,6 +713,47 @@ retention:
         deprecation_warnings = [w for w in recwarn.list if issubclass(w.category, DeprecationWarning)]
         assert not deprecation_warnings, (
             f"unexpected deprecation warnings: {[str(w.message) for w in deprecation_warnings]}"
+        )
+
+    def test_canonical_block_overrides_when_legacy_omitted_from_yaml(self, tmp_path: Path, recwarn) -> None:
+        """F-W2B-02 regression: operator follows the documented migration
+        path (delete the deprecated key, add the canonical block).
+        Pydantic re-fills `evaluation.staging_ttl_days = 7` from default,
+        but the reconciler must NOT treat that as "operator set legacy
+        explicitly" — it must consult `model_fields_set` and prefer the
+        canonical value silently."""
+        from forgelm.config import load_config
+
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            """
+model:
+  name_or_path: gpt2
+  backend: transformers
+lora:
+  r: 8
+training:
+  trainer_type: sft
+  output_dir: ./out
+  num_train_epochs: 1
+data:
+  dataset_name_or_path: train.jsonl
+evaluation:
+  require_human_approval: false
+retention:
+  staging_ttl_days: 14
+"""
+        )
+        cfg = load_config(str(config_path))
+        assert cfg.retention is not None
+        assert cfg.retention.staging_ttl_days == 14
+        # Critical: no DeprecationWarning, no ConfigError — operator
+        # only kept `evaluation.require_human_approval` (an unrelated
+        # field), and the deprecated `staging_ttl_days` was deleted.
+        deprecation_warnings = [w for w in recwarn.list if issubclass(w.category, DeprecationWarning)]
+        assert not deprecation_warnings, (
+            f"unexpected deprecation warnings on the documented migration path: "
+            f"{[str(w.message) for w in deprecation_warnings]}"
         )
 
 
