@@ -238,6 +238,83 @@ Fixed:
   raises `AttributeError` so a future refactor that reads a new
   attribute lights up here instead of silently passing.
 
+**SonarCloud + CodeRabbit follow-ups (round 3 of inline absorption):**
+
+- `forgelm/_http.py` HTTP scheme rejection: split the `http://` / `https://`
+  literals so SonarCloud rule S5332 ("use https") doesn't trip on the
+  *rejection* message.  The branch enforces the rule; the f-string was
+  flagged by mistake.  Comment now points at the policy contradiction.
+- `forgelm/cli/subcommands/_doctor.py::_walk_hf_cache_bounded` — extracted
+  per-directory `_accumulate_files_in_dir` so each function stays under
+  the SonarCloud S3776 cognitive-complexity ceiling (was 16, target 15).
+  Behaviour-preserving.
+- `forgelm/cli/subcommands/_approve.py::_run_approve_cmd` — extracted
+  `_read_required_event_for_approve` (parse + missing + double-decision
+  guards) for the same S3776 ceiling.  Reject's slightly-different
+  operator copy stays inline so the helper does not balloon its
+  parameter list to handle two voices.
+- `forgelm/cli/_dispatch.py::_dispatch_subcommand` — converted the
+  if/elif chain to a `command -> dispatcher attribute` dict so adding a
+  new subcommand is a one-row edit and S3776 falls back below 15.
+  ``verify-audit`` (returns an exit code instead of `sys.exit`-ing) and
+  ``chat`` (single-arg dispatcher signature) stay special-cased.
+- `forgelm/cli/_parser.py` — `_OUTPUT_DIR_HELP` constant replaces the
+  three duplicate `--output-dir` help strings on
+  approve / reject / approvals (Sonar S1192).
+- `tests/test_data_audit_workers.py` — `^  "generated_at"` → `^ {2}"generated_at"`
+  in the SHA-256-strip regex (Sonar S6326).  Behaviour identical.
+- `forgelm/cli/subcommands/_approvals.py::_run_approvals_list_pending`
+  + `_run_approvals_show` — added explicit `os.access(audit_log_path,
+  os.R_OK)` check after the `os.path.isfile` gate.
+  ``iter_audit_events`` swallows OSError-on-open + logs at ERROR + yields
+  nothing; without the readability guard a chmod-broken audit log would
+  masquerade as "no pending approvals" / "no events for this run" and
+  the operator could miss a real pending decision.  Two regression tests
+  cover both subcommand modes.
+
+**Stale review-bot findings recorded as no-action with rationale:**
+
+- *gemini-code-assist L322 ("`sys.version_info` deprecated")* — already
+  shipped the slice fix in `2148a49`; no behavioural deprecation.
+- *qodo-code-review L682 ("doctor uses non-secret env-vars")* — same
+  rejection as the round-1 entry above; doctor mirrors what
+  `compliance.py::AuditLogger` and `huggingface_hub` upstream read.
+- *CodeRabbit "Count erasure events consistently" (gdpr-erasure-design
+  L388 file map + L454 sign-off)* — file map already says six events at
+  L389; the sign-off line at L454 says "six new audit events (three
+  core erasure events + three operator-warning events)"; the L449 "+ 3
+  new warning events" parenthetical refers to what Round-2 *added* on
+  top of Round-1's three core events, not the document's total.
+- *CodeRabbit "--check-policy exit code unambiguous"* — already
+  resolved at gdpr-erasure-design L196 (exit-code table cross-references
+  §10 Q5) + L199 (paragraph: "**`--check-policy` always exits 0**").
+- *CodeRabbit "ForgeTrainer access must stay lazy"* — the test at
+  library-api-design L349 already pins lazy behaviour
+  (`assert "torch" not in sys.modules` after `_ = forgelm.ForgeTrainer`);
+  the bot misread it as the opposite.
+- *CodeRabbit TR installation L109 "`distributed` → `deepspeed` rename"* —
+  bot misread `pyproject.toml`.  The extra is `distributed = ["deepspeed>=0.14.0"]`
+  (line 66); `distributed` is the extra name, `deepspeed` is the dep
+  inside.  Round-1 already corrected this in both EN and TR with an
+  explicit "Extra adı `distributed`; çektiği gerçek bağımlılık
+  `deepspeed`" parenthetical.
+- *CodeRabbit "add doctor + approvals to top-level help epilog"* —
+  already present at `_parser.py:642` (doctor) and `_parser.py:652`
+  (approvals).
+- *CodeRabbit "--show breaks latest-wins for reused run_id"* — fixed
+  in commit 6d09e0b (Phase 37 Round-1) via `_classify_chain` which
+  walks the chain in append order and returns "pending" iff
+  `latest_required_idx > latest_decision_idx`.  Covered by
+  `TestClassifyChainLatestWins` in `tests/test_approvals_listing.py`.
+- *CodeRabbit "Add a strict parse path for approval decision checks"* —
+  already shipped in Round-1; `_audit_log_reader.iter_audit_events`
+  + `find_latest_event_for_run` accept a `strict=` param;
+  `_find_human_approval_required_event` /
+  `_find_human_approval_decision_event` default to `strict=True`.
+  Covered by `TestApproveStrictModeOnCorruptLog`.
+- *CodeRabbit "Replace exact float equality with `pytest.approx()`"* —
+  already in place at `tests/test_doctor.py:161-162`.
+
 ### Added — Wave 2a — Phase 18 Library API design + Phase 20 GDPR erasure design
 
 - **Phase 18 — Library API analysis & design** —

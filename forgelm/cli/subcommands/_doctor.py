@@ -441,6 +441,38 @@ def _resolve_hf_cache_dir() -> str:
     return os.path.expanduser("~/.cache/huggingface/hub")
 
 
+def _accumulate_files_in_dir(
+    root: str,
+    files: List[str],
+    *,
+    file_count: int,
+    total_bytes: int,
+    unreadable_count: int,
+) -> Tuple[int, int, int, bool]:
+    """Sum regular-file sizes in a single directory under the file cap.
+
+    Returns ``(new_file_count, new_total_bytes, new_unreadable_count,
+    cap_hit)``.  ``cap_hit=True`` means the file-count cap fired during
+    this directory and the caller should stop descending further.  Pulled
+    out of :func:`_walk_hf_cache_bounded` so each function stays under
+    SonarCloud's S3776 cognitive-complexity ceiling.
+    """
+    cap_hit = False
+    for filename in files:
+        if file_count >= _HF_CACHE_WALK_FILE_LIMIT:
+            cap_hit = True
+            break
+        full = os.path.join(root, filename)
+        if os.path.islink(full):
+            continue
+        try:
+            total_bytes += os.path.getsize(full)
+            file_count += 1
+        except OSError:
+            unreadable_count += 1
+    return file_count, total_bytes, unreadable_count, cap_hit
+
+
 def _walk_hf_cache_bounded(cache_dir_abs: str) -> Tuple[int, int, int, bool]:
     """Bounded ``os.walk`` over the HF cache.  Returns ``(file_count,
     total_bytes, unreadable_count, walk_truncated)``.
@@ -452,7 +484,9 @@ def _walk_hf_cache_bounded(cache_dir_abs: str) -> Tuple[int, int, int, bool]:
     blob store and would be double-counted.  Depth + file caps keep the
     walk bounded on NFS-mounted 50 GiB+ caches so the doctor probe stays
     snappy.  ``unreadable_count`` is surfaced so the renderer can warn
-    when permissions broke part of the scan (F-34-OSE).
+    when permissions broke part of the scan (F-34-OSE).  Per-directory
+    accounting lives in :func:`_accumulate_files_in_dir` so each helper
+    stays under SonarCloud's S3776 cognitive-complexity ceiling.
     """
     file_count = 0
     total_bytes = 0
@@ -460,25 +494,19 @@ def _walk_hf_cache_bounded(cache_dir_abs: str) -> Tuple[int, int, int, bool]:
     walk_truncated = False
     base_depth = cache_dir_abs.rstrip(os.sep).count(os.sep)
     for root, dirs, files in os.walk(cache_dir_abs):
-        depth = root.count(os.sep) - base_depth
-        if depth > _HF_CACHE_WALK_DEPTH:
+        if (root.count(os.sep) - base_depth) > _HF_CACHE_WALK_DEPTH:
             dirs[:] = []
             walk_truncated = True
             continue
-        for filename in files:
-            if file_count >= _HF_CACHE_WALK_FILE_LIMIT:
-                walk_truncated = True
-                break
-            full = os.path.join(root, filename)
-            if os.path.islink(full):
-                continue
-            try:
-                total_bytes += os.path.getsize(full)
-                file_count += 1
-            except OSError:
-                unreadable_count += 1
-                continue
-        if file_count >= _HF_CACHE_WALK_FILE_LIMIT:
+        file_count, total_bytes, unreadable_count, cap_hit = _accumulate_files_in_dir(
+            root,
+            files,
+            file_count=file_count,
+            total_bytes=total_bytes,
+            unreadable_count=unreadable_count,
+        )
+        if cap_hit:
+            walk_truncated = True
             break
     return file_count, total_bytes, unreadable_count, walk_truncated
 

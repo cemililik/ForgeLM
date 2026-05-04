@@ -99,9 +99,10 @@ def _strip_generated_at_for_hash(text: str) -> str:
     import re
 
     # ^  "generated_at": "..." anchored to start-of-line + 2-space indent.
-    # MULTILINE so ^ matches every line, not just file start.
+    # MULTILINE so ^ matches every line, not just file start.  Sonar S6326:
+    # the explicit `{2}` quantifier reads better than two literal spaces.
     return re.sub(
-        r'^  "generated_at"\s*:\s*"[^"]+"',
+        r'^ {2}"generated_at"\s*:\s*"[^"]+"',
         '  "generated_at": "<stripped>"',
         text,
         flags=re.MULTILINE,

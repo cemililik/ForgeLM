@@ -14,6 +14,12 @@ import argparse
 from ._argparse_types import _add_common_subparser_flags, _non_negative_float, _non_negative_int, _positive_int
 from ._logging import _get_version
 
+# Shared `--output-dir` help text across approve / reject / approvals
+# subparsers.  Sonar S1192 flagged the literal as duplicated 3x; the
+# constant keeps the operator copy in one place so a future rename of
+# `final_model.staging/` lands in one diff hunk.
+_OUTPUT_DIR_HELP = "Training output directory containing audit_log.jsonl and final_model.staging/."
+
 
 def _add_chat_subcommand(subparsers) -> None:
     p = subparsers.add_parser(
@@ -538,7 +544,7 @@ def _add_approve_subcommand(subparsers) -> None:
         type=str,
         required=True,
         metavar="DIR",
-        help="Training output directory containing audit_log.jsonl and final_model.staging/.",
+        help=_OUTPUT_DIR_HELP,
     )
     p.add_argument(
         "--comment",
@@ -588,7 +594,7 @@ def _add_approvals_subcommand(subparsers) -> None:
         type=str,
         required=True,
         metavar="DIR",
-        help="Training output directory containing audit_log.jsonl and final_model.staging/.",
+        help=_OUTPUT_DIR_HELP,
     )
     _add_common_subparser_flags(p, include_output_format=True)
 
@@ -615,7 +621,7 @@ def _add_reject_subcommand(subparsers) -> None:
         type=str,
         required=True,
         metavar="DIR",
-        help="Training output directory containing audit_log.jsonl and final_model.staging/.",
+        help=_OUTPUT_DIR_HELP,
     )
     p.add_argument(
         "--comment",

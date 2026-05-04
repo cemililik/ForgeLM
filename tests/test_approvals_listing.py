@@ -918,3 +918,64 @@ class TestApprovalsTimestampTypeSafety:
         assert _safe_timestamp_key({"timestamp": None}) == ""
         assert _safe_timestamp_key({"timestamp": ["bogus"]}) == ""
         assert _safe_timestamp_key({}) == ""
+
+
+class TestApprovalsAuditLogUnreadable:
+    """Wave 2a Round-2 review (CodeRabbit): a permission-denied audit log
+    must surface a clear EXIT_CONFIG_ERROR rather than masquerade as
+    "no pending approvals" / "no events for this run".
+
+    ``iter_audit_events`` swallows OSError-on-open + logs at ERROR + yields
+    nothing.  Without the explicit os.access readability check in
+    ``_run_approvals_list_pending`` and ``_run_approvals_show``, an
+    operator with a chmod-broken audit log would see a healthy-looking
+    empty result and miss a real pending decision.
+    """
+
+    def test_pending_exits_config_error_when_audit_log_unreadable(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        import os
+
+        from forgelm.cli.subcommands._approvals import _run_approvals_cmd
+
+        output_dir = tmp_path / "run"
+        _seed_run(output_dir, "fg-real00000000")
+        audit_path = output_dir / "audit_log.jsonl"
+        # Simulate an unreadable file via os.access monkeypatch (chmod 000
+        # behaves differently in CI containers; the access predicate is
+        # what the code under test actually consults).
+        original_access = os.access
+        monkeypatch.setattr(
+            os,
+            "access",
+            lambda path, mode: False if str(path) == str(audit_path) else original_access(path, mode),
+        )
+
+        with pytest.raises(SystemExit) as ei:
+            _run_approvals_cmd(_build_args(output_dir, pending=True), output_format="json")
+        assert ei.value.code == 1, "unreadable audit log must EXIT_CONFIG_ERROR (1), not silently exit 0"
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["success"] is False
+        assert "not readable" in payload["error"].lower()
+        assert "audit_log.jsonl" in payload["error"]
+
+    def test_show_exits_config_error_when_audit_log_unreadable(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        import os
+
+        from forgelm.cli.subcommands._approvals import _run_approvals_cmd
+
+        output_dir = tmp_path / "run"
+        _seed_run(output_dir, "fg-real00000000")
+        audit_path = output_dir / "audit_log.jsonl"
+        original_access = os.access
+        monkeypatch.setattr(
+            os,
+            "access",
+            lambda path, mode: False if str(path) == str(audit_path) else original_access(path, mode),
+        )
+
+        with pytest.raises(SystemExit) as ei:
+            _run_approvals_cmd(_build_args(output_dir, show="fg-real00000000"), output_format="json")
+        assert ei.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["success"] is False
+        assert "not readable" in payload["error"].lower()

@@ -311,10 +311,31 @@ def _run_approvals_list_pending(args, output_format: str) -> None:
         else:
             print(f"No audit log at {audit_log_path}; nothing to list.")
         sys.exit(EXIT_SUCCESS)
+    # Wave 2a Round-2 review (CodeRabbit): a permission-denied audit log
+    # masquerading as "no pending approvals" is the worst-case mode for
+    # this subcommand — an operator could miss a real pending decision
+    # because the file is unreadable.  ``iter_audit_events`` itself
+    # logger.error()s + yields nothing on OSError-on-open, which means
+    # the empty list below would otherwise look identical to a healthy
+    # zero-pending result.  Pin the readability check here so the
+    # operator sees a clear EXIT_CONFIG_ERROR with the path + chmod
+    # hint instead of a misleading "no pending approvals".
+    if not os.access(audit_log_path, os.R_OK):
+        _output_error_and_exit(
+            output_format,
+            f"Audit log {audit_log_path!r} exists but is not readable. "
+            "Check filesystem permissions (chmod / mount opts) and re-run.",
+            EXIT_CONFIG_ERROR,
+        )
 
     try:
         pending_events = _collect_pending_runs(audit_log_path)
     except OSError as exc:
+        # Defensive: ``iter_audit_events`` swallows OSError-on-open and
+        # logs at ERROR.  This branch only fires for OSErrors raised
+        # *during* iteration (mid-stream read failure on NFS-flapping
+        # disks) — surface those as a runtime error rather than letting
+        # the operator see a partial / silently-truncated pending list.
         _output_error_and_exit(
             output_format,
             f"Failed to scan audit log {audit_log_path!r}: {exc}",
@@ -423,6 +444,16 @@ def _run_approvals_show(args, output_format: str) -> None:
         _output_error_and_exit(
             output_format,
             f"No audit log at {audit_log_path!r}; cannot show run {run_id!r}.",
+            EXIT_CONFIG_ERROR,
+        )
+    # Same readability check as _run_approvals_list_pending: a permission-
+    # denied audit log must surface a clear error rather than masquerade as
+    # "no events for this run".
+    if not os.access(audit_log_path, os.R_OK):
+        _output_error_and_exit(
+            output_format,
+            f"Audit log {audit_log_path!r} exists but is not readable. "
+            "Check filesystem permissions (chmod / mount opts) and re-run.",
             EXIT_CONFIG_ERROR,
         )
 

@@ -13,7 +13,7 @@ import json
 import os
 import sys
 import types
-from typing import NoReturn, Optional
+from typing import Any, Dict, NoReturn, Optional
 
 import yaml
 
@@ -230,22 +230,24 @@ def _output_error_and_exit(output_format: str, msg: str, exit_code: int) -> NoRe
     sys.exit(exit_code)
 
 
-def _run_approve_cmd(args, output_format: str) -> None:
-    """Promote ``final_model.staging/`` → ``final_model/`` after human review."""
-    # Late import via the package facade so monkeypatched
-    # ``forgelm.cli._build_approval_notifier`` references resolve correctly.
+def _read_required_event_for_approve(
+    audit_log_path: str,
+    run_id: str,
+    output_format: str,
+) -> Dict[str, Any]:
+    """Read the ``human_approval.required`` event for ``run_id`` and
+    enforce no-prior-terminal-decision (approve flavour).
+
+    Exits via :func:`_output_error_and_exit` on parse error, missing
+    required event, or a pre-existing terminal decision.  Pulled out of
+    :func:`_run_approve_cmd` so the dispatcher stays under SonarCloud
+    S3776 cognitive-complexity ceiling.  Reject has its own slightly-
+    different operator copy (``"record a rejection"``) and stays inline
+    in :func:`_run_reject_cmd` — sharing the helper would either dilute
+    the operator messages or balloon the helper's parameter list.
+    """
     from forgelm import cli as _cli_facade
 
-    output_dir = args.output_dir
-    run_id = args.run_id
-    audit_log_path = os.path.join(output_dir, "audit_log.jsonl")
-
-    # Read the audit event first so we can use the trainer-recorded staging_path
-    # (which reflects the configured final_model_dir) rather than a hardcoded default.
-    # Strict-mode parsing (Wave 2a Round-2 hardening): a corrupted decision
-    # record that gets silently skipped looks identical to "no approval yet",
-    # which would let an operator double-grant. Convert AuditLogParseError into
-    # an actionable EXIT_CONFIG_ERROR so the operator fixes the log first.
     from ._audit_log_reader import AuditLogParseError
 
     try:
@@ -282,6 +284,26 @@ def _run_approve_cmd(args, output_format: str) -> None:
             "Refusing to promote — re-approve is not allowed.",
             EXIT_CONFIG_ERROR,
         )
+    return required_event
+
+
+def _run_approve_cmd(args, output_format: str) -> None:
+    """Promote ``final_model.staging/`` → ``final_model/`` after human review."""
+    # Late import via the package facade so monkeypatched
+    # ``forgelm.cli._build_approval_notifier`` references resolve correctly.
+    from forgelm import cli as _cli_facade
+
+    output_dir = args.output_dir
+    run_id = args.run_id
+    audit_log_path = os.path.join(output_dir, "audit_log.jsonl")
+
+    # Read the audit event first so we can use the trainer-recorded staging_path
+    # (which reflects the configured final_model_dir) rather than a hardcoded default.
+    # Strict-mode parsing (Wave 2a Round-2 hardening): a corrupted decision
+    # record that gets silently skipped looks identical to "no approval yet",
+    # which would let an operator double-grant. Convert AuditLogParseError into
+    # an actionable EXIT_CONFIG_ERROR so the operator fixes the log first.
+    required_event = _read_required_event_for_approve(audit_log_path, run_id, output_format)
 
     staging_path = required_event.get("staging_path") or os.path.join(output_dir, f"final_model{_STAGING_SUFFIX}")
     # Defence-in-depth: refuse a staging_path that escapes output_dir (a
