@@ -698,37 +698,58 @@ def _run_purge_run_id(args, output_format: str) -> None:
     )
 
 
+def _staging_targets_for_run(base: Path, run_id: str) -> List[Path]:
+    """Return existing ``final_model.staging`` paths for ``run_id``.
+
+    Matches both the Phase 9 v2 explicit form
+    ``final_model.staging.<run_id>/`` and the legacy canonical form
+    ``final_model.staging/`` for runs that pre-date the v2 layout.
+    """
+    candidates = (base / f"final_model.staging.{run_id}", base / "final_model.staging")
+    return [c for c in candidates if c.exists()]
+
+
+def _artefact_targets_for_run(base: Path, run_id: str) -> List[Path]:
+    """Return ``compliance/`` files whose name embeds ``run_id`` as a token.
+
+    Compliance bundle filenames embed the run-id; we accept both
+    ``compliance_<run_id>.json`` and ``annex_iv_<run_id>.json``.  The
+    token-boundary check (`_filename_contains_run_id`) defends against
+    short-run-id false positives where a substring match would
+    accidentally pick up files belonging to a different run.
+    """
+    compliance_dir = base / "compliance"
+    if not compliance_dir.is_dir():
+        return []
+    return [
+        compliance_dir / fname
+        for fname in os.listdir(compliance_dir)
+        if (compliance_dir / fname).is_file() and _filename_contains_run_id(fname, run_id)
+    ]
+
+
+# Per-kind dispatch: adding a new ``--kind`` value (post-Phase-21) is a
+# one-row + one-helper edit instead of an if/elif chain extension.
+_RUN_KIND_RESOLVERS: Dict[str, Any] = {
+    "staging": _staging_targets_for_run,
+    "artefacts": _artefact_targets_for_run,
+}
+
+
 def _resolve_run_kind_targets(output_dir: str, run_id: str, kind: str) -> List[Path]:
-    """Return the on-disk paths the ``--kind`` flag refers to for ``run_id``."""
-    paths: List[Path] = []
-    base = Path(output_dir)
-    if kind == "staging":
-        # Match both ``final_model.staging.<run_id>/`` (Phase 9 v2 layout)
-        # and ``final_model.staging/`` for legacy runs.
-        explicit = base / f"final_model.staging.{run_id}"
-        canonical = base / "final_model.staging"
-        for candidate in (explicit, canonical):
-            if candidate.exists():
-                paths.append(candidate)
-    elif kind == "artefacts":
-        compliance_dir = base / "compliance"
-        if compliance_dir.is_dir():
-            # Compliance bundle filenames embed the run_id; we accept
-            # both `compliance_<run_id>.json` and `annex_iv_<run_id>.json`.
-            # Wave 2b Round-2 review: bare-substring `run_id in fname`
-            # was too loose — a run_id "fg-abc" would also match
-            # "compliance_fg-abc-extra.json" belonging to a different
-            # run.  Tightened to a token-boundary check: the run_id
-            # must be flanked by a recognised delimiter (`_`, `-`, `.`)
-            # or sit at a string edge.  The delimiters cover every
-            # filename shape ForgeLM's compliance writer emits today
-            # (`<prefix>_<run_id>.<ext>`) without false negatives on
-            # legitimate variants.
-            for fname in os.listdir(compliance_dir):
-                fpath = compliance_dir / fname
-                if fpath.is_file() and _filename_contains_run_id(fname, run_id):
-                    paths.append(fpath)
-    return paths
+    """Return the on-disk paths the ``--kind`` flag refers to for ``run_id``.
+
+    Dispatches to a per-kind resolver in :data:`_RUN_KIND_RESOLVERS`.
+    Unknown kinds are caller error (argparse rejects them at parse
+    time); we return an empty list defensively rather than raising so
+    a typo on a new kind in the future surfaces as
+    ``data.erasure_failed`` with `NoMatchingArtefacts` rather than an
+    unhandled ``KeyError``.
+    """
+    resolver = _RUN_KIND_RESOLVERS.get(kind)
+    if resolver is None:
+        return []
+    return resolver(Path(output_dir), run_id)
 
 
 _RUN_ID_BOUNDARIES = ("_", "-", ".")
