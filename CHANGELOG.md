@@ -13,21 +13,34 @@ All notable changes to ForgeLM are documented here.
 > Per-PR CHANGELOG entries below collapse into the v0.5.5 release
 > notes at tag time.
 
-### Added — Wave 2a / Phase 18 — Library API design
+### Added — Wave 2a — Phase 18 Library API design + Phase 20 GDPR erasure design
 
-- **Library API analysis & design document** —
-  `docs/analysis/code_reviews/library-api-design-202605021414.md` is the
-  Phase 18 deliverable: 12 sections + 16-row task plan that pin the public
-  Python surface for downstream consumers.  Resolves the stable / experimental /
-  internal tier split; documents the lazy-import invariant
-  (`import forgelm` does not pull `torch`); enumerates the new public symbols
-  (`audit_dataset`, `verify_audit_log`, `AuditLogger`, `VerifyResult`,
-  `AuditReport`, `WebhookNotifier`, `detect_pii` / `mask_pii` / `detect_secrets` /
-  `mask_secrets` / `compute_simhash`); spells out the `py.typed` + `mypy --strict`
-  contract for the public surface; resolves the Wave 1 round-5 carry-over
-  (lazy `__getattr__` migration for `forgelm/cli/__init__.py`); specifies the
-  `tests/test_library_api.py` integration suite Phase 19 must ship.  No code
-  changes in this PR — design only; Phase 19 implements.
+- **Phase 18 — Library API analysis & design** —
+  `docs/analysis/code_reviews/library-api-design-202605021414.md` (525 lines).
+  12 sections + 16-row task plan that pin the public Python surface for
+  downstream consumers.  Resolves the stable / experimental / internal tier
+  split; documents the lazy-import invariant (`import forgelm` does not pull
+  `torch`); enumerates the new public symbols (`audit_dataset`,
+  `verify_audit_log`, `AuditLogger`, `VerifyResult`, `AuditReport`,
+  `WebhookNotifier`, `detect_pii` / `mask_pii` / `detect_secrets` /
+  `mask_secrets` / `compute_simhash`); spells out the `py.typed` +
+  `mypy --strict` contract; resolves the Wave 1 round-5 carry-over (lazy
+  `__getattr__` migration for `forgelm/cli/__init__.py`); specifies the
+  `tests/test_library_api.py` integration suite Phase 19 must ship.
+- **Phase 20 — GDPR Article 17 erasure analysis & design** —
+  `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`.  12
+  sections + 11-test plan + file map that pin the scope of Phase 21's
+  `forgelm purge` implementation.  Maps every Article 17(1) trigger to a
+  ForgeLM action; enumerates the seven artefact kinds that may carry
+  personal data; specifies the `RetentionConfig` Pydantic block (Article
+  5(1)(e) storage limitation); specifies the six new audit events
+  (`data.erasure_requested` / `data.erasure_completed` / `data.erasure_failed`
+  + three operator-warning events for memorisation / synthetic-data
+  presence / external-copies); resolves three Wave 1 carry-overs (GH-023,
+  GH-013, Round-5 concurrent-approve lock), six open questions; supplies
+  the marketing-claim replacement copy for `safety_compliance.md`.
+
+Both are design-only PRs — Phase 19 + Phase 21 implementations follow.
 
 ### Added — Wave 1 closure (Faz 9, 11, 12, 13, 25, 31, 32 — see PR description)
 
