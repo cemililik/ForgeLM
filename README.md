@@ -54,6 +54,7 @@
 ### Enterprise & MLOps
 - **Config-Driven**: Declarative YAML — built for CI/CD pipelines, not notebooks
 - **EU AI Act Compliance**: Auto-generated audit trails, data provenance (SHA-256), training manifests
+- **ISO 27001 / SOC 2 Type II Alignment**: Software cannot be ISO/SOC 2 *certified* — only organisations can — but ForgeLM produces the audit-trail, change-management, data-lineage, and supply-chain evidence the deployer's auditor explicitly asks for. CycloneDX 1.5 SBOM per release, `pip-audit` nightly, `bandit` CI, append-only HMAC-chained audit log, Article 14 staging gate, Article 15/17 GDPR tooling. See [`docs/guides/iso_soc2_deployer_guide.md`](docs/guides/iso_soc2_deployer_guide.md) for the deployer audit cookbook + 93-control coverage map.
 - **Docker**: Official Dockerfile and docker-compose for portable deployment
 - **Offline / Air-Gapped**: Full operation without internet for regulated industries
 - **JSON Output**: Machine-readable results with `--output-format json` for pipeline integration

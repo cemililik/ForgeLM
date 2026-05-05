@@ -1,0 +1,231 @@
+# QMS: Access Control
+
+> Quality Management System guidance — [YOUR ORGANIZATION]
+> ISO 27001:2022 references: A.5.15, A.5.16, A.5.17, A.5.18, A.8.2, A.8.5
+> SOC 2 references: CC1.5, CC6.1, CC6.2, CC6.3, CC6.5, CC8.1
+
+## 1. Purpose
+
+Define how the deployer organises identities, credentials, and access
+rights around ForgeLM's audit-trail attribution model.
+
+**Core contract:** every event ForgeLM emits is stamped with a
+`FORGELM_OPERATOR` identity. The audit chain is only as strong as
+the identity-management substrate that issues the operator value.
+Two operators sharing the same `FORGELM_OPERATOR` are
+indistinguishable in the chain — that is a deployer-side identity
+hygiene failure, not a ForgeLM defect.
+
+## 2. Scope
+
+The following identity-bearing surfaces:
+
+| Surface | What carries identity |
+|---|---|
+| `FORGELM_OPERATOR` env var | Stamped on every audit-log entry |
+| Approval gate (`forgelm approve` / `reject`) | Operator id at approval time |
+| Reverse-PII / purge subcommands | Operator id on each Article 15 / 17 event |
+| Webhook lifecycle events | Operator id propagated to webhook payload |
+| CI runner identity | The CI runner's service-account credential is the operator's "real" identity bound to `FORGELM_OPERATOR` |
+
+ForgeLM does NOT itself implement RBAC, MFA, or directory federation —
+those live in the deployer's IdP (Okta, Azure AD, Google Workspace,
+Keycloak). What ForgeLM does is bind every audit entry to whatever
+string the deployer puts in `FORGELM_OPERATOR` so the IdP audit log
+and ForgeLM audit log can be cross-referenced.
+
+## 3. Operator identity contract
+
+### 3.1 Resolution order
+
+ForgeLM resolves the operator identity at audit-event emit time:
+
+1. `FORGELM_OPERATOR` env var (preferred — explicit set).
+2. `getpass.getuser()` (POSIX user name fallback).
+3. `FORGELM_ALLOW_ANONYMOUS_OPERATOR=1` permits emission without
+   identity (intended for short-lived test runs only; ConfigError
+   otherwise).
+
+### 3.2 Required form
+
+Use a **machine-readable, namespaced identifier** rather than a free-
+text human name:
+
+| Pattern | Example | Why |
+|---|---|---|
+| `<environment>/<purpose>/<runner-id>` | `prod/training/gh-runner-42` | Maps to CI runner pool |
+| `<email>` | `alice@acme.example` | OK for human-driven approval |
+| `oidc:<issuer>:<subject>` | `oidc:gha:repo:Acme/forgelm-pipelines:ref:refs/heads/main` | OIDC-token-bound |
+
+Anti-patterns:
+
+- `root` / `cemil` / `admin` — ambiguous, unrotatable.
+- Empty / `unknown` — defeats the audit attribution purpose.
+
+### 3.3 Rotation when staff change
+
+ForgeLM's audit chain is **immutable**. Old `FORGELM_OPERATOR` IDs
+remain in the chain forever. When an operator leaves:
+
+1. **Revoke their CI runner identity** (rotate the OIDC trust /
+   delete the IAM role).
+2. **Do NOT re-issue the same `FORGELM_OPERATOR` string** to a new
+   person — give them a new identifier so future entries are not
+   confused with departed-staff entries.
+3. **Audit prior actions** by grepping the audit log for their
+   identifier; this is your termination-day forensic record.
+
+### 3.4 `FORGELM_AUDIT_SECRET` rotation
+
+The HMAC-chain key (per audit run; XOR'd with the per-output-dir
+salt to derive the actual signing key — see
+`forgelm/cli/subcommands/_purge.py:_resolve_salt`). Treat as a Tier-1
+secret:
+
+- **Length:** 32+ random bytes (256 bits of entropy).
+- **Substrate:** KMS / Vault / equivalent. Never in `.env` checked
+  into VCS.
+- **Rotation cadence:** quarterly recommended; immediately on
+  suspected compromise.
+- **Rotation procedure:** new value lands in env BEFORE the next
+  pipeline run. Old runs' chains remain verifiable with the old
+  key (audit log entries are bound to the key live at emit time;
+  ForgeLM does NOT support key migration on the chain — by design).
+
+## 4. CI runner identity binding
+
+The recommended pattern when running ForgeLM from CI:
+
+### 4.1 GitHub Actions
+
+```yaml
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC
+      contents: read
+    env:
+      FORGELM_OPERATOR: gha:${{ github.repository }}:${{ github.workflow }}:run-${{ github.run_id }}
+      FORGELM_AUDIT_SECRET: ${{ secrets.FORGELM_AUDIT_SECRET }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: pip install forgelm
+      - run: forgelm --config config.yaml
+```
+
+**Why this binding:** the run id is unique per workflow execution; an
+auditor can correlate a single audit-log entry to the GitHub Actions
+run page in seconds.
+
+### 4.2 GitLab CI
+
+```yaml
+train:
+  script:
+    - export FORGELM_OPERATOR="gitlab:${CI_PROJECT_PATH}:${CI_PIPELINE_ID}:job-${CI_JOB_ID}"
+    - forgelm --config config.yaml
+```
+
+### 4.3 Jenkins
+
+```groovy
+pipeline {
+  agent any
+  environment {
+    FORGELM_OPERATOR = "jenkins:${env.JOB_NAME}:build-${env.BUILD_ID}"
+    FORGELM_AUDIT_SECRET = credentials('forgelm-audit-secret')
+  }
+  stages {
+    stage('Train') { steps { sh 'forgelm --config config.yaml' } }
+  }
+}
+```
+
+## 5. OS-level isolation
+
+Within a single training host, multiple pipelines should NOT share an
+output directory:
+
+- One Unix user per pipeline (`forgelm-prod`, `forgelm-staging`,
+  `forgelm-research`).
+- `chmod 0700 <output_dir>` on each pipeline's directory.
+- Audit logs in `<output_dir>` inherit the dir's perm; do not chmod
+  individually unless your KMS substrate requires read access.
+- The `.forgelm_audit_salt` file is `0600` (owner-read only) per
+  ForgeLM's atomic O_EXCL creation in `_resolve_salt`.
+
+## 6. Approval gate identity separation
+
+Article 14 staging requires the approving operator to be different
+from the training operator (segregation of duties — ISO A.5.3, SOC 2
+CC1.5):
+
+```bash
+# Job 1 — training (CI runner identity)
+FORGELM_OPERATOR="gha:Acme/pipelines:training:run-42" \
+    forgelm --config config.yaml
+
+# Job 2 — approval (human reviewer identity)
+FORGELM_OPERATOR="alice@acme.example" \
+    forgelm approve --run-id <run-id>
+```
+
+ForgeLM does not enforce that the two identities differ — that is a
+deployer-side IdP control. The audit chain records both, so an
+auditor can detect violations:
+
+```bash
+# Find approvals where trainer == approver (segregation violation)
+forgelm verify-audit --output-dir ./outputs --json | jq '
+  .events[] |
+  select(.event == "human_approval.granted") |
+  .matching_training_event = (
+    [.|.run_id == .. .run_id and .event == "training.started"] | first
+  ) |
+  select(.operator == .matching_training_event.operator) |
+  .'
+```
+
+## 7. Webhook secret separation
+
+Webhook URLs and HMAC-signing keys belong in env, never in YAML:
+
+```yaml
+webhook:
+  url_env: SLACK_WEBHOOK_URL          # resolved from env
+  secret_env: FORGELM_WEBHOOK_SECRET  # HMAC body sign
+  timeout: 10
+```
+
+The webhook lifecycle events (`notify_started`, `notify_succeeded`,
+`notify_failed`, `notify_reverted`, `notify_awaiting_approval` —
+Phase 8 vocabulary) carry the `FORGELM_OPERATOR` identity into the
+webhook payload so the receiving system (Slack, Teams, custom
+incident-management) can attribute the notification.
+
+## 8. Verification checklist
+
+For a deployer auditor walking access-control evidence:
+
+- [ ] Every CI runner pipeline sets `FORGELM_OPERATOR` from a
+      machine-readable namespace.
+- [ ] No two active pipelines share an `FORGELM_OPERATOR` value.
+- [ ] `FORGELM_AUDIT_SECRET` lives in a KMS / Vault substrate, never
+      in VCS or a plain `.env` file.
+- [ ] Quarterly KMS audit log shows `FORGELM_AUDIT_SECRET` rotation.
+- [ ] Approval-gate identity differs from training identity for every
+      `human_approval.granted` event in the past 90 days
+      (sample-audit, not exhaustive).
+- [ ] `<output_dir>` permission masks: `0700` (dir),
+      `.forgelm_audit_salt` `0600`.
+- [ ] No `FORGELM_OPERATOR=root` / `=admin` / `=unknown` events in
+      the chain.
+- [ ] Webhook URLs and HMAC keys are env-resolved (`url_env`,
+      `secret_env`); no plaintext URL in any committed YAML.
+
+## 9. Review
+
+| Version | Date | Author | Changes |
+|---------|------|--------|---------|
+| 1.0 | [DATE] | [AUTHOR] | Initial version (Wave 4 / Faz 23) |
