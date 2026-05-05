@@ -80,7 +80,7 @@ ForgeLM uses these path conventions — change them with command-line flags but 
 | Config file | `configs/<name>.yaml` | `--config PATH` |
 | Audit output | `./audit/` | `forgelm audit --output PATH` |
 | Training output | `./checkpoints/<name>/` | `output.dir:` in YAML |
-| Cache directory | `~/.forgelm/cache/` | `FORGELM_CACHE_DIR` env var |
+| HuggingFace cache | `~/.cache/huggingface/` | `HF_HOME` env var (canonical; ForgeLM does not introduce its own cache-dir override) |
 | HuggingFace token | env `HF_TOKEN` | `auth.hf_token:` in YAML |
 
 ## Multi-config workflows

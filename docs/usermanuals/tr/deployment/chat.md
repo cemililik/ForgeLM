@@ -30,14 +30,10 @@ Tarifenizi Ayarlar → Plan → Yükselt menüsünden değiştirebilirsiniz...
 |---|---|
 | `/reset` | Konuşma geçmişini temizle. |
 | `/save <yol>` | Konuşmayı JSONL'a kaydet. |
-| `/load <yol>` | Önceki konuşmayı yükle. |
 | `/system <prompt>` | System prompt'u ayarla veya güncelle. |
 | `/temperature <değer>` | Sampling sıcaklığını ayarla (0.0 - 2.0). |
-| `/top_p <değer>` | Nucleus sampling parametresi. |
-| `/max_tokens <N>` | Yanıt uzunluğunu sınırla. |
-| `/safety on|off` | Llama Guard pre/post tarayıcısını aç/kapa. |
 | `/help` | Bu listeyi göster. |
-| `/quit` veya `Ctrl+D` | Çık. |
+| `/exit` veya `Ctrl+D` | Çık. |
 
 ## Konfigürasyon
 
@@ -97,10 +93,11 @@ Sıfırdan başlamak için: `/reset`.
 ```shell
 forgelm> /save sessions/qa-1.jsonl
 [6 tur sessions/qa-1.jsonl'a kaydedildi]
-
-forgelm> /load sessions/qa-1.jsonl
-[6 tur yüklendi; devam etmeye hazır]
 ```
+
+Kaydedilen JSONL, yeni bir oturumun prompt history'sine geri
+besleyerek tekrar oynatılabilir (replay tooling v0.6.0+ Pro CLI için
+roadmap'tedir).
 
 Oturumlar şu durumlar için faydalı:
 - Test sırasında bulduğunuz bir bug'ı yeniden üretmek.

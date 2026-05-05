@@ -82,6 +82,57 @@ Cross-cutting:
   pairs (deployer guide + 3 reference docs); tally now 13 doc pairs
   (was 9).
 
+**Faz 26 — QMS bilingual mirror + compliance_summary cleanup**
+
+- 6 existing QMS TR mirrors: `README-tr.md`,
+  `roles_responsibilities-tr.md`, `sop_model_training-tr.md`,
+  `sop_data_management-tr.md`, `sop_incident_response-tr.md`,
+  `sop_change_management-tr.md`.
+- 4 new-Faz-23 QMS TR mirrors: `encryption_at_rest-tr.md`,
+  `access_control-tr.md`, `risk_treatment_plan-tr.md`,
+  `statement_of_applicability-tr.md`.
+- `docs/qms/README.md` (+ `-tr.md`) — table extended with the 4
+  Wave 4 QMS rows; "See also" section linking to compliance_summary
+  + ISO/SOC 2 deployer guide + audit event catalog.
+- `docs/reference/compliance_summary.md` — full rewrite: H1 + scope
+  blockquote, 11 stale `forgelm/x.py#L33`-style line anchors
+  replaced with module-path + symbol-name references that survive
+  refactor, "50 prompts × 3 categories" → "140 × 6", linked from
+  QMS README.
+- `tools/check_anchor_resolution.py` (new) — markdown link
+  resolution guard; advisory mode by default + `--strict` opt-in
+  for CI wire-up once tree is clean.  21 regression tests.
+
+**Faz 30 — Final documentation pass (partial)**
+
+Tier 1 ghost-feature drift fixes + stat-block updates:
+
+- GH-008 `verify-log` → `verify-audit` rename in
+  `usermanuals/{en,tr}/compliance/audit-log.md`.
+- GH-021 `forgelm chat` slash commands aligned with parser:
+  removed `/load`, `/top_p`, `/max_tokens`, `/safety on|off`;
+  `/quit` → `/exit`.  EN+TR mirror.
+- GH-022 `q6_k` quant level removed from
+  `usermanuals/{en,tr}/deployment/gguf-export.md` (parser only
+  supports `q2_k|q3_k_m|q4_k_m|q5_k_m|q8_0|f16`); `f16` row
+  added.
+- GH-024 `FORGELM_RESUME_TOKEN` env var removed from
+  `usermanuals/{en,tr}/compliance/human-oversight.md`; replaced
+  the API-automation block with the canonical CLI subcommand
+  flow (`forgelm approve` / `reject` + `forgelm approvals
+  --pending`); the v0.6.0+ Pro CLI roadmap callout flagged.
+- GH-025 `FORGELM_CACHE_DIR` env var removed from
+  `usermanuals/{en,tr}/getting-started/project-layout.md`;
+  `HF_HOME` declared canonical.
+- `docs/standards/testing.md` stat block: 48 → 67 test modules,
+  ~1410 tests.
+
+Deferred to Faz 30 follow-up (closure-plan task A + remaining O
+items + tasks J + N): GH-016/018/019/020 reference/cli.md cleanup,
+sample-audit user-facing doc triplet completion,
+`tools/check_cli_help_consistency.py`, full-suite anchor-checker
+`--strict` CI wire-up.
+
 ### Wave 3 — Faz 24 + 28 + 38 (`closure/wave3-integration`)
 
 Single integration branch covering three closure-plan phases:

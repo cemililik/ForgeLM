@@ -5,7 +5,7 @@
 
 ## Layout
 
-Current structure (48 test modules, one per feature area):
+Current structure (67 test modules, one per feature area; ~1410 tests):
 
 ```
 tests/

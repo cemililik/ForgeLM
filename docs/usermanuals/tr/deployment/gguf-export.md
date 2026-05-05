@@ -25,8 +25,8 @@ $ forgelm export ./checkpoints/customer-support \
 
 | Seviye | Boyut (7B base) | Kalite | Kullanım |
 |---|---|---|---|
-| `q8_0` | 7.2 GB | En yüksek | Kalite benchmark; bellek bol üretim. |
-| `q6_k` | 5.5 GB | Çok yüksek | Üretim için varsayılan. |
+| `f16` | 13 GB | Kayıpsız | Kalite benchmark; tam-precision arşiv. |
+| `q8_0` | 7.2 GB | En yüksek | Bellek bol üretim. |
 | `q5_k_m` | 4.8 GB | Yüksek | Mantıklı denge. |
 | `q4_k_m` | 4.1 GB | İyi | **Yerel inference için varsayılan.** |
 | `q3_k_m` | 3.3 GB | Kabul edilebilir | Dar bellek; biraz kalite kaybı. |

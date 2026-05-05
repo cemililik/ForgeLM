@@ -70,17 +70,17 @@ approval:
 
 The trainer halts and posts the artifact bundle to your webhook. Your system handles the human review and POSTs back to ForgeLM's resume endpoint with a signed JWT.
 
-### API
+### CLI subcommand (canonical)
 
-For self-service automation (e.g. a "promote this run" button in your dashboard):
+The supported approval mechanism in v0.5.5 is the CLI subcommand pair `forgelm approve` / `forgelm reject`:
 
-```yaml
-approval:
-  signature_method: "api"
-  resume_token: "${FORGELM_RESUME_TOKEN}"
+```bash
+forgelm approvals --pending                       # list runs awaiting approval
+forgelm approve --run-id <run-id>                 # promote staging → final_model
+forgelm reject  --run-id <run-id> --reason "..."  # discard the staged model
 ```
 
-Your dashboard calls ForgeLM's resume endpoint directly with the run ID and reviewer identity. Signatures are recorded in the audit log.
+Each invocation requires `FORGELM_OPERATOR` (the approver's identity) and writes a `human_approval.granted` / `human_approval.rejected` event to the chain. Self-service "promote this run" automation is roadmapped for v0.6.0+ Pro CLI (Phase 13 in the public roadmap); until then the CLI gate is the audit-grade interface.
 
 ## What's in an approval signature
 

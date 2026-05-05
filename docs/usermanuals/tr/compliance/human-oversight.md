@@ -70,17 +70,17 @@ approval:
 
 Trainer durur ve artifact paketini webhook'unuza POST'lar. Sisteminiz insan incelemesini halleder ve imzalı JWT ile ForgeLM'in resume endpoint'ine geri POST'lar.
 
-### API
+### CLI subcommand (canonical)
 
-Self-servis otomasyon için (ör. dashboard'unuzda "bu koşuyu terfi ettir" düğmesi):
+v0.5.5'te desteklenen onay mekanizması CLI subcommand çifti `forgelm approve` / `forgelm reject`:
 
-```yaml
-approval:
-  signature_method: "api"
-  resume_token: "${FORGELM_RESUME_TOKEN}"
+```bash
+forgelm approvals --pending                       # onay bekleyen koşumları listele
+forgelm approve --run-id <run-id>                 # staging → final_model'e promote
+forgelm reject  --run-id <run-id> --reason "..."  # staged modeli at
 ```
 
-Dashboard'unuz doğrudan ForgeLM'in resume endpoint'ini koşu ID'si ve reviewer kimliğiyle çağırır. İmzalar audit log'a kaydedilir.
+Her çağrı `FORGELM_OPERATOR` (onaylayanın kimliği) gerektirir ve zincire `human_approval.granted` / `human_approval.rejected` olayı yazar. Self-servis "bu koşuyu terfi ettir" otomasyonu v0.6.0+ Pro CLI (public roadmap'te Phase 13) için planlanmıştır; o zamana kadar CLI gate audit-grade arayüzdür.
 
 ## Onay imzasında ne var
 

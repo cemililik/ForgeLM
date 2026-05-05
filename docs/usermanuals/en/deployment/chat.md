@@ -30,14 +30,10 @@ yolunu izleyebilirsiniz...
 |---|---|
 | `/reset` | Clear conversation history. |
 | `/save <path>` | Save the conversation to JSONL. |
-| `/load <path>` | Load a previous conversation. |
 | `/system <prompt>` | Set or update the system prompt. |
 | `/temperature <value>` | Set sampling temperature (0.0 to 2.0). |
-| `/top_p <value>` | Set nucleus sampling parameter. |
-| `/max_tokens <N>` | Cap response length. |
-| `/safety on|off` | Toggle Llama Guard pre/post screening. |
 | `/help` | Show this list. |
-| `/quit` or `Ctrl+D` | Exit. |
+| `/exit` or `Ctrl+D` | Exit. |
 
 ## Configuration
 
@@ -97,10 +93,10 @@ To start fresh: `/reset`.
 ```shell
 forgelm> /save sessions/qa-1.jsonl
 [saved 6 turns to sessions/qa-1.jsonl]
-
-forgelm> /load sessions/qa-1.jsonl
-[loaded 6 turns; ready to continue]
 ```
+
+The saved JSONL is replayable by feeding it back through a fresh
+session's prompt history (replay tooling is roadmapped for v0.6.0+ Pro CLI).
 
 Sessions are useful for:
 - Reproducing a bug you found during testing.

@@ -25,8 +25,8 @@ The output is a single `.gguf` file plus a `.sha256` manifest.
 
 | Level | Size (7B base) | Quality | Use case |
 |---|---|---|---|
-| `q8_0` | 7.2 GB | Highest | Quality benchmark; production where memory is plentiful. |
-| `q6_k` | 5.5 GB | Very high | Default for production. |
+| `f16` | 13 GB | Lossless | Quality benchmark; full-precision archive. |
+| `q8_0` | 7.2 GB | Highest | Production where memory is plentiful. |
 | `q5_k_m` | 4.8 GB | High | Sensible balance. |
 | `q4_k_m` | 4.1 GB | Good | **Default for local inference.** |
 | `q3_k_m` | 3.3 GB | Acceptable | Tight memory; some quality loss. |
