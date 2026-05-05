@@ -248,7 +248,18 @@ def _resolve_query_form(
         )
 
     if salt_source is None:
-        return query, "plaintext", salt, resolved_source
+        # F-W3FU-02 (priv) fix: in plaintext mode the salt is used only
+        # to compute the audit event's ``query_hash`` (so the digest is
+        # wordlist-resistant); it is NOT applied to the corpus scan.
+        # Recording ``salt_source_label = resolved_source`` here would
+        # mislead a forensic reviewer into thinking the env-var/per-dir
+        # salt was applied to the scan.  Record ``"plaintext"`` so the
+        # audit event distinguishes plaintext scans from hash-mask scans
+        # cleanly; the audit-hash salt source remains ``resolved_source``
+        # internally but is not separately surfaced (a future absorption
+        # may add an ``audit_hash_salt_source`` field if forensic depth
+        # demands it).
+        return query, "plaintext", salt, "plaintext"
 
     if salt_source != resolved_source:
         # Direction-aware diagnostic: telling the operator which
@@ -280,13 +291,31 @@ def _truncate_snippet(line: str, match_span: Tuple[int, int]) -> str:
 
     Operates on Python ``str`` (code-points), so multi-byte UTF-8
     runes are not split mid-byte.
+
+    F-W3FU-02 / F-W3FU-T-02 fix: when ``match_len > budget`` (e.g.
+    a ``--type custom`` greedy regex matches most of a long line), the
+    centred window cannot fit the whole match without breaching the
+    cap.  We truncate the match itself in that case — the snippet's
+    job is "operator can verify the hit", not "operator sees the
+    entire match"; for matches that overflow the budget the snippet
+    shows the centre slice with leading/trailing ellipses.
     """
     if len(line) <= _SNIPPET_MAX_CHARS:
         return line
     start, end = match_span
     budget = _SNIPPET_MAX_CHARS - 2  # reserve room for two literal "…"
     match_len = max(end - start, 0)
-    ctx = max((budget - match_len) // 2, 0)
+    if match_len >= budget:
+        # Degenerate case: the match itself exceeds the budget.  Slice
+        # a centred window of the match, eliding both ends.
+        mid = (start + end) // 2
+        half = budget // 2
+        win_start = max(mid - half, 0)
+        win_end = min(win_start + budget, len(line))
+        head = "…" if win_start > 0 else ""
+        tail = "…" if win_end < len(line) else ""
+        return f"{head}{line[win_start:win_end]}{tail}"
+    ctx = (budget - match_len) // 2
     win_start = max(start - ctx, 0)
     win_end = min(end + ctx, len(line))
     head = "…" if win_start > 0 else ""
@@ -335,18 +364,27 @@ def _scan_files_with_redos_guard(
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Walk every file once; centralise the per-file ReDoS budget.
 
-    On POSIX a ``SIGALRM`` per-file budget of ``_CUSTOM_REGEX_TIMEOUT_S``
-    seconds bounds the worst-case backtracking cost of a
-    ``--type custom`` pattern (F-W3-PS-03 / F-W3-07 / F-W3S-03).  On
-    Windows ``SIGALRM`` is unavailable; the scan runs without a guard
+    On POSIX **main-thread** runs a ``SIGALRM`` per-file budget of
+    ``_CUSTOM_REGEX_TIMEOUT_S`` seconds bounds the worst-case
+    backtracking cost of a ``--type custom`` pattern (F-W3-PS-03 /
+    F-W3-07 / F-W3S-03).  On Windows AND on POSIX worker threads
+    (`signal.signal` raises ``ValueError`` outside the main thread —
+    F-W3FU-04) the guard is a no-op; the scan runs without a wrapper
     and the operator is expected to vet their regex.  The exit-code
     contract is unchanged either way — a timeout converts to
     ``OSError`` which the dispatcher converts to ``EXIT_TRAINING_ERROR``
     plus a failure-flavoured audit event.
     """
+    import threading as _threading
+
     matches: List[Dict[str, Any]] = []
     files_scanned: List[Dict[str, Any]] = []
-    use_alarm = identifier_type == "custom" and os.name == "posix" and hasattr(_signal, "SIGALRM")
+    use_alarm = (
+        identifier_type == "custom"
+        and os.name == "posix"
+        and hasattr(_signal, "SIGALRM")
+        and _threading.current_thread() is _threading.main_thread()
+    )
     for path in files:
         if use_alarm:
             file_matches = _scan_file_with_alarm(path, pattern)
@@ -358,25 +396,39 @@ def _scan_files_with_redos_guard(
 
 
 def _scan_file_with_alarm(path: str, pattern: re.Pattern[str]) -> List[Dict[str, Any]]:
-    """POSIX-only wrapper enforcing ``_CUSTOM_REGEX_TIMEOUT_S``.
+    """POSIX main-thread wrapper enforcing ``_CUSTOM_REGEX_TIMEOUT_S``.
 
     Translates a ReDoS hang into a clean ``OSError`` so the dispatcher
     handles it via the same audit-event path as a read failure.
+
+    F-W3FU-03 fix: ``signal.alarm(N)`` returns the seconds remaining
+    on any previously-scheduled alarm.  The previous implementation
+    discarded that value and called ``signal.alarm(0)`` in ``finally``,
+    permanently cancelling any outer alarm budget.  We now capture the
+    previous-alarm remainder and re-arm it after our wrapper returns
+    so a caller that nests this helper inside its own SIGALRM budget
+    keeps that budget.
     """
 
     def _alarm(_sig, _frame):  # pragma: no cover — signal handler
         raise OSError(f"reverse-pii scan of {path!r} exceeded {_CUSTOM_REGEX_TIMEOUT_S}s (custom regex ReDoS guard)")
 
-    previous = _signal.signal(_signal.SIGALRM, _alarm)
-    _signal.alarm(_CUSTOM_REGEX_TIMEOUT_S)
+    previous_handler = _signal.signal(_signal.SIGALRM, _alarm)
+    previous_alarm_remaining = _signal.alarm(_CUSTOM_REGEX_TIMEOUT_S)
     try:
         return _scan_file(path, pattern)
     finally:
         _signal.alarm(0)
-        _signal.signal(_signal.SIGALRM, previous)
+        _signal.signal(_signal.SIGALRM, previous_handler)
+        if previous_alarm_remaining > 0:
+            # Re-arm the outer alarm with whatever budget it had left
+            # (rounded up to 1s — sub-second remainders cannot survive
+            # the alarm-syscall granularity, but losing the alarm
+            # entirely is worse than rounding up).
+            _signal.alarm(max(previous_alarm_remaining, 1))
 
 
-def _hash_for_audit(query: str, salt: Optional[bytes]) -> str:
+def _hash_for_audit(query: str, salt: bytes) -> str:
     """Salted SHA-256 of the operator's raw query for the audit event.
 
     Article 15 access requests must not write the subject's identifier
@@ -396,13 +448,15 @@ def _hash_for_audit(query: str, salt: Optional[bytes]) -> str:
        reviewer correlating Article 17 + Article 15 events for one
        subject sees a connected timeline.
 
-    The salt is ``None`` only on the legacy / pre-resolution code
-    path; production callers always pass the resolved salt.
+    F-W3FU-08 (priv) fix: ``salt`` is required (was ``Optional[bytes]``
+    with an unsalted-fallback branch).  The legacy ``None`` branch was
+    unreachable from any production caller, but a future refactor that
+    accidentally passed ``None`` would have silently downgraded to
+    unsalted SHA-256 — exactly the failure mode F-W3-PS-01 closed.
+    Type-tightening the signature makes the regression statically
+    impossible.
     """
-    raw = query.encode("utf-8")
-    if salt is None:
-        return hashlib.sha256(raw).hexdigest()
-    return hashlib.sha256(salt + raw).hexdigest()
+    return hashlib.sha256(salt + query.encode("utf-8")).hexdigest()
 
 
 def _bound_audit_error_message(message: str) -> str:
@@ -416,16 +470,21 @@ def _bound_audit_error_message(message: str) -> str:
 def _resolve_audit_dir(output_dir: str, audit_dir_override: Optional[str]) -> str:
     """Return the audit-log root for this invocation.
 
-    F-W3-06 / F-W3S-02 fix: the previous default (``audit_dir =
-    output_dir``) wrote ``audit_log.jsonl`` next to the corpus the
-    subject was asking about — bad colocation for an Article 12
-    durable record.  We now default to ``<output_dir>/audit/``,
-    matching the ``forgelm audit`` subcommand's convention.  An
-    explicit ``--audit-dir`` always wins.
+    F-W3FU-01 (priv) regression fix: the previous Wave 3 absorption
+    moved the default to ``<output_dir>/audit/`` to address F-W3-06's
+    cross-tenant write concern, but that broke the cross-tool
+    correlation contract (`F-W3-PS-09`) — `forgelm purge` writes to
+    ``<output_dir>/audit_log.jsonl`` directly, so `verify-audit`
+    correlating Article 17 + Article 15 events for the same subject
+    saw two disjoint chains.  We revert to ``output_dir`` so both
+    subcommands write into the same chain.  An explicit
+    ``--audit-dir`` always wins; the implicit-output-dir warning at
+    the dispatcher entry handles the cross-tenant concern by naming
+    the resolved fallback dir loudly.
     """
     if audit_dir_override:
         return audit_dir_override
-    return os.path.join(output_dir, "audit")
+    return output_dir
 
 
 def _maybe_audit_logger(
@@ -464,7 +523,14 @@ def _maybe_audit_logger(
             exc,
         )
         return None
-    except (OSError, ValueError) as exc:
+    except Exception as exc:  # noqa: BLE001 — F-W3FU-03 (priv): fail-closed contract is "every non-ConfigError class".
+        # The original (OSError, ValueError) tuple was narrower than the
+        # original F-W3-PS-02 ask ("everything except ConfigError fails
+        # closed"); a future hardening hook in AuditLogger.__init__ that
+        # raises e.g. RuntimeError would silently re-introduce the
+        # silent-drop failure mode.  Catching bare Exception here is the
+        # right shape: the contract should not depend on enumerating
+        # every exception class the audit chain might raise.
         _output_error_and_exit(
             output_format,
             (
@@ -534,22 +600,25 @@ def _run_reverse_pii_cmd(args, output_format: str) -> None:
     # get exit 1 without leaving a salt file behind.
     _build_search_pattern(query, identifier_type, output_format)
 
-    if explicit_output_dir is None and salt_source is not None:
-        # F-W3-PS-06 / F-W3T-10 follow-up: an implicit ``output_dir``
-        # creates ``.forgelm_audit_salt`` next to the operator's corpus.
-        # In hash-mask mode, this silently breaks cross-tool correlation
-        # with any ``forgelm purge`` invocation that supplied an
-        # explicit ``--output-dir`` (the two would compute different
-        # salts).  Surface the risk loudly so the operator can pin the
-        # output dir or accept the consequence.
+    if explicit_output_dir is None:
+        # F-W3FU-06 (priv) follow-up: the salt-file side effect is
+        # present in BOTH plaintext and hash-mask modes, because the
+        # audit hash always uses the per-output-dir salt (F-W3-PS-01).
+        # The previous warning was scoped to ``salt_source is not
+        # None``, leaving plaintext-mode implicit-output-dir runs
+        # silently creating ``.forgelm_audit_salt`` in the corpus
+        # parent.  Always warn when the resolution is implicit; tag
+        # the message with whether hash-mask scanning is also in play
+        # so the operator sees the full set of consequences.
+        scope = "audit-hash AND hash-mask scanning" if salt_source is not None else "audit-hash"
         logger.warning(
-            "reverse-pii: --salt-source=%r set but --output-dir is not.  "
-            "Falling back to the corpus parent (%r); the per-dir salt file "
-            ".forgelm_audit_salt will be created/read there.  Cross-tool "
-            "correlation with `forgelm purge` requires both subcommands "
-            "to use the SAME --output-dir.",
-            salt_source,
+            "reverse-pii: --output-dir not set; falling back to the corpus "
+            "parent (%r).  The per-dir salt file .forgelm_audit_salt will "
+            "be created/read there for the %s.  Cross-tool correlation "
+            "with `forgelm purge` requires both subcommands to use the "
+            "SAME --output-dir.",
             output_dir,
+            scope,
         )
 
     scan_query, scan_mode, salt, salt_source_label = _resolve_query_form(query, salt_source, output_dir, output_format)
@@ -583,9 +652,18 @@ def _run_reverse_pii_cmd(args, output_format: str) -> None:
                     error_message=str(exc),
                 )
             except Exception as audit_exc:  # noqa: BLE001 — fail-closed on audit error.
+                # F-W3FU-06 (cc) fix: chain the original mid-scan
+                # exception's diagnostic context into the audit-failure
+                # message so a double-fault doesn't lose the underlying
+                # cause (otherwise the operator sees only "audit chain
+                # write failed" and has to re-run to diagnose).
                 _output_error_and_exit(
                     output_format,
-                    f"reverse-pii: failed to write the Article 15 failure audit event ({audit_exc}).",
+                    (
+                        f"reverse-pii: failed to write the Article 15 failure audit event "
+                        f"({audit_exc.__class__.__name__}: {audit_exc}); the original "
+                        f"mid-scan failure was {exc.__class__.__name__}: {exc}."
+                    ),
                     EXIT_TRAINING_ERROR,
                 )
         _output_error_and_exit(

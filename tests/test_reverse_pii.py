@@ -262,35 +262,49 @@ class TestHashMaskScan:
         warnings = [
             r
             for r in caplog.records
-            if r.levelname == "WARNING" and "reverse-pii" in r.message and "Cross-tool" in r.message
+            if r.levelname == "WARNING" and "reverse-pii" in r.message and "cross-tool" in r.message.lower()
         ]
         assert warnings, "implicit --output-dir + --salt-source must surface a cross-tool correlation warning"
         # The salt file landed in the corpus dir per the warning text.
         assert (corpus_dir / ".forgelm_audit_salt").exists()
 
-    def test_implicit_output_dir_without_salt_source_does_not_warn(self, tmp_path: Path, caplog) -> None:
-        """The cross-tool correlation warning is scoped to hash-mask
-        invocations; plaintext-mode runs without ``--salt-source`` use
-        the salt only for the audit hash and must not nag the operator
-        about cross-tool correlation."""
+    def test_plaintext_implicit_output_dir_also_warns_about_salt_file(self, tmp_path: Path, caplog) -> None:
+        """F-W3FU-06 (priv) regression: the salt-file side effect is
+        present in BOTH plaintext and hash-mask modes (the audit hash
+        always uses the per-output-dir salt per F-W3-PS-01).  An
+        operator running plaintext-mode reverse-pii with an implicit
+        ``--output-dir`` must therefore ALSO get the cross-tool
+        correlation warning — the previous absorption scoped the
+        warning to hash-mask mode only, leaving plaintext-mode runs
+        silently creating ``.forgelm_audit_salt`` in the corpus
+        parent dir without warning."""
         import logging
 
         from forgelm.cli.subcommands._reverse_pii import _run_reverse_pii_cmd
 
-        corpus = tmp_path / "train.jsonl"
+        corpus_dir = tmp_path / "data"
+        corpus_dir.mkdir()
+        corpus = corpus_dir / "train.jsonl"
         _seed_corpus(corpus, [{"id": "row-A", "text": "x"}])
         args = _build_args(
             query="alice@example.com",
             type="email",
-            salt_source=None,
+            salt_source=None,  # plaintext mode
             files=[str(corpus)],
             output_dir=None,
         )
         with caplog.at_level(logging.WARNING, logger="forgelm.cli"):
             with pytest.raises(SystemExit):
                 _run_reverse_pii_cmd(args, output_format="json")
-        cross_tool_warns = [r for r in caplog.records if "Cross-tool" in r.message]
-        assert cross_tool_warns == [], "plaintext mode must not warn about cross-tool correlation"
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING" and "reverse-pii" in r.message and "cross-tool" in r.message.lower()
+        ]
+        assert warnings, (
+            "plaintext mode with implicit --output-dir must still warn — the "
+            "salt file side effect is present regardless of scan mode"
+        )
 
     def test_per_dir_salt_source_refuses_when_env_var_set(self, tmp_path: Path, capsys, monkeypatch) -> None:
         """F-W3-11 / F-W3-PS-04 regression: the symmetric direction —
@@ -598,16 +612,37 @@ class TestFailurePaths:
         evt = access_events[0]
         assert evt["error_class"] == "OSError"
         assert "simulated mid-scan I/O failure" in evt["error_message"]
-        # Critical: failure-path event must carry the same no-leak invariant
-        # as the success path (F-W3T-01).
+        # F-W3FU-T-04 / F-W3FU-04: failure-path event must carry the same
+        # no-leak invariant AND the same positive-shape (salted hash)
+        # contract as the success path.  Substring-only check is too weak
+        # — a future refactor that base64-encoded the query into the event
+        # under a different field name would slip past it.
+        from forgelm.cli.subcommands._purge import _resolve_salt
+        from forgelm.cli.subcommands._reverse_pii import _hash_for_audit
+
+        salt, _ = _resolve_salt(str(tmp_path))
+        expected_hash = _hash_for_audit("alice@example.com", salt)
+        assert evt["query_hash"] == expected_hash, (
+            "failure-path event must record the salted hash of the query (positive shape)"
+        )
         as_str = json.dumps(evt)
         assert "alice@example.com" not in as_str, f"failure-path audit event leaked raw identifier:\n{as_str}"
+        # Defence-in-depth: no encoded form of the identifier in the event.
+        import base64
 
-    def test_malformed_utf8_corpus_exits_runtime_error_with_audit_event(self, tmp_path: Path) -> None:
-        """F-W3-04 regression: a UnicodeDecodeError mid-scan must surface
-        as ``EXIT_TRAINING_ERROR=2`` with a failure-flavoured audit
-        event — not as Python's default exit 1 with no audit record."""
-        from forgelm.cli.subcommands._reverse_pii import _run_reverse_pii_cmd
+        raw = b"alice@example.com"
+        for encoded in (raw.hex(), raw.hex().upper(), base64.b64encode(raw).decode()):
+            assert encoded not in as_str, f"event leaked encoded identifier ({encoded!r})"
+
+    def test_malformed_utf8_corpus_exits_runtime_error_with_audit_event_and_no_leak(self, tmp_path: Path) -> None:
+        """F-W3-04 + F-W3FU-T-03 regression: a UnicodeDecodeError mid-scan
+        must surface as ``EXIT_TRAINING_ERROR=2`` with a failure-flavoured
+        audit event AND that event must carry the same no-leak invariant
+        as the OSError sibling test (a future change that wrapped
+        ``str(exc)`` with corpus byte context could otherwise leak a
+        high-entropy identifier into the chain)."""
+        from forgelm.cli.subcommands._purge import _resolve_salt
+        from forgelm.cli.subcommands._reverse_pii import _hash_for_audit, _run_reverse_pii_cmd
 
         corpus = tmp_path / "bad.jsonl"
         # Valid first line, then a multi-byte rune fragment.
@@ -616,7 +651,7 @@ class TestFailurePaths:
         audit_dir.mkdir()
 
         args = _build_args(
-            query="x",
+            query="alice@example.com",  # high-entropy identifier; pinned by no-leak assertion below
             type="email",
             files=[str(corpus)],
             output_dir=str(tmp_path),
@@ -631,6 +666,13 @@ class TestFailurePaths:
         assert len(access_events) == 1
         evt = access_events[0]
         assert evt["error_class"] in {"UnicodeDecodeError", "OSError"}
+        # F-W3FU-T-03: same no-leak invariant as the OSError leg.
+        as_str = json.dumps(evt)
+        assert "alice@example.com" not in as_str, f"UnicodeDecodeError audit event leaked raw identifier:\n{as_str}"
+        # Positive-shape: digest is the salted hash purge would compute.
+        salt, _ = _resolve_salt(str(tmp_path))
+        expected_hash = _hash_for_audit("alice@example.com", salt)
+        assert evt["query_hash"] == expected_hash
 
     def test_explicit_audit_dir_unwritable_fails_closed(self, tmp_path: Path, monkeypatch) -> None:
         """F-W3-01 / F-W3-PS-02 regression: when --audit-dir is explicit
@@ -701,6 +743,27 @@ class TestSnippetTruncation:
             "centred truncation must preserve the matched span — the whole point is operator verification"
         )
 
+    def test_match_span_wider_than_budget_still_bounded(self) -> None:
+        """F-W3FU-02 / F-W3FU-T-02 regression: when a ``--type custom``
+        greedy regex matches a span longer than ``_SNIPPET_MAX_CHARS``,
+        the previous centring math floored ``ctx`` at 0 and returned
+        the whole match span, breaching the documented cap.  The
+        degenerate case must still respect the cap."""
+        from forgelm.cli.subcommands._reverse_pii import _SNIPPET_MAX_CHARS, _truncate_snippet
+
+        line = "before " + ("A" * 250) + " after"
+        # The whole "AAAA..." run is the match — wider than the budget.
+        match_start = line.index("A")
+        match_end = match_start + 250
+        out = _truncate_snippet(line, (match_start, match_end))
+        # Allow up to 2 extra chars for head + tail "…" markers.
+        assert len(out) <= _SNIPPET_MAX_CHARS + 2, (
+            f"degenerate match-len > budget case must still respect the cap; got {len(out)}"
+        )
+        # Both ends must show ellipses since context was elided on both sides.
+        assert out.startswith("…")
+        assert out.endswith("…")
+
     def test_truncation_respects_multibyte_utf8(self, tmp_path: Path, capsys) -> None:
         """F-W3T-05 regression: code-point slicing must not produce
         broken UTF-8 sequences when the line mixes CJK + emoji."""
@@ -722,19 +785,138 @@ class TestSnippetTruncation:
 
 
 # ---------------------------------------------------------------------------
+# §6b Test — POSIX SIGALRM ReDoS guard (F-W3FU-T-01)
+# ---------------------------------------------------------------------------
+
+
+class TestReDoSGuard:
+    """Wave-3-followup: pin the SIGALRM-based ReDoS guard contracts.
+
+    Three invariants:
+    1. A pathological ``--type custom`` regex terminates within the
+       budget and surfaces as ``EXIT_TRAINING_ERROR=2`` with a
+       failure-flavoured audit event (no hang).
+    2. The wrapper restores any outer alarm budget after returning.
+    3. On non-main threads (where ``signal.signal`` raises) the guard
+       is a no-op rather than a crash; the scan still runs.
+    """
+
+    @pytest.mark.skipif(os.name != "posix", reason="SIGALRM is POSIX-only")
+    def test_pathological_custom_regex_terminates_within_budget(self, tmp_path: Path, monkeypatch) -> None:
+        from forgelm.cli.subcommands import _reverse_pii
+
+        # Cut the budget hard so the test is fast; the contract is
+        # "timeout fires", not "exact 30s".
+        monkeypatch.setattr(_reverse_pii, "_CUSTOM_REGEX_TIMEOUT_S", 1)
+        # Plant a corpus line that triggers catastrophic backtracking
+        # for ``(a+)+$`` against a long mismatching tail.
+        corpus = tmp_path / "evil.jsonl"
+        corpus.write_text("a" * 40 + "X" + "\n", encoding="utf-8")
+        audit_dir = tmp_path / "audit"
+        audit_dir.mkdir()
+
+        args = _build_args(
+            query=r"(a+)+$",
+            type="custom",
+            files=[str(corpus)],
+            output_dir=str(tmp_path),
+            audit_dir=str(audit_dir),
+        )
+        import time
+
+        started = time.monotonic()
+        with pytest.raises(SystemExit) as ei:
+            _reverse_pii._run_reverse_pii_cmd(args, output_format="json")
+        elapsed = time.monotonic() - started
+        # The 1s budget plus dispatcher overhead must not stretch past 10s.
+        assert elapsed < 10, f"ReDoS guard did not fire fast enough; elapsed={elapsed:.2f}s"
+        assert ei.value.code == 2
+
+        events = _read_audit_events(audit_dir / "audit_log.jsonl")
+        access_events = [e for e in events if e["event"] == "data.access_request_query"]
+        assert len(access_events) == 1
+        evt = access_events[0]
+        assert evt["error_class"] == "OSError"
+        assert "ReDoS" in evt["error_message"] or "exceeded" in evt["error_message"]
+
+    @pytest.mark.skipif(os.name != "posix", reason="SIGALRM is POSIX-only")
+    def test_alarm_wrapper_restores_outer_alarm_budget(self, tmp_path: Path) -> None:
+        """F-W3FU-03: a previously-scheduled outer SIGALRM budget must
+        survive the per-file wrapper.  The wrapper's old shape called
+        ``signal.alarm(0)`` in ``finally``, permanently cancelling the
+        outer alarm; the fix captures and re-arms it."""
+        import re as _re
+        import signal as _signal
+
+        from forgelm.cli.subcommands._reverse_pii import _scan_file_with_alarm
+
+        corpus = tmp_path / "x.jsonl"
+        corpus.write_text('{"id":1,"text":"x"}\n', encoding="utf-8")
+        pattern = _re.compile("x")
+
+        previous_handler = _signal.signal(_signal.SIGALRM, lambda *_: None)
+        try:
+            _signal.alarm(60)  # outer budget
+            _scan_file_with_alarm(str(corpus), pattern)
+            remaining = _signal.alarm(0)
+            assert remaining > 0, (
+                "outer alarm budget must survive the wrapper — F-W3FU-03 "
+                "regression: signal.alarm(0) in finally was cancelling the outer alarm"
+            )
+        finally:
+            _signal.alarm(0)
+            _signal.signal(_signal.SIGALRM, previous_handler)
+
+    @pytest.mark.skipif(os.name != "posix", reason="SIGALRM is POSIX-only")
+    def test_redos_guard_no_op_on_worker_thread(self, tmp_path: Path) -> None:
+        """F-W3FU-04: ``signal.signal`` raises ``ValueError`` from a
+        non-main thread; the guard must skip gracefully rather than
+        crash the whole scan."""
+        import re as _re
+        import threading as _threading
+
+        from forgelm.cli.subcommands._reverse_pii import _scan_files_with_redos_guard
+
+        corpus = tmp_path / "x.jsonl"
+        corpus.write_text('{"id":1,"text":"abc"}\n', encoding="utf-8")
+        pattern = _re.compile("abc")
+
+        results: list = []
+        errors: list = []
+
+        def _worker() -> None:
+            try:
+                results.append(_scan_files_with_redos_guard([str(corpus)], pattern, identifier_type="custom"))
+            except Exception as exc:  # pragma: no cover — fails the test below
+                errors.append(exc)
+
+        thread = _threading.Thread(target=_worker)
+        thread.start()
+        thread.join()
+        assert not errors, f"worker thread crashed instead of skipping the alarm guard: {errors}"
+        assert len(results) == 1
+        matches, files_scanned = results[0]
+        assert len(matches) == 1
+
+
+# ---------------------------------------------------------------------------
 # §7 Test — Facade re-exports + parser wiring + dispatch
 # ---------------------------------------------------------------------------
 
 
 class TestReversePiiFacade:
     def test_facade_re_exports_dispatcher_and_helpers(self) -> None:
-        """F-W3-10 regression: facade must re-export every name in
-        ``_reverse_pii.__all__``, not a hand-maintained subset."""
+        """F-W3-10 + F-W3FU-T-11 regression: facade must re-export every
+        name in ``_reverse_pii.__all__`` AND each re-export must be a
+        live callable.  The previous ``hasattr`` check would have passed
+        even if a re-export was set to ``None`` — strengthen to pin the
+        functional contract, not just the name presence."""
         from forgelm import cli as _cli_facade
         from forgelm.cli.subcommands import _reverse_pii as _mod
 
         for name in _mod.__all__:
-            assert hasattr(_cli_facade, name), f"forgelm.cli must re-export {name!r}"
+            attr = getattr(_cli_facade, name, None)
+            assert callable(attr), f"forgelm.cli.{name} must be a callable re-export, got {attr!r}"
 
     def test_parser_registers_reverse_pii_subcommand(self) -> None:
         """`forgelm reverse-pii --help` must succeed without --config."""

@@ -163,6 +163,15 @@ erişim talebinin değil).  `custom` query'i Python regex olarak
 yorumlar; POSIX sistemlerde 30s'lik per-file SIGALRM bütçesi ReDoS
 hang'lerine karşı koruma sağlar.
 
+**Audit-dir varsayılanı**: audit chain varsayılan olarak
+`<output-dir>/audit_log.jsonl`'a yazılır — `forgelm purge` ile aynı
+yola, böylece bir `verify-audit` koşumu aynı subject için Madde 17
+(silme) ve Madde 15 (erişim) olaylarını tek bir chain üzerinde
+ilişkilendirir.  Override için `--audit-dir <writable-dir>` geçin;
+explicit verilen `--audit-dir`'a yazılamıyorsa dispatcher Madde 15
+forensic kaydını sessizce düşürmek yerine `EXIT_TRAINING_ERROR` ile
+reddeder.
+
 **Exit kodları:** `0` = scan tamamlandı (matches listesi boş
 olabilir); `1` = config hatası (boş query, malformed regex, boş
 glob); `2` = runtime hatası (mid-scan I/O failure).  JSON envelope

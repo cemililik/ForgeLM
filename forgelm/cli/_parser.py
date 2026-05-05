@@ -949,7 +949,7 @@ def _add_reverse_pii_subcommand(subparsers) -> None:
         type=str,
         default=None,
         metavar="DIR",
-        help="Where to write the audit chain entries (default: <output-dir>/audit/, isolated from the corpus directory).  Pass an explicit directory to override; explicit values fail loudly when unwritable rather than silently dropping the Article 15 forensic record.",
+        help="Where to write the audit chain entries (default: same as --output-dir, matching `forgelm purge` so verify-audit correlates Article 17 + Article 15 events for the same subject in one chain).  Pass an explicit directory to override; explicit values fail loudly when unwritable rather than silently dropping the Article 15 forensic record.",
     )
     _add_common_subparser_flags(p, include_output_format=True)
 

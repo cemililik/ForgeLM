@@ -159,15 +159,20 @@ class TestFullConfigValidation:
         assert cfg.risk_assessment.foreseeable_misuse[0] == "Users may ask for medical advice"
         assert cfg.data.governance.collection_method == "Manual curation by domain experts"
 
-    def test_high_risk_without_safety_raises_config_error(self):
-        """Wave 3 / Faz 28 F-compliance-110: high-risk classification with
-        safety eval disabled is now a hard ``ConfigError`` (was a warning
-        prior to v0.5.5).  EU AI Act Article 9 risk-management evidence
-        cannot be derived from a disabled safety eval; operators who
-        genuinely want a sandboxed run must lower the risk_classification."""
+    @pytest.mark.parametrize("tier", ["high-risk", "unacceptable"])
+    def test_strict_tier_without_safety_raises_config_error(self, tier):
+        """Wave 3 / Faz 28 F-compliance-110 + F-W3FU-T-05: BOTH strict
+        tiers (Article 9 ``high-risk`` AND Article 5 ``unacceptable``)
+        are hard ``ConfigError`` when safety eval is disabled at the
+        full-config integration layer.  EU AI Act risk-management
+        evidence cannot be derived from a disabled safety eval; the
+        unit test in test_eu_ai_act.py pins the validator-layer
+        contract, and this test pins the YAML round-trip + Pydantic
+        validator interaction at the integration layer."""
         from forgelm.config import ConfigError
 
         data = _full_config()
+        data["risk_assessment"]["risk_category"] = tier
         del data["evaluation"]["safety"]
         with pytest.raises(ConfigError, match="evaluation.safety.enabled"):
             ForgeConfig(**data)

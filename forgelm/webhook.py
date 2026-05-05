@@ -89,12 +89,17 @@ class WebhookNotifier:
         # Timeout floor — webhook keeps the historical 1s floor (``safe_post``
         # rejects 0/None unconditionally).  Wave 3 F-compliance-106
         # raised the WebhookConfig default 5 → 10; the clamp message
-        # and fallback value follow that default.
+        # and fallback value follow that default.  F-W3FU-S-04 fix:
+        # the previous ``isinstance(timeout, (int, float))`` half of
+        # the guard was dead under Pydantic (the field is ``int``-typed
+        # and validated at config load), so a non-numeric ``timeout``
+        # cannot reach this site through any documented call path.
+        # Drop the isinstance check; keep the numeric-floor clamp.
         from .config import WebhookConfig as _WebhookConfig
 
         default_timeout = _WebhookConfig.model_fields["timeout"].default
         timeout = getattr(self.config, "timeout", default_timeout)
-        if not isinstance(timeout, (int, float)) or timeout < 1:
+        if timeout < 1:
             logger.warning(
                 "Webhook timeout=%r is below the 1s floor; clamping to %ds.",
                 timeout,

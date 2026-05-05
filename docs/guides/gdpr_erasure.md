@@ -162,6 +162,15 @@ access-request answer).  `custom` interprets the query as a Python
 regex; on POSIX systems a 30s per-file SIGALRM budget guards against
 ReDoS hangs.
 
+**Audit-dir default**: the audit chain is written to
+`<output-dir>/audit_log.jsonl` by default — the same path
+`forgelm purge` uses, so a `verify-audit` run correlates Article 17
+(erasure) and Article 15 (access) events for the same subject in
+one chain.  Pass `--audit-dir <writable-dir>` to override; an
+explicit `--audit-dir` that the dispatcher cannot write to refuses
+the run with `EXIT_TRAINING_ERROR` rather than silently dropping
+the Article 15 forensic record.
+
 **Exit codes:** `0` = scan completed (matches list may be empty);
 `1` = config error (empty query, malformed regex, empty glob); `2` =
 runtime error (mid-scan I/O failure).  See [`reference/json-output.md`](#/reference/json-output)

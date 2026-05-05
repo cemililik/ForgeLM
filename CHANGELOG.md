@@ -34,13 +34,17 @@ Single integration branch covering three closure-plan phases:
   not the regex shape `alice@exampleXcom`.  Operators wanting raw
   regex pass `--type custom` explicitly; on POSIX a 30s SIGALRM
   budget guards against ReDoS hangs.
-- Audit fail-closed: AuditLogger init `OSError`/`ValueError`
+- Audit fail-closed: AuditLogger init failure on any non-`ConfigError`
+  exception class (per Wave-3-followup F-W3FU-03 absorption — was
+  narrowed to `(OSError, ValueError)` only, now bare `Exception`)
   refuses the run with `EXIT_TRAINING_ERROR`, naming the audit-dir.
   `ConfigError` (operator-identity unavailable) still skips with a
   WARNING — the only "best-effort" branch.
-- Audit-dir default: `<output_dir>/audit/` (was `output_dir`); the
-  Article 15 forensic record no longer co-locates with the corpus
-  the subject is asking about.
+- Audit-dir default: same as `--output-dir` (matching `forgelm purge`
+  so `verify-audit` correlates Article 17 + Article 15 events for the
+  same subject in one chain — Wave-3-followup F-W3FU-01 reverted the
+  intermediate `<output_dir>/audit/` move that broke cross-tool
+  correlation).
 - Mid-scan UTF-8 / I/O failures and ReDoS timeouts emit a failure-
   flavoured `data.access_request_query` event before exit — same
   no-leak invariant as the success path.

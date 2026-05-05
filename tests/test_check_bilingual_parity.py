@@ -107,6 +107,34 @@ class TestExtractHeadings:
         assert [h.level for h in headings] == [2, 2]
         assert [h.text for h in headings] == ["Real H2", "After close"]
 
+    def test_shorter_opening_fence_closed_by_longer_run(self, tmp_path: Path) -> None:
+        """F-W3FU-T-06 regression: CommonMark §4.5 allows a closer
+        LONGER than the opener (the spec says "at least as long as",
+        not "equal to").  Pin the production ``len(marker) >=
+        len(fence_marker)`` semantics so a hand-edit dropping ``>=``
+        to ``==`` would surface in CI."""
+        src = _write(
+            tmp_path / "doc.md",
+            "## Real H2\n```\n## inside short opener\n````\n## After\n",
+        )
+        headings = extract_headings(src)
+        assert [h.level for h in headings] == [2, 2]
+        assert [h.text for h in headings] == ["Real H2", "After"]
+
+    def test_setext_underline_after_atx_heading_does_not_register(self, tmp_path: Path) -> None:
+        """F-W3FU-T-09 regression: ``test_setext_headings_are_not_matched``
+        pins the case where setext appears at the start of a doc.
+        This sibling test pins the case where a setext underline
+        appears AFTER an ATX heading — production should still skip
+        the setext (only ATX is recognised)."""
+        src = _write(
+            tmp_path / "doc.md",
+            "## ATX H2 first\nSome paragraph\n=========\n## After\n",
+        )
+        headings = extract_headings(src)
+        assert [h.level for h in headings] == [2, 2]
+        assert [h.text for h in headings] == ["ATX H2 first", "After"]
+
     def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
         assert extract_headings(tmp_path / "missing.md") == []
 

@@ -160,6 +160,66 @@ class TestForgeConfigCompliance:
                 )
             )
 
+    @pytest.mark.parametrize(
+        "ra,cm",
+        [
+            ("limited-risk", "high-risk"),
+            ("limited-risk", "unacceptable"),
+            ("high-risk", "limited-risk"),
+            ("unacceptable", "limited-risk"),
+        ],
+    )
+    def test_asymmetric_strict_tier_still_raises_when_safety_disabled(self, minimal_config, ra, cm):
+        """F-W3FU-S-01 / F-W3FU-01 regression: ``risk_assessment.risk_category``
+        and ``compliance.risk_classification`` are independent
+        ``RiskTier`` Literals; Pydantic does not enforce equality.  An
+        asymmetric YAML where ONE sibling is strict and the other is
+        non-strict must still trip the F-compliance-110 gate — the
+        cognitive-complexity refactor that absorbed Sonar python:S3776
+        accidentally inverted this OR-across-fields semantics by
+        single-label-resolution-then-strict-check, silently bypassing
+        the gate when the ``risk_assessment``-first preference picked
+        the non-strict sibling."""
+        from forgelm.config import ConfigError
+
+        with pytest.raises(ConfigError, match="evaluation.safety.enabled"):
+            ForgeConfig(
+                **minimal_config(
+                    risk_assessment={"risk_category": ra},
+                    compliance={
+                        "provider_name": "Acme",
+                        "system_name": "Bot",
+                        "risk_classification": cm,
+                    },
+                )
+            )
+
+    def test_compliance_unacceptable_fires_article_5_banner_even_when_risk_assessment_says_high_risk(
+        self, caplog, minimal_config
+    ):
+        """F-W3FU-01 regression: the Article 5 banner must fire whenever
+        EITHER sibling marks the deployment ``unacceptable`` — the
+        post-refactor single-label-resolution would have suppressed the
+        banner when ``risk_assessment.risk_category="high-risk"`` won
+        the preference ordering.  Both fields must contribute to the
+        unacceptable check."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="forgelm.config"):
+            ForgeConfig(
+                **minimal_config(
+                    risk_assessment={"risk_category": "high-risk"},
+                    compliance={
+                        "provider_name": "Acme",
+                        "system_name": "Bot",
+                        "risk_classification": "unacceptable",
+                    },
+                    evaluation={"safety": {"enabled": True}},
+                )
+            )
+        assert "Article 5" in caplog.text
+        assert "prohibited" in caplog.text
+
     def test_unacceptable_risk_warnings(self, caplog, minimal_config):
         """``unacceptable`` (Article 5) must trip the strict gate AND emit
         the dedicated prohibited-practices warning on top of the auto_revert
