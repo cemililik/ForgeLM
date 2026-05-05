@@ -408,7 +408,14 @@ def _maybe_inline_audit_report(config: Any) -> Optional[Dict[str, Any]]:
         return None
     audit_path = os.path.join(output_dir, "data_audit_report.json")
     if not os.path.isfile(audit_path):
-        logger.info(
+        # Wave 3 / Faz 28 (F-compliance-111): escalated from INFO to
+        # WARNING.  A missing data_audit_report.json is a real Article
+        # 10 compliance gap — the governance bundle ships without its
+        # data-quality section, which is exactly the surface a regulator
+        # would inspect first.  Operators reading INFO-level logs out
+        # of habit miss the signal; WARNING is the documented level for
+        # "nothing crashed but something compliance-relevant degraded."
+        logger.warning(
             "No data_audit_report.json at %s — governance report will lack the "
             "Article 10 data-quality section. Run "
             "`forgelm audit <dataset> --output %s` before training to populate it.",
@@ -799,6 +806,27 @@ def _sanitize_md(text: Optional[str]) -> str:
     return escaped.strip()
 
 
+def _sanitize_md_list(items: Optional[List[Any]]) -> List[str]:
+    """Apply :func:`_sanitize_md` element-wise to ``items``.
+
+    Wave 3 / Faz 28 (M-204): a small ergonomic shim used by the
+    deployer-instructions builder when interpolating list-shaped
+    config fields (foreseeable misuse list, dataset names, etc.) into
+    Markdown bullets / table rows.  Centralises the per-element
+    sanitisation so a future migration to a stricter escape policy
+    only has to touch :func:`_sanitize_md`.
+
+    Returns ``[]`` for ``None`` / empty inputs so callers can spread
+    the result directly into a join without a None guard.  Non-string
+    elements are stringified first (mirrors :func:`_sanitize_md`'s
+    permissive ``Any`` shape — operators occasionally drop ints into
+    list fields).
+    """
+    if not items:
+        return []
+    return [_sanitize_md(str(item) if not isinstance(item, str) else item) for item in items]
+
+
 def generate_deployer_instructions(config: Any, metrics: Dict[str, float], final_path: str) -> str:
     """Generate deployer instructions document per EU AI Act Article 13."""
     comp_cfg = getattr(config, "compliance", None)
@@ -843,8 +871,8 @@ def generate_deployer_instructions(config: Any, metrics: Dict[str, float], final
 **This model should NOT be used for:**
 """
     if risk_cfg and risk_cfg.foreseeable_misuse:
-        for misuse in risk_cfg.foreseeable_misuse:
-            content += f"- {_sanitize_md(misuse)}\n"
+        for misuse in _sanitize_md_list(risk_cfg.foreseeable_misuse):
+            content += f"- {misuse}\n"
     else:
         content += "- Use cases not covered by the intended purpose above\n"
 

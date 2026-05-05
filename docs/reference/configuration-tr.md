@@ -24,6 +24,14 @@ Tam açıklamalı örnek için `config_template.yaml` dosyasına bakın.
 | `quantize_experts` | bool | `false` | İnaktif expert ağırlıklarını int8'e kuantize et |
 | `experts_to_train` | string | `"all"` | `"all"` veya virgülle ayrılmış indeksler |
 
+#### `model.multimodal` (İsteğe bağlı — VLM modeller)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `enabled` | bool | `false` | Görüntü-dil modeli (VLM) fine-tuning'i etkinleştir |
+| `image_column` | string | `"image"` | Veri setinde görüntü yolu / URL'i taşıyan kolon adı |
+| `text_column` | string | `"text"` | Metin / caption taşıyan kolon adı |
+
 ---
 
 ## `lora`
@@ -138,6 +146,14 @@ training:
 | `max_acceptable_loss` | float | `null` | eval_loss üst sınırı |
 | `require_human_approval` | bool | `false` | İnsan incelemesi için duraklat (çıkış kodu 4) |
 
+#### `evaluation.benchmark` (İsteğe bağlı)
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `enabled` | bool | `false` | lm-eval-harness benchmark'ları |
+| `tasks` | list | `[]` | Görev isimleri (ör. `["arc_easy", "hellaswag"]`) |
+| `min_score` | float | `null` | Minimum ortalama doğruluk |
+
 #### `evaluation.safety` (İsteğe bağlı)
 
 | Alan | Tip | Varsayılan | Açıklama |
@@ -151,14 +167,6 @@ training:
 | `min_classifier_confidence` | float | `0.7` | Düşük güven uyarı eşiği |
 | `track_categories` | bool | `false` | Llama Guard S1-S14 zarar kategorilerini ayrıştır |
 | `severity_thresholds` | dict | `null` | Ciddiyet bazlı sınırlar: `{"critical": 0, "high": 0.01}` |
-
-#### `evaluation.benchmark` (İsteğe bağlı)
-
-| Alan | Tip | Varsayılan | Açıklama |
-|------|-----|-----------|----------|
-| `enabled` | bool | `false` | lm-eval-harness benchmark'ları |
-| `tasks` | list | `[]` | Görev isimleri (ör. `["arc_easy", "hellaswag"]`) |
-| `min_score` | float | `null` | Minimum ortalama doğruluk |
 
 #### `evaluation.llm_judge` (İsteğe bağlı)
 

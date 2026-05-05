@@ -81,6 +81,7 @@ def _dispatch_subcommand(command: str, args) -> None:
         "reject": "_run_reject_cmd",
         "approvals": "_run_approvals_cmd",
         "purge": "_run_purge_cmd",
+        "reverse-pii": "_run_reverse_pii_cmd",
         "cache-models": "_run_cache_models_cmd",
         "cache-tasks": "_run_cache_tasks_cmd",
         "verify-annex-iv": "_run_verify_annex_iv_cmd",

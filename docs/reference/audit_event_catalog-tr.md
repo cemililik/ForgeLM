@@ -65,6 +65,12 @@ Hash zinciri, satır diske düştükten (`flush` + `fsync`) sonra ilerler; kirli
 | `data.erasure_warning_synthetic_data_present` | Row erasure × `output_dir`'de `synthetic_data*.jsonl` mevcut.                                                  | Tüm `completed` field'ları + `synthetic_files`                                                           | 17    |
 | `data.erasure_warning_external_copies`     | Yüklü config boş-olmayan `webhook` block'u içeriyor; downstream tüketiciler bildirim almış olabilir.              | Tüm `completed` field'ları + `webhook_targets` (redact'li URL'ler)                                       | 17    |
 
+### Madde 15 — GDPR Erişim Hakkı (Phase 38 — `forgelm reverse-pii`)
+
+| Event                          | Ne zaman yayılır                                                                                                          | Payload                                                                                                                                                | Madde |
+|--------------------------------|---------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|-------|
+| `data.access_request_query`    | Her `forgelm reverse-pii` çağrısında, scan tamamlandıktan sonra (veya mid-scan I/O hatası sonrası — `error_*` field'larıyla). | `query_hash` (raw identifier'ın salt'lı SHA-256'sı — asla raw; purge'ün per-output-dir salt'ını yeniden kullanır), `identifier_type` ∈ `{literal, email, phone, tr_id, us_ssn, iban, credit_card, custom}`, `scan_mode` ∈ `{plaintext, hash}`, `salt_source` ∈ `{plaintext, per_dir, env_var}`, `files_scanned` (path'ler), `match_count`, opsiyonel `error_class`/`error_message` | GDPR Md. 15 |
+
 ### Air-gap pre-cache (Phase 35 — `forgelm cache-models` / `cache-tasks`)
 
 | Event                                | Ne zaman yayılır                                                              | Payload                                                                | Madde |

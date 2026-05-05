@@ -129,6 +129,11 @@ class TestWebhookConfig:
         assert w.notify_on_start is True
         assert w.notify_on_success is True
         assert w.notify_on_failure is True
+        # F-W3T-09 regression: pin the F-compliance-106 default
+        # (5 → 10) here next to every other field default so a
+        # contributor editing WebhookConfig sees the pin in the
+        # obvious reading position.
+        assert w.timeout == 10
 
     def test_url_env(self):
         w = WebhookConfig(url_env="MY_WEBHOOK_URL")

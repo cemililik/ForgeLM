@@ -122,6 +122,65 @@ Six new events ship with `forgelm purge` (catalogued in `docs/reference/audit_ev
 
 `--check-policy` never returns code 3. A successful report exits 0; a failure to load the supplied `--config` exits with `EXIT_CONFIG_ERROR` (non-zero) rather than degrading to a misleading "no violations" report. Operators wiring a CI gate compute the violation count from JSON output themselves (per design §10 Q5).
 
+## Article 15 right-of-access (`forgelm reverse-pii`)
+
+The companion subcommand for the *other* GDPR data-subject right —
+"is my data in the corpus?" — is `forgelm reverse-pii`.  Where
+`purge` answers "delete my row," `reverse-pii` answers "find every
+line where my identifier appears."
+
+```shell
+# Plaintext residual scan: detects mask leaks (operator believed
+# the corpus was masked but a residual span slipped through).
+$ forgelm reverse-pii --query "alice@example.com" --type email \
+    --output-dir ./outputs data/*.jsonl
+
+# Hash-mask scan: corpus was masked through an EXTERNAL pipeline
+# that embedded SHA256(salt + identifier) digests using the same
+# per-output-dir salt purge uses for `target_id` audit-event
+# hashing.  ForgeLM does not ship a hash-replacement ingest
+# strategy of its own; this mode is for operators who built one
+# outside the toolkit using purge's salt as the shared secret.
+$ forgelm reverse-pii --query "alice@example.com" --type email \
+    --salt-source per_dir --output-dir ./outputs data/*.jsonl
+```
+
+The audit chain records `data.access_request_query` with the
+identifier *salted-and-hashed* using the same per-output-dir salt
+that `forgelm purge` uses for its `target_id` field — Article 15
+access requests must not themselves leak the subject's data into the
+audit log.  The salted form is a stable per-identifier fingerprint
+that lets a compliance reviewer correlate Article 17 (purge) and
+Article 15 (reverse-pii) events for the same subject (the digests
+match) without seeing the cleartext.
+
+**Identifier types** (`--type`): `literal` (default), `email`,
+`phone`, `tr_id`, `us_ssn`, `iban`, `credit_card`, `custom`.  All
+non-`custom` types treat the query as a literal substring (no regex
+shape match — that's the *audit-time* detector's job, not the
+access-request answer).  `custom` interprets the query as a Python
+regex; on POSIX **main-thread** invocations a 30s per-file SIGALRM
+budget guards against ReDoS hangs.  On Windows AND on POSIX worker
+threads the SIGALRM guard is a no-op (signal handlers must be
+installed from the main thread); operators running
+`forgelm reverse-pii --type custom` from a worker thread or on
+Windows must vet their regex themselves.
+
+**Audit-dir default**: the audit chain is written to
+`<output-dir>/audit_log.jsonl` by default — the same path
+`forgelm purge` uses, so a `verify-audit` run correlates Article 17
+(erasure) and Article 15 (access) events for the same subject in
+one chain.  Pass `--audit-dir <writable-dir>` to override; an
+explicit `--audit-dir` that the dispatcher cannot write to refuses
+the run with `EXIT_TRAINING_ERROR` rather than silently dropping
+the Article 15 forensic record.
+
+**Exit codes:** `0` = scan completed (matches list may be empty);
+`1` = config error (empty query, malformed regex, empty glob); `2` =
+runtime error (mid-scan I/O failure).  See
+[`../usermanuals/en/reference/json-output.md`](../usermanuals/en/reference/json-output.md)
+for the JSON envelope schema.
+
 ## See also
 
 - `docs/qms/sop_data_management.md` — the full data-lifecycle SOP including the retention + erasure procedures.

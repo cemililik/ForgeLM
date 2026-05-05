@@ -65,6 +65,12 @@ The hash chain advances after the line lands on disk (`flush` + `fsync`), so an 
 | `data.erasure_warning_synthetic_data_present` | Row erasure × `synthetic_data*.jsonl` exists in `output_dir`.                                              | All `completed` fields + `synthetic_files`                                                               | 17      |
 | `data.erasure_warning_external_copies`     | Loaded config has a non-empty `webhook` block; downstream consumers may have received notices.                | All `completed` fields + `webhook_targets` (redacted URLs)                                               | 17      |
 
+### Article 15 — GDPR Right-of-Access (Phase 38 — `forgelm reverse-pii`)
+
+| Event                          | When emitted                                                                                                         | Payload                                                                                                                                      | Article |
+|--------------------------------|----------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|---------|
+| `data.access_request_query`    | Every `forgelm reverse-pii` invocation, after the scan completes (or after a mid-scan I/O failure — with `error_*`). | `query_hash` (salted SHA-256 of raw identifier — never raw; reuses purge's per-output-dir salt), `identifier_type` ∈ `{literal, email, phone, tr_id, us_ssn, iban, credit_card, custom}`, `scan_mode` ∈ `{plaintext, hash}`, `salt_source` ∈ `{plaintext, per_dir, env_var}`, `files_scanned` (paths), `match_count`, optional `error_class`/`error_message` | GDPR Art. 15 |
+
 ### Air-gap pre-cache (Phase 35 — `forgelm cache-models` / `cache-tasks`)
 
 | Event                                | When emitted                                                                  | Payload                                                                | Article |

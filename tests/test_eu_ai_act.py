@@ -3,6 +3,7 @@
 import json
 import os
 
+import pytest
 import yaml
 
 from forgelm.compliance import (
@@ -77,13 +78,18 @@ class TestDataGovernanceConfig:
 
 class TestForgeConfigCompliance:
     def test_compliance_in_config(self, minimal_config):
+        # Wave 3 / Faz 28 (F-compliance-110): high-risk now requires
+        # safety eval to be enabled (was a warning prior to v0.5.5).
+        # Pair the risk_classification with an enabled safety block so
+        # the config validates.
         cfg = ForgeConfig(
             **minimal_config(
                 compliance={
                     "provider_name": "Test Corp",
                     "intended_purpose": "Testing",
                     "risk_classification": "high-risk",
-                }
+                },
+                evaluation={"safety": {"enabled": True}},
             )
         )
         assert cfg.compliance.provider_name == "Test Corp"
@@ -115,16 +121,104 @@ class TestForgeConfigCompliance:
         assert cfg.evaluation.require_human_approval is True
 
     def test_high_risk_warnings(self, caplog, minimal_config):
+        """High-risk classification with safety enabled emits the
+        ``auto_revert`` recommendation (still a warning, not a raise —
+        F-compliance-110 only escalates the *safety-disabled* branch).
+        """
         import logging
 
         with caplog.at_level(logging.WARNING, logger="forgelm.config"):
             ForgeConfig(
                 **minimal_config(
                     risk_assessment={"risk_category": "high-risk"},
+                    # Faz 28 F-compliance-110: safety must be enabled
+                    # for high-risk to load at all.  The auto_revert
+                    # recommendation still fires as a warning since
+                    # ``evaluation.auto_revert`` defaults to False.
+                    evaluation={"safety": {"enabled": True}},
                 )
             )
         assert "high-risk" in caplog.text
         assert "auto_revert" in caplog.text
+
+    @pytest.mark.parametrize("tier", ["high-risk", "unacceptable"])
+    def test_strict_tier_safety_disabled_raises_config_error(self, minimal_config, tier):
+        """F-compliance-110 + F-W3T-02 regression: BOTH tiers in
+        ``_STRICT_RISK_TIERS`` (high-risk + unacceptable) must surface as
+        ``ConfigError`` when safety is disabled — pinning the failure leg
+        for both Article 9 (high-risk) and Article 5 (unacceptable /
+        prohibited) tiers.  EU AI Act risk-management evidence cannot be
+        derived from a disabled safety eval; operators who genuinely
+        want a sandboxed run must lower the risk_classification."""
+        from forgelm.config import ConfigError
+
+        with pytest.raises(ConfigError, match="evaluation.safety.enabled"):
+            ForgeConfig(
+                **minimal_config(
+                    risk_assessment={"risk_category": tier},
+                    # No safety block → safety disabled by default.
+                )
+            )
+
+    @pytest.mark.parametrize(
+        "ra,cm",
+        [
+            ("limited-risk", "high-risk"),
+            ("limited-risk", "unacceptable"),
+            ("high-risk", "limited-risk"),
+            ("unacceptable", "limited-risk"),
+        ],
+    )
+    def test_asymmetric_strict_tier_still_raises_when_safety_disabled(self, minimal_config, ra, cm):
+        """F-W3FU-S-01 / F-W3FU-01 regression: ``risk_assessment.risk_category``
+        and ``compliance.risk_classification`` are independent
+        ``RiskTier`` Literals; Pydantic does not enforce equality.  An
+        asymmetric YAML where ONE sibling is strict and the other is
+        non-strict must still trip the F-compliance-110 gate — the
+        cognitive-complexity refactor that absorbed Sonar python:S3776
+        accidentally inverted this OR-across-fields semantics by
+        single-label-resolution-then-strict-check, silently bypassing
+        the gate when the ``risk_assessment``-first preference picked
+        the non-strict sibling."""
+        from forgelm.config import ConfigError
+
+        with pytest.raises(ConfigError, match="evaluation.safety.enabled"):
+            ForgeConfig(
+                **minimal_config(
+                    risk_assessment={"risk_category": ra},
+                    compliance={
+                        "provider_name": "Acme",
+                        "system_name": "Bot",
+                        "risk_classification": cm,
+                    },
+                )
+            )
+
+    def test_compliance_unacceptable_fires_article_5_banner_even_when_risk_assessment_says_high_risk(
+        self, caplog, minimal_config
+    ):
+        """F-W3FU-01 regression: the Article 5 banner must fire whenever
+        EITHER sibling marks the deployment ``unacceptable`` — the
+        post-refactor single-label-resolution would have suppressed the
+        banner when ``risk_assessment.risk_category="high-risk"`` won
+        the preference ordering.  Both fields must contribute to the
+        unacceptable check."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="forgelm.config"):
+            ForgeConfig(
+                **minimal_config(
+                    risk_assessment={"risk_category": "high-risk"},
+                    compliance={
+                        "provider_name": "Acme",
+                        "system_name": "Bot",
+                        "risk_classification": "unacceptable",
+                    },
+                    evaluation={"safety": {"enabled": True}},
+                )
+            )
+        assert "Article 5" in caplog.text
+        assert "prohibited" in caplog.text
 
     def test_unacceptable_risk_warnings(self, caplog, minimal_config):
         """``unacceptable`` (Article 5) must trip the strict gate AND emit
@@ -137,6 +231,10 @@ class TestForgeConfigCompliance:
             ForgeConfig(
                 **minimal_config(
                     risk_assessment={"risk_category": "unacceptable"},
+                    # Faz 28 F-compliance-110: safety required for
+                    # unacceptable too — the strict gate covers both
+                    # high-risk and unacceptable.
+                    evaluation={"safety": {"enabled": True}},
                 )
             )
         # Strict gate fires: same auto_revert nudge as high-risk.
@@ -297,6 +395,8 @@ class TestManifestAnnexIV:
         config = ForgeConfig(
             **minimal_config(
                 compliance={"provider_name": "Corp", "system_name": "Bot", "risk_classification": "high-risk"},
+                # Faz 28 F-compliance-110: high-risk requires safety enabled.
+                evaluation={"safety": {"enabled": True}},
             )
         )
         manifest = generate_training_manifest(config, {"eval_loss": 0.5})
@@ -308,6 +408,8 @@ class TestManifestAnnexIV:
         config = ForgeConfig(
             **minimal_config(
                 risk_assessment={"intended_use": "Chat", "risk_category": "high-risk"},
+                # Faz 28 F-compliance-110: high-risk requires safety enabled.
+                evaluation={"safety": {"enabled": True}},
             )
         )
         manifest = generate_training_manifest(config, {})

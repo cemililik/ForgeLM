@@ -6,14 +6,15 @@ from urllib.parse import urlparse
 
 import requests
 
-from ._http import HttpSafetyError, _is_private_destination, safe_post
+from ._http import HttpSafetyError, safe_post
 
-# Public re-export surface — Phase 7 split moved ``_is_private_destination``
-# into ``forgelm._http`` but external callers / older code may still import
-# it from ``forgelm.webhook``. Listing it in ``__all__`` documents the
-# re-export as intentional and silences ruff/Codacy F401 ("imported but
-# unused") and Sonar's equivalent rule.
-__all__ = ["HttpSafetyError", "WebhookNotifier", "_is_private_destination", "safe_post"]
+# Public re-export surface.  Wave 3 / Faz 28 (C-54) cleanup: dropped
+# the ``_is_private_destination`` re-export.  The Phase 7 split moved
+# the helper into ``forgelm._http``; external callers / tooling that
+# need the SSRF guard import it from there directly.  No downstream
+# importer of the webhook-side re-export was found at the time of
+# removal, so this is a clean drop (no DeprecationWarning shim).
+__all__ = ["HttpSafetyError", "WebhookNotifier", "safe_post"]
 
 logger = logging.getLogger("forgelm.webhook")
 
@@ -64,11 +65,14 @@ class WebhookNotifier:
         the codebase shares the same policy. Webhook-specific behaviour kept
         here:
 
-        * The webhook config defaults ``timeout`` to 5s for historical
-          compatibility — ``safe_post`` is invoked with ``min_timeout=1.0``
-          so an existing operator config that uses ``timeout=5`` keeps
-          working (every ``http*`` call site outside webhook gets the
-          stricter 10s floor).
+        * The local ``timeout`` variable resolves from
+          ``self.config.timeout`` and falls back to
+          ``WebhookConfig.model_fields["timeout"].default`` (currently 10s
+          per Wave 3 / F-compliance-106 — was 5s historically) when the
+          attribute is absent on a hand-rolled config namespace.  Sub-1
+          values are clamped to the 1s floor (NOT to the model default —
+          see the inline comment around ``timeout < 1`` for the
+          F-W3FU-followup framing); 0 / negative budgets are not honoured.
         * On policy rejection or transport error we log a warning and
           *swallow* — ``notify_*`` is never allowed to fail the training run.
         * Response body suppression on non-2xx — receivers (Slack, Teams)
@@ -86,14 +90,24 @@ class WebhookNotifier:
         ca_bundle = getattr(self.config, "tls_ca_bundle", None)
 
         # Timeout floor — webhook keeps the historical 1s floor (``safe_post``
-        # rejects 0/None unconditionally).
-        timeout = getattr(self.config, "timeout", 5)
-        if not isinstance(timeout, (int, float)) or timeout < 1:
+        # rejects 0/None unconditionally).  Sub-1 values are clamped to
+        # the floor (NOT to the model default).  Pre-Wave-3-followup the
+        # branch jumped to ``default_timeout`` (10s) on a sub-1 value,
+        # which silently 10x'd the operator's chosen budget; the
+        # documented contract is "below 1s → clamp to 1s", so we now
+        # clamp to the floor literally.  F-W3FU-S-04 also dropped the
+        # dead ``isinstance(timeout, (int, float))`` check (Pydantic
+        # already enforces the int type at config load).
+        from .config import WebhookConfig as _WebhookConfig
+
+        default_timeout = _WebhookConfig.model_fields["timeout"].default
+        timeout = getattr(self.config, "timeout", default_timeout)
+        if timeout < 1:
             logger.warning(
-                "Webhook timeout=%r is below the 1s floor; clamping to 5s.",
+                "Webhook timeout=%r is below the 1s floor; clamping to 1s.",
                 timeout,
             )
-            timeout = 5
+            timeout = 1
 
         allow_private = bool(getattr(self.config, "allow_private_destinations", False))
 

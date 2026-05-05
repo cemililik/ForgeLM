@@ -200,6 +200,23 @@ from .subcommands._quickstart import (
     _run_quickstart_train_then_chat,  # noqa: F401 — re-export for tests
 )
 
+# Reverse-PII subcommand (Phase 38 — GDPR Article 15 right-of-access).
+from .subcommands._reverse_pii import (
+    _build_search_pattern,  # noqa: F401 — re-export for tests
+    _emit_audit_event,  # noqa: F401 — re-export for tests
+    _emit_reverse_pii_result,  # noqa: F401 — re-export for tests
+    _hash_for_audit,  # noqa: F401 — re-export for tests
+    _resolve_audit_dir,  # noqa: F401 — re-export for tests
+    _resolve_files,  # noqa: F401 — re-export for tests
+    _resolve_query_form,  # noqa: F401 — re-export for tests
+    _run_reverse_pii_cmd,  # noqa: F401 — re-export for tests
+    _scan_file,  # noqa: F401 — re-export for tests
+    _scan_with_audit,  # noqa: F401 — re-export for tests
+    _truncate_snippet,  # noqa: F401 — re-export for tests
+    _validate_identifier_type,  # noqa: F401 — re-export for tests
+    _validate_query,  # noqa: F401 — re-export for tests
+)
+
 # Compliance verification toolbelt (Phase 36).
 from .subcommands._safety_eval import (
     _resolve_probes_path,  # noqa: F401 — re-export for tests

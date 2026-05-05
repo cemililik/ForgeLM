@@ -88,7 +88,22 @@ compliance:
   responsible_party: "Acme Corp <compliance@acme.example>"
 ```
 
-`compliance:` bloğundan her alan `annex_iv.json`'a akar. Gerekli alanlar config yüklenirken doğrulanır.
+`compliance:` bloğundan her alan `annex_iv.json`'a akar. Gerekli alanlar config yüklenirken doğrulanır — eksik bir `intended_purpose` `--dry-run`'ı fail eder.
+
+## Annex IV neyi içerir
+
+Annex IV artefact'ının sekiz bölümü vardır; tamamı otomatik doldurulur:
+
+1. **Genel açıklama** — model adı, kullanım amacı, dağıtım coğrafyası.
+2. **Detaylı sistem açıklaması** — base model, eğitim paradigması, veri seti özeti.
+3. **İzleme** — eval eşikleri, otomatik geri alma tetikleyicileri, trend takibi.
+4. **Risk yönetimi** — risk sınıflandırması, azaltıcı önlemler, kalan riskler.
+5. **Yaşam döngüsü** — eğitim tarihi, sürüm, kaynak verisine referanslar.
+6. **Standartlar** — listelenen uyumluluk çerçeveleri (EU AI Act, GDPR, ISO 27001).
+7. **Uyumluluk beyanı** — iskelet; nihai beyan insan imzası gerektirir.
+8. **Pazar-sonrası izleme planı** — dağıtılmış gözetim config'ine işaretçi.
+
+Tam şema için bkz. [Annex IV](#/compliance/annex-iv).
 
 ## Operasyonel sorumluluklar (siz, ForgeLM değil)
 

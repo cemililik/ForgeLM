@@ -88,6 +88,26 @@ distributed:
 - Eğitim hızı pahasına GPU bellek tasarrufunu maksimize eder
 - GPU VRAM darboğaz olduğunda ama CPU RAM yeterli olduğunda faydalı
 
+### Custom DeepSpeed Config
+
+Kendi JSON dosyanızı oluşturun.  HuggingFace Trainer'ın `"auto"`
+değerleri ForgeLM YAML config'inizden çözmesini istiyorsanız o şekilde
+bırakın:
+
+```json
+{
+  "zero_optimization": {
+    "stage": 2,
+    "overlap_comm": true,
+    "contiguous_gradients": true
+  },
+  "train_batch_size": "auto",
+  "train_micro_batch_size_per_gpu": "auto",
+  "gradient_accumulation_steps": "auto",
+  "gradient_clipping": "auto"
+}
+```
+
 ---
 
 ## FSDP Yapılandırması
@@ -113,6 +133,14 @@ distributed:
   fsdp_offload: false
 ```
 
+### FSDP'yi DeepSpeed yerine ne zaman seçmeli
+
+- **FSDP**: Native PyTorch, ekstra bağımlılık yok, daha basit kurulum,
+  çoğu use-case için iyi.
+- **DeepSpeed**: Daha çok özellik (ZeRO-Infinity, NVMe offload), çok
+  büyük modeller için daha iyi optimizasyon, 70B+ parametre eğitiminde
+  daha çok savaş tecrübesi.
+
 ---
 
 ## Uyumluluk Notları
@@ -133,23 +161,18 @@ distributed:
 | `transformers` | Evet | Tam DeepSpeed ve FSDP desteği |
 | `unsloth` | Hayır | Yalnızca tek GPU — dağıtık config ayarlanırsa ForgeLM uyarı verir |
 
+### LoRA + Dağıtık
+
+LoRA/DoRA adapter'ları hem DeepSpeed hem FSDP ile iyi çalışır.
+Adapter'lar bölümlenmenin overhead'ini önemsiz kılacak kadar küçükken,
+dondurulmuş base-model parametreleri bölümlenmeden ciddi yarar görür.
+
 ---
-
-## Docker + Çoklu GPU
-
-```bash
-docker run --gpus all \
-  -v $(pwd)/my_config.yaml:/workspace/config.yaml \
-  --shm-size=16g \
-  forgelm:full \
-  torchrun --nproc_per_node=4 -m forgelm.cli --config /workspace/config.yaml
-```
-
-> **Not**: `--shm-size=16g` çoklu GPU eğitimi için önemlidir. PyTorch, süreçler arası iletişim için paylaşılan bellek kullanır ve Docker'ın varsayılan paylaşılan belleği (64MB) yetersizdir.
 
 ## Çok Düğümlü Eğitim
 
-Birden fazla makine üzerinde eğitim için `torchrun`'ı düğüm yapılandırmasıyla kullanın:
+Birden fazla makine üzerinde eğitim için `torchrun`'ı düğüm
+yapılandırmasıyla kullanın:
 
 ```bash
 # Düğüm 0 (master)
@@ -170,6 +193,22 @@ torchrun \
   --master_port=29500 \
   -m forgelm.cli --config my_config.yaml
 ```
+
+---
+
+## Docker + Çoklu GPU
+
+```bash
+docker run --gpus all \
+  -v $(pwd)/my_config.yaml:/workspace/config.yaml \
+  --shm-size=16g \
+  forgelm:full \
+  torchrun --nproc_per_node=4 -m forgelm.cli --config /workspace/config.yaml
+```
+
+> **Not**: `--shm-size=16g` çoklu GPU eğitimi için önemlidir. PyTorch, süreçler arası iletişim için paylaşılan bellek kullanır ve Docker'ın varsayılan paylaşılan belleği (64MB) yetersizdir.
+
+---
 
 ## Sorun Giderme
 

@@ -50,7 +50,7 @@ Every trainer-level feature touches roughly the same list of files. Tick them as
 
 - [ ] **`tests/test_<feature>.py`** — unit tests for the new module
 - [ ] **`tests/test_config.py`** — validation tests for new config
-- [ ] **`tests/test_integration_smoke.py`** — dry-run that exercises the feature
+- [ ] **`tests/test_integration.py`** — dry-run that exercises the feature
 - [ ] **`tests/conftest.py`** — new fixture if reusable across tests
 
 ### Config

@@ -122,6 +122,66 @@ Deprecate edilen field **v0.7.0**'da kaldırılır.
 
 `--check-policy` asla 3 kodu döndürmez. Başarılı bir rapor 0 ile çıkar; verilen `--config`'i yükleme başarısızlığı ise yanıltıcı bir "ihlal yok" raporuna düşmek yerine `EXIT_CONFIG_ERROR` (sıfır olmayan) ile çıkar. CI gate isteyen operatörler ihlal sayısını JSON çıktıdan kendileri hesaplar (design §10 Q5).
 
+## Madde 15 erişim hakkı (`forgelm reverse-pii`)
+
+GDPR'nin *diğer* veri-sahibi hakkı — "verim corpus'ta var mı?" —
+için companion subcommand `forgelm reverse-pii`.  `purge` "satırımı
+sil" sorusuna yanıt verirken, `reverse-pii` "kimlik bilgim hangi
+satırlarda görünüyor" sorusuna yanıt verir.
+
+```shell
+# Plaintext residual scan: mask leak'leri tespit eder (operatör
+# corpus'un maskelendiğine inanıyordu ama bir residual span maskeleme
+# pass'ında kaçmış).
+$ forgelm reverse-pii --query "ali@example.com" --type email \
+    --output-dir ./outputs data/*.jsonl
+
+# Hash-mask scan: corpus DIŞSAL bir pipeline ile maskelenmiş —
+# `purge`'ün `target_id` audit-event hash'lemesinde kullandığı
+# per-output-dir salt'ını paylaşan SHA256(salt + identifier)
+# digest'leri corpus'a gömülmüş.  ForgeLM'in kendisi bir
+# hash-replacement ingest stratejisi YOLLAMAZ; bu mod, purge'ün
+# salt'ını ortak gizli olarak kullanan harici bir pipeline kuran
+# operatörler içindir.
+$ forgelm reverse-pii --query "ali@example.com" --type email \
+    --salt-source per_dir --output-dir ./outputs data/*.jsonl
+```
+
+Audit chain `data.access_request_query`'yi identifier *salt'lı
+hash'lenmiş* olarak kaydeder — `forgelm purge`'ün `target_id` field'ı
+için kullandığı aynı per-output-dir salt'ı yeniden kullanılır.
+Madde 15 erişim talepleri kendisi de subject'in verisini audit log'a
+sızdırmamalıdır.  Salt'lı form, compliance reviewer'ın aynı subject
+için Madde 17 (purge) ve Madde 15 (reverse-pii) olaylarını cleartext
+görmeden ilişkilendirmesini sağlar (digest'ler eşleşir).
+
+**Identifier tipleri** (`--type`): `literal` (varsayılan), `email`,
+`phone`, `tr_id`, `us_ssn`, `iban`, `credit_card`, `custom`.
+`custom` dışındaki tüm tipler query'i literal substring olarak ele
+alır (regex şekil-match yapmaz — o iş audit-time detector'ın görevi,
+erişim talebinin değil).  `custom` query'i Python regex olarak
+yorumlar; POSIX **ana iş parçacığında** çalışırken 30s'lik per-file
+SIGALRM bütçesi ReDoS hang'lerine karşı koruma sağlar.  Windows VE
+POSIX worker thread'lerinde SIGALRM guard no-op olur (sinyal
+handler'ları yalnızca ana iş parçacığından kurulabilir); worker
+thread'den veya Windows üzerinde `forgelm reverse-pii --type custom`
+çalıştıran operatörler regex'lerini kendileri doğrulamalıdır.
+
+**Audit-dir varsayılanı**: audit chain varsayılan olarak
+`<output-dir>/audit_log.jsonl`'a yazılır — `forgelm purge` ile aynı
+yola, böylece bir `verify-audit` koşumu aynı subject için Madde 17
+(silme) ve Madde 15 (erişim) olaylarını tek bir chain üzerinde
+ilişkilendirir.  Override için `--audit-dir <writable-dir>` geçin;
+explicit verilen `--audit-dir`'a yazılamıyorsa dispatcher Madde 15
+forensic kaydını sessizce düşürmek yerine `EXIT_TRAINING_ERROR` ile
+reddeder.
+
+**Exit kodları:** `0` = scan tamamlandı (matches listesi boş
+olabilir); `1` = config hatası (boş query, malformed regex, boş
+glob); `2` = runtime hatası (mid-scan I/O failure).  JSON envelope
+şeması için bkz.
+[`../usermanuals/tr/reference/json-output.md`](../usermanuals/tr/reference/json-output.md).
+
 ## Bkz.
 
 - `docs/qms/sop_data_management.md` — retention + erasure prosedürleri dahil tam data-lifecycle SOP.

@@ -256,6 +256,45 @@ Audit log chain bütünlüğü kontrolü.
 
 **Exit kodu:** `0` = başarı veya başarılı policy raporu; `1` = config hatası (bilinmeyen satır, eksik corpus, çelişen flag, malformed `--check-policy --config`); `2` = runtime hatası (I/O, atomic rename başarısız).
 
+## `forgelm reverse-pii`
+
+Wave 3 Phase 38 — GDPR Madde 15 erişim hakkı, `forgelm purge`'ün companion'ı. JSONL corpora'larını dolaşır ve sağlanan identifier'ın görüldüğü her satırı raporlar.
+
+**Başarı zarfı:**
+
+```json
+{
+  "success": true,
+  "query_hash": "abc...64-hex",
+  "identifier_type": "email",
+  "scan_mode": "plaintext",
+  "salt_source": "per_dir",
+  "matches": [
+    {
+      "file": "/work/data/train.jsonl",
+      "line": 42,
+      "snippet": "…Contact: alice@example.com regarding the appointment…"
+    }
+  ],
+  "files_scanned": [
+    {"path": "/work/data/train.jsonl", "match_count": 1}
+  ],
+  "match_count": 1
+}
+```
+
+| Anahtar | Tip | Notlar |
+|---|---|---|
+| `query_hash` | str | `salt + raw --query`'nin 64-karakter küçük-harfli hex SHA-256 digest'i — `salt`, `forgelm purge`'ün `target_id` için de kullandığı per-output-dir audit salt'ı.  Raw değer hiçbir zaman zarfta yer almaz; purge'ün `target_id`'si ile cross-tool korelasyon hazır gelir. |
+| `identifier_type` | str | `--type` echo'su ∈ `{literal, email, phone, tr_id, us_ssn, iban, credit_card, custom}`.  Varsayılan `literal` — query literal substring olarak eşleştirilir. |
+| `scan_mode` | str | `"plaintext"` (varsayılan — verbatim arama; mask-leak detection) veya `"hash"` (`--salt-source` set; corpus'ta `salt + query`'nin SHA-256'sı aranır). |
+| `salt_source` | str | Hangi salt-resolution path kullanıldı: `"plaintext"` (`--salt-source` yok), `"per_dir"` (yalnız per-output-dir salt dosyası) veya `"env_var"` (`FORGELM_AUDIT_SECRET` ile XOR).  Audit event'inde de yansıtılır; bir compliance reviewer iki digest'in aynı şekilde salt'lanıp salt'lanmadığını anlayabilir. |
+| `matches` | list[object] | Eşleşen her satır için bir entry.  `snippet` eşleşen span'in etrafında merkezlenip 160 karaktere kapanır (`…` ayraç); eşleşen identifier her zaman pencere içinde kalır. |
+| `files_scanned` | list[object] | Glob-resolution sırasında per-file match sayıları.  Hangi path'lerin tarandığının kaynağı budur. |
+| `match_count` | int | `len(matches)`'a eşit; "match var mı yok mu" branch'leyen CI gate'leri için convenience. |
+
+**Exit kodu:** `0` = scan tamamlandı (matches listesi boş olabilir); `1` = config hatası (boş `--query`, `--type custom` malformed regex, empty glob expansion, `FORGELM_AUDIT_SECRET` olmadan `--salt-source env_var` — veya `FORGELM_AUDIT_SECRET` set iken `--salt-source per_dir`); `2` = runtime hatası (mid-scan I/O failure, malformed UTF-8 corpus, custom-regex ReDoS timeout, `--audit-dir` explicit verildiğinde audit-init başarısızlığı).
+
 ## `forgelm cache-models`
 
 Wave 2b Phase 35 — air-gap workflow blocker. HuggingFace Hub cache'ini önceden doldurur.
