@@ -989,35 +989,11 @@ class ForgeConfig(BaseModel):
             return
         # Only legacy set explicitly → alias-forward.
         if legacy is not None and canonical is None:
-            # Round-5 follow-up: ``model_copy(update=...)`` preserves any
-            # other ``retention.*`` keys the operator already wrote
-            # (e.g. ``retention.audit_log_retention_days: 1825`` paired
-            # with ``evaluation.staging_ttl_days: 14``).  The previous
-            # ``RetentionConfig(staging_ttl_days=legacy)`` constructor
-            # call would have silently discarded those.
-            if retention is not None:
-                self.retention = retention.model_copy(update={"staging_ttl_days": legacy})
-            else:
-                self.retention = RetentionConfig(staging_ttl_days=legacy)
-            warnings.warn(
-                "`evaluation.staging_ttl_days` is deprecated and forwards to "
-                "`retention.staging_ttl_days` for the v0.5.5 → v0.6.x window. "
-                "Move the value under the new top-level `retention:` block; the "
-                "deprecated field is removed in v0.7.0.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
+            self._apply_legacy_alias_forward(legacy, retention)
             return
         # Both set.  Compare.
         if legacy == canonical:
-            warnings.warn(
-                "`evaluation.staging_ttl_days` is deprecated; the value matches "
-                "`retention.staging_ttl_days` so the canonical block wins.  Remove "
-                "`evaluation.staging_ttl_days` from your YAML — the deprecated field "
-                "is removed in v0.7.0.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
+            self._emit_legacy_match_warning()
             return
         # Both set with different values → refuse.
         raise ConfigError(
@@ -1027,6 +1003,49 @@ class ForgeConfig(BaseModel):
             "(canonical).  Remove the deprecated entry; the canonical block wins.  "
             "(Tracking issue: removal scheduled for v0.7.0 per "
             "docs/standards/release.md#deprecation-cadence.)"
+        )
+
+    def _apply_legacy_alias_forward(self, legacy: int, retention: Optional["RetentionConfig"]) -> None:
+        """Mirror ``evaluation.staging_ttl_days`` onto ``retention.staging_ttl_days``.
+
+        ``model_copy(update=...)`` preserves any other ``retention.*`` keys
+        the operator already wrote (e.g. ``audit_log_retention_days: 1825``
+        paired with ``evaluation.staging_ttl_days: 14``).  The previous
+        ``RetentionConfig(staging_ttl_days=legacy)`` constructor call would
+        have silently discarded those.
+
+        ``stacklevel=4`` is tuned so the DeprecationWarning surfaces at the
+        operator's ``ForgeConfig(...)`` call site rather than inside the
+        Pydantic ``@model_validator`` machinery (caller →
+        ``_reconcile_staging_ttl_days`` → here).
+        """
+        if retention is not None:
+            self.retention = retention.model_copy(update={"staging_ttl_days": legacy})
+        else:
+            self.retention = RetentionConfig(staging_ttl_days=legacy)
+        warnings.warn(
+            "`evaluation.staging_ttl_days` is deprecated and forwards to "
+            "`retention.staging_ttl_days` for the v0.5.5 → v0.6.x window. "
+            "Move the value under the new top-level `retention:` block; the "
+            "deprecated field is removed in v0.7.0.",
+            DeprecationWarning,
+            stacklevel=4,
+        )
+
+    def _emit_legacy_match_warning(self) -> None:
+        """Warn when both fields are set to identical values; canonical wins.
+
+        ``stacklevel=4`` matches :meth:`_apply_legacy_alias_forward` so both
+        deprecation paths attribute the warning to the same operator
+        call frame.
+        """
+        warnings.warn(
+            "`evaluation.staging_ttl_days` is deprecated; the value matches "
+            "`retention.staging_ttl_days` so the canonical block wins.  Remove "
+            "`evaluation.staging_ttl_days` from your YAML — the deprecated field "
+            "is removed in v0.7.0.",
+            DeprecationWarning,
+            stacklevel=4,
         )
 
 

@@ -131,7 +131,14 @@ def _load_model_for_safety(model_path: str, output_format: str):
     except ImportError as exc:
         _output_error_and_exit(
             output_format,
-            f"transformers is required for safety-eval; install with: pip install forgelm.  ImportError: {exc}",
+            (
+                f"transformers (a core ForgeLM dependency) failed to import: {exc}.  "
+                "This usually means the active virtualenv / container is missing the "
+                "package or has a broken install.  Verify your environment "
+                "(`python -c 'import transformers; print(transformers.__version__)'`) "
+                "and reinstall with `pip install transformers` or "
+                "`pip install --force-reinstall forgelm`."
+            ),
             EXIT_CONFIG_ERROR,
         )
     except Exception as exc:  # noqa: BLE001 — broad surface from HF loaders (FileNotFoundError, OSError, ValueError, KeyError, etc.). # NOSONAR
