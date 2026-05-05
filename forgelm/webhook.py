@@ -65,11 +65,14 @@ class WebhookNotifier:
         the codebase shares the same policy. Webhook-specific behaviour kept
         here:
 
-        * The webhook config defaults ``timeout`` to 5s for historical
-          compatibility — ``safe_post`` is invoked with ``min_timeout=1.0``
-          so an existing operator config that uses ``timeout=5`` keeps
-          working (every ``http*`` call site outside webhook gets the
-          stricter 10s floor).
+        * The local ``timeout`` variable resolves from
+          ``self.config.timeout`` and falls back to
+          ``WebhookConfig.model_fields["timeout"].default`` (currently 10s
+          per Wave 3 / F-compliance-106 — was 5s historically) when the
+          attribute is absent on a hand-rolled config namespace.  Sub-1
+          values are clamped to the 1s floor (NOT to the model default —
+          see the inline comment around ``timeout < 1`` for the
+          F-W3FU-followup framing); 0 / negative budgets are not honoured.
         * On policy rejection or transport error we log a warning and
           *swallow* — ``notify_*`` is never allowed to fail the training run.
         * Response body suppression on non-2xx — receivers (Slack, Teams)

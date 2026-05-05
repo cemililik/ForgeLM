@@ -160,8 +160,12 @@ görmeden ilişkilendirmesini sağlar (digest'ler eşleşir).
 `custom` dışındaki tüm tipler query'i literal substring olarak ele
 alır (regex şekil-match yapmaz — o iş audit-time detector'ın görevi,
 erişim talebinin değil).  `custom` query'i Python regex olarak
-yorumlar; POSIX sistemlerde 30s'lik per-file SIGALRM bütçesi ReDoS
-hang'lerine karşı koruma sağlar.
+yorumlar; POSIX **ana iş parçacığında** çalışırken 30s'lik per-file
+SIGALRM bütçesi ReDoS hang'lerine karşı koruma sağlar.  Windows VE
+POSIX worker thread'lerinde SIGALRM guard no-op olur (sinyal
+handler'ları yalnızca ana iş parçacığından kurulabilir); worker
+thread'den veya Windows üzerinde `forgelm reverse-pii --type custom`
+çalıştıran operatörler regex'lerini kendileri doğrulamalıdır.
 
 **Audit-dir varsayılanı**: audit chain varsayılan olarak
 `<output-dir>/audit_log.jsonl`'a yazılır — `forgelm purge` ile aynı

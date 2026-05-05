@@ -211,6 +211,7 @@ from .subcommands._reverse_pii import (
     _resolve_query_form,  # noqa: F401 — re-export for tests
     _run_reverse_pii_cmd,  # noqa: F401 — re-export for tests
     _scan_file,  # noqa: F401 — re-export for tests
+    _scan_with_audit,  # noqa: F401 — re-export for tests
     _truncate_snippet,  # noqa: F401 — re-export for tests
     _validate_identifier_type,  # noqa: F401 — re-export for tests
     _validate_query,  # noqa: F401 — re-export for tests

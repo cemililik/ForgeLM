@@ -870,9 +870,23 @@ class TestReDoSGuard:
         """F-W3FU-03: a previously-scheduled outer SIGALRM budget must
         survive the per-file wrapper.  The wrapper's old shape called
         ``signal.alarm(0)`` in ``finally``, permanently cancelling the
-        outer alarm; the fix captures and re-arms it."""
+        outer alarm; the fix captures and re-arms it.
+
+        Wave-3-followup tightening: also pin the budget-decrement
+        contract.  A naive re-arm with ``previous_alarm_remaining``
+        (without subtracting the elapsed wall-clock) silently EXTENDS
+        the outer caller's deadline by however long ``_scan_file``
+        ran.  We measure ``time.monotonic()`` either side of the
+        wrapper, derive an upper bound from
+        ``previous_budget - ceil(elapsed)`` (clamped to ≥1 — the
+        production code's clamp), and assert the re-armed alarm is
+        within that bound.  A regression that drops the elapsed
+        subtraction would push ``remaining`` above the bound.
+        """
+        import math
         import re as _re
         import signal as _signal
+        import time
 
         from forgelm.cli.subcommands._reverse_pii import _scan_file_with_alarm
 
@@ -880,14 +894,29 @@ class TestReDoSGuard:
         corpus.write_text('{"id":1,"text":"x"}\n', encoding="utf-8")
         pattern = _re.compile("x")
 
+        previous_budget = 60
         previous_handler = _signal.signal(_signal.SIGALRM, lambda *_: None)
         try:
-            _signal.alarm(60)  # outer budget
+            _signal.alarm(previous_budget)  # outer budget
+            started = time.monotonic()
             _scan_file_with_alarm(str(corpus), pattern)
+            elapsed = time.monotonic() - started
             remaining = _signal.alarm(0)
+
+            # The wrapper's contract: re-arm with
+            # ``max(int(ceil(previous - elapsed)), 1)``.  ``remaining``
+            # must be > 0 (outer budget preserved) AND not exceed the
+            # production clamp (otherwise the outer caller's deadline
+            # was extended by however long the inner scan ran).
+            expected_max = max(int(math.ceil(previous_budget - elapsed)), 1)
             assert remaining > 0, (
                 "outer alarm budget must survive the wrapper — F-W3FU-03 "
                 "regression: signal.alarm(0) in finally was cancelling the outer alarm"
+            )
+            assert remaining <= expected_max, (
+                f"alarm wrapper extended the outer budget — remaining={remaining}s "
+                f"but expected_max={expected_max}s after {elapsed:.3f}s of inner scan; "
+                "Wave-3-followup tightening: the re-arm must subtract the wall-clock spent inside the wrapper"
             )
         finally:
             _signal.alarm(0)
@@ -921,7 +950,10 @@ class TestReDoSGuard:
         thread.join()
         assert not errors, f"worker thread crashed instead of skipping the alarm guard: {errors}"
         assert len(results) == 1
-        matches, files_scanned = results[0]
+        # files_scanned is the second tuple element; not checked in this test
+        # because the contract being pinned is "the worker thread did not
+        # crash on signal.signal", not the per-file accounting shape.
+        matches, _ = results[0]
         assert len(matches) == 1
 
 

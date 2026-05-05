@@ -159,8 +159,12 @@ match) without seeing the cleartext.
 non-`custom` types treat the query as a literal substring (no regex
 shape match — that's the *audit-time* detector's job, not the
 access-request answer).  `custom` interprets the query as a Python
-regex; on POSIX systems a 30s per-file SIGALRM budget guards against
-ReDoS hangs.
+regex; on POSIX **main-thread** invocations a 30s per-file SIGALRM
+budget guards against ReDoS hangs.  On Windows AND on POSIX worker
+threads the SIGALRM guard is a no-op (signal handlers must be
+installed from the main thread); operators running
+`forgelm reverse-pii --type custom` from a worker thread or on
+Windows must vet their regex themselves.
 
 **Audit-dir default**: the audit chain is written to
 `<output-dir>/audit_log.jsonl` by default — the same path

@@ -604,6 +604,96 @@ def _emit_audit_event(
     audit.log_event(_EVT_ACCESS_REQUEST_QUERY, **payload)
 
 
+def _scan_with_audit(
+    *,
+    files: List[str],
+    pattern: re.Pattern[str],
+    identifier_type: str,
+    audit,
+    query_hash: str,
+    scan_mode: str,
+    salt_source_label: str,
+    output_format: str,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Run the corpus scan and emit the matching audit event.
+
+    Extracted from ``_run_reverse_pii_cmd`` to keep the dispatcher
+    under Sonar's cognitive-complexity ceiling (Wave-3-followup
+    nitpick).  Owns the full scan + audit-emit lifecycle:
+
+    1. Walk every resolved file via ``_scan_files_with_redos_guard``.
+    2. On corpus-read failure (``OSError`` / ``UnicodeDecodeError``)
+       OR a custom-regex ReDoS timeout — which surfaces as ``OSError``
+       via ``_scan_file_with_alarm`` — emit a failure-flavoured
+       ``data.access_request_query`` event (best-effort; double-fault
+       on audit chain write surfaces with chained context per the
+       F-W3FU-06 fix) and exit ``EXIT_TRAINING_ERROR``.
+    3. On success, emit the matching success event and return
+       ``(matches, files_scanned)`` to the dispatcher.
+
+    Audit-chain failure is fail-closed in both branches: the chain
+    is the Article 15 contract and silently dropping it would breach
+    the very framing this subcommand is built to deliver.
+    """
+    matches: List[Dict[str, Any]] = []
+    files_scanned: List[Dict[str, Any]] = []
+    try:
+        matches, files_scanned = _scan_files_with_redos_guard(files, pattern, identifier_type)
+    except (OSError, UnicodeDecodeError) as exc:
+        if audit is not None:
+            try:
+                _emit_audit_event(
+                    audit,
+                    query_hash=query_hash,
+                    identifier_type=identifier_type,
+                    scan_mode=scan_mode,
+                    salt_source=salt_source_label,
+                    files_scanned=files_scanned,
+                    match_count=len(matches),
+                    error_class=exc.__class__.__name__,
+                    error_message=str(exc),
+                )
+            except Exception as audit_exc:  # noqa: BLE001 — fail-closed on audit error.
+                # Chain the original mid-scan exception's diagnostic
+                # context into the audit-failure message so a
+                # double-fault doesn't lose the underlying cause
+                # (otherwise the operator sees only "audit chain
+                # write failed" and has to re-run to diagnose).
+                _output_error_and_exit(
+                    output_format,
+                    (
+                        f"reverse-pii: failed to write the Article 15 failure audit event "
+                        f"({audit_exc.__class__.__name__}: {audit_exc}); the original "
+                        f"mid-scan failure was {exc.__class__.__name__}: {exc}."
+                    ),
+                    EXIT_TRAINING_ERROR,
+                )
+        _output_error_and_exit(
+            output_format,
+            f"Failed reading corpus file mid-scan: {exc}.  Partial matches surfaced before the failure are not emitted.",
+            EXIT_TRAINING_ERROR,
+        )
+
+    if audit is not None:
+        try:
+            _emit_audit_event(
+                audit,
+                query_hash=query_hash,
+                identifier_type=identifier_type,
+                scan_mode=scan_mode,
+                salt_source=salt_source_label,
+                files_scanned=files_scanned,
+                match_count=len(matches),
+            )
+        except Exception as audit_exc:  # noqa: BLE001 — fail-closed on audit error.
+            _output_error_and_exit(
+                output_format,
+                f"reverse-pii: failed to write the Article 15 success audit event ({audit_exc}).",
+                EXIT_TRAINING_ERROR,
+            )
+    return matches, files_scanned
+
+
 def _run_reverse_pii_cmd(args, output_format: str) -> None:
     """Top-level dispatcher for ``forgelm reverse-pii``."""
     query = _validate_query(getattr(args, "query", None), output_format)
@@ -664,62 +754,16 @@ def _run_reverse_pii_cmd(args, output_format: str) -> None:
     )
     query_hash = _hash_for_audit(query, salt)
 
-    matches: List[Dict[str, Any]] = []
-    files_scanned: List[Dict[str, Any]] = []
-    try:
-        matches, files_scanned = _scan_files_with_redos_guard(files, pattern, identifier_type)
-    except (OSError, UnicodeDecodeError) as exc:
-        if audit is not None:
-            try:
-                _emit_audit_event(
-                    audit,
-                    query_hash=query_hash,
-                    identifier_type=identifier_type,
-                    scan_mode=scan_mode,
-                    salt_source=salt_source_label,
-                    files_scanned=files_scanned,
-                    match_count=len(matches),
-                    error_class=exc.__class__.__name__,
-                    error_message=str(exc),
-                )
-            except Exception as audit_exc:  # noqa: BLE001 — fail-closed on audit error.
-                # F-W3FU-06 (cc) fix: chain the original mid-scan
-                # exception's diagnostic context into the audit-failure
-                # message so a double-fault doesn't lose the underlying
-                # cause (otherwise the operator sees only "audit chain
-                # write failed" and has to re-run to diagnose).
-                _output_error_and_exit(
-                    output_format,
-                    (
-                        f"reverse-pii: failed to write the Article 15 failure audit event "
-                        f"({audit_exc.__class__.__name__}: {audit_exc}); the original "
-                        f"mid-scan failure was {exc.__class__.__name__}: {exc}."
-                    ),
-                    EXIT_TRAINING_ERROR,
-                )
-        _output_error_and_exit(
-            output_format,
-            f"Failed reading corpus file mid-scan: {exc}.  Partial matches surfaced before the failure are not emitted.",
-            EXIT_TRAINING_ERROR,
-        )
-
-    if audit is not None:
-        try:
-            _emit_audit_event(
-                audit,
-                query_hash=query_hash,
-                identifier_type=identifier_type,
-                scan_mode=scan_mode,
-                salt_source=salt_source_label,
-                files_scanned=files_scanned,
-                match_count=len(matches),
-            )
-        except Exception as audit_exc:  # noqa: BLE001 — fail-closed on audit error.
-            _output_error_and_exit(
-                output_format,
-                f"reverse-pii: failed to write the Article 15 success audit event ({audit_exc}).",
-                EXIT_TRAINING_ERROR,
-            )
+    matches, files_scanned = _scan_with_audit(
+        files=files,
+        pattern=pattern,
+        identifier_type=identifier_type,
+        audit=audit,
+        query_hash=query_hash,
+        scan_mode=scan_mode,
+        salt_source_label=salt_source_label,
+        output_format=output_format,
+    )
 
     payload: Dict[str, Any] = {
         "success": True,
@@ -770,6 +814,7 @@ __all__ = [
     "_resolve_files",
     "_resolve_query_form",
     "_scan_file",
+    "_scan_with_audit",
     "_truncate_snippet",
     "_hash_for_audit",
     "_emit_reverse_pii_result",
