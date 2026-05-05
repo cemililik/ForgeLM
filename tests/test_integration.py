@@ -282,7 +282,11 @@ class TestAuditLoggerIntegration:
         audit.log_event("training.started")
         audit.log_event("evaluation.loss_check", eval_loss=0.5, passed=True)
         audit.log_event("evaluation.safety", safe_ratio=0.95, passed=True)
-        audit.log_event("human_approval.required", model_path="/tmp/model")
+        # Sonar python:S5443 hotspot avoidance: route the path-shaped
+        # literal through the per-test ``tmp_path`` fixture so it cannot
+        # be misread as a publicly-writable directory reference.  The
+        # value is a structured-log payload only — no file is created.
+        audit.log_event("human_approval.required", model_path=str(tmp_path / "model"))
         audit.log_event("pipeline.completed", success=True)
 
         log_path = os.path.join(str(tmp_path), "audit_log.jsonl")

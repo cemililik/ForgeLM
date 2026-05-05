@@ -84,14 +84,11 @@ _PAIRS: Tuple[Tuple[str, str], ...] = (
 # Sonar python:S5852 hotspot avoidance: the previous single-shot regex
 # ``^(#{1,6})\s+(.+?)\s*#*\s*$`` chained a lazy ``(.+?)`` against
 # ``\s*#*\s*$``, exposing polynomial backtracking on a pathological line
-# of all spaces and hashes.  We split heading recognition into a
-# linear-time prefix match plus deterministic Python string trimming —
-# no backtracking surface.
+# of all spaces and hashes.  We use one minimal regex for the prefix
+# (single quantifier on a fixed character class) and a pure-Python
+# deterministic trimmer for the optional ATX-closing run of hashes —
+# no nested quantifiers anywhere on the heading-recognition path.
 _HEADING_PREFIX_RE = re.compile(r"^(#{1,6}) +")
-# Trailing ``\s+#+`` is the ATX-closing form (``## Foo ##``).  Bound it
-# at one or more whitespace + one or more hashes; no nested
-# quantifiers.
-_HEADING_TRAILING_HASHES_RE = re.compile(r"\s+#+$")
 
 # Code fence opening / closing — heading-like lines inside a code
 # block are content, not document structure.  We track ``open / close``
@@ -149,19 +146,33 @@ def extract_headings(path: Path) -> List[Heading]:
             if prefix_match is None:
                 continue
             level = len(prefix_match.group(1))
-            # Strip the prefix, then the optional ATX-closing run of
-            # hashes, then any leftover whitespace.  Two regex passes
-            # over independent suffixes — neither has a backtracking
-            # surface against the body text.
             body = line[prefix_match.end() :]
-            body = _HEADING_TRAILING_HASHES_RE.sub("", body)
-            text = body.strip()
+            text = _strip_atx_close_and_whitespace(body)
             if not text:
                 # ``# `` or ``## ##`` with no body is not a heading we
                 # want to compare structurally — skip.
                 continue
             headings.append(Heading(level=level, text=text, line=line_no))
     return headings
+
+
+def _strip_atx_close_and_whitespace(body: str) -> str:
+    """Strip ATX-closing hashes (``Foo ##`` → ``Foo``) deterministically.
+
+    Pure-Python O(n) walk — no regex, no backtracking surface.  Only
+    treats a trailing run of hashes as an ATX close when at least one
+    whitespace character precedes it, matching CommonMark §4.2.
+    """
+    stripped = body.rstrip()
+    end = len(stripped)
+    hash_start = end
+    while hash_start > 0 and stripped[hash_start - 1] == "#":
+        hash_start -= 1
+    if hash_start < end and hash_start > 0 and stripped[hash_start - 1] in " \t":
+        # ``stripped[:hash_start - 1]`` drops the separator + the run of
+        # hashes; rstrip the result to clear any inner trailing space.
+        return stripped[: hash_start - 1].rstrip()
+    return stripped
 
 
 @dataclass(frozen=True)
