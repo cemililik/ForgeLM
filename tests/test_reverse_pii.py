@@ -230,6 +230,68 @@ class TestHashMaskScan:
             _run_reverse_pii_cmd(args, output_format="json")
         assert ei.value.code == 1, "env_var without FORGELM_AUDIT_SECRET must surface as EXIT_CONFIG_ERROR"
 
+    def test_implicit_output_dir_with_salt_source_warns_about_correlation_risk(self, tmp_path: Path, caplog) -> None:
+        """Wave 3 follow-up: when ``--salt-source`` is set but
+        ``--output-dir`` is not, the dispatcher falls back to the corpus
+        parent for salt-file resolution.  That silently breaks
+        cross-tool correlation with any ``forgelm purge`` invocation
+        that supplied an explicit ``--output-dir``.  The fallback
+        must surface a WARNING naming the resolved dir so the
+        operator can pin it or accept the consequence."""
+        import logging
+
+        from forgelm.cli.subcommands._reverse_pii import _run_reverse_pii_cmd
+
+        # Place the corpus in a subdirectory so the fallback
+        # ``output_dir`` is a real, distinct path the warning can name.
+        corpus_dir = tmp_path / "data"
+        corpus_dir.mkdir()
+        corpus = corpus_dir / "masked.jsonl"
+        _seed_corpus(corpus, [{"id": "row-A", "text": "x"}])
+        args = _build_args(
+            query="alice@example.com",
+            type="email",
+            salt_source="per_dir",
+            files=[str(corpus)],
+            output_dir=None,  # implicit — falls back to corpus_dir
+        )
+        with caplog.at_level(logging.WARNING, logger="forgelm.cli"):
+            with pytest.raises(SystemExit) as ei:
+                _run_reverse_pii_cmd(args, output_format="json")
+        assert ei.value.code == 0
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING" and "reverse-pii" in r.message and "Cross-tool" in r.message
+        ]
+        assert warnings, "implicit --output-dir + --salt-source must surface a cross-tool correlation warning"
+        # The salt file landed in the corpus dir per the warning text.
+        assert (corpus_dir / ".forgelm_audit_salt").exists()
+
+    def test_implicit_output_dir_without_salt_source_does_not_warn(self, tmp_path: Path, caplog) -> None:
+        """The cross-tool correlation warning is scoped to hash-mask
+        invocations; plaintext-mode runs without ``--salt-source`` use
+        the salt only for the audit hash and must not nag the operator
+        about cross-tool correlation."""
+        import logging
+
+        from forgelm.cli.subcommands._reverse_pii import _run_reverse_pii_cmd
+
+        corpus = tmp_path / "train.jsonl"
+        _seed_corpus(corpus, [{"id": "row-A", "text": "x"}])
+        args = _build_args(
+            query="alice@example.com",
+            type="email",
+            salt_source=None,
+            files=[str(corpus)],
+            output_dir=None,
+        )
+        with caplog.at_level(logging.WARNING, logger="forgelm.cli"):
+            with pytest.raises(SystemExit):
+                _run_reverse_pii_cmd(args, output_format="json")
+        cross_tool_warns = [r for r in caplog.records if "Cross-tool" in r.message]
+        assert cross_tool_warns == [], "plaintext mode must not warn about cross-tool correlation"
+
     def test_per_dir_salt_source_refuses_when_env_var_set(self, tmp_path: Path, capsys, monkeypatch) -> None:
         """F-W3-11 / F-W3-PS-04 regression: the symmetric direction —
         operator asked for ``per_dir`` but ``FORGELM_AUDIT_SECRET`` is

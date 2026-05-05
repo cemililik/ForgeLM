@@ -521,14 +521,36 @@ def _run_reverse_pii_cmd(args, output_format: str) -> None:
         )
 
     files = _resolve_files(globs, output_format)
-    output_dir = getattr(args, "output_dir", None) or os.path.dirname(os.path.abspath(files[0])) or "."
     salt_source = getattr(args, "salt_source", None)
+    explicit_output_dir = getattr(args, "output_dir", None)
+    # ``os.path.abspath(files[0])`` always returns an absolute path, so
+    # ``dirname`` returns at minimum ``"/"`` — the previous trailing
+    # ``or "."`` fallback was unreachable and is dropped.
+    output_dir = explicit_output_dir or os.path.dirname(os.path.abspath(files[0]))
 
     # F-W3-08 fix: validate the regex before any filesystem side effects
     # (salt-file creation).  We build the search pattern over the raw
     # query first; if the operator typed an invalid custom regex they
     # get exit 1 without leaving a salt file behind.
     _build_search_pattern(query, identifier_type, output_format)
+
+    if explicit_output_dir is None and salt_source is not None:
+        # F-W3-PS-06 / F-W3T-10 follow-up: an implicit ``output_dir``
+        # creates ``.forgelm_audit_salt`` next to the operator's corpus.
+        # In hash-mask mode, this silently breaks cross-tool correlation
+        # with any ``forgelm purge`` invocation that supplied an
+        # explicit ``--output-dir`` (the two would compute different
+        # salts).  Surface the risk loudly so the operator can pin the
+        # output dir or accept the consequence.
+        logger.warning(
+            "reverse-pii: --salt-source=%r set but --output-dir is not.  "
+            "Falling back to the corpus parent (%r); the per-dir salt file "
+            ".forgelm_audit_salt will be created/read there.  Cross-tool "
+            "correlation with `forgelm purge` requires both subcommands "
+            "to use the SAME --output-dir.",
+            salt_source,
+            output_dir,
+        )
 
     scan_query, scan_mode, salt, salt_source_label = _resolve_query_form(query, salt_source, output_dir, output_format)
     pattern = _build_search_pattern(scan_query, identifier_type, output_format)
