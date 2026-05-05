@@ -194,32 +194,16 @@ jobs:
         # tools/check_site_claims.py for what's checked and why.
         run: python3 tools/check_site_claims.py --strict
 
-      - name: Bilingual doc H2 parity check
-        run: |
-          python -c "
-          import re, sys
-          pairs = [
-              ('docs/reference/configuration.md',       'docs/reference/configuration-tr.md'),
-              ('docs/reference/usage.md',               'docs/reference/usage-tr.md'),
-              ('docs/reference/distributed_training.md','docs/reference/distributed_training-tr.md'),
-              ('docs/reference/data_preparation.md',    'docs/reference/data_preparation-tr.md'),
-              ('docs/reference/architecture.md',        'docs/reference/architecture-tr.md'),
-              ('docs/guides/ingestion.md',              'docs/guides/ingestion-tr.md'),
-              ('docs/guides/data_audit.md',             'docs/guides/data_audit-tr.md'),
-          ]
-          failed = False
-          for en, tr in pairs:
-              with open(en) as f:
-                  en_count = sum(1 for line in f if re.match(r'^## ', line))
-              with open(tr) as f:
-                  tr_count = sum(1 for line in f if re.match(r'^## ', line))
-              status = 'OK' if en_count == tr_count else 'FAIL'
-              print(f'{status}: {en} ({en_count} H2) vs {tr} ({tr_count} H2)')
-              if en_count != tr_count:
-                  failed = True
-          if failed:
-              sys.exit(1)
-          "
+      - name: Bilingual doc H2/H3/H4 parity check (strict)
+        # Phase 24: extended structural parity guard.  Where the prior
+        # inline check counted H2 only and missed reordered / demoted
+        # sections, ``tools/check_bilingual_parity.py`` walks every
+        # registered EN/TR pair and compares the full H2 + H3 + H4
+        # spine.  Translated text differs by definition; structural
+        # depth + ordering must not.  Add a new pair: register it in
+        # ``tools/check_bilingual_parity.py::_PAIRS``; CI picks it up
+        # automatically the next run.
+        run: python3 tools/check_bilingual_parity.py --strict
 
       - name: License check
         run: |

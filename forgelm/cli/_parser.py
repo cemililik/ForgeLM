@@ -879,6 +879,81 @@ def _add_purge_subcommand(subparsers) -> None:
     _add_common_subparser_flags(p, include_output_format=True)
 
 
+def _add_reverse_pii_subcommand(subparsers) -> None:
+    """Phase 38 / GDPR Article 15: search masked corpora for a subject's identifier.
+
+    Companion to ``forgelm purge`` (Article 17 erasure): where ``purge``
+    answers "delete my row," ``reverse-pii`` answers "is my row in the
+    corpus at all, and where?"  Two scan modes:
+
+    - **plaintext residual scan** (default) — finds operator masking
+      misses by matching the identifier verbatim in every JSONL line.
+    - **hash-mask scan** (``--salt-source per_dir|env_var``) — recomputes
+      ``SHA256(salt + identifier)`` using the same per-output-dir salt
+      ``forgelm purge`` uses for ``target_id`` hashing, then matches
+      that digest in masked corpora.
+
+    Audit chain: every invocation writes
+    ``data.access_request_query`` with the *hashed* identifier (Article
+    15 access requests must not themselves leak the subject's data
+    into the audit log).  See ``docs/guides/gdpr_erasure.md`` for the
+    operator how-to.
+    """
+    p = subparsers.add_parser(
+        "reverse-pii",
+        help="GDPR Article 15 right-of-access: search masked corpora for a subject's identifier.",
+        description=(
+            "Article 15 right-of-access: walks a glob of JSONL corpora and reports "
+            "every line where the supplied identifier appears (plaintext residual "
+            "scan by default; hash-mask scan when --salt-source is set).  Audit "
+            "event `data.access_request_query` records the hashed identifier so "
+            "the chain itself does not leak the subject's data."
+        ),
+    )
+    p.add_argument(
+        "--query",
+        type=str,
+        required=True,
+        metavar="VALUE",
+        help="Identifier to search for (e-mail, phone, ID, regex pattern, or pre-hashed digest).  WARNING: the value is hashed before audit emission but is read in cleartext from the corpus while scanning.",
+    )
+    p.add_argument(
+        "--type",
+        type=str,
+        default="custom",
+        choices=["email", "phone", "tr_id", "us_ssn", "iban", "credit_card", "custom"],
+        help="Identifier category.  `custom` (default) treats --query as an arbitrary regular expression; every other value treats --query as a literal string and matches it verbatim.",
+    )
+    p.add_argument(
+        "--salt-source",
+        type=str,
+        default=None,
+        choices=["per_dir", "env_var"],
+        help="Switch to hash-mask scan: SHA256(salt + identifier) is computed via the same per-output-dir salt `forgelm purge` uses, then searched in every JSONL line.  `env_var` requires FORGELM_AUDIT_SECRET to be set; `per_dir` reads the salt file at <output-dir>/.forgelm_audit_salt.",
+    )
+    p.add_argument(
+        "files",
+        nargs="+",
+        metavar="JSONL_GLOB",
+        help="One or more JSONL paths or glob patterns (e.g. `data/*.jsonl`, `corpora/**/train.jsonl`).  Recursive globs (`**`) honoured.",
+    )
+    p.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="Output directory containing the per-output-dir salt file (only consulted when --salt-source is set).  Defaults to the parent of the first resolved corpus file.",
+    )
+    p.add_argument(
+        "--audit-dir",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="Where to write the audit chain entries (default: same as --output-dir).  Use this when scans run config-free but the audit log lives elsewhere.",
+    )
+    _add_common_subparser_flags(p, include_output_format=True)
+
+
 def _add_reject_subcommand(subparsers) -> None:
     """Article 14: discard a staged model (preserves staging dir for forensics)."""
     p = subparsers.add_parser(
@@ -931,6 +1006,7 @@ def parse_args():
             "  forgelm reject  RUN_ID          Reject a staged model (preserves staging dir for forensics)\n"
             "  forgelm approvals --pending     List runs awaiting human approval (or --show RUN_ID)\n"
             "  forgelm purge --row-id ID       GDPR Article 17 erasure (corpus row / run artefacts / --check-policy)\n"
+            "  forgelm reverse-pii --query VAL GDPR Article 15 right-of-access (find subject identifier in masked corpora)\n"
             "  forgelm cache-models --model M  Pre-populate HF Hub cache (air-gap workflow)\n"
             "  forgelm cache-tasks --tasks CSV Pre-populate lm-eval task datasets (requires [eval] extra)\n"
             "  forgelm verify-annex-iv PATH    Verify EU AI Act Annex IV artifact (field set + manifest hash)\n"
@@ -954,6 +1030,7 @@ def parse_args():
     _add_reject_subcommand(subparsers)
     _add_approvals_subcommand(subparsers)
     _add_purge_subcommand(subparsers)
+    _add_reverse_pii_subcommand(subparsers)
     _add_cache_models_subcommand(subparsers)
     _add_cache_tasks_subcommand(subparsers)
     _add_verify_annex_iv_subcommand(subparsers)

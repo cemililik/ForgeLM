@@ -54,6 +54,18 @@ _ANSWER_PATTERN = re.compile(
 # answers — stripped before comparison so "Answer: $15" matches gold "15".
 # Order matters: longer/multi-char tokens first to avoid partial overlaps
 # (e.g. "km/h" must be matched before "km").
+#
+# **Domain caveat (Faz 28 / C-57 honesty fix):** this token set is
+# tuned for the bundled `grpo-math` template which targets the
+# **GSM8K + MATH** benchmarks (US units + currency + percent + a
+# narrow metric subset).  Operators training GRPO on other math
+# domains (SI-only physics, scientific notation, complex numbers,
+# code-with-math, multilingual quantities) should not expect this
+# stripper to generalise — write a custom reward callable via the
+# ``training.grpo_reward_model`` config knob (see
+# ``docs/guides/alignment.md`` GRPO section) instead of widening this
+# list.  The v0.6.0 GRPO config-driven reward plugin migration is
+# tracked under the v0.6.0 backlog.
 _REWARD_STRIP_TOKENS: tuple[str, ...] = (
     "km/h",
     "m/s",

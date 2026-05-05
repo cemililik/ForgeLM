@@ -6,14 +6,15 @@ from urllib.parse import urlparse
 
 import requests
 
-from ._http import HttpSafetyError, _is_private_destination, safe_post
+from ._http import HttpSafetyError, safe_post
 
-# Public re-export surface — Phase 7 split moved ``_is_private_destination``
-# into ``forgelm._http`` but external callers / older code may still import
-# it from ``forgelm.webhook``. Listing it in ``__all__`` documents the
-# re-export as intentional and silences ruff/Codacy F401 ("imported but
-# unused") and Sonar's equivalent rule.
-__all__ = ["HttpSafetyError", "WebhookNotifier", "_is_private_destination", "safe_post"]
+# Public re-export surface.  Wave 3 / Faz 28 (C-54) cleanup: dropped
+# the ``_is_private_destination`` re-export.  The Phase 7 split moved
+# the helper into ``forgelm._http``; external callers / tooling that
+# need the SSRF guard import it from there directly.  No downstream
+# importer of the webhook-side re-export was found at the time of
+# removal, so this is a clean drop (no DeprecationWarning shim).
+__all__ = ["HttpSafetyError", "WebhookNotifier", "safe_post"]
 
 logger = logging.getLogger("forgelm.webhook")
 

@@ -97,8 +97,13 @@ class TestWebhookTimeoutConfig:
     def test_default_timeout(self):
         from forgelm.config import WebhookConfig
 
+        # Default raised from 5s → 10s in v0.5.5 (Faz 28 / F-compliance-106).
+        # Slack/Teams gateway latency spikes regularly cross 5s in
+        # production, and a webhook timeout silently degrades the audit
+        # chain (webhook delivery is best-effort).  10s leaves head-room
+        # without blocking training-pipeline forward progress.
         w = WebhookConfig()
-        assert w.timeout == 5
+        assert w.timeout == 10
 
     def test_custom_timeout(self):
         from forgelm.config import WebhookConfig

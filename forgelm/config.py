@@ -655,7 +655,15 @@ class WebhookConfig(BaseModel):
     notify_on_failure: bool = Field(
         default=True, description="POST a `notify_failure` event when training fails (any non-zero exit)."
     )
-    timeout: int = Field(default=5, description="HTTP request timeout in seconds.  Clamped to ≥ 1s by the notifier.")
+    timeout: int = Field(
+        default=10,
+        description=(
+            "HTTP request timeout in seconds.  Clamped to ≥ 1s by the notifier.  "
+            "Default raised to 10s in v0.5.5 (was 5s) — Slack/Teams gateway latency "
+            "spikes regularly cross 5s in production, and a webhook timeout silently "
+            "degrades the audit chain (webhook failure is best-effort)."
+        ),
+    )
     allow_private_destinations: bool = Field(
         default=False,
         description="SSRF opt-in.  Webhooks default to public-internet destinations only; in-cluster Slack proxies / on-prem Teams gateways need this set.",
@@ -868,9 +876,24 @@ class ForgeConfig(BaseModel):
             )
         safety = self.evaluation.safety if self.evaluation else None
         if not safety or not safety.enabled:
-            logger.warning(
-                "High-risk AI classification: safety evaluation is strongly recommended. "
-                "Set evaluation.safety.enabled: true."
+            # Wave 3 / Faz 28 (F-compliance-110): a high-risk / unacceptable
+            # classification REQUIRES an enabled safety evaluation gate to
+            # back the EU AI Act Article 9 risk-management claim.  Earlier
+            # versions only emitted a warning, which let regulated runs
+            # ship Annex IV bundles whose risk-management section was not
+            # actually evidenced.  v0.5.5 escalates the warning to a hard
+            # ``ConfigError``: operators who genuinely want a sandboxed run
+            # without safety eval must lower the risk_classification (e.g.
+            # to ``limited-risk``) or enable ``evaluation.safety``.
+            raise ConfigError(
+                "Risk classification %r requires evaluation.safety.enabled: true "
+                "(EU AI Act Article 9 risk-management evidence cannot be derived "
+                "from a disabled safety eval).  Either enable safety evaluation "
+                "or lower the risk_classification to a non-strict tier."
+                % (
+                    (self.compliance and self.compliance.risk_classification)
+                    or (self.risk_assessment and self.risk_assessment.risk_category),
+                )
             )
         elif not safety.track_categories:
             logger.warning(

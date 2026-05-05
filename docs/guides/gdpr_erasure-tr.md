@@ -122,6 +122,45 @@ Deprecate edilen field **v0.7.0**'da kaldırılır.
 
 `--check-policy` asla 3 kodu döndürmez. Başarılı bir rapor 0 ile çıkar; verilen `--config`'i yükleme başarısızlığı ise yanıltıcı bir "ihlal yok" raporuna düşmek yerine `EXIT_CONFIG_ERROR` (sıfır olmayan) ile çıkar. CI gate isteyen operatörler ihlal sayısını JSON çıktıdan kendileri hesaplar (design §10 Q5).
 
+## Madde 15 erişim hakkı (`forgelm reverse-pii`)
+
+GDPR'nin *diğer* veri-sahibi hakkı — "verim corpus'ta var mı?" —
+için companion subcommand `forgelm reverse-pii`.  `purge` "satırımı
+sil" sorusuna yanıt verirken, `reverse-pii` "kimlik bilgim hangi
+satırlarda görünüyor" sorusuna yanıt verir.
+
+```shell
+# Plaintext residual scan: mask leak'leri tespit eder (operatör
+# corpus'un maskelendiğine inanıyordu ama bir residual span maskeleme
+# pass'ında kaçmış).
+$ forgelm reverse-pii --query "ali@example.com" --type email \
+    --output-dir ./outputs data/*.jsonl
+
+# Hash-mask scan: corpus ForgeLM'in hash stratejisi ile maskelenmiş.
+# `purge`'ün `target_id` hash'lemesinde kullandığı per-output-dir
+# salt'ı yeniden kullanır — burada hesaplanan digest, corpus'a
+# yazılmış digest ile eşleşir.
+$ forgelm reverse-pii --query "ali@example.com" --type email \
+    --salt-source per_dir --output-dir ./outputs data/*.jsonl
+```
+
+Audit chain `data.access_request_query`'yi identifier *hash'lenmiş*
+olarak kaydeder — Madde 15 erişim talepleri kendisi de subject'in
+verisini audit log'a sızdırmamalıdır.  Hash'lenmiş form, compliance
+reviewer'ın iki sorguyu cleartext görmeden aynı subject'e
+ilişkilendirmesini sağlayan stabil per-identifier fingerprint'tir.
+
+**Identifier tipleri** (`--type`): `email`, `phone`, `tr_id`,
+`us_ssn`, `iban`, `credit_card`, `custom`.  `custom` dışındaki tüm
+tipler query'i literal string olarak ele alır (regex şekil-match
+yapmaz — o iş audit-time detector'ın görevi, erişim talebinin değil).
+`custom` query'i Python regex olarak yorumlar.
+
+**Exit kodları:** `0` = scan tamamlandı (matches listesi boş
+olabilir); `1` = config hatası (boş query, malformed regex, boş
+glob); `2` = runtime hatası (mid-scan I/O failure).  JSON envelope
+şeması için bkz. [`reference/json-output.md`](#/reference/json-output).
+
 ## Bkz.
 
 - `docs/qms/sop_data_management.md` — retention + erasure prosedürleri dahil tam data-lifecycle SOP.

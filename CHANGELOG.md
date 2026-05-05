@@ -4,6 +4,99 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+### Wave 3 — Faz 24 + 28 + 38 (`closure/wave3-integration`)
+
+Single integration branch covering three closure-plan phases:
+
+**Faz 38 — `forgelm reverse-pii` (GDPR Article 15 right-of-access)**
+
+- New CLI subcommand: `forgelm reverse-pii --query VALUE [--type
+  email|phone|tr_id|us_ssn|iban|credit_card|custom] [--salt-source
+  per_dir|env_var] JSONL_GLOB...`.  Walks JSONL corpora, reports
+  every line where the supplied identifier appears.  Two scan modes:
+  *plaintext residual* (mask-leak detection) and *hash-mask*
+  (reuses `forgelm purge`'s per-output-dir salt to re-derive the
+  digest).  Centre-truncated snippets cap log spam.
+- New audit event `data.access_request_query` (catalogued bilingually).
+  The identifier is **SHA-256-hashed before audit emission** —
+  Article 15 access requests must not themselves leak the subject's
+  data into the audit log.
+- 18 regression tests; library re-exports through `forgelm.cli`
+  facade; help epilog + dispatcher row added.
+
+**Faz 24 — Bilingual TR mirror sweep + parity CI guard**
+
+- `tools/check_bilingual_parity.py` (new): replaces the inline
+  H2-only check in `ci.yml` with an extended H2 + H3 + H4 structural
+  diff.  Detects missing sections, depth changes, and reorders.
+  AST-free; runs in the lint job.  16 regression tests; live-repo
+  smoke test pins the canonical pair set passes `--strict`.
+- 4 doc pairs brought to parity with their EN originals:
+  - `docs/guides/ingestion-tr.md` — added "Markdown-aware splitter"
+    + "DOCX table preservation" H3 sections (Phase 12 features).
+  - `docs/reference/architecture-tr.md` — added 4 missing module H3s
+    (`results.py`, `benchmark.py`, `judge.py`, `model_card.py`).
+  - `docs/reference/distributed_training-tr.md` — added 3 missing H3s
+    (Custom DeepSpeed Config, "When to choose FSDP over DeepSpeed",
+    LoRA + Distributed) plus reordering Multi-Node ↔ Docker.
+  - `docs/reference/configuration-tr.md` — added missing
+    `model.multimodal` H4 block; reordered `evaluation.benchmark`
+    before `evaluation.safety` to match EN.
+- 4 user-manual H2 drift fixes:
+  - `tr/training/sft.md` "Diskte ne elde edersiniz" added.
+  - `tr/training/simpo.md` "Veri formatı" added.
+  - `tr/compliance/overview.md` "Annex IV neyi içerir" added.
+  - `tr/concepts/data-formats.md` "Verinizi doğrulama" added.
+- `docs/guides/alignment.md:230` "v0.5.1 (Phase 14)" → phase-number
+  reference (no version anchor — pipeline chains slated for v0.6.0+).
+- CI integration: `tools/check_bilingual_parity.py --strict` replaces
+  the inline H2 check in `ci.yml` validate job.
+
+**Faz 28 — Curated cleanup**
+
+- `forgelm/config.py` (F-compliance-110 — **breaking**): high-risk /
+  unacceptable risk classification now **raises `ConfigError`** when
+  `evaluation.safety.enabled: false`.  Was a warning; EU AI Act
+  Article 9 risk-management evidence cannot be derived from a
+  disabled safety eval.  Operators with sandboxed runs must lower
+  the risk_classification or enable safety.
+- `forgelm/config.py` (F-compliance-106): `WebhookConfig.timeout`
+  default raised 5s → 10s.  Slack/Teams gateway latency spikes
+  regularly cross 5s; webhook failure is best-effort but a timeout
+  silently degrades the audit chain.
+- `forgelm/compliance.py` (F-compliance-111): `_maybe_inline_audit_report`
+  missing-file branch escalated `INFO → WARNING`.  A missing
+  `data_audit_report.json` is a real Article 10 compliance gap
+  (governance bundle ships without its data-quality section); the
+  signal must be visible in operator log dashboards.
+- `forgelm/compliance.py` (M-204): added `_sanitize_md_list` helper +
+  migrated the `foreseeable_misuse` bullet build to use it.
+- `forgelm/deploy.py::_ollama_modelfile` (M-205): SYSTEM line now
+  escapes newlines (`\n`/`\r`) so multi-line operator-supplied system
+  prompts don't break the Modelfile parser.
+- `forgelm/webhook.py` (C-54): dropped `_is_private_destination`
+  re-export from `__all__`.  The Phase 7 split moved the helper to
+  `forgelm._http`; no downstream importer of the webhook-side
+  re-export was found at the time of removal (clean drop).
+- `forgelm/trainer.py` (C-57): GRPO reward token list now carries
+  an explicit "GSM8K + MATH-tuned" docstring caveat.  Operators
+  training other math domains should write a custom reward callable
+  via `training.grpo_reward_model` rather than expecting this
+  stripper to generalise.
+- `tests/test_integration_smoke.py` → `tests/test_integration.py`
+  (F-test-011): rename — the file is an integration test, not a
+  smoke test.
+
+**Validation:**
+
+- `ruff format` + `ruff check` clean
+- `pytest`: 1333 passed / 14 skipped (was 1298 → **+35 net**: +18
+  reverse-pii, +16 parity tool, +1 high-risk-raise regression).
+- `forgelm --config config_template.yaml --dry-run` green
+- `forgelm reverse-pii --help` + dispatch round-trip via main CLI
+- `tools/check_bilingual_parity.py --strict`: 8 / 8 doc pairs at
+  parity.
+
 ### Wave 2b inline review absorption (round 2)
 
 A second inline review pass surfaced 6 valid defects + 3 actionable

@@ -122,6 +122,43 @@ Six new events ship with `forgelm purge` (catalogued in `docs/reference/audit_ev
 
 `--check-policy` never returns code 3. A successful report exits 0; a failure to load the supplied `--config` exits with `EXIT_CONFIG_ERROR` (non-zero) rather than degrading to a misleading "no violations" report. Operators wiring a CI gate compute the violation count from JSON output themselves (per design §10 Q5).
 
+## Article 15 right-of-access (`forgelm reverse-pii`)
+
+The companion subcommand for the *other* GDPR data-subject right —
+"is my data in the corpus?" — is `forgelm reverse-pii`.  Where
+`purge` answers "delete my row," `reverse-pii` answers "find every
+line where my identifier appears."
+
+```shell
+# Plaintext residual scan: detects mask leaks (operator believed
+# the corpus was masked but a residual span slipped through).
+$ forgelm reverse-pii --query "alice@example.com" --type email \
+    --output-dir ./outputs data/*.jsonl
+
+# Hash-mask scan: corpus was masked through ForgeLM's hash strategy.
+# Reuses the per-output-dir salt purge uses for `target_id` hashing,
+# so the digest computed here matches the digest written into the corpus.
+$ forgelm reverse-pii --query "alice@example.com" --type email \
+    --salt-source per_dir --output-dir ./outputs data/*.jsonl
+```
+
+The audit chain records `data.access_request_query` with the
+identifier *hashed* — Article 15 access requests must not themselves
+leak the subject's data into the audit log.  The hashed form is a
+stable per-identifier fingerprint a compliance reviewer can correlate
+across queries without seeing the cleartext.
+
+**Identifier types** (`--type`): `email`, `phone`, `tr_id`, `us_ssn`,
+`iban`, `credit_card`, `custom`.  All non-`custom` types treat the
+query as a literal string (no regex shape match — that's the
+*audit-time* detector's job, not the access-request answer).
+`custom` interprets the query as a Python regex.
+
+**Exit codes:** `0` = scan completed (matches list may be empty);
+`1` = config error (empty query, malformed regex, empty glob); `2` =
+runtime error (mid-scan I/O failure).  See [`reference/json-output.md`](#/reference/json-output)
+for the JSON envelope schema.
+
 ## See also
 
 - `docs/qms/sop_data_management.md` — the full data-lifecycle SOP including the retention + erasure procedures.

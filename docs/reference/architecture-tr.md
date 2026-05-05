@@ -86,8 +86,17 @@ Transformers veya Unsloth backend ile model yükleme. QLoRA (4-bit NF4), PEFT (L
 ### `trainer.py`
 TRL trainer'larını (SFTTrainer, DPOTrainer, KTOTrainer, ORPOTrainer, CPOTrainer/SimPO, GRPOTrainer) sarar. Pipeline: baseline → eğitim → kayıp → benchmark → güvenlik → LLM-hakim → model kaydet → model kartı → uyumluluk → webhook. GaLore optimizer seviyesinde bellek optimizasyonu (tam parametre eğitimi için gradient düşük rank projeksiyonu) ve uzun bağlam özellikleri (RoPE ölçekleme, NEFTune gürültü enjeksiyonu, kayan pencere dikkat, örnek paketleme) destekler. Otomatik geri alma, insan onay kapısı, denetim loglama, kaynak takibi içerir.
 
+### `results.py`
+Hafif `TrainResult` dataclass — torch/transformers olmadan import edilebilir. Başarı durumu, metrikler, benchmark skorları, kaynak kullanımı, güvenlik pass/fail ve hakim skorlarını taşır.
+
+### `benchmark.py`
+EleutherAI `lm-evaluation-harness`'i sarar. Yapılandırılabilir benchmark görevleri çalıştırır, accuracy metriklerini çıkarır, `min_score` eşiğini uygular ve sonuçları kaydeder. Opsiyonel bağımlılık: `pip install forgelm[eval]`.
+
 ### `safety.py`
 İki puanlama modu: binary (güvenli/güvensiz oranı) ve confidence-weighted (sınıflandırıcı güven skoru). 3 katmanlı güvenlik kapısı: binary oran → confidence skoru → ciddiyet eşiği. Llama Guard S1-S14 zarar kategorileri, ciddiyet seviyeleri (kritik/yüksek/orta/düşük), düşük güven uyarıları, çalışmalar arası trend takibi (safety_trend.jsonl).
+
+### `judge.py`
+LLM-as-Judge değerlendirme: API tabanlı hakimler (OpenAI-uyumlu endpoint) ve yerel model hakimleri destekler. Markdown code block çıkarmalı sağlam JSON parse'i içerir. 1-10 ölçeğinde puanlar; yapılandırılabilir minimum eşik.
 
 ### `compliance.py`
 EU AI Act uyumluluk motoru — Madde 9-17:
@@ -97,6 +106,9 @@ EU AI Act uyumluluk motoru — Madde 9-17:
 - `generate_model_integrity()`: SHA-256 checksum'lar (Madde 15)
 - `generate_deployer_instructions()`: Dağıtıcı talimatları (Madde 13)
 - `export_evidence_bundle()`: Denetçiler için ZIP arşivi
+
+### `model_card.py`
+HuggingFace-uyumlu README.md üretir: YAML front-matter, eğitim parametreleri tablosu, metrikler, benchmark sonuçları, config snippet ve kullanım örneği.  Auth token'ları export edilen config'ten dışlar.
 
 ### `merging.py`
 4 strateji: linear interpolasyon, TIES-Merging, DARE, SLERP. State dict seviyesinde — mergekit bağımlılığı gerektirmez.

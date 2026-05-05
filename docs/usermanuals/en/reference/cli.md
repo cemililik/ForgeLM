@@ -26,6 +26,7 @@ ForgeLM ships a single `forgelm` binary with subcommands. This page is the canon
 | `forgelm reject` | Reject a human approval request and discard staging. |
 | `forgelm approvals` | List pending approvals (`--pending`) or inspect one (`--show RUN_ID`). |
 | `forgelm purge` | GDPR Article 17 erasure: row-id, run-id, or `--check-policy` retention report. |
+| `forgelm reverse-pii` | GDPR Article 15 right-of-access: search masked corpora for a subject's identifier (plaintext or hash-mask scan). |
 | `forgelm cache-models` | Air-gap workflow: pre-populate the HuggingFace Hub cache for one or more models. |
 | `forgelm cache-tasks` | Air-gap workflow: pre-populate the lm-eval task dataset cache (requires `[eval]` extra). |
 | `forgelm safety-eval` | Standalone safety evaluation against a model checkpoint (Llama Guard by default). |

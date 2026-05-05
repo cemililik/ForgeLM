@@ -135,6 +135,20 @@ Ağırlıklar 1.0'a tamamlanır; her batch bu olasılıklara göre örneklenir.
 Otomatik algılama dosya başına bir kez. JSONL'iniz formatları karıştırırsa loader yanlış yönlendirir. Ayrı dosyalar kullanın ve her ikisini `datasets:` ile referans verin.
 :::
 
+## Verinizi doğrulama
+
+Eğitimden önce her zaman `forgelm audit` çalıştırın:
+
+```shell
+$ forgelm audit data/preferences.jsonl
+✓ format: preference (12,400 satır, 3 split)
+✓ PII tespit edilmedi (5 orta ciddiyet, rapora bakın)
+⚠ 12 chosen-rejected aynı satır — muhtemelen toplama hatası
+✓ split'ler arası sızıntı yok
+```
+
+Tam audit semantiği için bkz. [Veri Seti Denetimi](#/data/audit).
+
 ## Bkz.
 
 - [Doküman Ingest'i](#/data/ingestion) — PDF/DOCX/EPUB/Markdown'ı bu formatlara dönüştür.

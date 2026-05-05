@@ -159,14 +159,18 @@ class TestFullConfigValidation:
         assert cfg.risk_assessment.foreseeable_misuse[0] == "Users may ask for medical advice"
         assert cfg.data.governance.collection_method == "Manual curation by domain experts"
 
-    def test_high_risk_without_safety_warns(self, caplog):
-        import logging
+    def test_high_risk_without_safety_raises_config_error(self):
+        """Wave 3 / Faz 28 F-compliance-110: high-risk classification with
+        safety eval disabled is now a hard ``ConfigError`` (was a warning
+        prior to v0.5.5).  EU AI Act Article 9 risk-management evidence
+        cannot be derived from a disabled safety eval; operators who
+        genuinely want a sandboxed run must lower the risk_classification."""
+        from forgelm.config import ConfigError
 
         data = _full_config()
         del data["evaluation"]["safety"]
-        with caplog.at_level(logging.WARNING, logger="forgelm.config"):
+        with pytest.raises(ConfigError, match="evaluation.safety.enabled"):
             ForgeConfig(**data)
-        assert "High-risk AI" in caplog.text
 
 
 class TestDryRunWithCompliance:

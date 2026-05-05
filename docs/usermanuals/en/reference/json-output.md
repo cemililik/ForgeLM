@@ -256,6 +256,43 @@ Three-mode dispatcher: `--row-id`, `--run-id`, or `--check-policy`. Wave 2b Phas
 
 **Exit code mapping:** `0` = success or successful policy report; `1` = config error (unknown row, missing corpus, conflicting flags, malformed `--check-policy --config`); `2` = runtime error (I/O, atomic rename failure).
 
+## `forgelm reverse-pii`
+
+Wave 3 Phase 38 — GDPR Article 15 right-of-access companion to `forgelm purge`. Walks JSONL corpora and reports every line where the supplied identifier appears.
+
+**Success envelope:**
+
+```json
+{
+  "success": true,
+  "query_hash": "abc...64-hex",
+  "identifier_type": "email",
+  "scan_mode": "plaintext",
+  "matches": [
+    {
+      "file": "/work/data/train.jsonl",
+      "line": 42,
+      "snippet": "Contact: alice@example.com regarding the appointment"
+    }
+  ],
+  "files_scanned": [
+    {"path": "/work/data/train.jsonl", "match_count": 1}
+  ],
+  "match_count": 1
+}
+```
+
+| Key | Type | Notes |
+|---|---|---|
+| `query_hash` | str | 64-character lowercase hex SHA-256 digest of the operator's raw `--query`. The raw value never appears in the envelope. |
+| `identifier_type` | str | Echo of `--type` ∈ `{email, phone, tr_id, us_ssn, iban, credit_card, custom}`. |
+| `scan_mode` | str | `"plaintext"` (default — verbatim search; mask-leak detection) or `"hash"` (`--salt-source` set; SHA-256 of `salt + query` searched in the corpus). |
+| `matches` | list[object] | One entry per line that matched. `snippet` is centre-truncated to 160 chars (`…` separator) so unbounded log spam is impossible. |
+| `files_scanned` | list[object] | Per-file match counts, in glob-resolution order. The list is the source of truth for which paths the scan walked. |
+| `match_count` | int | Equals `len(matches)`; convenience for CI gates that branch on "any match." |
+
+**Exit code mapping:** `0` = scan completed (matches list may be empty); `1` = config error (empty `--query`, malformed regex on `--type custom`, empty glob expansion, `--salt-source env_var` without `FORGELM_AUDIT_SECRET`); `2` = runtime error (mid-scan I/O failure).
+
 ## `forgelm cache-models`
 
 Wave 2b Phase 35 — air-gap workflow blocker. Pre-populates the HuggingFace Hub cache.

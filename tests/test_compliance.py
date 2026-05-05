@@ -273,23 +273,28 @@ class TestGovernanceAuditInlining:
         assert "data_audit" not in report
         assert any("Could not inline" in r.message for r in caplog.records)
 
-    def test_info_log_when_audit_missing(self, tmp_path, caplog, minimal_config):
+    def test_warning_log_when_audit_missing(self, tmp_path, caplog, minimal_config):
         # The audit CLI defaults to ./audit/ but the trainer's
         # output_dir is typically ./checkpoints/ — without alignment
-        # the inlining silently no-ops. Loud INFO log surfaces the
-        # path mismatch with an actionable command hint.
+        # the inlining silently no-ops.
+        #
+        # Wave 3 / Faz 28 (F-compliance-111): escalated from INFO to
+        # WARNING.  A missing data_audit_report.json is a real Article
+        # 10 compliance gap (the governance bundle ships without its
+        # data-quality section); INFO-level logs are easy to miss in
+        # production tail-grep.
         config = ForgeConfig(**minimal_config(training={"output_dir": str(tmp_path)}))
-        with caplog.at_level("INFO", logger="forgelm.compliance"):
+        with caplog.at_level("WARNING", logger="forgelm.compliance"):
             report = generate_data_governance_report(config, dataset={})
         assert "data_audit" not in report
-        info_msgs = [r.message for r in caplog.records if r.levelname == "INFO"]
+        warn_msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
         # Phase 11.5: hint moved from `forgelm --data-audit` (legacy) to the
         # new `forgelm audit` subcommand. Accept either spelling so this test
         # survives the deprecation window, but require the actionable command
         # is named.
         assert any(
             "No data_audit_report.json" in m and ("forgelm audit" in m or "forgelm --data-audit" in m)
-            for m in info_msgs
+            for m in warn_msgs
         )
 
 

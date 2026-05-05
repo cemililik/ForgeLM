@@ -3,6 +3,7 @@
 import json
 import os
 
+import pytest
 import yaml
 
 from forgelm.compliance import (
@@ -77,13 +78,18 @@ class TestDataGovernanceConfig:
 
 class TestForgeConfigCompliance:
     def test_compliance_in_config(self, minimal_config):
+        # Wave 3 / Faz 28 (F-compliance-110): high-risk now requires
+        # safety eval to be enabled (was a warning prior to v0.5.5).
+        # Pair the risk_classification with an enabled safety block so
+        # the config validates.
         cfg = ForgeConfig(
             **minimal_config(
                 compliance={
                     "provider_name": "Test Corp",
                     "intended_purpose": "Testing",
                     "risk_classification": "high-risk",
-                }
+                },
+                evaluation={"safety": {"enabled": True}},
             )
         )
         assert cfg.compliance.provider_name == "Test Corp"
@@ -115,16 +121,41 @@ class TestForgeConfigCompliance:
         assert cfg.evaluation.require_human_approval is True
 
     def test_high_risk_warnings(self, caplog, minimal_config):
+        """High-risk classification with safety enabled emits the
+        ``auto_revert`` recommendation (still a warning, not a raise —
+        F-compliance-110 only escalates the *safety-disabled* branch).
+        """
         import logging
 
         with caplog.at_level(logging.WARNING, logger="forgelm.config"):
             ForgeConfig(
                 **minimal_config(
                     risk_assessment={"risk_category": "high-risk"},
+                    # Faz 28 F-compliance-110: safety must be enabled
+                    # for high-risk to load at all.  The auto_revert
+                    # recommendation still fires as a warning since
+                    # ``evaluation.auto_revert`` defaults to False.
+                    evaluation={"safety": {"enabled": True}},
                 )
             )
         assert "high-risk" in caplog.text
         assert "auto_revert" in caplog.text
+
+    def test_high_risk_safety_disabled_raises_config_error(self, minimal_config):
+        """F-compliance-110 regression: high-risk + safety.enabled=false
+        must surface as ``ConfigError`` (was a warning prior to v0.5.5).
+        EU AI Act Article 9 risk-management evidence cannot be derived
+        from a disabled safety eval; operators who genuinely want a
+        sandboxed run must lower the risk_classification."""
+        from forgelm.config import ConfigError
+
+        with pytest.raises(ConfigError, match="evaluation.safety.enabled"):
+            ForgeConfig(
+                **minimal_config(
+                    risk_assessment={"risk_category": "high-risk"},
+                    # No safety block → safety disabled by default.
+                )
+            )
 
     def test_unacceptable_risk_warnings(self, caplog, minimal_config):
         """``unacceptable`` (Article 5) must trip the strict gate AND emit
@@ -137,6 +168,10 @@ class TestForgeConfigCompliance:
             ForgeConfig(
                 **minimal_config(
                     risk_assessment={"risk_category": "unacceptable"},
+                    # Faz 28 F-compliance-110: safety required for
+                    # unacceptable too — the strict gate covers both
+                    # high-risk and unacceptable.
+                    evaluation={"safety": {"enabled": True}},
                 )
             )
         # Strict gate fires: same auto_revert nudge as high-risk.
@@ -297,6 +332,8 @@ class TestManifestAnnexIV:
         config = ForgeConfig(
             **minimal_config(
                 compliance={"provider_name": "Corp", "system_name": "Bot", "risk_classification": "high-risk"},
+                # Faz 28 F-compliance-110: high-risk requires safety enabled.
+                evaluation={"safety": {"enabled": True}},
             )
         )
         manifest = generate_training_manifest(config, {"eval_loss": 0.5})
@@ -308,6 +345,8 @@ class TestManifestAnnexIV:
         config = ForgeConfig(
             **minimal_config(
                 risk_assessment={"intended_use": "Chat", "risk_category": "high-risk"},
+                # Faz 28 F-compliance-110: high-risk requires safety enabled.
+                evaluation={"safety": {"enabled": True}},
             )
         )
         manifest = generate_training_manifest(config, {})
