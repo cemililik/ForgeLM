@@ -51,19 +51,13 @@ from typing import Iterable
 # character classes only — no nested quantifiers.
 _LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
 
-# Match an ATX heading: 1-6 leading hashes + space + body.  Setext
-# headings are out of scope for the anchor target check (the project
-# uses ATX exclusively per docs/standards/documentation.md).
-#
-# Backtracking analysis (Sonar python:S5852, ReDoS hotspot):
-# the body is captured greedily and trailing whitespace + closing
-# hashes are stripped procedurally in ``_normalise_heading_body``
-# below.  This avoids the prior ``(.+?)\s*#*\s*$`` form whose three
-# adjacent variable-length matchers are flagged as a polynomial
-# backtracking risk on adversarial input.  ATX headings do not
-# legitimately exceed a few hundred characters so the worst-case
-# linear scan is bounded by line length.
-_HEADING_RE = re.compile(r"^(#{1,6}) +(.+)$")
+# ATX heading parsing is fully procedural — see ``_parse_atx_heading``
+# below.  We do NOT use a regex here because Sonar's python:S5852
+# heuristic flags any pattern with two adjacent variable-length
+# quantifiers (e.g. ``^(#{1,6}) +(.+)$``) as a polynomial-runtime
+# ReDoS risk, even when the leading quantifier is bounded.  The
+# procedural form has worst-case linear runtime in line length and
+# leaves no regex surface for the heuristic to misclassify.
 
 # Markdown image syntax (``![alt](src)``) reuses the link form but is
 # checked the same way — every ``src`` must resolve.
@@ -92,13 +86,41 @@ class BrokenLink:
     reason: str
 
 
+def _parse_atx_heading(line: str) -> str | None:
+    """Return the heading body for an ATX heading line, or None.
+
+    An ATX heading is 1-6 leading ``#`` characters followed by at
+    least one whitespace character and then the body.  GFM also
+    permits an optional trailing run of ``#`` decorators which we
+    strip after the leading-hashes scan.
+
+    Implemented as a single linear pass to avoid the ReDoS risk
+    heuristic that flags adjacent variable-length quantifiers in
+    regex form (Sonar python:S5852).
+    """
+    if not line or line[0] != "#":
+        return None
+    hash_count = 0
+    while hash_count < len(line) and line[hash_count] == "#":
+        hash_count += 1
+    if hash_count == 0 or hash_count > 6:
+        return None
+    if hash_count >= len(line) or line[hash_count] != " ":
+        return None
+    body = line[hash_count + 1 :].strip()
+    if not body:
+        return None
+    return _normalise_heading_body(body)
+
+
 def _normalise_heading_body(body: str) -> str:
     """Strip trailing whitespace + GFM closing-hash run from a heading body.
 
     ATX headings allow an optional sequence of trailing ``#`` characters
     (e.g. ``# title #``); GFM treats the closing run as decoration and
     the slug is derived from the body alone.  Done procedurally to
-    avoid the multi-``\\s*`` regex pattern that triggers ReDoS warnings.
+    avoid the multi-``\\s*`` regex pattern that would trigger Sonar's
+    python:S5852 ReDoS heuristic.
     """
     trimmed = body.rstrip()
     while trimmed.endswith("#"):
@@ -135,10 +157,9 @@ def _extract_anchors(target: Path) -> set[str]:
     except OSError:
         return set()
     for line in text.splitlines():
-        match = _HEADING_RE.match(line)
-        if match is None:
+        body = _parse_atx_heading(line)
+        if body is None:
             continue
-        body = _normalise_heading_body(match.group(2))
         anchors.add(_slugify_heading(body))
     return anchors
 
