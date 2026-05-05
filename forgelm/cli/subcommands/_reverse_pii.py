@@ -332,7 +332,6 @@ def _scan_files_with_redos_guard(
     files: List[str],
     pattern: re.Pattern[str],
     identifier_type: str,
-    output_format: str,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Walk every file once; centralise the per-file ReDoS budget.
 
@@ -546,7 +545,7 @@ def _run_reverse_pii_cmd(args, output_format: str) -> None:
     matches: List[Dict[str, Any]] = []
     files_scanned: List[Dict[str, Any]] = []
     try:
-        matches, files_scanned = _scan_files_with_redos_guard(files, pattern, identifier_type, output_format)
+        matches, files_scanned = _scan_files_with_redos_guard(files, pattern, identifier_type)
     except (OSError, UnicodeDecodeError) as exc:
         if audit is not None:
             try:

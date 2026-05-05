@@ -651,8 +651,10 @@ class TestSnippetTruncation:
         end = start + len("alice@example.com")
         snippet = _truncate_snippet(line, (start, end))
         assert len(snippet) <= _SNIPPET_MAX_CHARS + 2  # head + tail "…"
-        # Round-trip through utf-8 must succeed (no broken surrogates).
-        snippet.encode("utf-8").decode("utf-8")
+        # Round-trip through utf-8 must produce the same string (no
+        # broken surrogates from a slice landing mid-rune).
+        round_tripped = snippet.encode("utf-8").decode("utf-8")
+        assert round_tripped == snippet
         # The matched span survives the truncation.
         assert "alice@example.com" in snippet
 

@@ -75,12 +75,23 @@ _PAIRS: Tuple[Tuple[str, str], ...] = (
     ("docs/reference/usage.md", "docs/reference/usage-tr.md"),
 )
 
-# Match a Markdown ATX heading: 1-6 leading hashes, then a single
-# space, then the heading text.  We deliberately exclude setext
-# headings (``===``/``---`` underlines) — the project's docs use ATX
-# exclusively per ``docs/standards/documentation.md``, and a setext
-# heading in a mirror would itself be a lint finding.
-_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
+# Match a Markdown ATX heading prefix: 1-6 leading hashes followed by
+# at least one space.  We deliberately exclude setext headings
+# (``===``/``---`` underlines) — the project's docs use ATX exclusively
+# per ``docs/standards/documentation.md``, and a setext heading in a
+# mirror would itself be a lint finding.
+#
+# Sonar python:S5852 hotspot avoidance: the previous single-shot regex
+# ``^(#{1,6})\s+(.+?)\s*#*\s*$`` chained a lazy ``(.+?)`` against
+# ``\s*#*\s*$``, exposing polynomial backtracking on a pathological line
+# of all spaces and hashes.  We split heading recognition into a
+# linear-time prefix match plus deterministic Python string trimming —
+# no backtracking surface.
+_HEADING_PREFIX_RE = re.compile(r"^(#{1,6}) +")
+# Trailing ``\s+#+`` is the ATX-closing form (``## Foo ##``).  Bound it
+# at one or more whitespace + one or more hashes; no nested
+# quantifiers.
+_HEADING_TRAILING_HASHES_RE = re.compile(r"\s+#+$")
 
 # Code fence opening / closing — heading-like lines inside a code
 # block are content, not document structure.  We track ``open / close``
@@ -134,11 +145,21 @@ def extract_headings(path: Path) -> List[Heading]:
                 continue
             if in_fence:
                 continue
-            heading_match = _HEADING_RE.match(line)
-            if heading_match is None:
+            prefix_match = _HEADING_PREFIX_RE.match(line)
+            if prefix_match is None:
                 continue
-            level = len(heading_match.group(1))
-            text = heading_match.group(2).strip()
+            level = len(prefix_match.group(1))
+            # Strip the prefix, then the optional ATX-closing run of
+            # hashes, then any leftover whitespace.  Two regex passes
+            # over independent suffixes — neither has a backtracking
+            # surface against the body text.
+            body = line[prefix_match.end() :]
+            body = _HEADING_TRAILING_HASHES_RE.sub("", body)
+            text = body.strip()
+            if not text:
+                # ``# `` or ``## ##`` with no body is not a heading we
+                # want to compare structurally — skip.
+                continue
             headings.append(Heading(level=level, text=text, line=line_no))
     return headings
 

@@ -840,6 +840,59 @@ class ForgeConfig(BaseModel):
                 self.training.save_steps,
             )
 
+    def _resolve_risk_label(self) -> Optional[str]:
+        """Return the active risk label across both sibling fields.
+
+        ``risk_assessment.risk_category`` and ``compliance.risk_classification``
+        share the same RiskTier set; either is accepted as authoritative
+        for the strict-tier warnings.
+        """
+        if self.risk_assessment and self.risk_assessment.risk_category:
+            return self.risk_assessment.risk_category
+        if self.compliance and self.compliance.risk_classification:
+            return self.compliance.risk_classification
+        return None
+
+    def _warn_unacceptable_practice(self) -> None:
+        """Article 5 — prohibited-practices banner.
+
+        Louder operator notice on top of the auto_revert nudge — the
+        deployment itself is unlawful in the EU regardless of how well
+        the safety gates are wired up.
+        """
+        logger.warning(
+            "Risk classification 'unacceptable' corresponds to EU AI Act Article 5 prohibited "
+            "practices. ForgeLM will not refuse the run, but deploying such a system inside the "
+            "EU is unlawful — confirm operator intent before continuing."
+        )
+
+    def _enforce_safety_gate_for_strict_tier(self, label: Optional[str]) -> None:
+        """Article 9 — risk management evidence requires safety eval enabled.
+
+        Wave 3 / Faz 28 (F-compliance-110): a high-risk / unacceptable
+        classification REQUIRES an enabled safety evaluation gate to
+        back the EU AI Act Article 9 risk-management claim.  Earlier
+        versions only emitted a warning, which let regulated runs
+        ship Annex IV bundles whose risk-management section was not
+        actually evidenced.  v0.5.5 escalates the warning to a hard
+        ``ConfigError``: operators who genuinely want a sandboxed run
+        without safety eval must lower the risk_classification (e.g.
+        to ``limited-risk``) or enable ``evaluation.safety``.
+        """
+        safety = self.evaluation.safety if self.evaluation else None
+        if not safety or not safety.enabled:
+            raise ConfigError(
+                f"Risk classification {label!r} requires evaluation.safety.enabled: true "
+                "(EU AI Act Article 9 risk-management evidence cannot be derived "
+                "from a disabled safety eval).  Either enable safety evaluation "
+                "or lower the risk_classification to a non-strict tier."
+            )
+        if not safety.track_categories:
+            logger.warning(
+                "High-risk AI: harm category tracking (track_categories: true) is recommended "
+                "for detailed EU AI Act compliance documentation."
+            )
+
     def _warn_high_risk_compliance(self) -> None:
         """EU AI Act compliance recommendations for strict risk tiers.
 
@@ -849,57 +902,18 @@ class ForgeConfig(BaseModel):
         and ``unacceptable`` should never get *less* gating than ``high-risk``
         because the underlying use case is not allowed at all under the Act.
         """
-        is_strict = (self.risk_assessment and self.risk_assessment.risk_category in _STRICT_RISK_TIERS) or (
-            self.compliance and self.compliance.risk_classification in _STRICT_RISK_TIERS
-        )
-        if not is_strict:
+        label = self._resolve_risk_label()
+        if label not in _STRICT_RISK_TIERS:
             return
         if not self.evaluation or not self.evaluation.auto_revert:
             logger.warning(
                 "Risk classification %r requires evaluation.auto_revert: true "
                 "for EU AI Act compliance. Safety gates should be enabled.",
-                # Use whichever field is set; both share the same RiskTier.
-                (self.compliance and self.compliance.risk_classification)
-                or (self.risk_assessment and self.risk_assessment.risk_category),
+                label,
             )
-        # Article 5 prohibited practices warrant a louder operator notice on
-        # top of the auto_revert nudge — the deployment itself is unlawful in
-        # the EU regardless of how well the safety gates are wired up.
-        unacceptable = (self.risk_assessment and self.risk_assessment.risk_category == "unacceptable") or (
-            self.compliance and self.compliance.risk_classification == "unacceptable"
-        )
-        if unacceptable:
-            logger.warning(
-                "Risk classification 'unacceptable' corresponds to EU AI Act Article 5 prohibited "
-                "practices. ForgeLM will not refuse the run, but deploying such a system inside the "
-                "EU is unlawful — confirm operator intent before continuing."
-            )
-        safety = self.evaluation.safety if self.evaluation else None
-        if not safety or not safety.enabled:
-            # Wave 3 / Faz 28 (F-compliance-110): a high-risk / unacceptable
-            # classification REQUIRES an enabled safety evaluation gate to
-            # back the EU AI Act Article 9 risk-management claim.  Earlier
-            # versions only emitted a warning, which let regulated runs
-            # ship Annex IV bundles whose risk-management section was not
-            # actually evidenced.  v0.5.5 escalates the warning to a hard
-            # ``ConfigError``: operators who genuinely want a sandboxed run
-            # without safety eval must lower the risk_classification (e.g.
-            # to ``limited-risk``) or enable ``evaluation.safety``.
-            raise ConfigError(
-                "Risk classification %r requires evaluation.safety.enabled: true "
-                "(EU AI Act Article 9 risk-management evidence cannot be derived "
-                "from a disabled safety eval).  Either enable safety evaluation "
-                "or lower the risk_classification to a non-strict tier."
-                % (
-                    (self.compliance and self.compliance.risk_classification)
-                    or (self.risk_assessment and self.risk_assessment.risk_category),
-                )
-            )
-        elif not safety.track_categories:
-            logger.warning(
-                "High-risk AI: harm category tracking (track_categories: true) is recommended "
-                "for detailed EU AI Act compliance documentation."
-            )
+        if label == "unacceptable":
+            self._warn_unacceptable_practice()
+        self._enforce_safety_gate_for_strict_tier(label)
 
     def _validate_galore(self) -> None:
         if not self.training.galore_enabled:
