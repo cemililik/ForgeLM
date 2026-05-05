@@ -88,7 +88,7 @@ The probe set should be:
 - **Adversarial** — include known jailbreak patterns and category-specific probes.
 - **Categorised** — each probe tagged with the category it targets.
 
-ForgeLM ships a default 200-prompt probe set as part of `forgelm safety-eval --default-probes`. Augment with your own.
+ForgeLM ships a default 50-prompt probe set covering ~14 harm categories as part of `forgelm safety-eval --default-probes` (bundled at `forgelm/safety_prompts/default_probes.jsonl`). The set is a *seed* — augment with your own per-domain probes before treating the safety score as a release gate; see the "Probe set too small" troubleshooting note below for the per-category density caveat.
 
 ## Output artifacts
 
@@ -133,7 +133,7 @@ checkpoints/run/artifacts/
 :::
 
 :::warn
-**Probe set too small.** Fewer than 100 probes per blocked category produces unstable scores. Use the built-in 200-prompt set as a minimum.
+**Probe set too small.** Fewer than ~100 probes per blocked category produces unstable scores. The built-in 50-prompt set spans ~14 categories (≈3-4 probes per category) — treat it as a smoke-test seed, not a release gate. For production CI, augment with your own per-domain probes until each category you care about has 100+ probes.
 :::
 
 :::warn

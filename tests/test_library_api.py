@@ -95,6 +95,31 @@ class TestPublicSurface:
         for name in _EXPECTED_STABLE_SYMBOLS:
             assert name in listing, f"dir(forgelm) is missing public symbol {name!r}"
 
+    def test_dir_does_not_leak_private_module_constants(self) -> None:
+        """F-19-02: ``dir(forgelm)`` must not surface single-underscore
+        implementation details (``_LAZY_SYMBOLS``, ``_M_DATA_AUDIT``, …)
+        as if they were public API.  Convention: `dir()` lists the
+        public surface; dunders (``__version__`` etc.) are explicitly in
+        ``__all__`` and survive the filter."""
+        import forgelm
+
+        leaked = [n for n in dir(forgelm) if n.startswith("_") and not n.startswith("__")]
+        assert leaked == [], f"dir(forgelm) leaks single-underscore private names: {leaked}"
+
+    def test_api_version_bump_rule_block_survives(self) -> None:
+        """F-19-01 corollary: pin the canonical bump-rule block in
+        ``forgelm/_version.py`` so a refactor cannot silently delete the
+        rule the ``cut-release`` skill references."""
+        import inspect
+
+        from forgelm import _version
+
+        src = inspect.getsource(_version)
+        assert "MAJOR" in src and "MINOR" in src and "PATCH" in src, (
+            "forgelm/_version.py must keep the MAJOR/MINOR/PATCH bump-rule block "
+            "(referenced from .claude/skills/cut-release/SKILL.md and docs/standards/release.md)."
+        )
+
     def test_py_typed_marker_present(self) -> None:
         """PEP 561: forgelm/py.typed must ship in the wheel + source."""
         import forgelm
@@ -170,6 +195,75 @@ class TestLazyImportDiscipline:
         # stdout is "True" or "False"; we want False.
         assert result.stdout.strip() == "False", (
             "Referencing forgelm.ForgeTrainer pulled torch.  Lazy-import contract broken."
+        )
+
+    def test_import_forgelm_does_not_pull_other_forgelm_submodules(self) -> None:
+        """F-19-T-01: the broader lazy-import contract is that ``import
+        forgelm`` resolves only the eager pair (``_version`` + ``config``)
+        and the facade itself; it must NOT pull heavy submodules like
+        ``forgelm.trainer`` / ``forgelm.compliance`` / ``forgelm.model``
+        / ``forgelm.data_audit`` / ``forgelm.synthetic``.  A regression
+        that adds a top-level ``from .trainer import ForgeTrainer`` to
+        ``__init__.py`` would still pass the torch-only test (because
+        trainer.py defers torch) but breaks the lazy-import promise
+        for the heavy submodules themselves."""
+        forbidden = (
+            "forgelm.trainer",
+            "forgelm.compliance",
+            "forgelm.model",
+            "forgelm.data",
+            "forgelm.data_audit",
+            "forgelm.synthetic",
+            "forgelm.benchmark",
+            "forgelm.results",
+            "forgelm.webhook",
+        )
+        script = (
+            "import sys; "
+            "import forgelm; "
+            "loaded = sorted(m for m in sys.modules if m in {"
+            + ", ".join(repr(name) for name in forbidden)
+            + "}); print(','.join(loaded))"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, f"subprocess crashed: {result.stderr}"
+        assert result.stdout.strip() == "", (
+            "import forgelm pulled heavy submodules it should not.  "
+            f"sys.modules contains: {result.stdout.strip()!r}.  "
+            "Lazy-import contract for forgelm.* submodules broken."
+        )
+
+    def test_dir_does_not_trigger_imports(self) -> None:
+        """F-19-T-02: ``dir(forgelm)`` must enumerate via
+        ``__all__ + globals()`` without lazily resolving any submodule.
+        A regression that re-implemented ``__dir__`` to walk
+        ``_LAZY_SYMBOLS`` and resolve each entry would silently make
+        ``dir(forgelm)`` an O(n) submodule-import, defeating the
+        IDE-cheap-discovery contract."""
+        script = (
+            "import sys; "
+            "import forgelm; "
+            "before = {m for m in sys.modules if m.startswith('forgelm.')}; "
+            "_ = dir(forgelm); "
+            "after = {m for m in sys.modules if m.startswith('forgelm.')}; "
+            "delta = sorted(after - before); "
+            "print(','.join(delta))"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, f"subprocess crashed: {result.stderr}"
+        assert result.stdout.strip() == "", (
+            f"dir(forgelm) triggered submodule imports: {result.stdout.strip()!r}.  "
+            "__dir__ must read from __all__ + globals() only."
         )
 
 

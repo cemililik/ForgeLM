@@ -129,6 +129,12 @@ def _load_model_for_safety(model_path: str, output_format: str):
         model = AutoModelForCausalLM.from_pretrained(model_path)
         return model, tokenizer
     except ImportError as exc:
+        # F-36-02: transformers is a *core* ForgeLM dependency, not an
+        # optional extra.  Its ImportError is "your environment is
+        # broken", which maps to EXIT_TRAINING_ERROR (runtime-class)
+        # rather than EXIT_CONFIG_ERROR (operator's YAML is wrong).
+        # Regulated CI pipelines that retry on code 2 and fix-and-fail
+        # on code 1 then route the broken-env case to the right branch.
         _output_error_and_exit(
             output_format,
             (
@@ -139,7 +145,7 @@ def _load_model_for_safety(model_path: str, output_format: str):
                 "and reinstall with `pip install transformers` or "
                 "`pip install --force-reinstall forgelm`."
             ),
-            EXIT_CONFIG_ERROR,
+            EXIT_TRAINING_ERROR,
         )
     except Exception as exc:  # noqa: BLE001 — broad surface from HF loaders (FileNotFoundError, OSError, ValueError, KeyError, etc.). # NOSONAR
         _output_error_and_exit(

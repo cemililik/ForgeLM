@@ -241,10 +241,22 @@ def _run_cache_models_cmd(args, output_format: str) -> None:
     try:
         from huggingface_hub import snapshot_download
     except ImportError as exc:
+        # F-XPR-01: huggingface_hub is a *core* dep; its ImportError is
+        # "your environment is broken", not "your YAML is wrong".  Map
+        # to EXIT_TRAINING_ERROR so regulated CI's broken-env retry
+        # branch fires correctly.  ``pip install forgelm`` would re-pull
+        # the same broken set; nudge the operator at their environment.
         _output_error_and_exit(
             output_format,
-            f"huggingface_hub is required for cache-models; install with `pip install forgelm` (it is a core dep).  ImportError: {exc}",
-            EXIT_CONFIG_ERROR,
+            (
+                f"huggingface_hub (a core ForgeLM dependency) failed to import: {exc}.  "
+                "This usually means the active virtualenv / container is missing the "
+                "package or has a broken install.  Verify your environment "
+                "(`python -c 'import huggingface_hub; print(huggingface_hub.__version__)'`) "
+                "and reinstall with `pip install huggingface_hub` or "
+                "`pip install --force-reinstall forgelm`."
+            ),
+            EXIT_TRAINING_ERROR,
         )
 
     audit = _maybe_audit_logger(getattr(args, "audit_dir", None) or cache_dir)
@@ -379,58 +391,71 @@ def _run_cache_tasks_cmd(args, output_format: str) -> None:
     # divergence that defeats the whole air-gap workflow.  Setting
     # ``HF_DATASETS_CACHE`` here keeps the audit/log claim and the
     # on-disk artefacts in sync.
+    #
+    # Wave 2b final-review F-35-01: wrap the env mutation in
+    # try/finally so a long-lived process (Jupyter, library caller) or a
+    # subsequent pytest test does not see the stamped value after we
+    # return.  ``SystemExit`` (raised by both ``_output_error_and_exit``
+    # and the trailing ``sys.exit(EXIT_SUCCESS)``) is propagated normally
+    # because finally runs before propagation.
+    prior_hf_datasets_cache = os.environ.get("HF_DATASETS_CACHE")
     os.environ["HF_DATASETS_CACHE"] = cache_dir
-
-    audit = _maybe_audit_logger(getattr(args, "audit_dir", None) or cache_dir)
-    request_fields = {"tasks": task_names, "cache_dir": cache_dir}
-    if audit is not None:
-        audit.log_event(_EVT_CACHE_TASKS_REQUESTED, **request_fields)
-
-    results: List[Dict[str, Any]] = []
     try:
-        task_dict = get_task_dict(task_names)
-    except Exception as exc:  # noqa: BLE001 — lm-eval surfaces invalid task names as bare ``KeyError`` / ``ValueError``; either is a config error from the operator.
+        audit = _maybe_audit_logger(getattr(args, "audit_dir", None) or cache_dir)
+        request_fields = {"tasks": task_names, "cache_dir": cache_dir}
         if audit is not None:
-            audit.log_event(
-                _EVT_CACHE_TASKS_FAILED,
-                **request_fields,
-                error_class=exc.__class__.__name__,
-                error_message=str(exc),
-            )
-        _output_error_and_exit(
-            output_format,
-            f"Unknown or invalid task name in {task_names!r}: {exc}",
-            EXIT_CONFIG_ERROR,
-        )
+            audit.log_event(_EVT_CACHE_TASKS_REQUESTED, **request_fields)
 
-    try:
-        for name, task_obj in task_dict.items():
-            results.append(_prepare_one_task(name, task_obj, cache_dir))
-    except Exception as exc:  # noqa: BLE001 — best-effort: dataset download failures, parquet decode failures, all funnel into the same operator-facing message with the partial results so the operator knows what completed. # NOSONAR
+        results: List[Dict[str, Any]] = []
+        try:
+            task_dict = get_task_dict(task_names)
+        except Exception as exc:  # noqa: BLE001 — lm-eval surfaces invalid task names as bare ``KeyError`` / ``ValueError``; either is a config error from the operator.
+            if audit is not None:
+                audit.log_event(
+                    _EVT_CACHE_TASKS_FAILED,
+                    **request_fields,
+                    error_class=exc.__class__.__name__,
+                    error_message=str(exc),
+                )
+            _output_error_and_exit(
+                output_format,
+                f"Unknown or invalid task name in {task_names!r}: {exc}",
+                EXIT_CONFIG_ERROR,
+            )
+
+        try:
+            for name, task_obj in task_dict.items():
+                results.append(_prepare_one_task(name, task_obj, cache_dir))
+        except Exception as exc:  # noqa: BLE001 — best-effort: dataset download failures, parquet decode failures, all funnel into the same operator-facing message with the partial results so the operator knows what completed. # NOSONAR
+            if audit is not None:
+                audit.log_event(
+                    _EVT_CACHE_TASKS_FAILED,
+                    **request_fields,
+                    tasks_completed=[r["name"] for r in results],
+                    error_class=exc.__class__.__name__,
+                    error_message=str(exc),
+                )
+            _output_error_and_exit(
+                output_format,
+                f"cache-tasks failed on {len(results)} of {len(task_dict)} task(s): {exc}",
+                EXIT_TRAINING_ERROR,
+            )
+
         if audit is not None:
-            audit.log_event(
-                _EVT_CACHE_TASKS_FAILED,
-                **request_fields,
-                tasks_completed=[r["name"] for r in results],
-                error_class=exc.__class__.__name__,
-                error_message=str(exc),
-            )
-        _output_error_and_exit(
-            output_format,
-            f"cache-tasks failed on {len(results)} of {len(task_dict)} task(s): {exc}",
-            EXIT_TRAINING_ERROR,
-        )
+            audit.log_event(_EVT_CACHE_TASKS_COMPLETED, **request_fields, count=len(results))
 
-    if audit is not None:
-        audit.log_event(_EVT_CACHE_TASKS_COMPLETED, **request_fields, count=len(results))
-
-    payload = {
-        "success": True,
-        "tasks": results,
-        "cache_dir": cache_dir,
-    }
-    _emit_cache_success(output_format, payload, kind="tasks")
-    sys.exit(EXIT_SUCCESS)
+        payload = {
+            "success": True,
+            "tasks": results,
+            "cache_dir": cache_dir,
+        }
+        _emit_cache_success(output_format, payload, kind="tasks")
+        sys.exit(EXIT_SUCCESS)
+    finally:
+        if prior_hf_datasets_cache is None:
+            os.environ.pop("HF_DATASETS_CACHE", None)
+        else:
+            os.environ["HF_DATASETS_CACHE"] = prior_hf_datasets_cache
 
 
 def _prepare_one_task(name: str, task_obj, cache_dir: str | None = None) -> Dict[str, Any]:

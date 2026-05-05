@@ -37,6 +37,13 @@ def _build_args(
 @pytest.fixture(autouse=True)
 def _set_operator_env(monkeypatch):
     monkeypatch.setenv("FORGELM_OPERATOR", "test-operator@cache-test")
+    # Wave 2b final-review F-35-T-03: ``_run_cache_tasks_cmd`` deliberately
+    # mutates the process-global ``HF_DATASETS_CACHE`` so the underlying
+    # ``datasets`` library lands parquet shards in the operator's
+    # resolved cache_dir.  Without this delenv the env stamp would leak
+    # into other tests run in the same pytest invocation (test-order
+    # dependent flakes when pytest-randomly is enabled).
+    monkeypatch.delenv("HF_DATASETS_CACHE", raising=False)
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +333,213 @@ class TestCacheDirResolution:
         monkeypatch.delenv("HF_HUB_CACHE", raising=False)
         monkeypatch.setenv("HF_HOME", hf_home)
         assert _resolve_cache_dir(None) == os.path.join(hf_home, "hub")
+
+
+# ---------------------------------------------------------------------------
+# Wave 2b final-review absorption — F-35-T-01 / F-35-T-02 / F-35-T-03
+# regressions for absorption-tightened contracts that landed without
+# dedicated test coverage.
+# ---------------------------------------------------------------------------
+
+
+class TestDatasetsCacheDirResolution:
+    """F-35-T-01: Round-5-followup split the Hub cache resolver
+    (``_resolve_env_cache_dir``) from the Datasets cache resolver
+    (``_resolve_env_datasets_cache_dir``) because HF treats hub
+    snapshots and dataset Arrow shards as separate caches.  Without
+    these tests, a future "DRY" PR that re-conflated the two would
+    silently put parquet shards under ``hub/`` instead of ``datasets/``,
+    defeating the air-gap workflow."""
+
+    def test_explicit_output_wins_for_datasets_resolver(self, monkeypatch, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._cache import _resolve_datasets_cache_dir
+
+        monkeypatch.setenv("HF_DATASETS_CACHE", "/should/not/win")
+        target = str(tmp_path / "explicit")
+        assert _resolve_datasets_cache_dir(target) == os.path.abspath(target)
+
+    def test_hf_datasets_cache_env_wins_over_hf_home(self, monkeypatch, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._cache import _resolve_datasets_cache_dir
+
+        ds_cache = str(tmp_path / "ds_cache")
+        hf_home = str(tmp_path / "hf_home")
+        monkeypatch.setenv("HF_DATASETS_CACHE", ds_cache)
+        monkeypatch.setenv("HF_HOME", hf_home)
+        assert _resolve_datasets_cache_dir(None) == ds_cache
+
+    def test_hf_home_appends_datasets_subdir(self, monkeypatch, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._cache import _resolve_datasets_cache_dir
+
+        hf_home = str(tmp_path / "hf_home")
+        monkeypatch.delenv("HF_DATASETS_CACHE", raising=False)
+        monkeypatch.setenv("HF_HOME", hf_home)
+        assert _resolve_datasets_cache_dir(None) == os.path.join(hf_home, "datasets")
+
+    def test_hf_datasets_cache_env_does_not_affect_hub_resolver(self, monkeypatch) -> None:
+        """Cross-bleed defence: setting only ``HF_DATASETS_CACHE`` must
+        leave the Hub resolver untouched (it falls back to its own default)."""
+        from forgelm.cli.subcommands._cache import _resolve_cache_dir
+
+        monkeypatch.setenv("HF_DATASETS_CACHE", "/datasets/only")
+        monkeypatch.delenv("HF_HUB_CACHE", raising=False)
+        monkeypatch.delenv("HF_HOME", raising=False)
+        assert _resolve_cache_dir(None).endswith("huggingface/hub"), "HF_DATASETS_CACHE leaked into the Hub resolver"
+
+    def test_hf_hub_cache_env_does_not_affect_datasets_resolver(self, monkeypatch) -> None:
+        """Inverse cross-bleed defence: setting only ``HF_HUB_CACHE`` must
+        leave the Datasets resolver untouched."""
+        from forgelm.cli.subcommands._cache import _resolve_datasets_cache_dir
+
+        monkeypatch.setenv("HF_HUB_CACHE", "/hub/only")
+        monkeypatch.delenv("HF_DATASETS_CACHE", raising=False)
+        monkeypatch.delenv("HF_HOME", raising=False)
+        assert _resolve_datasets_cache_dir(None).endswith("huggingface/datasets"), (
+            "HF_HUB_CACHE leaked into the Datasets resolver"
+        )
+
+
+class TestCacheTasksEnvStamp:
+    """F-35-T-03: Round-5 added ``os.environ["HF_DATASETS_CACHE"] = cache_dir``
+    inside ``_run_cache_tasks_cmd`` precisely so the JSON envelope's
+    ``cache_dir`` claim and the on-disk parquet location stay in sync.
+    Without these tests, a regression that removed the stamp (or
+    pointed it at the wrong path) would defeat the air-gap workflow's
+    primary value."""
+
+    def test_cache_tasks_stamps_hf_datasets_cache_env(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands import _cache
+
+        captured_env: list[str | None] = []
+
+        class _StampSpyTask:
+            @property
+            def dataset(self):
+                # Capture the env at the moment the task's dataset is
+                # being prepared — that's when the stamp must be in place.
+                captured_env.append(os.environ.get("HF_DATASETS_CACHE"))
+                return NonCallableMagicMock()
+
+        fake_lm_eval = MagicMock()
+        fake_lm_eval_tasks = MagicMock()
+        fake_lm_eval_tasks.get_task_dict = MagicMock(return_value={"hellaswag": _StampSpyTask()})
+
+        cache_dir = str(tmp_path / "cache")
+        with patch.dict(
+            "sys.modules",
+            {"lm_eval": fake_lm_eval, "lm_eval.tasks": fake_lm_eval_tasks},
+        ):
+            args = _build_args(tasks="hellaswag", output=cache_dir, audit_dir=str(tmp_path / "audit"))
+            with pytest.raises(SystemExit) as ei:
+                _cache._run_cache_tasks_cmd(args, output_format="json")
+            assert ei.value.code == 0
+
+        assert captured_env, "_StampSpyTask.dataset was never accessed; spy missed the stamp"
+        # The env var was set to the resolved cache_dir at the moment
+        # download_and_prepare ran.  os.path.abspath collapses any
+        # relative-path normalisation difference.
+        assert captured_env[0] == os.path.abspath(cache_dir), (
+            f"HF_DATASETS_CACHE was {captured_env[0]!r} at task-prepare time; expected {os.path.abspath(cache_dir)!r}"
+        )
+
+    def test_cache_tasks_does_not_leak_hf_datasets_cache_env(self, tmp_path: Path) -> None:
+        """F-35-01 / F-35-T-03 leak-defence: the try/finally restore in
+        ``_run_cache_tasks_cmd`` must leave ``HF_DATASETS_CACHE`` in the
+        same state it found.  Without the restore, a long-lived process
+        (Jupyter session, library caller, pytest run) would see the
+        stamped value persist after the call returned."""
+        from forgelm.cli.subcommands import _cache
+
+        # Sanity: the autouse fixture has already del'd the env var.
+        assert "HF_DATASETS_CACHE" not in os.environ
+
+        fake_lm_eval = MagicMock()
+        fake_lm_eval_tasks = MagicMock()
+        fake_lm_eval_tasks.get_task_dict = MagicMock(
+            return_value={"hellaswag": type("T", (), {"dataset": NonCallableMagicMock()})()}
+        )
+        with patch.dict("sys.modules", {"lm_eval": fake_lm_eval, "lm_eval.tasks": fake_lm_eval_tasks}):
+            args = _build_args(tasks="hellaswag", output=str(tmp_path / "cache"), audit_dir=str(tmp_path / "a"))
+            with pytest.raises(SystemExit):
+                _cache._run_cache_tasks_cmd(args, output_format="json")
+
+        # Post-call: env must be back to "not set" (the prior state).
+        assert "HF_DATASETS_CACHE" not in os.environ, (
+            "HF_DATASETS_CACHE leaked into the parent environment after _run_cache_tasks_cmd"
+        )
+
+    def test_cache_tasks_restores_prior_hf_datasets_cache_env(self, tmp_path: Path, monkeypatch) -> None:
+        """If ``HF_DATASETS_CACHE`` was already set when the command
+        ran, the restore must put the original value back, not delete
+        it."""
+        from forgelm.cli.subcommands import _cache
+
+        original = "/operator/preset/cache"
+        monkeypatch.setenv("HF_DATASETS_CACHE", original)
+
+        fake_lm_eval = MagicMock()
+        fake_lm_eval_tasks = MagicMock()
+        fake_lm_eval_tasks.get_task_dict = MagicMock(
+            return_value={"hellaswag": type("T", (), {"dataset": NonCallableMagicMock()})()}
+        )
+        with patch.dict("sys.modules", {"lm_eval": fake_lm_eval, "lm_eval.tasks": fake_lm_eval_tasks}):
+            args = _build_args(tasks="hellaswag", output=str(tmp_path / "cache"), audit_dir=str(tmp_path / "a"))
+            with pytest.raises(SystemExit):
+                _cache._run_cache_tasks_cmd(args, output_format="json")
+
+        assert os.environ.get("HF_DATASETS_CACHE") == original, (
+            f"HF_DATASETS_CACHE was not restored to its prior value; got {os.environ.get('HF_DATASETS_CACHE')!r}"
+        )
+
+
+class TestCacheModelsMidBatchFailure:
+    """F-35-T-02: when one model in a multi-model batch fails, the
+    surviving audit chain must record ``models_completed`` correctly so
+    an operator can scan the log and see what made it.  A future
+    "swallow per-model errors and continue" refactor would silently
+    skip the failed model and exit 0; this test pins the fail-fast
+    contract."""
+
+    def test_cache_models_mid_batch_failure_reports_completed_subset(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands import _cache
+
+        attempted: list[str] = []
+
+        def _flaky_snapshot_download(repo_id: str, cache_dir: str) -> str:
+            attempted.append(repo_id)
+            if repo_id == "B":
+                raise ConnectionError("HF flake on B")
+            cached = Path(cache_dir) / repo_id
+            cached.mkdir(parents=True, exist_ok=True)
+            (cached / "f").write_bytes(b"x" * 16)
+            return str(cached)
+
+        audit_dir = tmp_path / "audit"
+        audit_dir.mkdir()
+        with patch.dict(
+            "sys.modules",
+            {"huggingface_hub": MagicMock(snapshot_download=_flaky_snapshot_download)},
+        ):
+            args = _build_args(
+                model=["A", "B", "C"],
+                output=str(tmp_path / "hub"),
+                audit_dir=str(audit_dir),
+            )
+            with pytest.raises(SystemExit) as ei:
+                _cache._run_cache_models_cmd(args, output_format="json")
+            assert ei.value.code == 2
+
+        # Fail-fast: third model must NOT have been attempted after B failed.
+        assert attempted == ["A", "B"], f"third model must NOT have been attempted after B failed; got {attempted!r}"
+        # Audit chain records the completed subset (only "A").
+        log = audit_dir / "audit_log.jsonl"
+        events: list[dict] = []
+        with open(log, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    events.append(json.loads(line))
+        failed = next(e for e in events if e["event"] == "cache.populate_models_failed")
+        assert failed["models_completed"] == ["A"]
 
 
 # ---------------------------------------------------------------------------

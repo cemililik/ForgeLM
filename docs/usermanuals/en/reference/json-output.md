@@ -169,6 +169,222 @@ Audit-log chain integrity check.
 
 `approve` exits `0` on success; `reject` exits `0` after recording the rejection (the staging dir is preserved for forensics). `success: false` with `error` on unknown `run_id` / config error.
 
+## `forgelm purge`
+
+Three-mode dispatcher: `--row-id`, `--run-id`, or `--check-policy`. Wave 2b Phase 21 — GDPR Article 17 right-to-erasure.
+
+**Row-erasure success envelope** (`forgelm purge --row-id ROW --corpus PATH`):
+
+```json
+{
+  "success": true,
+  "mode": "row",
+  "row_id_hash": "sha256:abc123...",
+  "salt_source": "per_dir",
+  "corpus_path": "/work/train.jsonl",
+  "files_modified": ["/work/train.jsonl"],
+  "bytes_freed": 142,
+  "pre_erasure_line_number": 42,
+  "match_count": 1,
+  "dry_run": false
+}
+```
+
+**Run-erasure success envelope** (`--run-id RUN --kind {staging,artefacts}`):
+
+```json
+{
+  "success": true,
+  "mode": "run",
+  "run_id": "fg-abc123",
+  "kind": "staging",
+  "files_modified": ["/work/output/final_model.staging.fg-abc123"],
+  "bytes_freed": 1048576,
+  "dry_run": false
+}
+```
+
+**Check-policy success envelope** (`--check-policy [--config PATH]`):
+
+```json
+{
+  "success": true,
+  "violations": [
+    {
+      "artefact_kind": "staging_dir[fg-abc123]",
+      "path": "/work/output/final_model.staging.fg-abc123",
+      "age_days": 14.7,
+      "horizon_days": 7,
+      "age_source": "audit"
+    }
+  ],
+  "count": 1
+}
+```
+
+| Key | Type | Notes |
+|---|---|---|
+| `success` | bool | `true` for a successful operation; `false` (with `error`) on config / runtime failure. |
+| `mode` (row/run) | str | Discriminator; `"row"` or `"run"`. Absent on `--check-policy`. |
+| `row_id_hash` | str | `sha256:`-prefixed hex digest of the salted row id. Cleartext value never appears in the envelope. |
+| `salt_source` | str | `"per_dir"` or `"env_var"` per `FORGELM_AUDIT_SECRET` toggle. |
+| `violations` | list[object] | `--check-policy` only. `artefact_kind` is one of `audit_log`, `staging_dir`, `staging_dir[<run_id>]`, `compliance_bundle`, `data_audit_report`, `raw_documents[...]`. `age_source` ∈ `{audit, mtime}`. |
+| `count` | int | `--check-policy` only; equals `len(violations)`. |
+| `dry_run` | bool | Mirrors the `--dry-run` flag. |
+
+**Exit code mapping:** `0` = success or successful policy report; `1` = config error (unknown row, missing corpus, conflicting flags, malformed `--check-policy --config`); `2` = runtime error (I/O, atomic rename failure).
+
+## `forgelm cache-models`
+
+Wave 2b Phase 35 — air-gap workflow blocker. Pre-populates the HuggingFace Hub cache.
+
+**Success envelope** (`forgelm cache-models --model M [--safety S] [--output DIR]`):
+
+```json
+{
+  "success": true,
+  "models": [
+    {
+      "name": "meta-llama/Llama-3.2-3B",
+      "cached_path": "/work/hf_cache/models--meta-llama--Llama-3.2-3B",
+      "size_bytes": 3221225472,
+      "size_mb": 3072.0,
+      "duration_s": 142.7
+    }
+  ],
+  "total_size_mb": 3072.0,
+  "cache_dir": "/work/hf_cache"
+}
+```
+
+| Key | Type | Notes |
+|---|---|---|
+| `models` | list[object] | One entry per `--model`; `--safety` (when supplied) appears as the last entry. |
+| `models[].cached_path` | str | Path returned by `huggingface_hub.snapshot_download` (operator's `--output` or env-resolved `HF_HUB_CACHE`). |
+| `total_size_mb` | float | Sum of every `models[].size_mb`. |
+| `cache_dir` | str | Operator's `--output`, or env-resolved (`HF_HUB_CACHE > HF_HOME/hub > ~/.cache/huggingface/hub`). |
+
+**Exit code mapping:** `0` = every model cached; `1` = config error (no `--model`, malformed name); `2` = runtime error (Hub failure, disk-full, broken environment / missing core dep).
+
+## `forgelm cache-tasks`
+
+Wave 2b Phase 35 — pre-populates the lm-evaluation-harness task dataset cache. Requires the `[eval]` extra.
+
+**Success envelope** (`forgelm cache-tasks --tasks CSV [--output DIR]`):
+
+```json
+{
+  "success": true,
+  "tasks": [
+    {"name": "hellaswag", "cached": true, "error": null},
+    {"name": "arc_easy", "cached": true, "error": null}
+  ],
+  "cache_dir": "/work/datasets_cache"
+}
+```
+
+| Key | Type | Notes |
+|---|---|---|
+| `tasks` | list[object] | One entry per task; `cached: false` with a non-null `error` is per-task best-effort (the batch continues). |
+| `cache_dir` | str | Operator's `--output`, or env-resolved (`HF_DATASETS_CACHE > HF_HOME/datasets > ~/.cache/huggingface/datasets` — note the *Datasets* chain, separate from the Hub chain). |
+
+**Exit code mapping:** `0` = enumeration succeeded (per-task download failures are reported in `tasks[].error` but do not fail the batch); `1` = config error (empty `--tasks`, unknown task, missing `[eval]` extra); `2` = runtime error (broken environment / mid-batch failure raised by the datasets layer).
+
+## `forgelm safety-eval`
+
+Wave 2b Phase 36 — standalone safety evaluation against a model checkpoint.
+
+**Success envelope** (`forgelm safety-eval --model M {--probes JSONL | --default-probes}`):
+
+```json
+{
+  "success": true,
+  "model": "/work/final_model",
+  "classifier": "meta-llama/Llama-Guard-3-8B",
+  "probes": "/work/probes.jsonl",
+  "output_dir": "/work/eval",
+  "passed": true,
+  "safety_score": 0.93,
+  "safe_ratio": 0.95,
+  "category_distribution": {"S1": 0, "S2": 1, "S3": 0},
+  "failure_reason": null
+}
+```
+
+| Key | Type | Notes |
+|---|---|---|
+| `success` | bool | Mirrors `passed`. `success: false` does NOT mean the dispatcher crashed — it means the model failed the safety gate. |
+| `passed` | bool | `true` if `safety_score` and `safe_ratio` cleared the configured thresholds. |
+| `safety_score` | float \| null | Aggregate score from `forgelm.safety.run_safety_evaluation`. |
+| `category_distribution` | object | Per-harm-category counts (empty when `track_categories=False`). |
+| `failure_reason` | str \| null | Human-readable reason from `SafetyResult` when `passed: false`. |
+
+**Exit code mapping:** `0` = thresholds passed; `1` = config error (missing `--model`, conflicting probes flags, GGUF model path); `2` = runtime error (model load failure, classifier load failure, broken environment); `3` = `EXIT_EVAL_FAILURE` — evaluation completed but the safety gate said no (operator-actionable: re-train or re-classify).
+
+## `forgelm verify-annex-iv`
+
+Wave 2b Phase 36 — EU AI Act Annex IV §1-9 artefact integrity check.
+
+**Success envelope** (`forgelm verify-annex-iv PATH`):
+
+```json
+{
+  "success": true,
+  "path": "/work/output/compliance/annex_iv_metadata.json",
+  "valid": true,
+  "missing_fields": [],
+  "manifest_hash_actual": "abcd1234...",
+  "manifest_hash_expected": "abcd1234...",
+  "manifest_hash_present": true,
+  "reason": ""
+}
+```
+
+| Key | Type | Notes |
+|---|---|---|
+| `valid` | bool | `true` when all 9 §1-9 fields are present AND (when `metadata.manifest_hash` is present) the recomputed hash matches. |
+| `missing_fields` | list[str] | Names of any `_ANNEX_IV_REQUIRED_FIELDS` that are absent / empty. |
+| `manifest_hash_actual` | str \| null | Recomputed canonical SHA-256 of the artefact-minus-metadata. |
+| `manifest_hash_expected` | str \| null | Value extracted from the artefact's `metadata.manifest_hash` field. |
+| `manifest_hash_present` | bool | `false` when the artefact carries no hash (older exports — verifier passes with a warning). |
+| `reason` | str | Empty on `valid: true`; one-line failure description otherwise. |
+
+**Exit code mapping:** `0` = `valid: true`; `1` = `valid: false` (missing fields or hash mismatch — auditor-facing rejection); `2` = runtime error (file not found, unreadable, malformed JSON).
+
+## `forgelm verify-gguf`
+
+Wave 2b Phase 36 — GGUF model file integrity check.
+
+**Success envelope** (`forgelm verify-gguf PATH`):
+
+```json
+{
+  "success": true,
+  "path": "/work/exports/model.q4_k_m.gguf",
+  "valid": true,
+  "reason": "GGUF magic OK, metadata parsed, SHA-256 sidecar match",
+  "checks": {
+    "magic_ok": true,
+    "metadata_parsed": true,
+    "sidecar_present": true,
+    "sidecar_match": true,
+    "sha256_actual": "abcd1234...",
+    "sha256_expected": "abcd1234..."
+  }
+}
+```
+
+| Key | Type | Notes |
+|---|---|---|
+| `valid` | bool | `true` when magic header, metadata block, and SHA-256 sidecar (when present) all match. |
+| `checks.magic_ok` | bool | First 4 bytes equal `b"GGUF"`. |
+| `checks.metadata_parsed` | bool | `true` when the optional `gguf` package parsed the metadata block; `false` when the package is missing (skipped, not failed) or the block is corrupted. |
+| `checks.sidecar_present` | bool | `true` when `<path>.sha256` exists. |
+| `checks.sidecar_match` | bool \| null | `true` on byte-for-byte match; `false` on mismatch or malformed sidecar; `null` when no sidecar. A *malformed* sidecar (empty / non-hex / wrong-length) fails closed. |
+| `reason` | str | One-line summary; carries the failure detail on `valid: false`. |
+
+**Exit code mapping:** `0` = `valid: true`; `1` = `valid: false` (magic mismatch, metadata corrupted, SHA-256 mismatch, malformed sidecar); `2` = runtime error (file not found, unreadable).
+
 ## Adding a new subcommand
 
 A new subcommand that supports `--output-format json` MUST land with:

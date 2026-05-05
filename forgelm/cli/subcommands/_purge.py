@@ -1164,15 +1164,23 @@ def _maybe_load_config(config_path: Optional[str], *, strict: bool = False):
     """
     if not config_path:
         return None
-    try:
-        from forgelm.config import load_config
+    # F-XPR-02: narrow the catch tuple to the precise exception classes
+    # ``load_config`` actually raises (``ConfigError`` for Pydantic /
+    # YAML validation, ``OSError`` for I/O, ``yaml.YAMLError`` for parse
+    # errors).  The previous bare ``except Exception`` was the exact
+    # "BLE001 used to dodge thinking" example called out in
+    # ``docs/standards/error-handling.md``.
+    import yaml as _yaml
 
+    from forgelm.config import ConfigError, load_config
+
+    try:
         return load_config(config_path)
-    except Exception as exc:
+    except (ConfigError, OSError, _yaml.YAMLError) as exc:
         if strict:
             raise
         # Best-effort fallback: row-id / run-id paths run config-free.
-        logger.debug("purge: could not load config %s: %s", config_path, exc)  # noqa: BLE001 — best-effort: config is optional in non-strict mode
+        logger.debug("purge: could not load config %s: %s", config_path, exc)
         return None
 
 

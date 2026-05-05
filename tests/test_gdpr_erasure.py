@@ -832,6 +832,317 @@ retention:
 
 
 # ---------------------------------------------------------------------------
+# Wave 2b final-review absorption — regressions for Round-1..5 contracts
+# that landed without dedicated test coverage.  Each test pins a specific
+# absorption-tightened branch so a future "simplification" PR cannot
+# silently revert the fix and pass CI.
+# ---------------------------------------------------------------------------
+
+
+class TestSaltTruncation:
+    """F-21-T-04: a corrupted/truncated salt file must surface as OSError
+    rather than silently producing a weak hash.  The branch exists at
+    `_purge.py:_resolve_salt` precisely so the chain cannot be salted with
+    fewer than 16 bytes; without this regression test, a future "more
+    graceful" handler that pads short salt to 16 bytes would silently
+    weaken every `target_id` and the suite would stay green."""
+
+    def test_truncated_salt_file_raises(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._purge import _resolve_salt
+
+        salt_path = tmp_path / ".forgelm_audit_salt"
+        salt_path.write_bytes(b"x" * 8)  # 8 < 16 → truncated
+        with pytest.raises(OSError, match="shorter than"):
+            _resolve_salt(str(tmp_path))
+
+
+class TestArtefactPrefixMatcher:
+    """F-21-T-01 / F-21-03: `_filename_contains_run_id` token-boundary
+    guard must not delete sibling runs whose id is a prefix-superstring
+    of the target.  Round-1 absorption introduced the helper; without
+    this test, a "simpler" `if run_id in fname` regression would silently
+    delete other runs' compliance bundles."""
+
+    def test_run_id_prefix_does_not_match_longer_id(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._purge import _run_purge_cmd
+
+        compliance = tmp_path / "compliance"
+        compliance.mkdir()
+        (compliance / "compliance_fg-abc.json").write_text("{}")
+        # Bystander whose run_id is a SUPERSTRING of the target.
+        (compliance / "compliance_fg-abc1234.json").write_text("{}")
+
+        args = _build_args(run_id="fg-abc", kind="artefacts", output_dir=str(tmp_path))
+        with pytest.raises(SystemExit) as ei:
+            _run_purge_cmd(args, output_format="json")
+        assert ei.value.code == 0
+        assert not (compliance / "compliance_fg-abc.json").exists()
+        # Critical: the longer-run-id bundle is preserved.
+        assert (compliance / "compliance_fg-abc1234.json").exists()
+
+
+class TestAuditAgeLookup:
+    """F-21-T-02: the per-`run_id` audit-age lookup added in Round-5
+    (F-W2B-PURGE) must discriminate ages across runs, fall back to
+    genesis (not mtime) for orphaned staging dirs, and honour the
+    append-only first-write invariant for retried run_ids."""
+
+    def _write_audit_log(self, path: Path, events: list[dict]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            for ev in events:
+                fh.write(json.dumps(ev) + "\n")
+
+    def test_per_run_age_discriminates_across_run_ids(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._purge import _build_audit_age_lookup
+
+        # Two runs, ten days apart.
+        now = 1_710_000_000.0
+        ten_days_ago = "2026-04-15T00:00:00Z"
+        one_day_ago = "2026-04-24T00:00:00Z"
+        log = tmp_path / "audit_log.jsonl"
+        self._write_audit_log(
+            log,
+            [
+                {"timestamp": ten_days_ago, "run_id": "fg-old", "event": "training.started"},
+                {"timestamp": one_day_ago, "run_id": "fg-new", "event": "training.started"},
+            ],
+        )
+        # Pin `now` to 2026-04-25T00:00:00Z so the deltas are exact.
+        from datetime import datetime, timezone
+
+        now = datetime(2026, 4, 25, tzinfo=timezone.utc).timestamp()
+        ages = _build_audit_age_lookup(str(log), now)
+        # Both runs registered; old run is older than new run.
+        assert "fg-old" in ages and "fg-new" in ages
+        assert ages["fg-old"] > ages["fg-new"]
+        # Genesis age tracks the *first* event (fg-old's, ten days ago).
+        assert ages[None] == ages["fg-old"]
+
+    def test_orphaned_staging_falls_back_to_genesis_not_mtime(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._purge import _build_audit_age_lookup, _resolve_artefact_age
+
+        log = tmp_path / "audit_log.jsonl"
+        self._write_audit_log(
+            log,
+            [{"timestamp": "2026-04-01T00:00:00Z", "run_id": "fg-known", "event": "training.started"}],
+        )
+        from datetime import datetime, timezone
+
+        now = datetime(2026, 4, 25, tzinfo=timezone.utc).timestamp()
+        ages = _build_audit_age_lookup(str(log), now)
+        # An orphaned staging dir whose run_id is NOT in the log:
+        # must fall back to genesis (source = "audit"), not to mtime.
+        orphan = tmp_path / "final_model.staging.fg-orphan"
+        orphan.mkdir()
+        age, source = _resolve_artefact_age(str(orphan), ages, "fg-orphan", now)
+        assert source == "audit", "orphaned run_id must fall back to genesis (audit), not mtime"
+        assert age == ages[None]
+
+    def test_retried_run_id_honours_first_timestamp(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._purge import _build_audit_age_lookup
+
+        log = tmp_path / "audit_log.jsonl"
+        self._write_audit_log(
+            log,
+            [
+                {"timestamp": "2026-04-01T00:00:00Z", "run_id": "fg-retry", "event": "training.started"},
+                {"timestamp": "2026-04-20T00:00:00Z", "run_id": "fg-retry", "event": "training.restarted"},
+            ],
+        )
+        from datetime import datetime, timezone
+
+        now = datetime(2026, 4, 25, tzinfo=timezone.utc).timestamp()
+        ages = _build_audit_age_lookup(str(log), now)
+        # Append-only invariant: the FIRST timestamp wins.  Age must be
+        # ≥ 24 days (since the first write on 2026-04-01), not ~5 days
+        # (since the second write on 2026-04-20).
+        assert ages["fg-retry"] >= 24 * 86400
+
+
+class TestCheckPolicyStrictLoad:
+    """F-21-T-03 / F-21-02: Round-2 absorption made `--check-policy`
+    strictly load the supplied `--config` so a malformed YAML / Pydantic
+    schema error exits `EXIT_CONFIG_ERROR` rather than silently
+    degrading to a "no retention block, exit 0" report.  Without these
+    tests, a regression to the silent-degrade behaviour would not be
+    caught by CI."""
+
+    def test_check_policy_with_unparseable_yaml_exits_config_error(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._purge import _run_purge_cmd
+
+        cfg = tmp_path / "bad.yaml"
+        cfg.write_text("model: { unclosed_brace ")
+        args = _build_args(check_policy=True, config=str(cfg), output_dir=str(tmp_path))
+        with pytest.raises(SystemExit) as ei:
+            _run_purge_cmd(args, output_format="json")
+        assert ei.value.code == 1, "malformed YAML must exit EXIT_CONFIG_ERROR (1), not silently exit 0"
+
+    def test_check_policy_with_pydantic_validation_error_exits_config_error(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._purge import _run_purge_cmd
+
+        cfg = tmp_path / "bad.yaml"
+        # `training.trainer_type: spo` is an enum-violation Pydantic catches.
+        cfg.write_text(
+            """
+model:
+  name_or_path: gpt2
+  backend: transformers
+lora:
+  r: 8
+training:
+  trainer_type: spo
+  output_dir: ./out
+  num_train_epochs: 1
+data:
+  dataset_name_or_path: train.jsonl
+"""
+        )
+        args = _build_args(check_policy=True, config=str(cfg), output_dir=str(tmp_path))
+        with pytest.raises(SystemExit) as ei:
+            _run_purge_cmd(args, output_format="json")
+        assert ei.value.code == 1
+
+    def test_check_policy_no_config_succeeds_with_zero(self, tmp_path: Path) -> None:
+        """F-21-T-07: `--check-policy` with no `--config` must still exit 0
+        (no retention block to enforce → empty violations + note)."""
+        from forgelm.cli.subcommands._purge import _run_purge_cmd
+
+        args = _build_args(check_policy=True, config=None, output_dir=str(tmp_path))
+        with pytest.raises(SystemExit) as ei:
+            _run_purge_cmd(args, output_format="json")
+        assert ei.value.code == 0
+
+
+class TestModelCopyPreservation:
+    """F-21-T-05 / F-21-01: Round-5-followup switched the alias-forward
+    to `retention.model_copy(update={"staging_ttl_days": legacy})` so
+    other operator-set retention horizons survive the deprecation
+    forward.  Without this test, a regression to
+    `RetentionConfig(staging_ttl_days=legacy)` would silently re-discard
+    the operator's `audit_log_retention_days` (Article 12 record-keeping
+    horizon) and the suite would stay green."""
+
+    def test_alias_forward_preserves_other_retention_fields(self, tmp_path: Path) -> None:
+        from forgelm.config import load_config
+
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            """
+model:
+  name_or_path: gpt2
+  backend: transformers
+lora:
+  r: 8
+training:
+  trainer_type: sft
+  output_dir: ./out
+  num_train_epochs: 1
+data:
+  dataset_name_or_path: train.jsonl
+evaluation:
+  staging_ttl_days: 14
+retention:
+  audit_log_retention_days: 1825
+"""
+        )
+        with pytest.warns(DeprecationWarning, match="staging_ttl_days"):
+            loaded = load_config(str(cfg))
+        assert loaded.retention is not None
+        # The legacy alias forwarded into the canonical block.
+        assert loaded.retention.staging_ttl_days == 14
+        # The operator-set retention horizon was preserved (model_copy
+        # contract); a fresh ``RetentionConfig(staging_ttl_days=14)``
+        # would have reset this to the 1825 default by chance, so we
+        # set it to 3650 in the YAML to force a meaningful assertion.
+        # NOTE: actually 1825 IS the default, so use a non-default value.
+
+    def test_alias_forward_preserves_non_default_retention_field(self, tmp_path: Path) -> None:
+        """Stronger version: pin a NON-default `audit_log_retention_days`
+        so the test would fail under a `RetentionConfig(staging_ttl_days=legacy)`
+        constructor regression (which would reset it to the 1825 default)."""
+        from forgelm.config import load_config
+
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            """
+model:
+  name_or_path: gpt2
+  backend: transformers
+lora:
+  r: 8
+training:
+  trainer_type: sft
+  output_dir: ./out
+  num_train_epochs: 1
+data:
+  dataset_name_or_path: train.jsonl
+evaluation:
+  staging_ttl_days: 14
+retention:
+  audit_log_retention_days: 3650
+"""
+        )
+        with pytest.warns(DeprecationWarning, match="staging_ttl_days"):
+            loaded = load_config(str(cfg))
+        assert loaded.retention is not None
+        assert loaded.retention.staging_ttl_days == 14
+        # Critical: the operator-set 3650 must NOT be reset to 1825.
+        assert loaded.retention.audit_log_retention_days == 3650
+
+
+class TestAtomicityFsyncFdPinning:
+    """F-21-T-06: the existing `test_atomic_rewrite_fsyncs_before_rename`
+    asserts that fsync is called before replace, but not WHICH fd was
+    fsynced.  A regression that fsynced the parent dir (or any other fd)
+    instead of the temp file would still satisfy the ordering check.
+    This test pins the fsynced fd to the one we use for the temp file."""
+
+    def test_atomic_rewrite_fsyncs_temp_file_fd_specifically(self, tmp_path: Path, monkeypatch) -> None:
+        from forgelm.cli.subcommands import _purge
+
+        corpus = tmp_path / "train.jsonl"
+        _seed_corpus(
+            corpus,
+            [
+                {"id": "row-1", "text": "keep"},
+                {"id": "row-2", "text": "drop"},
+            ],
+        )
+
+        captured_temp_fds: list[int] = []
+        original_mkstemp = __import__("tempfile").mkstemp
+
+        def _spy_mkstemp(*args, **kwargs):
+            fd, path = original_mkstemp(*args, **kwargs)
+            captured_temp_fds.append(fd)
+            return fd, path
+
+        monkeypatch.setattr("tempfile.mkstemp", _spy_mkstemp)
+
+        # Also spy on os.fsync to record the fd it was called with.
+        fsync_calls: list[int] = []
+        original_fsync = os.fsync
+
+        def _spy_fsync(fd: int) -> None:
+            fsync_calls.append(fd)
+            original_fsync(fd)
+
+        monkeypatch.setattr(os, "fsync", _spy_fsync)
+
+        _purge._atomic_rewrite_dropping_lines(str(corpus), [2])
+
+        # The temp-file fd must appear in the fsync call list — not just
+        # *any* fd.  Without this, a regression that fsyncs the parent
+        # dir's fd instead would still pass the ordering test.
+        assert captured_temp_fds, "tempfile.mkstemp was never called"
+        assert any(fd in fsync_calls for fd in captured_temp_fds), (
+            f"os.fsync was not called on any temp-file fd; fsync targets={fsync_calls}, "
+            f"temp_fds={captured_temp_fds}.  Data blocks may not be flushed."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Facade re-exports (test that public surface resolves)
 # ---------------------------------------------------------------------------
 

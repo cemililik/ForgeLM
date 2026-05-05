@@ -445,6 +445,113 @@ class TestSafetyEvalDispatcher:
             _resolve_probes_path(args, output_format="json")
         assert ei.value.code == 1
 
+    def test_failed_safety_gate_exits_eval_failure(self, tmp_path: Path, monkeypatch) -> None:
+        """F-36-T-01: Round-5 absorption switched the non-passing safety
+        branch from ``EXIT_CONFIG_ERROR`` (1) to ``EXIT_EVAL_FAILURE`` (3)
+        so regulated CI can distinguish "the gate said no" (3 → re-train)
+        from "the run never started" (1 → fix YAML).  Without this test,
+        a regression to ``sys.exit(EXIT_CONFIG_ERROR if not passed else
+        EXIT_SUCCESS)`` would silently pass CI."""
+        from forgelm.cli.subcommands import _safety_eval
+
+        stub_result = SimpleNamespace(
+            passed=False,
+            safety_score=0.4,
+            safe_ratio=0.5,
+            category_distribution={},
+            failure_reason="threshold-exceeded",
+        )
+        # Short-circuit the model + classifier load so we don't need torch.
+        monkeypatch.setattr(_safety_eval, "_load_model_for_safety", lambda *a, **kw: (object(), object()))
+        monkeypatch.setattr("forgelm.safety.run_safety_evaluation", lambda **kw: stub_result)
+
+        probes = tmp_path / "probes.jsonl"
+        probes.write_text('{"prompt": "x"}\n')
+        args = _build_args(
+            model="gpt2",
+            classifier=None,
+            probes=str(probes),
+            default_probes=False,
+            output_dir=str(tmp_path),
+            max_new_tokens=8,
+        )
+        with pytest.raises(SystemExit) as ei:
+            _safety_eval._run_safety_eval_cmd(args, output_format="json")
+        assert ei.value.code == 3, (
+            f"safety-eval must exit EXIT_EVAL_FAILURE (3) on safety-gate non-pass, got {ei.value.code}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Wave 2b final-review absorption — F-36-03 parametrised tampering test
+# over all 9 §1-9 fields plus provider_metadata.
+# ---------------------------------------------------------------------------
+
+
+def _round_trip_manifest_for_tampering() -> dict:
+    """Minimal manifest that ``build_annex_iv_artifact`` can synthesise into
+    a complete §1-9 artifact.  Extracted so the parametrised test does
+    not duplicate the fixture inline for every parameter."""
+    return {
+        "forgelm_version": "0.5.5+test",
+        "model_lineage": {"base_model": "gpt2"},
+        "training_parameters": {"trainer_type": "sft"},
+        "data_provenance": {"primary_dataset": "train.jsonl"},
+        "evaluation_results": {"metrics": {"eval_loss": 1.0}},
+        "annex_iv": {
+            "provider_name": "Acme",
+            "provider_contact": "x@y",
+            "system_name": "S",
+            "intended_purpose": "P",
+            "known_limitations": "",
+            "system_version": "1",
+            "risk_classification": "minimal-risk",
+        },
+        "risk_assessment": {"art9_reference": "RA-001"},
+    }
+
+
+class TestAnnexIvTamperingAcrossAllFields:
+    """F-36-03: the existing tampering regression mutates only
+    ``intended_purpose``.  This parametrised version walks every §1-9
+    canonical field plus the operator-friendly ``provider_metadata``
+    mirror so a regression that excluded a sub-block from the
+    canonicalisation would be caught."""
+
+    @pytest.mark.parametrize(
+        "field_to_tamper",
+        [
+            "system_identification",
+            "intended_purpose",
+            "system_components",
+            "computational_resources",
+            "data_governance",
+            "technical_documentation",
+            "monitoring_and_logging",
+            "performance_metrics",
+            "risk_management",
+            "provider_metadata",
+        ],
+    )
+    def test_writer_verifier_rejects_tampering_in_any_field(self, tmp_path: Path, field_to_tamper: str) -> None:
+        from forgelm.cli.subcommands._verify_annex_iv import verify_annex_iv_artifact
+        from forgelm.compliance import build_annex_iv_artifact
+
+        artifact = build_annex_iv_artifact(_round_trip_manifest_for_tampering())
+        assert artifact is not None, "writer must produce an artifact for the test fixture"
+        # Mutate the field after the writer stamped the hash.
+        artifact[field_to_tamper] = {"sentinel": "tampered-by-test"}
+        path = tmp_path / "annex_iv_metadata.json"
+        path.write_text(json.dumps(artifact, indent=2, default=str))
+        result = verify_annex_iv_artifact(str(path))
+        assert result.valid is False, (
+            f"tampering with {field_to_tamper!r} must be rejected by the verifier; "
+            f"a passing result here means the hash skips this sub-block."
+        )
+        assert "manifest hash" in result.reason.lower(), (
+            f"verifier must cite 'manifest hash' in the reason for {field_to_tamper!r} tampering; got {result.reason!r}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Library API exposure

@@ -196,7 +196,12 @@ def __dir__() -> list[str]:
     """Surface the full public API in ``dir(forgelm)`` even before any
     attribute has been accessed.  Important for IDE autocomplete and
     ``help(forgelm)`` discovery.
+
+    F-19-02: filter out single-underscore implementation details
+    (``_LAZY_SYMBOLS``, ``_M_DATA_AUDIT``, …) so the listing reflects
+    only the public surface.  Dunders (``__version__``,
+    ``__api_version__``) are explicitly in ``__all__`` and survive the
+    filter.
     """
-    # Combine the eager-resolved names + the lazy-symbols catalogue.
-    # ``__all__`` is the source of truth.
-    return sorted(set(__all__) | set(globals().keys()))
+    public_globals = {n for n in globals() if not n.startswith("_")}
+    return sorted(set(__all__) | public_globals)
