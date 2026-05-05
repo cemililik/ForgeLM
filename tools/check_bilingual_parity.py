@@ -132,11 +132,16 @@ def extract_headings(path: Path) -> List[Heading]:
             line = raw.rstrip("\n")
             fence_match = _FENCE_RE.match(line)
             if fence_match:
-                marker = fence_match.group(1)[:3]  # collapse runs to first three chars
+                marker = fence_match.group(1)
                 if not in_fence:
+                    # Remember the full opening run; CommonMark §4.5
+                    # requires the closing fence to use the same
+                    # marker character (backtick vs tilde) AND at
+                    # least as many of them.  Storing the literal
+                    # opener lets us enforce both invariants.
                     in_fence = True
                     fence_marker = marker
-                elif fence_marker is not None and marker == fence_marker:
+                elif fence_marker is not None and marker[0] == fence_marker[0] and len(marker) >= len(fence_marker):
                     in_fence = False
                     fence_marker = None
                 continue

@@ -81,6 +81,32 @@ class TestExtractHeadings:
         headings = extract_headings(src)
         assert [h.level for h in headings] == [2, 2]
 
+    def test_longer_opening_fence_not_closed_by_shorter_run(self, tmp_path: Path) -> None:
+        """CommonMark §4.5: a closing fence must use the same marker
+        character AND be at least as long as the opening fence.  A
+        4-backtick opener is NOT closed by a 3-backtick line; the
+        ``## inside`` line in between must stay treated as code, not
+        as a heading."""
+        src = _write(
+            tmp_path / "doc.md",
+            "## Real H2\n````\n## inside long fence\n```\n## still inside\n````\n## After close\n",
+        )
+        headings = extract_headings(src)
+        assert [h.level for h in headings] == [2, 2]
+        assert [h.text for h in headings] == ["Real H2", "After close"]
+
+    def test_backtick_fence_not_closed_by_tilde_fence(self, tmp_path: Path) -> None:
+        """CommonMark §4.5: closing fence must use the same marker
+        character as the opener.  A ``~~~`` line cannot close a
+        ```` ``` ```` fence."""
+        src = _write(
+            tmp_path / "doc.md",
+            "## Real H2\n```\n## inside backtick fence\n~~~\n## still inside\n```\n## After close\n",
+        )
+        headings = extract_headings(src)
+        assert [h.level for h in headings] == [2, 2]
+        assert [h.text for h in headings] == ["Real H2", "After close"]
+
     def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
         assert extract_headings(tmp_path / "missing.md") == []
 
