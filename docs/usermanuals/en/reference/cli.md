@@ -20,9 +20,15 @@ ForgeLM ships a single `forgelm` binary with subcommands. This page is the canon
 | `forgelm export` | GGUF export with quantisation. |
 | `forgelm deploy` | Generate deployment config (Ollama, vLLM, TGI, HF Endpoints). |
 | `forgelm verify-audit` | Validate audit log chain (timestamps, prev_hash, HMAC). |
+| `forgelm verify-annex-iv` | Verify an exported Annex IV artefact (§1-9 fields + manifest hash). |
+| `forgelm verify-gguf` | Verify GGUF model file integrity (magic header + metadata + SHA-256 sidecar). |
 | `forgelm approve` | Sign a human approval request and promote `final_model.staging/`. |
 | `forgelm reject` | Reject a human approval request and discard staging. |
 | `forgelm approvals` | List pending approvals (`--pending`) or inspect one (`--show RUN_ID`). |
+| `forgelm purge` | GDPR Article 17 erasure: row-id, run-id, or `--check-policy` retention report. |
+| `forgelm cache-models` | Air-gap workflow: pre-populate the HuggingFace Hub cache for one or more models. |
+| `forgelm cache-tasks` | Air-gap workflow: pre-populate the lm-eval task dataset cache (requires `[eval]` extra). |
+| `forgelm safety-eval` | Standalone safety evaluation against a model checkpoint (Llama Guard by default). |
 
 Run `forgelm <subcommand> --help` for any of these.
 

@@ -80,6 +80,12 @@ def _dispatch_subcommand(command: str, args) -> None:
         "approve": "_run_approve_cmd",
         "reject": "_run_reject_cmd",
         "approvals": "_run_approvals_cmd",
+        "purge": "_run_purge_cmd",
+        "cache-models": "_run_cache_models_cmd",
+        "cache-tasks": "_run_cache_tasks_cmd",
+        "verify-annex-iv": "_run_verify_annex_iv_cmd",
+        "safety-eval": "_run_safety_eval_cmd",
+        "verify-gguf": "_run_verify_gguf_cmd",
     }
     dispatcher_name = table.get(command)
     if dispatcher_name is None:
@@ -110,6 +116,24 @@ def _dispatch_subcommand(command: str, args) -> None:
 
 
 def main():
+    # PR #29 F-CLI-01: wrap the entire entry path in the same SIGINT
+    # contract as the subcommand dispatcher.  Without this, a Ctrl-C
+    # struck while ``parse_args()`` is constructing argparse help text,
+    # validating a long --workers integer, walking through the
+    # interactive wizard, or loading the YAML config bubbles up to
+    # Python's default handler and exits with shell-shaped 130
+    # (= 128+SIGINT) — outside the documented public 0/1/2/3/4 surface
+    # and surprising to CI/CD scripts that branch on exit code 2.
+    try:
+        return _main_inner()
+    except KeyboardInterrupt:
+        sys.exit(EXIT_TRAINING_ERROR)
+
+
+def _main_inner() -> None:
+    """Entry-point body — extracted so ``main`` can wrap a single
+    ``KeyboardInterrupt`` handler around every step from argparse to
+    training pipeline launch."""
     args = parse_args()
 
     # Phase 10 subcommand dispatch — no --config required.

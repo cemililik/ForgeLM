@@ -244,8 +244,16 @@ class TestComplianceExportIntegration:
         annex_path = os.path.join(output_dir, "annex_iv_metadata.json")
         with open(annex_path) as f:
             annex = json.load(f)
-        assert annex["provider_name"] == "Test Corp"
-        assert annex["system_name"] == "Customer Support Bot"
+        # Wave 2b Round-4 (F-W2B-01): writer now emits the §1-9 canonical
+        # layout that ``verify-annex-iv`` accepts; the operator-friendly
+        # 7-key provider block is preserved under ``provider_metadata``.
+        assert annex["system_identification"]["provider_name"] == "Test Corp"
+        assert annex["system_identification"]["system_name"] == "Customer Support Bot"
+        assert annex["provider_metadata"]["provider_name"] == "Test Corp"
+        assert annex["provider_metadata"]["system_name"] == "Customer Support Bot"
+        # Tampering-detection hash must be present and canonical.
+        assert "metadata" in annex
+        assert "manifest_hash" in annex["metadata"]
 
     def test_risk_assessment_file_content(self, tmp_path):
         cfg = ForgeConfig(**_full_config())

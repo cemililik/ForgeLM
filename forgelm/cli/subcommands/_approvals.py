@@ -295,10 +295,20 @@ def _emit_pending_text(pending_summaries: List[Dict[str, Any]]) -> None:
 
 def _emit_pending_json(pending_summaries: List[Dict[str, Any]]) -> None:
     """Print the pending list as a JSON array of summaries."""
+    # ``default=str`` (PR #29 F-37-02 carry-over): event payloads in
+    # ``pending_summaries`` flow from the audit log; ``AuditLogger``
+    # writes events with ``default=str`` so JSON-native types are the
+    # norm, but a hand-edited or tampered log could carry a non-native
+    # value (datetime, Path).  Coerce defensively so ``--pending`` never
+    # crashes the operator's listing command.
+    # ``ensure_ascii=False`` keeps Turkish operator names + Unicode paths
+    # readable in the JSON output.
     print(
         json.dumps(
             {"success": True, "pending": pending_summaries, "count": len(pending_summaries)},
             indent=2,
+            default=str,
+            ensure_ascii=False,
         )
     )
 
@@ -416,6 +426,14 @@ def _emit_show_text(run_id: str, chain: List[Dict[str, Any]], status: str, stagi
 
 def _emit_show_json(run_id: str, chain: List[Dict[str, Any]], status: str, staging_listing: List[str]) -> None:
     """Render ``--show RUN_ID`` output as a structured JSON object."""
+    # PR #29 F-37-02: ``default=str`` so a hand-edited / tampered audit
+    # log carrying a non-JSON-native value (datetime, Path) does not
+    # crash the operator's ``--show`` command; ``ensure_ascii=False`` so
+    # Turkish operator names + Unicode comments stay readable.  The
+    # ``chain`` argument is a list of dicts read from the on-disk audit
+    # log via ``iter_audit_events``; ``AuditLogger`` writes with
+    # ``default=str`` so the common case is JSON-native, but the parser
+    # gives no shape guarantee — coerce defensively.
     print(
         json.dumps(
             {
@@ -426,6 +444,8 @@ def _emit_show_json(run_id: str, chain: List[Dict[str, Any]], status: str, stagi
                 "staging_contents": staging_listing,
             },
             indent=2,
+            default=str,
+            ensure_ascii=False,
         )
     )
 

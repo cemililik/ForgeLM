@@ -715,6 +715,48 @@ def generate_training_manifest(
             "check_interval_hours": mon_cfg.check_interval_hours,
         }
 
+    # Webhook config — preserved into the compliance report so the
+    # post-training approve / reject dispatchers (which run with no --config
+    # flag, only the output_dir) can rebuild a WebhookNotifier from the
+    # co-located JSON.  Without this the operator's Slack / Teams hook
+    # configured in the original training YAML produces a silent no-op on
+    # ``forgelm approve`` / ``forgelm reject`` because
+    # ``_build_approval_notifier`` reads ``webhook_config`` from this exact
+    # report and would otherwise see ``None``.
+    #
+    # Wave 2b Round-5 review F-W2B-WEBHOOK: the literal ``url`` field can
+    # carry a Slack/Teams webhook secret embedded in the URL path; even
+    # though ``url_env`` is the recommended channel, an operator who pasted
+    # the URL inline historically had it written verbatim into a
+    # plain-JSON compliance artefact that is typically committed to the
+    # auditor's evidence bundle.  Strip ``url`` from the persisted shape
+    # and rely on the env-backed ``url_env`` / ``secret_env`` indirection
+    # so the artefact carries enough to *re-resolve* the webhook at
+    # approve/reject time without leaking the credential into the bundle.
+    _WEBHOOK_PERSIST_FIELDS = (
+        "url_env",
+        "notify_on_success",
+        "notify_on_failure",
+        "notify_on_revert",
+        "notify_on_awaiting_approval",
+        "secret_env",
+        "timeout_seconds",
+        "retry_count",
+        "retry_backoff_seconds",
+    )
+    webhook_cfg = getattr(config, "webhook", None)
+    if webhook_cfg is not None:
+        try:
+            dumped = webhook_cfg.model_dump(mode="json")
+            manifest["webhook_config"] = {k: dumped.get(k) for k in _WEBHOOK_PERSIST_FIELDS}
+        except AttributeError:
+            # Defensive — pre-pydantic-v2 callers or hand-rolled config dicts.
+            # Falls through to a best-effort attribute dump so the approve /
+            # reject dispatchers still see *something* rather than a silent
+            # absent key.  ``url`` is intentionally absent from the field
+            # set so the credential never reaches disk via this branch.
+            manifest["webhook_config"] = {k: getattr(webhook_cfg, k, None) for k in _WEBHOOK_PERSIST_FIELDS}
+
     if resource_usage:
         manifest["resource_usage"] = resource_usage
     if safety_result:
@@ -846,6 +888,131 @@ If the model produces harmful, biased, or incorrect outputs in production:
 
 
 # ---------------------------------------------------------------------------
+# Annex IV §1-9 canonical layout (writer + hash for verify-annex-iv)
+# ---------------------------------------------------------------------------
+
+
+def build_annex_iv_artifact(manifest: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Synthesise the EU AI Act Annex IV §1-9 canonical artifact from the
+    training manifest produced by :func:`generate_training_manifest`.
+
+    The verifier (``forgelm verify-annex-iv``) checks nine top-level
+    categories (per Annex IV §1-9); the training manifest carries
+    closely-related but differently-shaped sub-blocks
+    (``model_lineage``, ``training_parameters``, ``data_provenance``,
+    ``annex_iv``, ``risk_assessment``, etc.).  This helper bridges the
+    two so a freshly-generated artefact passes its own verifier.
+
+    Returns ``None`` when the manifest lacks the operator-supplied
+    Annex IV metadata block (``manifest["annex_iv"]``) — without that,
+    the §1 system identification cannot be populated and the verifier
+    would reject the artefact as incomplete anyway.  Skipping the file
+    is more honest than emitting a half-populated stub.
+
+    The returned dict carries a ``metadata.manifest_hash`` stamp via
+    :func:`compute_annex_iv_manifest_hash` so the verifier's tampering-
+    detection branch fires.
+
+    Wave 2b Round-4 review F-W2B-01 + F-W2B-05:  previously the writer
+    emitted the operator-supplied 7-key provider block verbatim, which
+    is operator-friendly but does not match the §1-9 verifier surface.
+    The new layout keeps the original block intact via
+    ``provider_metadata`` so existing tooling that reads it does not
+    break, and surfaces the §1-9 keys at the top level for verifier
+    compatibility.
+    """
+    operator_block = manifest.get("annex_iv")
+    if not isinstance(operator_block, dict):
+        return None
+
+    artifact: Dict[str, Any] = {
+        # Annex IV §1: system identification + intended purpose.  Pulled
+        # from the operator-supplied compliance block; the verifier
+        # accepts a dict shape.
+        "system_identification": {
+            "provider_name": operator_block.get("provider_name", ""),
+            "provider_contact": operator_block.get("provider_contact", ""),
+            "system_name": operator_block.get("system_name", ""),
+            "system_version": operator_block.get("system_version", ""),
+            "intended_purpose": operator_block.get("intended_purpose", ""),
+            "risk_classification": operator_block.get("risk_classification", "minimal-risk"),
+        },
+        "intended_purpose": operator_block.get("intended_purpose", ""),
+        # Annex IV §2: software / hardware components + supplier list.
+        # Synthesised from the manifest's model lineage + training
+        # hyperparameters so the auditor can reconstruct what was run.
+        "system_components": {
+            "model_lineage": manifest.get("model_lineage", {}),
+            "training_parameters": manifest.get("training_parameters", {}),
+        },
+        "computational_resources": (
+            manifest.get("resource_usage")
+            or manifest.get("training_parameters", {}).get("resource_usage")
+            or {"recorded": "see resource_usage block when training runs with --resource-tracking"}
+        ),
+        # Annex IV §2(d): data sources, governance, validation methodology.
+        "data_governance": manifest.get("data_provenance", {}),
+        # Annex IV §3-5: design + development methodology.
+        "technical_documentation": {
+            "forgelm_version": manifest.get("forgelm_version", ""),
+            "generated_at": manifest.get("generated_at", ""),
+            "known_limitations": operator_block.get("known_limitations", ""),
+        },
+        # Annex IV §6: post-market monitoring + audit-log presence.
+        "monitoring_and_logging": (manifest.get("monitoring") or {"audit_log": "audit_log.jsonl"}),
+        # Annex IV §7: accuracy / robustness metrics.
+        "performance_metrics": manifest.get("evaluation_results", {}).get("metrics", {}),
+        # Annex IV §9: risk management system reference.
+        "risk_management": manifest.get("risk_assessment")
+        or {
+            "art9_reference": "no risk_assessment block configured",
+        },
+        # Operator-friendly view: keep the original 7-key provider block
+        # under a separate top-level key so existing downstream tooling
+        # that reads `compliance_block` directly does not break.
+        "provider_metadata": dict(operator_block),
+    }
+
+    # Stamp manifest_hash so the verifier's tampering-detection branch
+    # fires.  Computed AFTER the §1-9 fields are populated so the hash
+    # covers the full payload.  ``metadata`` block is intentionally
+    # added LAST so its presence does not perturb prior key ordering.
+    artifact["metadata"] = {"manifest_hash": compute_annex_iv_manifest_hash(artifact)}
+    return artifact
+
+
+def compute_annex_iv_manifest_hash(artifact: Dict[str, Any]) -> str:
+    """Canonical SHA-256 over the artifact MINUS its metadata block.
+
+    Both the writer (:func:`build_annex_iv_artifact`) and the verifier
+    (``forgelm verify-annex-iv``) call this helper so the
+    canonicalisation cannot drift byte-for-byte across the two paths.
+
+    Strips ``metadata.manifest_hash`` and ``metadata.manifest_signature``
+    before serialisation (those are derived from the rest of the
+    artefact and would otherwise create a chicken-and-egg cycle).
+    Serialises the rest with ``sort_keys=True, separators=(",", ":")``
+    so non-significant whitespace + key ordering does not affect the
+    digest.
+    """
+    import copy
+    import hashlib as _hashlib
+
+    payload = copy.deepcopy(artifact)
+    metadata = payload.get("metadata")
+    if isinstance(metadata, dict):
+        metadata.pop("manifest_hash", None)
+        metadata.pop("manifest_signature", None)
+        # Drop the now-empty metadata block so an artefact written
+        # without metadata at all hashes identically to one whose
+        # metadata block carried only the (now-stripped) hash.
+        if not metadata:
+            payload.pop("metadata", None)
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return _hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
 # Export: All Compliance Artifacts
 # ---------------------------------------------------------------------------
 
@@ -905,11 +1072,21 @@ def export_compliance_artifacts(
             json.dump(manifest["risk_assessment"], f, indent=2)
         generated_files.append(risk_path)
 
-    # 5. Annex IV metadata (JSON) — if present
-    if "annex_iv" in manifest:
+    # 5. Annex IV metadata (JSON) — emitted in the §1-9 canonical layout
+    # the verifier expects, with a manifest_hash stamp so tampering is
+    # detectable.  Wave 2b Round-4 review F-W2B-01 + F-W2B-05 fix:
+    # previously this wrote the flat 7-key provider-metadata block
+    # (provider_name / system_name / etc.) which the verifier rejected
+    # as missing 8 of 9 required fields, AND never emitted a
+    # manifest_hash so the verifier silently skipped tampering
+    # detection.  build_annex_iv_artifact synthesises the §1-9 keys
+    # from the manifest sub-blocks; compute_annex_iv_manifest_hash
+    # produces a hash the verifier recomputes byte-for-byte.
+    annex_artifact = build_annex_iv_artifact(manifest)
+    if annex_artifact is not None:
         annex_path = os.path.join(output_dir, "annex_iv_metadata.json")
         with open(annex_path, "w") as f:
-            json.dump(manifest["annex_iv"], f, indent=2)
+            json.dump(annex_artifact, f, indent=2, default=str)
         generated_files.append(annex_path)
 
     logger.info("Compliance artifacts exported to %s (%d files)", output_dir, len(generated_files))

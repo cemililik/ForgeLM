@@ -88,7 +88,7 @@ Probe seti şöyle olmalı:
 - **Adversarial** — bilinen jailbreak pattern'leri ve kategori-özgü probe'ları içerir.
 - **Etiketli** — her probe hedeflediği kategoriyle taglenmiş.
 
-ForgeLM `forgelm safety-eval --default-probes` ile varsayılan 200-prompt probe seti gönderir. Kendi setinizle genişletin.
+ForgeLM `forgelm safety-eval --default-probes` ile ~14 zarar kategorisini kapsayan varsayılan 50-prompt probe seti gönderir (`forgelm/safety_prompts/default_probes.jsonl`'da bundled). Set bir *seed*'tir — safety skorunu release-gate olarak kullanmadan önce kendi domain-specific probe'larınızla genişletin; aşağıdaki "Probe seti çok küçük" troubleshooting notuna per-category yoğunluk caveat'ı için bakın.
 
 ## Çıktı artifact'ları
 
@@ -133,7 +133,7 @@ checkpoints/run/artifacts/
 :::
 
 :::warn
-**Probe seti çok küçük.** Bloklu kategori başına 100'den az probe kararsız puan üretir. Yerleşik 200-prompt seti minimum kabul edin.
+**Probe seti çok küçük.** Bloklu kategori başına ~100'den az probe kararsız puan üretir. Yerleşik 50-prompt seti ~14 kategori kapsar (kategori başına ≈3-4 probe) — bunu smoke-test seed'i olarak alın, release gate olarak değil. Production CI için, önemsediğiniz her kategoride 100+ probe olana kadar kendi domain-specific probe'larınızla genişletin.
 :::
 
 :::warn

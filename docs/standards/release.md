@@ -24,6 +24,29 @@ Current version is `0.3.1rc1` — pre-1.0 using release candidate suffixes.
 
 Pre-1.0 rule: every minor bump is potentially breaking. Users are warned in README. Post-1.0, SemVer is strict.
 
+### `__api_version__` (Python library surface)
+
+Library consumers — code that does `import forgelm` and pins against the public Python API listed in `forgelm.__all__` — read [`forgelm/_version.py`](../../forgelm/_version.py)'s `__api_version__` constant rather than the CLI version. The two are intentionally decoupled: a release that adds a new training paradigm bumps `__version__` MINOR while leaving `__api_version__` alone (no new public symbol), and a release that adds a new lazy-import target bumps both.
+
+| `__api_version__` bump | Trigger |
+|---|---|
+| **MAJOR** | Stable library symbol removed, or its signature changed in a non-additive way (renamed param, removed param, narrowed return type). |
+| **MINOR** | Stable library symbol added to `forgelm.__all__` (e.g. a new `verify_*` function or a new dataclass return type). |
+| **PATCH** / none | CLI feature, YAML knob, internal refactor, or dependency tweak with no Python-API surface change. Most releases sit here. |
+
+The `cut-release` skill enforces this contract via a checklist Step 3.5 ("Bump `__api_version__` if applicable") that runs after the `pyproject.toml` `__version__` bump. The canonical bump rule lives at the top of `forgelm/_version.py`.
+
+Library consumers should parse `__api_version__` via `packaging.version.Version` (string `>=` comparison breaks for two-digit minor/patch components — e.g. `"1.10.0" < "1.2.0"` as strings):
+
+```python
+from packaging.version import Version
+import forgelm
+
+assert Version(forgelm.__api_version__) >= Version("1.1.0")  # feature detection
+```
+
+Bumping `__api_version__` MAJOR pre-1.0 still requires an explicit "Breaking" CHANGELOG entry per the cadence below.
+
 ## CHANGELOG
 
 Maintained at [`CHANGELOG.md`](../../CHANGELOG.md), format from "Keep a Changelog":

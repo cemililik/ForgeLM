@@ -100,8 +100,15 @@ class TestGrpoRewardCallable:
         }
 
         with (
-            patch("forgelm.trainer.SFTTrainer"),
-            patch("forgelm.trainer.SFTConfig"),
+            # Patch in the lazy-import source modules.  ``forgelm/trainer.py``
+            # defers ``from trl import SFTTrainer/SFTConfig`` to method bodies
+            # (closure-plan F-performance-101) so they are NOT module-level
+            # attributes on ``forgelm.trainer`` — patching that path raises
+            # ``AttributeError: module 'forgelm.trainer' does not have the
+            # attribute 'SFTTrainer'``.  Patch the upstream modules instead;
+            # the lazy ``from trl import …`` resolves the patched symbol.
+            patch("trl.SFTTrainer"),
+            patch("trl.SFTConfig"),
             patch("trl.GRPOTrainer", side_effect=fake_grpo_trainer),
             patch("trl.GRPOConfig", return_value=MagicMock()),
             patch(
@@ -280,6 +287,7 @@ class TestGrpoRewardCallable:
         )
 
 
+@pytest.mark.skipif(not torch_available, reason="ForgeTrainer requires torch")
 class TestGrpoClassifierTrustRemoteCode:
     """Phase 7 (M-202): the GRPO classifier reward must load HF artifacts with
     ``trust_remote_code=False``.

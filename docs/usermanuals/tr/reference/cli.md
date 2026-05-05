@@ -20,9 +20,15 @@ ForgeLM, subcommand'larla tek bir `forgelm` binary'si yayınlar. Bu sayfa kanoni
 | `forgelm export` | GGUF export ve quantization. |
 | `forgelm deploy` | Deployment config üret (Ollama, vLLM, TGI, HF Endpoints). |
 | `forgelm verify-audit` | Audit log zincirini doğrula (timestamp, prev_hash, HMAC). |
+| `forgelm verify-annex-iv` | Export edilmiş Annex IV artefact'ını doğrula (§1-9 alanlar + manifest hash). |
+| `forgelm verify-gguf` | GGUF model dosyası bütünlüğünü doğrula (magic header + metadata + SHA-256 sidecar). |
 | `forgelm approve` | İnsan onay isteğini imzala ve `final_model.staging/`'i promote et. |
 | `forgelm reject` | İnsan onay isteğini reddet ve staging'i at. |
 | `forgelm approvals` | Bekleyen onayları listele (`--pending`) veya tek birini incele (`--show RUN_ID`). |
+| `forgelm purge` | GDPR Madde 17 silme: row-id, run-id veya `--check-policy` retention raporu. |
+| `forgelm cache-models` | Air-gap workflow: bir veya birden fazla model için HuggingFace Hub cache'ini önceden doldur. |
+| `forgelm cache-tasks` | Air-gap workflow: lm-eval task dataset cache'ini önceden doldur (`[eval]` extra'sı gerekir). |
+| `forgelm safety-eval` | Bir model checkpoint'ine karşı standalone safety evaluation (varsayılan Llama Guard). |
 
 Bunlardan herhangi biri için `forgelm <subcommand> --help`.
 

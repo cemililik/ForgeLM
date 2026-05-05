@@ -153,6 +153,13 @@ include = ["forgelm*"]
   "*/*.jsonl",
   "*/*.md",
 ]
+# Phase 19: PEP 561 type-hint distribution marker so downstream
+# `mypy --strict` / pyright consumers see in-source type hints without
+# a separate stubs package.  Empty file at forgelm/py.typed.
+"forgelm" = ["py.typed"]
+# Phase 36: bundled default safety probes so `forgelm safety-eval
+# --default-probes` works after a wheel install.
+"forgelm.safety_prompts" = ["*.jsonl"]
 
 [tool.pytest.ini_options]
 addopts = "--cov=forgelm --cov-report=term-missing --cov-fail-under=40"

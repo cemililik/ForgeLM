@@ -506,7 +506,14 @@ def _walk_hf_cache_bounded(cache_dir_abs: str) -> Tuple[int, int, int, int, bool
     def _on_walk_error(exc: OSError) -> None:
         nonlocal walk_errors
         walk_errors += 1
-        logger.warning("Doctor HF cache walk hit %s on %s", exc.__class__.__name__, getattr(exc, "filename", "?"))
+        # ``OSError.filename`` may legitimately be ``None`` on some
+        # platforms (Windows / WSL / FUSE) when the OSError originates
+        # from a level that did not associate a filename.  ``getattr(...,
+        # "?")`` only catches the missing-attribute case; ``or "?"``
+        # additionally collapses ``None`` so the operator-facing log
+        # never shows the unhelpful literal ``None``.
+        filename = getattr(exc, "filename", None) or "?"
+        logger.warning("Doctor HF cache walk hit %s on %s", exc.__class__.__name__, filename)
 
     base_depth = cache_dir_abs.rstrip(os.sep).count(os.sep)
     for root, dirs, files in os.walk(cache_dir_abs, onerror=_on_walk_error):
@@ -915,7 +922,11 @@ def _render_json(results: List[_CheckResult]) -> str:
     # exit with a Python traceback to stderr instead of the documented
     # JSON envelope.  ``default=str`` defangs the contract violation by
     # falling back to the value's ``__str__`` repr.
-    return json.dumps(envelope, indent=2, default=str)
+    # ``ensure_ascii=False`` (PR #29 F-34-01): a Turkish operator name,
+    # Unicode cache path, or localized error message in ``detail`` /
+    # ``extras`` would otherwise render as ``\uXXXX`` escape sequences,
+    # making the JSON unreadable for operators and downstream parsers.
+    return json.dumps(envelope, indent=2, default=str, ensure_ascii=False)
 
 
 def _resolve_exit_code(results: List[_CheckResult]) -> int:
@@ -945,16 +956,21 @@ def _run_doctor_cmd(args, output_format: str) -> None:
     contract code resolved by :func:`_resolve_exit_code`.
 
     Also honours the standard HuggingFace airgap environment variables —
-    ``HF_HUB_OFFLINE=1`` or ``TRANSFORMERS_OFFLINE=1`` — so an air-gapped
-    operator who already has those set in their shell does not need to
-    remember to also pass ``--offline``.  An operator who explicitly
-    passes ``--offline`` always gets offline behaviour regardless of env.
+    ``HF_HUB_OFFLINE=1``, ``TRANSFORMERS_OFFLINE=1``, or
+    ``HF_DATASETS_OFFLINE=1`` — so an air-gapped operator who already has
+    any of them set in their shell does not need to remember to also
+    pass ``--offline``.  ``HF_DATASETS_OFFLINE`` mirrors what
+    ``forgelm/cli/_config_load.py::_apply_offline_flag`` already sets at
+    training time (PR #29 F-XPR-01); without it doctor would probe the
+    network on a host that the training pipeline correctly treats as
+    offline.  An operator who explicitly passes ``--offline`` always
+    gets offline behaviour regardless of env.
     """
     offline = bool(getattr(args, "offline", False))
     if not offline:
         # Standard HF airgap signals — empty string and "0" do NOT
         # activate offline mode (the documented HF behaviour).
-        for env_name in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE"):
+        for env_name in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
             value = os.environ.get(env_name)
             if value and value not in ("0", "false", "False"):
                 offline = True
