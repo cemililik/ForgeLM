@@ -1,122 +1,198 @@
-## Compliance Summary: EU AI Act (Article 17 + related requirements)
+# Compliance Summary — EU AI Act + ISO 27001 + SOC 2
 
-Purpose
-- Provide a concise, machine‑friendly summary of how ForgeLM implements evidence, controls and artifacts that support compliance with the EU AI Act (not legal advice).
+> **Scope.** Concise, machine-friendly summary of how ForgeLM
+> implements evidence, controls and artefacts that support
+> compliance with the EU AI Act (high-risk systems, Article 17 QMS
+> + related provisions) AND the deployer's ISO 27001 / SOC 2 Type II
+> alignment. Not legal advice.
+>
+> **Audience.** Compliance officer / auditor / deployer engineering
+> lead.
+>
+> Wave 4 / Faz 26 cleanup: this document used to anchor at literal
+> source-code line numbers (e.g. `compliance.py#L33`) that drifted
+> as the codebase evolved.  References below now use symbol-name
+> + module-path form so they survive refactors.
 
-Scope
-- This document maps repo components, evidence files, and operational gaps to common EU AI Act expectations for high‑risk systems (Article 17 QMS, provenance, audit trails, monitoring).
+## Quick conclusion
 
-Quick conclusion
-- ForgeLM already implements many technical controls relevant to Article 17: post‑training safety evaluation with auto‑revert, dataset and checkpoint SHA‑256 fingerprinting, and machine‑readable compliance artifacts. Additional organizational, signing, and immutable‑logging steps are recommended to harden auditability for formal QMS/third‑party review.
+ForgeLM ships out-of-the-box:
 
-Required / relevant EU AI Act items (high level)
-- Risk assessment and governance (who is responsible, risk classification).
-- Quality Management System (QMS) processes and records (Article 17): documented procedures, versioning, roles, and training records.
-- Data provenance and documentation: dataset source, preprocessing, schema, fingerprints, timestamps.
-- Technical documentation & conformity evidence: model lineage, evaluation results, safety tests, validation reports.
-- Monitoring & post‑market surveillance: runtime monitoring, incident logging, corrective actions.
+- **EU AI Act Article 9** risk-management evidence via the strict
+  gate (`_warn_high_risk_compliance`) + safety-eval auto-revert.
+- **EU AI Act Article 10** data-governance evidence via
+  `data_governance_report.json` + `forgelm audit` PII / secrets /
+  quality scan.
+- **EU AI Act Article 11 + Annex IV** technical documentation via
+  `compliance.export_compliance_artifacts` + ZIP bundle.
+- **EU AI Act Article 12** record-keeping via append-only
+  `AuditLogger` (HMAC chain + manifest sidecar).
+- **EU AI Act Article 13** deployer instructions via
+  `generate_deployer_instructions`.
+- **EU AI Act Article 14** human-oversight gate via
+  `forgelm approve` / `reject` Article 14 staging.
+- **EU AI Act Article 15** model-integrity via
+  `compute_artefact_sha256` + `model_integrity.json`.
+- **EU AI Act Article 17** QMS templates in `docs/qms/` (Wave 0
+  baseline + Wave 4 ISO additions).
+- **GDPR Article 15** right-of-access via `forgelm reverse-pii`.
+- **GDPR Article 17** right-to-erasure via `forgelm purge`.
+- **ISO 27001 / SOC 2 alignment** — see Wave 4 design doc + deployer
+  guide.
 
-Where ForgeLM meets these (technical evidence)
-- Safety evaluation & auto‑revert
-  - Implementation: core logic in `forgelm/trainer.py` (auto‑revert triggers and `_revert_model`). See [forgelm/trainer.py](forgelm/trainer.py#L37) and `_revert_model` at [forgelm/trainer.py](forgelm/trainer.py#L278).
-  - Behavior: configurable `max_safety_regression` and `auto_revert` flags; safety checks executed post‑training.
+## EU AI Act high-level checklist
 
-- Safety classifier and thresholds
-  - Implementation: `forgelm/safety.py` performs classification on adversarial prompts and enforces thresholds. See [forgelm/safety.py](forgelm/safety.py#L33) and threshold logic at [forgelm/safety.py](forgelm/safety.py#L129).
+What the regulator asks vs. how ForgeLM answers:
 
-- Data provenance (SHA‑256) and compliance export
-  - Implementation: `forgelm/compliance.py` computes SHA‑256 fingerprints, writes `data_provenance.json`, and exports compliance artifacts. See [forgelm/compliance.py](forgelm/compliance.py#L1) and hash calculation at [forgelm/compliance.py](forgelm/compliance.py#L33) and file output at [forgelm/compliance.py](forgelm/compliance.py#L167).
+| Regulator question | ForgeLM evidence |
+|---|---|
+| Risk classification + governance | `compliance.risk_classification` 5-tier; F-compliance-110 strict gate |
+| QMS processes + records | `docs/qms/` 9 SOPs (5 Wave 0 + 4 Wave 4); audit chain |
+| Data provenance | `data_provenance.json`; `compute_dataset_fingerprint` (SHA-256 + size + mtime); HF-revision pin |
+| Technical documentation | `annex_iv_metadata.json`; Annex IV §§1-9 canonical layout |
+| Conformity evidence | `compliance_report.json`; `model_card.md`; `model_integrity.json` |
+| Monitoring + post-market surveillance | Webhook lifecycle (`notify_*`); `safety_trend.jsonl` cross-run trend |
+| Human oversight | Article 14 staging gate; `human_approval.required/granted/rejected` |
 
-- Documentation & examples
-  - Usage and safety compliance guidance: [docs/guides/safety_compliance.md](docs/guides/safety_compliance.md#L23).
-  - Template config shows `auto_revert` and safety settings: [config_template.yaml](config_template.yaml#L101).
-  - Marketing/README highlight features: [README.md](README.md#L21).
+## Where ForgeLM meets each requirement
 
-- Tests
-  - Unit tests validate provenance and revert logic: `tests/test_compliance.py` and `tests/test_trainer.py`. Example: `sha256` checks in [tests/test_compliance.py](tests/test_compliance.py#L134).
+### Safety evaluation + auto-revert
 
-Gaps, residual risks and operational considerations
-- Organizational QMS (Article 17) — gap
-  - Code and generated artifacts exist, but formal QMS documents (SOPs, roles, training records, approvals) live outside repo. Recommendation: create `docs/qms/` with SOP templates, roles and review signoffs.
+- Implementation: `forgelm.trainer` post-training evaluation chain;
+  `auto_revert` flag triggers fall-back to baseline on regression.
+- Evidence: `safety_results.json` (per-prompt classification);
+  `pipeline.reverted` audit event with regression delta.
+- Configuration: `evaluation.safety.enabled`,
+  `evaluation.auto_revert`, `evaluation.safety.scoring`,
+  `evaluation.safety.min_safety_score`.
 
-- Immutable evidence & signing — risk
-  - SHA‑256 fingerprints are good, but unauthenticated files can be tampered with. Recommendation: add timestamping and digital signatures (GPG/PKI) for `data_provenance.json` and `compliance_report.json`, or integrate with an append‑only log (e.g., remote ledger, WORM storage).
+### Safety classifier + 3-layer gate
 
-- Revert safety & retention — operational risk
-  - Current `_revert_model` deletes artifacts. For audits and incident analysis, prefer archiving reverted artifacts to a secure, read‑only archive before deletion and keep an audit entry. Add configurable retention / require human approval for production revert.
+- Implementation: `forgelm.safety` runs Llama Guard 3 (or operator-
+  configured classifier) on a 140-prompt corpus across 6 categories
+  (was 50 × 3 in the v0.4 series; expanded in v0.5.0).
+- 3-layer gate: binary safe-ratio → confidence-weighted score →
+  severity threshold.  Each layer fails the run with a distinct
+  `audit.classifier_*` event so the operator can attribute the
+  rejection.
 
-- Access controls & secrets — risk
-  - Ensure provenance and model artifacts are protected by RBAC and encrypted at rest. Document expected IAM roles for auditors vs engineers.
+### Data provenance (SHA-256) + compliance export
 
-- Post‑market monitoring — gap
-  - Add runtime safety telemetry and incident reporting hooks (webhooks/metrics) to track deployed model behavior and feed into QMS corrective actions.
+- Implementation: `forgelm.compliance` computes per-corpus
+  fingerprints (`_fingerprint_local_file`, `_fingerprint_hf_revision`)
+  and writes `data_provenance.json`; `export_compliance_artifacts`
+  ZIPs the bundle.
+- CLI: `forgelm --config job.yaml --compliance-export ./out/`.
 
-Firms' opportunities
-- Competitive advantage: highlight existing technical controls (auto‑revert + SHA‑256) and market as “EU AI Act–ready” packages.
-- Productization: compliance export + audit‑bundle, GitHub Actions workflows, and audit checklist templates.
-- Enterprise add‑ons: QMS integration, signed/timestamped provenance, RBAC, and admin dashboard.
+### Audit chain (Article 12)
 
-Recommended additions (prioritized)
-1. Compliance summary document (this file) + `docs/qms/` skeleton with SOP templates and roles (low effort).
-2. Evidence bundle export: implement `forge compliance bundle` to produce `compliance_bundle.zip` (model card, `data_provenance.json`, `compliance_report.json`, evaluation logs).
-3. Signed provenance: timestamp + GPG or PKI signing of provenance file; optionally publish signatures to a public bulletin (or store in S3 with immutable versioning).
-4. CI workflow example: add `.github/workflows/auto_revert.yml` demonstrating post‑training safety checks, revert flow, and notification (Slack/Issue).
-5. Revert safe‑guards: archive reverted artifacts and add a configurable human approval window for production pipelines.
-6. Runtime monitoring & incident reporting hooks for post‑market surveillance.
+- Implementation: `forgelm.compliance.AuditLogger` — JSON Lines
+  append-only log at `<output_dir>/audit_log.jsonl`, HMAC-chained
+  with `FORGELM_AUDIT_SECRET` XOR'd against the per-output-dir salt
+  in `<output_dir>/.forgelm_audit_salt`.  Genesis manifest sidecar
+  (`audit_log.manifest.json`) refuses truncate-and-resume tampering.
+- Verification: `forgelm verify-audit [--require-hmac]` validates
+  the chain end-to-end; exits 0/1/2/3.
 
-Implementation notes and quick examples
-- Evidence bundle command (example):
+### Article 14 staging gate
 
-```bash
-# Export compliance artifacts from a completed training run
-forgelm --config job.yaml --compliance-export ./compliance_output/
+- Implementation: when `evaluation.require_human_approval: true`
+  the trained model lands in `<output_dir>/staging_model.<run_id>/`
+  awaiting `forgelm approve --run-id <id>` from a non-trainer
+  operator.
+- Listing: `forgelm approvals --pending` (Phase 37).
+- Audit: `human_approval.required/granted/rejected` events.
 
-# Package all artifacts into a single auditor-ready ZIP
-# (export_evidence_bundle() in forgelm/compliance.py)
-```
+### GDPR Article 15 + 17 (Wave 2b + Wave 3)
 
-- CI workflow skeleton (concept): create `.github/workflows/auto_revert.yml` that runs train → evaluate → safety checks → if fail: archive artifacts, create issue, optionally revert. Add Slack or webhook notifications.
+- Article 17 erasure: `forgelm purge --row-id <id> --corpus
+  data/file.jsonl` with salted-hash audit (`data.erasure_*` events).
+- Article 15 access: `forgelm reverse-pii --query <id> --type
+  email|phone|... data/*.jsonl` with salted-hash audit
+  (`data.access_request_query` event).
 
-- Signing provenance (concept):
+### ISO 27001 / SOC 2 Type II alignment (Wave 4)
 
-```bash
-gpg --armor --detach-sign data_provenance.json
-sha256sum data_provenance.json > data_provenance.sha256
-```
+- Design doc: [`../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md)
+  (~865 lines, full 93-control coverage map).
+- Deployer cookbook: [`../guides/iso_soc2_deployer_guide.md`](../guides/iso_soc2_deployer_guide.md).
+- Reference tables: [`iso27001_control_mapping.md`](iso27001_control_mapping.md),
+  [`soc2_trust_criteria_mapping.md`](soc2_trust_criteria_mapping.md).
+- Supply chain: [`supply_chain_security.md`](supply_chain_security.md)
+  — CycloneDX 1.5 SBOM, `pip-audit` nightly, `bandit` CI.
 
-Evidence locations (quick links)
-- Auto‑revert logic: [forgelm/trainer.py](../../forgelm/trainer.py) — `_revert_model`
-- Safety evaluation: [forgelm/safety.py](../../forgelm/safety.py)
-- Provenance + AuditLogger + hash chain: [forgelm/compliance.py](../../forgelm/compliance.py)
-- Config template: [config_template.yaml](../../config_template.yaml)
-- Safety guidance: [docs/guides/safety_compliance.md](../guides/safety_compliance.md)
-- Tests: [tests/test_compliance.py](../../tests/test_compliance.py), [tests/test_trainer.py](../../tests/test_trainer.py)
+## Gaps + residual operator-side considerations
 
-Phase 8 implemented features (all complete)
-- ComplianceMetadataConfig: provider_name, intended_purpose, risk_classification, system_name (Annex IV)
-- RiskAssessmentConfig: intended_use, foreseeable_misuse, risk_category, mitigation_measures (Art. 9)
-- DataGovernanceConfig: collection_method, annotation_process, known_biases, DPIA tracking (Art. 10)
-- AuditLogger: append-only JSON Lines event log with run_id, operator, timestamps, SHA-256 hash chain, per-line HMAC, flock concurrent-write guard, genesis manifest sidecar (Art. 12)
-- generate_deployer_instructions(): auto-generated markdown for non-ML deployers (Art. 13)
-- require_human_approval: pipeline pauses for review, exit code 4 (Art. 14)
-- generate_model_integrity(): SHA-256 checksums on all output artifacts (Art. 15)
-- MonitoringConfig: post-market monitoring hooks — Prometheus/Datadog (Art. 17)
-- export_evidence_bundle(): ZIP archive of all compliance artifacts
-- QMS templates: 5 SOP documents in `docs/qms/` (training, data, incident, change, roles)
-- `--compliance-export` CLI flag: standalone compliance artifact generation without GPU
+ForgeLM ships ~61 of the 93 ISO 27001 Annex A controls' technical
+evidence; the remaining ~32 are deployer-side (physical security,
+HR processes, network segregation, etc.).  For the deployer's
+ISMS posture:
 
-Phase 9 implemented features (advanced safety scoring)
-- Confidence score extraction: captures classifier probability per response
-- Confidence-weighted safety score: `scoring: "confidence_weighted"`, `min_safety_score` threshold
-- Low-confidence alerts: flags responses where classifier confidence < `min_classifier_confidence`
-- Llama Guard S1-S14 harm category parsing: 14 categories mapped to severity levels
-- Severity levels: critical/high/medium/low with per-severity threshold enforcement
-- Cross-run trend tracking: `safety_trend.jsonl` (append-only, longitudinal analysis)
-- Built-in adversarial prompt library: `configs/safety_prompts/` (50 prompts in 3 categories)
-- 3-layer safety gate: binary ratio → confidence score → severity thresholds
+- **Encryption at rest** — ForgeLM is encryption-substrate-agnostic;
+  see [`../qms/encryption_at_rest.md`](../qms/encryption_at_rest.md)
+  for substrate recommendations per artefact class.
+- **Access control** — operator identity contract +
+  `FORGELM_AUDIT_SECRET` rotation cadence in
+  [`../qms/access_control.md`](../qms/access_control.md).
+- **Risk treatment** — pre-populated 12-row register in
+  [`../qms/risk_treatment_plan.md`](../qms/risk_treatment_plan.md).
+- **Statement of Applicability** — 93-control matrix in
+  [`../qms/statement_of_applicability.md`](../qms/statement_of_applicability.md).
 
-Remaining considerations
-- Signed/timestamped provenance (GPG/PKI) for tamper-proof artifacts
-- Append-only evidence store integration (WORM storage, remote ledger)
-- Revert artifact archival (archive before deletion for audit trail)
-- RBAC documentation for auditor vs engineer access
+## Recommended adoption sequence
+
+1. Adopt the `docs/qms/` SOPs ([Model Training](../qms/sop_model_training.md),
+   [Data Management](../qms/sop_data_management.md),
+   [Incident Response](../qms/sop_incident_response.md),
+   [Change Management](../qms/sop_change_management.md),
+   [Roles & Responsibilities](../qms/roles_responsibilities.md)).
+2. Set `FORGELM_OPERATOR` + `FORGELM_AUDIT_SECRET` per
+   [`../qms/access_control.md`](../qms/access_control.md).
+3. Configure `evaluation.require_human_approval: true` for every
+   high-risk run.
+4. Schedule weekly `forgelm verify-audit` cron.
+5. Enable `auto_revert: true` in production training.
+6. Ship `audit_log.jsonl` to write-once storage.
+7. For full ISO / SOC 2 alignment: walk
+   [`../guides/iso_soc2_deployer_guide.md`](../guides/iso_soc2_deployer_guide.md).
+
+## Evidence locations (symbol references — line-stable)
+
+Wave 4 / Faz 26 cleanup: each link points at the file root, not a
+line anchor.  The auditor opens the file and greps the cited symbol
+name; this survives refactors that the prior `#L33` form did not.
+
+- **Auto-revert + safety-eval gate**: `forgelm.trainer` (search for
+  `_revert_model`, `auto_revert`, `_run_safety_eval`).
+- **Safety classifier + 3-layer gate**: `forgelm.safety` (search for
+  `LlamaGuardClassifier`, `_evaluate_3_layer_gate`).
+- **Audit chain + HMAC + manifest**: `forgelm.compliance` (search
+  for `AuditLogger`, `_check_genesis_manifest`,
+  `compute_artefact_sha256`).
+- **Salted identifier hashing**: `forgelm.cli.subcommands._purge`
+  (search for `_resolve_salt`, `_read_persistent_salt`,
+  `_hash_target_id`).
+- **GDPR Article 15 reverse-pii**: `forgelm.cli.subcommands._reverse_pii`.
+- **Article 14 staging + approve / reject**:
+  `forgelm.cli.subcommands._approve`,
+  `forgelm.cli.subcommands._reject`,
+  `forgelm.cli.subcommands._approvals`.
+- **Webhook lifecycle**: `forgelm.webhook` (search for
+  `notify_started`, `notify_succeeded`, `notify_failed`,
+  `notify_reverted`, `notify_awaiting_approval`).
+- **HTTP discipline**: `forgelm._http` (search for `safe_post`,
+  `safe_get`).
+- **Config validation**: `forgelm.config`
+  (`_warn_high_risk_compliance`, `_validate_galore`,
+  `_validate_distributed`).
+
+## See also
+
+- [Audit event catalog](audit_event_catalog.md) — full event vocabulary.
+- [ISO 27001 control mapping](iso27001_control_mapping.md) — Annex A × ForgeLM evidence.
+- [SOC 2 Trust Services Criteria mapping](soc2_trust_criteria_mapping.md) — TSC × ForgeLM evidence.
+- [Supply chain security](supply_chain_security.md) — SBOM + pip-audit + bandit.
+- [QMS index](../qms/README.md) — SOP templates.
+- [GDPR erasure guide](../guides/gdpr_erasure.md) — Article 15 + 17 workflows.
+- [Safety + compliance guide](../guides/safety_compliance.md) — operator-facing how-to.
+- [ISO / SOC 2 deployer guide](../guides/iso_soc2_deployer_guide.md) — audit cookbook (Wave 4).
