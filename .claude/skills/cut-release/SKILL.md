@@ -40,11 +40,16 @@ From [release.md](../../../docs/standards/release.md):
 | Stable library symbol added to `forgelm.__all__` (e.g. new `verify_*` function) | MINOR | MINOR |
 | Stable library symbol removed or signature changed | MAJOR | MAJOR |
 
-`__version__` (in [`pyproject.toml`](../../../pyproject.toml) line 7) tracks the *CLI / YAML / behavioural* contract. `__api_version__` (in [`forgelm/_version.py`](../../../forgelm/_version.py)) tracks the *Python library* contract — operators who pin `assert forgelm.__api_version__ >= "X.Y.0"` for feature detection rely on this signal. The two version numbers are decoupled by design: a release that adds a new training paradigm bumps `__version__` MINOR while leaving `__api_version__` untouched (no new public symbol), and a release that adds a new lazy-import target bumps both.
+`__version__` (single source of truth: [`pyproject.toml`](../../../pyproject.toml) line 7) tracks the *CLI / YAML / behavioural* contract. `__api_version__` (single source of truth: [`forgelm/_version.py`](../../../forgelm/_version.py)) tracks the *Python library* contract — operators who pin against it for feature detection rely on this signal. The two version numbers are decoupled by design: a release that adds a new training paradigm bumps `__version__` MINOR while leaving `__api_version__` untouched (no new public symbol), and a release that adds a new lazy-import target bumps both.
 
-Current `__version__` in [`pyproject.toml`](../../../pyproject.toml) line 7. Current `__api_version__` in [`forgelm/_version.py`](../../../forgelm/_version.py). Both are single sources of truth.
+Library consumers should compare `__api_version__` via `packaging.version.Version` rather than string `>=`, because lexicographic comparison breaks for two-digit minor / patch components (e.g. `"1.10.0" < "1.2.0"` as strings):
 
-Current version in [`pyproject.toml`](../../../pyproject.toml) line 7. Single source of truth.
+```python
+from packaging.version import Version
+import forgelm
+
+assert Version(forgelm.__api_version__) >= Version("1.0.0")
+```
 
 ## Pre-release checklist
 
@@ -100,7 +105,7 @@ If pre-release → release: drop `rcN` suffix. If new rc: `0.4.0rc1` → `0.4.0r
 **Question to answer:** did this release add, remove, or change the signature of a *stable-tier* library symbol (anything in `forgelm.__all__`)?
 
 - [ ] **No** → leave [`forgelm/_version.py`](../../../forgelm/_version.py) `__api_version__` untouched. Most releases sit here (CLI features, YAML knobs, internal refactors).
-- [ ] **Yes, added** → bump `__api_version__` MINOR. Library consumers can then pin `assert forgelm.__api_version__ >= "X.Y.0"` for feature detection.
+- [ ] **Yes, added** → bump `__api_version__` MINOR. Library consumers can then pin `assert Version(forgelm.__api_version__) >= Version("X.Y.0")` (using `packaging.version.Version` — see top-of-skill block) for feature detection.
 - [ ] **Yes, removed or signature changed** → bump `__api_version__` MAJOR. The next 0.x release MUST telegraph the break in CHANGELOG's "Breaking" section.
 
 The canonical bump rule lives at the top of [`forgelm/_version.py`](../../../forgelm/_version.py); the matching policy paragraph is in [`docs/standards/release.md`](../../../docs/standards/release.md). `__version__` and `__api_version__` are intentionally decoupled — see the table at the top of this skill.

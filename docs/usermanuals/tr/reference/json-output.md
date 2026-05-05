@@ -173,38 +173,42 @@ Audit log chain bütünlüğü kontrolü.
 
 Üç-modlu dispatcher: `--row-id`, `--run-id` veya `--check-policy`. Wave 2b Phase 21 — GDPR Madde 17 silme hakkı.
 
-**Satır-silme başarı zarfı** (`forgelm purge --row-id ROW --corpus PATH`):
+**Satır-silme başarı zarfı — wet run** (`forgelm purge --row-id ROW --corpus PATH`):
 
 ```json
 {
   "success": true,
   "mode": "row",
-  "row_id_hash": "sha256:abc123...",
+  "dry_run": false,
+  "row_id_hash": "abc123...64-hex",
   "salt_source": "per_dir",
   "corpus_path": "/work/train.jsonl",
-  "files_modified": ["/work/train.jsonl"],
+  "matches": 1,
+  "first_line": 42,
   "bytes_freed": 142,
-  "pre_erasure_line_number": 42,
-  "match_count": 1,
-  "dry_run": false
+  "warnings": []
 }
 ```
 
-**Run-silme başarı zarfı** (`--run-id RUN --kind {staging,artefacts}`):
+**Satır-silme başarı zarfı — dry run:** aynı şekil eksi `bytes_freed` (rewrite atlanır); `warnings: []` ve `dry_run: true`.
+
+**Run-silme başarı zarfı — wet run** (`--run-id RUN --kind {staging,artefacts}`):
 
 ```json
 {
   "success": true,
   "mode": "run",
-  "run_id": "fg-abc123",
   "kind": "staging",
-  "files_modified": ["/work/output/final_model.staging.fg-abc123"],
-  "bytes_freed": 1048576,
-  "dry_run": false
+  "dry_run": false,
+  "run_id": "fg-abc123",
+  "deleted": ["/work/output/final_model.staging.fg-abc123"],
+  "bytes_freed": 1048576
 }
 ```
 
-**Check-policy başarı zarfı** (`--check-policy [--config PATH]`):
+**Run-silme başarı zarfı — dry run:** `deleted` yerine `would_delete` (aynı liste-of-paths şekli); `bytes_freed`'i çıkar.
+
+**Check-policy başarı zarfı — retention block configured** (`--check-policy [--config PATH]`):
 
 ```json
 {
@@ -222,15 +226,33 @@ Audit log chain bütünlüğü kontrolü.
 }
 ```
 
+**Check-policy başarı zarfı — retention block yok** (operatörün config'i `retention:` block'unu atladı veya `--config` verilmedi): zarf `count`'u düşürür ve no-op'u açıklayan bir `note` field ekler:
+
+```json
+{
+  "success": true,
+  "violations": [],
+  "note": "No `retention:` block in the loaded config; nothing to enforce.  See `docs/guides/gdpr_erasure.md` for the schema."
+}
+```
+
 | Anahtar | Tip | Notlar |
 |---|---|---|
 | `success` | bool | Başarılı operasyon için `true`; config / runtime hatasında `false` (`error` ile). |
 | `mode` (row/run) | str | Discriminator; `"row"` veya `"run"`. `--check-policy`'de yok. |
-| `row_id_hash` | str | Tuzlu satır id'sinin `sha256:` öneki ile hex digest'i. Cleartext değer hiçbir zaman zarfta yer almaz. |
+| `kind` (run) | str | `"staging"` veya `"artefacts"`. Sadece run mode. |
+| `dry_run` | bool | `--dry-run` flag'ini yansıtır. Row + run zarflarında mevcut; `--check-policy`'de yok (mode tanım gereği read-only). |
+| `row_id_hash` | str | `salt + raw_value`'nun 64-karakter küçük-harfli hex SHA-256 digest'i. Cleartext değer hiçbir zaman zarfta yer almaz. **Not:** digest plain hex olarak emit edilir (`sha256:` öneki YOK) — tüketiciler `hashlib.sha256(...).hexdigest()` ile doğrudan `==` karşılaştırma yapabilsin diye. |
 | `salt_source` | str | `FORGELM_AUDIT_SECRET` toggle'ına göre `"per_dir"` veya `"env_var"`. |
+| `corpus_path` | str | Operatörün `--corpus` ile geçtiği JSONL corpus'un absolute path'i. Sadece row mode. |
+| `matches` | int | `--row-id` ile eşleşen satırların sayısı. Sadece row mode. |
+| `first_line` | int | İlk eşleşen satırın 1-tabanlı satır numarası, rewrite *öncesi* yakalanmış. Sadece row mode. |
+| `bytes_freed` | int | Silme tarafından geri kazanılan byte. Wet run'larda mevcut (row + run); dry run'larda yok. |
+| `warnings` | list[str] | Row erasure ile birlikte emit edilen `data.erasure_warning_*` audit event isimleri (memorisation / synthetic-data / external-copies). Sadece row mode. |
+| `would_delete` (run dry) / `deleted` (run wet) | list[str] | Run mode: dispatcher'ın silmek için hedeflediği path'ler. Dry vs wet'te farklı anahtar — tüketiciler şekle göre branch'leyebilsin diye. |
 | `violations` | list[object] | Sadece `--check-policy`. `artefact_kind` şunlardan biri: `audit_log`, `staging_dir`, `staging_dir[<run_id>]`, `compliance_bundle`, `data_audit_report`, `raw_documents[...]`. `age_source` ∈ `{audit, mtime}`. |
-| `count` | int | Sadece `--check-policy`; `len(violations)`'a eşit. |
-| `dry_run` | bool | `--dry-run` flag'ini yansıtır. |
+| `count` | int | Sadece `--check-policy` ve `retention:` block configured ise; `len(violations)`'a eşit. No-retention-block dalında yok (onun yerine `note` ekler). |
+| `note` | str | Sadece `--check-policy` ve `retention:` block configured DEĞİLSE. GDPR guide'a işaret eden operator-facing tek-satır. |
 
 **Exit kodu:** `0` = başarı veya başarılı policy raporu; `1` = config hatası (bilinmeyen satır, eksik corpus, çelişen flag, malformed `--check-policy --config`); `2` = runtime hatası (I/O, atomic rename başarısız).
 
@@ -376,14 +398,14 @@ Wave 2b Phase 36 — GGUF model dosyası bütünlük kontrolü.
 
 | Anahtar | Tip | Notlar |
 |---|---|---|
-| `valid` | bool | Magic header, metadata block, ve SHA-256 sidecar (mevcutsa) eşleşirse `true`. |
+| `valid` | bool | Magic header geçerli VE *denenen* her check (metadata block, SHA-256 sidecar) başarılıysa `true`. Skipped bir check (örn. opsiyonel `gguf` paketi yoksa `metadata_parsed: false`) `valid: false`'a zorlamaz — sadece *denenip-failed* check zorlar. `tests/test_verification_toolbelt.py` bu sözleşmeyi pin'liyor: `checks.metadata_parsed == false` iken `valid == true` olabilir (paket-eksik yolu). |
 | `checks.magic_ok` | bool | İlk 4 byte `b"GGUF"`'ya eşit. |
-| `checks.metadata_parsed` | bool | Optional `gguf` paketi metadata block'u parse ettiyse `true`; paket eksikse (skipped, fail değil) veya block bozuksa `false`. |
+| `checks.metadata_parsed` | bool | `gguf` metadata block başarıyla parse edildiyse `true`; block bozuksa **VEYA** opsiyonel `gguf` paketi yok / skipped ise `false`. Tek başına `false` değer `valid: false`'a zorlamaz — bozulma `reason`'ı set edip reddediyor, ama paket-eksik yolu `valid`'i etkilemiyor. |
 | `checks.sidecar_present` | bool | `<path>.sha256` mevcutsa `true`. |
 | `checks.sidecar_match` | bool \| null | Byte-for-byte eşleşmede `true`; mismatch veya malformed sidecar'da `false`; sidecar yoksa `null`. *Malformed* sidecar (empty / non-hex / yanlış uzunluk) fail-closed olur. |
 | `reason` | str | Tek-satır özet; `valid: false` durumunda failure detayını taşır. |
 
-**Exit kodu:** `0` = `valid: true`; `1` = `valid: false` (magic mismatch, metadata bozuk, SHA-256 mismatch, malformed sidecar); `2` = runtime hatası (file not found, unreadable).
+**Exit kodu:** `0` = `valid: true`; `1` = `valid: false` (magic mismatch, metadata block *bozuk*, SHA-256 mismatch, malformed sidecar); `2` = runtime hatası (file not found, unreadable). Opsiyonel-`gguf`-paketi-eksik yolu `valid: true` + exit `0` olarak kalır (operatörün "metadata check skipped" durumu — magic header + SHA-256 sidecar checks load-bearing integrity yüzeyi olmaya devam eder).
 
 ## Yeni subcommand eklerken
 

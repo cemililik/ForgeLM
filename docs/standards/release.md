@@ -36,7 +36,16 @@ Library consumers — code that does `import forgelm` and pins against the publi
 
 The `cut-release` skill enforces this contract via a checklist Step 3.5 ("Bump `__api_version__` if applicable") that runs after the `pyproject.toml` `__version__` bump. The canonical bump rule lives at the top of `forgelm/_version.py`.
 
-Library consumers can then write `assert forgelm.__api_version__ >= "1.1.0"` for feature detection without coupling to the unrelated CLI version. Bumping `__api_version__` MAJOR pre-1.0 still requires an explicit "Breaking" CHANGELOG entry per the cadence below.
+Library consumers should parse `__api_version__` via `packaging.version.Version` (string `>=` comparison breaks for two-digit minor/patch components — e.g. `"1.10.0" < "1.2.0"` as strings):
+
+```python
+from packaging.version import Version
+import forgelm
+
+assert Version(forgelm.__api_version__) >= Version("1.1.0")  # feature detection
+```
+
+Bumping `__api_version__` MAJOR pre-1.0 still requires an explicit "Breaking" CHANGELOG entry per the cadence below.
 
 ## CHANGELOG
 

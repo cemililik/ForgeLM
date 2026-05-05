@@ -16,7 +16,7 @@
 
 - **Repo:** `cemililik/ForgeLM`
 - **Branch under review:** `closure/wave2b-integration`
-- **PR:** [#30](https://github.com/cemililik/ForgeLM/pull/30) → base `main`
+- **PR:** [#30](https://github.com/cemililik/ForgeLM/pull/30) → base `development`
 - **HEAD SHA at prompt freeze:** `36afbc0`
 - **Diff scope vs main:** 195 files, ~32 300 insertions, ~6 300 deletions.
   Five new CLI subcommands (`_purge.py`, `_cache.py`, `_safety_eval.py`,
@@ -58,7 +58,7 @@ Project-wide guidance for AI agents is in the root `CLAUDE.md`.
 ## What we want from this round
 
 **Goal:** decide whether `closure/wave2b-integration` is mergeable to
-`main`. Block on real defects; do not gate on style nits, hypothetical
+`development`. Block on real defects; do not gate on style nits, hypothetical
 futures, or anything previously addressed in Rounds 1–5.
 
 Be concrete. Every finding must include:

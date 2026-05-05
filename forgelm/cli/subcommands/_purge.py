@@ -475,6 +475,7 @@ def _emit_row_dry_run(
     pre_first_line: int,
     target_id_hash: str,
     salt_source: str,
+    corpus_path: str,
     output_format: str,
 ) -> None:
     """Dry-run shortcut: do not touch the corpus; emit a completed
@@ -494,6 +495,7 @@ def _emit_row_dry_run(
             "dry_run": True,
             "row_id_hash": target_id_hash,
             "salt_source": salt_source,
+            "corpus_path": corpus_path,
             "matches": len(matches),
             "first_line": pre_first_line,
             "warnings": [],
@@ -555,6 +557,7 @@ def _perform_row_erasure_and_audit(
             "dry_run": False,
             "row_id_hash": target_id_hash,
             "salt_source": salt_source,
+            "corpus_path": os.path.abspath(args.corpus),
             "matches": len(matches),
             "first_line": pre_first_line,
             "bytes_freed": bytes_freed,
@@ -624,6 +627,7 @@ def _run_purge_row_id(args, output_format: str) -> None:
             pre_first_line=pre_first_line,
             target_id_hash=target_id_hash,
             salt_source=salt_source,
+            corpus_path=os.path.abspath(args.corpus),
             output_format=output_format,
         )
         return
@@ -757,12 +761,47 @@ def _run_purge_run_id(args, output_format: str) -> None:
 def _staging_targets_for_run(base: Path, run_id: str) -> List[Path]:
     """Return existing ``final_model.staging`` paths for ``run_id``.
 
-    Matches both the Phase 9 v2 explicit form
-    ``final_model.staging.<run_id>/`` and the legacy canonical form
-    ``final_model.staging/`` for runs that pre-date the v2 layout.
+    Wave 2b final-review F-21-STAGING: only the Phase 9 v2 explicit form
+    ``final_model.staging.<run_id>/`` is considered.  Earlier revisions
+    also unconditionally included the legacy unscoped
+    ``final_model.staging/`` candidate as a "pre-Phase-9-v2 backward
+    compatibility" path, but that path could belong to any pre-v2 run
+    — calling ``forgelm purge --run-id fg-X --kind staging`` would then
+    silently delete fg-Y's staging dir if fg-Y was the actual occupant.
+    For the unscoped path we now require an explicit ownership marker
+    file ``staging_run_id`` (single line, exact ``run_id`` value) inside
+    the directory; without it the legacy candidate is skipped.
+    Operators with v0.5.0-or-earlier workspaces who genuinely want to
+    purge the legacy ``final_model.staging/`` should either re-stage
+    via the Phase 9 v2 path or remove the directory manually.
     """
-    candidates = (base / f"final_model.staging.{run_id}", base / "final_model.staging")
-    return [c for c in candidates if c.exists()]
+    targets: List[Path] = []
+    scoped = base / f"final_model.staging.{run_id}"
+    if scoped.exists():
+        targets.append(scoped)
+    legacy = base / "final_model.staging"
+    if legacy.exists() and _legacy_staging_owned_by(legacy, run_id):
+        targets.append(legacy)
+    return targets
+
+
+def _legacy_staging_owned_by(legacy_dir: Path, run_id: str) -> bool:
+    """Return ``True`` only when the legacy ``final_model.staging/`` carries
+    a ``staging_run_id`` marker matching ``run_id``.
+
+    The marker is a defence against silently deleting another run's
+    staging directory.  Absent / unreadable / mismatching markers all
+    cause the legacy path to be treated as "not owned by this run" and
+    skipped.
+    """
+    marker = legacy_dir / "staging_run_id"
+    if not marker.is_file():
+        return False
+    try:
+        recorded = marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return False
+    return recorded == run_id
 
 
 def _artefact_targets_for_run(base: Path, run_id: str) -> List[Path]:

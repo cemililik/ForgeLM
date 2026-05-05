@@ -459,8 +459,13 @@ class TestCacheTasksEnvStamp:
         )
         with patch.dict("sys.modules", {"lm_eval": fake_lm_eval, "lm_eval.tasks": fake_lm_eval_tasks}):
             args = _build_args(tasks="hellaswag", output=str(tmp_path / "cache"), audit_dir=str(tmp_path / "a"))
-            with pytest.raises(SystemExit):
+            with pytest.raises(SystemExit) as ei:
                 _cache._run_cache_tasks_cmd(args, output_format="json")
+            # Anchor on the happy path: the leak-defence claim is only
+            # meaningful if the dispatcher actually completed normally.
+            # Without this assertion a code-1 / code-2 early-exit (which
+            # never reaches the env-stamp restore) would silently pass.
+            assert ei.value.code == 0
 
         # Post-call: env must be back to "not set" (the prior state).
         assert "HF_DATASETS_CACHE" not in os.environ, (
@@ -483,8 +488,9 @@ class TestCacheTasksEnvStamp:
         )
         with patch.dict("sys.modules", {"lm_eval": fake_lm_eval, "lm_eval.tasks": fake_lm_eval_tasks}):
             args = _build_args(tasks="hellaswag", output=str(tmp_path / "cache"), audit_dir=str(tmp_path / "a"))
-            with pytest.raises(SystemExit):
+            with pytest.raises(SystemExit) as ei:
                 _cache._run_cache_tasks_cmd(args, output_format="json")
+            assert ei.value.code == 0  # only meaningful if the run actually succeeded
 
         assert os.environ.get("HF_DATASETS_CACHE") == original, (
             f"HF_DATASETS_CACHE was not restored to its prior value; got {os.environ.get('HF_DATASETS_CACHE')!r}"

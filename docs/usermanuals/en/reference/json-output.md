@@ -173,38 +173,42 @@ Audit-log chain integrity check.
 
 Three-mode dispatcher: `--row-id`, `--run-id`, or `--check-policy`. Wave 2b Phase 21 — GDPR Article 17 right-to-erasure.
 
-**Row-erasure success envelope** (`forgelm purge --row-id ROW --corpus PATH`):
+**Row-erasure success envelope — wet run** (`forgelm purge --row-id ROW --corpus PATH`):
 
 ```json
 {
   "success": true,
   "mode": "row",
-  "row_id_hash": "sha256:abc123...",
+  "dry_run": false,
+  "row_id_hash": "abc123...64-hex",
   "salt_source": "per_dir",
   "corpus_path": "/work/train.jsonl",
-  "files_modified": ["/work/train.jsonl"],
+  "matches": 1,
+  "first_line": 42,
   "bytes_freed": 142,
-  "pre_erasure_line_number": 42,
-  "match_count": 1,
-  "dry_run": false
+  "warnings": []
 }
 ```
 
-**Run-erasure success envelope** (`--run-id RUN --kind {staging,artefacts}`):
+**Row-erasure success envelope — dry run:** identical shape minus `bytes_freed` (the rewrite is skipped); `warnings: []` and `dry_run: true`.
+
+**Run-erasure success envelope — wet run** (`--run-id RUN --kind {staging,artefacts}`):
 
 ```json
 {
   "success": true,
   "mode": "run",
-  "run_id": "fg-abc123",
   "kind": "staging",
-  "files_modified": ["/work/output/final_model.staging.fg-abc123"],
-  "bytes_freed": 1048576,
-  "dry_run": false
+  "dry_run": false,
+  "run_id": "fg-abc123",
+  "deleted": ["/work/output/final_model.staging.fg-abc123"],
+  "bytes_freed": 1048576
 }
 ```
 
-**Check-policy success envelope** (`--check-policy [--config PATH]`):
+**Run-erasure success envelope — dry run:** swap `deleted` for `would_delete` (same list-of-paths shape); omit `bytes_freed`.
+
+**Check-policy success envelope — retention block configured** (`--check-policy [--config PATH]`):
 
 ```json
 {
@@ -222,15 +226,33 @@ Three-mode dispatcher: `--row-id`, `--run-id`, or `--check-policy`. Wave 2b Phas
 }
 ```
 
+**Check-policy success envelope — no retention block** (operator's config omits the `retention:` block, or no `--config` was supplied): the envelope drops `count` and adds a `note` field explaining the no-op:
+
+```json
+{
+  "success": true,
+  "violations": [],
+  "note": "No `retention:` block in the loaded config; nothing to enforce.  See `docs/guides/gdpr_erasure.md` for the schema."
+}
+```
+
 | Key | Type | Notes |
 |---|---|---|
 | `success` | bool | `true` for a successful operation; `false` (with `error`) on config / runtime failure. |
 | `mode` (row/run) | str | Discriminator; `"row"` or `"run"`. Absent on `--check-policy`. |
-| `row_id_hash` | str | `sha256:`-prefixed hex digest of the salted row id. Cleartext value never appears in the envelope. |
+| `kind` (run) | str | `"staging"` or `"artefacts"`. Run mode only. |
+| `dry_run` | bool | Mirrors the `--dry-run` flag. Present in row + run envelopes; absent in `--check-policy` (the mode is read-only by definition). |
+| `row_id_hash` | str | 64-character lowercase hex SHA-256 digest of `salt + raw_value`. Cleartext value never appears in the envelope. **Note:** the digest is emitted as plain hex (no `sha256:` prefix) so consumers can `==`-compare against `hashlib.sha256(...).hexdigest()` directly. |
 | `salt_source` | str | `"per_dir"` or `"env_var"` per `FORGELM_AUDIT_SECRET` toggle. |
+| `corpus_path` | str | Absolute path to the JSONL corpus the operator passed via `--corpus`. Row mode only. |
+| `matches` | int | Count of rows that matched the `--row-id`. Row mode only. |
+| `first_line` | int | 1-based line number of the first matching row, captured *before* the rewrite. Row mode only. |
+| `bytes_freed` | int | Bytes reclaimed by the deletion. Present on wet runs (row + run); absent on dry runs. |
+| `warnings` | list[str] | Names of `data.erasure_warning_*` audit events emitted alongside the row erasure (memorisation / synthetic-data / external-copies). Row mode only. |
+| `would_delete` (run dry) / `deleted` (run wet) | list[str] | Run mode: paths the dispatcher targeted for removal. Different key on dry vs wet so consumers can branch on shape. |
 | `violations` | list[object] | `--check-policy` only. `artefact_kind` is one of `audit_log`, `staging_dir`, `staging_dir[<run_id>]`, `compliance_bundle`, `data_audit_report`, `raw_documents[...]`. `age_source` ∈ `{audit, mtime}`. |
-| `count` | int | `--check-policy` only; equals `len(violations)`. |
-| `dry_run` | bool | Mirrors the `--dry-run` flag. |
+| `count` | int | `--check-policy` only when a `retention:` block is configured; equals `len(violations)`. Absent in the no-retention-block branch (which adds `note` instead). |
+| `note` | str | `--check-policy` only when no `retention:` block is configured. Operator-facing one-liner pointing at the GDPR guide. |
 
 **Exit code mapping:** `0` = success or successful policy report; `1` = config error (unknown row, missing corpus, conflicting flags, malformed `--check-policy --config`); `2` = runtime error (I/O, atomic rename failure).
 
@@ -376,14 +398,14 @@ Wave 2b Phase 36 — GGUF model file integrity check.
 
 | Key | Type | Notes |
 |---|---|---|
-| `valid` | bool | `true` when magic header, metadata block, and SHA-256 sidecar (when present) all match. |
+| `valid` | bool | `true` when the magic header passes AND any *attempted* check (metadata block, SHA-256 sidecar) succeeded. A skipped check (e.g. `metadata_parsed: false` because the optional `gguf` package is absent) does NOT force `valid: false` — only an *attempted-and-failed* check does. |
 | `checks.magic_ok` | bool | First 4 bytes equal `b"GGUF"`. |
-| `checks.metadata_parsed` | bool | `true` when the optional `gguf` package parsed the metadata block; `false` when the package is missing (skipped, not failed) or the block is corrupted. |
+| `checks.metadata_parsed` | bool | `true` when the `gguf` metadata block was successfully parsed; `false` when the block is corrupted **OR** when the optional `gguf` package is absent / skipped. A `false` value alone does NOT force `valid: false` — corruption sets `reason` and rejects, but the absent-package case leaves `valid` unaffected. |
 | `checks.sidecar_present` | bool | `true` when `<path>.sha256` exists. |
 | `checks.sidecar_match` | bool \| null | `true` on byte-for-byte match; `false` on mismatch or malformed sidecar; `null` when no sidecar. A *malformed* sidecar (empty / non-hex / wrong-length) fails closed. |
 | `reason` | str | One-line summary; carries the failure detail on `valid: false`. |
 
-**Exit code mapping:** `0` = `valid: true`; `1` = `valid: false` (magic mismatch, metadata corrupted, SHA-256 mismatch, malformed sidecar); `2` = runtime error (file not found, unreadable).
+**Exit code mapping:** `0` = `valid: true`; `1` = `valid: false` (magic mismatch, metadata block *corrupted*, SHA-256 mismatch, malformed sidecar); `2` = runtime error (file not found, unreadable). The optional-`gguf`-package-missing path stays at `valid: true` + exit `0` (operator's "metadata check skipped" — the magic header + SHA-256 sidecar checks remain the load-bearing integrity surface).
 
 ## Adding a new subcommand
 

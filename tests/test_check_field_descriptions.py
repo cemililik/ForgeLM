@@ -177,14 +177,16 @@ class TestRecognisedFailingForms:
             "    r: Annotated[int, Field(default=8)]\n",
         )
         missing = scan_file(str(src))
-        # The annotation form skips because _annotation_has_described_field
-        # only requires a Field call; current implementation does NOT
-        # recurse into the call's kwargs.  Document the actual contract:
-        # bare Field-in-Annotated without description IS missed.  If a
-        # future refactor tightens this, update the assertion.
-        # (See `_annotation_has_described_field` at
-        # `tools/check_field_descriptions.py:114` — uses
-        # `_has_description_kwarg` per element.)
+        # ``_annotation_has_described_field`` walks the Annotated args
+        # AND inspects ``description=`` per element via
+        # ``_has_description_kwarg`` (see
+        # ``tools/check_field_descriptions.py:114``), so a bare
+        # Field-in-Annotated without ``description=`` IS flagged — the
+        # assertion below pins that contract.  If a future refactor
+        # changes the recursion strategy (e.g. starts walking into
+        # nested kwargs of a Field call within Annotated), tighten or
+        # relax this assertion accordingly so it keeps reflecting the
+        # shipped behaviour.
         assert len(missing) == 1, f"Annotated[T, Field(...)] without description must be flagged; got {missing}"
 
 
