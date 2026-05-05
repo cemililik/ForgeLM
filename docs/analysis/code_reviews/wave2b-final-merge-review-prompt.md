@@ -18,7 +18,7 @@
 - **Branch under review:** `closure/wave2b-integration`
 - **PR:** [#30](https://github.com/cemililik/ForgeLM/pull/30) → base `development`
 - **HEAD SHA at prompt freeze:** `36afbc0`
-- **Diff scope vs main:** 195 files, ~32 300 insertions, ~6 300 deletions.
+- **Diff scope vs development:** 195 files, ~32 300 insertions, ~6 300 deletions.
   Five new CLI subcommands (`_purge.py`, `_cache.py`, `_safety_eval.py`,
   `_verify_annex_iv.py`, `_verify_gguf.py`), one new public-API facade
   rewrite (`forgelm/__init__.py`), one new CI guard (`tools/check_field_descriptions.py`).

@@ -267,6 +267,25 @@ def _atomic_rewrite_dropping_lines(corpus_path: str, line_numbers_to_drop: List[
             out.flush()
             os.fsync(out.fileno())
         os.replace(tmp_path, corpus_path)
+        # Wave 2b final-followup F-21-04: also fsync the parent
+        # directory so the rename's *directory entry* is on disk.
+        # On non-journaled FS (FAT, certain tmpfs configurations),
+        # a power loss between the rename and the directory metadata
+        # flush can leave the directory entry unrecoverable; on
+        # journaled FS (ext4, xfs, apfs, ntfs) the journal handles
+        # this — but the cost is one open/fsync/close, so prefer
+        # belt-and-suspenders.  ``O_DIRECTORY`` not supported on
+        # Windows, where directory fds are also a no-op; trap and
+        # continue.
+        try:
+            dir_fd = os.open(parent, os.O_DIRECTORY)
+        except (AttributeError, OSError):  # pragma: no cover — Windows / unusual FS
+            pass
+        else:
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
     except OSError:
         # Best-effort cleanup of the temp file if the swap failed.
         if os.path.exists(tmp_path):

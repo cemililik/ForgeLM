@@ -17,16 +17,29 @@ adds a fifth recognition mode would be caught.
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 
-# Import the scanner via its file path — avoids a project-side
-# ``setup.py`` install just to make ``tools/`` importable.
+# Load the scanner from its file path without leaking ``tools/`` onto
+# ``sys.path`` for the rest of the pytest invocation (which would
+# risk shadowing other test fixtures or test-time importers).  The
+# canonical no-side-effect dynamic-import pattern is
+# ``spec_from_file_location`` → ``module_from_spec`` → register in
+# ``sys.modules`` → ``exec_module``.  The sys.modules registration is
+# load-bearing: ``@dataclass(frozen=True)`` (used inside the scanner)
+# resolves its parent module via ``sys.modules[cls.__module__]`` at
+# class-creation time, so a module that is never registered there
+# trips an ``AttributeError`` during ``_process_class``.  We scope the
+# registration to one specific module name so we can pop it cleanly
+# without mass-affecting ``sys.path``.
 _TOOLS_DIR = Path(__file__).parent.parent / "tools"
-if str(_TOOLS_DIR) not in sys.path:
-    sys.path.insert(0, str(_TOOLS_DIR))
-
-import check_field_descriptions  # noqa: E402 — depends on the path patch above.
+_SCANNER_PATH = _TOOLS_DIR / "check_field_descriptions.py"
+_spec = importlib.util.spec_from_file_location("check_field_descriptions", _SCANNER_PATH)
+assert _spec is not None and _spec.loader is not None, f"could not load scanner module spec from {_SCANNER_PATH!r}"
+check_field_descriptions = importlib.util.module_from_spec(_spec)
+sys.modules["check_field_descriptions"] = check_field_descriptions
+_spec.loader.exec_module(check_field_descriptions)
 
 scan_file = check_field_descriptions.scan_file
 MissingDescription = check_field_descriptions.MissingDescription

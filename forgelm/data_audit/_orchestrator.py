@@ -168,6 +168,20 @@ def _atomic_write_json(target: Path, payload: Dict[str, Any]) -> None:
             fh.flush()
             os.fsync(fh.fileno())
         os.replace(tmp_path, target)
+        # Wave 2b final-followup F-21-04: also fsync the parent
+        # directory so the rename's directory entry is on disk on
+        # non-journaled FS.  Mirrors the discipline in
+        # ``forgelm/cli/subcommands/_purge.py::_atomic_rewrite_dropping_lines``.
+        # ``O_DIRECTORY`` not on Windows; trap and continue.
+        try:
+            dir_fd = os.open(str(target.parent), os.O_DIRECTORY)
+        except (AttributeError, OSError):  # pragma: no cover — Windows / unusual FS
+            pass
+        else:
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
         tmp_path = None
         logger.info("Wrote audit report: %s", target)
     finally:
