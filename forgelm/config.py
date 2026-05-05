@@ -1014,7 +1014,7 @@ class ForgeConfig(BaseModel):
         ``RetentionConfig(staging_ttl_days=legacy)`` constructor call would
         have silently discarded those.
 
-        ``stacklevel=4`` is tuned so the DeprecationWarning surfaces at the
+        ``stacklevel=5`` is tuned so the DeprecationWarning surfaces at the
         operator's ``ForgeConfig(...)`` call site rather than inside the
         Pydantic ``@model_validator`` machinery (caller →
         ``_reconcile_staging_ttl_days`` → here).
@@ -1029,13 +1029,13 @@ class ForgeConfig(BaseModel):
             "Move the value under the new top-level `retention:` block; the "
             "deprecated field is removed in v0.7.0.",
             DeprecationWarning,
-            stacklevel=4,
+            stacklevel=5,
         )
 
     def _emit_legacy_match_warning(self) -> None:
         """Warn when both fields are set to identical values; canonical wins.
 
-        ``stacklevel=4`` matches :meth:`_apply_legacy_alias_forward` so both
+        ``stacklevel=5`` matches :meth:`_apply_legacy_alias_forward` so both
         deprecation paths attribute the warning to the same operator
         call frame.
         """
@@ -1045,7 +1045,7 @@ class ForgeConfig(BaseModel):
             "`evaluation.staging_ttl_days` from your YAML — the deprecated field "
             "is removed in v0.7.0.",
             DeprecationWarning,
-            stacklevel=4,
+            stacklevel=5,
         )
 
 

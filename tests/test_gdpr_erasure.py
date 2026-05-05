@@ -756,6 +756,80 @@ retention:
             f"{[str(w.message) for w in deprecation_warnings]}"
         )
 
+    def test_deprecation_warnings_attribute_to_operator_call_site(self) -> None:
+        """Wave 2b Round-5 follow-up: the two deprecation paths
+        (:meth:`ForgeConfig._apply_legacy_alias_forward` for legacy-only,
+        :meth:`ForgeConfig._emit_legacy_match_warning` for both-set-equal)
+        must surface their ``DeprecationWarning`` at the operator's
+        ``ForgeConfig(...)`` call frame, not inside Pydantic's
+        ``@model_validator`` machinery.  ``warnings.warn(..., stacklevel=5)``
+        is tuned (empirically; the exact value depends on the Pydantic v2
+        validator wrapper depth) so
+        :attr:`warnings.WarningMessage.filename` resolves to this test
+        file rather than a path inside ``pydantic/`` — ergonomics: an
+        operator looking at the warning's source line sees their own
+        ``ForgeConfig(...)`` call, not framework internals.  This test
+        is the canonical regression for that tuning: a future Pydantic
+        upgrade that changes the wrapper depth will fail this test
+        before it leaks into operators' logs.
+        """
+        import warnings as _warnings
+
+        from forgelm.config import ForgeConfig
+
+        base_kwargs = {
+            "model": {"name_or_path": "gpt2", "backend": "transformers"},
+            "lora": {"r": 8},
+            "training": {"trainer_type": "sft", "output_dir": "./out", "num_train_epochs": 1},
+            "data": {"dataset_name_or_path": "train.jsonl"},
+        }
+
+        # --- alias-forward path (legacy only, explicit non-default) ---
+        with _warnings.catch_warnings(record=True) as caught_alias:
+            _warnings.simplefilter("always")
+            ForgeConfig(**base_kwargs, evaluation={"staging_ttl_days": 14})  # operator call site
+        alias_warnings = [w for w in caught_alias if issubclass(w.category, DeprecationWarning)]
+        assert len(alias_warnings) == 1, (
+            f"alias-forward path must emit exactly one DeprecationWarning, got {len(alias_warnings)}: "
+            f"{[str(w.message) for w in alias_warnings]}"
+        )
+        alias_w = alias_warnings[0]
+        assert "evaluation.staging_ttl_days" in str(alias_w.message)
+        assert "forwards to" in str(alias_w.message)
+        assert "pydantic" not in alias_w.filename, (
+            f"_apply_legacy_alias_forward stacklevel landed inside pydantic ({alias_w.filename!r}); "
+            "operator should see their own ForgeConfig(...) call frame."
+        )
+        assert alias_w.filename == __file__, (
+            f"_apply_legacy_alias_forward stacklevel must surface at the operator call site "
+            f"(this test file: {__file__!r}); got {alias_w.filename!r}."
+        )
+
+        # --- both-set-equal path (canonical wins, warning still emitted) ---
+        with _warnings.catch_warnings(record=True) as caught_match:
+            _warnings.simplefilter("always")
+            ForgeConfig(  # operator call site
+                **base_kwargs,
+                evaluation={"staging_ttl_days": 14},
+                retention={"staging_ttl_days": 14},
+            )
+        match_warnings = [w for w in caught_match if issubclass(w.category, DeprecationWarning)]
+        assert len(match_warnings) == 1, (
+            f"both-set-equal path must emit exactly one DeprecationWarning, got {len(match_warnings)}: "
+            f"{[str(w.message) for w in match_warnings]}"
+        )
+        match_w = match_warnings[0]
+        assert "evaluation.staging_ttl_days" in str(match_w.message)
+        assert "canonical block wins" in str(match_w.message)
+        assert "pydantic" not in match_w.filename, (
+            f"_emit_legacy_match_warning stacklevel landed inside pydantic ({match_w.filename!r}); "
+            "operator should see their own ForgeConfig(...) call frame."
+        )
+        assert match_w.filename == __file__, (
+            f"_emit_legacy_match_warning stacklevel must surface at the operator call site "
+            f"(this test file: {__file__!r}); got {match_w.filename!r}."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Facade re-exports (test that public surface resolves)
