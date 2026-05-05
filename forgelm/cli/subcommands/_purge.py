@@ -109,21 +109,14 @@ def _output_error_and_exit(output_format: str, msg: str, exit_code: int) -> NoRe
 # ---------------------------------------------------------------------------
 
 
-def _resolve_salt(output_dir: str) -> Tuple[bytes, str]:
-    """Return ``(salt_bytes, salt_source)`` for ``target_id`` hashing.
+def _read_persistent_salt(output_dir: str) -> bytes:
+    """Read (or create) the per-output-dir persistent salt — no env XOR.
 
-    Salt resolution per design §5.4:
-
-    - The persistent per-output-dir salt at
-      ``<output_dir>/.forgelm_audit_salt`` is **always** consulted
-      (created on first call with mode 0600).
-    - When ``FORGELM_AUDIT_SECRET`` is set, its first 16 bytes are
-      XOR'd with the persistent salt to derive the actual hashing
-      salt; ``salt_source`` is recorded as ``"env_var"`` so a salt-
-      source toggle between invocations is detectable in the chain
-      via the ``salt_source`` audit-event field.
-    - When the env var is absent, the persistent salt is used
-      verbatim; ``salt_source = "per_dir"``.
+    Companion to :func:`_resolve_salt`; this helper exposes JUST the
+    on-disk persistent half of the salt resolution so callers that
+    explicitly want per-dir-only semantics (e.g. ``forgelm reverse-pii
+    --salt-source per_dir``) can bypass the env-var XOR step that
+    ``_resolve_salt`` performs unconditionally.
 
     Raises :class:`OSError` when the salt file cannot be created or
     read; the caller surfaces the I/O error as ``EXIT_TRAINING_ERROR``.
@@ -156,6 +149,29 @@ def _resolve_salt(output_dir: str) -> Tuple[bytes, str]:
             f"Salt file {salt_path!r} is shorter than {_SALT_BYTES} bytes "
             "(corrupted or truncated).  Delete the file to regenerate."
         )
+    return persistent
+
+
+def _resolve_salt(output_dir: str) -> Tuple[bytes, str]:
+    """Return ``(salt_bytes, salt_source)`` for ``target_id`` hashing.
+
+    Salt resolution per design §5.4:
+
+    - The persistent per-output-dir salt at
+      ``<output_dir>/.forgelm_audit_salt`` is **always** consulted
+      (created on first call with mode 0600).
+    - When ``FORGELM_AUDIT_SECRET`` is set, its first 16 bytes are
+      XOR'd with the persistent salt to derive the actual hashing
+      salt; ``salt_source`` is recorded as ``"env_var"`` so a salt-
+      source toggle between invocations is detectable in the chain
+      via the ``salt_source`` audit-event field.
+    - When the env var is absent, the persistent salt is used
+      verbatim; ``salt_source = "per_dir"``.
+
+    Raises :class:`OSError` when the salt file cannot be created or
+    read; the caller surfaces the I/O error as ``EXIT_TRAINING_ERROR``.
+    """
+    persistent = _read_persistent_salt(output_dir)
     env_secret = os.environ.get("FORGELM_AUDIT_SECRET", "").encode("utf-8")
     if env_secret:
         env_prefix = env_secret[:_SALT_BYTES].ljust(_SALT_BYTES, b"\x00")

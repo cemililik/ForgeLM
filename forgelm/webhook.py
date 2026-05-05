@@ -87,25 +87,24 @@ class WebhookNotifier:
         ca_bundle = getattr(self.config, "tls_ca_bundle", None)
 
         # Timeout floor — webhook keeps the historical 1s floor (``safe_post``
-        # rejects 0/None unconditionally).  Wave 3 F-compliance-106
-        # raised the WebhookConfig default 5 → 10; the clamp message
-        # and fallback value follow that default.  F-W3FU-S-04 fix:
-        # the previous ``isinstance(timeout, (int, float))`` half of
-        # the guard was dead under Pydantic (the field is ``int``-typed
-        # and validated at config load), so a non-numeric ``timeout``
-        # cannot reach this site through any documented call path.
-        # Drop the isinstance check; keep the numeric-floor clamp.
+        # rejects 0/None unconditionally).  Sub-1 values are clamped to
+        # the floor (NOT to the model default).  Pre-Wave-3-followup the
+        # branch jumped to ``default_timeout`` (10s) on a sub-1 value,
+        # which silently 10x'd the operator's chosen budget; the
+        # documented contract is "below 1s → clamp to 1s", so we now
+        # clamp to the floor literally.  F-W3FU-S-04 also dropped the
+        # dead ``isinstance(timeout, (int, float))`` check (Pydantic
+        # already enforces the int type at config load).
         from .config import WebhookConfig as _WebhookConfig
 
         default_timeout = _WebhookConfig.model_fields["timeout"].default
         timeout = getattr(self.config, "timeout", default_timeout)
         if timeout < 1:
             logger.warning(
-                "Webhook timeout=%r is below the 1s floor; clamping to %ds.",
+                "Webhook timeout=%r is below the 1s floor; clamping to 1s.",
                 timeout,
-                default_timeout,
             )
-            timeout = default_timeout
+            timeout = 1
 
         allow_private = bool(getattr(self.config, "allow_private_destinations", False))
 

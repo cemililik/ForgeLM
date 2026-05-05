@@ -232,52 +232,72 @@ def _resolve_query_form(
     salt resolution from ``forgelm purge`` so the two subcommands
     cannot drift on hashing semantics.
     """
-    # Late import: ``_resolve_salt`` lives in the purge subcommand and
-    # pulling it eagerly would create a load-time cycle.  The two
+    # Late import: salt-resolution helpers live in the purge subcommand
+    # and pulling them eagerly would create a load-time cycle.  The two
     # subcommands intentionally share the salt-resolution path so a
-    # purge-then-reverse-pii cycle works on the same digest.
-    from ._purge import _hash_target_id, _resolve_salt
+    # purge → reverse-pii cycle works on the same digest.
+    from ._purge import _hash_target_id, _read_persistent_salt, _resolve_salt
 
+    if salt_source == "per_dir":
+        # F-W3FU follow-up duplicate finding: honor an explicit
+        # ``--salt-source=per_dir`` even when ``FORGELM_AUDIT_SECRET``
+        # is exported.  The previous absorption refused this case
+        # (because ``_resolve_salt`` would XOR the env var in and
+        # disagree with the requested source); refusing was conservative
+        # but contradicted the operator's explicit choice.  We now read
+        # ONLY the persistent per-dir salt and ignore the env var for
+        # this invocation.  Cross-tool correlation with ``forgelm purge``
+        # holds when the operator runs both subcommands with the same
+        # ``--salt-source=per_dir`` (purge does not surface a salt-source
+        # flag yet, but the audit-event ``salt_source`` field records
+        # which path each invocation used so a reviewer sees the choice).
+        try:
+            salt = _read_persistent_salt(output_dir)
+        except OSError as exc:
+            _output_error_and_exit(
+                output_format,
+                f"Could not resolve audit salt for {output_dir!r}: {exc}",
+                EXIT_TRAINING_ERROR,
+            )
+        return _hash_target_id(query, salt), "hash", salt, "per_dir"
+
+    if salt_source == "env_var":
+        # Env-var mode requires FORGELM_AUDIT_SECRET; if unset there is
+        # no env half to XOR, and silently falling through to per-dir
+        # would produce a digest that does not match the operator's
+        # intent.  Refuse with a direction-aware diagnostic.
+        if not os.environ.get("FORGELM_AUDIT_SECRET"):
+            _output_error_and_exit(
+                output_format,
+                "--salt-source=env_var requested but FORGELM_AUDIT_SECRET is not set.  "
+                "Export the env-mode secret (e.g. `export FORGELM_AUDIT_SECRET=<value>`) and retry.",
+                EXIT_CONFIG_ERROR,
+            )
+        try:
+            salt, _ = _resolve_salt(output_dir)
+        except OSError as exc:
+            _output_error_and_exit(
+                output_format,
+                f"Could not resolve audit salt for {output_dir!r}: {exc}",
+                EXIT_TRAINING_ERROR,
+            )
+        return _hash_target_id(query, salt), "hash", salt, "env_var"
+
+    # Plaintext mode (salt_source is None): resolve the salt for the
+    # audit-hash and tag the scan as plaintext.  F-W3FU-02 (priv) fix:
+    # the salt is used only to compute ``query_hash``, NOT for the
+    # corpus scan; recording ``resolved_source`` would mislead a
+    # forensic reviewer into thinking it was applied to the scan, so
+    # we tag the salt-source label as ``"plaintext"``.
     try:
-        salt, resolved_source = _resolve_salt(output_dir)
+        salt, _ = _resolve_salt(output_dir)
     except OSError as exc:
         _output_error_and_exit(
             output_format,
             f"Could not resolve audit salt for {output_dir!r}: {exc}",
             EXIT_TRAINING_ERROR,
         )
-
-    if salt_source is None:
-        # F-W3FU-02 (priv) fix: in plaintext mode the salt is used only
-        # to compute the audit event's ``query_hash`` (so the digest is
-        # wordlist-resistant); it is NOT applied to the corpus scan.
-        # Recording ``salt_source_label = resolved_source`` here would
-        # mislead a forensic reviewer into thinking the env-var/per-dir
-        # salt was applied to the scan.  Record ``"plaintext"`` so the
-        # audit event distinguishes plaintext scans from hash-mask scans
-        # cleanly; the audit-hash salt source remains ``resolved_source``
-        # internally but is not separately surfaced (a future absorption
-        # may add an ``audit_hash_salt_source`` field if forensic depth
-        # demands it).
-        return query, "plaintext", salt, "plaintext"
-
-    if salt_source != resolved_source:
-        # Direction-aware diagnostic: telling the operator which
-        # specific knob to adjust beats a generic "or vice versa"
-        # message that requires them to re-derive the failure mode.
-        if salt_source == "env_var":
-            hint = "Set FORGELM_AUDIT_SECRET to the env-mode secret and retry."
-        else:  # salt_source == "per_dir"
-            hint = (
-                "Unset FORGELM_AUDIT_SECRET (e.g. `env -u FORGELM_AUDIT_SECRET forgelm reverse-pii ...`) "
-                "to force per-dir mode and retry."
-            )
-        _output_error_and_exit(
-            output_format,
-            f"--salt-source={salt_source!r} requested but ``_resolve_salt`` returned {resolved_source!r}.  {hint}",
-            EXIT_CONFIG_ERROR,
-        )
-    return _hash_target_id(query, salt), "hash", salt, resolved_source
+    return query, "plaintext", salt, "plaintext"
 
 
 def _truncate_snippet(line: str, match_span: Tuple[int, int]) -> str:
@@ -401,31 +421,42 @@ def _scan_file_with_alarm(path: str, pattern: re.Pattern[str]) -> List[Dict[str,
     Translates a ReDoS hang into a clean ``OSError`` so the dispatcher
     handles it via the same audit-event path as a read failure.
 
-    F-W3FU-03 fix: ``signal.alarm(N)`` returns the seconds remaining
-    on any previously-scheduled alarm.  The previous implementation
-    discarded that value and called ``signal.alarm(0)`` in ``finally``,
-    permanently cancelling any outer alarm budget.  We now capture the
-    previous-alarm remainder and re-arm it after our wrapper returns
-    so a caller that nests this helper inside its own SIGALRM budget
-    keeps that budget.
+    Outer-alarm preservation (F-W3FU-03 + post-followup fix):
+    ``signal.alarm(N)`` returns the seconds remaining on any
+    previously-scheduled alarm.  We capture that remainder and re-arm
+    it in ``finally`` so a caller that nests this helper inside its
+    own SIGALRM budget keeps that budget.  The naive shape
+    ``signal.alarm(previous_alarm_remaining)`` would silently EXTEND
+    the outer caller's deadline by however long ``_scan_file`` ran;
+    we therefore subtract the elapsed wall-clock seconds before
+    re-arming, clamping to ≥1 so we never lose the outer alarm
+    entirely (alarm-syscall granularity is whole seconds).
     """
+    import math
+    import time
 
     def _alarm(_sig, _frame):  # pragma: no cover — signal handler
         raise OSError(f"reverse-pii scan of {path!r} exceeded {_CUSTOM_REGEX_TIMEOUT_S}s (custom regex ReDoS guard)")
 
     previous_handler = _signal.signal(_signal.SIGALRM, _alarm)
     previous_alarm_remaining = _signal.alarm(_CUSTOM_REGEX_TIMEOUT_S)
+    started = time.monotonic()
     try:
         return _scan_file(path, pattern)
     finally:
         _signal.alarm(0)
         _signal.signal(_signal.SIGALRM, previous_handler)
         if previous_alarm_remaining > 0:
-            # Re-arm the outer alarm with whatever budget it had left
-            # (rounded up to 1s — sub-second remainders cannot survive
-            # the alarm-syscall granularity, but losing the alarm
-            # entirely is worse than rounding up).
-            _signal.alarm(max(previous_alarm_remaining, 1))
+            # Subtract the wall-clock seconds spent in _scan_file from
+            # the outer caller's remaining budget.  ceil() so we round
+            # up partial seconds (alarm-syscall granularity is whole
+            # seconds; rounding down would silently shave 0-1s off the
+            # outer budget on every nested call).  Clamp to ≥1 so we
+            # never accidentally cancel the outer alarm — losing it
+            # entirely is strictly worse than re-arming with 1s.
+            elapsed = time.monotonic() - started
+            remaining = max(int(math.ceil(previous_alarm_remaining - elapsed)), 1)
+            _signal.alarm(remaining)
 
 
 def _hash_for_audit(query: str, salt: bytes) -> str:

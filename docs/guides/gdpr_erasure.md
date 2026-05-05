@@ -173,7 +173,8 @@ the Article 15 forensic record.
 
 **Exit codes:** `0` = scan completed (matches list may be empty);
 `1` = config error (empty query, malformed regex, empty glob); `2` =
-runtime error (mid-scan I/O failure).  See [`reference/json-output.md`](#/reference/json-output)
+runtime error (mid-scan I/O failure).  See
+[`../usermanuals/en/reference/json-output.md`](../usermanuals/en/reference/json-output.md)
 for the JSON envelope schema.
 
 ## See also

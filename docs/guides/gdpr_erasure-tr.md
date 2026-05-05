@@ -175,7 +175,8 @@ reddeder.
 **Exit kodları:** `0` = scan tamamlandı (matches listesi boş
 olabilir); `1` = config hatası (boş query, malformed regex, boş
 glob); `2` = runtime hatası (mid-scan I/O failure).  JSON envelope
-şeması için bkz. [`reference/json-output.md`](#/reference/json-output).
+şeması için bkz.
+[`../usermanuals/tr/reference/json-output.md`](../usermanuals/tr/reference/json-output.md).
 
 ## Bkz.
 

@@ -942,7 +942,7 @@ def _add_reverse_pii_subcommand(subparsers) -> None:
         type=str,
         default=None,
         metavar="DIR",
-        help="Output directory containing the per-output-dir salt file (only consulted when --salt-source is set).  Defaults to the parent of the first resolved corpus file.",
+        help="Output directory containing the per-output-dir salt file (`.forgelm_audit_salt`).  The salt is read/created here for BOTH the audit-event hash (every invocation, plaintext or hash-mask mode) AND for hash-mask scanning when --salt-source is set.  Defaults to the parent of the first resolved corpus file; an implicit fallback emits a WARNING naming the resolved dir so the operator can pin --output-dir for cross-tool correlation with `forgelm purge`.",
     )
     p.add_argument(
         "--audit-dir",

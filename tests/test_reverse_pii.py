@@ -306,16 +306,35 @@ class TestHashMaskScan:
             "salt file side effect is present regardless of scan mode"
         )
 
-    def test_per_dir_salt_source_refuses_when_env_var_set(self, tmp_path: Path, capsys, monkeypatch) -> None:
-        """F-W3-11 / F-W3-PS-04 regression: the symmetric direction —
-        operator asked for ``per_dir`` but ``FORGELM_AUDIT_SECRET`` is
-        set in the shell environment — must also refuse, with a
-        direction-aware diagnostic that names the env-var unset path."""
+    def test_per_dir_salt_source_honored_when_env_var_set(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        """Wave-3-followup duplicate-finding regression: explicit
+        ``--salt-source=per_dir`` must be HONORED even when
+        ``FORGELM_AUDIT_SECRET`` is exported in the shell environment.
+
+        The previous absorption refused this case (because
+        ``_resolve_salt`` XOR'd the env var into the salt and the
+        post-resolution mismatch check fired), but the operator's
+        explicit ``per_dir`` choice should override an unrelated env
+        var.  The audit event records ``salt_source = "per_dir"`` so a
+        forensic reviewer sees the choice was respected.
+        """
+        from forgelm.cli.subcommands._purge import _hash_target_id, _read_persistent_salt
         from forgelm.cli.subcommands._reverse_pii import _run_reverse_pii_cmd
 
         monkeypatch.setenv("FORGELM_AUDIT_SECRET", "leftover-from-shell")
+
+        # Compute the per-dir-only digest the operator would have
+        # written into the masked corpus (no env XOR).
+        salt = _read_persistent_salt(str(tmp_path))
+        masked_digest = _hash_target_id("alice@example.com", salt)
+
         corpus = tmp_path / "masked.jsonl"
-        _seed_corpus(corpus, [{"id": "row-A", "text": "x"}])
+        _seed_corpus(
+            corpus,
+            [
+                {"id": "row-A", "text": f"hashed identifier embedded: {masked_digest}"},
+            ],
+        )
         args = _build_args(
             query="alice@example.com",
             type="email",
@@ -325,9 +344,11 @@ class TestHashMaskScan:
         )
         with pytest.raises(SystemExit) as ei:
             _run_reverse_pii_cmd(args, output_format="json")
-        assert ei.value.code == 1
+        assert ei.value.code == 0, "explicit --salt-source=per_dir must be honored, not refused"
         payload = json.loads(capsys.readouterr().out)
-        assert "FORGELM_AUDIT_SECRET" in payload["error"]
+        assert payload["scan_mode"] == "hash"
+        assert payload["salt_source"] == "per_dir"
+        assert payload["match_count"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -665,7 +686,12 @@ class TestFailurePaths:
         access_events = [e for e in events if e["event"] == "data.access_request_query"]
         assert len(access_events) == 1
         evt = access_events[0]
-        assert evt["error_class"] in {"UnicodeDecodeError", "OSError"}
+        # The fixture plants ``\xff\xfe`` after a newline, which produces
+        # ``UnicodeDecodeError`` deterministically when Python's text-mode
+        # iterator decodes the second line.  Pin the exact class so a
+        # future refactor that converted it to a generic OSError before
+        # logging would surface here.
+        assert evt["error_class"] == "UnicodeDecodeError"
         # F-W3FU-T-03: same no-leak invariant as the OSError leg.
         as_str = json.dumps(evt)
         assert "alice@example.com" not in as_str, f"UnicodeDecodeError audit event leaked raw identifier:\n{as_str}"
