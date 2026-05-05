@@ -142,7 +142,7 @@ Eğitimden önce her zaman `forgelm audit` çalıştırın:
 ```shell
 $ forgelm audit data/preferences.jsonl
 ✓ format: preference (12,400 satır, 3 split)
-✓ PII tespit edilmedi (5 orta ciddiyet, rapora bakın)
+⚠ PII bulundu: 5 orta ciddiyet (rapora bakın)
 ⚠ 12 chosen-rejected aynı satır — muhtemelen toplama hatası
 ✓ split'ler arası sızıntı yok
 ```

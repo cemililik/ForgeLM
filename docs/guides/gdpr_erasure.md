@@ -135,24 +135,32 @@ line where my identifier appears."
 $ forgelm reverse-pii --query "alice@example.com" --type email \
     --output-dir ./outputs data/*.jsonl
 
-# Hash-mask scan: corpus was masked through ForgeLM's hash strategy.
-# Reuses the per-output-dir salt purge uses for `target_id` hashing,
-# so the digest computed here matches the digest written into the corpus.
+# Hash-mask scan: corpus was masked through an EXTERNAL pipeline
+# that embedded SHA256(salt + identifier) digests using the same
+# per-output-dir salt purge uses for `target_id` audit-event
+# hashing.  ForgeLM does not ship a hash-replacement ingest
+# strategy of its own; this mode is for operators who built one
+# outside the toolkit using purge's salt as the shared secret.
 $ forgelm reverse-pii --query "alice@example.com" --type email \
     --salt-source per_dir --output-dir ./outputs data/*.jsonl
 ```
 
 The audit chain records `data.access_request_query` with the
-identifier *hashed* — Article 15 access requests must not themselves
-leak the subject's data into the audit log.  The hashed form is a
-stable per-identifier fingerprint a compliance reviewer can correlate
-across queries without seeing the cleartext.
+identifier *salted-and-hashed* using the same per-output-dir salt
+that `forgelm purge` uses for its `target_id` field — Article 15
+access requests must not themselves leak the subject's data into the
+audit log.  The salted form is a stable per-identifier fingerprint
+that lets a compliance reviewer correlate Article 17 (purge) and
+Article 15 (reverse-pii) events for the same subject (the digests
+match) without seeing the cleartext.
 
-**Identifier types** (`--type`): `email`, `phone`, `tr_id`, `us_ssn`,
-`iban`, `credit_card`, `custom`.  All non-`custom` types treat the
-query as a literal string (no regex shape match — that's the
-*audit-time* detector's job, not the access-request answer).
-`custom` interprets the query as a Python regex.
+**Identifier types** (`--type`): `literal` (default), `email`,
+`phone`, `tr_id`, `us_ssn`, `iban`, `credit_card`, `custom`.  All
+non-`custom` types treat the query as a literal substring (no regex
+shape match — that's the *audit-time* detector's job, not the
+access-request answer).  `custom` interprets the query as a Python
+regex; on POSIX systems a 30s per-file SIGALRM budget guards against
+ReDoS hangs.
 
 **Exit codes:** `0` = scan completed (matches list may be empty);
 `1` = config error (empty query, malformed regex, empty glob); `2` =

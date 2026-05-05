@@ -87,14 +87,20 @@ class WebhookNotifier:
         ca_bundle = getattr(self.config, "tls_ca_bundle", None)
 
         # Timeout floor — webhook keeps the historical 1s floor (``safe_post``
-        # rejects 0/None unconditionally).
-        timeout = getattr(self.config, "timeout", 5)
+        # rejects 0/None unconditionally).  Wave 3 F-compliance-106
+        # raised the WebhookConfig default 5 → 10; the clamp message
+        # and fallback value follow that default.
+        from .config import WebhookConfig as _WebhookConfig
+
+        default_timeout = _WebhookConfig.model_fields["timeout"].default
+        timeout = getattr(self.config, "timeout", default_timeout)
         if not isinstance(timeout, (int, float)) or timeout < 1:
             logger.warning(
-                "Webhook timeout=%r is below the 1s floor; clamping to 5s.",
+                "Webhook timeout=%r is below the 1s floor; clamping to %ds.",
                 timeout,
+                default_timeout,
             )
-            timeout = 5
+            timeout = default_timeout
 
         allow_private = bool(getattr(self.config, "allow_private_destinations", False))
 

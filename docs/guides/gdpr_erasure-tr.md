@@ -136,25 +136,32 @@ satırlarda görünüyor" sorusuna yanıt verir.
 $ forgelm reverse-pii --query "ali@example.com" --type email \
     --output-dir ./outputs data/*.jsonl
 
-# Hash-mask scan: corpus ForgeLM'in hash stratejisi ile maskelenmiş.
-# `purge`'ün `target_id` hash'lemesinde kullandığı per-output-dir
-# salt'ı yeniden kullanır — burada hesaplanan digest, corpus'a
-# yazılmış digest ile eşleşir.
+# Hash-mask scan: corpus DIŞSAL bir pipeline ile maskelenmiş —
+# `purge`'ün `target_id` audit-event hash'lemesinde kullandığı
+# per-output-dir salt'ını paylaşan SHA256(salt + identifier)
+# digest'leri corpus'a gömülmüş.  ForgeLM'in kendisi bir
+# hash-replacement ingest stratejisi YOLLAMAZ; bu mod, purge'ün
+# salt'ını ortak gizli olarak kullanan harici bir pipeline kuran
+# operatörler içindir.
 $ forgelm reverse-pii --query "ali@example.com" --type email \
     --salt-source per_dir --output-dir ./outputs data/*.jsonl
 ```
 
-Audit chain `data.access_request_query`'yi identifier *hash'lenmiş*
-olarak kaydeder — Madde 15 erişim talepleri kendisi de subject'in
-verisini audit log'a sızdırmamalıdır.  Hash'lenmiş form, compliance
-reviewer'ın iki sorguyu cleartext görmeden aynı subject'e
-ilişkilendirmesini sağlayan stabil per-identifier fingerprint'tir.
+Audit chain `data.access_request_query`'yi identifier *salt'lı
+hash'lenmiş* olarak kaydeder — `forgelm purge`'ün `target_id` field'ı
+için kullandığı aynı per-output-dir salt'ı yeniden kullanılır.
+Madde 15 erişim talepleri kendisi de subject'in verisini audit log'a
+sızdırmamalıdır.  Salt'lı form, compliance reviewer'ın aynı subject
+için Madde 17 (purge) ve Madde 15 (reverse-pii) olaylarını cleartext
+görmeden ilişkilendirmesini sağlar (digest'ler eşleşir).
 
-**Identifier tipleri** (`--type`): `email`, `phone`, `tr_id`,
-`us_ssn`, `iban`, `credit_card`, `custom`.  `custom` dışındaki tüm
-tipler query'i literal string olarak ele alır (regex şekil-match
-yapmaz — o iş audit-time detector'ın görevi, erişim talebinin değil).
-`custom` query'i Python regex olarak yorumlar.
+**Identifier tipleri** (`--type`): `literal` (varsayılan), `email`,
+`phone`, `tr_id`, `us_ssn`, `iban`, `credit_card`, `custom`.
+`custom` dışındaki tüm tipler query'i literal substring olarak ele
+alır (regex şekil-match yapmaz — o iş audit-time detector'ın görevi,
+erişim talebinin değil).  `custom` query'i Python regex olarak
+yorumlar; POSIX sistemlerde 30s'lik per-file SIGALRM bütçesi ReDoS
+hang'lerine karşı koruma sağlar.
 
 **Exit kodları:** `0` = scan tamamlandı (matches listesi boş
 olabilir); `1` = config hatası (boş query, malformed regex, boş

@@ -920,9 +920,9 @@ def _add_reverse_pii_subcommand(subparsers) -> None:
     p.add_argument(
         "--type",
         type=str,
-        default="custom",
-        choices=["email", "phone", "tr_id", "us_ssn", "iban", "credit_card", "custom"],
-        help="Identifier category.  `custom` (default) treats --query as an arbitrary regular expression; every other value treats --query as a literal string and matches it verbatim.",
+        default="literal",
+        choices=["literal", "email", "phone", "tr_id", "us_ssn", "iban", "credit_card", "custom"],
+        help="Identifier category.  `literal` (default) treats --query as a literal substring (re.escape applied) — the safe choice for Article 15 access requests where dots in e-mails must NOT match arbitrary characters.  Type-specific values (email/phone/...) behave the same way; `custom` treats --query as an arbitrary Python regex (use with care; ReDoS-guarded by a per-file timeout on POSIX).",
     )
     p.add_argument(
         "--salt-source",
@@ -949,7 +949,7 @@ def _add_reverse_pii_subcommand(subparsers) -> None:
         type=str,
         default=None,
         metavar="DIR",
-        help="Where to write the audit chain entries (default: same as --output-dir).  Use this when scans run config-free but the audit log lives elsewhere.",
+        help="Where to write the audit chain entries (default: <output-dir>/audit/, isolated from the corpus directory).  Pass an explicit directory to override; explicit values fail loudly when unwritable rather than silently dropping the Article 15 forensic record.",
     )
     _add_common_subparser_flags(p, include_output_format=True)
 

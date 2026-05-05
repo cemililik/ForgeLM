@@ -27,6 +27,16 @@ Usage:
     # Restrict to one pair (useful while editing).
     python3 tools/check_bilingual_parity.py --only docs/guides/ingestion.md
 
+Exit codes (per the parity tool's own contract — ``forgelm/`` exit
+codes do NOT apply since this script lives under ``tools/``):
+
+    0 — parity (or advisory mode reporting drift but not gating).
+    1 — strict drift detected, OR invalid argument (unknown ``--only``,
+        unparseable ``--levels``).
+
+CI gate authors must NOT wrap the strict invocation in ``|| true`` —
+exit 1 IS the gate.
+
 The tool is AST-free and Pydantic-free — it only needs ``re`` and the
 filesystem, so it runs in the same lint job as ``ruff`` without any
 optional extra.
@@ -58,6 +68,7 @@ _PAIRS: Tuple[Tuple[str, str], ...] = (
     ("docs/guides/ingestion.md", "docs/guides/ingestion-tr.md"),
     # docs/reference/
     ("docs/reference/architecture.md", "docs/reference/architecture-tr.md"),
+    ("docs/reference/audit_event_catalog.md", "docs/reference/audit_event_catalog-tr.md"),
     ("docs/reference/configuration.md", "docs/reference/configuration-tr.md"),
     ("docs/reference/data_preparation.md", "docs/reference/data_preparation-tr.md"),
     ("docs/reference/distributed_training.md", "docs/reference/distributed_training-tr.md"),

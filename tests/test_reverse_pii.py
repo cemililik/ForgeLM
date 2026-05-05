@@ -11,7 +11,10 @@ Test coverage maps to closure-plan §Faz 38 acceptance:
    same per-output-dir salt as `forgelm purge`; matches the masked
    corpus.
 3. Audit-event emission — `data.access_request_query` written;
-   identifier hashed (NEVER raw).
+   identifier hashed (NEVER raw) and salted (Wave 3 absorption
+   F-W3-PS-01: salt-free SHA-256 of low-entropy identifiers is
+   brute-forcible from a wordlist; the audit hash now reuses the
+   per-output-dir salt purge already uses).
 4. Glob expansion — multiple files scanned in deterministic order;
    per-file match count surfaced.
 5. Failure paths — empty query / unparseable custom regex / empty
@@ -52,7 +55,7 @@ def _read_audit_events(audit_log_path: Path) -> list[dict]:
 def _build_args(
     *,
     query: str | None = None,
-    type: str | None = "custom",
+    type: str | None = "literal",
     salt_source: str | None = None,
     files: list[str] | None = None,
     output_dir: str | None = None,
@@ -140,6 +143,29 @@ class TestPlaintextResidualMatch:
         assert len(payload["files_scanned"]) == 1
         assert payload["files_scanned"][0]["match_count"] == 0
 
+    def test_default_type_is_literal_not_regex(self, tmp_path: Path, capsys) -> None:
+        """F-W3-02 regression: the default --type must NOT interpret the
+        query as a regex.  ``alice@example.com`` (with literal dot) must
+        not match ``alice@exampleXcom`` (where ``.`` would be wildcarded
+        under the previous default of ``custom``)."""
+        from forgelm.cli.subcommands._reverse_pii import _run_reverse_pii_cmd
+
+        corpus = tmp_path / "train.jsonl"
+        _seed_corpus(corpus, [{"id": "row-A", "text": "contact alice@exampleXcom"}])
+        # No --type → default = "literal".
+        args = _build_args(
+            query="alice@example.com",
+            type=None,
+            files=[str(corpus)],
+            output_dir=str(tmp_path),
+        )
+        with pytest.raises(SystemExit) as ei:
+            _run_reverse_pii_cmd(args, output_format="json")
+        assert ei.value.code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["match_count"] == 0, "literal default must not regex-match wildcards"
+        assert payload["identifier_type"] == "literal"
+
 
 # ---------------------------------------------------------------------------
 # §2 Test — Hash-mask scan: SHA256(salt + identifier) found in masked corpus
@@ -204,6 +230,29 @@ class TestHashMaskScan:
             _run_reverse_pii_cmd(args, output_format="json")
         assert ei.value.code == 1, "env_var without FORGELM_AUDIT_SECRET must surface as EXIT_CONFIG_ERROR"
 
+    def test_per_dir_salt_source_refuses_when_env_var_set(self, tmp_path: Path, capsys, monkeypatch) -> None:
+        """F-W3-11 / F-W3-PS-04 regression: the symmetric direction —
+        operator asked for ``per_dir`` but ``FORGELM_AUDIT_SECRET`` is
+        set in the shell environment — must also refuse, with a
+        direction-aware diagnostic that names the env-var unset path."""
+        from forgelm.cli.subcommands._reverse_pii import _run_reverse_pii_cmd
+
+        monkeypatch.setenv("FORGELM_AUDIT_SECRET", "leftover-from-shell")
+        corpus = tmp_path / "masked.jsonl"
+        _seed_corpus(corpus, [{"id": "row-A", "text": "x"}])
+        args = _build_args(
+            query="alice@example.com",
+            type="email",
+            salt_source="per_dir",
+            files=[str(corpus)],
+            output_dir=str(tmp_path),
+        )
+        with pytest.raises(SystemExit) as ei:
+            _run_reverse_pii_cmd(args, output_format="json")
+        assert ei.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert "FORGELM_AUDIT_SECRET" in payload["error"]
+
 
 # ---------------------------------------------------------------------------
 # §3 Test — Audit event emitted; identifier hashed (NEVER raw)
@@ -212,6 +261,7 @@ class TestHashMaskScan:
 
 class TestAuditEventDoesNotLeakIdentifier:
     def test_access_request_event_carries_hashed_query_only(self, tmp_path: Path) -> None:
+        from forgelm.cli.subcommands._purge import _hash_target_id, _resolve_salt
         from forgelm.cli.subcommands._reverse_pii import _run_reverse_pii_cmd
 
         audit_dir = tmp_path / "audit"
@@ -234,15 +284,42 @@ class TestAuditEventDoesNotLeakIdentifier:
         access_events = [e for e in events if e["event"] == "data.access_request_query"]
         assert len(access_events) == 1
         evt = access_events[0]
-        # Hashed identifier present; raw email NOT.
-        expected_hash = hashlib.sha256(b"alice@example.com").hexdigest()
+        # F-W3-PS-01 absorption: the hash is salted with the per-output-dir
+        # salt purge uses for target_id; an unsalted SHA-256 must NOT be
+        # present (otherwise a wordlist attack against the audit log
+        # would recover the subject's identifier).
+        salt, _ = _resolve_salt(str(tmp_path))
+        expected_hash = _hash_target_id("alice@example.com", salt)
+        unsalted = hashlib.sha256(b"alice@example.com").hexdigest()
         assert evt["query_hash"] == expected_hash
+        assert evt["query_hash"] != unsalted, (
+            "audit query_hash must be salted; otherwise a wordlist attack "
+            "recovers the subject's identifier from the chain"
+        )
         # Critical: raw identifier appears NOWHERE in the event payload.
         as_str = json.dumps(evt)
         assert "alice@example.com" not in as_str, f"audit event leaked raw identifier:\n{as_str}"
         assert evt["identifier_type"] == "email"
         assert evt["scan_mode"] == "plaintext"
         assert evt["match_count"] == 1
+        # F-W3-PS-07 absorption: salt_source recorded in every event.
+        assert evt["salt_source"] in {"plaintext", "per_dir", "env_var"}
+
+    def test_purge_target_id_matches_reverse_pii_query_hash_on_same_output_dir(self, tmp_path: Path) -> None:
+        """F-W3-PS-09 absorption: the audit chain must let a compliance
+        reviewer correlate Article 17 (purge) and Article 15 (reverse-pii)
+        events for the same subject in the same ``output_dir``.  The
+        digests are equal iff both subcommands use the same per-output-dir
+        salt — which they now do."""
+        from forgelm.cli.subcommands._purge import _hash_target_id, _resolve_salt
+        from forgelm.cli.subcommands._reverse_pii import _hash_for_audit
+
+        salt, _ = _resolve_salt(str(tmp_path))
+        purge_target_id = _hash_target_id("alice@example.com", salt)
+        reverse_pii_query_hash = _hash_for_audit("alice@example.com", salt)
+        assert purge_target_id == reverse_pii_query_hash, (
+            "cross-tool audit correlation requires both subcommands to salt with the same per-output-dir salt"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +376,25 @@ class TestGlobExpansion:
         payload = json.loads(capsys.readouterr().out)
         assert payload["match_count"] == 1
 
+    def test_overlapping_globs_deduped_to_one_scan(self, tmp_path: Path, capsys) -> None:
+        """F-W3T-12 regression: two globs that match the same file must
+        not double-count matches."""
+        from forgelm.cli.subcommands._reverse_pii import _run_reverse_pii_cmd
+
+        _seed_corpus(tmp_path / "train.jsonl", [{"id": "1", "text": "alice@example.com"}])
+        args = _build_args(
+            query="alice@example.com",
+            type="email",
+            files=[str(tmp_path / "*.jsonl"), str(tmp_path / "train*.jsonl")],
+            output_dir=str(tmp_path),
+        )
+        with pytest.raises(SystemExit) as ei:
+            _run_reverse_pii_cmd(args, output_format="json")
+        assert ei.value.code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert len(payload["files_scanned"]) == 1
+        assert payload["match_count"] == 1
+
 
 # ---------------------------------------------------------------------------
 # §5 Test — Failure paths
@@ -316,16 +412,26 @@ class TestFailurePaths:
             _run_reverse_pii_cmd(args, output_format="json")
         assert ei.value.code == 1
 
-    def test_unparseable_custom_regex_exits_config_error(self, tmp_path: Path) -> None:
+    def test_unparseable_custom_regex_exits_config_error_without_salt_side_effect(self, tmp_path: Path) -> None:
+        """F-W3-08 regression: a config error (unparseable regex) must
+        not leave a salt file behind on disk.  Validation runs before
+        any filesystem side effect."""
         from forgelm.cli.subcommands._reverse_pii import _run_reverse_pii_cmd
 
         corpus = tmp_path / "train.jsonl"
         _seed_corpus(corpus, [{"id": "1", "text": "x"}])
         # Unbalanced bracket; re.compile will raise.
-        args = _build_args(query="[invalid", type="custom", files=[str(corpus)], output_dir=str(tmp_path))
+        args = _build_args(
+            query="[invalid",
+            type="custom",
+            salt_source="per_dir",  # would trigger salt creation if validation order was wrong
+            files=[str(corpus)],
+            output_dir=str(tmp_path),
+        )
         with pytest.raises(SystemExit) as ei:
             _run_reverse_pii_cmd(args, output_format="json")
         assert ei.value.code == 1
+        assert not (tmp_path / ".forgelm_audit_salt").exists(), "config error must not create a salt file on disk"
 
     def test_unknown_identifier_type_rejected(self, tmp_path: Path) -> None:
         # The argparse layer also catches this, but the dispatcher
@@ -352,6 +458,30 @@ class TestFailurePaths:
             _run_reverse_pii_cmd(args, output_format="json")
         assert ei.value.code == 1
 
+    def test_directory_argument_diagnoses_glob_form(self, tmp_path: Path, capsys) -> None:
+        """F-W3-12 regression: passing a directory must produce a
+        targeted diagnostic naming the glob form, not a generic empty-glob
+        error.  Closes the UX paper-cut where the operator typed `data/`
+        intending `data/*.jsonl`."""
+        from forgelm.cli.subcommands._reverse_pii import _run_reverse_pii_cmd
+
+        # Seed a file inside the directory so glob expansion finds the
+        # directory but not its contents (positional is the directory
+        # itself, not a glob).
+        _seed_corpus(tmp_path / "child.jsonl", [{"id": "1", "text": "x"}])
+        args = _build_args(
+            query="x",
+            type="email",
+            files=[str(tmp_path)],
+            output_dir=str(tmp_path),
+        )
+        with pytest.raises(SystemExit) as ei:
+            _run_reverse_pii_cmd(args, output_format="json")
+        assert ei.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert "directory" in payload["error"].lower()
+        assert ".jsonl" in payload["error"]
+
     def test_no_files_argument_exits_config_error(self, tmp_path: Path) -> None:
         from forgelm.cli.subcommands._reverse_pii import _run_reverse_pii_cmd
 
@@ -360,7 +490,11 @@ class TestFailurePaths:
             _run_reverse_pii_cmd(args, output_format="json")
         assert ei.value.code == 1
 
-    def test_mid_scan_io_failure_writes_failed_audit_event(self, tmp_path: Path, monkeypatch) -> None:
+    def test_mid_scan_io_failure_writes_failed_audit_event_without_leaking_identifier(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """F-W3T-01 regression: the failure-path audit event must carry
+        the same no-leak invariant as the success path."""
         from forgelm.cli.subcommands import _reverse_pii
 
         corpus = tmp_path / "train.jsonl"
@@ -402,19 +536,83 @@ class TestFailurePaths:
         evt = access_events[0]
         assert evt["error_class"] == "OSError"
         assert "simulated mid-scan I/O failure" in evt["error_message"]
+        # Critical: failure-path event must carry the same no-leak invariant
+        # as the success path (F-W3T-01).
+        as_str = json.dumps(evt)
+        assert "alice@example.com" not in as_str, f"failure-path audit event leaked raw identifier:\n{as_str}"
+
+    def test_malformed_utf8_corpus_exits_runtime_error_with_audit_event(self, tmp_path: Path) -> None:
+        """F-W3-04 regression: a UnicodeDecodeError mid-scan must surface
+        as ``EXIT_TRAINING_ERROR=2`` with a failure-flavoured audit
+        event — not as Python's default exit 1 with no audit record."""
+        from forgelm.cli.subcommands._reverse_pii import _run_reverse_pii_cmd
+
+        corpus = tmp_path / "bad.jsonl"
+        # Valid first line, then a multi-byte rune fragment.
+        corpus.write_bytes(b'{"id":1,"text":"valid"}\n\xff\xfe garbage\n')
+        audit_dir = tmp_path / "audit"
+        audit_dir.mkdir()
+
+        args = _build_args(
+            query="x",
+            type="email",
+            files=[str(corpus)],
+            output_dir=str(tmp_path),
+            audit_dir=str(audit_dir),
+        )
+        with pytest.raises(SystemExit) as ei:
+            _run_reverse_pii_cmd(args, output_format="json")
+        assert ei.value.code == 2
+
+        events = _read_audit_events(audit_dir / "audit_log.jsonl")
+        access_events = [e for e in events if e["event"] == "data.access_request_query"]
+        assert len(access_events) == 1
+        evt = access_events[0]
+        assert evt["error_class"] in {"UnicodeDecodeError", "OSError"}
+
+    def test_explicit_audit_dir_unwritable_fails_closed(self, tmp_path: Path, monkeypatch) -> None:
+        """F-W3-01 / F-W3-PS-02 regression: when --audit-dir is explicit
+        and AuditLogger init crashes with a non-ConfigError, the run
+        must refuse with EXIT_TRAINING_ERROR rather than silently
+        proceeding without an Article 15 forensic record."""
+        from forgelm.cli.subcommands._reverse_pii import _run_reverse_pii_cmd
+        from forgelm.compliance import AuditLogger
+
+        corpus = tmp_path / "train.jsonl"
+        _seed_corpus(corpus, [{"id": "1", "text": "x"}])
+
+        def _crashing_init(self, *_args, **_kw):
+            raise OSError("simulated audit-init failure (read-only volume)")
+
+        monkeypatch.setattr(AuditLogger, "__init__", _crashing_init)
+        args = _build_args(
+            query="x",
+            type="email",
+            files=[str(corpus)],
+            output_dir=str(tmp_path),
+            audit_dir=str(tmp_path / "audit"),
+        )
+        with pytest.raises(SystemExit) as ei:
+            _run_reverse_pii_cmd(args, output_format="json")
+        assert ei.value.code == 2, (
+            "explicit --audit-dir + audit init OSError must fail closed; "
+            "silently dropping the chain entry breaches the Article 15 contract"
+        )
 
 
 # ---------------------------------------------------------------------------
-# §6 Test — Snippet truncation defends unbounded log spam
+# §6 Test — Snippet truncation defends unbounded log spam AND preserves match
 # ---------------------------------------------------------------------------
 
 
 class TestSnippetTruncation:
-    def test_long_line_centre_truncated(self, tmp_path: Path, capsys) -> None:
+    def test_long_line_centred_on_match_preserves_identifier(self, tmp_path: Path, capsys) -> None:
+        """F-W3-03 regression: snippet truncation must centre on the
+        match span so the operator can verify the hit.  The previous
+        head+tail strategy dropped the matched span on long lines."""
         from forgelm.cli.subcommands._reverse_pii import _SNIPPET_MAX_CHARS, _run_reverse_pii_cmd
 
-        # Construct a line longer than the snippet budget with the
-        # match in the middle.
+        # Long line with the match buried in the middle.
         prefix = "x" * 200
         suffix = "y" * 200
         corpus = tmp_path / "train.jsonl"
@@ -433,8 +631,30 @@ class TestSnippetTruncation:
         payload = json.loads(capsys.readouterr().out)
         snippet = payload["matches"][0]["snippet"]
         assert len(snippet) <= _SNIPPET_MAX_CHARS
-        # Ellipsis marks where the middle was elided.
+        # Ellipsis marks where context was elided.
         assert "…" in snippet
+        # Critical: the identifier itself must survive truncation
+        # (otherwise the operator cannot verify the hit).
+        assert "alice@example.com" in snippet, (
+            "centred truncation must preserve the matched span — the whole point is operator verification"
+        )
+
+    def test_truncation_respects_multibyte_utf8(self, tmp_path: Path, capsys) -> None:
+        """F-W3T-05 regression: code-point slicing must not produce
+        broken UTF-8 sequences when the line mixes CJK + emoji."""
+        from forgelm.cli.subcommands._reverse_pii import _SNIPPET_MAX_CHARS, _truncate_snippet
+
+        # Mix CJK + emoji; bytes per char vary 1/3/4.
+        line = ("前置テキスト" * 30) + " alice@example.com " + ("🚀後続" * 30)
+        # Locate the match span by hand for the unit test.
+        start = line.index("alice@example.com")
+        end = start + len("alice@example.com")
+        snippet = _truncate_snippet(line, (start, end))
+        assert len(snippet) <= _SNIPPET_MAX_CHARS + 2  # head + tail "…"
+        # Round-trip through utf-8 must succeed (no broken surrogates).
+        snippet.encode("utf-8").decode("utf-8")
+        # The matched span survives the truncation.
+        assert "alice@example.com" in snippet
 
 
 # ---------------------------------------------------------------------------
@@ -444,18 +664,12 @@ class TestSnippetTruncation:
 
 class TestReversePiiFacade:
     def test_facade_re_exports_dispatcher_and_helpers(self) -> None:
+        """F-W3-10 regression: facade must re-export every name in
+        ``_reverse_pii.__all__``, not a hand-maintained subset."""
         from forgelm import cli as _cli_facade
+        from forgelm.cli.subcommands import _reverse_pii as _mod
 
-        for name in (
-            "_run_reverse_pii_cmd",
-            "_validate_query",
-            "_validate_identifier_type",
-            "_resolve_files",
-            "_scan_file",
-            "_truncate_snippet",
-            "_hash_for_audit",
-            "_emit_reverse_pii_result",
-        ):
+        for name in _mod.__all__:
             assert hasattr(_cli_facade, name), f"forgelm.cli must re-export {name!r}"
 
     def test_parser_registers_reverse_pii_subcommand(self) -> None:
@@ -483,13 +697,16 @@ class TestReversePiiFacade:
         assert args.command == "reverse-pii"
         assert args.query == "alice@example.com"
         assert args.files == [str(corpus)]
-        # Defaults round-trip.
-        assert args.type == "custom"
+        # Defaults round-trip — Wave 3 absorption: default --type is now
+        # ``literal`` (was ``custom``); F-W3-02 fix.
+        assert args.type == "literal"
         assert args.salt_source is None
 
     def test_dispatch_table_registers_reverse_pii(self) -> None:
-        """The dispatcher table must include the reverse-pii row so the
-        CLI binary actually routes the subcommand to its handler."""
+        """Dispatch routing only — patching the function under test is
+        intentional; the contract is "command name routes to the
+        registered handler", not "the handler does the right thing"
+        (which is covered by the rest of this file)."""
         from forgelm.cli._dispatch import _dispatch_subcommand
 
         # Exercise the dispatch via a monkeypatch on the facade so we

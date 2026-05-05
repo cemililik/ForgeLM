@@ -11,18 +11,45 @@ Single integration branch covering three closure-plan phases:
 **Faz 38 — `forgelm reverse-pii` (GDPR Article 15 right-of-access)**
 
 - New CLI subcommand: `forgelm reverse-pii --query VALUE [--type
-  email|phone|tr_id|us_ssn|iban|credit_card|custom] [--salt-source
-  per_dir|env_var] JSONL_GLOB...`.  Walks JSONL corpora, reports
-  every line where the supplied identifier appears.  Two scan modes:
-  *plaintext residual* (mask-leak detection) and *hash-mask*
-  (reuses `forgelm purge`'s per-output-dir salt to re-derive the
-  digest).  Centre-truncated snippets cap log spam.
+  literal|email|phone|tr_id|us_ssn|iban|credit_card|custom]
+  [--salt-source per_dir|env_var] JSONL_GLOB...`.  Walks JSONL
+  corpora, reports every line where the supplied identifier appears.
+  Two scan modes: *plaintext residual* (mask-leak detection) and
+  *hash-mask* (reuses `forgelm purge`'s per-output-dir salt to
+  re-derive the digest, so a purge → reverse-pii cycle for the same
+  subject yields matching digests).  Snippets are centred on the
+  matched span and capped at 160 chars so the operator can always
+  eyeball the hit.
 - New audit event `data.access_request_query` (catalogued bilingually).
-  The identifier is **SHA-256-hashed before audit emission** —
-  Article 15 access requests must not themselves leak the subject's
-  data into the audit log.
-- 18 regression tests; library re-exports through `forgelm.cli`
-  facade; help epilog + dispatcher row added.
+  The identifier is **salted-and-hashed before audit emission**,
+  reusing the same per-output-dir salt that purge uses for
+  `target_id` — Article 15 access requests must not themselves leak
+  the subject's data into the audit log, AND a wordlist attack
+  against the audit chain requires the operator's salt file.  The
+  `salt_source` field is recorded in every event so a compliance
+  reviewer can correlate Article 17 + Article 15 events for the same
+  subject.
+- Default `--type` is `literal` (not `custom`) — a stray
+  `--query alice@example.com` matches the literal e-mail substring,
+  not the regex shape `alice@exampleXcom`.  Operators wanting raw
+  regex pass `--type custom` explicitly; on POSIX a 30s SIGALRM
+  budget guards against ReDoS hangs.
+- Audit fail-closed: AuditLogger init `OSError`/`ValueError`
+  refuses the run with `EXIT_TRAINING_ERROR`, naming the audit-dir.
+  `ConfigError` (operator-identity unavailable) still skips with a
+  WARNING — the only "best-effort" branch.
+- Audit-dir default: `<output_dir>/audit/` (was `output_dir`); the
+  Article 15 forensic record no longer co-locates with the corpus
+  the subject is asking about.
+- Mid-scan UTF-8 / I/O failures and ReDoS timeouts emit a failure-
+  flavoured `data.access_request_query` event before exit — same
+  no-leak invariant as the success path.
+- 28 regression tests (was 18) covering: literal-default no
+  false-positives, salted audit hash, purge ↔ reverse-pii digest
+  correlation, failure-path no-leak, multi-byte UTF-8 truncation,
+  malformed UTF-8 corpus, explicit-audit-dir fail-closed,
+  per_dir-with-env-var symmetric refusal, overlapping-glob dedupe,
+  directory-arg diagnostic, no-salt-side-effect on regex parse error.
 
 **Faz 24 — Bilingual TR mirror sweep + parity CI guard**
 

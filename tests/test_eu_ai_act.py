@@ -141,18 +141,21 @@ class TestForgeConfigCompliance:
         assert "high-risk" in caplog.text
         assert "auto_revert" in caplog.text
 
-    def test_high_risk_safety_disabled_raises_config_error(self, minimal_config):
-        """F-compliance-110 regression: high-risk + safety.enabled=false
-        must surface as ``ConfigError`` (was a warning prior to v0.5.5).
-        EU AI Act Article 9 risk-management evidence cannot be derived
-        from a disabled safety eval; operators who genuinely want a
-        sandboxed run must lower the risk_classification."""
+    @pytest.mark.parametrize("tier", ["high-risk", "unacceptable"])
+    def test_strict_tier_safety_disabled_raises_config_error(self, minimal_config, tier):
+        """F-compliance-110 + F-W3T-02 regression: BOTH tiers in
+        ``_STRICT_RISK_TIERS`` (high-risk + unacceptable) must surface as
+        ``ConfigError`` when safety is disabled — pinning the failure leg
+        for both Article 9 (high-risk) and Article 5 (unacceptable /
+        prohibited) tiers.  EU AI Act risk-management evidence cannot be
+        derived from a disabled safety eval; operators who genuinely
+        want a sandboxed run must lower the risk_classification."""
         from forgelm.config import ConfigError
 
         with pytest.raises(ConfigError, match="evaluation.safety.enabled"):
             ForgeConfig(
                 **minimal_config(
-                    risk_assessment={"risk_category": "high-risk"},
+                    risk_assessment={"risk_category": tier},
                     # No safety block → safety disabled by default.
                 )
             )

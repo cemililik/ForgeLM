@@ -45,7 +45,8 @@ output:
 
 ## Veri formatı
 
-DPO ile aynı — `prompt`, `chosen`, `rejected` taşıyan `preference` formatı. Bkz. [Veri Formatları](#/concepts/data-formats).
+DPO ile aynı — `prompt`, `chosen`, `rejected` taşıyan `preference` formatı.
+Bkz. [Veri Formatları](#/concepts/data-formats).
 
 ## Parametreler
 

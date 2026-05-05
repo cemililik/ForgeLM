@@ -69,7 +69,7 @@ The hash chain advances after the line lands on disk (`flush` + `fsync`), so an 
 
 | Event                          | When emitted                                                                                                         | Payload                                                                                                                                      | Article |
 |--------------------------------|----------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|---------|
-| `data.access_request_query`    | Every `forgelm reverse-pii` invocation, after the scan completes (or after a mid-scan I/O failure — with `error_*`). | `query_hash` (SHA-256 of raw identifier — never raw), `identifier_type` ∈ `{email, phone, tr_id, us_ssn, iban, credit_card, custom}`, `scan_mode` ∈ `{plaintext, hash}`, `files_scanned` (paths), `match_count`, optional `error_class`/`error_message` | 15      |
+| `data.access_request_query`    | Every `forgelm reverse-pii` invocation, after the scan completes (or after a mid-scan I/O failure — with `error_*`). | `query_hash` (salted SHA-256 of raw identifier — never raw; reuses purge's per-output-dir salt), `identifier_type` ∈ `{literal, email, phone, tr_id, us_ssn, iban, credit_card, custom}`, `scan_mode` ∈ `{plaintext, hash}`, `salt_source` ∈ `{plaintext, per_dir, env_var}`, `files_scanned` (paths), `match_count`, optional `error_class`/`error_message` | GDPR Art. 15 |
 
 ### Air-gap pre-cache (Phase 35 — `forgelm cache-models` / `cache-tasks`)
 

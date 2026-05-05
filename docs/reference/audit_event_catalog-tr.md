@@ -69,7 +69,7 @@ Hash zinciri, satır diske düştükten (`flush` + `fsync`) sonra ilerler; kirli
 
 | Event                          | Ne zaman yayılır                                                                                                          | Payload                                                                                                                                                | Madde |
 |--------------------------------|---------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|-------|
-| `data.access_request_query`    | Her `forgelm reverse-pii` çağrısında, scan tamamlandıktan sonra (veya mid-scan I/O hatası sonrası — `error_*` field'larıyla). | `query_hash` (raw identifier'ın SHA-256'sı — asla raw), `identifier_type` ∈ `{email, phone, tr_id, us_ssn, iban, credit_card, custom}`, `scan_mode` ∈ `{plaintext, hash}`, `files_scanned` (path'ler), `match_count`, opsiyonel `error_class`/`error_message` | 15    |
+| `data.access_request_query`    | Her `forgelm reverse-pii` çağrısında, scan tamamlandıktan sonra (veya mid-scan I/O hatası sonrası — `error_*` field'larıyla). | `query_hash` (raw identifier'ın salt'lı SHA-256'sı — asla raw; purge'ün per-output-dir salt'ını yeniden kullanır), `identifier_type` ∈ `{literal, email, phone, tr_id, us_ssn, iban, credit_card, custom}`, `scan_mode` ∈ `{plaintext, hash}`, `salt_source` ∈ `{plaintext, per_dir, env_var}`, `files_scanned` (path'ler), `match_count`, opsiyonel `error_class`/`error_message` | GDPR Md. 15 |
 
 ### Air-gap pre-cache (Phase 35 — `forgelm cache-models` / `cache-tasks`)
 

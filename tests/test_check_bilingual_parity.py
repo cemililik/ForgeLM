@@ -84,6 +84,22 @@ class TestExtractHeadings:
     def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
         assert extract_headings(tmp_path / "missing.md") == []
 
+    def test_setext_headings_are_not_matched(self, tmp_path: Path) -> None:
+        """F-W3T-03 regression: setext (``===``, ``---``) underlines
+        must NOT register as headings.  The project's docs use ATX
+        exclusively per ``docs/standards/documentation.md`` and a setext
+        heading in a mirror is itself a lint finding (see ``_HEADING_RE``
+        comment in the production code).  A regex tweak that accidentally
+        widened the matcher to setext would silently inflate the parity
+        tool's counts on every doc that mixes setext."""
+        src = _write(
+            tmp_path / "doc.md",
+            "Setext H1\n=========\n## Real H2\nSetext H2\n---------\n",
+        )
+        headings = extract_headings(src)
+        assert [h.level for h in headings] == [2]
+        assert [h.text for h in headings] == ["Real H2"]
+
 
 # ---------------------------------------------------------------------------
 # Pair diff: pass / fail / missing
@@ -198,11 +214,60 @@ class TestCanonicalRepoPasses:
     def test_repository_pairs_pass_strict(self) -> None:
         """The repo's actual EN/TR pairs must pass ``--strict`` so the
         CI gate stays green.  This is the test that fails first if a
-        future PR drifts a mirror without fixing it."""
+        future PR drifts a mirror without fixing it.
+
+        DELIBERATELY REDUNDANT with the CI lint job at
+        ``.github/workflows/ci.yml`` (F-W3T-08 docstring) — a drift
+        here surfaces in the pytest run too so contributors see it
+        locally before push.  Do not delete one in favour of the
+        other; they catch different categories of regression (this
+        one catches a drift introduced in the same PR as the test
+        edit; the lint job catches a drift introduced after the test
+        ran)."""
         repo_root = Path(__file__).parent.parent
         rc = main(["--strict", "--repo-root", str(repo_root)])
         assert rc == 0, (
             "Live-repo strict parity check failed; run "
             "`python3 tools/check_bilingual_parity.py` for the per-pair "
             "drift report."
+        )
+
+    def test_every_tr_mirror_appears_in_pair_registry(self) -> None:
+        """F-W3T-07 regression: a ``*-tr.md`` file added under the
+        parity tool's curated domain (``docs/guides/`` +
+        ``docs/reference/``) without a ``_PAIRS`` registry entry would
+        silently bypass the strict gate.  This meta-test asserts the
+        registry is the source of truth for those two directories.
+
+        Out-of-scope: ``docs/usermanuals/`` has its own structural
+        validator (``tools/build_usermanuals.py``); top-level docs
+        like ``docs/roadmap-tr.md`` and ``docs/product_strategy-tr.md``
+        diverge intentionally; ``docs/analysis/`` is internal /
+        gitignored research.
+
+        Allowlist: ``safety_compliance-tr.md`` carries a known
+        in-progress structural drift (34 H2/H3/H4 deltas as of Wave
+        3); the EN → TR completion is tracked as a separate Wave 4
+        translation task and the file would block this gate today.
+        Remove from the allowlist once parity is achieved.
+        """
+        repo_root = Path(__file__).parent.parent
+        scoped_dirs = [repo_root / "docs" / "guides", repo_root / "docs" / "reference"]
+        # Files whose TR mirror is acknowledged as structurally
+        # incomplete; do NOT add new entries here without an explicit
+        # tracking ticket.
+        in_progress_allowlist = {"docs/guides/safety_compliance-tr.md"}
+        tr_files: list[str] = []
+        for scoped_dir in scoped_dirs:
+            if not scoped_dir.is_dir():
+                continue
+            for path in scoped_dir.rglob("*-tr.md"):
+                tr_files.append(path.relative_to(repo_root).as_posix())
+        tr_files.sort()
+        registered = {tr for _, tr in check_bilingual_parity._PAIRS}
+        orphans = [path for path in tr_files if path not in registered and path not in in_progress_allowlist]
+        assert orphans == [], (
+            f"{orphans} carry a TR mirror but are not registered in "
+            "_PAIRS — register them in tools/check_bilingual_parity.py "
+            "or the strict gate will silently skip drift detection."
         )
