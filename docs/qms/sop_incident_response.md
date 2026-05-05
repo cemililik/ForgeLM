@@ -9,7 +9,7 @@
 
 Define the procedure for handling safety incidents, model failures,
 **security incidents**, and corrective actions for deployed
-fine-tuned models. Wave 4 / Faz 23 expansion: §6 covers the security-
+fine-tuned models. Wave 4 / Faz 23 expansion: §4 covers the security-
 incident playbook (audit-chain integrity, credential leak, supply-
 chain CVE, webhook target compromise, GDPR DSARs) alongside the
 existing AI-safety incident flow.
@@ -89,10 +89,15 @@ mismatch, manifest sidecar truncation, HMAC signature mismatch).
        present), and `<output_dir>/.forgelm_audit_salt` to a
        write-once forensic substrate (S3 Object Lock, Azure
        Immutable Blob).
-3. [ ] **Identify the last trusted entry** — bisect with
-       `forgelm verify-audit --until-line N` to find the first bad
-       line; everything before that line is forensically trusted,
-       everything after must be considered tainted.
+3. [ ] **Identify the last trusted entry** — run
+       `forgelm verify-audit ./outputs/audit_log.jsonl --require-hmac 2>&1 | tee verify.log`;
+       the verifier exits 1 on first failure and the offending line
+       number lands in stderr. If you need the precise boundary,
+       bisect manually with `head -n N audit_log.jsonl > tmp.jsonl`
+       and re-run `verify-audit` against `tmp.jsonl` until the last
+       N that exits 0 is found. Everything up to that line is
+       forensically trusted; everything after must be considered
+       tainted.
 4. [ ] **Notify** the AI Officer + Security team + DPO (if any
        PII-bearing event was after the bad line).
 5. [ ] **Decide** whether to retain the tainted-tail entries as
@@ -156,10 +161,13 @@ that an attacker may have observed.
 **Runbook:**
 
 1. [ ] **Rotate `webhook.secret_env`** immediately.
-2. [ ] **Re-emit lifecycle events** from the audit chain to confirm
-       the attacker did not splice events into the recipient.
-       (`forgelm verify-audit --replay-since <timestamp>` is the
-       v0.6.0+ tool for this; for v0.5.5, manually walk the chain.)
+2. [ ] **Walk the audit chain** to confirm the attacker did not splice
+       events into the recipient: filter
+       `audit_log.jsonl` by event class
+       (`jq 'select(.event | startswith("notify_"))'`) and confirm
+       every emitted lifecycle entry corresponds to a real
+       `pipeline.*` event in the same `run_id`. Mismatched timestamps
+       or orphan `notify_*` rows are the splice signal.
 3. [ ] **Check `safe_post` error logs** for masked Authorization
        headers post-rotation — confirm the attacker no longer holds
        a valid token.

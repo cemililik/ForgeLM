@@ -32,7 +32,7 @@ categories are scoped per-engagement.
 | CC1.5 | Enforces accountability | `FORGELM_OPERATOR` attribution + audit chain |
 | CC2.1 | Communicates internally about controls | `audit_event_catalog.md` + `deployer_instructions.md` |
 | CC2.2 | Communicates externally | Article 13 `deployer_instructions.md`; Annex IV public summary |
-| CC2.3 | Communicates with regulators | Annex IV bundle ready to ship |
+| CC2.3 | Communicates with regulators | Annex IV bundle + `compliance_report.json` are the artefacts the deployer ships to the regulator on request; ForgeLM does NOT operate the communication channel itself (deployer-side control) |
 | CC3.1 | Specifies suitable objectives | `compliance.intended_purpose`; risk classification |
 | CC3.2 | Identifies and analyses risks | `risk_assessment` Pydantic block; safety eval; `risk_treatment_plan.md` |
 | CC3.3 | Considers fraud risks | Audit log tamper-evidence; HMAC chain; manifest sidecar |

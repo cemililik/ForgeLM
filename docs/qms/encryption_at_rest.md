@@ -57,8 +57,16 @@ Threats explicitly OUT of scope:
 - **Insider with legitimate decryption credentials** — encryption
   cannot defend against authorised access; access control + audit
   log is the answer.
-- **Crypto-algorithm break** — assume SHA-256 / AES-256-GCM remain
-  intact for the QMS document's lifetime.
+
+Long-horizon (>5 years) — partial coverage:
+
+- **Crypto-algorithm break (algorithm agility — ISO A.8.24).**
+  ForgeLM assumes SHA-256 / AES-256-GCM remain intact for the
+  current QMS document lifetime. The deployer's IT policy should
+  reference NIST SP 800-131A revisions and reassess on a 5-year
+  cadence; this QMS document is updated when ForgeLM ships an
+  algorithm transition (e.g. SHA-3 audit chain). Until then,
+  algorithm-break exposure is residual and accepted.
 
 ## 4. Recommended controls per asset class
 

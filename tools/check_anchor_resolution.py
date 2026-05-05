@@ -54,7 +54,16 @@ _LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
 # Match an ATX heading: 1-6 leading hashes + space + body.  Setext
 # headings are out of scope for the anchor target check (the project
 # uses ATX exclusively per docs/standards/documentation.md).
-_HEADING_RE = re.compile(r"^(#{1,6}) +(.+?)\s*#*\s*$")
+#
+# Backtracking analysis (Sonar python:S5852, ReDoS hotspot):
+# the body is captured greedily and trailing whitespace + closing
+# hashes are stripped procedurally in ``_normalise_heading_body``
+# below.  This avoids the prior ``(.+?)\s*#*\s*$`` form whose three
+# adjacent variable-length matchers are flagged as a polynomial
+# backtracking risk on adversarial input.  ATX headings do not
+# legitimately exceed a few hundred characters so the worst-case
+# linear scan is bounded by line length.
+_HEADING_RE = re.compile(r"^(#{1,6}) +(.+)$")
 
 # Markdown image syntax (``![alt](src)``) reuses the link form but is
 # checked the same way — every ``src`` must resolve.
@@ -81,6 +90,20 @@ class Link:
 class BrokenLink:
     link: Link
     reason: str
+
+
+def _normalise_heading_body(body: str) -> str:
+    """Strip trailing whitespace + GFM closing-hash run from a heading body.
+
+    ATX headings allow an optional sequence of trailing ``#`` characters
+    (e.g. ``# title #``); GFM treats the closing run as decoration and
+    the slug is derived from the body alone.  Done procedurally to
+    avoid the multi-``\\s*`` regex pattern that triggers ReDoS warnings.
+    """
+    trimmed = body.rstrip()
+    while trimmed.endswith("#"):
+        trimmed = trimmed[:-1].rstrip()
+    return trimmed
 
 
 def _slugify_heading(text: str) -> str:
@@ -115,7 +138,8 @@ def _extract_anchors(target: Path) -> set[str]:
         match = _HEADING_RE.match(line)
         if match is None:
             continue
-        anchors.add(_slugify_heading(match.group(2)))
+        body = _normalise_heading_body(match.group(2))
+        anchors.add(_slugify_heading(body))
     return anchors
 
 
@@ -171,47 +195,61 @@ def _split_path_anchor(href: str) -> tuple[str, str]:
     return path, anchor
 
 
+def _resolve_pure_anchor(link: Link, anchor_part: str) -> BrokenLink | None:
+    """Pure ``#section`` link — target is the same file."""
+    if not anchor_part:
+        return BrokenLink(link, "empty href")
+    anchors = _extract_anchors(link.source)
+    if anchor_part not in anchors:
+        return BrokenLink(link, f"anchor #{anchor_part!r} not found in {link.source.name}")
+    return None
+
+
+def _locate_target(link: Link, path_part: str, repo_root: Path) -> Path | BrokenLink:
+    """Resolve a repo-relative path against the source's parent or repo root."""
+    target = (link.source.parent / path_part).resolve()
+    if target.exists():
+        return target
+    # Fall back: maybe the path is repo-root-relative (legacy refs).
+    alt = (repo_root / path_part).resolve()
+    if alt.exists():
+        return alt
+    return BrokenLink(link, f"target file not found: {path_part!r}")
+
+
+def _resolve_anchor_against_target(link: Link, target: Path, path_part: str, anchor_part: str) -> BrokenLink | None:
+    """Validate ``anchor_part`` against the resolved target file."""
+    if target.suffix.lower() != ".md":
+        # Code-file anchors (e.g. forgelm/x.py#L42) are stale-line
+        # references that drift on refactor.  Fail-loud for the
+        # ``#L<digits>`` form, ignore other code-anchor forms (Sphinx
+        # ``?`` queries, language-specific fragment schemes).
+        if re.fullmatch(r"L\d+(?:-L\d+)?", anchor_part):
+            return BrokenLink(
+                link,
+                f"line-number anchor #{anchor_part!r} on code file is brittle (use symbol references)",
+            )
+        return None
+    anchors = _extract_anchors(target)
+    if anchor_part not in anchors:
+        return BrokenLink(link, f"anchor #{anchor_part!r} not found in {path_part!r}")
+    return None
+
+
 def _resolve_link(link: Link, repo_root: Path) -> BrokenLink | None:
     """Return ``None`` if the link resolves; otherwise a ``BrokenLink``."""
     href = link.href
     if _is_skipped(href):
         return None
     path_part, anchor_part = _split_path_anchor(href)
-    # Pure anchor (``#section``) — target is the same file.
     if not path_part:
-        if not anchor_part:
-            return BrokenLink(link, "empty href")
-        anchors = _extract_anchors(link.source)
-        if anchor_part not in anchors:
-            return BrokenLink(link, f"anchor #{anchor_part!r} not found in {link.source.name}")
+        return _resolve_pure_anchor(link, anchor_part)
+    target_or_broken = _locate_target(link, path_part, repo_root)
+    if isinstance(target_or_broken, BrokenLink):
+        return target_or_broken
+    if not anchor_part:
         return None
-
-    # Repo-relative path.  Resolve against the source file's parent.
-    target = (link.source.parent / path_part).resolve()
-    if not target.exists():
-        # Fall back: maybe the path is repo-root-relative (legacy
-        # references).  Try that before declaring broken.
-        alt = (repo_root / path_part).resolve()
-        if not alt.exists():
-            return BrokenLink(link, f"target file not found: {path_part!r}")
-        target = alt
-
-    if anchor_part:
-        # Anchors only meaningful for Markdown targets.
-        if target.suffix.lower() != ".md":
-            # Code-file anchors (e.g. forgelm/x.py#L42) are stale-line
-            # references — flag them since they drift on refactor.
-            # Fail-loud for ``#L<digits>`` form, ignore other code-anchor
-            # forms (e.g. Sphinx `?` queries).
-            if re.fullmatch(r"L\d+(?:-L\d+)?", anchor_part):
-                return BrokenLink(
-                    link, f"line-number anchor #{anchor_part!r} on code file is brittle (use symbol references)"
-                )
-            return None
-        anchors = _extract_anchors(target)
-        if anchor_part not in anchors:
-            return BrokenLink(link, f"anchor #{anchor_part!r} not found in {path_part!r}")
-    return None
+    return _resolve_anchor_against_target(link, target_or_broken, path_part, anchor_part)
 
 
 def _format_broken(broken: BrokenLink) -> str:
@@ -219,7 +257,7 @@ def _format_broken(broken: BrokenLink) -> str:
     return f"{rel}:{broken.link.line}  [{broken.link.text}]({broken.link.href})  → {broken.reason}"
 
 
-def main(argv: list[str] | None = None) -> int:
+def _build_argparser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Validate markdown anchor + relative-path links under docs/.",
     )
@@ -263,7 +301,43 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Suppress the OK summary on success.",
     )
-    args = parser.parse_args(argv)
+    return parser
+
+
+def _resolve_excludes(scope_dir: Path, exclude_arg: list[str] | None) -> tuple[Path, ...]:
+    # Default exclude list — `analysis/` is gitignored research with
+    # local-only path references; `code_reviews/` would be too were
+    # it not partially re-allowed in `.gitignore`, but its closure-plan
+    # docs cite real files at line-anchored locations that drift.
+    specs: tuple[str, ...]
+    if exclude_arg is None:
+        specs = ("analysis",)
+    else:
+        specs = tuple(exclude_arg)
+    return tuple((scope_dir / spec).resolve() for spec in specs)
+
+
+def _collect_broken(md_files: list[Path], repo_root: Path) -> list[BrokenLink]:
+    broken: list[BrokenLink] = []
+    for md in md_files:
+        for link in _extract_links(md):
+            failure = _resolve_link(link, repo_root)
+            if failure is not None:
+                broken.append(failure)
+    return broken
+
+
+def _report_broken(broken: list[BrokenLink], md_count: int, scope: str, strict: bool) -> int:
+    verdict = "FAIL" if strict else "WARN"
+    print(f"{verdict}: broken anchor / relative-link references:")
+    for entry in broken:
+        print(f"  {_format_broken(entry)}")
+    print(f"\n{len(broken)} broken link(s) across {md_count} markdown file(s) under {scope}/.")
+    return 1 if strict else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_argparser().parse_args(argv)
 
     repo_root = args.repo_root.resolve()
     scope_dir = (repo_root / args.scope).resolve()
@@ -271,31 +345,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: scope directory not found: {scope_dir}", file=sys.stderr)
         return 1
 
-    # Default exclude list — `analysis/` is gitignored research with
-    # local-only path references; `code_reviews/` would be too were
-    # it not partially re-allowed in `.gitignore`, but its closure-plan
-    # docs cite real files at line-anchored locations that drift.
-    if args.exclude is None:
-        exclude_specs = ("analysis",)
-    else:
-        exclude_specs = tuple(args.exclude)
-    excluded_dirs = tuple((scope_dir / spec).resolve() for spec in exclude_specs)
-
-    broken: list[BrokenLink] = []
+    excluded_dirs = _resolve_excludes(scope_dir, args.exclude)
     md_files = list(_walk_markdown_files(scope_dir, excluded_dirs))
-    for md in md_files:
-        for link in _extract_links(md):
-            failure = _resolve_link(link, repo_root)
-            if failure is not None:
-                broken.append(failure)
+    broken = _collect_broken(md_files, repo_root)
 
     if broken:
-        verdict = "FAIL" if args.strict else "WARN"
-        print(f"{verdict}: broken anchor / relative-link references:")
-        for entry in broken:
-            print(f"  {_format_broken(entry)}")
-        print(f"\n{len(broken)} broken link(s) across {len(md_files)} markdown file(s) under {args.scope}/.")
-        return 1 if args.strict else 0
+        return _report_broken(broken, len(md_files), args.scope, args.strict)
 
     if not args.quiet:
         print(f"OK: {len(md_files)} markdown file(s) under {args.scope}/ have all anchors + relative links resolved.")

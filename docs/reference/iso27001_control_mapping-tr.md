@@ -13,7 +13,9 @@
 >   operatörün diğer kaynaklarla birleştirdiği kısmi kanıt sağlar.
 > - **`OOS`** — *Out of scope*: yalnız operatör; ForgeLM hiçbir katkı yapmaz.
 >
-> **Bu sürüm için kapsama özeti:** FL 11 / FL-helps 50 / OOS 32.
+> **Bu sürüm için kapsama özeti:** FL 11 / FL-helps 48 / OOS 34
+> (design doc §3.1–§3.4 row-by-row yeniden sayım; tema başına
+> A.5: 3 / 24 / 10, A.6: 0 / 5 / 3, A.7: 0 / 0 / 14, A.8: 8 / 19 / 7).
 
 ## A.5 Organisational controls (37)
 
@@ -52,7 +54,7 @@
 | A.5.31 Yasal, kanuni, düzenleyici ve sözleşmesel gerekliliklerin tanımlanması | FL-helps | EU AI Act + GDPR mappings; Annex IV bundle |
 | A.5.32 Fikri mülkiyet hakları | FL-helps | SBOM'da lisans çıkarımı; HF model-card metadata |
 | A.5.33 Kayıtların korunması | FL | Append-only + HMAC + manifest sidecar |
-| A.5.34 Gizlilik ve PII korunması | FL | `forgelm reverse-pii` Madde 15; `forgelm purge` Madde 17 |
+| A.5.34 Gizlilik ve PII korunması | FL | `forgelm reverse-pii` Madde 15; `forgelm purge` Madde 17 (ayrıca bkz. A.8.3) |
 | A.5.35 Bilgi güvenliğinin bağımsız incelenmesi | OOS | — |
 | A.5.36 Bilgi güvenliği için politikalar, kurallar ve standartlara uyum | FL-helps | Pydantic config validation; `forgelm doctor`; CI gates |
 | A.5.37 Dokümante edilmiş işletim prosedürleri | FL-helps | `docs/qms/` SOPs |
@@ -119,7 +121,7 @@ SoA'sının uçtan uca auditable olması için tamlık adına listelenmiştir.
 | A.8.21 Ağ hizmetlerinin güvenliği | FL-helps | TLS-only webhooks; `FORGELM_AUDIT_SECRET` HMAC |
 | A.8.22 Ağ ayrımı | OOS | — |
 | A.8.23 Web filtreleme | OOS | — |
-| A.8.24 Kriptografi kullanımı | FL | SHA-256 + HMAC chain; salted SHA-256 identifier hashing |
+| A.8.24 Kriptografi kullanımı | FL | SHA-256 + HMAC chain (per-run imzalama anahtarı = `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)`); ayrıca purge / reverse-pii için salted SHA-256 identifier hashing |
 | A.8.25 Güvenli geliştirme yaşam döngüsü | FL-helps | `docs/standards/code-review.md`, `release.md`, CI gates |
 | A.8.26 Uygulama güvenliği gereksinimleri | FL-helps | F-compliance-110 strict gate; ReDoS guard |
 | A.8.27 Güvenli sistem mimarisi ve mühendislik prensipleri | FL-helps | Append-only audit log mimarisi |

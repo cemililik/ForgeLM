@@ -48,8 +48,12 @@ Twelve items to land **before** the auditor asks.
       `docs/qms/access_control.md` §3 for the recommended form.
 - [ ] **Generate `FORGELM_AUDIT_SECRET`** in your KMS / Vault
       (32+ random bytes, AES-256-GCM-strength entropy).
-- [ ] **Schedule quarterly `FORGELM_AUDIT_SECRET` rotation** in
-      your KMS audit log.
+- [ ] **Plan `FORGELM_AUDIT_SECRET` rotation between output-dir
+      lifecycles** — every entry's HMAC is bound to the secret live
+      at emit time, so rotation must happen *after* archiving the
+      current `audit_log.jsonl` + `.manifest.json` pair, never
+      mid-output-dir. (`forgelm verify-audit --require-hmac` cannot
+      verify a chain that mixes secrets — by design.)
 - [ ] **Configure approver identity ≠ trainer identity** — the
       Article 14 staging gate is your in-pipeline Change Advisory
       Board.
@@ -90,8 +94,9 @@ artefact + grep / command that produces the evidence.
 ### Q1: "Show me the audit trail for every model promotion in the past 90 days"
 
 ```bash
-# Verify the chain integrity first.
-forgelm verify-audit --output-dir ./outputs --json
+# Verify the chain integrity first (positional log_path; no --json /
+# --output-dir flags exist on this subcommand by design).
+forgelm verify-audit ./outputs/audit_log.jsonl --require-hmac
 
 # Then extract the promotion events.
 jq 'select(.event == "human_approval.granted")' ./outputs/audit_log.jsonl
@@ -134,16 +139,18 @@ cat ./outputs/data_provenance.json
 # {
 #   "dataset_id": "Acme/customer-support-v3",
 #   "hf_revision": "9c7c8f3...",
-#   "fingerprint_sha256": "ab12...",
-#   "size_bytes": 14_982_011,
-#   "mtime": "2026-05-01T08:14:33Z",
+#   "sha256": "ab12...",
+#   "size_bytes": 14982011,
+#   "modified": "2026-05-01T08:14:33Z",
 #   ...
 # }
 ```
 
-The `fingerprint_sha256` + `hf_revision` together pin the corpus
-deterministically. An auditor running `forgelm audit data/*.jsonl`
-on the same input must see the same fingerprint.
+The `sha256` + `hf_revision` together pin the corpus deterministically
+(local files also carry `size_bytes` + `modified`; the field shape
+comes from `forgelm.compliance._fingerprint_local_file`). An auditor
+running `forgelm audit data/*.jsonl` on the same input must see the
+same fingerprint.
 
 ### Q4: "Show me the supply chain"
 

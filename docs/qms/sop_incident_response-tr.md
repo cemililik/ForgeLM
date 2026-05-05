@@ -9,7 +9,7 @@
 
 Dağıtılan fine-tuned modeller için güvenlik olaylarını, model
 arızalarını, **güvenlik olaylarını** ve düzeltici eylemleri
-yönetme prosedürünü tanımla. Wave 4 / Faz 23 genişletmesi: §6
+yönetme prosedürünü tanımla. Wave 4 / Faz 23 genişletmesi: §4
 güvenlik-olay playbook'unu (audit-chain integrity, credential leak,
 supply-chain CVE, webhook target compromise, GDPR DSAR'lar) mevcut
 AI-safety olay akışı yanında kapsar.
@@ -87,10 +87,14 @@ mismatch, manifest sidecar truncation, HMAC signature mismatch).
        `audit_log.manifest.json`, `.sha256` sidecar'ı (varsa) ve
        `<output_dir>/.forgelm_audit_salt`'ı write-once forensic
        substrate'e (S3 Object Lock, Azure Immutable Blob) kopyala.
-3. [ ] **Son güvenilen girişi tanımla** — `forgelm verify-audit
-       --until-line N` ile bisect ederek ilk kötü satırı bul; o
-       satırdan önce her şey forensic olarak güvenilirdir, sonra
-       her şey tainted sayılmalıdır.
+3. [ ] **Son güvenilen girişi tanımla** —
+       `forgelm verify-audit ./outputs/audit_log.jsonl --require-hmac 2>&1 | tee verify.log`
+       çalıştır; verifier ilk başarısızlıkta exit 1 yapar ve hatalı
+       satır numarası stderr'e iner. Tam sınır gerekiyorsa,
+       `head -n N audit_log.jsonl > tmp.jsonl` ile manuel bisect
+       yap ve exit 0 veren son N bulunana kadar `verify-audit`'ı
+       `tmp.jsonl`'a karşı yeniden çalıştır. O satıra kadar her şey
+       forensic olarak güvenilirdir; sonrası tainted sayılmalıdır.
 4. [ ] **Bildir** AI Officer + Güvenlik ekibi + DPO (kötü satırdan
        sonra herhangi bir PII-bearing event varsa).
 5. [ ] **Karar ver** tainted-tail girişlerini kanıt olarak (önerilen)
@@ -155,11 +159,13 @@ olabilir.
 **Runbook:**
 
 1. [ ] **`webhook.secret_env`'i hemen rotate et**.
-2. [ ] **Lifecycle olaylarını yeniden emit et** audit chain'den
-       saldırganın olayları recipient'a splice etmediğini teyit
-       etmek için. (`forgelm verify-audit --replay-since
-       <timestamp>` v0.6.0+ aracıdır; v0.5.5 için chain'i manuel
-       yürü.)
+2. [ ] **Audit chain'i yürü** saldırganın olayları recipient'a splice
+       etmediğini teyit için: `audit_log.jsonl`'ı event sınıfına göre
+       filtrele (`jq 'select(.event | startswith("notify_"))'`) ve
+       emit edilen her lifecycle girişinin aynı `run_id` içindeki
+       gerçek bir `pipeline.*` event'ına karşılık geldiğini doğrula.
+       Eşleşmeyen timestamp'lar veya yetim `notify_*` satırları
+       splice sinyalidir.
 3. [ ] **`safe_post` error log'larını kontrol et** rotation sonrası
        redact'lı Authorization header'lar için — saldırganın artık
        geçerli token tutmadığını teyit et.

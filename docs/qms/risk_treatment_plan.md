@@ -78,7 +78,7 @@ section §4.
 |---|---|
 | Description | Adversary with write access to `audit_log.jsonl` rewrites entries to hide a deployment / approve a model that wasn't approved |
 | L × I (inherent) | Low × High = MED |
-| Treatment | Append-only `O_APPEND` + `flock` + `fsync` per line; HMAC chain (per-line `_hmac` field XOR'd with per-output-dir salt + env secret); SHA-256 prev-hash chain; genesis manifest sidecar (`_check_genesis_manifest` refuses truncate-and-resume); `forgelm verify-audit` validates end-to-end |
+| Treatment | Append-only `O_APPEND` + `flock` + `fsync` per line; HMAC chain (per-line `_hmac` field, per-run signing key derived as `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)` per `forgelm/compliance.py:104-114` — the per-output-dir `.forgelm_audit_salt` is a distinct concern that salts purge / reverse-pii identifier hashes and does NOT participate in chain-key derivation); SHA-256 prev-hash chain; genesis manifest sidecar (`_check_genesis_manifest` refuses truncate-and-resume); `forgelm verify-audit` validates end-to-end |
 | Residual L × I | Low × Low = LOW |
 | Owner | AI Officer |
 | Review cadence | Continuous (`forgelm verify-audit` cron) |
@@ -89,8 +89,8 @@ section §4.
 |---|---|
 | Description | Operator runs `forgelm purge --row-id alice@example.com` against the corpus, but the model trained on the row weeks earlier may still reproduce it from learned weights |
 | L × I (inherent) | High × Med = HIGH |
-| Treatment | `data.erasure_warning_memorisation` audit event raised when the run that consumed the deleted row has a `final_model/` artefact; deployer notifies subject of the residual risk; for high-stakes deployments retrain from scratch |
-| Residual L × I | Med × Med = MED |
+| Treatment | ForgeLM emits `data.erasure_warning_memorisation` when the run that consumed the deleted row has a `final_model/` artefact — this is a **detection** signal, not a mitigation. Deployer accepts the residual risk and applies organisational controls (subject notification, retrain from scratch for high-stakes deployments, DPIA update). |
+| Residual L × I | High × Med = HIGH (risk **accepted**, see §5) |
 | Owner | Data Protection Officer (DPO) |
 | Review cadence | Per Article 17 request |
 
@@ -193,7 +193,7 @@ acceptance:
 
 | Risk ID | Inherent | Residual | Accepted by | Date | Justification |
 |---|---|---|---|---|---|
-| R-05 | HIGH | MED | [AI Officer] | [DATE] | Memorisation residual risk acknowledged; deployer policy: notify subject + retrain from scratch for high-stakes deployments |
+| R-05 | HIGH | HIGH (accepted) | [AI Officer] | [DATE] | ForgeLM contributes the `data.erasure_warning_memorisation` detection signal only; the deployer accepts the residual memorisation risk and discharges it through subject notification + retrain-from-scratch for high-stakes deployments + DPIA update. |
 | ... | ... | ... | ... | ... | ... |
 
 ## 6. Review

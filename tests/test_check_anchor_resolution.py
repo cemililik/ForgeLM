@@ -72,6 +72,22 @@ class TestSlugifyHeading:
         assert tool._slugify_heading("  a  ") == "a"
         assert tool._slugify_heading("--a--") == "a"
 
+    def test_apostrophe_stripped(self):
+        # F-W4-TR-07 absorption: GFM strips apostrophes in "What's New".
+        tool = _load_tool()
+        assert tool._slugify_heading("What's New") == "whats-new"
+
+    def test_backtick_stripped(self):
+        # F-W4-TR-07 absorption: GFM strips backticks in code-quoted headings.
+        tool = _load_tool()
+        assert tool._slugify_heading("Heading with `code`") == "heading-with-code"
+
+    def test_atx_closing_hashes_stripped(self):
+        # ATX trailing-hash decoration must be stripped before slugify.
+        tool = _load_tool()
+        assert tool._normalise_heading_body("My Title #") == "My Title"
+        assert tool._normalise_heading_body("My Title  ###  ") == "My Title"
+
 
 # ---------------------------------------------------------------------------
 # §2 — Resolution: relative paths + anchors
@@ -109,6 +125,33 @@ class TestResolveRelativePath:
     def test_spa_hash_router_skipped(self, tmp_path: Path):
         tool = _load_tool()
         source = _write(tmp_path / "src.md", "[ref](#/reference/usage)\n")
+        assert tool._resolve_link(list(tool._extract_links(source))[0], tmp_path) is None
+
+    def test_tel_skipped(self, tmp_path: Path):
+        # F-W4-TR-04 absorption: tel: scheme must be in skip list.
+        tool = _load_tool()
+        source = _write(tmp_path / "src.md", "[call](tel:+15551234567)\n")
+        assert tool._resolve_link(list(tool._extract_links(source))[0], tmp_path) is None
+
+    def test_javascript_skipped(self, tmp_path: Path):
+        # F-W4-TR-04 absorption: javascript: scheme must be in skip list.
+        tool = _load_tool()
+        source = _write(tmp_path / "src.md", "[js](javascript:void(0))\n")
+        assert tool._resolve_link(list(tool._extract_links(source))[0], tmp_path) is None
+
+    def test_image_link_missing_target_flagged(self, tmp_path: Path):
+        # F-W4-TR-06 absorption: image-link regex parity with link form.
+        tool = _load_tool()
+        source = _write(tmp_path / "src.md", "![alt](missing.png)\n")
+        results = list(tool._extract_links(source))
+        assert len(results) == 1, "regex must match the [alt](src) inside ![alt](src)"
+        broken = tool._resolve_link(results[0], tmp_path)
+        assert broken is not None and "target file not found" in broken.reason
+
+    def test_image_link_present_target_resolves(self, tmp_path: Path):
+        tool = _load_tool()
+        _write(tmp_path / "ok.png", "")
+        source = _write(tmp_path / "src.md", "![ok](ok.png)\n")
         assert tool._resolve_link(list(tool._extract_links(source))[0], tmp_path) is None
 
 
@@ -194,6 +237,17 @@ class TestCLI:
         assert rc == 1
         captured = capsys.readouterr().out
         assert "FAIL" in captured
+
+    def test_strict_mode_exits_one_on_broken_anchor(self, tmp_path: Path, capsys):
+        # F-W4-TR-03 absorption: anchor-not-found and file-not-found must
+        # be symmetrically gated under --strict.
+        tool = _load_tool()
+        scope = tmp_path / "docs"
+        _write(scope / "target.md", "# Target\n\n## Real Section\n")
+        _write(scope / "src.md", "[link](target.md#nonexistent)\n")
+        rc = tool.main(["--repo-root", str(tmp_path), "--scope", "docs", "--strict"])
+        assert rc == 1
+        assert "FAIL" in capsys.readouterr().out
 
     def test_quiet_suppresses_ok_summary(self, tmp_path: Path, capsys):
         tool = _load_tool()

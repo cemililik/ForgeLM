@@ -17,7 +17,9 @@ documentation pass.
   controls across A.5 + A.6 + A.7 + A.8) and every SOC 2 Trust
   Services Criterion (Common Criteria CC1.x–CC9.x mandatory + 4
   optional categories) to the ForgeLM feature that produces audit
-  evidence.  Coverage tally: FL (full) 11 / FL-helps 50 / OOS 32.
+  evidence.  Coverage tally: FL (full) 11 / FL-helps 48 / OOS 34
+  (row-by-row recount of §3.1–§3.4; per-theme split A.5: 3 / 24 /
+  10, A.6: 0 / 5 / 3, A.7: 0 / 0 / 14, A.8: 8 / 19 / 7).
   10-row Decision Log + 10-question deployer FAQ.
 
 **Faz 23 — ISO 27001 / SOC 2 alignment implementation**
@@ -78,9 +80,11 @@ Cross-cutting:
 - `README.md` — new "ISO 27001 / SOC 2 Type II Alignment" bullet
   under Enterprise & MLOps with explicit "alignment, not certified"
   framing (closes the design doc's D-22-01 wording decision).
-- `tools/check_bilingual_parity.py` `_PAIRS` registry — added 4 new
-  pairs (deployer guide + 3 reference docs); tally now 13 doc pairs
-  (was 9).
+- `tools/check_bilingual_parity.py` `_PAIRS` registry — added 14 new
+  pairs total (4 Faz-23 pairs: deployer guide + 3 reference docs;
+  10 Faz-26 QMS pairs); registry tally now 23 (was 9).
+- `docs/standards/localization.md` — `docs/qms/*.md` row flipped
+  from "No (yet)" to "Yes" to reflect the bilingual sweep.
 
 **Faz 26 — QMS bilingual mirror + compliance_summary cleanup**
 

@@ -601,7 +601,7 @@ ingestion:
 
 **Documented:** "Token for the API-based human approval flow"
 
-**Code reality:** `grep -rn "FORGELM_RESUME_TOKEN" forgelm/` → no results. Not used anywhere in the codebase.
+**Code reality:** `grep -rn "FORGELM_RESUME_TOKEN" forgelm/` → one defensive reference at `forgelm/cli/subcommands/_doctor.py` (the var name appears in the secret-mask pre-list so a future probe never accidentally surfaces its value); the doctor probe never reads the env var. Not consumed anywhere in the codebase. The user-facing reference doc citation is the ghost; the defensive mask-list entry is intentional and stays.
 
 ---
 

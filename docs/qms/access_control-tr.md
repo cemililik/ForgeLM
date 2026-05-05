@@ -78,19 +78,32 @@ ID'leri sonsuza kadar chain'de kalır. Bir operatör ayrıldığında:
 
 ### 3.4 `FORGELM_AUDIT_SECRET` rotasyonu
 
-HMAC-chain anahtarı (audit koşumu başına; gerçek imzalama anahtarını
-türetmek için per-output-dir salt ile XOR'lanır — bkz.
-`forgelm/cli/subcommands/_purge.py:_resolve_salt`). Tier-1 secret
-olarak ele al:
+HMAC-chain imzalama anahtarı **audit koşumu başına**
+`SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)` olarak türetilir
+(birleştirme, bkz. `forgelm/compliance.py:104-114`). Not:
+`<output_dir>/.forgelm_audit_salt`'ta yazılı per-output-dir salt
+**ayrı bir konu**'dur — `forgelm purge` / `forgelm reverse-pii`
+event'lerindeki tanımlayıcı hash'lemesini salt'lar
+(`_purge._resolve_salt` / `_purge._hash_target_id`) ve chain-key
+türetimine KATILMAZ. Secret'ı Tier-1 credential olarak ele al:
 
 - **Uzunluk:** 32+ rastgele bayt (256 bit entropi).
 - **Substrate:** KMS / Vault / eşdeğer. VCS'e checked-in `.env` asla.
-- **Rotasyon cadence'i:** quarterly önerilen; şüpheli compromise'da
-  hemen.
-- **Rotasyon prosedürü:** yeni değer sonraki pipeline koşumundan
-  ÖNCE env'e iner. Eski koşumların chain'leri eski anahtarla
-  doğrulanabilir kalır (audit log girişleri emit anındaki anahtarla
-  bound; ForgeLM chain üzerinde anahtar migration'u DESTEKLEMEZ —
+- **Rotasyon cadence'i:** **output-dir lifecycle'lar arasında** —
+  her girişin HMAC'ı emit anındaki secret'a bağlı olduğundan,
+  rotasyon mevcut `audit_log.jsonl` + `.manifest.json` çiftini
+  arşivledikten SONRA yapılmalıdır. Output-dir ortasında rotasyon
+  karışık-secret aralığı için `forgelm verify-audit --require-hmac`'i
+  kırar (tasarım gereği — verifier'ın contract'ı "her girişin HMAC'ı
+  aynı secret'ı anahtarlar"). Cadence'ı taze `<output_dir>`
+  kestiğiniz sıklığa eşle (sürüm başına / çeyrek başına / proje
+  başına) ve şüpheli compromise'da hemen rotate et + aynı anda yeni
+  bir output-dir başlat.
+- **Rotasyon prosedürü:** önceki `<output_dir>`'i write-once
+  storage'a arşivle, KMS'de taze bir secret üret, sonraki pipeline
+  koşumunu YENİ bir `<output_dir>`'e yönlendir. Önceki chain önceki
+  secret ile doğrulanabilir kalır (audit-log integrity per-output-dir;
+  ForgeLM chain üzerinde anahtar migration'u DESTEKLEMEZ —
   tasarımdan).
 
 ## 4. CI runner identity binding
@@ -123,8 +136,13 @@ run sayfasına korelate edebilir.
 
 ```yaml
 train:
+  variables:
+    FORGELM_OPERATOR: "gitlab:${CI_PROJECT_PATH}:${CI_PIPELINE_ID}:job-${CI_JOB_ID}"
+  # FORGELM_AUDIT_SECRET'ı projenin "Settings → CI/CD → Variables"
+  # panelinden, operatörün secret manager'ından (HashiCorp Vault, AWS
+  # Secrets Manager vb.) beslenen *masked + protected* bir variable
+  # olarak inject et; literal secret'ı asla .gitlab-ci.yml'a yapıştırma.
   script:
-    - export FORGELM_OPERATOR="gitlab:${CI_PROJECT_PATH}:${CI_PIPELINE_ID}:job-${CI_JOB_ID}"
     - forgelm --config config.yaml
 ```
 
@@ -177,15 +195,24 @@ IdP kontrolüdür. Audit chain her ikisini kaydeder, böylece bir
 denetçi ihlalleri tespit edebilir:
 
 ```bash
-# Trainer == approver olduğu approval'ları bul (görev ayrılığı ihlali)
-forgelm verify-audit --output-dir ./outputs --json | jq '
-  .events[] |
-  select(.event == "human_approval.granted") |
-  .matching_training_event = (
-    [.|.run_id == .. .run_id and .event == "training.started"] | first
-  ) |
-  select(.operator == .matching_training_event.operator) |
-  .'
+# 1. Önce zincir bütünlüğünü doğrula (positional log_path; bu
+#    subcommand'ta tasarım gereği --output-dir / --json flag'i yoktur).
+forgelm verify-audit ./outputs/audit_log.jsonl --require-hmac
+
+# 2. Koşum başına trainer.
+jq -r 'select(.event == "training.started") |
+       [.run_id, .operator] | @tsv' \
+    ./outputs/audit_log.jsonl > /tmp/trainers.tsv
+
+# 3. Aynı koşum için trainer listesinde yer alan onaylayan-id'ye sahip
+#    approval'lar (görev ayrılığı ihlali).
+jq -r --slurpfile t /tmp/trainers.tsv \
+      'select(.event == "human_approval.granted") |
+       . as $a |
+       $t[] | split("\t") as $row |
+       select($row[0] == $a.run_id and $row[1] == $a.operator) |
+       [.run_id, .operator] | @tsv' \
+    ./outputs/audit_log.jsonl
 ```
 
 ## 7. Webhook secret ayrılığı
@@ -215,8 +242,9 @@ Erişim-kontrolü kanıtını yürüyen operatör denetçi için:
 - [ ] İki aktif pipeline aynı `FORGELM_OPERATOR` değerini paylaşmıyor.
 - [ ] `FORGELM_AUDIT_SECRET` KMS / Vault substrate'inde yaşıyor,
       VCS'de veya düz `.env` dosyasında değil.
-- [ ] Quarterly KMS audit log'u `FORGELM_AUDIT_SECRET` rotasyonu
-      gösteriyor.
+- [ ] KMS audit log'u `FORGELM_AUDIT_SECRET` rotasyonunu output-dir
+      lifecycle sınırlarına hizalı gösteriyor (asla output-dir
+      ortasında değil).
 - [ ] Son 90 gündeki her `human_approval.granted` event'i için
       approval-gate kimliği training kimliğinden farklı (sample-audit,
       exhaustive değil).

@@ -58,8 +58,17 @@ Açıkça kapsam DIŞI tehditler:
   endpoint detection / sandboxing bunu yönetir.
 - **Meşru decryption credential'lı insider** — şifreleme yetkili
   erişime karşı koruyamaz; cevap erişim kontrolü + audit log'dur.
-- **Kripto-algoritma kırılması** — SHA-256 / AES-256-GCM'in QMS
-  doküman ömrü boyunca sağlam kalacağı varsayılır.
+
+Uzun-ufuk (>5 yıl) — kısmi kapsam:
+
+- **Kripto-algoritma kırılması (algoritma agility — ISO A.8.24).**
+  ForgeLM, mevcut QMS doküman ömrü boyunca SHA-256 / AES-256-GCM'in
+  sağlam kalacağını varsayar. Operatörün IT politikası NIST SP
+  800-131A revizyonlarına atıf yapmalı ve 5-yıllık cadence'da
+  yeniden değerlendirmelidir; ForgeLM bir algoritma geçişi
+  yayınladığında (ör. SHA-3 audit chain) bu QMS dokümanı
+  güncellenir. O zamana kadar algoritma-kırılma exposure'u
+  residual'dir ve kabul edilmiştir.
 
 ## 4. Asset sınıfı başına önerilen kontroller
 

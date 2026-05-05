@@ -659,7 +659,7 @@ _DOCTOR_SECRET_ENV_NAMES: frozenset[str] = frozenset(
         "HF_TOKEN",  # HuggingFace Hub auth token
         "HUGGING_FACE_HUB_TOKEN",  # legacy alias of HF_TOKEN
         "HUGGINGFACE_TOKEN",  # alternative spelling read by forgelm/utils.py
-        "FORGELM_RESUME_TOKEN",  # API resume token (Phase 13 future)
+        "FORGELM_RESUME_TOKEN",  # reserved name — masked defensively even if unused today
         # Defence-in-depth: third-party API keys ForgeLM accepts via YAML
         # interpolation (auth.openai_api_key etc.).  No probe surfaces them
         # today, but pre-listing them means a future probe that adds env

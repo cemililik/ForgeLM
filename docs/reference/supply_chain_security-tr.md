@@ -76,7 +76,7 @@ diff <(jq -S '.components | sort_by(.purl)' sbom-prev.json) \
 # Dependency-Track'e ingest.
 curl -X POST -H "X-Api-Key: $DT_KEY" -H "Content-Type: application/octet-stream" \
     --data-binary @sbom-ubuntu-latest-py3.11.json \
-    https://depTrack.example.com/api/v1/bom
+    https://deptrack.example.com/api/v1/bom
 ```
 
 ## pip-audit (transitive CVE taraması)
@@ -177,7 +177,6 @@ getirmek için `pip-audit` ve `bandit`'i çeker.
 |---|---|---|
 | ISO 27001:2022 | A.5.21 | ICT tedarik zincirinde bilgi güvenliği yönetimi |
 | ISO 27001:2022 | A.8.8 | Teknik zafiyetlerin yönetimi |
-| ISO 27001:2022 | A.8.30 | Dış kaynaklı geliştirme (transitive dep'ler outsourced kod olarak) |
 | SOC 2 | CC7.1 | Zafiyetleri tespit eder |
 | SOC 2 | CC8.1 | Değişimleri yetkilendirir (son release ile SBOM diff) |
 | SOC 2 | CC9.2 | Tedarikçi + iş ortağı riskini yönetir |

@@ -76,7 +76,7 @@ diff <(jq -S '.components | sort_by(.purl)' sbom-prev.json) \
 # Ingest into Dependency-Track.
 curl -X POST -H "X-Api-Key: $DT_KEY" -H "Content-Type: application/octet-stream" \
     --data-binary @sbom-ubuntu-latest-py3.11.json \
-    https://depTrack.example.com/api/v1/bom
+    https://deptrack.example.com/api/v1/bom
 ```
 
 ## pip-audit (transitive CVE scan)
@@ -178,7 +178,6 @@ PR.
 |---|---|---|
 | ISO 27001:2022 | A.5.21 | Managing information security in the ICT supply chain |
 | ISO 27001:2022 | A.8.8 | Management of technical vulnerabilities |
-| ISO 27001:2022 | A.8.30 | Outsourced development (transitive deps as outsourced code) |
 | SOC 2 | CC7.1 | Detects vulnerabilities |
 | SOC 2 | CC8.1 | Authorises changes (SBOM diff against last release) |
 | SOC 2 | CC9.2 | Manages vendor + business-partner risk |

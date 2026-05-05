@@ -146,11 +146,17 @@ ForgeLM-spesifik kontrol envanteriyle ilgilidir.
 
 | Tema | Toplam | Applicable | Excluded (ForgeLM scope) | FL-supported | FL-helps |
 |---|---|---|---|---|---|
-| A.5 Organisational | 37 | 37 | 0 | 4 | 24 |
-| A.6 People | 8 | 8 | 0 | 0 | 4 |
+| A.5 Organisational | 37 | 37 | 0 | 3 | 24 |
+| A.6 People | 8 | 8 | 0 | 0 | 5 |
 | A.7 Physical | 14 | 14 (operatör ISMS) | 14 (ForgeLM-spesifik) | 0 | 0 |
-| A.8 Technological | 34 | 34 | 0 | 7 | 22 |
-| **Toplam** | **93** | **93 (operatör ISMS)** | **14 (ForgeLM-spesifik)** | **11** | **50** |
+| A.8 Technological | 34 | 34 | 0 | 8 | 19 |
+| **Toplam** | **93** | **93 (operatör ISMS)** | **14 (ForgeLM-spesifik)** | **11** | **48** |
+
+§3.1–§3.4 (bu SoA'nın özetlediği design-doc tablosu) row-by-row
+yeniden sayım. Tema başına tally — A.5: 3 / 24 / 10 OOS; A.6: 0 / 5
+/ 3 OOS; A.7: 0 / 0 / 14 OOS; A.8: 8 / 19 / 7 OOS — toplam 11 `FL`
++ 48 `FL-helps` + 34 OOS = 93. Design doc'un `§3` "Coverage tally"
+paragrafıyla çapraz kontrol; ikisi eşleşmek zorunda.
 
 ## 4. İnceleme
 

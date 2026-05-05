@@ -338,3 +338,183 @@ class TestCheckBandit:
         rc = tool.main(["check_bandit", str(bad)])
         assert rc == 1
         assert "results" in capsys.readouterr().err
+
+    def test_results_null_fails(self, tmp_path: Path, tool, capsys) -> None:
+        # F-W4-06 absorption: a report with ``"results": null`` is malformed
+        # and must NOT silently pass via ``or []``.
+        bad = self._write_report(tmp_path, {"results": None})
+        rc = tool.main(["check_bandit", str(bad)])
+        assert rc == 1
+        assert "null" in capsys.readouterr().err
+
+    def test_results_missing_key_fails(self, tmp_path: Path, tool, capsys) -> None:
+        # Missing ``results`` key — distinct from ``null`` value.
+        bad = self._write_report(tmp_path, {"errors": [], "metrics": {}})
+        rc = tool.main(["check_bandit", str(bad)])
+        assert rc == 1
+        assert "missing 'results'" in capsys.readouterr().err
+
+    def test_undefined_severity_summary_warning(self, tmp_path: Path, tool, capsys) -> None:
+        # F-W4-TR-01 absorption: bandit's documented UNDEFINED tier
+        # surfaces a single summary warning, not silence.
+        report = {
+            "results": [
+                {
+                    "test_id": "B999",
+                    "test_name": "custom_rule_no_severity",
+                    # No issue_severity field → bandit emits UNDEFINED.
+                    "issue_confidence": "LOW",
+                    "filename": "forgelm/x.py",
+                    "line_number": 1,
+                    "issue_text": "novel finding",
+                }
+            ]
+        }
+        rc = tool.main(["check_bandit", str(self._write_report(tmp_path, report))])
+        captured = capsys.readouterr().out
+        assert rc == 0
+        assert "::warning::bandit" in captured
+        assert "UNDEFINED" in captured
+
+
+class TestCheckPipAuditExtraShapes:
+    """Extra pip-audit fixtures that pin documented contracts the
+    primary tier-suite leaves uncovered (F-W4-04 / F-W4-PS-07 /
+    F-W4-TR-02 / F-W4-TR-05 absorptions)."""
+
+    @pytest.fixture
+    def tool(self):
+        return _load_tool_module(_PIP_AUDIT_TOOL, "check_pip_audit_extra")
+
+    def _write_report(self, tmp_path: Path, payload: dict) -> Path:
+        path = tmp_path / "pip-audit.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    def test_missing_severity_field_summary_warning(self, tmp_path: Path, tool, capsys) -> None:
+        report = {
+            "dependencies": [
+                {
+                    "name": "u",
+                    "version": "1.0.0",
+                    "vulns": [{"id": "GHSA-no-sev"}],
+                }
+            ]
+        }
+        rc = tool.main(["check_pip_audit", str(self._write_report(tmp_path, report))])
+        captured = capsys.readouterr().out
+        assert rc == 0
+        assert "::warning::pip-audit" in captured
+        assert "without parseable severity" in captured
+
+    def test_severity_list_with_explicit_tier(self, tmp_path: Path, tool) -> None:
+        # 2.7.x list-form carrying an explicit ``severity`` field.
+        report = {
+            "dependencies": [
+                {
+                    "name": "listpkg",
+                    "version": "1.0.0",
+                    "vulns": [
+                        {
+                            "id": "GHSA-list",
+                            "severity": [{"type": "CVSS_V3", "severity": "HIGH"}],
+                        }
+                    ],
+                }
+            ]
+        }
+        rc = tool.main(["check_pip_audit", str(self._write_report(tmp_path, report))])
+        assert rc == 1, "list form with explicit HIGH tier must fail"
+
+    def test_severity_list_with_cvss_score(self, tmp_path: Path, tool) -> None:
+        # CVSS_V3 type label + 9.5 score must derive CRITICAL.
+        report = {
+            "dependencies": [
+                {
+                    "name": "scorepkg",
+                    "version": "1.0.0",
+                    "vulns": [
+                        {
+                            "id": "GHSA-score",
+                            "severity": [{"type": "CVSS_V3", "score": "9.5"}],
+                        }
+                    ],
+                }
+            ]
+        }
+        rc = tool.main(["check_pip_audit", str(self._write_report(tmp_path, report))])
+        assert rc == 1, "CVSS 9.5 must derive CRITICAL and fail the gate"
+
+    def test_severity_list_cvss_score_medium(self, tmp_path: Path, tool, capsys) -> None:
+        report = {
+            "dependencies": [
+                {
+                    "name": "midscore",
+                    "version": "1.0.0",
+                    "vulns": [
+                        {
+                            "id": "GHSA-mid-score",
+                            "severity": [{"type": "CVSS_V3", "score": 5.5}],
+                        }
+                    ],
+                }
+            ]
+        }
+        rc = tool.main(["check_pip_audit", str(self._write_report(tmp_path, report))])
+        captured = capsys.readouterr().out
+        assert rc == 0
+        assert "::warning::pip-audit" in captured
+
+    def test_aliases_nested_severity_2_6_shape(self, tmp_path: Path, tool) -> None:
+        # 2.6.x: severity buried under aliases[].severity[].
+        report = {
+            "dependencies": [
+                {
+                    "name": "legacy",
+                    "version": "1.0.0",
+                    "vulns": [
+                        {
+                            "id": "GHSA-old-shape",
+                            "aliases": [
+                                {
+                                    "id": "CVE-2026-OLD",
+                                    "severity": [{"type": "CVSS_V3", "severity": "HIGH"}],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        rc = tool.main(["check_pip_audit", str(self._write_report(tmp_path, report))])
+        assert rc == 1, "2.6.x nested aliases shape must classify as HIGH"
+
+
+class TestSbomSerialNumberUniqueness:
+    """F-W4-TR-08 absorption: the determinism contract strips
+    serialNumber before comparing; this test pins the *uniqueness*
+    side of CycloneDX 1.5 — two runs MUST emit different
+    ``serialNumber`` values so Dependency-Track ingest does not see
+    duplicate uploads."""
+
+    def test_serial_number_changes_between_runs(self) -> None:
+        first = subprocess.run(
+            [sys.executable, str(_SBOM_TOOL)],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        )
+        second = subprocess.run(
+            [sys.executable, str(_SBOM_TOOL)],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        )
+        sn_a = json.loads(first.stdout).get("serialNumber")
+        sn_b = json.loads(second.stdout).get("serialNumber")
+        assert sn_a and sn_b and sn_a != sn_b, (
+            "serialNumber must be a fresh UUID per run per CycloneDX 1.5; "
+            "Dependency-Track rejects duplicate-serial uploads"
+        )

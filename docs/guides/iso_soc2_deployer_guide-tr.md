@@ -49,8 +49,13 @@ Denetçi sormadan **önce** indirmeniz gereken on iki madde.
       form için `docs/qms/access_control.md` §3'e bakın.
 - [ ] **`FORGELM_AUDIT_SECRET` üretin** KMS / Vault'unuzda
       (32+ rastgele bayt, AES-256-GCM-strength entropi).
-- [ ] **Üç-aylık `FORGELM_AUDIT_SECRET` rotasyonunu zamanlayın**
-      KMS audit log'unuzda.
+- [ ] **`FORGELM_AUDIT_SECRET` rotasyonunu output-dir lifecycle'lar
+      arasında planlayın** — her girişin HMAC'ı emit anındaki secret'a
+      bağlı olduğundan, rotasyon mevcut `audit_log.jsonl` +
+      `.manifest.json` çiftini arşivledikten *sonra* yapılmalıdır,
+      asla output-dir ortasında değil. (`forgelm verify-audit
+      --require-hmac` secret karışmış zinciri tasarım gereği
+      doğrulayamaz.)
 - [ ] **Approver identity ≠ trainer identity'yi yapılandırın** —
       Madde 14 staging gate sizin in-pipeline Change Advisory
       Board'unuzdur.
@@ -90,8 +95,9 @@ ForgeLM artefaktı + grep / komut ile.
 ### S1: "Son 90 günde her model promotion için audit trail göster"
 
 ```bash
-# Önce zincir bütünlüğünü doğrula.
-forgelm verify-audit --output-dir ./outputs --json
+# Önce zincir bütünlüğünü doğrula (positional log_path; bu
+# subcommand'ta tasarım gereği --json / --output-dir flag'i yoktur).
+forgelm verify-audit ./outputs/audit_log.jsonl --require-hmac
 
 # Sonra promotion olaylarını çıkar.
 jq 'select(.event == "human_approval.granted")' ./outputs/audit_log.jsonl
@@ -133,16 +139,18 @@ cat ./outputs/data_provenance.json
 # {
 #   "dataset_id": "Acme/customer-support-v3",
 #   "hf_revision": "9c7c8f3...",
-#   "fingerprint_sha256": "ab12...",
-#   "size_bytes": 14_982_011,
-#   "mtime": "2026-05-01T08:14:33Z",
+#   "sha256": "ab12...",
+#   "size_bytes": 14982011,
+#   "modified": "2026-05-01T08:14:33Z",
 #   ...
 # }
 ```
 
-`fingerprint_sha256` + `hf_revision` birlikte korpusu deterministik
-olarak pin'ler. Aynı girdi üzerinde `forgelm audit data/*.jsonl`
-çalıştıran bir denetçi aynı fingerprint'i görmek zorundadır.
+`sha256` + `hf_revision` birlikte korpusu deterministik olarak
+pin'ler (yerel dosyalar ek olarak `size_bytes` + `modified` alanları
+taşır; alan adları `forgelm.compliance._fingerprint_local_file`'dan
+gelir). Aynı girdi üzerinde `forgelm audit data/*.jsonl` çalıştıran
+bir denetçi aynı fingerprint'i görmek zorundadır.
 
 ### S4: "Supply chain göster"
 

@@ -39,6 +39,12 @@ from typing import Any, Iterable, Optional
 _HIGH_TIERS: frozenset[str] = frozenset({"HIGH", "CRITICAL"})
 _MED_TIERS: frozenset[str] = frozenset({"MEDIUM", "MODERATE"})
 
+# OSV severity-list ``type`` values are scoring-system labels, NOT tier
+# names — recognising them lets us avoid mistaking the label for a
+# severity (otherwise the original CVSS_V3 string would resolve to
+# UNKNOWN by chance, but a renamed system would silently mis-tier).
+_SCORE_TYPE_LABELS: frozenset[str] = frozenset({"CVSS", "CVSS_V2", "CVSS_V3", "CVSS_V4", "CVSS_V31", "CVSS_V40"})
+
 
 def _normalise_severity(raw: Optional[str]) -> str:
     """Upper-case + collapse synonyms; unknown/missing → ``UNKNOWN``."""
@@ -47,7 +53,53 @@ def _normalise_severity(raw: Optional[str]) -> str:
     upper = raw.upper().strip()
     if upper in {"MODERATE"}:
         return "MEDIUM"
+    if upper in _SCORE_TYPE_LABELS:
+        # CVSS_V3 etc. is a scoring-system label, not a tier name.
+        return "UNKNOWN"
     return upper
+
+
+def _tier_from_cvss_score(score: Any) -> str:
+    """Map a CVSS base score to a severity tier per FIRST.org guidance.
+
+    CVSS v3 / v4 cut-points: 0.0 NONE · 0.1–3.9 LOW · 4.0–6.9 MEDIUM ·
+    7.0–8.9 HIGH · 9.0–10.0 CRITICAL.  Falls back to ``UNKNOWN`` on
+    any parse failure rather than guessing.
+    """
+    if isinstance(score, (int, float)):
+        value = float(score)
+    elif isinstance(score, str):
+        try:
+            value = float(score.strip())
+        except ValueError:
+            return "UNKNOWN"
+    else:
+        return "UNKNOWN"
+    if value >= 9.0:
+        return "CRITICAL"
+    if value >= 7.0:
+        return "HIGH"
+    if value >= 4.0:
+        return "MEDIUM"
+    if value > 0.0:
+        return "LOW"
+    return "UNKNOWN"
+
+
+def _severity_from_entry(entry: Any) -> str:
+    """Extract a severity tier from a single ``severity[]`` element."""
+    if isinstance(entry, dict):
+        # Only the ``severity`` field carries a tier label; ``type`` is
+        # the scoring-system identifier (CVSS_V3, ...).  Try the tier
+        # first, then derive from the CVSS score when only the type +
+        # score pair is available.
+        explicit = _normalise_severity(entry.get("severity"))
+        if explicit != "UNKNOWN":
+            return explicit
+        return _tier_from_cvss_score(entry.get("score"))
+    if isinstance(entry, str):
+        return _normalise_severity(entry)
+    return "UNKNOWN"
 
 
 def _vuln_severity(vuln: dict[str, Any]) -> str:
@@ -56,21 +108,38 @@ def _vuln_severity(vuln: dict[str, Any]) -> str:
     Falls back through several fields because pip-audit's JSON shape
     has shifted across point releases:
     - 2.7.x: top-level ``severity`` string
+    - 2.7.x list form: top-level ``severity[]`` of ``{type, score}`` /
+      ``{severity}`` / plain string entries
     - 2.6.x and earlier: nested under ``aliases[].severity[]``
-    - GHSA imports often carry only ``severity_score`` (CVSS)
 
     When no field is parseable we return ``"UNKNOWN"`` and let the
-    operator review the raw report manually.
+    caller surface a single summary annotation so the operator can
+    review the raw report.
     """
     direct = vuln.get("severity")
     if isinstance(direct, str):
         return _normalise_severity(direct)
-    if isinstance(direct, list) and direct:
-        first = direct[0]
-        if isinstance(first, dict):
-            return _normalise_severity(first.get("type") or first.get("severity"))
-        if isinstance(first, str):
-            return _normalise_severity(first)
+    if isinstance(direct, list):
+        for entry in direct:
+            tier = _severity_from_entry(entry)
+            if tier != "UNKNOWN":
+                return tier
+    # 2.6.x fallback — severity buried inside aliases[].severity[].
+    aliases = vuln.get("aliases")
+    if isinstance(aliases, list):
+        for alias in aliases:
+            if not isinstance(alias, dict):
+                continue
+            nested = alias.get("severity")
+            if isinstance(nested, list):
+                for entry in nested:
+                    tier = _severity_from_entry(entry)
+                    if tier != "UNKNOWN":
+                        return tier
+            elif isinstance(nested, str):
+                tier = _normalise_severity(nested)
+                if tier != "UNKNOWN":
+                    return tier
     return "UNKNOWN"
 
 
@@ -120,6 +189,7 @@ def main(argv: list[str]) -> int:
 
     high: list[str] = []
     medium: list[str] = []
+    unknown: list[str] = []
     for name, vuln in _iter_findings(report):
         severity = _vuln_severity(vuln)
         line = _format_finding(name, vuln, severity)
@@ -127,12 +197,23 @@ def main(argv: list[str]) -> int:
             high.append(line)
         elif severity in _MED_TIERS:
             medium.append(line)
-        # LOW + UNKNOWN are silent; the raw JSON remains in artefacts.
+        elif severity == "UNKNOWN":
+            unknown.append(line)
+        # LOW is silent; the raw JSON remains in artefacts.
 
     for line in medium:
         # GitHub Actions annotation; surfaces in the run summary without
         # failing the build.
         print(f"::warning::pip-audit {line}")
+
+    if unknown:
+        # One summary annotation rather than per-finding spam — UNKNOWN
+        # findings need operator review, not noise that buries real
+        # signal (F-W4-PS-07 / F-W4-TR-05 absorption).
+        print(
+            f"::warning::pip-audit {len(unknown)} finding(s) without parseable "
+            "severity; review the raw report manually."
+        )
 
     if high:
         for line in high:

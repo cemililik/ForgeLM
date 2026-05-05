@@ -13,7 +13,10 @@
 >   provides partial evidence the deployer combines with other sources.
 > - **`OOS`** — *Out of scope*: deployer-only, ForgeLM contributes nothing.
 >
-> **Coverage tally for this version:** FL 11 / FL-helps 50 / OOS 32.
+> **Coverage tally for this version:** FL 11 / FL-helps 48 / OOS 34
+> (row-by-row recount of §3.1–§3.4 in the design doc;
+> per-theme split A.5: 3 / 24 / 10, A.6: 0 / 5 / 3, A.7: 0 / 0 / 14,
+> A.8: 8 / 19 / 7).
 
 ## A.5 Organisational controls (37)
 
@@ -52,7 +55,7 @@
 | A.5.31 Identification of legal, statutory, regulatory and contractual requirements | FL-helps | EU AI Act + GDPR mappings; Annex IV bundle |
 | A.5.32 Intellectual property rights | FL-helps | License extraction in SBOM; HF model-card metadata |
 | A.5.33 Protection of records | FL | Append-only + HMAC + manifest sidecar |
-| A.5.34 Privacy and protection of PII | FL | `forgelm reverse-pii` Article 15; `forgelm purge` Article 17 |
+| A.5.34 Privacy and protection of PII | FL | `forgelm reverse-pii` Article 15; `forgelm purge` Article 17 (see also A.8.3) |
 | A.5.35 Independent review of information security | OOS | — |
 | A.5.36 Compliance with policies, rules and standards for information security | FL-helps | Pydantic config validation; `forgelm doctor`; CI gates |
 | A.5.37 Documented operating procedures | FL-helps | `docs/qms/` SOPs |
@@ -119,7 +122,7 @@ completeness so the deployer's SoA is auditable end-to-end.
 | A.8.21 Security of network services | FL-helps | TLS-only webhooks; `FORGELM_AUDIT_SECRET` HMAC |
 | A.8.22 Segregation of networks | OOS | — |
 | A.8.23 Web filtering | OOS | — |
-| A.8.24 Use of cryptography | FL | SHA-256 + HMAC chain; salted SHA-256 identifier hashing |
+| A.8.24 Use of cryptography | FL | SHA-256 + HMAC chain (per-run signing key = `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)`); separately, salted SHA-256 identifier hashing for purge / reverse-pii |
 | A.8.25 Secure development life cycle | FL-helps | `docs/standards/code-review.md`, `release.md`, CI gates |
 | A.8.26 Application security requirements | FL-helps | F-compliance-110 strict gate; ReDoS guard |
 | A.8.27 Secure system architecture and engineering principles | FL-helps | Append-only audit log architecture |

@@ -77,20 +77,34 @@ remain in the chain forever. When an operator leaves:
 
 ### 3.4 `FORGELM_AUDIT_SECRET` rotation
 
-The HMAC-chain key (per audit run; XOR'd with the per-output-dir
-salt to derive the actual signing key — see
-`forgelm/cli/subcommands/_purge.py:_resolve_salt`). Treat as a Tier-1
-secret:
+The HMAC-chain signing key is derived **per audit run** as
+`SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)` (concatenation, see
+`forgelm/compliance.py:104-114`). Note: the per-output-dir salt
+written to `<output_dir>/.forgelm_audit_salt` is a **distinct
+concern** — it salts identifier hashing inside `forgelm purge` /
+`forgelm reverse-pii` events (`_purge._resolve_salt` /
+`_purge._hash_target_id`) and does NOT participate in chain-key
+derivation. Treat the secret as a Tier-1 credential:
 
 - **Length:** 32+ random bytes (256 bits of entropy).
 - **Substrate:** KMS / Vault / equivalent. Never in `.env` checked
   into VCS.
-- **Rotation cadence:** quarterly recommended; immediately on
-  suspected compromise.
-- **Rotation procedure:** new value lands in env BEFORE the next
-  pipeline run. Old runs' chains remain verifiable with the old
-  key (audit log entries are bound to the key live at emit time;
-  ForgeLM does NOT support key migration on the chain — by design).
+- **Rotation cadence:** **between output-dir lifecycles** — every
+  entry's HMAC is bound to the secret live at emit time, so rotation
+  must occur AFTER archiving the current `audit_log.jsonl` +
+  `.manifest.json` pair. Mid-output-dir rotation breaks
+  `forgelm verify-audit --require-hmac` for the mixed-secret span
+  (by design — the verifier's contract is "every entry's HMAC keys
+  the same secret"). Set the cadence to match how often you cut a
+  fresh `<output_dir>` (per release / per quarter / per project),
+  and rotate immediately on suspected compromise + roll a new
+  output-dir at the same time.
+- **Rotation procedure:** archive the prior `<output_dir>` to
+  write-once storage, generate a fresh secret in KMS, point the
+  next pipeline run at a NEW `<output_dir>`. The prior chain remains
+  verifiable with the prior secret (audit-log integrity is
+  per-output-dir; ForgeLM does NOT support key migration on the
+  chain — by design).
 
 ## 4. CI runner identity binding
 
@@ -122,8 +136,13 @@ run page in seconds.
 
 ```yaml
 train:
+  variables:
+    FORGELM_OPERATOR: "gitlab:${CI_PROJECT_PATH}:${CI_PIPELINE_ID}:job-${CI_JOB_ID}"
+  # Inject FORGELM_AUDIT_SECRET from the project's "Settings → CI/CD
+  # → Variables" panel as a *masked + protected* variable sourced
+  # from the deployer's secret manager (HashiCorp Vault, AWS Secrets
+  # Manager, etc.); never paste the literal secret into .gitlab-ci.yml.
   script:
-    - export FORGELM_OPERATOR="gitlab:${CI_PROJECT_PATH}:${CI_PIPELINE_ID}:job-${CI_JOB_ID}"
     - forgelm --config config.yaml
 ```
 
@@ -176,15 +195,24 @@ deployer-side IdP control. The audit chain records both, so an
 auditor can detect violations:
 
 ```bash
-# Find approvals where trainer == approver (segregation violation)
-forgelm verify-audit --output-dir ./outputs --json | jq '
-  .events[] |
-  select(.event == "human_approval.granted") |
-  .matching_training_event = (
-    [.|.run_id == .. .run_id and .event == "training.started"] | first
-  ) |
-  select(.operator == .matching_training_event.operator) |
-  .'
+# 1. Verify the chain integrity first (positional log_path; no
+#    --output-dir / --json flags exist on this subcommand by design).
+forgelm verify-audit ./outputs/audit_log.jsonl --require-hmac
+
+# 2. Trainer per run.
+jq -r 'select(.event == "training.started") |
+       [.run_id, .operator] | @tsv' \
+    ./outputs/audit_log.jsonl > /tmp/trainers.tsv
+
+# 3. Approvals whose approver-id appears in the trainer list for the
+#    same run (segregation violation).
+jq -r --slurpfile t /tmp/trainers.tsv \
+      'select(.event == "human_approval.granted") |
+       . as $a |
+       $t[] | split("\t") as $row |
+       select($row[0] == $a.run_id and $row[1] == $a.operator) |
+       [.run_id, .operator] | @tsv' \
+    ./outputs/audit_log.jsonl
 ```
 
 ## 7. Webhook secret separation
@@ -213,7 +241,8 @@ For a deployer auditor walking access-control evidence:
 - [ ] No two active pipelines share an `FORGELM_OPERATOR` value.
 - [ ] `FORGELM_AUDIT_SECRET` lives in a KMS / Vault substrate, never
       in VCS or a plain `.env` file.
-- [ ] Quarterly KMS audit log shows `FORGELM_AUDIT_SECRET` rotation.
+- [ ] KMS audit log shows `FORGELM_AUDIT_SECRET` rotation aligned to
+      output-dir lifecycle boundaries (never mid-output-dir).
 - [ ] Approval-gate identity differs from training identity for every
       `human_approval.granted` event in the past 90 days
       (sample-audit, not exhaustive).

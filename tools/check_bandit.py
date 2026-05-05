@@ -38,6 +38,7 @@ from typing import Any
 # can read it from the artefact.
 _HIGH = "HIGH"
 _MED = "MEDIUM"
+_UNDEFINED = "UNDEFINED"
 
 
 def _format_issue(issue: dict[str, Any]) -> str:
@@ -45,10 +46,64 @@ def _format_issue(issue: dict[str, Any]) -> str:
     test_name = issue.get("test_name") or "<unknown-test>"
     filename = issue.get("filename") or "<unknown>"
     line = issue.get("line_number") or "?"
-    severity = (issue.get("issue_severity") or "UNDEFINED").upper()
-    confidence = (issue.get("issue_confidence") or "UNDEFINED").upper()
+    severity = (issue.get("issue_severity") or _UNDEFINED).upper()
+    confidence = (issue.get("issue_confidence") or _UNDEFINED).upper()
     text = (issue.get("issue_text") or "").splitlines()[0] if issue.get("issue_text") else ""
     return f"[{severity}/{confidence}] {filename}:{line} {test_id} {test_name} — {text}"
+
+
+def _load_report(report_path: Path) -> dict[str, Any] | int:
+    """Read + parse the bandit JSON report; return the dict or an exit code."""
+    try:
+        raw = report_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"::error::bandit report not readable at {report_path}: {exc}", file=sys.stderr)
+        return 1
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"::error::bandit report at {report_path} is not valid JSON: {exc}", file=sys.stderr)
+        return 1
+
+
+def _extract_results(report: dict[str, Any]) -> list[Any] | int:
+    """Validate the ``results`` field shape; return list or an exit code.
+
+    ``null``-valued ``results`` is rejected explicitly (a missing-key
+    report is not the same as an empty-results report — ``or []``
+    would conflate them and let a malformed bandit run pass silently).
+    """
+    if "results" not in report:
+        print("::error::bandit report missing 'results' field", file=sys.stderr)
+        return 1
+    results = report["results"]
+    if results is None:
+        print("::error::bandit report 'results' is null (malformed)", file=sys.stderr)
+        return 1
+    if not isinstance(results, list):
+        print("::error::bandit report 'results' field is not a list", file=sys.stderr)
+        return 1
+    return results
+
+
+def _classify_issues(results: list[Any]) -> tuple[list[str], list[str], int]:
+    """Bucket issues into (high-lines, medium-lines, undefined-count)."""
+    high: list[str] = []
+    medium: list[str] = []
+    undefined_count = 0
+    for issue in results:
+        if not isinstance(issue, dict):
+            continue
+        severity = (issue.get("issue_severity") or _UNDEFINED).upper()
+        line = _format_issue(issue)
+        if severity == _HIGH:
+            high.append(line)
+        elif severity == _MED:
+            medium.append(line)
+        elif severity == _UNDEFINED:
+            undefined_count += 1
+        # LOW is silent; the raw JSON remains in artefacts.
+    return high, medium, undefined_count
 
 
 def main(argv: list[str]) -> int:
@@ -56,39 +111,23 @@ def main(argv: list[str]) -> int:
         print(f"usage: {argv[0]} <bandit.json>", file=sys.stderr)
         return 1
 
-    report_path = Path(argv[1])
-    try:
-        raw = report_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        print(f"::error::bandit report not readable at {report_path}: {exc}", file=sys.stderr)
-        return 1
+    report_or_code = _load_report(Path(argv[1]))
+    if isinstance(report_or_code, int):
+        return report_or_code
+    results_or_code = _extract_results(report_or_code)
+    if isinstance(results_or_code, int):
+        return results_or_code
 
-    try:
-        report = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print(f"::error::bandit report at {report_path} is not valid JSON: {exc}", file=sys.stderr)
-        return 1
-
-    results = report.get("results") or []
-    if not isinstance(results, list):
-        print("::error::bandit report 'results' field is not a list", file=sys.stderr)
-        return 1
-
-    high: list[str] = []
-    medium: list[str] = []
-    for issue in results:
-        if not isinstance(issue, dict):
-            continue
-        severity = (issue.get("issue_severity") or "UNDEFINED").upper()
-        line = _format_issue(issue)
-        if severity == _HIGH:
-            high.append(line)
-        elif severity == _MED:
-            medium.append(line)
-        # LOW / UNDEFINED are silent; the raw JSON remains in artefacts.
+    high, medium, undefined_count = _classify_issues(results_or_code)
 
     for line in medium:
         print(f"::warning::bandit {line}")
+
+    if undefined_count:
+        # One summary annotation rather than per-finding spam; UNDEFINED
+        # rules are bandit's "rule lacks severity metadata" fall-through
+        # and merit operator review without burying real signal.
+        print(f"::warning::bandit {undefined_count} issue(s) with UNDEFINED severity; review the raw report manually.")
 
     if high:
         for line in high:

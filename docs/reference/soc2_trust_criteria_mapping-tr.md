@@ -32,7 +32,7 @@ kategoriler engagement-bazında scoplanır.
 | CC1.5 | Hesap verebilirliği uygular | `FORGELM_OPERATOR` attribution + audit chain |
 | CC2.1 | İç kontrolleri içe iletişim | `audit_event_catalog.md` + `deployer_instructions.md` |
 | CC2.2 | Dışa iletişim | Madde 13 `deployer_instructions.md`; Annex IV public summary |
-| CC2.3 | Düzenleyicilerle iletişim | Annex IV bundle gönderime hazır |
+| CC2.3 | Düzenleyicilerle iletişim | Annex IV bundle + `compliance_report.json` operatörün talep üzerine düzenleyiciye gönderdiği artefaktlardır; ForgeLM iletişim kanalını işletmez (operatör-tarafı kontrol) |
 | CC3.1 | Uygun hedefler belirler | `compliance.intended_purpose`; risk classification |
 | CC3.2 | Riskleri tanımlar ve analiz eder | `risk_assessment` Pydantic block; safety eval; `risk_treatment_plan.md` |
 | CC3.3 | Sahtekarlık risklerini değerlendirir | Audit log tamper-evidence; HMAC chain; manifest sidecar |
