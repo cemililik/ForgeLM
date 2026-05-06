@@ -5,7 +5,7 @@ description: EU AI Act Annex IV teknik dokümantasyon artifact'ını doğrulayı
 
 # Annex IV Doğrulama
 
-`forgelm verify-annex-iv`, Annex IV teknik dokümantasyon artifact'ı (`compliance/annex_iv.json`) ile eşleşen salt-okunur doğrulayıcıdır. EU AI Act'in yüksek-riskli sistemler için talep ettiği dokuz üst-seviye alanı (§1-9) yürür, her gerekli kategorinin doldurulduğunu kontrol eder ve artifact üretildiğinden bu yana tahrifat olup olmadığını tespit etmek için manifest hash'ini yeniden hesaplar. Üretici taraf — `compliance:` YAML bloğunuzdan Annex IV'ün otomatik doldurulması — [Uyumluluk Genel Bakış](#/compliance/overview) sayfasında belgelenmiştir.
+`forgelm verify-annex-iv`, Annex IV teknik dokümantasyon artifact'ı (`compliance/annex_iv_metadata.json`) ile eşleşen salt-okunur doğrulayıcıdır. EU AI Act'in yüksek-riskli sistemler için talep ettiği dokuz üst-seviye alanı (§1-9) yürür, her gerekli kategorinin doldurulduğunu kontrol eder ve artifact üretildiğinden bu yana tahrifat olup olmadığını tespit etmek için manifest hash'ini yeniden hesaplar. Üretici taraf — `compliance:` YAML bloğunuzdan Annex IV'ün otomatik doldurulması — [Uyumluluk Genel Bakış](#/compliance/overview) sayfasında belgelenmiştir.
 
 ## Ne zaman kullanılır
 
@@ -20,7 +20,7 @@ description: EU AI Act Annex IV teknik dokümantasyon artifact'ını doğrulayı
 sequenceDiagram
     participant CI as CI / operatör
     participant Verify as forgelm verify-annex-iv
-    participant File as annex_iv.json
+    participant File as annex_iv_metadata.json
 
     CI->>Verify: verify-annex-iv path
     Verify->>File: JSON oku
@@ -41,8 +41,8 @@ Doğrulayıcı, `forgelm.compliance.build_annex_iv_artifact` içindeki yazıcı 
 ## Hızlı başlangıç
 
 ```shell
-$ forgelm verify-annex-iv checkpoints/run/compliance/annex_iv.json
-OK: checkpoints/run/compliance/annex_iv.json
+$ forgelm verify-annex-iv checkpoints/run/compliance/annex_iv_metadata.json
+OK: checkpoints/run/compliance/annex_iv_metadata.json
   All Annex IV §1-9 fields populated; manifest hash matches.
 ```
 
@@ -52,7 +52,7 @@ OK: checkpoints/run/compliance/annex_iv.json
 
 ```shell
 $ forgelm verify-annex-iv --output-format json \
-    checkpoints/run/compliance/annex_iv.json
+    checkpoints/run/compliance/annex_iv_metadata.json
 {
   "success": true,
   "valid": true,
@@ -60,7 +60,7 @@ $ forgelm verify-annex-iv --output-format json \
   "missing_fields": [],
   "manifest_hash_actual": "sha256:abcdef…",
   "manifest_hash_expected": "sha256:abcdef…",
-  "path": "/abs/path/checkpoints/run/compliance/annex_iv.json"
+  "path": "/abs/path/checkpoints/run/compliance/annex_iv_metadata.json"
 }
 ```
 
@@ -91,7 +91,7 @@ Artifact bir `metadata.manifest_hash` alanı taşıdığında doğrulayıcı, ar
 `metadata.manifest_hash` taşımayan artifact'lar alan-tamamlama kontrolünü geçer; ancak doğrulayıcı bunu neden metninde işaretler:
 
 ```text
-OK: …/annex_iv.json
+OK: …/annex_iv_metadata.json
   All Annex IV §1-9 fields populated; no manifest_hash present so tampering detection skipped.
 ```
 

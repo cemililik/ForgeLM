@@ -125,8 +125,15 @@ def _load_model_for_safety(model_path: str, output_format: str):
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
-        model = AutoModelForCausalLM.from_pretrained(model_path)
+        # Defence-in-depth (Faz 7 §13 acceptance): every `from_pretrained`
+        # call in `forgelm/` MUST pass `trust_remote_code=False` explicitly,
+        # so a Hub model that ships custom-code modules (e.g.,
+        # `trust_remote_code=True` defaults in some org repos) cannot
+        # silently execute that code under the standalone safety-eval
+        # surface.  Mirrors the contract `forgelm/trainer.py` already
+        # enforces for training-pipeline loads.
+        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=False)
+        model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=False)
         return model, tokenizer
     except ImportError as exc:
         # F-36-02: transformers is a *core* ForgeLM dependency, not an

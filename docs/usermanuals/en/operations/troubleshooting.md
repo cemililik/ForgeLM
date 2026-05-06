@@ -152,7 +152,7 @@ audit:
 
 **Cause:** Required `compliance:` fields not set in YAML.
 
-**Fix:** Run `forgelm verify-annex-iv path/to/annex_iv.json` for a list of missing fields.
+**Fix:** Run `forgelm verify-annex-iv path/to/annex_iv_metadata.json` for a list of missing fields (the canonical filename ForgeLM writes — see [Annex IV](#/compliance/annex-iv)).
 
 ## Webhooks not firing
 

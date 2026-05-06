@@ -225,7 +225,7 @@ The gate stays empty.  A new contributor who reaches for `requests.get` directly
 
 ## Things we do not own
 
-Reaffirming [marketing/strategy/05-yapmayacaklarimiz.md](../marketing/strategy/05-yapmayacaklarimiz.md):
+Reaffirming the internal "what we don't build" strategy doc (also captured under "What ForgeLM is not" in the root [`CLAUDE.md`](../../CLAUDE.md)):
 
 - **Inference engine.** We hand off to Ollama / vLLM / TGI / llama.cpp. `forgelm/inference.py` (Phase 10) is a thin client, not a server.
 - **Web UI.** Config-driven is the identity. Dashboards live in Pro CLI (Phase 13), not core.

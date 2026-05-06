@@ -167,7 +167,7 @@ The goal is the codebase, not the ego. A PR that gets blocked from merging isn't
 
 ## Anti-patterns (from maintainer experience + external analyses)
 
-Referencing [marketing/strategy/05-yapmayacaklarimiz.md](../marketing/strategy/05-yapmayacaklarimiz.md) and analyses of adjacent projects:
+Referencing the internal "what we don't build" strategy doc (public summary under "What ForgeLM is not" in the root [`CLAUDE.md`](../../CLAUDE.md)) and analyses of adjacent projects:
 
 | Anti-pattern | Why rejected | Fix |
 |---|---|---|

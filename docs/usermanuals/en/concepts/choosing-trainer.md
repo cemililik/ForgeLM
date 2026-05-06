@@ -77,8 +77,8 @@ These templates ship with `forgelm quickstart` and reflect what most teams use a
 |---|---|---|
 | Helpful + safe customer-support bot | `customer-support` | SFT → DPO |
 | Code-completion model | `code-assistant` | SFT → ORPO |
-| Domain expert from your PDFs | `byod-domain-expert` | SFT only |
-| Math reasoning | `math-reasoning` | GRPO with format-shaping reward |
+| Domain expert from your PDFs | `domain-expert` | SFT only |
+| Math reasoning | `grpo-math` | GRPO with format-shaping reward |
 | Turkish medical Q&A | `medical-qa-tr` | SFT only |
 
 ## Anti-patterns

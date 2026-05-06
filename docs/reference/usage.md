@@ -297,7 +297,7 @@ training:
 
 ### GPU Cost Estimation
 
-ForgeLM auto-detects your GPU model (18 GPU models supported) and tracks estimated cost per training run. Output is included in JSON results, webhook notifications, and model cards:
+ForgeLM auto-detects your GPU model (16 GPU models supported per `forgelm.trainer.ForgeTrainer._GPU_PRICING`) and tracks estimated cost per training run. Output is included in JSON results, webhook notifications, and model cards:
 
 ```
 GPU Cost Estimate:

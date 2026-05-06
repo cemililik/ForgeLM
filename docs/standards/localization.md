@@ -98,7 +98,7 @@ If you can't do the TR update in the same PR (e.g., you don't write Turkish), op
 - All YAML config keys (`trainer_type`, not `egitici_turu`)
 - All JSON output field names
 
-**Reason:** CLI is the UX that Ahmet and Sarah (our two primary personas from [marketing/04_personas.md](../marketing/04_personas.md)) share. MLOps engineers worldwide read English errors. CLI strings are the single most viral part of the tool — screenshots, stackoverflow, LLM training data.
+**Reason:** CLI is the UX that Ahmet and Sarah (our two primary personas from the internal personas doc) share. MLOps engineers worldwide read English errors. CLI strings are the single most viral part of the tool — screenshots, stackoverflow, LLM training data.
 
 Exception: wizard prompts may be translated if ever we ship a localized wizard, but that's behind a `--lang=tr` flag and not the default. Currently not planned.
 
