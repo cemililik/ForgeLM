@@ -395,7 +395,13 @@ def _tokenise_invocation(line: str) -> list[str]:
     body = body.rstrip("\\").strip()
     cleaned: list[str] = []
     for raw in body.split():
-        token = raw.strip("()[],|")
+        # Strip both prose decoration ([](),|) AND quotation marks
+        # since ``split()`` is not quote-aware: a doc that writes
+        # ``--target "ollama"`` would otherwise carry the quote into
+        # the token and fail validation against the parser's choice
+        # set.  Including ``"`` and ``'`` in the strip set lets the
+        # tool reach the underlying value.
+        token = raw.strip("()[],|\"'")
         if token:
             cleaned.append(token)
     return cleaned
@@ -416,11 +422,16 @@ def _is_synopsis_line(line: str) -> bool:
 
     Heuristic:
 
-    - any ``[`` bracket is a strong synopsis tell (real invocations
-      never use ``[`` outside string literals); OR
+    - " [" + "]" pair is a strong synopsis tell — argparse usage
+      strings always wrap optional flags as ``--flag [VALUE]`` or
+      ``[--flag {a,b}]`` with a leading space before the bracket.
+      Requiring the space prefix avoids a false-negative skip on
+      legitimate invocations using shell-glob brackets like
+      ``data/[0-9]*.jsonl`` (those put the bracket flush against
+      the path, no leading space).
     - alternation ``|`` paired with ``(`` (the safety-eval form).
     """
-    if "[" in line:
+    if " [" in line and "]" in line:
         return True
     return "|" in line and "(" in line
 
@@ -460,7 +471,14 @@ def _extract_invocation(source: Path, line_no: int, line: str) -> Invocation | N
             else:
                 flags.append(tok)
                 # Peek the next token to capture a value (if any).
-                if idx + 1 < len(tokens) and not tokens[idx + 1].startswith("-"):
+                # Only treat the next token as a NEW flag when it
+                # starts with ``--`` (the long-flag prefix used in
+                # this project).  A single ``-`` prefix could be a
+                # short flag (rare in this project; shipped tools
+                # don't ship short forms) OR a negative numeric
+                # value like ``--temperature -1.0``; we'd rather
+                # consume the value than mis-classify it as a flag.
+                if idx + 1 < len(tokens) and not tokens[idx + 1].startswith("--"):
                     flag_values[tok] = tokens[idx + 1]
                     idx += 1
                 else:
@@ -482,8 +500,12 @@ def _iter_code_block_lines(source: Path, lines: Sequence[str]) -> Iterable[tuple
     Qualifying = lang tag in :data:`_BASH_LANG_TAGS` AND the block
     is not flagged as forward-reference / anti-pattern.
 
-    A 1-indexed line number is yielded so callers can report
-    ``file:line`` directly.
+    Multi-line shell continuations (``\\`` at end of line) are
+    re-stitched into a single logical line so callers see the
+    full ``forgelm cmd --flag1 ... --flag2 ...`` invocation rather
+    than only the first physical line.  The reported ``line_no``
+    is the 1-indexed start line of the logical command — that's
+    where a reviewer expects the file-line citation to land.
     """
     idx = 0
     while idx < len(lines):
@@ -503,9 +525,29 @@ def _iter_code_block_lines(source: Path, lines: Sequence[str]) -> Iterable[tuple
         if _should_skip_block(lines, block_start, block_end, lang):
             idx = close_idx + 1
             continue
-        # Yield interior lines.
+        # Yield interior lines, re-stitching ``\``-continued multi-line
+        # commands so each logical command surfaces as one (line_no,
+        # line) pair rather than N lines where the first carries the
+        # command name and the rest carry the flags in isolation.
+        current = ""
+        start_line_no = 0
         for inner_idx in range(block_start + 1, block_end):
-            yield (inner_idx + 1, lines[inner_idx])
+            raw = lines[inner_idx]
+            stripped = raw.rstrip()
+            if not current:
+                start_line_no = inner_idx + 1
+            if stripped.endswith("\\"):
+                # Strip the trailing backslash + preserve one space
+                # so adjacent tokens don't fuse together.
+                current += stripped[:-1] + " "
+            else:
+                current += raw
+                yield (start_line_no, current)
+                current = ""
+        if current:
+            # Unterminated continuation at block end — yield what we
+            # have so the line is not silently dropped.
+            yield (start_line_no, current)
         idx = close_idx + 1
 
 
@@ -590,6 +632,14 @@ def _evaluate(invocation: Invocation, surface: ParserSurface) -> list[DriftFindi
             if value is None:
                 # Doc didn't pin a concrete value — silent.
                 continue
+            if _is_shell_variable_reference(value):
+                # ``--flag "${VAR}"`` / ``--flag $VAR`` — the value
+                # is operator-supplied at runtime; we cannot
+                # statically validate it against the choice set.
+                # Treating these as drift would force docs to
+                # ``--flag q4_k_m`` style snippets that lose the
+                # educational "loop over the choices" pattern.
+                continue
             allowed = sub_surface.choices[flag]
             if value not in allowed:
                 allowed_fmt = "{" + ",".join(sorted(allowed)) + "}"
@@ -601,6 +651,18 @@ def _evaluate(invocation: Invocation, surface: ParserSurface) -> list[DriftFindi
                     )
                 )
     return findings
+
+
+def _is_shell_variable_reference(value: str) -> bool:
+    """Return True iff ``value`` is a shell variable reference.
+
+    Recognises ``$VAR``, ``${VAR}``, ``$1`` (positional), and the
+    common quoted forms that survive ``_tokenise_invocation``'s
+    quote stripping.  Used by ``_evaluate`` to skip choice-set
+    validation when the doc legitimately defers the value to a
+    shell-loop variable.
+    """
+    return value.startswith("$")
 
 
 # ---------------------------------------------------------------------------

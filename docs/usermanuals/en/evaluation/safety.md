@@ -75,7 +75,7 @@ Before relying on Llama Guard as a gate, score your *base* model:
 ```shell
 $ forgelm safety-eval --model "Qwen/Qwen2.5-7B-Instruct" \
     --probes data/safety-probes.jsonl \
-    --output baselines/safety-qwen-7b.json
+    --output-dir baselines/qwen-7b/
 ```
 
 This becomes the comparison point — auto-revert fires when a fine-tune *regresses* below baseline, not when the absolute score is bad. Fine-tuning rarely improves safety; the goal is to not make it worse.

@@ -181,6 +181,39 @@ class TestChoiceDrift:
         assert "kserve" in out
         assert "choices" in out
 
+    def test_shell_variable_reference_skips_choice_validation(self, tmp_path: Path, tool, capsys):
+        # ``--quant "${q}"`` inside a `for q in ...` loop is a real
+        # documentation pattern (multi-quant export). The value is
+        # operator-supplied at runtime; treating it as drift would
+        # force docs to drop the educational loop form.
+        scope = tmp_path / "docs"
+        _write(
+            scope / "guide.md",
+            (
+                "```bash\n"
+                "for q in q4_k_m q5_k_m q8_0; do\n"
+                '  forgelm export ./model --output ./out/${q}.gguf --quant "${q}"\n'
+                "done\n"
+                "```\n"
+            ),
+        )
+        rc = tool.main(["--repo-root", str(tmp_path), "--scope", "docs", "--strict"])
+        assert rc == 0, "shell variable references must not trigger choice drift"
+
+    def test_multiline_continuation_logical_line_stitching(self, tmp_path: Path, tool, capsys):
+        # gemini-code-assist HIGH absorption regression: a multi-line
+        # ``\``-continued command must be evaluated as one logical
+        # invocation so flags on the continuation lines are caught.
+        scope = tmp_path / "docs"
+        _write(
+            scope / "guide.md",
+            ("```bash\n$ forgelm deploy ./model \\\n    --target kserve \\\n    --output ./out.yaml\n```\n"),
+        )
+        rc = tool.main(["--repo-root", str(tmp_path), "--scope", "docs", "--strict"])
+        assert rc == 1, "multi-line continuation must surface --target kserve as choice drift"
+        out = capsys.readouterr().out
+        assert "kserve" in out
+
 
 # ---------------------------------------------------------------------------
 # §5 — False-positive heuristics

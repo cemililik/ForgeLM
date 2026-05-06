@@ -49,14 +49,20 @@ output:
 
 ## Çoklu-quant export
 
+`forgelm export --quant` invocation başına tek değer kabul eder
+(seçenekler: `{q2_k, q3_k_m, q4_k_m, q5_k_m, q8_0, f16}`). Tek bir
+checkpoint'ten birden çok quantisation üretmek için komutu her
+quant için bir kez çalıştırın:
+
 ```shell
-$ forgelm export ./checkpoints/run \
-    --output ./gguf/ \
-    --quant "q4_k_m,q5_k_m,q8_0"
+$ for q in q4_k_m q5_k_m q8_0; do
+    forgelm export ./checkpoints/run \
+        --output "./gguf/model.${q}.gguf" \
+        --quant "${q}"
+  done
 ✓ gguf/model.q4_k_m.gguf yazıldı  (4.1 GB)
 ✓ gguf/model.q5_k_m.gguf yazıldı  (4.8 GB)
 ✓ gguf/model.q8_0.gguf yazıldı    (7.2 GB)
-✓ gguf/manifest.json yazıldı
 ```
 
 Manifest:
