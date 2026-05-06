@@ -353,6 +353,30 @@ sections:
           fr: RGPD / KVKK
           es: RGPD / KVKK
           zh: GDPR / KVKK
+      - id: gdpr-erasure
+        title:
+          en: GDPR Erasure & Access
+          tr: GDPR Silme ve Erişim
+          de: DSGVO-Löschung & Auskunft
+          fr: Effacement et accès RGPD
+          es: Borrado y acceso RGPD
+          zh: GDPR 删除与访问
+      - id: human-approval-gate
+        title:
+          en: Human Approval Gate
+          tr: İnsan Onay Kapısı
+          de: Menschliches Genehmigungsgate
+          fr: Porte d'approbation humaine
+          es: Puerta de aprobación humana
+          zh: 人工审批门
+      - id: verify-audit
+        title:
+          en: Verify Audit Chain
+          tr: Audit Zincirini Doğrula
+          de: Audit-Kette verifizieren
+          fr: Vérifier la chaîne d'audit
+          es: Verificar la cadena de auditoría
+          zh: 验证审计链
 
   - id: operations
     icon: server
@@ -428,6 +452,22 @@ sections:
           fr: Dépannage
           es: Solución de problemas
           zh: 故障排除
+      - id: iso-soc2-deployer
+        title:
+          en: ISO 27001 / SOC 2 Deployer
+          tr: ISO 27001 / SOC 2 Operatör
+          de: ISO 27001 / SOC 2 Betreiber
+          fr: Déployeur ISO 27001 / SOC 2
+          es: Operador ISO 27001 / SOC 2
+          zh: ISO 27001 / SOC 2 部署者
+      - id: supply-chain
+        title:
+          en: Supply-Chain Security
+          tr: Tedarik Zinciri Güvenliği
+          de: Lieferketten-Sicherheit
+          fr: Sécurité de la chaîne d'approvisionnement
+          es: Seguridad de la cadena de suministro
+          zh: 供应链安全
 
   - id: deployment
     icon: ship
@@ -455,6 +495,14 @@ sections:
           fr: Export GGUF
           es: Export GGUF
           zh: GGUF 导出
+      - id: verify-gguf
+        title:
+          en: Verify GGUF Integrity
+          tr: GGUF Bütünlüğünü Doğrula
+          de: GGUF-Integrität verifizieren
+          fr: Vérifier l'intégrité GGUF
+          es: Verificar integridad GGUF
+          zh: 验证 GGUF 完整性
       - id: deploy-targets
         title:
           en: Deploy Targets
@@ -514,3 +562,19 @@ sections:
           fr: Modèles YAML
           es: Plantillas YAML
           zh: YAML 模板
+      - id: library-api
+        title:
+          en: Library API
+          tr: Kütüphane API
+          de: Bibliotheks-API
+          fr: API bibliothèque
+          es: API de biblioteca
+          zh: 库 API
+      - id: performance
+        title:
+          en: Performance Tuning
+          tr: Performans Ayarlaması
+          de: Performance-Tuning
+          fr: Réglage des performances
+          es: Ajuste de rendimiento
+          zh: 性能调优
