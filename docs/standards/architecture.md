@@ -145,6 +145,19 @@ Do **not**:
 - Make a heavy dep a hard requirement of the core package.
 - Add a new heavy dep without adding a new extra.
 
+#### Optional accelerator dependencies — sanctioned carve-out
+
+The CLAUDE.md "silent import fallback" pitfall (`try: import X; except ImportError: X = None`) is forbidden as a general pattern, but the following four conditions justify an exception:
+
+1. Every read site gates on a `_HAS_X: bool` boolean — never on the imported handle's truthiness.
+2. The missing-extra path provides a behaviourally equivalent (slower / less precise) fallback rather than a feature gate. If the absent extra disables a feature, raise `ImportError` with the install hint instead.
+3. The pattern lives in a **single dedicated module** so the fallback surface is auditable in one place.
+4. Tests monkeypatch the boolean to exercise both paths (extras-installed and extras-missing).
+
+The canonical example is [`forgelm/data_audit/_optional.py`](../../forgelm/data_audit/_optional.py), which gates the four optional `data_audit` accelerators / models — `xxhash` (simhash backend; falls back to BLAKE2b), `numpy` (vectorised bit-unpack; falls back to pure-Python loop), `datasketch` (MinHash LSH; user opts in via `--dedup-method minhash`), and `presidio-analyzer` (ML-NER PII; layered on top of the regex detector). Each block is paired with a `_HAS_*` boolean and tests exercising both paths.
+
+New optional accelerators may follow this template. New **behaviour gates** (where the absent extra silently disables a feature instead of falling back) may NOT — those must raise `ImportError` with an install hint at the call site.
+
 ### 4. No global state
 
 Module-level state is limited to:

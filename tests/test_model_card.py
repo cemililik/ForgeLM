@@ -2,9 +2,8 @@
 
 import os
 
-from _helpers.factories import minimal_config
-
 from forgelm.config import ForgeConfig
+from tests._helpers.factories import minimal_config
 
 
 def _card_config(**overrides):

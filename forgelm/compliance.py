@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from ._version import __version__ as _forgelm_version
 from .config import ConfigError
 
 # flock is Unix-only; Windows falls back to advisory-only (no hard lock).
@@ -1168,25 +1169,8 @@ def _describe_adapter_method(config: Any) -> str:
 
 
 def _get_version() -> str:
-    """Resolve ForgeLM's version for compliance-manifest stamping.
-
-    Prefers the installed distribution metadata (single source of truth with
-    ``pyproject.toml``); falls back to the package-level ``__version__``
-    attribute (which itself uses ``importlib.metadata``); finally returns
-    ``"unknown"`` if both paths fail (raw source import without install).
-    """
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as _pkg_version
-
-    try:
-        return _pkg_version("forgelm")
-    except PackageNotFoundError:
-        try:
-            from forgelm import __version__
-
-            return __version__
-        except ImportError:  # pragma: no cover
-            return "unknown"
+    """Return the runtime forgelm version for compliance / audit-log stamping."""
+    return _forgelm_version
 
 
 # ---------------------------------------------------------------------------

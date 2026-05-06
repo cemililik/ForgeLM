@@ -35,3 +35,46 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: check-merge-conflict
+
+  # Project-specific doc / structural guards. These run in ADVISORY mode
+  # (no --strict flag) because the strict variants walk the whole docs/
+  # tree and are too slow for an interactive pre-commit cycle. CI re-runs
+  # them with --strict in .github/workflows/ci.yml — that remains the
+  # enforcement boundary; these hooks just give contributors a fast
+  # local heads-up before push.
+  - repo: local
+    hooks:
+      - id: check-bilingual-parity
+        name: bilingual parity (advisory)
+        entry: python3 tools/check_bilingual_parity.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: check-anchor-resolution
+        name: markdown anchor resolution (advisory)
+        entry: python3 tools/check_anchor_resolution.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: check-cli-help-consistency
+        name: CLI / docs help-consistency (advisory)
+        entry: python3 tools/check_cli_help_consistency.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: check-field-descriptions
+        name: pydantic field descriptions (advisory)
+        entry: python3 tools/check_field_descriptions.py forgelm/config.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: check-site-claims
+        name: site-as-tested-surface (advisory)
+        entry: python3 tools/check_site_claims.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]

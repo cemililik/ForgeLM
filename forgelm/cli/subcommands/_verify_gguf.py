@@ -182,7 +182,7 @@ def _maybe_parse_metadata(path: str) -> Dict[str, Any]:
         reader = GGUFReader(path, "r")
         tensor_count = len(getattr(reader, "tensors", []) or [])
         return {"parsed": True, "error": None, "tensor_count": tensor_count}
-    except Exception as exc:  # noqa: BLE001 — gguf surfaces a wide failure surface (struct.error, IndexError, ValueError). # NOSONAR
+    except Exception as exc:  # noqa: BLE001 — gguf has no clean exception hierarchy (struct.error, IndexError, ValueError, AttributeError, OSError). Catching BaseException would swallow KeyboardInterrupt/SystemExit, which we want to propagate. Acceptable per error-handling.md best-effort carve-out: verifier reports failure-path, never silent. # NOSONAR
         return {"parsed": False, "error": f"{exc.__class__.__name__}: {exc}", "tensor_count": None}
 
 

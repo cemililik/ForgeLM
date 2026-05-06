@@ -27,6 +27,14 @@ git remote add upstream https://github.com/cemililik/ForgeLM.git
 python3 -m pip install -e ".[dev]"
 ```
 
+> **Note on the `[dev]` extras + coverage gate.** The `pytest` invocation
+> in `pyproject.toml` carries `--cov-fail-under=40`. The `[dev]` extras
+> are required to reach that floor — installing `pip install -e .` (no
+> extras) trips the gate because optional-dep test paths can't run.
+> Always use `pip install -e ".[dev]"` for contributor work. The floor
+> itself is intentional ([`docs/standards/testing.md`](docs/standards/testing.md));
+> do not lower it.
+
 ### 3. Create a branch
 
 ```bash
@@ -73,10 +81,11 @@ Push your branch and open a Pull Request against `main`.
 
 ForgeLM is a single-package layout: a mix of single-file modules and two
 focused sub-packages (`forgelm/cli/` post-Phase-15 split and
-`forgelm/data_audit/` post-Phase-14 split) under `forgelm/`, ~68 test files /
-~1442 tests under `tests/`, plus `configs/`, `docs/`, `tools/` (CI guards),
-and `notebooks/`. For the authoritative module-by-module map (purpose, public
-surface, dependency arrows), see
+`forgelm/data_audit/` post-Phase-14 split) under `forgelm/`, ~68 test files
+under `tests/` (collected-test count grows over time — run
+`pytest --collect-only -q` for current), plus `configs/`, `docs/`, `tools/`
+(CI guards), and `notebooks/`. For the authoritative module-by-module map
+(purpose, public surface, dependency arrows), see
 [`docs/reference/architecture.md`](docs/reference/architecture.md).
 
 ### Running Tests

@@ -631,7 +631,16 @@ class TestVerifyAuditLog:
 
     def test_verify_audit_require_hmac_no_secret(self, tmp_path, monkeypatch, capsys):
         """CLI dispatcher: ``--require-hmac`` without a configured secret
-        env var must exit 2 (option error) before opening the log."""
+        env var must exit 1 (option / operator-actionable error) before
+        opening the log.
+
+        F-PR29-A2-01 absorption: option errors map to ``EXIT_CONFIG_ERROR``
+        (= 1, the public 0/1/2/3/4 contract's "operator-actionable failure"
+        slot), not ``EXIT_TRAINING_ERROR`` (= 2). Both option errors and
+        chain-integrity failures share the numeric 1 because both are
+        operator-actionable; a dedicated ``EXIT_INTEGRITY_FAILURE``
+        constant is deferred to v0.6.x to avoid expanding the public surface.
+        """
         from forgelm.cli import _run_verify_audit_cmd
 
         log_path = self._build_log(tmp_path, events=2)
@@ -647,7 +656,7 @@ class TestVerifyAuditLog:
         ns.require_hmac = True
 
         exit_code = _run_verify_audit_cmd(ns)
-        assert exit_code == 2
+        assert exit_code == 1
         captured = capsys.readouterr()
         assert "FORGELM_AUDIT_SECRET" in captured.err
         assert "--require-hmac" in captured.err

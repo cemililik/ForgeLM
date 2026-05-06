@@ -9,17 +9,15 @@ ForgeLM'in exit kodları kamuya açık bir kontrattır. CI/CD hatları, schedule
 
 ## Kontrat
 
-| Exit | İsim | Anlam | Tipik CI aksiyonu |
+| Exit | Sabit | Anlam | Tipik CI aksiyonu |
 |---|---|---|---|
-| **0** | Başarı | Koşu tamamlandı; tüm kapılar geçti; checkpoint terfi etti. | Hattı sürdür |
-| **1** | Config hatası | YAML geçersiz, dosya yok, env var ayarsız veya argüman bozuk. | Hızlı başarısız |
-| **2** | Audit uyarıları | Audit `--strict` ile koşturuldu, uyarı seviyesi sorunlar bulundu. | Merge engelle / inceleme iste |
-| **3** | Regresyon / otomatik geri alma | Benchmark veya güvenlik kapısı geçemedi; geri alındı. | İncele; terfi ETTİRME |
-| **4** | İnsan onayı bekliyor | `compliance.human_approval: true` engelliyor. | Hattı tut; reviewer'ı tetikle |
-| **5** | Maliyet tavanı aşıldı | `output.cost_tracking.halt_threshold_usd` aşıldı. | Maliyet aşımını incele |
-| **130** | Kesildi | Kullanıcı Ctrl+C bastı. | Manuel karar |
+| **0** | `EXIT_SUCCESS` | Koşu tamamlandı; tüm kapılar geçti; checkpoint terfi etti. | Hattı sürdür |
+| **1** | `EXIT_CONFIG_ERROR` | YAML geçersiz, dosya yok, env var ayarsız veya argüman bozuk. | Hızlı başarısız |
+| **2** | `EXIT_TRAINING_ERROR` | Eğitim sırasında runtime hatası (config veya değerlendirme kapısı dışı her ele alınmamış istisna: data yükleme, OOM, NaN loss, audit `--strict` ihlali, I/O). | İncele; logları yüzeyle |
+| **3** | `EXIT_EVAL_FAILURE` | Benchmark veya güvenlik kapısı geçemedi; konfigüre edilmişse geri alındı. | İncele; terfi ETTİRME |
+| **4** | `EXIT_AWAITING_APPROVAL` | `compliance.human_approval: true` engelliyor. | Hattı tut; reviewer'ı tetikle |
 
-Diğer sıfır olmayan exit beklenmedik hata — issue açın.
+Bu beş tam sayı tüm kamuya açık kontratı oluşturur — kanonik tanım için bkz. [`forgelm/cli/_exit_codes.py`](https://github.com/cemililik/ForgeLM/blob/main/forgelm/cli/_exit_codes.py). Diğer her sıfır olmayan değer (sinyal kaynaklı 128+N kodları dahil) süreç çıkmadan önce `EXIT_TRAINING_ERROR` (2) değerine sıkıştırılır.
 
 ## CI pattern'lerine eşleme
 
@@ -82,29 +80,16 @@ stage('Train') {
 | YAML'da typo (ör. `learnng_rate`) | 1 |
 | YAML'da `${HF_TOKEN}` ama env var yok | 1 |
 | `--config` var olmayan dosyaya işaret ediyor | 1 |
-| `--strict` ile audit ve PII flag'leri | 2 |
-| `--strict` ile audit ve split-arası sızıntı | 3 (sızıntı uyarı değil hata) |
+| `--strict` ile audit bir ihlal raporladı | 2 |
+| Eğitim ortasında final loss NaN / OOM / I/O hatası | 2 |
 | DPO koşusu, Llama Guard S5 toleransı aştı | 3 |
 | Benchmark hellaswag floor altına düştü | 3 |
-| Final loss NaN | 3 |
 | `compliance.human_approval: true` ve onay imzalanmamış | 4 |
-| Maliyet eşiği eğitim ortasında aşıldı | 5 |
-| Kullanıcı Ctrl+C | 130 |
+| Kullanıcı Ctrl+C (sinyal kaynaklı 128+N) | 2 (sıkıştırılır) |
 
 ## Programatik tespit
 
-Otomatik parsing için ForgeLM exit kodunu bir sidecar dosyaya da yazar:
-
-```text
-checkpoints/run/artifacts/exit_status.txt:
-
-3
-trigger=safety_regression
-regressed_categories=S5
-restored_from=./checkpoints/sft-base
-```
-
-Ham exit kodlarını korumayan log aggregator'lara stream eden CI runner'larında yardımcı olur.
+Exit kodu kontrat tek başına yeterli — POSIX kabuklarda `$?`, cmd'de `%ERRORLEVEL%`, PowerShell'de `$LASTEXITCODE` ile veya CI runner'ınızın ifade dilindeki karşılığıyla okuyun (ör. GitHub Actions'ta `steps.<id>.outputs.exit-code`, Jenkins'te `returnStatus: true`). Daha zengin postmortem bağlam için (regrese kategoriler, restore edilmiş checkpoint yolu vb.) bir sidecar yerine koşunun output dizini altına yazılan yapısal `audit_log.jsonl` olayını parse edin.
 
 ## "exit 0" tam olarak ne garanti eder
 
@@ -124,7 +109,7 @@ Bunlardan biri başarısız olursa exit kod sıfır değildir. Tasarım gereği 
 
 ## Uyumluluk garantisi
 
-Exit kodları 0-5 sürümler arası kararlıdır. Yeni kodlar eklenebilir (6, 7, …) ama mevcutların semantiği değişmez. Yukarıdaki kontrata pinli CI hatları ForgeLM yükseltmelerinde çalışmaya devam eder.
+Exit kodları 0-4 sürümler arası kararlıdır. Yeni kodlar eklenebilir (5, 6, …) ama mevcutların semantiği değişmez. Yukarıdaki kontrata pinli CI hatları ForgeLM yükseltmelerinde çalışmaya devam eder.
 
 ## Bkz.
 

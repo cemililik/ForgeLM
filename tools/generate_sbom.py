@@ -33,7 +33,7 @@ from typing import Any
 def _installed_packages() -> list[dict[str, str]]:
     """Return ``pip list --format=json`` output as a list of dicts."""
     try:
-        result = subprocess.run(  # NOSONAR  # nosec B603 B607 — all args are literals / controlled
+        result = subprocess.run(  # NOSONAR python:S4823; nosec B603,B607 — all args are literals / controlled
             [sys.executable, "-m", "pip", "list", "--format=json", "--disable-pip-version-check"],
             capture_output=True,
             text=True,

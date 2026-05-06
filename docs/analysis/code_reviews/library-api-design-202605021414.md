@@ -291,6 +291,17 @@ We add a regression test (`tests/test_cli_lazy_imports.py`) that:
 
 ### 5.1 Two version strings
 
+> **Status: Implementation diverged from this section.** The design doc
+> as drafted (Phase 18) committed to a 2-segment `__api_version__` (e.g.
+> `"0.5"`).  After drafting, [`docs/standards/release.md`](../../standards/release.md)
+> §"`__api_version__` (Python library surface)" (lines 27-39) codified
+> the canonical shape as **3-segment semver** (e.g. `"1.0.0"`) with
+> explicit MAJOR / MINOR / PATCH bump rules, and the implementation in
+> [`forgelm/_version.py`](../../../forgelm/_version.py) lines 32-39
+> follows the codified standard (`__api_version__ = "1.0.0"` at v0.5.5).
+> Defer to `release.md` for the public contract; the 2-segment shape
+> below is preserved here for historical context only.
+
 ForgeLM today has a single `__version__` derived from `importlib.metadata`.  Phase 19 introduces a clean separation:
 
 | Variable | Source | Bumps when... | Read by... |
@@ -300,13 +311,13 @@ ForgeLM today has a single `__version__` derived from `importlib.metadata`.  Pha
 
 `__api_version__` exists because the CLI surface and the library surface evolve at different speeds.  A patch release that fixes a CLI typo doesn't change the Python-importable contract; both bump `__version__` but only the latter bumps `__api_version__`.  Consumers that pin against the library API can look at `__api_version__` and know whether a `forgelm` upgrade is safe.
 
-The convention:
+The convention (as originally drafted — superseded by `release.md`'s 3-segment semver, see Status callout above):
 
 ```text
 __api_version__ = "MAJOR.MINOR"   # e.g. "0.5"
 ```
 
-We use a **two-segment** version (no patch) because patch-level changes to the library are by definition non-breaking; no consumer needs to detect them.
+The original rationale was that patch-level changes to the library are by definition non-breaking, so no consumer needs to detect them.  `release.md` later argued the opposite: keeping a `PATCH` slot lets consumers `packaging.version.Version`-compare reliably and gives implementation tweaks a parking spot without burning a MINOR.  The 3-segment shape won.
 
 ### 5.2 Breaking-change detection (CI guard, optional)
 
@@ -439,7 +450,7 @@ This section is the implementation spec for the next phase.  It is intentionally
 | # | Task | Files | Acceptance |
 |---|---|---|---|
 | 1 | Add `forgelm/py.typed` (zero-byte marker) | `forgelm/py.typed` (new) | From a fresh venv, `pip install dist/forgelm-*.whl && mypy --strict <test_file_importing_forgelm.py>` does NOT report `missing library stubs or py.typed marker`. |
-| 2 | Create `forgelm/api.py` with `__api_version__ = "0.5"` and re-export it from `forgelm/__init__.py` | `forgelm/api.py` (new), `forgelm/__init__.py` | Both `from forgelm.api import __api_version__` and `from forgelm import __api_version__` work. |
+| 2 | Create the `__api_version__` home and re-export from `forgelm/__init__.py`.  *(As implemented: lives in `forgelm/_version.py` with 3-segment semver `"1.0.0"` per `docs/standards/release.md` lines 27-39 — see §5.1 Status callout.  The original draft of this row called for `forgelm/api.py` with `"0.5"`, both superseded.)* | `forgelm/_version.py`, `forgelm/__init__.py` | Both `from forgelm._version import __api_version__` and `from forgelm import __api_version__` work. |
 | 3 | Extend `forgelm/__init__.py` `__getattr__` with the §4.2 entries (`audit_dataset`, `verify_audit_log`, `AuditLogger`, `VerifyResult`, `AuditReport`, `WebhookNotifier`, `detect_pii`, `mask_pii`, `detect_secrets`, `mask_secrets`, `compute_simhash`) | `forgelm/__init__.py` | Each name is reachable; `import forgelm` does not import torch (see §4.1 regression test). |
 | 4 | Add `__all__` entries for every name introduced in §2.1 + §2.2 | `forgelm/__init__.py` | `dir(forgelm)` lists them. |
 | 5 | Add `__dir__()` returning the union of `globals()` keys and `_LAZY_SYMBOLS` keys (per §4.2 sketch — superset of `__all__` so a name in the lazy table that the developer forgot to add to `__all__` still surfaces in IDE auto-complete) | `forgelm/__init__.py` | `dir(forgelm)` is a superset of `forgelm.__all__` and a superset of `_LAZY_SYMBOLS.keys()`. |

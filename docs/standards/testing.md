@@ -6,8 +6,9 @@
 ## Layout
 
 Current structure (post Wave 5 / Phase 12.6 closure cycle: **~68 test
-modules**, one per feature area; **~1442 tests collected**). The tree below
-is a **representative subset** — see `git ls-files tests/` for the full
+modules**, one per feature area; the collected-test count grows over time —
+run `pytest --collect-only -q` for current). The tree below is a
+**representative subset** — see `git ls-files tests/` for the full
 inventory:
 
 ```
@@ -15,7 +16,7 @@ tests/
 ├── conftest.py                     # Shared fixtures (minimal_config factory)
 ├── runtime_smoke.py                # Full-pipeline smoke fixture generator
 ├── test_smoke.py                   # Basic imports + CLI invocation
-├── test_integration_smoke.py       # End-to-end dry-run across trainer types
+├── test_integration.py             # End-to-end dry-run across trainer types
 ├── test_cli.py                     # CLI argument parsing + exit codes
 ├── test_cli_subcommands.py         # Subcommand dispatching
 ├── test_config.py                  # Pydantic schemas + validators
@@ -81,7 +82,7 @@ def minimal_config(**overrides):
 |---|---|---|---|
 | **Smoke** (`test_smoke.py`) | Import + CLI `--help` works | < 5s | Every push |
 | **Unit** (`test_<module>.py`) | One function / method at a time, heavy mocking | < 60s total | Every push |
-| **Integration smoke** (`test_integration_smoke.py`) | Full pipeline dry-run, no GPU, mocked HF | < 5min | Every push |
+| **Integration smoke** (`test_integration.py`) | Full pipeline dry-run, no GPU, mocked HF | < 5min | Every push |
 | **Distributed** (`test_distributed.py`) | DeepSpeed/FSDP config generation (no actual multi-GPU) | < 30s | Every push |
 | **Compatibility** (via `nightly.yml`) | Upstream dep upgrades — latest TRL, PEFT, Unsloth | ~10min | Nightly only |
 | **Cross-OS release-tag matrix** (via `publish.yml`) | Wheel install + `pytest` on 3 OS × 4 Python = 12 combos. Linux-only extras (`qlora`, `unsloth`) gated to the Linux runners. | ~25-40 min | Release tag push only |
@@ -151,7 +152,22 @@ From [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) (rel
 
 - Cross-OS matrix: 3 OS × 4 Python = 12 combos installing the packaged wheel + running pytest + emitting a per-combo CycloneDX 1.5 SBOM. **Every combo must pass before PyPI publish runs.** No `fail-fast` — all 12 combos run to completion so the failure surface is visible.
 
-**No `|| true` anywhere.** If a step is allowed to fail, use `continue-on-error: true` with a comment explaining why.
+**`|| true` discipline.**
+Bare `<command> || true` in CI is forbidden — it converts non-zero exits into success and creates a fake-green status. The only sanctioned exception is the **scanner + severity-tiering helper** pattern:
+
+```yaml
+- run: |
+    pip-audit --format json > pip-audit.json || true
+    python3 tools/check_pip_audit.py pip-audit.json
+```
+
+In this shape, `|| true` only captures the scanner's exit code so the helper can read its JSON output; the helper itself enforces the actual severity gate. Allowed only when:
+
+1. The `|| true` is on the immediately preceding scanner line (not on a `pytest`, `ruff`, or test command).
+2. The next line in the same `run:` block invokes a `tools/check_*.py` helper that does its own severity-tiered exit code.
+3. Both lines live in the same step (so the helper truly gates the scanner output).
+
+The canonical examples are [`tools/check_pip_audit.py`](../../tools/check_pip_audit.py) (CVE severity tier) and [`tools/check_bandit.py`](../../tools/check_bandit.py) (issue-severity tier). Any other `|| true` in CI must be replaced with `continue-on-error: true` at the YAML step level, and that step must explicitly document the rationale in a YAML `# comment:`.
 
 ## Writing a new test
 

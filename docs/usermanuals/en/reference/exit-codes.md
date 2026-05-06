@@ -9,17 +9,15 @@ ForgeLM's exit codes are a public contract. CI/CD pipelines, schedulers, and das
 
 ## The contract
 
-| Exit | Name | Meaning | Typical CI action |
+| Exit | Constant | Meaning | Typical CI action |
 |---|---|---|---|
-| **0** | Success | Run completed; all gates passed; checkpoint promoted. | Continue pipeline |
-| **1** | Config error | YAML invalid, file missing, env var unset, or argument malformed. | Fail fast |
-| **2** | Audit warnings | Audit ran with `--strict` and reported warning-level issues. | Block merge / require review |
-| **3** | Regression / auto-revert | Benchmark or safety gate failed; auto-reverted. | Investigate; do NOT promote |
-| **4** | Awaiting human approval | `compliance.human_approval: true` blocking. | Hold pipeline; trigger reviewer |
-| **5** | Cost ceiling exceeded | `output.cost_tracking.halt_threshold_usd` crossed. | Investigate cost overrun |
-| **130** | Interrupted | User pressed Ctrl+C. | Manual decision |
+| **0** | `EXIT_SUCCESS` | Run completed; all gates passed; checkpoint promoted. | Continue pipeline |
+| **1** | `EXIT_CONFIG_ERROR` | YAML invalid, file missing, env var unset, or argument malformed. | Fail fast |
+| **2** | `EXIT_TRAINING_ERROR` | Training-time runtime error (any unhandled exception that isn't a config or eval-gate failure: data load, OOM, NaN loss, audit `--strict` failure, I/O). | Investigate; surface logs |
+| **3** | `EXIT_EVAL_FAILURE` | Benchmark or safety gate failed; auto-reverted if configured. | Investigate; do NOT promote |
+| **4** | `EXIT_AWAITING_APPROVAL` | `compliance.human_approval: true` blocking. | Hold pipeline; trigger reviewer |
 
-Any other non-zero exit indicates an unexpected error — file an issue.
+These five integers are the entire public contract — see [`forgelm/cli/_exit_codes.py`](https://github.com/cemililik/ForgeLM/blob/main/forgelm/cli/_exit_codes.py) for the canonical definition. Any other non-zero value (including signal-derived 128+N codes) is clamped to `EXIT_TRAINING_ERROR` (2) before the process exits.
 
 ## Mapping to CI patterns
 
@@ -82,29 +80,16 @@ stage('Train') {
 | YAML has typo (e.g. `learnng_rate`) | 1 |
 | `${HF_TOKEN}` set in YAML but env var missing | 1 |
 | `--config` points to non-existent file | 1 |
-| Audit with `--strict` and PII flags | 2 |
-| Audit with `--strict` and cross-split leakage | 3 (cross-split is error, not warning) |
+| Audit with `--strict` reported a violation | 2 |
+| Final loss is NaN / OOM / I/O failure mid-training | 2 |
 | DPO run, Llama Guard S5 regressed beyond tolerance | 3 |
 | Benchmark hellaswag dropped below floor | 3 |
-| Final loss is NaN | 3 |
 | `compliance.human_approval: true` and no approval signed | 4 |
-| Cost threshold crossed mid-training | 5 |
-| User Ctrl+C | 130 |
+| User Ctrl+C (signal-derived 128+N) | 2 (clamped) |
 
 ## Programmatic determination
 
-For automated parsing, ForgeLM also writes the exit code to a sidecar file:
-
-```text
-checkpoints/run/artifacts/exit_status.txt:
-
-3
-trigger=safety_regression
-regressed_categories=S5
-restored_from=./checkpoints/sft-base
-```
-
-This is helpful when CI runners stream output to log aggregation that doesn't preserve raw exit codes (some Jenkins setups, certain GitOps tools). The sidecar is always written.
+The exit code itself is the contract — read it via `$?` (POSIX shells), `%ERRORLEVEL%` (cmd), `$LASTEXITCODE` (PowerShell), or the equivalent in your CI runner's expression language (e.g. `steps.<id>.outputs.exit-code` in GitHub Actions, `returnStatus: true` in Jenkins). For richer postmortem context (regressed categories, restored checkpoint path, etc.), parse the structured `audit_log.jsonl` event written under the run's output directory rather than relying on a sidecar.
 
 ## What "exit 0" actually guarantees
 
@@ -124,7 +109,7 @@ If any of these failed, the exit code is non-zero. There is no "partial success"
 
 ## Compatibility guarantee
 
-Exit codes 0-5 are stable across versions. New codes may be added (6, 7, ...) but existing ones won't change semantics. CI pipelines pinned to the contract above will continue working across ForgeLM upgrades.
+Exit codes 0-4 are stable across versions. New codes may be added (5, 6, ...) but existing ones won't change semantics. CI pipelines pinned to the contract above will continue working across ForgeLM upgrades.
 
 ## See also
 

@@ -1282,7 +1282,7 @@ def _render_row_success(payload: Dict[str, Any]) -> None:
     if payload.get("dry_run"):
         print(
             f"[dry-run] Would erase {payload.get('matches')} row(s) starting at line "
-            f"{payload.get('first_line')} (target_id_hash={payload.get('row_id_hash')[:16]}…, "
+            f"{payload.get('first_line')} (target_id_hash={(payload.get('row_id_hash') or 'unknown')[:16]}…, "
             f"salt_source={payload.get('salt_source')})."
         )
         return

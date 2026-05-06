@@ -192,7 +192,16 @@ def _main_inner() -> None:
             # already fired; the audit run itself must still proceed —
             # losing the legacy-flag breadcrumb is preferable to aborting
             # a working pipeline because the output dir is read-only.
-            logger.debug("Failed to record legacy-flag audit event: %s", audit_exc)
+            # Logged at WARNING (not debug) per
+            # docs/standards/error-handling.md "Best-effort artefact
+            # carve-out" hygiene item 2: audit-trail visibility trumps
+            # log noise for low-frequency, structured events like a
+            # legacy-flag invocation against a read-only output dir.
+            logger.warning(
+                "Failed to emit deprecation audit event to %s: %s",
+                legacy_target,
+                audit_exc,
+            )
         # Late import via the package facade so monkeypatched
         # ``forgelm.cli._run_data_audit`` references resolve correctly.
         from forgelm import cli as _cli_facade

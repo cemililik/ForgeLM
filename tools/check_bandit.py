@@ -23,6 +23,15 @@ Usage::
 
     bandit -c pyproject.toml -r forgelm/ -f json -o /tmp/bandit.json || true
     python3 tools/check_bandit.py /tmp/bandit.json
+
+Standards-side note: this helper exists to satisfy the ``|| true`` carve-out
+in ``docs/standards/testing.md`` (CI bypass discipline).  The bash
+``bandit ... -o out.json || true`` step that calls into us is sanctioned
+ONLY because this helper enforces a severity-tiered (B-issue HIGH) gate
+on the captured output — without it, the ``|| true`` would silently
+swallow real SAST findings.  Removing this helper or replacing it with
+``bandit`` directly would break the contract; see the ``|| true``
+discipline section of ``testing.md`` before touching either side.
 """
 
 from __future__ import annotations

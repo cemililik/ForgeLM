@@ -515,9 +515,20 @@ def _chunk_paragraph(text: str, max_chunk_size: int) -> Iterable[str]:
 
 
 def _chunk_semantic(text: str, chunk_size: int) -> Iterable[str]:
+    # TODO: open GitHub issue for embedding-based semantic chunking and replace
+    # <NN> below with the issue number. The capability was deliberately deferred
+    # past Phase 12 (see docs/roadmap/phase-12-data-curation-maturity.md — the
+    # "deferred to Phase 13+" entry on embedding-based semantic dedup) because
+    # a runtime embedding-model dependency conflicts with the air-gapped Annex
+    # IV reproducibility guarantee. The closure plan tracks the eventual ship
+    # vehicle as C-52 with a new optional [chunking-semantic] extra.
     raise NotImplementedError(
-        "Semantic chunking requires an embedding model and is planned for a "
-        "follow-up phase. Use 'sliding' or 'paragraph' for now."
+        "Semantic chunking requires an embedding model and is deferred past "
+        "Phase 12 (see docs/roadmap/phase-12-data-curation-maturity.md — "
+        "embedding-based semantic dedup deferred to Phase 13+ for Annex IV "
+        "reproducibility); tracked at "
+        "https://github.com/cemililik/ForgeLM/issues/<NN>. "
+        "Use 'sliding' or 'paragraph' for now."
     )
 
 

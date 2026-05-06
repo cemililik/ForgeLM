@@ -167,6 +167,7 @@ training:
 | `min_classifier_confidence` | float | `0.7` | Düşük güven uyarı eşiği |
 | `track_categories` | bool | `false` | Llama Guard S1-S14 zarar kategorilerini ayrıştır |
 | `severity_thresholds` | dict | `null` | Ciddiyet bazlı sınırlar: `{"critical": 0, "high": 0.01}` |
+| `batch_size` | int | `8` | Güvenlik değerlendirmesi için batched generation boyutu. `1` batching'i devre dışı bırakır; geniş VRAM'de throughput için artırın, küçük VRAM'de OOM riskini azaltmak için düşürün. |
 
 #### `evaluation.llm_judge` (İsteğe bağlı)
 
@@ -174,7 +175,42 @@ training:
 |------|-----|-----------|----------|
 | `enabled` | bool | `false` | LLM-Hakim puanlama |
 | `judge_model` | string | `"gpt-4o"` | Hakim modeli (API veya yerel) |
+| `judge_api_key_env` | string | `null` | API anahtarı için ortam değişkeni adı (null = yerel hakim) |
+| `judge_api_base` | string | `null` | Hakim API base URL'sini geçersiz kıl (Azure OpenAI, kendi barındırılan vLLM, OpenAI-uyumlu gateway, ör. `https://api.together.xyz/v1`). Tanımlı değilse SDK'nın varsayılan endpoint'i kullanılır. |
+| `eval_dataset` | string | `"eval_prompts.jsonl"` | Değerlendirme prompt dosyası |
 | `min_score` | float | `5.0` | Minimum ortalama puan (1-10) |
+| `batch_size` | int | `8` | LLM-hakim turunda puanlanan (prompt, completion) çift sayısı. `1` batching'i devre dışı bırakır. |
+
+> **Kullanımdan kaldırıldı:** `evaluation.staging_ttl_days`,
+> [`retention.staging_ttl_days`](#retention-isteğe-bağlı-gdpr-madde-17-silme-ufukları)
+> tarafından devralınmıştır. Eski anahtar v0.5.5 → v0.6.x penceresi boyunca
+> `DeprecationWarning` ile alias-forward edilir ve v0.7.0'da kaldırılır.
+> Bkz. [release.md](../standards/release.md#deprecation-cadence).
+
+---
+
+## `retention` (İsteğe bağlı — GDPR Madde 17 silme ufukları)
+
+Uyumluluk, eğitim ve değerlendirme artefaktları için saklama ufuklarını
+belirler. Ufuklar GDPR Madde 5(1)(e) "saklama sınırlaması" ve Madde 17
+"silme hakkı" tarihlerini onurlandırır. `enforce` anahtarı yalnız-loglama,
+uyarı ve sert-engelleme modları arasında geçiş yaparak regüle edilen bir CI
+kapısının saklama ufkunu eski bir çalışma alanını yeniden kullanarak sessizce
+uzatmasını engeller.
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `audit_log_retention_days` | int | `1825` (~5 yıl) | `audit_log.jsonl` dosyasının Madde 5(1)(e) kapsamında "geciken" olarak işaretlenmeden önce saklanacağı gün sayısı. `0` süresiz saklamayı belirtir (Madde 17(3)(b) savunması). |
+| `staging_ttl_days` | int | `7` | `forgelm reject` kararından sonra `final_model.staging.<run_id>/` dizininin planlı temizlenmeden önce saklanacağı gün sayısı. `0` süresiz saklama anlamına gelir. Kullanımdan kaldırılan `evaluation.staging_ttl_days` yerine geçer; v0.5.5 → v0.6.x deprecation penceresinde her iki anahtar da aynı değerlerle kabul edilir. |
+| `ephemeral_artefact_retention_days` | int | `90` | Uyumluluk paketleri, veri denetim raporları ve diğer çalışma kapsamlı türetilmiş artefaktların saklanma süresi (gün). `0` süresiz saklama. |
+| `raw_documents_retention_days` | int | `90` | İngest edilmiş ham belgelerin (PDF / DOCX / EPUB / TXT / Markdown) operatörün ingestion-output dizininde saklanma süresi (gün). `0` süresiz saklama. |
+| `enforce` | string | `"log_only"` | Politika uygulama modu: `"log_only"` (yalnızca audit log), `"warn_on_excess"` (stderr'e yapılandırılmış uyarı), `"block_on_excess"` (`EXIT_EVAL_FAILURE` = 3 ile trainer ön-kontrolünü iptal eder). |
+
+> **Kullanımdan kaldırma:** `evaluation.staging_ttl_days`, v0.5.5 itibarıyla
+> `retention.staging_ttl_days` lehine kullanımdan kaldırılmıştır. Eski anahtar
+> v0.7.0'a kadar `DeprecationWarning` ile alias-forward edilir. Tam
+> deprecation politikası için
+> [release.md](../standards/release.md#deprecation-cadence).
 
 ---
 
@@ -184,7 +220,7 @@ training:
 |------|-----|-----------|----------|
 | `provider_name` | string | `""` | Kuruluş adı |
 | `intended_purpose` | string | `""` | Modelin amacı |
-| `risk_classification` | string | `"minimal-risk"` | `"high-risk"`, `"limited-risk"`, `"minimal-risk"` |
+| `risk_classification` | string | `"minimal-risk"` | 5 EU AI Act `RiskTier` değerinden biri: `"unknown"` (sınıflandırma öncesi yer tutucu), `"minimal-risk"`, `"limited-risk"`, `"high-risk"` (Madde 6 — tam Annex IV dokümantasyonu), `"unacceptable"` (Madde 5 yasaklı uygulama — başlangıçta uyarı bandı yayınlar). |
 
 ## `risk_assessment` (İsteğe bağlı — EU AI Act Madde 9)
 
@@ -192,7 +228,7 @@ training:
 |------|-----|-----------|----------|
 | `intended_use` | string | `""` | Kullanım amacı |
 | `foreseeable_misuse` | list | `[]` | Öngörülen kötüye kullanım senaryoları |
-| `risk_category` | string | `"minimal-risk"` | Risk sınıflandırması |
+| `risk_category` | string | `"minimal-risk"` | `compliance.risk_classification` ile aynı 5 `RiskTier` değeri: `"unknown"`, `"minimal-risk"`, `"limited-risk"`, `"high-risk"`, `"unacceptable"`. Auto-revert eşiklerini ve Annex IV kapısını etkiler. |
 | `mitigation_measures` | list | `[]` | Risk azaltma önlemleri |
 
 ## `monitoring` (İsteğe bağlı — EU AI Act Madde 12+17)

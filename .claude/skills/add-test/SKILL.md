@@ -175,7 +175,7 @@ def test_cli_config_error_exits_1(capsys):
   - `except ImportError:` fallbacks for optional deps
   - Documented platform-specific branches
 
-Current coverage floor is **25%** (enforced via `pyproject.toml`). Treat it as a floor not a target — you're usually well above.
+Current coverage floor is **40%** (enforced via [`pyproject.toml`](../../../pyproject.toml) `[tool.pytest.ini_options].addopts → --cov-fail-under=40`). Treat it as a floor not a target — you're usually well above. If you ever quote the number elsewhere in docs or skills, source it from `pyproject.toml` to prevent drift.
 
 ## Before opening the PR
 

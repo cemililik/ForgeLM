@@ -1,6 +1,6 @@
 # Phase 12.6 — Closure Cycle (38 fazlar across 5 waves)
 
-> **Status:** ✅ Done (Wave 5 in progress at time of writing — Faz 33 release publish remains as POST-WAVE).
+> **Status:** ✅ Done — Faz 33 release publish remains as POST-WAVE.
 > **Bundled into:** [v0.5.5 release](releases.md#v055-closure-cycle-bundle-upcoming).
 > **Source plan:** [`docs/analysis/code_reviews/closure-plan-202604300906.md`](../analysis/code_reviews/closure-plan-202604300906.md).
 > **Source review:** `docs/analysis/code_reviews/master-review-opus-202604300906.md` (175 findings: 8 Critical + 67 Major + 60 Minor + 40 Nit).
@@ -42,7 +42,7 @@ The 38 fazlar were merged across **5 integration waves** (Wave 0/1 through Wave 
 | **Wave 2b** | `closure/wave2b-integration` | PR #30 → `development` | `b05edb5` | 2026-05-05 | 1160 → 1298 (+138) |
 | **Wave 3** | `closure/wave3-integration` | PR #31 → `development` | `b87c872` | 2026-05-05 | 1298 → 1374 (+76) |
 | **Wave 4** | `closure/wave4-integration` | PR #33 → `development` | `01e40ba` | 2026-05-06 | 1374 → 1411 (+37) |
-| **Wave 5** | `closure/wave5-integration` | PR pending → `development` | (in progress) | 2026-05-06 | 1411 → ~1442 (+31) |
+| **Wave 5** | `closure/wave5-integration` | PR #34 → `development` merged `8f9f951` | `8f9f951` | 2026-05-06 | 1411 → ~1442 (+31) |
 | **Faz 33** (POST-WAVE) | release commit | tag `v0.5.5` → `main` | (post-Wave-5) | TBD | n/a |
 
 ## Faz inventory (38 entries)
@@ -112,7 +112,7 @@ Foundation + the bulk of the master-review backlog — fazlar 1-15, 25, 27, 29, 
 
 4 fazlar: 22 + 23 (ISO 27001 / SOC 2 alignment design + implementation), 26 (QMS bilingual mirror + `tools/check_anchor_resolution.py` + `compliance_summary.md` rewrite), 30 partial (Tier 1 ghost-feature drift + stat blocks). Suite 1374 → 1411 (+37: 16 supply-chain + 21 anchor checker). Bilingual parity scope 9/9 → 23/23 pairs.
 
-### Wave 5 (in progress, `closure/wave5-integration`)
+### Wave 5 (PR #34 merged `8f9f951`, 2026-05-06)
 
 Faz 30 full sweep: residual ghost-feature drift (GH-011 benchmarks, GH-016 `--export-bundle`, GH-018 deploy-targets `kserve`/`triton`, GH-020 ingest flag drift); Task A doc-triplet completion (~12 features × {guide, reference, usermanual} × {EN, TR} ≈ 50 new files — landed in commit `2a32842`); Task J `tools/check_cli_help_consistency.py` (commit `c7bedc9`); Task N anchor-checker `--strict` flip + 36-baseline cleanup (commit `fbb082d`); Tasks B/C `_meta.yaml` + `build_usermanuals.py` rebuild; Task D site/* finalization; Tasks E/F/G README + CONTRIBUTING + CLAUDE + roadmap + standards final pass; Tasks H/I/K/L/M parity strict + site-claim CI + config regen + locale policy + diagrams.
 

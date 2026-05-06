@@ -554,7 +554,7 @@ def _maybe_audit_logger(
             exc,
         )
         return None
-    except Exception as exc:  # noqa: BLE001 — F-W3FU-03 (priv): fail-closed contract is "every non-ConfigError class".
+    except Exception as exc:  # noqa: BLE001 — F-W3FU-03 (priv): broad catch is intentional per the fail-closed forensic contract ("every non-ConfigError class fails closed"); this includes MemoryError / RecursionError because those are also caller-actionable (clearer error in the dispatcher than a truncated traceback at audit init).  See error-handling.md best-effort carve-out.
         # The original (OSError, ValueError) tuple was narrower than the
         # original F-W3-PS-02 ask ("everything except ConfigError fails
         # closed"); a future hardening hook in AuditLogger.__init__ that

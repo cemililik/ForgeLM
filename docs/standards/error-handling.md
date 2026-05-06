@@ -156,6 +156,8 @@ The bare `except:` form is **forbidden** everywhere, no exceptions. It catches `
 
 `except Exception: pass` (no log, no rationale, no re-raise) is **forbidden**. The BLE001 carve-out exists so the deliberate cases are visible; silent swallowing is what the carve-out replaces.
 
+**Named `except KeyboardInterrupt:` is allowed at top-level CLI dispatch sites** (and `except (KeyboardInterrupt, SystemExit):` likewise) for graceful Ctrl-C handling — emit a "interrupted by user" log line, run any cheap cleanup, and exit with a non-zero code. Library modules under `forgelm/` (everything outside `forgelm/cli/`) **must not** catch `KeyboardInterrupt` — let it propagate so a long-running trainer can be aborted from the CLI seam.
+
 ### Examples
 
 **Good — narrow class first:**

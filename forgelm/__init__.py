@@ -37,12 +37,26 @@ ships in the wheel so ``mypy --strict`` / ``pyright`` consumers see
 the in-source type hints without needing a separate stubs package.
 """
 
-from __future__ import annotations
+from __future__ import annotations as _annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from ._version import __api_version__, __version__
 from .config import ConfigError, ForgeConfig, load_config
+
+# F-PR29-A3-06: rebind ``from __future__ import annotations`` and the
+# ``typing.TYPE_CHECKING`` import as underscore-prefixed names so they
+# do NOT appear in ``dir(forgelm)``.  The design doc rule (§2.3) states
+# that a name is *internal* iff it is not in ``forgelm.__all__`` AND
+# does not appear in ``dir(forgelm)``; without the rename the parser
+# pragma binding ``annotations`` and the typing helper ``TYPE_CHECKING``
+# both leak as if they were public surface.  The submodule attribute
+# ``config`` (attached as a side effect of ``from .config import ...``)
+# is filtered out at the ``__dir__`` boundary instead — see ``__dir__``
+# below — because submodule attributes are an unavoidable Python
+# import-system convention and renaming the eager import would break
+# downstream ``forgelm.config`` references.
+del _annotations  # parser pragma — runtime binding is unused after rename.
 
 # Public stable surface.  Order matches design §2.1 §4 tier listing
 # (Stable first, then Experimental).  Anything absent from this list is
@@ -70,6 +84,7 @@ __all__ = [
     "detect_secrets",
     "mask_secrets",
     "compute_simhash",
+    "compute_minhash",
     # Compliance / audit log.
     "AuditLogger",
     "verify_audit_log",
@@ -117,6 +132,7 @@ _LAZY_SYMBOLS: dict[str, tuple[str, str]] = {
     "detect_secrets": (_M_DATA_AUDIT, "detect_secrets"),
     "mask_secrets": (_M_DATA_AUDIT, "mask_secrets"),
     "compute_simhash": (_M_DATA_AUDIT, "compute_simhash"),
+    "compute_minhash": (_M_DATA_AUDIT, "compute_minhash"),
     "AuditLogger": (_M_COMPLIANCE, "AuditLogger"),
     "verify_audit_log": (_M_COMPLIANCE, "verify_audit_log"),
     "VerifyResult": (_M_COMPLIANCE, "VerifyResult"),
@@ -140,7 +156,7 @@ _LAZY_SYMBOLS: dict[str, tuple[str, str]] = {
 # ``from forgelm import ForgeTrainer`` would raise "Module has no
 # attribute ForgeTrainer" because the attribute is only synthesised at
 # runtime via ``__getattr__``.
-if TYPE_CHECKING:  # pragma: no cover — type-only imports
+if _TYPE_CHECKING:  # pragma: no cover — type-only imports
     from .benchmark import BenchmarkResult, run_benchmark  # noqa: F401
     from .cli.subcommands._verify_annex_iv import (  # noqa: F401
         VerifyAnnexIVResult,
@@ -152,6 +168,7 @@ if TYPE_CHECKING:  # pragma: no cover — type-only imports
     from .data_audit import (  # noqa: F401
         AuditReport,
         audit_dataset,
+        compute_minhash,
         compute_simhash,
         detect_pii,
         detect_secrets,
@@ -202,6 +219,21 @@ def __dir__() -> list[str]:
     only the public surface.  Dunders (``__version__``,
     ``__api_version__``) are explicitly in ``__all__`` and survive the
     filter.
+
+    F-PR29-A3-06: Python's import system attaches imported submodules
+    as attributes of the parent package (so ``from .config import X``
+    silently injects ``forgelm.config`` into this module's globals).
+    To honour the design-doc rule that every public name in
+    ``dir(forgelm)`` must appear in ``__all__``, we intersect the
+    globals listing with ``__all__`` rather than unioning — submodule
+    attributes are still reachable via ``forgelm.config`` (Python's
+    attribute-lookup falls through to ``globals()``), they just stop
+    advertising themselves as if they were Stable surface.  Lazy
+    symbols listed in ``_LAZY_SYMBOLS`` but not yet resolved still
+    appear because they're members of ``__all__``.
     """
-    public_globals = {n for n in globals() if not n.startswith("_")}
-    return sorted(set(__all__) | public_globals)
+    listed = set(__all__)
+    # Keep dunders that surfaced via globals() (``__version__``,
+    # ``__api_version__``) so existing IDE behaviour is preserved.
+    listed.update(n for n in globals() if n.startswith("__") and n.endswith("__") and n in __all__)
+    return sorted(listed)

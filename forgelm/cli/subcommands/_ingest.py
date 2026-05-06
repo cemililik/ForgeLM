@@ -5,14 +5,6 @@ from __future__ import annotations
 import json
 import sys
 
-# ``OptionalDependencyError`` MUST be imported at module load time, not inside
-# the dispatcher's try-block: if the lazy import there fails (e.g. ingestion.py
-# itself has a syntax error or a missing transitive dep), the symbol would be
-# unbound by the time Python reaches ``except OptionalDependencyError``,
-# raising NameError on top of the original failure.  The class itself is a
-# trivial ImportError subclass with no heavy dependencies, so importing it at
-# module load adds no measurable cost.
-from ...ingestion import OptionalDependencyError
 from .._exit_codes import EXIT_CONFIG_ERROR, EXIT_TRAINING_ERROR
 from .._logging import logger
 
@@ -26,9 +18,17 @@ def _run_ingest_cmd(args, output_format: str) -> None:
     pii_mask = bool(getattr(args, "pii_mask", False)) or all_mask
     secrets_mask = bool(getattr(args, "secrets_mask", False)) or all_mask
 
-    try:
-        from ...ingestion import ingest_path, summarize_result
+    # Lazy import: ``forgelm.ingestion`` is kept out of module top-level so
+    # ``import forgelm.cli`` (run on every console-script invocation, including
+    # ``forgelm --help``) does not eagerly pull the ingestion package — and its
+    # transitive optional-dependency probes — into ``sys.modules``. The three
+    # names are imported together *before* the try-block so that
+    # ``OptionalDependencyError`` is guaranteed to be bound when the
+    # ``except`` clause runs; if the import itself fails it propagates as a
+    # plain ``ImportError`` (a real bug, not an operator-facing condition).
+    from ...ingestion import OptionalDependencyError, ingest_path, summarize_result
 
+    try:
         result = ingest_path(
             args.input_path,
             output_path=args.output,

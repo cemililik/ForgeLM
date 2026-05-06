@@ -5,6 +5,14 @@ description: Auto-detect across 18 GPU profiles and track per-run cost against y
 
 # GPU Cost Estimation
 
+> **Status (v0.5.5):** GPU detection + per-run duration + audit-log
+> stamping ship today; the config-driven `cost_tracking:` block (rate
+> tables, alert / halt thresholds) is **planned for v0.6.x** and not
+> currently honoured by `forgelm/config.py`. Examples below that show
+> `cost_tracking:` fields are forward-looking placeholders — set hourly
+> rates manually until the YAML surface lands. See
+> `docs/roadmap/risks-and-decisions.md` for the deferral.
+
 ForgeLM detects the GPU you're running on, looks up its profile (memory, compute, typical hourly rate), and tracks per-run cost. After every run, the audit log records exactly how much GPU time was used and what it cost.
 
 ## How detection works
@@ -93,18 +101,20 @@ output:
 
 A 4×A100 run for 2 hours = 4 × 2 × $1.10 = $8.80, regardless of whether you use ZeRO or FSDP.
 
-## Cost alerts
+## Cost alerts (planned for v0.6.x)
 
-For runs that may run away:
+For runs that may run away, the planned `cost_tracking` block will support
+threshold-based alerts and halts:
 
 ```yaml
+# planned — not honoured by forgelm/config.py at v0.5.5
 output:
   cost_tracking:
     alert_threshold_usd: 50.0          # webhook fires when crossed
     halt_threshold_usd: 200.0          # training stops
 ```
 
-The alert fires the configured webhook (see [Webhooks](#/operations/webhooks)) — useful in CI to catch a misconfigured run before it spends a week of budget overnight.
+When implemented, the alert will fire the configured webhook (see [Webhooks](#/operations/webhooks)) — useful in CI to catch a misconfigured run before it spends a week of budget overnight. Until then, monitor cost manually via the audit log + a budget-side guardrail in your scheduler.
 
 ## Custom GPU profiles
 

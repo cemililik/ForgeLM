@@ -119,7 +119,7 @@ For the quarterly gate review:
 - **Tier 1 task #1 (MinHash LSH)**: If it doesn't land within 6 weeks **and** a 100K-row smoke fixture under `forgelm audit --dedup-method minhash` doesn't beat the brute-force O(n²) baseline by ≥ 5× → demote to Tier 2, keep simhash as default, push the MinHash extra to v0.5.3.
 - **Tier 1 task #4 (Quality filter)**: If false-positive rate on industry benchmark fixtures exceeds 10 % → opt-in default-off (already the plan), document the limitation, add a *"calibrate before applying"* note for operators.
 - **Compatibility regression**: If a v0.5.1 audit consumer (the Phase 11/11.5 compliance bundle inliner) cannot parse a v0.5.2 report → kill, roll back any non-additive changes.
-- **Performance regression**: If the default simhash path slows by > 5 % vs. the Phase 11.5 baseline (`tests/bench_simhash.py`) → revisit the refactor.
+- **Performance regression**: If the default simhash path slows by > 5 % vs. the Phase 11.5 baseline (`tools/bench_simhash.py`) → revisit the refactor.
 
 If fewer than three Tier 1 items land within three months, Phase 12 is reset; the "Data Curation Maturity" thesis is re-examined (refresh the competitive analysis, ask whether it's still the right work).
 

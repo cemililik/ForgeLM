@@ -4,6 +4,18 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+- Minimum required `torch` version bumped from 2.1.0 to 2.3.0; `torch.distributed.fsdp.FSDPModule` (introduced in torch 2.3) is referenced by `tests/test_grpo_reward.py` and runtime GRPO paths. (#F-PR29-A4-07)
+
+### Fixed
+
+### Removed
+
+## [0.5.5] — 2026-05-06
+
 ### Wave 5 — Faz 30 full sweep (`closure/wave5-integration`)
 
 Final pre-release documentation + tooling closure. Wave 4 partial
@@ -106,9 +118,10 @@ flip:**
   alignment, supply-chain security, etc.); `site/js/translations.js`
   6-language i18n updates (Task D).
 - `README.md` + `CONTRIBUTING.md` + `CLAUDE.md` final pass: stat
-  block refreshed (~72 modules / 1428 tests); feature list
-  reflects Wave 2-5 deliverables; CI guard list updated for the
-  two new strict gates (Task E).
+  block refreshed (module + test corpus expanded since v0.5.0;
+  pinned counts intentionally softened to ephemeral phrasing);
+  feature list reflects Wave 2-5 deliverables; CI guard list
+  updated for the two new strict gates (Task E).
 - `docs/roadmap.md` + `-tr.md`: Phase 12.6 closure cycle ✅ Done;
   v0.5.5 next-up; `docs/roadmap/releases.md` v0.5.5 row added;
   `docs/roadmap/risks-and-decisions.md` Wave 5 cycle decisions
@@ -299,8 +312,10 @@ Tier 1 ghost-feature drift fixes + stat-block updates:
 - GH-025 `FORGELM_CACHE_DIR` env var removed from
   `usermanuals/{en,tr}/getting-started/project-layout.md`;
   `HF_HOME` declared canonical.
-- `docs/standards/testing.md` stat block: 48 → 67 test modules,
-  ~1410 tests.
+- `docs/standards/testing.md` stat block refreshed (test-module
+  count and collected-test count both grown since v0.5.0;
+  literal numbers softened to ephemeral phrasing per the
+  `README.md` framing).
 
 Deferred to Faz 30 follow-up (closure-plan task A + remaining O
 items + tasks J + N): GH-016/018/019/020 reference/cli.md cleanup,
@@ -677,11 +692,11 @@ unblocked by the Wave 2a merge.  All work lives on
   field missing a `description=`.
 - `.github/workflows/ci.yml` — new "Pydantic description= guard"
   step in the lint job runs the scanner in strict mode.
-- All 174 fields across 19 Pydantic config classes migrated to
-  `Field(default=..., description=...)` form.  Operator-facing copy
-  pulled from existing inline comments + variable semantics; the
-  configuration reference can now be auto-generated from the
-  schema in lockstep with the code.
+- Every Pydantic field across the config schema (19 model classes)
+  migrated to `Field(default=..., description=...)` form.
+  Operator-facing copy pulled from existing inline comments +
+  variable semantics; the configuration reference can now be
+  auto-generated from the schema in lockstep with the code.
 
 **Phase 19 — Library API support (Implementation):**
 
@@ -2499,3 +2514,6 @@ Major release: ForgeLM goes from a basic SFT fine-tuning tool to a full-stack LL
 - Model versioning
 - Basic evaluation checks (max loss, baseline comparison)
 - Auto-revert on quality degradation
+
+[Unreleased]: https://github.com/cemililik/ForgeLM/compare/v0.5.5...HEAD
+[0.5.5]: https://github.com/cemililik/ForgeLM/compare/v0.5.0...v0.5.5

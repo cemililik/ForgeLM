@@ -36,7 +36,7 @@ Every trainer-level feature touches roughly the same list of files. Tick them as
 - [ ] **`forgelm/config.py`** — new `BaseModel` subclass OR new fields on existing config
 - [ ] **`forgelm/<new_or_existing>.py`** — the actual logic
 - [ ] **`forgelm/trainer.py`** — wiring: config → module dispatch
-- [ ] **`forgelm/cli.py`** — if new CLI flag needed
+- [ ] **`forgelm/cli/_parser.py`** — if new CLI flag needed (Phase 15 split the monolithic `forgelm/cli.py` into the `forgelm/cli/` package; flag definitions live in `_parser.py`, and any new subcommand wires under `forgelm/cli/subcommands/<name>.py` plus the dispatch table in `forgelm/cli/_dispatch.py`)
 - [ ] **`forgelm/results.py`** — if new output fields needed
 - [ ] **`forgelm/compliance.py`** — if this feature affects audit artifacts
 - [ ] **`forgelm/webhook.py`** — if this feature adds a lifecycle event

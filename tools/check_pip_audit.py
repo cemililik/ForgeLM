@@ -14,14 +14,28 @@ Used in ``.github/workflows/nightly.yml`` after the ``pip-audit`` step.
 Exit codes (per ``tools/`` contract — NOT the public 0/1/2/3/4 surface
 that ``forgelm/`` honours):
 
-- ``0`` — no high/critical CVEs (medium/low may be present and warned).
-- ``1`` — at least one high or critical CVE OR the input file is
+- ``0`` — no high/critical CVEs and no UNKNOWN-severity findings
+  (medium/low may be present and warned).
+- ``1`` — at least one high or critical CVE, OR at least one
+  UNKNOWN-severity finding (F-PR29-A7-11: pip-audit's JSON omits
+  severity, so UNKNOWN means we cannot prove a vulnerability is
+  low-impact; failing closed avoids silent drop), OR the input file is
   missing / unparseable.
 
 Usage::
 
     pip-audit --format json --output /tmp/pip-audit.json || true
     python3 tools/check_pip_audit.py /tmp/pip-audit.json
+
+Standards-side note: this helper exists to satisfy the ``|| true`` carve-out
+in ``docs/standards/testing.md`` (CI bypass discipline).  The bash
+``pip-audit --format json > out.json || true`` step that calls into us is
+sanctioned ONLY because this helper enforces a severity-tiered (CVE
+HIGH / CRITICAL) gate on the captured output — without it, the ``|| true``
+would silently swallow real findings.  Removing this helper or replacing
+it with ``pip-audit`` directly would break the contract; see the
+``|| true`` discipline section of ``testing.md`` before touching either
+side.
 """
 
 from __future__ import annotations
@@ -139,21 +153,28 @@ def main(argv: list[str]) -> int:
         # failing the build.
         print(f"::warning::pip-audit {line}")
 
-    if unknown:
-        # One summary annotation rather than per-finding spam — UNKNOWN
-        # findings need operator review, not noise that buries real
-        # signal.  Includes the artefact path so an SRE on the GitHub
-        # Actions run summary can grep without walking the workflow YAML
-        # (F-W4FU-PS-05 absorption).
-        print(
-            f"::warning::pip-audit {len(unknown)} finding(s) without parseable "
-            f"severity in {report_path}; review the raw report manually."
-        )
-
     if high:
         for line in high:
             print(f"::error::pip-audit {line}")
         print(f"::error::pip-audit found {len(high)} high/critical-severity finding(s); failing the run.")
+        return 1
+
+    if unknown:
+        # F-PR29-A7-11 (post-flip policy): UNKNOWN-severity findings now
+        # fail the gate.  Rationale: pip-audit's JSON omits OSV severity
+        # for almost every real vuln, so the previous "warn only" branch
+        # converted nearly all findings into a silent advisory — operators
+        # never saw the failures.  Failing closed surfaces every vuln for
+        # explicit triage; if a vuln is genuinely low-impact, the operator
+        # documents it (e.g. via a pip-audit ignore file or a YAML allow
+        # entry) rather than relying on missing severity to skip the gate.
+        for line in unknown:
+            print(f"::error::pip-audit {line}")
+        print(
+            f"::error::pip-audit found {len(unknown)} finding(s) without parseable "
+            f"severity in {report_path}; pip-audit's JSON does not serialise OSV "
+            f"severity, so each must be reviewed manually (failing closed)."
+        )
         return 1
 
     if medium:

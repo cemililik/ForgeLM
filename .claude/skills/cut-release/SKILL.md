@@ -123,7 +123,7 @@ The canonical bump rule lives at the top of [`forgelm/_version.py`](../../../for
 ```bash
 ruff check . && ruff format --check .
 pytest tests/ -v
-pytest --cov=forgelm --cov-fail-under=25
+pytest --cov=forgelm --cov-fail-under=40
 forgelm --config config_template.yaml --dry-run
 
 # Fresh install smoke:
@@ -131,7 +131,10 @@ python -m pip install -e .
 forgelm --version   # should print the new version
 ```
 
-All four must pass.
+All four must pass. The `--cov-fail-under=40` value tracks the canonical
+floor in [`pyproject.toml`](../../../pyproject.toml) under
+`[tool.pytest.ini_options].addopts`; if you change it here without
+updating pyproject (or vice versa) you will hit a CI failure mid-release.
 
 ### 6. Commit + tag
 
@@ -150,8 +153,13 @@ GPG-signed tag (`-s`) is required for trusted PyPI publishing.
 
 1. Build wheel + sdist
 2. Verify with twine
-3. Publish to PyPI (OIDC trusted publishing)
-4. Create GitHub Release with changelog excerpt
+3. Cross-OS / cross-Python install matrix smoke (3 OS x 4 Python = 12) plus SBOM generation
+4. Publish to PyPI (OIDC trusted publishing)
+
+The workflow does **not** create a GitHub Release — it stops at PyPI
+publish. If a GitHub Release is desired, create it manually from the tag
+using `gh release create vX.Y.Z --notes-from-tag` after the publish
+workflow completes.
 
 **Wait ~5-10 minutes**, then verify:
 

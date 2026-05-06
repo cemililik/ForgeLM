@@ -90,6 +90,7 @@ jobs:
         run: pytest -q --tb=short --cov-report=xml:coverage.xml
 
       - name: Upload coverage (3.11 only)
+        # Upload coverage from one combo only — avoids 4× artifact duplication; 3.11 is canonical (matches publish.yml build job).
         if: matrix.python-version == '3.11' && always()
         uses: actions/upload-artifact@v5
         with:
@@ -236,7 +237,8 @@ jobs:
       # Wave 4 / Faz 23: bandit static-security analysis on forgelm/.
       # tests/ is excluded via [tool.bandit] in pyproject.toml because
       # test fixtures legitimately use insecure patterns (assert, dummy
-      # secrets).  HIGH severity → fail; MEDIUM → warn; LOW → silent.
+      # secrets).  HIGH → fail; MEDIUM → ::warning::; LOW → silent.
+      # (Mirrors nightly.yml supply-chain-security severity policy.)
       # See tools/check_bandit.py for the severity-tiering helper.
       - name: bandit (static security analysis)
         run: |

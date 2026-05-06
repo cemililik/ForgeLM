@@ -276,12 +276,12 @@ output:
     url: null
     template: "slack"
     events: []
-  cost_tracking:
-    enabled: false
-    rate_per_hour: {}
-    currency: "USD"
-    alert_threshold_usd: null
-    halt_threshold_usd: null
+  # cost_tracking:                             # planned for v0.6.x — see GPU Cost Estimation page + risks-and-decisions.md
+  #   enabled: false                           # NOT honoured by forgelm/config.py at v0.5.5
+  #   rate_per_hour: {}
+  #   currency: "USD"
+  #   alert_threshold_usd: null
+  #   halt_threshold_usd: null
   gguf:
     enabled: false
     quant_levels: ["q4_k_m"]

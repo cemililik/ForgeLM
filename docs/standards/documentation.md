@@ -146,6 +146,31 @@ See [localization.md](localization.md) for the full rule. Summary:
 - Internal docs (`standards/`, `marketing/`, `analysis/`, `design/`) are English only.
 - Mirrors must stay in **H2 + H3 + H4 structural sync** (Wave 3 / Faz 24 formalisation): every heading at depth 2-4 in the EN file must have a matching same-position heading in the TR file. Cosmetic wording differences inside a section are fine; structural divergence (sections added in one, missing in other; reordered headings) is a bug. The `tools/check_bilingual_parity.py --strict` gate fails CI on any mismatch — bilingual parity scope was expanded from 9/9 to 23/23 file pairs across `docs/qms/` + `docs/reference/` during Wave 4.
 
+## Cross-linking from bilingual content to EN-only docs
+
+`docs/standards/*.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`, and
+`CHANGELOG.md` are EN-only by design (per [localization.md](localization.md)).
+User-facing bilingual content (`docs/guides/*.md`, `docs/usermanuals/{en,tr}/*.md`,
+`docs/qms/*.md`) may cross-link to these EN-only docs as long as the
+context the link sits in is itself bilingual. The convention is:
+
+1. **Prefer a bilingual mirror** when one exists (e.g. `docs/guides/getting-started{,-tr}.md`).
+2. **Cross-link to EN-only standards / READMEs** is permitted when no mirror
+   exists (e.g. `docs/standards/release.md#deprecation-cadence` referenced
+   from CHANGELOG entries). Turkish readers reaching the link see English
+   text — that is the explicit trade-off recorded in [localization.md](localization.md)
+   for the standards-and-process documentation tier.
+3. **Do not** cross-link from EN-only standards files into bilingual mirrors
+   asymmetrically (e.g. `release.md` → `docs/guides/foo.md` but not
+   `release.md` → `docs/guides/foo-tr.md`). When standards reference user
+   guides, link to the EN side only — the TR mirror is reachable through
+   the bilingual nav.
+
+The bilingual-parity gate ([`tools/check_bilingual_parity.py`](../../tools/check_bilingual_parity.py))
+does not enforce this convention; the anchor-resolution gate
+([`tools/check_anchor_resolution.py`](../../tools/check_anchor_resolution.py))
+catches broken links regardless of which side they land on.
+
 ## CHANGELOG
 
 Keep [`CHANGELOG.md`](../../CHANGELOG.md) in "Keep a Changelog" format:

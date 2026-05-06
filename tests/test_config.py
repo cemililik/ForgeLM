@@ -5,7 +5,6 @@ import os
 
 import pytest
 import yaml
-from _helpers.factories import minimal_config
 
 from forgelm.config import (
     ConfigError,
@@ -17,6 +16,7 @@ from forgelm.config import (
     WebhookConfig,
     load_config,
 )
+from tests._helpers.factories import minimal_config
 
 # --- Helper ---
 

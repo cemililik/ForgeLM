@@ -180,6 +180,42 @@ Referencing the internal "what we don't build" strategy doc (public summary unde
 | Marking a stub/placeholder "Done" | False progress | Use `NotImplementedError` with issue link; mark phase "Planned" |
 | Renaming without updating docs | Silent doc rot | `grep -r <old_name>` before pushing |
 
+## Finding-ID naming convention
+
+Multi-round reviews — whether a single reviewer's iteration log, a parallel
+multi-agent review, or a wave-scoped audit — accumulate dozens of discrete
+findings. Stable IDs let later rounds, follow-up PRs, and CHANGELOG
+entries cross-reference them without ambiguity. The historical waves used
+divergent schemes (`F-Wave1-NN`, `F-R5-NN`, `F-W5-S5`/`F-W5-PRIV-NN`,
+`F-PR29-AX-NN`); going forward we standardize on **two** canonical forms
+so contributors don't have to reverse-engineer per-review naming.
+
+**Canonical schemes:**
+
+| Scheme | Use when | Example |
+|---|---|---|
+| `F-PR<NN>-A<X>-<NN>` | A single PR's review fans out across multiple parallel agents or reviewers, each with its own scope. `<NN>` is the PR number, `<X>` is the agent letter (A1…An, or A7/A8 for sub-team), trailing `<NN>` is the zero-padded finding index within that agent's scope. | `F-PR29-A7-01` (PR #29, agent A7, finding 01) |
+| `F-W<N>-<topic>-<NN>` | A wave-scoped audit independent of any single PR. `<N>` is the wave number, `<topic>` is a short slug (`PRIV`, `SUPPLY`, `DOCS`, `S5` for SonarCloud, etc.), trailing `<NN>` is the index within that topic. | `F-W5-PRIV-03` (Wave 5 privacy audit, finding 03) |
+
+**Severity is appended via inline label, not embedded in the ID** —
+`F-PR29-A7-01 HIGH — release.md claims pip-audit at release time` —
+so the ID itself stays stable across re-triage rounds even when severity
+shifts.
+
+**Historical IDs are grandfathered.** Don't rewrite `F-Wave1-NN` or
+`F-R5-NN` references in old CHANGELOG / commit / docs entries; just
+follow the canonical schemes for new reviews.
+
+**Cross-reference rules:**
+
+1. The first appearance of a finding ID in any review document must be
+   followed by a one-line summary so readers don't have to grep elsewhere.
+2. Absorption commits (the PR that lands the fix) cite the ID in the
+   commit message body — `Absorbs F-PR29-A7-01` — not the title.
+3. CHANGELOG entries cite IDs only when the finding warranted a public
+   call-out (security, behaviour change); routine doc-drift fixes don't
+   need an ID in the changelog.
+
 ## Quick self-review command
 
 Before pushing:
@@ -204,12 +240,22 @@ If that passes and the PR template is honest, you're ready.
 ## Pre-commit hooks (optional)
 
 The repository ships a [`.pre-commit-config.yaml`](../../.pre-commit-config.yaml)
-that mirrors the lint, format, and secret-scanning steps already run in CI.
-Pre-commit hooks are an **optional ergonomic optimization** for local
-development — contributors who run `pre-commit install` get faster feedback,
-but the hooks are **not** part of the PR enforcement contract. CI is the
-single enforcement boundary: every required check (`ruff check`, `ruff format
---check`, `gitleaks`, the test matrix, the validate job) runs on every push
-and pull request regardless of whether the author installed the hooks
-locally. Skipping a hook with `SKIP=...` only suppresses the local run; it
-never bypasses CI.
+that mirrors the lint and format steps already run in CI, plus a
+**local-only** `gitleaks` hook for credential scanning. Pre-commit hooks
+are an **optional ergonomic optimization** for local development —
+contributors who run `pre-commit install` get faster feedback (and the
+gitleaks hook), but the hooks are **not** part of the PR enforcement
+contract. CI is the single enforcement boundary: every required check
+(`ruff check`, `ruff format --check`, the test matrix, the validate job,
+the doc-parity guards) runs on every push and pull request regardless of
+whether the author installed the hooks locally. Skipping a hook with
+`SKIP=...` only suppresses the local run; it never bypasses CI.
+
+**`gitleaks` is pre-commit-only.** It lives in `.pre-commit-config.yaml`
+(`gitleaks/gitleaks` v8.18.0) and is **not** wired into any GitHub Actions
+workflow — there is no `gitleaks` required check on the PR page.
+Operators who want secret scanning on their local commits install it via
+`pre-commit install`; CI relies on reviewer attention plus the
+`tools/check_pip_audit.py` and SBOM gates for supply-chain coverage. If a
+secret-scanning CI gate is ever added, update this section and the
+required-check list together.

@@ -10,7 +10,7 @@
 | ✅ Done | [Phase 10 — Post-Training Completion](roadmap/phase-10-post-training.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — shipped `v0.4.0` |
 | ✅ Done | [Phase 10.5 — Quickstart Layer & Onboarding](roadmap/phase-10-5-quickstart.md) | `forgelm quickstart <template>`, 5 bundled templates with seed datasets — shipped `v0.4.5` |
 | ✅ Done | [Phase 11 + 11.5 + 12 + 12.5 — Document Ingestion & Data Curation Pipeline](roadmap/releases.md#v050-document-ingestion-data-curation-pipeline) | `forgelm ingest`, `forgelm audit`, PII regex + simhash dedup, LSH banding, streaming reader, PII severity tiers, wizard ingest+audit, MinHash LSH dedup, markdown splitter, code/secrets scan, quality heuristics, DOCX table preservation, `--all-mask`, Croissant 1.0, Presidio NER — shipped `v0.5.0` (PyPI 2026-04-30) |
-| ✅ Done | [Phase 12.6 — Closure Cycle (38 phases across 5 waves)](roadmap/phase-12-6-closure-cycle.md) | Library API, GDPR purge + reverse-pii, ISO 27001 / SOC 2 alignment, doctor + cache subcommands, compliance verification toolbelt, bilingual mirror sweep + 4 CI guards, supply-chain security, cross-OS release matrix — bundled into upcoming `v0.5.5` |
+| ✅ Done | [Phase 12.6 — Closure Cycle (37 content fazlar + 1 release tag = 38 entries across 5 waves)](roadmap/phase-12-6-closure-cycle.md) | Library API, GDPR purge + reverse-pii, ISO 27001 / SOC 2 alignment, doctor + cache subcommands, compliance verification toolbelt, bilingual mirror sweep + 4 CI guards, supply-chain security, cross-OS release matrix — bundled into upcoming `v0.5.5` |
 | 🟡 Next | [v0.5.5 release](roadmap/releases.md#v055-closure-cycle-bundle-upcoming) | Phase 12.6 closure cycle bundled into a single PyPI tag; `__version__` bump + CHANGELOG finalization + tag push triggers `publish.yml` cross-OS matrix → PyPI |
 | 📋 Planned | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO chained config, pipeline provenance artifacts → `v0.6.0` |
 | 📋 Planned | [Phase 13 — Pro CLI & Observability Dashboard](roadmap/phase-13-pro-cli.md) | License-gated dashboard, HPO, scheduled jobs, team config store → `v0.6.0-pro` (gated on adoption + ISO/SOC 2 baseline shipped in v0.5.5) |
@@ -30,11 +30,15 @@ Originally planned as four sequential PyPI tags (`v0.5.0` / `v0.5.1` / `v0.5.2` 
 
 **Earlier:** `v0.4.5` — Quickstart Layer (2026-04-26); `v0.4.0` — Post-Training Completion (2026-04-26).
 
-**Next:** `v0.5.5` — "Closure cycle bundle" (Phase 12.6, all 38 fazlar across 5 waves). Library API + GDPR purge/reverse-pii + ISO 27001 / SOC 2 alignment + doctor / cache / safety-eval / verify-* subcommands + 4 doc CI guards + cross-OS release matrix + supply-chain security baseline. Folds in [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14).
+**Next:** `v0.5.5` — "Closure cycle bundle" (Phase 12.6: 37 content fazlar + 1 release tag = 38 entries across 5 waves). Library API + GDPR purge/reverse-pii + ISO 27001 / SOC 2 alignment + doctor / cache / safety-eval / verify-* subcommands + 4 doc CI guards + cross-OS release matrix + supply-chain security baseline. Folds in [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14).
 
-**Current state:** 18 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6) complete on `main`. 2 phases (13, 14) planned. `v0.5.5`: Phase 12.6 (release imminent — pyproject bump + tag push). `v0.6.0`: Phase 14 follow-up. `v0.6.0-pro` (Phase 13) gated on adoption metrics + ISO/SOC 2 baseline shipped in v0.5.5.
+**Current state:** 18 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6) complete on `development`, ready for PR #29 → `main`. 2 phases (13, 14) planned. `v0.5.5`: Phase 12.6 (release imminent — pyproject bump + tag push). `v0.6.0`: Phase 14 follow-up. `v0.6.0-pro` (Phase 13) gated on adoption metrics + ISO/SOC 2 baseline shipped in v0.5.5.
+
+> **Phase 12.6 / Faz dual-axis note:** Phase 12.6 is itself a 38-task closure cycle (Faz 1-38) tracked at [`roadmap/phase-12-6-closure-cycle.md`](roadmap/phase-12-6-closure-cycle.md) with wave-by-wave reports under [`analysis/code_reviews/`](analysis/code_reviews/).
 
 ## Quick summary of what's planned
+
+> **Note:** Arrows depict shipping order, not phase numbers (Phase 14 ships before Phase 13).
 
 ```mermaid
 graph LR

@@ -33,7 +33,7 @@ Rationale:
 | `docs/reference/data_preparation.md` | Yes | End-user data prep |
 | `docs/reference/distributed_training.md` | Yes | End-user distributed |
 | `docs/reference/compliance_summary.md` | No (yet) | English only for now — TR mirror open task; the Wave 4 rewrite landed EN-side first |
-| `docs/guides/*.md` | Partial (Wave 1 + 2b + 3 + 4 progressively bilingualised) | Bilingualised today: `air_gap_deployment`, `data_audit`, `gdpr_erasure`, `getting-started`, `human_approval_gate`, `ingestion`, `iso_soc2_deployer_guide`, `library_api`, `performance`, `safety_compliance`. Single-language (EN): `alignment`, `cicd_pipeline`, `enterprise_deployment`, `quickstart`, `troubleshooting` — TR mirrors are open follow-ups |
+| `docs/guides/*.md` | Partial (Wave 1 + 2b + 3 + 4 progressively bilingualised) | Bilingualised today: `air_gap_deployment`, `data_audit`, `gdpr_erasure`, `getting-started`, `human_approval_gate`, `ingestion`, `iso_soc2_deployer_guide`, `library_api`, `performance`. Structurally bilingual; content translation pending v0.6.0 (TR mirror carries the H2/H3/H4 spine for the parity gate but section bodies link back to the EN sections — tracked in `docs/roadmap/risks-and-decisions.md`): `safety_compliance`. Single-language (EN): `alignment`, `cicd_pipeline`, `enterprise_deployment`, `quickstart`, `troubleshooting` — TR mirrors are open follow-ups |
 | `docs/usermanuals/{en,tr}/` | Yes | EN+TR manual content authored & reviewed; DE/FR/ES/ZH fall back to EN via the `tableForLang(...) → DEFAULT='en'` chain (deferred to a future translation cycle) |
 | `docs/design/*.md` | No | Internal design history |
 | `docs/standards/*.md` | No | Contributor-facing |
@@ -102,6 +102,8 @@ If you can't do the TR update in the same PR (e.g., you don't write Turkish), op
 
 Exception: wizard prompts may be translated if ever we ship a localized wizard, but that's behind a `--lang=tr` flag and not the default. Currently not planned.
 
+**Native-language template titles.** Quickstart / dataset templates whose intended audience is non-English speakers may carry the native-language name in parentheses alongside the English form, e.g. `Medical Q&A (Türkçe / Turkish)`. This applies to the title field only — code identifiers, function names, log messages, error strings, and CLI flags remain English-only. The canonical example is `forgelm/quickstart.py:106`.
+
 ## Terminology
 
 For the parts we do translate, keep terminology consistent. A small glossary:
@@ -137,6 +139,39 @@ The audience is technical. Priorities:
 ## When a Turkish reader encounters English content
 
 Link from the TR doc back to the EN with "bu konunun detayı (İngilizce):" (details in English). Don't translate placeholder content just to avoid the English link.
+
+## Site chrome translations (deferred tiers)
+
+### Site chrome — deferred-tier translation lag (DE/FR/ES/ZH)
+
+`site/js/translations.js` carries six-locale chrome translations
+(EN, TR, DE, FR, ES, ZH) maintained as a single registry. EN and TR
+are **active tiers**: every Wave 1-5 chrome key MUST be present in both,
+and the EN ↔ TR pair is checked at parity inside the file (no missing
+keys at v0.5.5 HEAD). DE, FR, ES, ZH are **deferred tiers**: chrome keys
+may lag behind the active tiers between releases, and missing keys fall
+back to EN at runtime via the i18n chain in `site/js/translations.js`
+(the same `tableForLang(...) → DEFAULT='en'` chain used by the user-manual
+content).
+
+This codifies the cosmetic asymmetry: at v0.5.5 HEAD, deferred-tier blocks
+are short ~42 keys relative to EN/TR (Wave-5 governance / enterprise /
+ISO / GDPR / safety-eval feature copy that landed EN+TR-only). v0.6.x
+will run a native-review pass on accumulated deferred-tier debt; until
+then, machine-translated additions are NOT preferred — leave the key
+missing so the fallback chain shows the EN value (which a non-native
+reader can usually still parse) rather than ship a low-quality translation
+that a native reader would have to retire later. This mirrors the
+"no machine-translation output" rule in §"Quality bar for Turkish" above.
+
+The bilingual-parity gate (`tools/check_bilingual_parity.py --strict`)
+does NOT extend to site chrome — its scope is the EN ↔ TR `*.md` /
+`*-tr.md` doc pairs only. An advisory companion guard,
+`tools/check_site_chrome_parity.py`, reports the deferred-tier drift
+locally; it is intentionally NOT wired into CI at v0.5.5 (per this
+deferred-tier policy) and stays local-only until v0.6.x activates the
+native-review cycle. See `docs/roadmap/risks-and-decisions.md` for the
+v0.6.x activation plan.
 
 ## Future (not today)
 

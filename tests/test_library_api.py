@@ -49,6 +49,7 @@ _EXPECTED_STABLE_SYMBOLS = {
     "detect_secrets",
     "mask_secrets",
     "compute_simhash",
+    "compute_minhash",
     # Compliance / audit log.
     "AuditLogger",
     "verify_audit_log",
@@ -105,6 +106,39 @@ class TestPublicSurface:
 
         leaked = [n for n in dir(forgelm) if n.startswith("_") and not n.startswith("__")]
         assert leaked == [], f"dir(forgelm) leaks single-underscore private names: {leaked}"
+
+    def test_dir_leaks_no_internal_names_outside_all(self) -> None:
+        """F-PR29-A3-06: every public name in ``dir(forgelm)`` must
+        appear in ``forgelm.__all__``.  Catches regressions like the
+        original
+        ``from typing import TYPE_CHECKING`` /
+        ``from __future__ import annotations`` /
+        ``from .config import ...`` triple, which leaked
+        ``TYPE_CHECKING``, ``annotations``, and ``config`` as if they
+        were public surface despite being implementation details / a
+        submodule attribute."""
+        import forgelm
+
+        leaked = {n for n in dir(forgelm) if not n.startswith("_")} - set(forgelm.__all__)
+        assert not leaked, f"Names exposed without being in __all__: {sorted(leaked)}"
+
+    def test_design_doc_experimental_symbols_are_exported(self) -> None:
+        """F-PR29-A3-05: symbols listed Experimental in
+        ``docs/analysis/code_reviews/library-api-design-202605021414.md``
+        MUST be importable from the top-level ``forgelm`` package.
+        Otherwise consumers who follow the design doc and write
+        ``from forgelm import compute_minhash`` get an
+        ``AttributeError`` deep in the lazy resolver.  Hardcoded list
+        because parsing the design doc would couple the test to that
+        document's prose structure."""
+        import forgelm
+
+        experimental_symbols = ["compute_minhash"]  # extend as the design doc adds more.
+        for sym in experimental_symbols:
+            assert hasattr(forgelm, sym), (
+                f"{sym!r} is listed Experimental in the library-api design doc but is "
+                "missing from the top-level forgelm namespace."
+            )
 
     def test_api_version_bump_rule_block_survives(self) -> None:
         """F-19-01 corollary: pin the canonical bump-rule block in
@@ -296,6 +330,19 @@ class TestLazyResolutionSemantics:
         assert "AuditLogger" in vars(forgelm)
         # And subsequent access returns the same object.
         assert forgelm.AuditLogger is vars(forgelm)["AuditLogger"]
+
+    def test_compute_minhash_lazy_loads(self) -> None:
+        """F-PR29-A3-05: ``forgelm.compute_minhash`` must resolve via
+        the lazy-load infrastructure (``_LAZY_SYMBOLS`` →
+        ``forgelm.data_audit.compute_minhash``) rather than raise
+        ``AttributeError``.  Pinned separately from the
+        Experimental-tier coverage above so a regression that drops
+        ``compute_minhash`` from ``_LAZY_SYMBOLS`` while keeping it in
+        ``__all__`` still trips this test."""
+        import forgelm
+
+        fn = forgelm.compute_minhash
+        assert callable(fn), f"forgelm.compute_minhash is not callable: {fn!r}"
 
 
 # ---------------------------------------------------------------------------

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as pkg_version
+
+from forgelm._version import __version__ as _forgelm_version
 
 # Module name used both for the package logger and as the `python -m`
 # target when forgelm respawns itself for the quickstart subprocess flow.
@@ -14,12 +14,8 @@ logger = logging.getLogger(_CLI_MODULE)
 
 
 def _get_version() -> str:
-    try:
-        return pkg_version("forgelm")
-    except PackageNotFoundError:
-        from forgelm import __version__
-
-        return __version__
+    """Return the runtime forgelm version (delegates to the canonical source)."""
+    return _forgelm_version
 
 
 def _setup_logging(log_level: str, json_format: bool = False) -> None:

@@ -411,8 +411,16 @@ class TestCheckPipAuditExtraShapes:
     def test_missing_severity_field_summary_warning(self, tmp_path: Path, tool, capsys) -> None:
         # Real pip-audit JSON: vuln carries id + aliases (set of CVE/GHSA
         # identifier strings) + fix_versions, NO severity field at any
-        # nesting level.  Gate must surface UNKNOWN as a single summary
-        # annotation that includes the artefact path (F-W4FU-PS-05).
+        # nesting level.  Gate surfaces UNKNOWN as ::error:: (not
+        # ::warning::) with the artefact path included.
+        #
+        # F-PR29-A7-11 post-flip policy: UNKNOWN severity now FAILS (was
+        # silent advisory). pip-audit's JSON omits OSV severity for almost
+        # every real finding, so failing closed forces explicit operator
+        # triage rather than relying on missing severity to skip the gate.
+        # Test renamed-in-spirit: still pinning the UNKNOWN rendering
+        # (artefact path included), but exit code is now 1 and emission
+        # is `::error::` rather than `::warning::`.
         report = {
             "dependencies": [
                 {
@@ -431,11 +439,11 @@ class TestCheckPipAuditExtraShapes:
         report_path = self._write_report(tmp_path, report)
         rc = tool.main(["check_pip_audit", str(report_path)])
         captured = capsys.readouterr().out
-        assert rc == 0
-        assert "::warning::pip-audit" in captured
-        assert "without parseable severity" in captured
+        assert rc == 1
+        assert "::error::pip-audit" in captured
+        assert "without parseable" in captured
         assert str(report_path) in captured, (
-            "UNKNOWN summary must include the artefact path so an "
+            "UNKNOWN error summary must include the artefact path so an "
             "incident-triage SRE can grep without walking the workflow YAML"
         )
 

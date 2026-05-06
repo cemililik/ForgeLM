@@ -71,7 +71,7 @@ ForgeLM/
 │   └── ...                  # benchmark, judge, merging, synthetic, wizard,
 │                            # quickstart, model_card, fit_check, deploy, chat,
 │                            # export, inference, results, utils
-├── tests/                   # 68 test modules, ~1442 tests
+├── tests/                   # 68 test modules; count grows over time (run `pytest --collect-only -q` for current)
 ├── tools/                   # CI guards: check_anchor_resolution,
 │                            # check_bilingual_parity, check_cli_help_consistency,
 │                            # check_field_descriptions, check_pip_audit,

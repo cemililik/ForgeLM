@@ -136,6 +136,14 @@ def _load_model_for_safety(model_path: str, output_format: str):
     # Defence-in-depth (Faz 7 §13 acceptance) is satisfied by the
     # explicit ``trust_remote_code=False`` kwarg below — never trust
     # the primitive's default, gate it at every call site.
+    #
+    # Security boundary: ``trust_remote_code=False`` on the HF loader is
+    # the active defence here, not the path string.  Operator-controlled
+    # paths still cannot execute attacker-supplied Python (which is what
+    # ``trust_remote_code=True`` enables).  HF rejects directories
+    # without ``config.json``, so non-existent or malformed paths fail
+    # at load time with a clear error — explicit path validation here
+    # would be defense-in-depth that the security model does not need.
     try:
         from forgelm.inference import load_model
 

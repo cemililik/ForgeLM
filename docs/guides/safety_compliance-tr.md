@@ -1,65 +1,170 @@
-# Güvenlik & Uyumluluk Kılavuzu (TR)
+# Güvenlik & Uyumluluk Kılavuzu
 
-> **Not:** Bu dosya şu an yalnızca Faz 6'da eklenen `forgelm verify-audit` özelliğinin Türkçe karşılığını içerir. Tam bilingual eşleme (EN ↔ TR) `docs/guides/safety_compliance.md` dosyasının ileride yapılacak çevirisi ile tamamlanacaktır. Daha geniş bağlam için lütfen İngilizce sürüme bakın.
+> **Kapsam:** Güvenlik değerlendirmesi (Llama Guard) ve uyumluluk artefaktları
+> (EU AI Act Madde 9-17 + Annex IV). EN tarafıyla yapısal eşleşik; bölüm
+> içerikleri kademeli olarak çevriliyor.
 
-## Audit Log Bütünlüğü Doğrulama
+> **Çeviri durumu (2026-05-06):** Bu kılavuzun yapısı EN ile eşleşik
+> tutuluyor; bölüm gövdeleri henüz tamamlanmadı. Tam içerik için
+> [İngilizce sürümüne](safety_compliance.md) bakın. Çeviri v0.6.0
+> yol haritasında — bkz. `docs/roadmap/risks-and-decisions.md`.
 
-ForgeLM'in audit log'u (`audit_log.jsonl`) SHA-256 hash zinciri kullanır; geriye dönük yapılan herhangi bir değişiklik zinciri kırar. Operatör `FORGELM_AUDIT_SECRET` ortam değişkenini ayarlamışsa her satıra ek olarak HMAC etiketi de yazılır — bu sayede log'a yazma erişimi olan ama operatör anahtarını bilmeyen bir saldırgan satır içeriklerini sahteleyemez.
+---
 
-### `forgelm verify-audit` alt komutu
+## Why Safety Matters
 
-`forgelm verify-audit` alt komutu, bir audit log dosyasının SHA-256 zincirini ve (verildiyse) HMAC etiketlerini doğrular:
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#why-safety-matters) bakın.*
 
-```bash
-forgelm verify-audit run123/audit_log.jsonl
-# OK: 47 entries verified
+---
 
-FORGELM_AUDIT_SECRET=$OPERATOR_KEY forgelm verify-audit run123/audit_log.jsonl
-# OK: 47 entries verified (HMAC validated)
+## Post-Training Safety Evaluation
 
-forgelm verify-audit tampered.jsonl
-# FAIL at line 23: chain broken at line 23: prev_hash='...' expected='...'
-```
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#post-training-safety-evaluation) bakın.*
 
-Çıkış kodları:
+### How It Works
 
-| Kod | Anlam |
-|-----|-------|
-| `0` | Zincir (ve denetlendiyse HMAC) eksiksiz |
-| `1` | Zincir kırık veya HMAC eşleşmiyor (kurcalama / bozulma) |
-| `2` | Dosya bulunamadı, okunamadı veya `--require-hmac` belirtildi ama secret env var ayarlı değil |
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#how-it-works) bakın.*
 
-### Kütüphane fonksiyonu
+### Configuration
 
-CI/CD pipeline'larından programatik kullanım için:
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#configuration) bakın.*
 
-```python
-from forgelm.compliance import verify_audit_log, VerifyResult
+#### Basic (Binary Scoring)
 
-result: VerifyResult = verify_audit_log(
-    "run123/audit_log.jsonl",
-    hmac_secret=os.environ.get("FORGELM_AUDIT_SECRET"),
-)
-if not result.valid:
-    raise SystemExit(
-        f"Audit log invalid at line {result.first_invalid_index}: {result.reason}"
-    )
-```
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#basic-binary-scoring) bakın.*
 
-`VerifyResult` dataclass alanları: `valid` (bool), `entries_count` (int), `first_invalid_index` (Optional[int], 1-tabanlı), `reason` (Optional[str]).
+#### Advanced (Confidence-Weighted + Category Tracking)
 
-### Strict mod (`--require-hmac`)
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#advanced-confidence-weighted-category-tracking) bakın.*
 
-Düzenlemeli ortamlarda her satırın HMAC ile imzalı olması zorunlu olabilir. `--require-hmac` bayrağı:
+### How Safety Scoring Works
 
-- Secret env var ayarlı değilse derhal çıkış kodu 2 ile çıkar (operatör hatası).
-- Herhangi bir satırda `_hmac` alanı yoksa çıkış kodu 1 ile başarısız olur.
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#how-safety-scoring-works) bakın.*
 
-```bash
-FORGELM_AUDIT_SECRET=$OPERATOR_KEY forgelm verify-audit \
-    run123/audit_log.jsonl --require-hmac
-```
+### 3-Layer Safety Gate
 
-### Genesis manifest çapraz kontrolü
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#3-layer-safety-gate) bakın.*
 
-ForgeLM, audit log'un ilk yazılışında `audit_log.jsonl.manifest.json` adlı bir sidecar dosyası üretir. Bu dosya birinci satırın SHA-256 hash'ini sabitler; saldırgan log'u kesip yeni bir genesis satırı yazsa bile manifest eşleşmemesi tespit edilir. `verify-audit` bu sidecar'ı otomatik olarak okur — manifest yoksa zincir-bütünlüğü kontrolü gene yapılır, ancak truncate-and-resume tespit kapsamı daralır (DEBUG seviyesinde uyarı verilir).
+### Harm Categories (Llama Guard 3)
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#harm-categories-llama-guard-3) bakın.*
+
+### Safety Prompts
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#safety-prompts) bakın.*
+
+#### Built-in Prompt Library
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#built-in-prompt-library) bakın.*
+
+#### Custom Prompts
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#custom-prompts) bakın.*
+
+### Results
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#results) bakın.*
+
+### Cross-Run Trend Tracking
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#cross-run-trend-tracking) bakın.*
+
+### Fail-Safe Behavior
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#fail-safe-behavior) bakın.*
+
+---
+
+## LLM-as-Judge Evaluation
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#llm-as-judge-evaluation) bakın.*
+
+### How It Works
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#how-it-works) bakın. (LLM-as-Judge altındaki tekrarlı başlık — EN dosyasında `LLM-as-Judge Evaluation` H2 bölümüne bakın.)*
+
+### Configuration
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#configuration) bakın. (LLM-as-Judge altındaki tekrarlı başlık — EN dosyasında `LLM-as-Judge Evaluation` H2 bölümüne bakın.)*
+
+#### API-Based Judge (OpenAI/Anthropic)
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#api-based-judge-openaianthropic) bakın.*
+
+#### Local Judge Model
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#local-judge-model) bakın.*
+
+### Evaluation Prompts
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#evaluation-prompts) bakın.*
+
+### Scoring Rubric
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#scoring-rubric) bakın.*
+
+---
+
+## EU AI Act Compliance
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#eu-ai-act-compliance) bakın.*
+
+### Background
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#background) bakın.*
+
+### Compliance Artifacts
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#compliance-artifacts) bakın.*
+
+### Audit Log Integrity
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#audit-log-integrity) bakın.*
+
+### Verifying audit log integrity
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#verifying-audit-log-integrity) bakın.*
+
+### compliance_report.json
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#compliance_reportjson) bakın.*
+
+### Data Provenance Tracking
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#data-provenance-tracking) bakın.*
+
+---
+
+## Full Safety + Compliance Pipeline
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#full-safety-compliance-pipeline) bakın.*
+
+### Pipeline Flow
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#pipeline-flow) bakın.*
+
+### Human Approval Gate (Art. 14)
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#human-approval-gate-art-14) bakın.*
+
+### QMS Templates
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#qms-templates) bakın.*
+
+### Compliance Export (Standalone)
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#compliance-export-standalone) bakın.*
+
+---
+
+## Security Best Practices
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#security-best-practices) bakın.*
+
+### Webhook URL Protection (v0.3.1rc1+)
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#webhook-url-protection-v031rc1) bakın.*
+
+### Config Security
+
+*Tam içerik için [İngilizce sürümüne](safety_compliance.md#config-security) bakın.*

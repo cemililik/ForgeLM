@@ -72,6 +72,7 @@ _PAIRS: Tuple[Tuple[str, str], ...] = (
     ("docs/guides/iso_soc2_deployer_guide.md", "docs/guides/iso_soc2_deployer_guide-tr.md"),
     ("docs/guides/library_api.md", "docs/guides/library_api-tr.md"),
     ("docs/guides/performance.md", "docs/guides/performance-tr.md"),
+    ("docs/guides/safety_compliance.md", "docs/guides/safety_compliance-tr.md"),
     # docs/qms/
     ("docs/qms/README.md", "docs/qms/README-tr.md"),
     ("docs/qms/access_control.md", "docs/qms/access_control-tr.md"),

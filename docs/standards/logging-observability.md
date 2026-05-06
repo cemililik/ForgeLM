@@ -28,7 +28,7 @@ def _setup_logging(log_level: str, json_format: bool = False) -> None:
    logger = logging.getLogger("forgelm.compliance")  # match module path
    ```
 
-2. **Never use `print()` in library code.** Only `cli.py` may print (and only for JSON output on stdout).
+2. **Never use `print()` in library code.** Only modules under [`forgelm/cli/`](../../forgelm/cli/) (JSON envelopes + human-facing CLI text on stdout) and [`forgelm/chat.py`](../../forgelm/chat.py) (interactive REPL output, including token-by-token streaming) may use raw `print()`. Every other library module must use the project logger so callers can configure verbosity. The `chat.py` carve-out exists because an interactive REPL's output **is** the user interface — routing it through `logger` would force users to reconfigure log handlers to see chat replies.
 
 3. **`--output-format json` downgrades to WARNING.** When a pipeline is reading JSON on stdout, human-friendly INFO spam on stderr drowns the signal. Keep stderr quiet in JSON mode.
 
@@ -218,7 +218,7 @@ These come from `forgelm/utils.py` helpers + `torch.cuda.max_memory_allocated()`
 Before your PR:
 
 - [ ] Every module has a logger named `forgelm.<module>`.
-- [ ] No `print()` outside `cli.py` JSON-output blocks.
+- [ ] No `print()` outside `forgelm/cli/` (JSON + CLI text) and `forgelm/chat.py` (REPL output).
 - [ ] Every `sys.exit(!=0)` is preceded by `logger.error(...)`.
 - [ ] JSON output fields match the schema above, validated by a test.
 - [ ] Audit events fire for every decision gate you added.

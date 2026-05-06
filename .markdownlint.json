@@ -1,8 +1,0 @@
-{
-  "//": "ForgeLM markdownlint policy. Two rules disabled with rationale:",
-  "//1": "MD051 (link-fragments-valid): docs use SPA hash-router routes like `#/data/audit` for in-app navigation; markdownlint's anchor-resolution doesn't understand SPA conventions and would flag every cross-reference.",
-  "//2": "MD014 (commands-show-output): shell examples in operator docs deliberately show only the command (`$ forgelm audit ...`) without sample output — output snippets rot quickly across versions and would force a doc update on every CLI banner change.",
-  "default": true,
-  "MD051": false,
-  "MD014": false
-}

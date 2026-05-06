@@ -122,10 +122,13 @@ Rules:
 
 **Worked example — `--data-audit` flag:** introduced in pre-Phase-11,
 superseded by the `forgelm audit` subcommand in Phase 12. Deprecated in
-v0.5.0 (`forgelm/cli.py:1424-1428` raises `DeprecationWarning` and prints a
-stderr notice naming v0.7.0 as the removal target). The flag remains
-present and functional through v0.6.x, then is removed in v0.7.0 with a
-matching `### Removed` CHANGELOG entry.
+v0.5.0 (`forgelm/cli/_dispatch.py:165-172` raises `DeprecationWarning`
+and the surrounding handler at `_dispatch.py:154-205` writes an
+append-only `cli.legacy_flag_invoked` audit-log event naming v0.7.0 as
+the removal target; the Phase 15 CLI split moved this from the original
+single-file `cli.py:1424-1428` location). The flag remains present and
+functional through v0.6.x, then is removed in v0.7.0 with a matching
+`### Removed` CHANGELOG entry.
 
 ## Release checklist
 
@@ -284,8 +287,10 @@ The closure-cycle bundle is the largest single release in ForgeLM history (38 fa
 3. **`CHANGELOG.md`** — move all `[Unreleased]` entries into a new `[0.5.5] — YYYY-MM-DD` section. Cross-reference each entry to its faz number (e.g. "Library API — Wave 2b / Faz 19") so reviewers can map back to the [phase-12-6-closure-cycle.md](../roadmap/phase-12-6-closure-cycle.md) inventory.
 4. **Tag** — `git tag -s v0.5.5 -m "v0.5.5 — Closure Cycle Bundle"`.
 5. **Push** — `git push origin main v0.5.5`. The tag push is the contract; `publish.yml` fires automatically.
-6. **Wait for matrix** — the cross-OS matrix runs 12 combos (3 OS × 4 Python). With Wave 4's supply-chain additions each combo also runs `pip-audit` + emits a CycloneDX SBOM. Total runtime ~25-40 minutes.
+6. **Wait for matrix** — the cross-OS matrix runs 12 combos (3 OS × 4 Python). Each combo emits a per-(OS, Python) CycloneDX 1.5 SBOM (12 SBOM artifacts per release tag) — that is the full supply-chain output of the release pipeline. `pip-audit` is **not** run by `publish.yml`; vulnerability gating runs daily on `main` via [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml) (the `pip-audit-gate` job calling `tools/check_pip_audit.py`), so every commit reaching a tag has already been audited within the last 24 hours. Total matrix runtime ~25-40 minutes.
 7. **PyPI publish runs only after every combo is green** — OIDC trusted publishing, no API token in CI.
+
+`publish.yml` is **tag-triggered only** (`on: push: tags: ['v*']`) — between releases, the wheel-build / cross-OS install path is exercised daily by nightly's `wheel-install-smoke` job, so the release pipeline does not need (and should not gain) a redundant scheduled trigger. Future maintainers tempted to add `schedule:` to `publish.yml` should extend the nightly smoke instead.
 
 Post-release sequence is identical to other minor releases (verify install, Docker build, announce, open new `[Unreleased]` section, bump to next pre-release).
 

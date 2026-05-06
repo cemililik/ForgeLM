@@ -59,8 +59,8 @@ comes from the token-level `lru_cache` — Zipfian token frequency means
 ~10 K cache slots cover the vast majority of a corpus's traffic, so a
 second pass over the same corpus runs almost entirely from cache.
 
-The benchmark script is at `tests/bench_simhash.py` (run with
-`python tests/bench_simhash.py`); it is not part of the regular `pytest`
+The benchmark script is at `tools/bench_simhash.py` (run with
+`python tools/bench_simhash.py`); it is not part of the regular `pytest`
 suite because it is wall-clock-noisy.
 
 ## Behavioural deltas worth highlighting
