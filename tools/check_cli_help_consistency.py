@@ -464,6 +464,65 @@ def _is_synopsis_line(line: str) -> bool:
     return "|" in line and "(" in line
 
 
+def _validate_forgelm_invocation_tokens(tokens: Sequence[str]) -> str | None:
+    """Return the subcommand iff ``tokens`` is a well-formed ``forgelm <sub>``
+    sequence; ``None`` otherwise."""
+    if len(tokens) < 2 or tokens[0] != "forgelm":
+        return None
+    sub = tokens[1]
+    # If the second token is itself a flag (e.g. ``forgelm --version``),
+    # it is a top-level form, not a subcommand invocation. Today's
+    # contract focuses on subcommand drift, so we ignore these.
+    if sub.startswith("-"):
+        return None
+    return sub
+
+
+def _consume_flag_token(
+    tokens: Sequence[str],
+    idx: int,
+    flags: list[str],
+    flag_values: dict[str, str | None],
+) -> int:
+    """Consume one flag token (possibly with its value) and return the
+    advance offset for the outer cursor.  Caller adds the returned offset
+    to ``idx``."""
+    tok = tokens[idx]
+    # ``--flag=value`` form — single-token capture.
+    if "=" in tok:
+        flag, _, value = tok.partition("=")
+        flags.append(flag)
+        flag_values[flag] = value
+        return 1
+    flags.append(tok)
+    # Peek the next token to capture a value (if any). Only treat the
+    # next token as a NEW flag when it starts with ``--`` (the long-flag
+    # prefix used in this project). A single ``-`` prefix could be a
+    # short flag (rare; shipped tools don't ship short forms) OR a
+    # negative numeric value like ``--temperature -1.0``; we'd rather
+    # consume the value than mis-classify it as a flag.
+    if idx + 1 < len(tokens) and not tokens[idx + 1].startswith("--"):
+        flag_values[tok] = tokens[idx + 1]
+        return 2
+    flag_values[tok] = None
+    return 1
+
+
+def _parse_invocation_flags(tokens: Sequence[str]) -> tuple[list[str], dict[str, str | None]]:
+    """Walk ``tokens`` from index 2 onwards and return ``(flags,
+    flag_values)`` for every ``--flag`` (and ``--flag=value`` /
+    ``--flag value``) form encountered.  Positional args are skipped."""
+    flags: list[str] = []
+    flag_values: dict[str, str | None] = {}
+    idx = 2
+    while idx < len(tokens):
+        if tokens[idx].startswith("--"):
+            idx += _consume_flag_token(tokens, idx, flags, flag_values)
+        else:
+            idx += 1
+    return flags, flag_values
+
+
 def _extract_invocation(source: Path, line_no: int, line: str) -> Invocation | None:
     """Extract a structured ``forgelm`` invocation from one shell-block line."""
     payload = _strip_prompt(line)
@@ -472,46 +531,10 @@ def _extract_invocation(source: Path, line_no: int, line: str) -> Invocation | N
     if _is_synopsis_line(payload):
         return None
     tokens = _tokenise_invocation(payload)
-    if len(tokens) < 2:
+    sub = _validate_forgelm_invocation_tokens(tokens)
+    if sub is None:
         return None
-    if tokens[0] != "forgelm":
-        return None
-    sub = tokens[1]
-    # If the second token is itself a flag (e.g. ``forgelm
-    # --version``), it is a top-level form, not a subcommand
-    # invocation.  We pass it through with subcommand="" so the
-    # caller can flag top-level drift separately if it ever wants
-    # to — but today's contract focuses on subcommand drift, so we
-    # ignore these.
-    if sub.startswith("-"):
-        return None
-    flags: list[str] = []
-    flag_values: dict[str, str | None] = {}
-    idx = 2
-    while idx < len(tokens):
-        tok = tokens[idx]
-        if tok.startswith("--"):
-            # ``--flag=value`` form.
-            if "=" in tok:
-                flag, _, value = tok.partition("=")
-                flags.append(flag)
-                flag_values[flag] = value
-            else:
-                flags.append(tok)
-                # Peek the next token to capture a value (if any).
-                # Only treat the next token as a NEW flag when it
-                # starts with ``--`` (the long-flag prefix used in
-                # this project).  A single ``-`` prefix could be a
-                # short flag (rare in this project; shipped tools
-                # don't ship short forms) OR a negative numeric
-                # value like ``--temperature -1.0``; we'd rather
-                # consume the value than mis-classify it as a flag.
-                if idx + 1 < len(tokens) and not tokens[idx + 1].startswith("--"):
-                    flag_values[tok] = tokens[idx + 1]
-                    idx += 1
-                else:
-                    flag_values[tok] = None
-        idx += 1
+    flags, flag_values = _parse_invocation_flags(tokens)
     return Invocation(
         source=source,
         line=line_no,
@@ -522,18 +545,54 @@ def _extract_invocation(source: Path, line_no: int, line: str) -> Invocation | N
     )
 
 
+def _find_fence_close(lines: Sequence[str], open_idx: int) -> int | None:
+    """Return the closing-fence index for the fence opened at ``open_idx``,
+    or ``None`` if the fence is unterminated (caller bails out)."""
+    close_idx = open_idx + 1
+    while close_idx < len(lines) and not _FENCE_CLOSE_RE.match(lines[close_idx]):
+        close_idx += 1
+    if close_idx >= len(lines):
+        return None
+    return close_idx
+
+
+def _stitch_block_lines(lines: Sequence[str], block_start: int, block_end: int) -> Iterable[tuple[int, str]]:
+    """Yield ``(line_no, line)`` for the interior of one code block.
+
+    Re-stitches ``\\``-continued multi-line commands so each logical
+    command surfaces as one tuple rather than N lines where the first
+    carries the command name and the rest carry the flags in isolation.
+    The reported ``line_no`` is the 1-indexed start line of the logical
+    command — that's where a reviewer expects the file-line citation
+    to land.
+    """
+    current = ""
+    start_line_no = 0
+    for inner_idx in range(block_start + 1, block_end):
+        raw = lines[inner_idx]
+        stripped = raw.rstrip()
+        if not current:
+            start_line_no = inner_idx + 1
+        if stripped.endswith("\\"):
+            # Strip the trailing backslash + preserve one space so
+            # adjacent tokens don't fuse together.
+            current += stripped[:-1] + " "
+            continue
+        current += raw
+        yield (start_line_no, current)
+        current = ""
+    if current:
+        # Unterminated continuation at block end — yield what we have
+        # so the line is not silently dropped.
+        yield (start_line_no, current)
+
+
 def _iter_code_block_lines(lines: Sequence[str]) -> Iterable[tuple[int, str]]:
     """Yield ``(line_no, line)`` tuples for lines inside qualifying code blocks.
 
-    Qualifying = lang tag in :data:`_BASH_LANG_TAGS` AND the block
-    is not flagged as forward-reference / anti-pattern.
-
-    Multi-line shell continuations (``\\`` at end of line) are
-    re-stitched into a single logical line so callers see the
-    full ``forgelm cmd --flag1 ... --flag2 ...`` invocation rather
-    than only the first physical line.  The reported ``line_no``
-    is the 1-indexed start line of the logical command — that's
-    where a reviewer expects the file-line citation to land.
+    Qualifying = lang tag in :data:`_BASH_LANG_TAGS` AND the block is not
+    flagged as forward-reference / anti-pattern.  Continuation handling
+    + interior iteration are delegated to :func:`_stitch_block_lines`.
     """
     idx = 0
     while idx < len(lines):
@@ -541,41 +600,12 @@ def _iter_code_block_lines(lines: Sequence[str]) -> Iterable[tuple[int, str]]:
         if not match:
             idx += 1
             continue
-        lang = match.group(2).lower()
-        # Find the closing fence.
-        close_idx = idx + 1
-        while close_idx < len(lines) and not _FENCE_CLOSE_RE.match(lines[close_idx]):
-            close_idx += 1
-        if close_idx >= len(lines):
-            # Unterminated fence — bail out gracefully.
+        close_idx = _find_fence_close(lines, idx)
+        if close_idx is None:
             return
-        block_start, block_end = idx, close_idx
-        if _should_skip_block(lines, block_start, block_end, lang):
-            idx = close_idx + 1
-            continue
-        # Yield interior lines, re-stitching ``\``-continued multi-line
-        # commands so each logical command surfaces as one (line_no,
-        # line) pair rather than N lines where the first carries the
-        # command name and the rest carry the flags in isolation.
-        current = ""
-        start_line_no = 0
-        for inner_idx in range(block_start + 1, block_end):
-            raw = lines[inner_idx]
-            stripped = raw.rstrip()
-            if not current:
-                start_line_no = inner_idx + 1
-            if stripped.endswith("\\"):
-                # Strip the trailing backslash + preserve one space
-                # so adjacent tokens don't fuse together.
-                current += stripped[:-1] + " "
-            else:
-                current += raw
-                yield (start_line_no, current)
-                current = ""
-        if current:
-            # Unterminated continuation at block end — yield what we
-            # have so the line is not silently dropped.
-            yield (start_line_no, current)
+        lang = match.group(2).lower()
+        if not _should_skip_block(lines, idx, close_idx, lang):
+            yield from _stitch_block_lines(lines, idx, close_idx)
         idx = close_idx + 1
 
 

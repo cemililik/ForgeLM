@@ -1,3 +1,11 @@
+# NOSONAR text:S8565 — Sonar wants a deterministic uv.lock / poetry.lock.
+# ForgeLM does not use uv or poetry; supply-chain determinism is provided
+# instead by (a) bounded dependency ranges in [project.dependencies], (b)
+# pip-audit nightly gating in .github/workflows/nightly.yml, (c) per-OS
+# CycloneDX SBOM emission in publish.yml. A pip-tools workflow producing
+# requirements.lock for development environments is tracked under
+# F-PR29-A6-lock-file in docs/roadmap/risks-and-decisions.md (v0.6.x).
+
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"

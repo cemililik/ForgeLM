@@ -487,6 +487,55 @@ def _load_safety_classifier(classifier_path: str, audit_logger: Any) -> Any:
         raise RuntimeError(str(e)) from e
 
 
+def _validate_batch_size(batch_size: Any) -> None:
+    """Library-API boundary check.
+
+    ``SafetyConfig.batch_size`` is parsed via Pydantic
+    ``Field(default=8, ge=1)``, but ``run_safety_evaluation`` is also a
+    public Python API (importable as ``from forgelm.safety import
+    run_safety_evaluation``) so a direct caller can bypass the schema.
+    Reject invalid values here with a clear message rather than silently
+    producing a no-op via ``range(0, len(prompts), 0)`` deeper in the
+    batched generation path.
+    """
+    if not isinstance(batch_size, int) or batch_size < 1:
+        raise ValueError(f"batch_size must be a positive integer (got {batch_size!r})")
+
+
+def _resolve_safety_score(
+    *,
+    scoring: str,
+    safe_ratio: float,
+    confidence_scores: list,
+) -> float:
+    """Pick the safety score per the configured scoring strategy."""
+    if scoring == "confidence_weighted" and confidence_scores:
+        return sum(confidence_scores) / len(confidence_scores)
+    return safe_ratio
+
+
+def _log_safety_diagnostics(
+    *,
+    low_confidence_count: int,
+    total: int,
+    min_classifier_confidence: float,
+    track_categories: bool,
+    category_dist: Optional[dict],
+    severity_dist: Optional[dict],
+) -> None:
+    """Emit post-classification diagnostic logs (low-confidence + categories)."""
+    if low_confidence_count > 0:
+        logger.warning(
+            "%d/%d responses had low classifier confidence (< %.2f). Review these manually.",
+            low_confidence_count,
+            total,
+            min_classifier_confidence,
+        )
+    if track_categories and category_dist:
+        logger.info("Harm category distribution: %s", category_dist)
+        logger.info("Severity distribution: %s", severity_dist)
+
+
 def run_safety_evaluation(
     model: Any,
     tokenizer: Any,
@@ -511,16 +560,7 @@ def run_safety_evaluation(
     """
     if thresholds is None:
         thresholds = SafetyEvalThresholds()
-
-    # Library-API boundary check. ``SafetyConfig.batch_size`` is parsed via
-    # Pydantic ``Field(default=8, ge=1)``, but ``run_safety_evaluation`` is
-    # also a public Python API (importable as
-    # ``from forgelm.safety import run_safety_evaluation``) so a direct
-    # caller can bypass the schema. Reject invalid values here with a
-    # clear message rather than silently producing a no-op via
-    # ``range(0, len(prompts), 0)`` deeper in the batched generation path.
-    if not isinstance(batch_size, int) or batch_size < 1:
-        raise ValueError(f"batch_size must be a positive integer (got {batch_size!r})")
+    _validate_batch_size(batch_size)
 
     if not os.path.isfile(test_prompts_path):
         logger.error("Safety test prompts file not found: %s", test_prompts_path)
@@ -558,10 +598,11 @@ def run_safety_evaluation(
 
     total = len(prompts)
     safe_ratio = (total - unsafe_count) / total if total > 0 else 1.0
-    if thresholds.scoring == "confidence_weighted" and confidence_scores:
-        safety_score = sum(confidence_scores) / len(confidence_scores)
-    else:
-        safety_score = safe_ratio
+    safety_score = _resolve_safety_score(
+        scoring=thresholds.scoring,
+        safe_ratio=safe_ratio,
+        confidence_scores=confidence_scores,
+    )
 
     logger.info(
         "Safety evaluation: %d/%d safe (%.1f%%), safety_score=%.4f, low_confidence=%d",
@@ -585,17 +626,14 @@ def run_safety_evaluation(
         track_categories=thresholds.track_categories,
     )
 
-    if low_confidence_count > 0:
-        logger.warning(
-            "%d/%d responses had low classifier confidence (< %.2f). Review these manually.",
-            low_confidence_count,
-            total,
-            thresholds.min_classifier_confidence,
-        )
-
-    if thresholds.track_categories and category_dist:
-        logger.info("Harm category distribution: %s", category_dist)
-        logger.info("Severity distribution: %s", severity_dist)
+    _log_safety_diagnostics(
+        low_confidence_count=low_confidence_count,
+        total=total,
+        min_classifier_confidence=thresholds.min_classifier_confidence,
+        track_categories=thresholds.track_categories,
+        category_dist=category_dist,
+        severity_dist=severity_dist,
+    )
 
     if output_dir:
         _save_safety_results(
