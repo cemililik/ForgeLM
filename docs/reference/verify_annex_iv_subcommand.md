@@ -108,7 +108,7 @@ $ echo $?
 $ forgelm verify-annex-iv compliance/annex_iv.json
 ERROR: Annex IV artifact at 'compliance/annex_iv.json' is not valid JSON: Expecting value (line 1).
 $ echo $?
-2
+1
 ```
 
 ## See also

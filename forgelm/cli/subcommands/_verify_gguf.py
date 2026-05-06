@@ -6,11 +6,16 @@ Phase 36 closure of GH-009.  The deployment-integrity counterpart to
 ``gguf`` Python package is installed), and checks a SHA-256 manifest
 sidecar (``<model>.gguf.sha256``) when present.
 
-Exit codes:
+Exit codes (per ``docs/standards/error-handling.md`` and the public
+contract in ``docs/reference/verify_gguf_subcommand.md``):
 
-- 0 — magic OK, metadata parses, SHA-256 matches sidecar (when present).
-- 1 — magic mismatch, metadata corrupted, OR SHA-256 mismatch.
-- 2 — runtime error (file not found, unreadable).
+- 0 — ``EXIT_SUCCESS``: magic OK, metadata parses, SHA-256 matches
+  sidecar (when present).
+- 1 — ``EXIT_CONFIG_ERROR``: caller / input error (missing path, not
+  a regular file, magic mismatch, metadata corruption, malformed
+  sidecar, SHA-256 mismatch).  Artifact is not safe to serve.
+- 2 — ``EXIT_TRAINING_ERROR``: genuine runtime I/O failure on a
+  reachable path (read error, permission denied mid-read, etc.).
 """
 
 from __future__ import annotations
@@ -199,24 +204,25 @@ def _run_verify_gguf_cmd(args, output_format: str) -> None:
             "verify-gguf requires a path argument: `forgelm verify-gguf <model.gguf>`.",
             EXIT_CONFIG_ERROR,
         )
-    if not os.path.isfile(path):
-        # Caller-input error: the path is missing or not a regular
-        # file.  Per docs/standards/error-handling.md and the public
-        # exit-code contract documented in
-        # docs/reference/verify_gguf_subcommand.md, this is exit 1
-        # (config / caller error), not exit 2 (which is reserved for
-        # genuine I/O failures on an existing file).
-        _output_error_and_exit(
-            output_format,
-            f"GGUF file not found: {path!r}.",
-            EXIT_CONFIG_ERROR,
-        )
+    # Round 6 absorption: replace the `os.path.isfile()` pre-check with
+    # in-try exception dispatch so permission-denied on an existing
+    # file routes to exit 2 instead of exit 1.  See _verify_annex_iv.py
+    # for the same shape and the rationale.
     try:
         result = verify_gguf(path)
+    except (FileNotFoundError, IsADirectoryError) as exc:
+        # Caller-input error: the path is missing or refers to a
+        # directory.  Exit 1 per the public contract.
+        _output_error_and_exit(
+            output_format,
+            f"GGUF file not found or not a regular file: {path!r} ({exc.__class__.__name__}).",
+            EXIT_CONFIG_ERROR,
+        )
     except OSError as exc:
-        # Real I/O failure on an existing file (read error / permission
-        # denied mid-read).  os.path.isfile passed above, so the path
-        # was reachable but became unreadable during verification.
+        # Genuine runtime I/O failure on a reachable path (permission
+        # denied, mid-read I/O error, etc.).  Order matters because
+        # FileNotFoundError is a subclass of OSError; the specific
+        # caller-input subclasses MUST be caught above.
         _output_error_and_exit(
             output_format,
             f"Could not read GGUF file {path!r}: {exc}.",

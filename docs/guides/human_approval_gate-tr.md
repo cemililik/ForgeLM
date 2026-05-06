@@ -135,7 +135,7 @@ FORGELM_OPERATOR="alice@acme.example" \
 
 ## 5. Audit zinciri ne gösterir
 
-Onaydan sonra üç satır kapının tam yaşam döngüsünü tarif eder (üçüncüsü, terfi sonrası `compliance.artifacts_exported` post-amblümüdür ve trainer'ın `human_approval.required` event'iyle uçtan uca korelasyon kurar):
+Onaydan sonra üç satır kapının tam yaşam döngüsünü tarif eder: ilki trainer'ın duraklatma event'idir (`human_approval.required`), ikincisi inceleyenin terminal kararıdır (`human_approval.granted` veya `.rejected`) ve üçüncüsü staging dizinini terfi edilen `final_model/`'e bağlayan terfi-sonrası artifact kaydıdır (`compliance.artifacts_exported`); bu üçlü uçtan uca forensik korelasyonu sağlar:
 
 ```jsonl
 {"event":"human_approval.required","run_id":"fg-abc123def456","operator":"gha:Acme/pipelines:training:run-42","staging_path":"outputs/run42/final_model.staging.fg-abc123def456","metrics":{...}}
@@ -226,8 +226,8 @@ jq -rs '
 
 - [`../usermanuals/tr/compliance/human-oversight.md`](../usermanuals/tr/compliance/human-oversight.md) — operatör hızlı-referans tamamlayıcısı.
 - [`../usermanuals/tr/compliance/human-approval-gate.md`](../usermanuals/tr/compliance/human-approval-gate.md) — bu rehberle eşleşen deployer-yüzlü kullanıcı kılavuzu sayfası.
-- [`../reference/approve_subcommand.md`](../reference/approve_subcommand.md) — `approve` / `reject` için flag-başına, event-başına referans.
-- [`../reference/approvals_subcommand.md`](../reference/approvals_subcommand.md) — `approvals` için flag-başına, event-başına referans.
+- [`../reference/approve_subcommand-tr.md`](../reference/approve_subcommand-tr.md) — `approve` / `reject` için flag-başına, event-başına referans.
+- [`../reference/approvals_subcommand-tr.md`](../reference/approvals_subcommand-tr.md) — `approvals` için flag-başına, event-başına referans.
 - [`../qms/access_control.md`](../qms/access_control.md) §6 — kanonik segregation-of-duties cookbook.
 - [`iso_soc2_deployer_guide-tr.md`](iso_soc2_deployer_guide-tr.md) §"Q5" — kapının kanıtını tüketen auditor walkthrough.
 - [`gdpr_erasure-tr.md`](gdpr_erasure-tr.md) — GDPR Madde 15 + 17 için kardeş akış.

@@ -156,4 +156,4 @@ Meta veri katmanını geri eklemek için `pip install gguf` ile yükleyin. Bu, p
 - [GGUF Export](#/deployment/gguf-export) — bu doğrulayıcının tükettiği sidecar'ı yazan üretim tarafı.
 - [Audit Log Doğrulama](#/compliance/verify-audit) — uyumluluk yüzeyindeki kardeş doğrulayıcı.
 - [Annex IV Doğrulama](#/compliance/annex-iv) — teknik dokümantasyon artifact'ı için kardeş doğrulayıcı.
-- [`verify_gguf_subcommand.md`](../../../reference/verify_gguf_subcommand.md) — tam bayrak tablosu ve kütüphane-sembol atıfları içeren referans doc.
+- [`verify_gguf_subcommand-tr.md`](../../../reference/verify_gguf_subcommand-tr.md) — tam bayrak tablosu ve kütüphane-sembol atıfları içeren referans doc.

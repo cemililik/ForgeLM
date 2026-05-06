@@ -63,9 +63,9 @@ $ forgelm chat "Qwen/Qwen2.5-7B" --adapter ./checkpoints/run/
 
 ## Safety routing
 
-> Note: A built-in `--safety` flag on `forgelm chat` is planned for v0.6.0+ Pro CLI (see [Phase 13 roadmap](#/roadmap/phase-13)). Today the screen-every-turn behaviour shipped via the YAML pipeline (`safety:` block); the snippet below illustrates the planned UX.
+> Note: A built-in `--safety` flag on `forgelm chat` is planned for v0.6.0+ Pro CLI (see [Phase 13 roadmap](#/roadmap/phase-13)). Today the screen-every-turn behaviour ships via the YAML `safety:` block (set `safety: enabled: true` and bind it to the same chat session through your runner); the snippet below illustrates the planned `--safety` UX as preview output, NOT as a runnable v0.5.5 command.
 
-With `--safety on`, every prompt and response is screened by Llama Guard:
+With `safety: enabled: true` in your YAML config (or under the planned v0.6.0+ `--safety on` flag, illustrated for preview only below), every prompt and response is screened by Llama Guard:
 
 ```text
 forgelm> [adversarial prompt]

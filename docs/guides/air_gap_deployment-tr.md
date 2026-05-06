@@ -217,7 +217,7 @@ Evet. `cache-models` ve `cache-tasks` yalnızca ağ + disk + Python ister. `forg
 
 ### "Python paketlerini de bundle'lamam gerekir mi?"
 
-Genellikle, evet. Cache subcommand'ları HF artefaktlarını ele alır; Python wheel'leri (`forgelm` + extra'lar) ayrı bir problemdir. Staging host'ta `pip download forgelm[<extras>] -d ./airgap-bundle/wheels` ve target'ta `pip install --no-index --find-links ./airgap-bundle/wheels forgelm[<extras>]` kullanın.
+Genellikle, evet. Cache subcommand'ları HF artefaktlarını ele alır; Python wheel'leri (`forgelm` + extra'lar) ayrı bir problemdir. Staging host'ta `pip download 'forgelm[eval]' -d ./airgap-bundle/wheels` (veya `pip download 'forgelm[distributed]' -d ./airgap-bundle/wheels`) ve target'ta `pip install --no-index --find-links ./airgap-bundle/wheels 'forgelm[eval]'` (veya `'forgelm[distributed]'`) kullanın. Köşeli parantezleri zsh / bash glob expansion'ından korumak için extra-spec'i tırnak içine alın.
 
 ## Ayrıca
 

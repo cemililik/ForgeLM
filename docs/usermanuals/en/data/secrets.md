@@ -92,7 +92,7 @@ Specific guards:
 - **Context window check** — `AKIA*` only fires if accompanied by a secret-key-shaped neighbour or "aws" context within 100 characters.
 - **Test/example exclusion list** — common dummy values (`AKIAIOSFODNN7EXAMPLE`, `xxx`, `your_key_here`) bypass detection.
 
-For a high-stakes audit (e.g. legal disclosure scan), the test-exclusion list is intentional — review the scan output's `secret_findings_review_notes` (one row per excluded match, with the prose context) so a human can confirm none of the dummies are real secrets in disguise.
+For a high-stakes audit (e.g. legal disclosure scan), the test-exclusion list is intentional — `forgelm audit` records the surviving findings under `AuditReport.secrets_summary` (one count per pattern type), and the per-row JSON output (`--output-format json`, optional `--output-jsonl`) is the canonical surface for prose-level review. Walk that JSON for any pattern-type count > 0 in your high-stakes audit so a human can confirm none of the dummies are real secrets in disguise. (A dedicated `secret_findings_review_notes` envelope is on the v0.6+ roadmap.)
 
 ## Configuration
 

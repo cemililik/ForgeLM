@@ -92,7 +92,7 @@ Spesifik guard'lar:
 - **Bağlam pencere kontrolü** — `AKIA*` sadece secret-key-şeklinde komşu veya 100 karakter içinde "aws" bağlamı varsa tetiklenir.
 - **Test/örnek dışlama listesi** — yaygın dummy değerler (`AKIAIOSFODNN7EXAMPLE`, `xxx`, `your_key_here`) tespiti atlar.
 
-Yüksek-stake audit (ör. yasal açıklama taraması) için test-dışlama listesi bilinçlidir — tarama çıktısının `secret_findings_review_notes` alanını (her dışlanan eşleşme için bir satır, prose context'iyle) inceleyin; bir insan dummy'lerin gizlenmiş gerçek bir secret olmadığını teyit eder.
+Yüksek-stake audit (ör. yasal açıklama taraması) için test-dışlama listesi bilinçlidir — `forgelm audit` hayatta kalan bulguları `AuditReport.secrets_summary` altında kaydeder (pattern türü başına bir sayım) ve prose-seviyesinde inceleme için kanonik yüzey satır başına JSON çıktısıdır (`--output-format json`, opsiyonel `--output-jsonl`). Yüksek-stake audit'inizde sayımı > 0 olan herhangi bir pattern türü için bu JSON'u dolaşın; bir insan dummy'lerin gizlenmiş gerçek bir secret olmadığını teyit etsin. (Özel `secret_findings_review_notes` zarfı v0.6+ yol haritasında.)
 
 ## Konfigürasyon
 

@@ -217,7 +217,7 @@ Yes. `cache-models` and `cache-tasks` only need network + disk + Python. `forgel
 
 ### "Do I need to bundle the Python packages too?"
 
-Often, yes. The cache subcommands handle HF artefacts; Python wheels (`forgelm` + extras) are a separate problem. Use `pip download forgelm[<extras>] -d ./airgap-bundle/wheels` on the staging host and `pip install --no-index --find-links ./airgap-bundle/wheels forgelm[<extras>]` on the target.
+Often, yes. The cache subcommands handle HF artefacts; Python wheels (`forgelm` + extras) are a separate problem. Use `pip download 'forgelm[eval]' -d ./airgap-bundle/wheels` (or `pip download 'forgelm[distributed]' -d ./airgap-bundle/wheels`) on the staging host and `pip install --no-index --find-links ./airgap-bundle/wheels 'forgelm[eval]'` (or `'forgelm[distributed]'`) on the target. Quote the extra-spec to keep zsh / bash from glob-expanding the brackets.
 
 ## See also
 

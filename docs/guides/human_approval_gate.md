@@ -135,7 +135,7 @@ FORGELM_OPERATOR="alice@acme.example" \
 
 ## 5. What the audit chain shows
 
-After approval, three rows describe the gate's full lifecycle (the third is the genesis-bound "approval requested" preamble that pairs with the trainer's `human_approval.required` event for end-to-end correlation):
+After approval, three rows describe the gate's full lifecycle: the first is the trainer's pause event (`human_approval.required`), the second is the reviewer's terminal decision (`human_approval.granted` or `.rejected`), and the third is the post-promotion artefact record (`compliance.artifacts_exported`) that ties the staging directory to the promoted `final_model/` for end-to-end forensic correlation:
 
 ```jsonl
 {"event":"human_approval.required","run_id":"fg-abc123def456","operator":"gha:Acme/pipelines:training:run-42","staging_path":"outputs/run42/final_model.staging.fg-abc123def456","metrics":{...}}
