@@ -6,15 +6,15 @@
 
 | Şablon | EU AI Act Referansı | Amaç |
 |----------|-------------------|---------|
-| [Model Eğitimi SOP](sop_model_training.md) | Md. 17(1)(b)(c)(d) | Fine-tuning onay, yürütme ve doğrulama için standart prosedür |
-| [Veri Yönetimi SOP](sop_data_management.md) | Md. 17(1)(f), Md. 10 | Veri toplama, annotation, kalite güvencesi ve yönetişim |
-| [Olay Yanıtı SOP](sop_incident_response.md) | Md. 17(1)(h)(i) | Model arızalarını, güvenlik olaylarını ve düzeltici eylemleri yönetme |
-| [Değişim Yönetimi SOP](sop_change_management.md) | Md. 17(1)(b)(c) | Versiyonlama, inceleme, onay ve geri alma prosedürleri |
-| [Roller & Sorumluluklar](roles_responsibilities.md) | Md. 17(1)(m) | AI Officer, Data Steward, ML Engineer, Compliance Officer rolleri |
-| [Erişim Kontrolü](access_control.md) | Md. 17(1)(c) + ISO A.5.15-A.8.5 | Operatör kimliği + secret rotasyonu (Wave 4 / Faz 23) |
-| [Encryption at Rest](encryption_at_rest.md) | Md. 17(1)(c) + ISO A.5.33 + A.8.10 + A.8.24 | Substrate-side şifreleme rehberi (Wave 4 / Faz 23) |
-| [Risk Treatment Plan](risk_treatment_plan.md) | Md. 17(1)(c) + ISO A.5.7-A.8.30 | ISO 27005 risk register şablonu (Wave 4 / Faz 23) |
-| [Statement of Applicability](statement_of_applicability.md) | Md. 17(1)(c) + ISO 6.1.3 d) | 93-kontrol uygulanabilirlik matrisi (Wave 4 / Faz 23) |
+| [Model Eğitimi SOP](sop_model_training-tr.md) | Md. 17(1)(b)(c)(d) | Fine-tuning onay, yürütme ve doğrulama için standart prosedür |
+| [Veri Yönetimi SOP](sop_data_management-tr.md) | Md. 17(1)(f), Md. 10 | Veri toplama, annotation, kalite güvencesi ve yönetişim |
+| [Olay Yanıtı SOP](sop_incident_response-tr.md) | Md. 17(1)(h)(i) | Model arızalarını, güvenlik olaylarını ve düzeltici eylemleri yönetme |
+| [Değişim Yönetimi SOP](sop_change_management-tr.md) | Md. 17(1)(b)(c) | Versiyonlama, inceleme, onay ve geri alma prosedürleri |
+| [Roller & Sorumluluklar](roles_responsibilities-tr.md) | Md. 17(1)(m) | AI Officer, Data Steward, ML Engineer, Compliance Officer rolleri |
+| [Erişim Kontrolü](access_control-tr.md) | Md. 17(1)(c) + ISO A.5.15-A.8.5 | Operatör kimliği + secret rotasyonu (Wave 4 / Faz 23) |
+| [Encryption at Rest](encryption_at_rest-tr.md) | Md. 17(1)(c) + ISO A.5.33 + A.8.10 + A.8.24 | Substrate-side şifreleme rehberi (Wave 4 / Faz 23) |
+| [Risk Treatment Plan](risk_treatment_plan-tr.md) | Md. 17(1)(c) + ISO A.5.7-A.8.30 | ISO 27005 risk register şablonu (Wave 4 / Faz 23) |
+| [Statement of Applicability](statement_of_applicability-tr.md) | Md. 17(1)(c) + ISO 6.1.3 d) | 93-kontrol uygulanabilirlik matrisi (Wave 4 / Faz 23) |
 
 ## Nasıl Kullanılır
 

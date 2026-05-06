@@ -107,7 +107,9 @@
 
 **Documented behavior:** Environment check — verifies Python version, PyTorch, CUDA availability, GPU detection, optional dep install status. `--offline` variant checks cached resources for air-gapped deployments.
 
-**Code reality:** No `doctor` in `forgelm/cli/_parser.py`, no `_doctor.py` in `forgelm/cli/subcommands/`. Running `forgelm doctor` exits with "unrecognized arguments".
+**Code reality (2026-05-02 — original analysis):** No `doctor` in `forgelm/cli/_parser.py`, no `_doctor.py` in `forgelm/cli/subcommands/`. Running `forgelm doctor` exits with "unrecognized arguments".
+
+**Status update (post Wave 2a):** GH-001 closed via Phase 34. `forgelm doctor` ships in v0.5.x with `_doctor.py` at `forgelm/cli/subcommands/_doctor.py`; `forgelm doctor --help` lists Python / CUDA / GPU / extras / HF auth / disk / `FORGELM_OPERATOR` checks. The line-604 mention of `_doctor.py` (the `FORGELM_RESUME_TOKEN` defensive secret-mask entry) refers to this same shipped file — both line 110 and line 604 describe the same artefact at different points in time.
 
 **Closure plan:** Not mentioned in any phase.  
 **Roadmap:** Not mentioned in any file under `docs/roadmap/`.

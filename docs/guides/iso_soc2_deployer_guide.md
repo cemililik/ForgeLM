@@ -259,10 +259,15 @@ Things deployers get wrong on their first audit:
    chain implicitly" is not a defensible position. Schedule the
    weekly cron + alert on non-zero exit; have the alert history to
    show the auditor.
-4. **Forgetting the manifest sidecar.** `audit_log.jsonl` alone is
-   insufficient — `forgelm verify-audit` requires the
-   `audit_log.manifest.json` sidecar to detect truncate-and-resume
-   tampering. Back BOTH up.
+4. **Forgetting the manifest sidecar.** `forgelm verify-audit`
+   walks the chain end-to-end without the sidecar (the manifest is
+   not strictly required for the basic chain check), but the
+   sidecar is what surfaces **truncate-and-resume tampering** —
+   when present, the verifier cross-checks the manifest's pinned
+   first-entry SHA-256 + run_id against the live log's first line.
+   Without the manifest, that class of attack lands silently.
+   Back **both** files up to the same write-once substrate for
+   full tamper-detection coverage.
 5. **No `auto_revert` on production training.** If you're betting
    on always-green training, you're a single safety-classifier
    degradation away from a regulator-reportable incident. Enable

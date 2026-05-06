@@ -88,14 +88,16 @@ What the regulator asks vs. how ForgeLM answers:
 
 - Implementation: `forgelm.compliance.AuditLogger` — JSON Lines
   append-only log at `<output_dir>/audit_log.jsonl`, HMAC-chained
-  with a per-run signing key derived as
-  `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)` (see
-  `forgelm/compliance.py:104-114`). The per-output-dir salt at
-  `<output_dir>/.forgelm_audit_salt` is a **distinct primitive** —
-  it salts identifier hashing in `forgelm purge` /
-  `forgelm reverse-pii` events (`_purge._resolve_salt`) and does
-  NOT participate in chain-key derivation. Genesis manifest sidecar
-  (`audit_log.manifest.json`) refuses truncate-and-resume tampering.
+  with a per-run signing key derived inside
+  `AuditLogger.__init__` as `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)`
+  (the writer at `AuditLogger.log_event` and the verifier at
+  `forgelm.compliance.verify_audit_log` mirror the same derivation).
+  The per-output-dir salt at `<output_dir>/.forgelm_audit_salt`
+  is a **distinct primitive** — it salts identifier hashing in
+  `forgelm purge` / `forgelm reverse-pii` events
+  (`_purge._resolve_salt`) and does NOT participate in chain-key
+  derivation. Genesis manifest sidecar (`audit_log.manifest.json`)
+  refuses truncate-and-resume tampering.
 - Verification: `forgelm verify-audit [--require-hmac]` validates
   the chain end-to-end; exits 0/1/2/3.
 

@@ -151,11 +151,12 @@ ForgeLM-specific control inventory.
 | A.8 Technological | 34 | 34 | 0 | 8 | 19 |
 | **Total** | **93** | **93 (deployer ISMS)** | **14 (ForgeLM-specific)** | **11** | **48** |
 
-Row-by-row recount of §3.1–§3.4 (the design-doc table this SoA
-summarises). Per-theme tally — A.5: 3 / 24 / 10 OOS; A.6: 0 / 5 / 3
-OOS; A.7: 0 / 0 / 14 OOS; A.8: 8 / 19 / 7 OOS — sums to 11 `FL` +
-48 `FL-helps` + 34 OOS = 93. Cross-check the design doc's `§3`
-"Coverage tally" paragraph; the two must match.
+Row-by-row recount of §2.1–§2.4 above (the SoA matrix). Per-theme
+tally — A.5: 3 / 24 / 10 OOS; A.6: 0 / 5 / 3 OOS; A.7: 0 / 0 / 14
+OOS; A.8: 8 / 19 / 7 OOS — sums to 11 `FL` + 48 `FL-helps` + 34 OOS
+= 93. Cross-check the design doc's §3 "Coverage tally" paragraph
+(`docs/analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`);
+the two must match.
 
 ## 4. Review
 

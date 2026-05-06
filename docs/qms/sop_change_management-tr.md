@@ -96,16 +96,18 @@ Yeni eğitim koşumu üreten değişimler için (yapılandırma-yalnız
 değişimler vs.), **Madde 14 staging gate** operatörün in-pipeline
 CAB'sıdır:
 
-1. CI eğitim job'u modeli `<output_dir>/staging_model.<run_id>/`'e
-   yerleştirir.
+1. CI eğitim job'u modeli
+   `<output_dir>/final_model.staging.<run_id>/`'e yerleştirir.
 2. `human_approval.required` audit event yangın eder.
-3. Bir reviewer (eğiten DEĞİL) `forgelm approve --run-id <run_id>`
-   çalıştırır.
+3. Bir reviewer (eğiten DEĞİL)
+   `forgelm approve <run_id> --output-dir <output_dir>` çalıştırır
+   (not: `run_id` positional'dır — `--run-id` flag'i yoktur).
 4. `human_approval.granted` audit event yangın eder; model
-   `<output_dir>/final_model/`'e promote olur.
+   atomik rename ile `<output_dir>/final_model/`'e promote olur.
 5. Reddedilirse `human_approval.rejected` event yangın eder; model
-   retention süresi dolana kadar staging'de kalır
-   (`evaluation.approval_retention_days`).
+   forensic inceleme için `final_model.staging.<run_id>/`'de kalır,
+   retention süresi dolana kadar (`retention.staging_ttl_days` —
+   config'te).
 
 Bu, operatöre SOC 2 CC8.1 kanıtı verir: her model promotion
 attribute, çift kontrollü ve forensic olarak kayıtlıdır.

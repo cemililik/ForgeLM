@@ -258,10 +258,15 @@ Operatörlerin ilk denetimlerinde yanlış yaptığı şeyler:
    güveniyoruz" savunulabilir bir pozisyon değildir. Haftalık cron
    + sıfır-olmayan exit'e alarm zamanlayın; alarm geçmişini
    denetçiye gösterin.
-4. **Manifest sidecar'ı unutmak.** `audit_log.jsonl` tek başına
-   yetersizdir — `forgelm verify-audit` truncate-and-resume
-   tampering'ini tespit etmek için `audit_log.manifest.json`
-   sidecar'ı gerektirir. İKİSİNİ DE backup'layın.
+4. **Manifest sidecar'ı unutmak.** `forgelm verify-audit` zinciri
+   sidecar olmadan da uçtan uca yürür (manifest temel chain check
+   için kesin gerekli değildir), ama **truncate-and-resume
+   tampering**'ini ortaya çıkaran şey sidecar'dır — mevcut olduğunda
+   verifier, manifest'in pin'lenmiş first-entry SHA-256 + run_id
+   alanlarını canlı log'un ilk satırıyla çapraz kontrol eder.
+   Manifest olmadan bu saldırı sınıfı sessizce iner. Tam
+   tamper-detection kapsaması için **ikisini de** aynı write-once
+   substrate'e backup'layın.
 5. **Üretim eğitiminde `auto_revert` yok.** Her zaman yeşil
    eğitime bahis koyuyorsanız, regulator-reportable incident'a
    bir safety-classifier degradation'ı uzaktasınız. `auto_revert:

@@ -8,11 +8,11 @@
 ## 1. Amaç
 
 Dağıtılan fine-tuned modeller için güvenlik olaylarını, model
-arızalarını, **güvenlik olaylarını** ve düzeltici eylemleri
-yönetme prosedürünü tanımla. Wave 4 / Faz 23 genişletmesi: §4
-güvenlik-olay playbook'unu (audit-chain integrity, credential leak,
-supply-chain CVE, webhook target compromise, GDPR DSAR'lar) mevcut
-AI-safety olay akışı yanında kapsar.
+arızalarını ve düzeltici eylemleri yönetme prosedürünü tanımla.
+Wave 4 / Faz 23 genişletmesi: §4 güvenlik-olay playbook'unu
+(audit-chain integrity, credential leak, supply-chain CVE, webhook
+target compromise, GDPR DSAR'lar) mevcut AI-safety olay akışı
+yanında kapsar.
 
 ## 2. Olay Sınıflandırması
 

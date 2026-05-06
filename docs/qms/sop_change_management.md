@@ -94,13 +94,15 @@ For changes that produce a new training run (vs. configuration-only
 changes), the **Article 14 staging gate** is the deployer's
 in-pipeline CAB:
 
-1. CI training job lands the model in `<output_dir>/staging_model.<run_id>/`.
+1. CI training job lands the model in `<output_dir>/final_model.staging.<run_id>/`.
 2. `human_approval.required` audit event fires.
-3. A reviewer (NOT the trainer) runs `forgelm approve --run-id <run_id>`.
+3. A reviewer (NOT the trainer) runs `forgelm approve <run_id> --output-dir <output_dir>`
+   (note: `run_id` is positional — `--run-id` is not a flag).
 4. `human_approval.granted` audit event fires; model promotes to
-   `<output_dir>/final_model/`.
+   `<output_dir>/final_model/` via atomic rename.
 5. If rejected, `human_approval.rejected` event fires; model stays
-   in staging until retention expires (`evaluation.approval_retention_days`).
+   in `final_model.staging.<run_id>/` for forensic review until
+   retention expires (`retention.staging_ttl_days` in the config).
 
 This gives a deployer SOC 2 CC8.1 evidence: every model promotion is
 attributed, dual-controlled, and forensically recorded.

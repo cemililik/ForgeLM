@@ -313,9 +313,12 @@ def _build_argparser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Directory (relative to scope-dir) to skip.  Repeatable.  "
-            "Default exclude list strips ``analysis/`` (gitignored research "
-            "tree referencing local-only paths) and ``code_reviews/`` "
-            "(internal review docs).  Pass empty list to scan everything."
+            "Default exclude list strips ``analysis/`` only — the "
+            "gitignored research tree references local-only paths and "
+            "is excluded by default; ``analysis/code_reviews/`` is a "
+            "subdirectory that gets caught transitively.  Passing "
+            "``--exclude`` REPLACES the default (e.g. pass "
+            "``--exclude ''`` or omit the default to scan analysis/ too)."
         ),
     )
     parser.add_argument(
@@ -339,9 +342,13 @@ def _build_argparser() -> argparse.ArgumentParser:
 
 def _resolve_excludes(scope_dir: Path, exclude_arg: list[str] | None) -> tuple[Path, ...]:
     # Default exclude list — `analysis/` is gitignored research with
-    # local-only path references; `code_reviews/` would be too were
-    # it not partially re-allowed in `.gitignore`, but its closure-plan
-    # docs cite real files at line-anchored locations that drift.
+    # local-only path references; `code_reviews/` lives under it and
+    # is caught transitively (its closure-plan docs cite real files at
+    # line-anchored locations that drift).
+    #
+    # Passing --exclude REPLACES the default rather than augmenting it
+    # (call sites that need additional excludes pass the full list,
+    # including ``analysis``); this matches the help-text contract.
     specs: tuple[str, ...]
     if exclude_arg is None:
         specs = ("analysis",)

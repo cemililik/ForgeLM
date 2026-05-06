@@ -90,7 +90,12 @@ Wave 4 / Faz 23 nightly workflow'a `pip-audit` ekler. Davranış:
     notify-failure job'u üzerinden GitHub issue açar).
   - **MEDIUM / MODERATE** → `::warning::` annotation; nightly yeşil
     kalır.
-  - **LOW / UNKNOWN** → sessiz.
+  - **LOW** → sessiz.
+  - **UNKNOWN** → adet + rapor path'ini listeleyen tek bir özet
+    `::warning::` annotation'ı; operator-triage SRE'leri workflow
+    YAML'ını dolaşmadan artefactı grep'leyebilsin diye. Nightly
+    yeşil kalır (pip-audit'in JSON'u severity taşımadığı için
+    gerçek raporlarda çoğu bulgu buraya düşer).
 - OSV / GHSA veritabanlarını kullanır (pip-audit varsayılanı).
 
 Operatörler aynı tooling'i lokalde kurar:
@@ -187,9 +192,9 @@ getirmek için `pip-audit` ve `bandit`'i çeker.
 - [`../guides/iso_soc2_deployer_guide-tr.md`](../guides/iso_soc2_deployer_guide-tr.md) — operatör denetim cookbook'u.
 - [`iso27001_control_mapping-tr.md`](iso27001_control_mapping-tr.md) — ISO 27001 Annex A kontrolleri × ForgeLM kanıtı.
 - [`soc2_trust_criteria_mapping-tr.md`](soc2_trust_criteria_mapping-tr.md) — SOC 2 Trust Services Criteria × ForgeLM kanıtı.
-- [`../qms/risk_treatment_plan.md`](../qms/risk_treatment_plan.md) — pre-populated risk register.
-- [`../qms/sop_change_management.md`](../qms/sop_change_management.md) — change management runbook.
-- [`../qms/sop_incident_response.md`](../qms/sop_incident_response.md) — incident response runbook.
+- [`../qms/risk_treatment_plan-tr.md`](../qms/risk_treatment_plan-tr.md) — pre-populated risk register.
+- [`../qms/sop_change_management-tr.md`](../qms/sop_change_management-tr.md) — change management runbook.
+- [`../qms/sop_incident_response-tr.md`](../qms/sop_incident_response-tr.md) — incident response runbook.
 - `tools/generate_sbom.py` — CycloneDX 1.5 emitter.
 - `tools/check_pip_audit.py` — pip-audit severity gate.
 - `tools/check_bandit.py` — bandit severity gate.

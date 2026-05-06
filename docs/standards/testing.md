@@ -5,7 +5,10 @@
 
 ## Layout
 
-Current structure (67 test modules, one per feature area; ~1410 tests):
+Current structure (post Wave 4 round-2 absorption: ~70 test modules,
+one per feature area; ~1413 tests collected). The tree below is a
+**representative subset** — see `git ls-files tests/` for the full
+inventory:
 
 ```
 tests/
@@ -33,7 +36,12 @@ tests/
 ├── test_cost_estimation.py         # GPU cost heuristics
 ├── test_webhook.py                 # Slack/Teams notifier
 ├── test_distributed.py             # DeepSpeed / FSDP config
-└── test_data_edge_cases.py         # Malformed datasets, edge cases
+├── test_data_edge_cases.py         # Malformed datasets, edge cases
+├── test_supply_chain_security.py   # Wave 4 / Faz 23 — pip-audit + bandit + SBOM
+├── test_check_anchor_resolution.py # Wave 4 / Faz 26 — markdown anchor resolver
+├── test_check_bilingual_parity.py  # Bilingual EN/TR mirror parity
+├── test_gdpr_erasure.py            # GDPR Article 17 (forgelm purge)
+└── …
 ```
 
 **Rules:**

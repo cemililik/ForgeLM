@@ -112,13 +112,13 @@ $ ./main -m model.q4_k_m.gguf -p "Hello, how are you?" -n 256
 
 ## Direct conversion (no quantisation)
 
-For the rare case where you want fp16 GGUF (e.g. for a quantisation-sensitive inference engine):
+For the rare case where you want full-precision GGUF (e.g. for a quantisation-sensitive inference engine):
 
 ```shell
-$ forgelm export ./checkpoints/run --output model.gguf --quant fp16
+$ forgelm export ./checkpoints/run --output model.gguf --quant f16
 ```
 
-The result is full-precision GGUF, ~14 GB for a 7B model.
+The result is full-precision GGUF, ~13 GB for a 7B model.
 
 ## Common pitfalls
 

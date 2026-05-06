@@ -79,8 +79,10 @@ ID'leri sonsuza kadar chain'de kalır. Bir operatör ayrıldığında:
 ### 3.4 `FORGELM_AUDIT_SECRET` rotasyonu
 
 HMAC-chain imzalama anahtarı **audit koşumu başına**
-`SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)` olarak türetilir
-(birleştirme, bkz. `forgelm/compliance.py:104-114`). Not:
+`AuditLogger.__init__` içinde `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)`
+olarak türetilir (birleştirme; verifier
+`forgelm.compliance.verify_audit_log` aynı türetimi byte-byte
+yansıtır). Not:
 `<output_dir>/.forgelm_audit_salt`'ta yazılı per-output-dir salt
 **ayrı bir konu**'dur — `forgelm purge` / `forgelm reverse-pii`
 event'lerindeki tanımlayıcı hash'lemesini salt'lar

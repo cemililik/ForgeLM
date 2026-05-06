@@ -19,10 +19,10 @@ sequenceDiagram
 
     Train->>Eval: Eğitim tamam, eval koştur
     Eval->>Eval: Benchmark + güvenlik geçti
-    Eval->>Audit: "human_approval_request" ekle
+    Eval->>Audit: "human_approval.required" ekle
     Eval->>Approver: Webhook + yapılandırılmış istek
     Approver-->>Eval: Onayı imzala (CLI / webhook callback)
-    Eval->>Audit: İmzalı "human_approval_granted" ekle
+    Eval->>Audit: İmzalı "human_approval.granted" ekle
     Eval->>Output: Checkpoint'i terfi ettir
 ```
 
@@ -90,7 +90,7 @@ Her onay (veya red) `audit_log.jsonl`'a eklenir:
 {
   "ts": "2026-04-29T15:18:42Z",
   "seq": 87,
-  "event": "human_approval_granted",
+  "event": "human_approval.granted",
   "run_id": "abc123",
   "reviewer": "Cemil Ilik <cemil@example>",
   "role": "ml-compliance-lead",
@@ -120,7 +120,7 @@ Her onaylayıcı CLI komutunu bağımsız çalıştırır. Quorum imzaladıktan 
 `timeout_hours` sonrası imzasız koşu yapılandırılmış olayla exit 4 + auto-fail:
 
 ```json
-{"event": "human_approval_timeout", "expired_at": "2026-04-30T14:33:10Z"}
+{"event": "human_approval.timeout", "expired_at": "2026-04-30T14:33:10Z"}
 ```
 
 Varsayılan 48 saat. "Timeout yok — sonsuza kadar bekle" için 0 (CI'da önerilmez).

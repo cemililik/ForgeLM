@@ -87,7 +87,12 @@ def _extract_results(report: dict[str, Any]) -> list[Any] | int:
 
 
 def _classify_issues(results: list[Any]) -> tuple[list[str], list[str], int]:
-    """Bucket issues into (high-lines, medium-lines, undefined-count)."""
+    """Bucket issues into (high-lines, medium-lines, undefined-count).
+
+    ``_format_issue`` is only called for the HIGH / MEDIUM branches —
+    LOW is silent and UNDEFINED surfaces as a single summary count, so
+    formatting LOW / UNDEFINED issues per-finding would be wasted work.
+    """
     high: list[str] = []
     medium: list[str] = []
     undefined_count = 0
@@ -95,11 +100,10 @@ def _classify_issues(results: list[Any]) -> tuple[list[str], list[str], int]:
         if not isinstance(issue, dict):
             continue
         severity = (issue.get("issue_severity") or _UNDEFINED).upper()
-        line = _format_issue(issue)
         if severity == _HIGH:
-            high.append(line)
+            high.append(_format_issue(issue))
         elif severity == _MED:
-            medium.append(line)
+            medium.append(_format_issue(issue))
         elif severity == _UNDEFINED:
             undefined_count += 1
         # LOW is silent; the raw JSON remains in artefacts.

@@ -112,13 +112,13 @@ $ ./main -m model.q4_k_m.gguf -p "Merhaba, nasılsın?" -n 256
 
 ## Doğrudan dönüştürme (kuantizasyon yok)
 
-Nadir olarak fp16 GGUF isterseniz (kuantizasyon-duyarlı bir inference engine için):
+Nadir olarak full-precision GGUF isterseniz (kuantizasyon-duyarlı bir inference engine için):
 
 ```shell
-$ forgelm export ./checkpoints/run --output model.gguf --quant fp16
+$ forgelm export ./checkpoints/run --output model.gguf --quant f16
 ```
 
-Sonuç full-precision GGUF, 7B model için ~14 GB.
+Sonuç full-precision GGUF, 7B model için ~13 GB.
 
 ## Sık hatalar
 

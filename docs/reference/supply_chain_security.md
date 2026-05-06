@@ -90,7 +90,12 @@ Wave 4 / Faz 23 adds `pip-audit` to the nightly workflow. Behaviour:
     via the existing notify-failure job).
   - **MEDIUM / MODERATE** → `::warning::` annotation; nightly stays
     green.
-  - **LOW / UNKNOWN** → silent.
+  - **LOW** → silent.
+  - **UNKNOWN** → single summary `::warning::` annotation listing
+    the count + report path, so operator-triage SREs can grep the
+    artefact without walking the workflow YAML; nightly stays green
+    (pip-audit's JSON does not carry severity, so most findings land
+    here on real reports).
 - Uses the OSV / GHSA databases (pip-audit's default).
 
 Operators install the same tooling locally:
