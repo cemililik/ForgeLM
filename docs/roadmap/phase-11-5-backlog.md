@@ -7,9 +7,9 @@
 >
 > **Status:** ✅ Landed for the (originally) `v0.5.1` cycle. All 12 follow-ups carved
 > out of Phase 11's review backlog have shipped. Modules touched:
-> [`forgelm/data_audit.py`](../../forgelm/data_audit/),
+> [`forgelm/data_audit/`](../../forgelm/data_audit/),
 > [`forgelm/ingestion.py`](../../forgelm/ingestion.py),
-> [`forgelm/cli.py`](../../forgelm/cli/),
+> [`forgelm/cli/`](../../forgelm/cli/),
 > [`forgelm/wizard.py`](../../forgelm/wizard.py); CLI:
 > `forgelm audit <path>` (new subcommand, with `--data-audit` preserved
 > as deprecation alias) + token-aware `forgelm ingest` flags; tests:

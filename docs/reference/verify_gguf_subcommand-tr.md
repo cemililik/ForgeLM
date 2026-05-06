@@ -138,7 +138,7 @@ Meta veri katmanını geri eklemek için isteğe bağlı extra'yı yükleyin: `p
 ## Bkz.
 
 - [`audit_event_catalog.md`](audit_event_catalog.md) — kanonik event sözlüğü.
-- [`verify_audit_subcommand.md`](verify_audit.md) — `audit_log.jsonl` için kardeş doğrulayıcı.
+- [`verify_audit.md`](verify_audit.md) — `audit_log.jsonl` için kardeş doğrulayıcı.
 - [`verify_annex_iv_subcommand.md`](verify_annex_iv_subcommand.md) — Annex IV teknik dokümantasyon artifact'ı için kardeş doğrulayıcı.
 - [GGUF Export kullanım kılavuzu sayfası](../usermanuals/tr/deployment/gguf-export.md) — bu doğrulayıcının tükettiği sidecar'ı yazan üretim tarafına dair operatör-odaklı kılavuz.
 - `forgelm.cli.subcommands._verify_gguf.verify_gguf` — entegratörlerin CLI'dan geçmeden doğrudan çağırdığı kütüphane giriş noktası.

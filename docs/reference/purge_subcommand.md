@@ -28,14 +28,14 @@ The three modes are mutually exclusive (`argparse` enforces a single mode group)
 
 ### Corpus-row erasure (`--row-id`)
 
-Erases a single row identified by its `id` (or `row_id`) field from a JSONL training corpus. Implemented in `forgelm.cli.subcommands._purge._run_row_erasure`.
+Erases a single row identified by its `id` (or `row_id`) field from a JSONL training corpus. Implemented in `forgelm.cli.subcommands._purge._run_purge_row_id`.
 
 | Flag | Required | Description |
 |---|---|---|
 | `--row-id ID` | yes | Identifier to erase. Hashed before audit emission via `forgelm.cli.subcommands._purge._hash_target_id`. |
 | `--corpus PATH` | yes | Single JSONL file. Directory mode is rejected — operators loop in their own script. |
 | `--row-matches {one,all}` | no (default `one`) | `one` refuses on >=2 matches; `all` deletes every match (operator confirms intent). |
-| `--output-dir DIR` | no | Defaults to the parent of `--corpus`. The per-output-dir salt at `<output_dir>/.forgelm_audit_salt` is read here for `target_id` hashing. |
+| `--output-dir DIR` | no | Defaults to the parent of `--corpus`. The per-output-dir salt at `<output_dir>/.forgelm_audit_salt` is read here for `target_id` hashing. The implicit fallback emits a WARNING naming the resolved dir so the operator can pin `--output-dir` for cross-tool correlation with `forgelm reverse-pii`. |
 | `--justification TEXT` | no | Operator-supplied reason recorded on every erasure event. Reference your internal ticket id; do not paste subject identifiers. |
 | `--dry-run` | no | Preview the deletion + emit the audit chain (with `dry_run=true`) without modifying disk. |
 

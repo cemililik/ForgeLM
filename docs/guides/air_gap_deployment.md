@@ -190,7 +190,7 @@ Audit-logger construction is best-effort: a connected staging machine without `F
 
 ### "Doctor passes but the trainer crashes with `local_files_only=True` not finding a model"
 
-The model name in your YAML doesn't match the snapshot in the cache exactly. HF Hub IDs are case-sensitive (`meta-llama/Llama-Guard-3-8B` ≠ `meta-llama/llama-guard-3-8b`). Also: gated models require the same `HF_TOKEN` to be set during `cache-models` as during `forgelm doctor --offline` validates the **presence** of the snapshot, not the **license**.
+The model name in your YAML doesn't match the snapshot in the cache exactly. HF Hub IDs are case-sensitive (`meta-llama/Llama-Guard-3-8B` ≠ `meta-llama/llama-guard-3-8b`). Also: gated models require the same `HF_TOKEN` to be set during `cache-models` as during the actual training run; `forgelm doctor --offline` validates the **presence** of the snapshot, not the **license**.
 
 ### "FORGELM_CACHE_DIR doesn't seem to do anything"
 

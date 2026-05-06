@@ -16,7 +16,7 @@ Air-gap iş akışının ele aldığı üç operatör ağrısı:
 
 ## İki-host iş akışı genel bakış
 
-```
+```text
 ┌─────────────────────────────────┐       ┌────────────────────────────────┐
 │ Bağlı staging host              │       │ Air-gap target host            │
 │                                 │       │                                │

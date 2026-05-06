@@ -245,6 +245,38 @@ class TestForwardReferenceWhitelist:
         rc = tool.main(["--repo-root", str(tmp_path), "--scope", "docs", "--strict"])
         assert rc == 0
 
+    def test_bare_planned_substring_in_unrelated_prose_does_not_skip(self, tmp_path: Path, tool, capsys):
+        # F-W5-01 absorption: bare ``planned`` (or ``future`` /
+        # ``roadmap``) inside unrelated prose must NOT whitelist
+        # surrounding code-block drift.  The marker tuple is anchored
+        # to whole-phrase forms for exactly this reason.
+        scope = tmp_path / "docs"
+        _write(
+            scope / "guide.md",
+            (
+                "# Chat\n\n"
+                "Useful when planned attacks are evaluated:\n\n"
+                "```bash\nforgelm chat ./model --top-p 0.9\n```\n"
+            ),
+        )
+        rc = tool.main(["--repo-root", str(tmp_path), "--scope", "docs", "--strict"])
+        assert rc == 1, "bare 'planned' must NOT whitelist drift"
+        out = capsys.readouterr().out
+        assert "--top-p" in out
+
+    def test_forward_ref_outside_three_line_window_does_not_skip(self, tmp_path: Path, tool, capsys):
+        # F-W5-TR-01 absorption: a forward-reference marker more than
+        # ±3 lines from the block must NOT taint that block.  Buries
+        # the marker 8 lines before the fence.
+        scope = tmp_path / "docs"
+        body = (
+            "# Chat\n\n"
+            "> Note: --top-p is planned for v0.6.0+\n\n" + "\n" * 8 + "```bash\nforgelm chat ./model --top-p 0.9\n```\n"
+        )
+        _write(scope / "guide.md", body)
+        rc = tool.main(["--repo-root", str(tmp_path), "--scope", "docs", "--strict"])
+        assert rc == 1, ">±3-line forward-ref window must NOT skip the block"
+
 
 class TestAntiPatternWhitelist:
     def test_wrong_tagged_block_skipped(self, tmp_path: Path, tool, capsys):
@@ -256,7 +288,7 @@ class TestAntiPatternWhitelist:
         rc = tool.main(["--repo-root", str(tmp_path), "--scope", "docs", "--strict"])
         assert rc == 0
 
-    def test_yanlis_tagged_block_skipped(self, tmp_path: Path, tool):
+    def test_yanlis_tagged_block_skipped(self, tmp_path: Path, tool, capsys):
         # Turkish anti-pattern marker.
         scope = tmp_path / "docs"
         _write(
@@ -265,6 +297,26 @@ class TestAntiPatternWhitelist:
         )
         rc = tool.main(["--repo-root", str(tmp_path), "--scope", "docs", "--strict"])
         assert rc == 0
+
+    def test_wrong_block_does_not_taint_subsequent_block(self, tmp_path: Path, tool, capsys):
+        # F-W5-TR-01 absorption: a ``Wrong:`` marker scopes to ONE
+        # block. The next block in the same doc must still be scanned
+        # — a regression to a sticky "wrong-block mode" would silently
+        # whitelist every later real invocation.
+        scope = tmp_path / "docs"
+        _write(
+            scope / "guide.md",
+            (
+                "# Chat\n\nWrong:\n"
+                "```bash\nforgelm chat ./model --top-p 0.9\n```\n"
+                "\nCorrect form:\n\n"
+                "```bash\nforgelm chat ./model --top-p 0.9\n```\n"
+            ),
+        )
+        rc = tool.main(["--repo-root", str(tmp_path), "--scope", "docs", "--strict"])
+        assert rc == 1, "Wrong: marker must scope to one block; next block must scan"
+        out = capsys.readouterr().out
+        assert "--top-p" in out
 
 
 # ---------------------------------------------------------------------------

@@ -69,7 +69,7 @@ $ jq '.cross_split_overlap.pairs[]' audit/data_audit_report.json | head
 
 1. **Re-split the data**, this time grouping at the source level (don't split paraphrases, group documents). Use the `--group-by` flag in your splitter.
 2. **Re-extract** if leakage came from duplicate ingestion (the same FAQ ingested twice).
-3. **Remove** the leaked rows from the smaller split via the `audit.leakage_check.remove_cross_split_overlap` YAML knob — see the configuration block below — then re-run `forgelm audit` to regenerate the cleaned splits.
+3. **Remove** the leaked rows from the smaller split manually (the audit JSON envelope's `leakage.cross_split_overlap` array names every duplicate row id). Pipe through `jq` to strip them out, then re-run `forgelm audit` to confirm the chain re-passes. There is no auto-remove knob in v0.5.5 — adding one is on the roadmap, but until it ships the explicit `jq` step keeps the deletion auditable.
 
 ## Configuration
 

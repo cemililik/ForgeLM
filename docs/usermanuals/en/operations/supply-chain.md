@@ -5,7 +5,7 @@ description: Operator surface for ForgeLM's SBOM + pip-audit + bandit pipeline �
 
 # Supply Chain
 
-ForgeLM emits a CycloneDX 1.5 SBOM per release, runs `pip-audit` nightly, and runs `bandit` on every PR. This page is the operator's mental model: what runs when, where to get the artefacts, and how to mirror the same checks locally.
+ForgeLM emits a CycloneDX 1.5 SBOM per release tag, and runs `pip-audit` + `bandit` nightly via the `nightly.yml` workflow (also re-run on every release-tag publish). This page is the operator's mental model: what runs when, where to get the artefacts, and how to mirror the same checks locally.
 
 ## What runs when
 
@@ -13,7 +13,7 @@ ForgeLM emits a CycloneDX 1.5 SBOM per release, runs `pip-audit` nightly, and ru
 |---|---|---|---|
 | Release tag (`v*`) | `tools/generate_sbom.py` | One CycloneDX 1.5 JSON per (OS × Python-version) cell, attached to the GitHub release | SBOM step is pure-stdlib; cannot silently degrade a green release matrix |
 | Nightly 03:00 UTC | `pip-audit` (via `tools/check_pip_audit.py`) | OSV / GHSA scan against installed deps | HIGH/CRITICAL → exit 1 + GitHub issue; MEDIUM → `::warning::`; LOW → silent |
-| Every PR + main push | `bandit` (via `tools/check_bandit.py`) | Static security scan of `forgelm/` (excludes `tests/`) | HIGH → exit 1; MEDIUM → `::warning::`; LOW → silent |
+| Nightly 03:00 UTC + release tag | `bandit` (via `tools/check_bandit.py`) | Static security scan of `forgelm/` (excludes `tests/`) | HIGH → exit 1; MEDIUM → `::warning::`; LOW → silent |
 
 ## Where to get the SBOM
 

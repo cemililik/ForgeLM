@@ -181,7 +181,7 @@ GaLore trades memory for compute. The projection matrix multiplication is real o
 
 ### "Profiling says my hot path is the dataloader"
 
-Check `dataloader_num_workers` (in your training config) and the format-detection cost of `prepare_dataset`. JSONL is slower than parquet for large corpora; consider a one-off `forgelm audit --output-format parquet` to convert.
+Check `dataloader_num_workers` (in your training config) and the format-detection cost of `prepare_dataset`. JSONL is slower than parquet for large corpora; v0.5.5 only emits text/JSON via `forgelm audit --output-format {text,json}`, so convert one-off with `python -c "import pandas as pd; pd.read_json('audit.jsonl', lines=True).to_parquet('audit.parquet')"` (or any equivalent `pandas`/`pyarrow` step).
 
 ## See also
 

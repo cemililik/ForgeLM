@@ -181,7 +181,7 @@ GaLore belleği compute ile takas eder. Projeksiyon matris çarpımı gerçek ov
 
 ### "Profiling hot path'imin dataloader olduğunu söylüyor"
 
-`dataloader_num_workers`'ı (eğitim config'inizde) ve `prepare_dataset`'in format-detection maliyetini kontrol edin. JSONL büyük corpus'lar için parquet'ten yavaştır; tek seferlik bir `forgelm audit --output-format parquet` ile dönüştürmeyi düşünün.
+`dataloader_num_workers`'ı (eğitim config'inizde) ve `prepare_dataset`'in format-detection maliyetini kontrol edin. JSONL büyük corpus'lar için parquet'ten yavaştır; v0.5.5 yalnızca `forgelm audit --output-format {text,json}` üzerinden text/JSON yayar, dolayısıyla tek seferlik dönüşümü `python -c "import pandas as pd; pd.read_json('audit.jsonl', lines=True).to_parquet('audit.parquet')"` (veya eşdeğer `pandas`/`pyarrow` adımı) ile yapın.
 
 ## Ayrıca bakınız
 

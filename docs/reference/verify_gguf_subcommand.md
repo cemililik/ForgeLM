@@ -138,7 +138,7 @@ Install the optional extra to add the metadata layer back: `pip install gguf`.
 ## See also
 
 - [`audit_event_catalog.md`](audit_event_catalog.md) — canonical event vocabulary.
-- [`verify_audit_subcommand.md`](verify_audit.md) — companion verifier for `audit_log.jsonl`.
+- [`verify_audit.md`](verify_audit.md) — companion verifier for `audit_log.jsonl`.
 - [`verify_annex_iv_subcommand.md`](verify_annex_iv_subcommand.md) — companion verifier for the Annex IV technical-documentation artifact.
 - [GGUF Export usermanual page](../usermanuals/en/deployment/gguf-export.md) — operator-facing primer on the production side that writes the sidecar this verifier consumes.
 - `forgelm.cli.subcommands._verify_gguf.verify_gguf` — the library entry point integrators call directly without going through the CLI.

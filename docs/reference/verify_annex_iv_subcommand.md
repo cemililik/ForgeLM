@@ -114,7 +114,7 @@ $ echo $?
 ## See also
 
 - [`audit_event_catalog.md`](audit_event_catalog.md) — `compliance.artifacts_exported` (Article 11 + Annex IV) and the rest of the canonical event vocabulary.
-- [`verify_audit_subcommand.md`](verify_audit.md) — companion verifier for `audit_log.jsonl`.
+- [`verify_audit.md`](verify_audit.md) — companion verifier for `audit_log.jsonl`.
 - [`verify_gguf_subcommand.md`](verify_gguf_subcommand.md) — companion verifier for exported GGUF artefacts.
 - [Annex IV usermanual page](../usermanuals/en/compliance/annex-iv.md) — operator-facing primer that includes a full quick-start example.
 - `forgelm.compliance.build_annex_iv_artifact` and `forgelm.compliance.compute_annex_iv_manifest_hash` — the writer-side counterparts to this verifier.

@@ -28,14 +28,14 @@ forgelm purge --check-policy --config PATH [--output-dir DIR]
 
 ### Corpus-satır silme (`--row-id`)
 
-JSONL eğitim corpus'undan `id` (veya `row_id`) field'ı ile tanımlanan tek bir satırı siler. `forgelm.cli.subcommands._purge._run_row_erasure` içinde uygulanır.
+JSONL eğitim corpus'undan `id` (veya `row_id`) field'ı ile tanımlanan tek bir satırı siler. `forgelm.cli.subcommands._purge._run_purge_row_id` içinde uygulanır.
 
 | Flag | Zorunlu | Açıklama |
 |---|---|---|
 | `--row-id ID` | evet | Silinecek identifier. Audit emisyonundan önce `forgelm.cli.subcommands._purge._hash_target_id` üzerinden hash'lenir. |
 | `--corpus PATH` | evet | Tek bir JSONL dosyası. Dizin modu reddedilir — operatörler kendi script'lerinde döngü kurar. |
 | `--row-matches {one,all}` | hayır (varsayılan `one`) | `one` >=2 eşleşmede reddeder; `all` her eşleşmeyi siler (operatör niyeti onaylar). |
-| `--output-dir DIR` | hayır | `--corpus`'un parent'ına default'lar. Per-output-dir salt `<output_dir>/.forgelm_audit_salt`'ta `target_id` hash'leme için okunur. |
+| `--output-dir DIR` | hayır | `--corpus`'un parent'ına default'lar. Per-output-dir salt `<output_dir>/.forgelm_audit_salt`'ta `target_id` hash'leme için okunur. Implicit fallback, `forgelm reverse-pii` ile cross-tool korelasyon için operatörün `--output-dir`'i sabitleyebilmesi adına çözülen dizini adlandıran bir WARNING yayar. |
 | `--justification TEXT` | hayır | Operatör-sağlanan, her erasure event'ına yazılan sebep. Dahili ticket id'nizi referans verin; subject identifier yapıştırmayın. |
 | `--dry-run` | hayır | Silmeyi önizler + audit zincirini (`dry_run=true` ile) yayar; disk'e dokunmaz. |
 

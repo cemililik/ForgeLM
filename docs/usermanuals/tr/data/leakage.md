@@ -69,7 +69,7 @@ $ jq '.cross_split_overlap.pairs[]' audit/data_audit_report.json | head
 
 1. **Veriyi yeniden bölün**, bu sefer kaynak seviyesinde gruplayarak (parafraz'ları bölmeyin, dokümanları gruplayın). Splitter'ınızda `--group-by` bayrağı kullanın.
 2. **Yeniden çıkarma** sızıntı tekrar ingest'ten geliyorsa (aynı FAQ iki kez ingest edilmiş).
-3. **Kaldırma** küçük split'ten sızdıran satırları, `audit.leakage_check.remove_cross_split_overlap` YAML knob'u ile — aşağıdaki konfigürasyon bloğuna bakın — sonra `forgelm audit`'i tekrar koşturarak temizlenmiş split'leri yeniden üretin.
+3. **Kaldırma** küçük split'ten sızdıran satırları manuel olarak (audit JSON zarfının `leakage.cross_split_overlap` dizisi her duplicate satır id'sini adlandırır). `jq` ile süzüp çıkarın, sonra `forgelm audit`'i yeniden koşturarak zincirin temiz geçtiğini doğrulayın. v0.5.5'te otomatik kaldırma knob'u yoktur — yol haritasında bulunsa da gelene kadar açık `jq` adımı silmeyi denetlenebilir tutar.
 
 ## Konfigürasyon
 

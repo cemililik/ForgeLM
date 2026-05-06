@@ -114,7 +114,7 @@ $ echo $?
 ## Bkz.
 
 - [`audit_event_catalog.md`](audit_event_catalog.md) — `compliance.artifacts_exported` (Madde 11 + Annex IV) ve kanonik event sözlüğünün geri kalanı.
-- [`verify_audit_subcommand.md`](verify_audit.md) — `audit_log.jsonl` için kardeş doğrulayıcı.
+- [`verify_audit.md`](verify_audit.md) — `audit_log.jsonl` için kardeş doğrulayıcı.
 - [`verify_gguf_subcommand.md`](verify_gguf_subcommand.md) — export edilmiş GGUF artifact'ları için kardeş doğrulayıcı.
 - [Annex IV kullanım kılavuzu sayfası](../usermanuals/tr/compliance/annex-iv.md) — tam hızlı başlangıç örneği içeren operatör-odaklı kılavuz.
 - `forgelm.compliance.build_annex_iv_artifact` ve `forgelm.compliance.compute_annex_iv_manifest_hash` — bu doğrulayıcının yazıcı tarafındaki muadilleri.

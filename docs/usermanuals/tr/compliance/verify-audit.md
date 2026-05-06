@@ -112,7 +112,7 @@ Her iki durumda da çıkış kodu `1`'dir. Log'u kanıt saymadan önce inceleyin
 :::
 
 :::warn
-**`verify-audit`'i, log'u yazan ana makinede ayrı bir sır olmadan çalıştırmak.** Saldırganın hem yazma erişimi hem HMAC sırrı varsa HMAC ek bir savunma katmaz. Log'u, sırrı emanet altında tutan ayrı bir doğrulayıcı host'a gönderin.
+**`verify-audit`'i, log'u yazan ana makinede secret-host ayrımı olmadan çalıştırmak.** Saldırganın hem yazma erişimi hem HMAC sırrı varsa HMAC ek bir savunma katmaz. Log'u, sırrı yazıcı host'un okuyamadığı bir KMS veya HSM içinde tutan ayrı bir doğrulayıcı host'a gönderin.
 :::
 
 :::warn

@@ -144,7 +144,7 @@ Install with `pip install gguf` to add the metadata layer back. This matches the
 :::
 
 :::warn
-**Skipping the metadata layer in CI by not installing `gguf`.** The metadata parse catches truncation that the magic + sidecar layers may not — a file that lost its tail bytes after the sidecar was generated would still match SHA-256 but fail the metadata reader. Install `gguf` in your CI image.
+**Skipping the metadata layer in CI by not installing `gguf`.** The metadata parse catches truncation that the magic-header check cannot. The SHA-256 sidecar will of course flag any byte change — including truncation — but only if it was generated *after* the truncation; a sidecar produced from the original full file is still on disk for an attacker to reuse against a truncated upload, and the magic header alone won't catch the truncation. Install `gguf` in your CI image so the metadata reader can reject malformed/truncated files independently of the sidecar.
 :::
 
 :::tip

@@ -44,7 +44,8 @@ graph LR
     P11 --> P115[Faz 11.5<br/>Yutma<br/>Cilası]
     P115 --> P12[Faz 12<br/>Veri Curation<br/>Olgunlaşması]
     P12 --> P125[Faz 12.5<br/>Veri Curation<br/>Follow-up]
-    P12 --> P14[Faz 14<br/>Pipeline<br/>Zincirleri]
+    P125 --> P126[Faz 12.6<br/>Kapanış<br/>Döngüsü]
+    P126 --> P14[Faz 14<br/>Pipeline<br/>Zincirleri]
     P14 --> P13[Faz 13<br/>Pro CLI<br/>+ Dashboard]
 
     P10 -.-> V1[v0.4.0]
@@ -53,6 +54,7 @@ graph LR
     P115 -.-> V2
     P12 -.-> V2
     P125 -.-> V2
+    P126 -.-> V25[v0.5.5]
     P14 -.-> V23[v0.6.0]
     P13 -.-> V3[v0.6.0-pro]
 

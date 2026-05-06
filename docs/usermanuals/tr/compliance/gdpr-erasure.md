@@ -69,7 +69,7 @@ forgelm reverse-pii --query "alice@example.com" --type email \
     --salt-source per_dir --output-dir ./outputs data/*.jsonl
 ```
 
-### Neyi kaydeder
+### `reverse-pii` neyi kaydeder
 
 Çağrı başına bir event (bkz. katalog):
 

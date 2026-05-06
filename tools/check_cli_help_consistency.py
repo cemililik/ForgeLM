@@ -243,17 +243,39 @@ _BASH_LANG_TAGS: frozenset[str] = frozenset({"bash", "shell", "sh", "console", "
 
 # Forward-reference markers that whitelist a code block as
 # "documenting planned future work".  Lower-cased before match.
+#
+# The markers are anchored to whole-phrase forms — bare substrings
+# like "planned" or "future" are deliberately omitted because they
+# match unrelated prose ("planned attacks", "future work" as a
+# generic pointer, "roadmap-driven design") and would silently
+# disable the gate for any code block within the ±3-line window.
+# Each token below either includes context ("is planned", "in the
+# roadmap"), is a versioned hard tag ("v0.6.0+"), or is an explicit
+# parenthetical ("(planned)").
 _FORWARD_REF_MARKERS: tuple[str, ...] = (
-    "planned",
-    "roadmap",
-    "future",
-    "not in v0.5.5",
+    "is planned",
+    "are planned",
+    "planned for",
+    "planning to",
     "(planned)",
+    "in the roadmap",
+    "see roadmap",
+    "see the roadmap",
+    "future release",
+    "future version",
+    "in a future",
+    "not in v0.5",
+    "not in v0.5.5",
     "# v0.6.0",
     "v0.6+",
     "v0.6.0+",
     "to be implemented",
     "not yet implemented",
+    # Turkish equivalents — bilingual-doc fixture parity.
+    "planlanan",
+    "yol haritası",
+    "yol haritasında",
+    "ileride",
 )
 
 # "Wrong / Don't / Anti-pattern" tags — when the immediately-preceding

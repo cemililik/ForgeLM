@@ -69,16 +69,7 @@ avoid runtime crashes.
 
 ## Output formats
 
-By default, `forgelm ingest` emits the `instructions` format with synthetic prompts:
-
-```json
-{"prompt": "Summarise the following passage.", "completion": "Section 4.2 of the policy specifies…", "metadata": {"source": "policy.pdf", "chunk": 17}}
-```
-
-`forgelm ingest` emits raw chunks (`{"text": "..."}` JSONL) — there is no `--format` flag in v0.5.5. Operators that want
-synthetic-prompt or Q&A datasets layer that as a downstream step
-(see [Synthetic Data](#/data/synthetic-data)) against the raw JSONL
-this command produces:
+`forgelm ingest` emits raw chunks (`{"text": "..."}` JSONL). There is no `--format` flag in v0.5.5 — the only choice is `--output-format {text,json}` for the **summary report** (chunk count, format breakdown, dropped-row reasons), not for the chunk records themselves, which are always raw `text` JSONL. Operators that want synthetic-prompt or Q&A datasets layer that as a downstream step (see [Synthetic Data](#/data/synthetic-data)) against the raw JSONL this command produces:
 
 ```json
 {"text": "Section 4.2: All payment processing must comply with PCI-DSS standards…", "metadata": {"source": "policy.pdf", "chunk": 17}}

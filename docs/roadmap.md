@@ -44,7 +44,8 @@ graph LR
     P11 --> P115[Phase 11.5<br/>Ingestion<br/>Polish]
     P115 --> P12[Phase 12<br/>Data Curation<br/>Maturity]
     P12 --> P125[Phase 12.5<br/>Data Curation<br/>Follow-up]
-    P12 --> P14[Phase 14<br/>Pipeline<br/>Chains]
+    P125 --> P126[Phase 12.6<br/>Closure<br/>Cycle]
+    P126 --> P14[Phase 14<br/>Pipeline<br/>Chains]
     P14 --> P13[Phase 13<br/>Pro CLI<br/>+ Dashboard]
 
     P10 -.-> V1[v0.4.0]
@@ -53,6 +54,7 @@ graph LR
     P115 -.-> V2
     P12 -.-> V2
     P125 -.-> V2
+    P126 -.-> V25[v0.5.5]
     P14 -.-> V23[v0.6.0]
     P13 -.-> V3[v0.6.0-pro]
 

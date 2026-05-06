@@ -17,7 +17,7 @@ Current version lives in [`pyproject.toml`](../../pyproject.toml) line 7 (single
 
 ### Pre-releases
 
-Current version is `0.3.1rc1` — pre-1.0 using release candidate suffixes.
+Current version is `0.5.5` (per `pyproject.toml`) — pre-1.0; release-candidate suffixes (`0.5.5rc1`, `0.5.5rc2`, …) are used during the rc window.
 
 - `0.4.0rc1`, `0.4.0rc2`, ... — for PyPI distribution while collecting feedback
 - `0.4.0` — final release after rcN is stable
@@ -356,7 +356,7 @@ from importlib.metadata import version
 forgelm_version = version("forgelm")
 ```
 
-**Not** via `forgelm.__version__` — it's not set, intentionally. Single source of truth is `pyproject.toml`, and `importlib.metadata` reads it at install time.
+Both `forgelm.__version__` (re-exported from `forgelm/_version.py`, which itself reads `importlib.metadata` at install time) and `importlib.metadata.version("forgelm")` work; they return the same string. `pyproject.toml` remains the single source of truth — the dunder is a thin wrapper around the metadata lookup, alongside the decoupled `forgelm.__api_version__` for Library API contract pinning.
 
 ## Related
 

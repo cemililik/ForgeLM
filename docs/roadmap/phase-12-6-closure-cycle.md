@@ -120,7 +120,7 @@ Faz 30 full sweep: residual ghost-feature drift (GH-011 benchmarks, GH-016 `--ex
 
 The actual v0.5.5 PyPI publish:
 
-1. `pyproject.toml` `version = "0.5.5"` (currently `0.5.1rc1`)
+1. `pyproject.toml` `version = "0.5.5"` — already bumped during Wave 5 Task D (`4610dc6`) so `check_site_claims.py --strict` can pin the site → code version parity. Faz 33 only confirms it remains `0.5.5` and adds the date to the `[0.5.5]` CHANGELOG section.
 2. CHANGELOG `[Unreleased]` → `[0.5.5] — YYYY-MM-DD`
 3. `git tag -s v0.5.5 -m "v0.5.5 — Closure Cycle Bundle"`
 4. `git push origin main v0.5.5`

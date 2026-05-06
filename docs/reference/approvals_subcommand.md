@@ -23,12 +23,12 @@ forgelm approvals --show RUN_ID --output-dir DIR
 |---|---|---|
 | `--pending` | one of | List every run whose audit log carries a `human_approval.required` event without a matching terminal decision (`granted` / `rejected`). |
 | `--show RUN_ID` | one of | Print the full approval-gate audit chain (request → decision) plus the on-disk staging directory layout for one run. |
-| `--output-dir DIR` | yes | Training output directory containing `audit_log.jsonl` and `final_model.staging/`. |
+| `--output-dir DIR` | yes | Training output directory containing `audit_log.jsonl` and the per-run `final_model.staging.<run_id>/` payload (the trainer emits the run-id-suffixed form; an older run-id-less `final_model.staging/` layout is honoured as a backwards-compat fallback). |
 | `--output-format {text,json}` | no (default `text`) | `json` prints exactly one structured object on stdout for CI consumers. |
 
 ## What `--pending` does
 
-Implemented in `forgelm.cli.subcommands._approvals._handle_pending`:
+Implemented in `forgelm.cli.subcommands._approvals._run_approvals_list_pending`:
 
 1. Verifies `audit_log.jsonl` exists and is readable (delegates to the same `_assert_audit_log_readable_or_exit` helper as `forgelm approve`).
 2. Walks the chain looking for `human_approval.required` events.
@@ -54,7 +54,7 @@ Sample JSON envelope:
 
 ## What `--show RUN_ID` does
 
-Implemented in `forgelm.cli.subcommands._approvals._handle_show`:
+Implemented in `forgelm.cli.subcommands._approvals._run_approvals_show`:
 
 1. Same audit-log readability gate as `--pending`.
 2. Replays every event for the supplied `run_id` (`human_approval.required`, `human_approval.granted`, `human_approval.rejected`).

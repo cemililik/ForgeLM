@@ -69,7 +69,7 @@ forgelm reverse-pii --query "alice@example.com" --type email \
     --salt-source per_dir --output-dir ./outputs data/*.jsonl
 ```
 
-### What gets recorded
+### What `reverse-pii` records
 
 One event per invocation (see catalog):
 

@@ -144,7 +144,7 @@ Meta veri katmanını geri eklemek için `pip install gguf` ile yükleyin. Bu, p
 :::
 
 :::warn
-**`gguf`'u yüklememekle CI'da meta veri katmanını atlamak.** Meta veri ayrıştırması, magic + sidecar katmanlarının yakalayamayabileceği kesilmeleri yakalar — sidecar üretildikten sonra kuyruk baytlarını kaybeden bir dosya SHA-256'da eşleşir ama meta veri okuyucuda başarısız olur. CI imajınızda `gguf`'u yükleyin.
+**`gguf`'u yüklememekle CI'da meta veri katmanını atlamak.** Meta veri ayrıştırması, sadece magic-header kontrolünün yakalayamayacağı kesilmeleri yakalar. SHA-256 sidecar elbette herhangi bir bayt değişikliğini — kesilme dahil — bayraklar; ancak yalnızca *kesilmeden sonra* üretilmişse. Orijinal tam dosyadan üretilen bir sidecar hâlâ diskte durabilir ve saldırgan kesilmiş bir yüklemeye karşı yeniden kullanabilir; magic header tek başına bunu yakalamaz. Sidecar'dan bağımsız olarak meta veri okuyucu bozuk/kesilmiş dosyaları reddedebilsin diye CI imajınıza `gguf`'u kurun.
 :::
 
 :::tip

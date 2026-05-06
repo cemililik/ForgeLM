@@ -112,7 +112,7 @@ Either way, exit code is `1`. Investigate before treating the log as evidence.
 :::
 
 :::warn
-**Running `verify-audit` on the same host that wrote the log without a separate secret.** If the attacker has write access AND the HMAC secret, HMAC adds no defence. Ship the log to a separate verifier host that holds the secret in escrow.
+**Running `verify-audit` on the same host that wrote the log without secret-host separation.** If the attacker has write access AND the HMAC secret, HMAC adds no defence. Ship the log to a separate verifier host that holds the secret in a KMS or HSM the writer host cannot read.
 :::
 
 :::warn

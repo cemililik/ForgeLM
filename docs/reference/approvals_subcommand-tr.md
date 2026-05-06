@@ -23,12 +23,12 @@ forgelm approvals --show RUN_ID --output-dir DIR
 |---|---|---|
 | `--pending` | birinden biri | Audit log'unda eşleşen terminal karar (`granted` / `rejected`) bulunmayan `human_approval.required` event'i taşıyan tüm koşumları listeler. |
 | `--show RUN_ID` | birinden biri | Tek bir koşum için tam approval-gate audit zincirini (talep → karar) artı on-disk staging dizin yapısını yazdırır. |
-| `--output-dir DIR` | evet | `audit_log.jsonl` ve `final_model.staging/` içeren training output dizini. |
+| `--output-dir DIR` | evet | `audit_log.jsonl` ve koşum başına `final_model.staging.<run_id>/` payload'ını içeren training output dizini (trainer run-id'li formu yayar; eski run-id'siz `final_model.staging/` düzeni geriye uyumlu fallback olarak korunur). |
 | `--output-format {text,json}` | hayır (varsayılan `text`) | `json`, CI tüketicileri için stdout'a tam olarak bir yapısal nesne yazdırır. |
 
 ## `--pending` ne yapar
 
-`forgelm.cli.subcommands._approvals._handle_pending` içinde uygulanır:
+`forgelm.cli.subcommands._approvals._run_approvals_list_pending` içinde uygulanır:
 
 1. `audit_log.jsonl`'in var olduğunu ve okunabilir olduğunu doğrular (`forgelm approve` ile aynı `_assert_audit_log_readable_or_exit` helper'ına delege eder).
 2. Zinciri `human_approval.required` event'leri için tarar.
@@ -54,7 +54,7 @@ fg-def456abc789   1d    2026-04-29T14:12:55+00:00  present
 
 ## `--show RUN_ID` ne yapar
 
-`forgelm.cli.subcommands._approvals._handle_show` içinde uygulanır:
+`forgelm.cli.subcommands._approvals._run_approvals_show` içinde uygulanır:
 
 1. `--pending` ile aynı audit-log okunabilirlik kapısı.
 2. Verilen `run_id` için her event'i replay eder (`human_approval.required`, `human_approval.granted`, `human_approval.rejected`).

@@ -1,16 +1,18 @@
 # ForgeLM user-manual structure.
 #
+# Localization policy (formalised in docs/standards/localization.md): EN + TR
+# are mandatory for every page. DE / FR / ES / ZH are deferred — pages missing
+# in a deferred language fall back to the EN source at build time and the
+# generated record is marked `fallback: true` so the site can show a
+# "translation pending" banner. Title strings, however, are required in all
+# six languages (titles drive the navigation tree itself).
+#
 # This file defines the navigation tree for the user guide on the website.
 # Source content lives under docs/usermanuals/<lang>/<section-id>/<page-id>.md
 # and is compiled by tools/build_usermanuals.py into site/js/usermanuals/<lang>.js.
 #
 # `id` values must be lowercase, kebab-case, ASCII — they form URL fragments
 # and filesystem paths.
-#
-# Page titles must exist for every supported language (en, tr, de, fr, es, zh).
-# If a page's source markdown is missing for a language at build time, the
-# English source is used as a fallback and the generated record is marked
-# `fallback: true` so the site can show a "translation pending" banner.
 
 languages: [en, tr, de, fr, es, zh]
 default_language: en
@@ -562,6 +564,14 @@ sections:
           fr: Modèles YAML
           es: Plantillas YAML
           zh: YAML 模板
+      - id: json-output
+        title:
+          en: JSON Output Schemas
+          tr: JSON Çıktı Şemaları
+          de: JSON-Ausgabeschemata
+          fr: Schémas de sortie JSON
+          es: Esquemas de salida JSON
+          zh: JSON 输出模式
       - id: library-api
         title:
           en: Library API

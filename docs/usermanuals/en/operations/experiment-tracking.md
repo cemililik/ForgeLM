@@ -126,7 +126,8 @@ $ for v in v1.0 v1.1 v1.2; do
 The dedicated `forgelm compare-runs` UX (planned v0.6.0+, NOT runnable today):
 
 ```text
-$ forgelm compare-runs runs/v1.0 runs/v1.1 runs/v1.2
+# preview (planned v0.6.0+ Pro CLI — NOT runnable today)
+forgelm compare-runs runs/v1.0 runs/v1.1 runs/v1.2
                   v1.0    v1.1    v1.2
 hellaswag        0.612   0.617   0.621
 truthfulqa       0.480   0.482   0.475   ↓
