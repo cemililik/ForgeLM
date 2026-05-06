@@ -152,7 +152,7 @@ audit:
 
 **Sebep:** YAML'da gerekli `compliance:` alanları ayarlanmamış.
 
-**Çözüm:** `forgelm verify-annex-iv path/to/annex_iv.json` ile eksik alan listesini alın.
+**Çözüm:** `forgelm verify-annex-iv path/to/annex_iv_metadata.json` ile eksik alan listesini alın (ForgeLM'in yazdığı kanonik dosya adı — bkz. [Annex IV](#/compliance/annex-iv)).
 
 ## Webhook'lar fırlamıyor
 

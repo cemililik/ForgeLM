@@ -121,7 +121,7 @@ Default to no comments. Only add them when *why* is non-obvious:
 
 ## Anti-patterns (rejected at review)
 
-These come from [`docs/analysis/QKV-Core/14-forgelm-icin-cikarimlar.md`](../analysis/QKV-Core/14-forgelm-icin-cikarimlar.md) — concrete sins ForgeLM avoids:
+These come from the internal QKV-Core repo analysis (synthesised in the public [`master-review-opus-202604300906.md`](../analysis/code_reviews/master-review-opus-202604300906.md)) — concrete sins ForgeLM avoids:
 
 | Anti-pattern | Why rejected | Correct form |
 |---|---|---|

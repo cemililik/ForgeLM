@@ -59,9 +59,9 @@ ForgeLM, gerçek-dünya fine-tuning senaryolarının çoğunu kapsayan beş baş
 $ forgelm quickstart --list
   customer-support     Multi-turn helpful + safe (SFT + DPO)
   code-assistant       Code-completion fine-tune (SFT + ORPO)
-  byod-domain-expert   PDF/DOCX corpus → domain Q&A (SFT)
+  domain-expert        PDF/DOCX corpus → domain Q&A (SFT)
   medical-qa-tr        Turkish medical Q&A (SFT)
-  math-reasoning       Step-by-step reasoning (GRPO)
+  grpo-math            Step-by-step reasoning (GRPO)
 ```
 
 İlk koşunuz için `customer-support` seçin — küçük, 12 GB GPU'da ~30 dakikada biter ve her özelliği egzersiz eder (SFT, DPO, eval, güvenlik, audit):
@@ -118,7 +118,7 @@ $ forgelm --config configs/quickstart-customer-support.yaml
 [2026-04-29 14:18:55] DPO preference pass · β=0.1 · KL=4.2
 [2026-04-29 14:32:11] benchmark hellaswag=0.62 truthfulqa=0.48
 [2026-04-29 14:33:02] Llama Guard S1-S14: clean
-[2026-04-29 14:33:04] Annex IV → checkpoints/customer-support/artifacts/annex_iv.json
+[2026-04-29 14:33:04] Annex IV → checkpoints/customer-support/artifacts/annex_iv_metadata.json
 [2026-04-29 14:33:04] ✔ finished, exit 0
 ```
 
@@ -136,7 +136,7 @@ Erişiminiz mevcut faturalama döneminin sonuna kadar devam eder…
 ```text
 checkpoints/customer-support/
 ├── artifacts/
-│   ├── annex_iv.json              ← Article 11 teknik dokümantasyon
+│   ├── annex_iv_metadata.json              ← Article 11 teknik dokümantasyon
 │   ├── audit_log.jsonl            ← Article 12 append-only event log
 │   ├── data_audit_report.json     ← Article 10 veri yönetimi kanıtı
 │   ├── safety_report.json         ← Llama Guard verdict

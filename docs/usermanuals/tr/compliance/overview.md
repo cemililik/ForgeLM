@@ -37,7 +37,7 @@ flowchart TD
 
 ```text
 checkpoints/run/artifacts/
-├── annex_iv.json                  ← Madde 11 — teknik dokümantasyon
+├── annex_iv_metadata.json                  ← Madde 11 — teknik dokümantasyon
 ├── audit_log.jsonl                ← Madde 12 — append-only event log
 ├── data_audit_report.json         ← Madde 10 — veri yönetimi kanıtı
 ├── safety_report.json             ← Madde 9 + 15 — risk + güvenlik
@@ -54,7 +54,7 @@ Bu paket compliance incelemeleri için teslim edilebilir. İçindeki her dosya `
 |---|---|---|
 | **9** | Risk yönetimi | Otomatik geri alma + eşik kapıları + trend izleme. |
 | **10** | Veri yönetimi | `forgelm audit` veri seti başına yönetişim kanıtı üretir. |
-| **11** | Teknik dokümantasyon | `annex_iv.json` dolu Annex IV. |
+| **11** | Teknik dokümantasyon | `annex_iv_metadata.json` dolu Annex IV. |
 | **12** | Kayıt tutma | Eğitim başlangıcı, eval kapıları, geri alma kararlarını kapsayan append-only `audit_log.jsonl`. |
 | **13** | Şeffaflık | Otomatik üretilen model card; yetenekleri, sınırları, eğitim özetini listeler. |
 | **14** | İnsan gözetimi | Opsiyonel `compliance.human_approval: true` insan imzalayana kadar terfi engeller. |
@@ -88,7 +88,7 @@ compliance:
   responsible_party: "Acme Corp <compliance@acme.example>"
 ```
 
-`compliance:` bloğundan her alan `annex_iv.json`'a akar. Gerekli alanlar config yüklenirken doğrulanır — eksik bir `intended_purpose` `--dry-run`'ı fail eder.
+`compliance:` bloğundan her alan `annex_iv_metadata.json`'a akar. Gerekli alanlar config yüklenirken doğrulanır — eksik bir `intended_purpose` `--dry-run`'ı fail eder.
 
 ## Annex IV neyi içerir
 

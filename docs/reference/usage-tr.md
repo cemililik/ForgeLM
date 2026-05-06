@@ -273,7 +273,7 @@ training:
 
 ### GPU Maliyet Tahmini
 
-ForgeLM GPU modelinizi otomatik algılar (18 GPU modeli desteklenir) ve eğitim çalışması başına tahmini maliyeti takip eder. Çıktı JSON sonuçlarına, webhook bildirimlerine ve model kartlarına dahil edilir:
+ForgeLM GPU modelinizi otomatik algılar (16 GPU modeli desteklenir; bkz. `forgelm.trainer.ForgeTrainer._GPU_PRICING`) ve eğitim çalışması başına tahmini maliyeti takip eder. Çıktı JSON sonuçlarına, webhook bildirimlerine ve model kartlarına dahil edilir:
 
 ```
 GPU Maliyet Tahmini:

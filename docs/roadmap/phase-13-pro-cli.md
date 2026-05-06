@@ -6,7 +6,7 @@
 **Estimated Effort:** High (3-4 months)
 **Priority:** Medium — gated by Phase 10-12 adoption signal. Do not start until `v0.5.0` has ≥1K monthly PyPI installs and ≥2 paying support contracts.
 
-> **Context:** Revenue model documented in the [monetization plan](../marketing/06_revenue_model.md): Pro CLI is the first tier above OSS. Core rule — everything users can reasonably do via shell scripts + public dashboards stays free; what requires ForgeLM-specific infrastructure (experiment graph, HPO orchestration, team config store) is Pro. No feature gating that degrades the free experience.
+> **Context:** Revenue model documented in the internal monetization plan: Pro CLI is the first tier above OSS. Core rule — everything users can reasonably do via shell scripts + public dashboards stays free; what requires ForgeLM-specific infrastructure (experiment graph, HPO orchestration, team config store) is Pro. No feature gating that degrades the free experience.
 
 ### Tasks:
 
@@ -32,7 +32,7 @@
 - Every Pro feature must have a 90%-equivalent OSS workaround documented. No "you must pay to use ForgeLM properly" messaging — Pro is for convenience and scale, not gatekeeping.
 - Dashboard runs locally by default; cloud-hosted is a separate track.
 - License validation must work offline after first activation (air-gapped compliance preserved).
-- Pricing decisions documented in [marketing/06_revenue_model.md](../marketing/06_revenue_model.md), not here.
+- Pricing decisions documented in the internal monetization plan, not here.
 
 ### Delivery:
 - Target release: `v0.6.0-pro` (separately distributed; OSS core remains at `v0.5.x`)

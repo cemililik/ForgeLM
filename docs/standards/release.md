@@ -159,10 +159,10 @@ under [Release prep workflow](#release-prep-workflow) below):
 
 1. [ ] Verify `pip install forgelm==0.4.0` works in a clean venv.
 2. [ ] Verify the Docker image builds with the new version.
-3. [ ] Announce: Discord `#announcements`, Twitter, LinkedIn — template in [marketing/05_content_strategy.md](../marketing/05_content_strategy.md) "New Release".
+3. [ ] Announce: Discord `#announcements`, Twitter, LinkedIn — template in the internal content strategy doc, "New Release" section.
 4. [ ] Open a new `[Unreleased]` section in `CHANGELOG.md` for the next cycle.
 5. [ ] Bump `pyproject.toml` version to next pre-release (`0.4.1rc1`).
-6. [ ] Update [marketing/marketing_strategy_roadmap.md](../marketing/marketing_strategy_roadmap.md) metrics row.
+6. [ ] Update the internal marketing strategy roadmap metrics row.
 
 ## Release prep workflow
 

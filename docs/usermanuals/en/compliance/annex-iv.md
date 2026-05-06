@@ -5,7 +5,7 @@ description: Validate the EU AI Act Annex IV technical-documentation artifact an
 
 # Verify Annex IV
 
-`forgelm verify-annex-iv` is the read-only verifier paired with the Annex IV technical-documentation artifact (`compliance/annex_iv.json`). It walks the nine top-level fields the EU AI Act requires for high-risk systems (§1-9), checks that every required category is populated, and recomputes the manifest hash to detect any tampering since the artifact was generated. The producer side — the auto-population of Annex IV from your `compliance:` YAML block — is documented in the [Compliance Overview](#/compliance/overview).
+`forgelm verify-annex-iv` is the read-only verifier paired with the Annex IV technical-documentation artifact (`compliance/annex_iv_metadata.json`). It walks the nine top-level fields the EU AI Act requires for high-risk systems (§1-9), checks that every required category is populated, and recomputes the manifest hash to detect any tampering since the artifact was generated. The producer side — the auto-population of Annex IV from your `compliance:` YAML block — is documented in the [Compliance Overview](#/compliance/overview).
 
 ## When to use it
 
@@ -20,7 +20,7 @@ description: Validate the EU AI Act Annex IV technical-documentation artifact an
 sequenceDiagram
     participant CI as CI / operator
     participant Verify as forgelm verify-annex-iv
-    participant File as annex_iv.json
+    participant File as annex_iv_metadata.json
 
     CI->>Verify: verify-annex-iv path
     Verify->>File: read JSON
@@ -41,8 +41,8 @@ The verifier shares the canonicalisation routine `forgelm.compliance.compute_ann
 ## Quick start
 
 ```shell
-$ forgelm verify-annex-iv checkpoints/run/compliance/annex_iv.json
-OK: checkpoints/run/compliance/annex_iv.json
+$ forgelm verify-annex-iv checkpoints/run/compliance/annex_iv_metadata.json
+OK: checkpoints/run/compliance/annex_iv_metadata.json
   All Annex IV §1-9 fields populated; manifest hash matches.
 ```
 
@@ -52,7 +52,7 @@ OK: checkpoints/run/compliance/annex_iv.json
 
 ```shell
 $ forgelm verify-annex-iv --output-format json \
-    checkpoints/run/compliance/annex_iv.json
+    checkpoints/run/compliance/annex_iv_metadata.json
 {
   "success": true,
   "valid": true,
@@ -60,7 +60,7 @@ $ forgelm verify-annex-iv --output-format json \
   "missing_fields": [],
   "manifest_hash_actual": "sha256:abcdef…",
   "manifest_hash_expected": "sha256:abcdef…",
-  "path": "/abs/path/checkpoints/run/compliance/annex_iv.json"
+  "path": "/abs/path/checkpoints/run/compliance/annex_iv_metadata.json"
 }
 ```
 
@@ -91,7 +91,7 @@ When the artifact carries a `metadata.manifest_hash` field, the verifier recompu
 Artifacts without `metadata.manifest_hash` pass the field-completeness check but the verifier flags this in the reason text:
 
 ```text
-OK: …/annex_iv.json
+OK: …/annex_iv_metadata.json
   All Annex IV §1-9 fields populated; no manifest_hash present so tampering detection skipped.
 ```
 

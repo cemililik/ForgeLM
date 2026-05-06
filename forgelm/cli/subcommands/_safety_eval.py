@@ -118,16 +118,28 @@ def _load_model_for_safety(model_path: str, output_format: str):
             EXIT_CONFIG_ERROR,
         )
 
-    # Default path: HF / local-checkpoint loader.  We use the underlying
-    # transformers loaders directly because in standalone mode we do
-    # not have a full ForgeConfig with which to drive
-    # :func:`forgelm.model.get_model_and_tokenizer`.
+    # Default path: HF / local-checkpoint loader.  Delegate to the
+    # canonical inference primitive ``forgelm.inference.load_model``
+    # rather than calling ``AutoTokenizer.from_pretrained`` /
+    # ``AutoModelForCausalLM.from_pretrained`` directly:
+    #
+    # - ``architecture.md`` Principle 1 — CLI subcommands are thin
+    #   shims; model-loading logic belongs to a core primitive.
+    # - ``inference.load_model`` already enforces
+    #   ``trust_remote_code=False`` as the default, mirrors the
+    #   ``forgelm chat`` / ``forgelm export`` loaders, and centralises
+    #   ``device_map="auto"`` placement + ``eval()`` mode setup.
+    # - Future Phase 36+ work that wires ``inference.load_gguf_model``
+    #   for the GGUF safety-eval path will land in the same primitive,
+    #   so this dispatcher gets the upgrade for free.
+    #
+    # Defence-in-depth (Faz 7 §13 acceptance) is satisfied by the
+    # explicit ``trust_remote_code=False`` kwarg below — never trust
+    # the primitive's default, gate it at every call site.
     try:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from forgelm.inference import load_model
 
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
-        model = AutoModelForCausalLM.from_pretrained(model_path)
-        return model, tokenizer
+        return load_model(model_path, trust_remote_code=False)
     except ImportError as exc:
         # F-36-02: transformers is a *core* ForgeLM dependency, not an
         # optional extra.  Its ImportError is "your environment is

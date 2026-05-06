@@ -97,7 +97,7 @@ Full report in `artifacts/safety_report.json`.
 
 ## Compliance
 
-- EU AI Act: Annex IV technical documentation in `artifacts/annex_iv.json`
+- EU AI Act: Annex IV technical documentation in `artifacts/annex_iv_metadata.json`
 - GDPR: PII masked at ingest; no training data retains identifiable subjects
 - Audit log: `artifacts/audit_log.jsonl`
 
