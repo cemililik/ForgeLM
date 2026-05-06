@@ -343,7 +343,7 @@ graph LR
 8. [x] **Evidence Bundle Export (Art. 11 + 17)**
    New CLI command to package all compliance artifacts into a single auditor-ready archive:
    ```bash
-   forgelm --config job.yaml --export-bundle ./audit_bundle.zip
+   forgelm --config job.yaml --compliance-export ./audit_bundle/
    ```
    Includes: annex_iv_metadata.json, compliance_report.json, data_provenance.json, data_governance_report.json, risk_assessment.json, model_integrity.json, deployer_instructions.md, audit_log.jsonl, model_card.md, safety_results.json, benchmark_results.json.
 

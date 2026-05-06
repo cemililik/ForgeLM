@@ -78,4 +78,4 @@ audit:
 ## Bkz.
 
 - [Veri Seti Denetimi](#/data/audit) — dil tespitini standart audit'in parçası olarak koşturur.
-- [Doküman Ingest'i](#/data/ingestion) — ingest zamanında zorla dil için `--language` bayrağı.
+- [Doküman Ingest'i](#/data/ingestion) — ham metin chunk'lar; `forgelm audit --pii-ml-language LANG` Phase 12.5 ML-NER PII katmanı için dil ipucudur.

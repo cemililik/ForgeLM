@@ -78,4 +78,4 @@ If you don't set `expected`, audit reports the distribution without flagging out
 ## See also
 
 - [Dataset Audit](#/data/audit) — runs language detection as part of standard audit.
-- [Document Ingestion](#/data/ingestion) — `--language` flag for forced language at ingest time.
+- [Document Ingestion](#/data/ingestion) — chunks raw text; `forgelm audit --pii-ml-language LANG` is the language hint for the ML-NER PII layer (Phase 12.5).

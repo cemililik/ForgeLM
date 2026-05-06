@@ -63,7 +63,7 @@ Manual:
 ### 4.5 Record Retention
 
 - Compliance artifacts retained for minimum **5 years** (or as required by regulation)
-- Evidence bundle: `forgelm --config job.yaml --export-bundle ./archive/`
+- Evidence bundle: `forgelm --config job.yaml --compliance-export ./archive/`
 - Store in immutable/append-only storage if available
 
 ## 5. Exceptions

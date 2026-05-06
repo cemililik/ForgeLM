@@ -63,7 +63,7 @@ graph TD
 | **Reports to** | AI Officer / Legal |
 | **Responsibility** | EU AI Act compliance, audit readiness, regulatory reporting |
 | **Reviews** | Compliance artifacts, risk assessments, incident reports |
-| **ForgeLM mapping** | Reviews evidence bundle (`--export-bundle`), maintains QMS documentation |
+| **ForgeLM mapping** | Reviews evidence bundle (`forgelm --config job.yaml --compliance-export ./archive/`), maintains QMS documentation |
 
 ### Data Protection Officer (DPO)
 
