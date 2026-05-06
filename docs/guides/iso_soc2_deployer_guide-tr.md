@@ -280,13 +280,13 @@ Operatörlerin ilk denetimlerinde yanlış yaptığı şeyler:
 ## Bkz.
 
 - [`../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md) — tam tasarım gerekçesi + 93 kontrol haritası.
-- [`../qms/encryption_at_rest.md`](../qms/encryption_at_rest.md) — substrate-side şifreleme rehberi.
-- [`../qms/access_control.md`](../qms/access_control.md) — operator identity + secrets management.
-- [`../qms/risk_treatment_plan.md`](../qms/risk_treatment_plan.md) — pre-populated risk register.
-- [`../qms/statement_of_applicability.md`](../qms/statement_of_applicability.md) — 93-kontrol SoA matrisi.
-- [`../qms/sop_incident_response.md`](../qms/sop_incident_response.md) — incident response runbook (Wave 4 genişletme).
-- [`../qms/sop_change_management.md`](../qms/sop_change_management.md) — change management runbook (Wave 4 genişletme).
-- [`../reference/iso27001_control_mapping.md`](../reference/iso27001_control_mapping.md) — ISO 27001:2022 Annex A kontrolleri × ForgeLM kanıtı.
-- [`../reference/soc2_trust_criteria_mapping.md`](../reference/soc2_trust_criteria_mapping.md) — SOC 2 Trust Services Criteria × ForgeLM kanıtı.
-- [`../reference/supply_chain_security.md`](../reference/supply_chain_security.md) — SBOM + pip-audit + bandit overview.
-- [`../reference/audit_event_catalog.md`](../reference/audit_event_catalog.md) — audit-event vocabulary.
+- [`../qms/encryption_at_rest-tr.md`](../qms/encryption_at_rest-tr.md) — substrate-side şifreleme rehberi.
+- [`../qms/access_control-tr.md`](../qms/access_control-tr.md) — operator identity + secrets management.
+- [`../qms/risk_treatment_plan-tr.md`](../qms/risk_treatment_plan-tr.md) — pre-populated risk register.
+- [`../qms/statement_of_applicability-tr.md`](../qms/statement_of_applicability-tr.md) — 93-kontrol SoA matrisi.
+- [`../qms/sop_incident_response-tr.md`](../qms/sop_incident_response-tr.md) — incident response runbook (Wave 4 genişletme).
+- [`../qms/sop_change_management-tr.md`](../qms/sop_change_management-tr.md) — change management runbook (Wave 4 genişletme).
+- [`../reference/iso27001_control_mapping-tr.md`](../reference/iso27001_control_mapping-tr.md) — ISO 27001:2022 Annex A kontrolleri × ForgeLM kanıtı.
+- [`../reference/soc2_trust_criteria_mapping-tr.md`](../reference/soc2_trust_criteria_mapping-tr.md) — SOC 2 Trust Services Criteria × ForgeLM kanıtı.
+- [`../reference/supply_chain_security-tr.md`](../reference/supply_chain_security-tr.md) — SBOM + pip-audit + bandit overview.
+- [`../reference/audit_event_catalog-tr.md`](../reference/audit_event_catalog-tr.md) — audit-event vocabulary.

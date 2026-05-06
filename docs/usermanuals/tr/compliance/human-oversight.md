@@ -75,10 +75,16 @@ Trainer durur ve artifact paketini webhook'unuza POST'lar. Sisteminiz insan ince
 v0.5.5'te desteklenen onay mekanizması CLI subcommand çifti `forgelm approve` / `forgelm reject`:
 
 ```bash
-forgelm approvals --pending                       # onay bekleyen koşumları listele
-forgelm approve --run-id <run-id>                 # staging → final_model'e promote
-forgelm reject  --run-id <run-id> --reason "..."  # staged modeli at
+forgelm approvals --pending --output-dir <dir>            # onay bekleyen koşumları listele
+forgelm approve  <run-id> --output-dir <dir> --comment "..."  # staging → final_model'e promote
+forgelm reject   <run-id> --output-dir <dir> --comment "..."  # staged modeli at
 ```
+
+**Not:** `approve` ve `reject` positional `run_id` alır (`--run-id`
+flag'i yoktur); `--comment "..."` reviewer notunu
+`human_approval.granted` / `human_approval.rejected` event'ına yazar.
+`--output-dir <dir>` zorunludur ve `audit_log.jsonl` +
+`final_model.staging/` içeren training output dizinini gösterir.
 
 Her çağrı `FORGELM_OPERATOR` (onaylayanın kimliği) gerektirir ve zincire `human_approval.granted` / `human_approval.rejected` olayı yazar. Self-servis "bu koşuyu terfi ettir" otomasyonu v0.6.0+ Pro CLI (public roadmap'te Phase 13) için planlanmıştır; o zamana kadar CLI gate audit-grade arayüzdür.
 

@@ -187,9 +187,9 @@ olmasını gerektirir (görev ayrılığı — ISO A.5.3, SOC 2 CC1.5):
 FORGELM_OPERATOR="gha:Acme/pipelines:training:run-42" \
     forgelm --config config.yaml
 
-# Job 2 — onay (insan reviewer identity)
+# Job 2 — onay (insan reviewer identity; positional run_id)
 FORGELM_OPERATOR="alice@acme.example" \
-    forgelm approve --run-id <run-id>
+    forgelm approve <run-id> --output-dir <output_dir>
 ```
 
 ForgeLM iki kimliğin farklı olduğunu zorlamaz — bu operatör-tarafı

@@ -104,9 +104,11 @@ What the regulator asks vs. how ForgeLM answers:
 ### Article 14 staging gate
 
 - Implementation: when `evaluation.require_human_approval: true`
-  the trained model lands in `<output_dir>/staging_model.<run_id>/`
-  awaiting `forgelm approve --run-id <id>` from a non-trainer
-  operator.
+  the trained model lands in
+  `<output_dir>/final_model.staging.<run_id>/` awaiting
+  `forgelm approve <run_id> --output-dir <output_dir>` from a
+  non-trainer operator (positional `run_id`; `--run-id` is not a
+  flag).
 - Listing: `forgelm approvals --pending` (Phase 37).
 - Audit: `human_approval.required/granted/rejected` events.
 

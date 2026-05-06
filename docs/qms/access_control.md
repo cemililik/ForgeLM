@@ -187,7 +187,7 @@ FORGELM_OPERATOR="gha:Acme/pipelines:training:run-42" \
 
 # Job 2 — approval (human reviewer identity)
 FORGELM_OPERATOR="alice@acme.example" \
-    forgelm approve --run-id <run-id>
+    forgelm approve <run-id> --output-dir <output_dir>
 ```
 
 ForgeLM does not enforce that the two identities differ — that is a

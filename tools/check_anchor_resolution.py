@@ -239,13 +239,27 @@ def _resolve_pure_anchor(link: Link, anchor_part: str) -> BrokenLink | None:
 
 
 def _locate_target(link: Link, path_part: str, repo_root: Path) -> Path | BrokenLink:
-    """Resolve a repo-relative path against the source's parent or repo root."""
+    """Resolve a repo-relative path against the source's parent or repo root.
+
+    Both candidate paths are constrained to live under ``repo_root`` —
+    a `../../../etc/passwd`-style traversal that resolves outside the
+    tree is treated as broken rather than silently followed.
+    """
+    repo_root_resolved = repo_root.resolve()
+
+    def _under_repo_root(candidate: Path) -> bool:
+        try:
+            candidate.relative_to(repo_root_resolved)
+        except ValueError:
+            return False
+        return True
+
     target = (link.source.parent / path_part).resolve()
-    if target.exists():
+    if target.exists() and _under_repo_root(target):
         return target
     # Fall back: maybe the path is repo-root-relative (legacy refs).
     alt = (repo_root / path_part).resolve()
-    if alt.exists():
+    if alt.exists() and _under_repo_root(alt):
         return alt
     return BrokenLink(link, f"target file not found: {path_part!r}")
 
@@ -349,11 +363,18 @@ def _resolve_excludes(scope_dir: Path, exclude_arg: list[str] | None) -> tuple[P
     # Passing --exclude REPLACES the default rather than augmenting it
     # (call sites that need additional excludes pass the full list,
     # including ``analysis``); this matches the help-text contract.
-    specs: tuple[str, ...]
+    #
+    # Empty / whitespace-only entries are filtered (an `--exclude ""`
+    # would otherwise resolve to ``scope_dir`` itself and silently
+    # exclude the entire tree).  When all entries filter out, fall
+    # back to the default rather than scanning everything — the
+    # opt-out for "scan analysis/ too" is `--exclude doesnotexist`
+    # or any other path that won't match.
     if exclude_arg is None:
-        specs = ("analysis",)
+        specs: tuple[str, ...] = ("analysis",)
     else:
-        specs = tuple(exclude_arg)
+        cleaned = tuple(s for s in (entry.strip() for entry in exclude_arg) if s)
+        specs = cleaned if cleaned else ("analysis",)
     return tuple((scope_dir / spec).resolve() for spec in specs)
 
 

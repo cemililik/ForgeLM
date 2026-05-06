@@ -1,6 +1,6 @@
 # Supply-chain güvenliği — SBOM + zafiyet taraması
 
-> ForgeLM'in supply-chain güvenlik tooling'i için referans dokuman:
+> ForgeLM'in supply-chain güvenlik tooling'i için referans doküman:
 > SBOM üretimi (Wave 2 dönemi), pip-audit nightly (Wave 4 / Faz 23),
 > bandit static analysis (Wave 4 / Faz 23). Hedef kitle: operatör
 > compliance ekibi + denetçi.
