@@ -355,8 +355,9 @@ class TestCheckBandit:
         assert "missing 'results'" in capsys.readouterr().err
 
     def test_undefined_severity_summary_warning(self, tmp_path: Path, tool, capsys) -> None:
-        # F-W4-TR-01 absorption: bandit's documented UNDEFINED tier
-        # surfaces a single summary warning, not silence.
+        # F-W4-TR-01 absorption (tightened in F-W4FU-TR-02): bandit's
+        # documented UNDEFINED tier surfaces a single summary warning,
+        # not per-finding spam, not silence.
         report = {
             "results": [
                 {
@@ -370,17 +371,33 @@ class TestCheckBandit:
                 }
             ]
         }
-        rc = tool.main(["check_bandit", str(self._write_report(tmp_path, report))])
+        report_path = self._write_report(tmp_path, report)
+        rc = tool.main(["check_bandit", str(report_path)])
         captured = capsys.readouterr().out
         assert rc == 0
-        assert "::warning::bandit" in captured
-        assert "UNDEFINED" in captured
+        # Pin the summary phrasing exactly — a regression that flipped
+        # UNDEFINED handling to per-finding ``[UNDEFINED/LOW]`` warnings
+        # would still satisfy a loose substring check.
+        assert "::warning::bandit 1 issue(s) with UNDEFINED severity" in captured, (
+            f"expected single summary annotation; got: {captured!r}"
+        )
+        assert str(report_path) in captured, "summary must include the artefact path for SRE triage"
+        # Negative: the per-finding format prefix MUST NOT appear.
+        assert "[UNDEFINED/LOW]" not in captured, (
+            "UNDEFINED issues must surface only via the summary, not per-finding warnings"
+        )
 
 
 class TestCheckPipAuditExtraShapes:
-    """Extra pip-audit fixtures that pin documented contracts the
-    primary tier-suite leaves uncovered (F-W4-04 / F-W4-PS-07 /
-    F-W4-TR-02 / F-W4-TR-05 absorptions)."""
+    """Extra pip-audit fixtures pinning the UNKNOWN summary contract.
+
+    Wave 4 followup absorption (F-W4FU-TR-01): the speculative
+    CVSS-from-score derivation + aliases-nested fallback + 4 fictional
+    fixtures were dropped after the test-rigor agent's wheel inspection
+    confirmed pip-audit 2.6.0–2.9.0 never serialise severity into the
+    JSON output.  ``_vuln_severity`` returns ``"UNKNOWN"`` for every
+    real pip-audit vuln; this class pins the operator-triage path.
+    """
 
     @pytest.fixture
     def tool(self):
@@ -392,102 +409,51 @@ class TestCheckPipAuditExtraShapes:
         return path
 
     def test_missing_severity_field_summary_warning(self, tmp_path: Path, tool, capsys) -> None:
+        # Real pip-audit JSON: vuln carries id + aliases (set of CVE/GHSA
+        # identifier strings) + fix_versions, NO severity field at any
+        # nesting level.  Gate must surface UNKNOWN as a single summary
+        # annotation that includes the artefact path (F-W4FU-PS-05).
         report = {
             "dependencies": [
                 {
                     "name": "u",
                     "version": "1.0.0",
-                    "vulns": [{"id": "GHSA-no-sev"}],
+                    "vulns": [
+                        {
+                            "id": "GHSA-no-sev",
+                            "fix_versions": ["1.0.1"],
+                            "aliases": ["CVE-2026-NOSEV"],
+                        }
+                    ],
                 }
             ]
         }
-        rc = tool.main(["check_pip_audit", str(self._write_report(tmp_path, report))])
+        report_path = self._write_report(tmp_path, report)
+        rc = tool.main(["check_pip_audit", str(report_path)])
         captured = capsys.readouterr().out
         assert rc == 0
         assert "::warning::pip-audit" in captured
         assert "without parseable severity" in captured
+        assert str(report_path) in captured, (
+            "UNKNOWN summary must include the artefact path so an "
+            "incident-triage SRE can grep without walking the workflow YAML"
+        )
 
-    def test_severity_list_with_explicit_tier(self, tmp_path: Path, tool) -> None:
-        # 2.7.x list-form carrying an explicit ``severity`` field.
+    def test_hand_crafted_top_level_severity_string_honoured(self, tmp_path: Path, tool) -> None:
+        # Hand-crafted JSON from non-pip-audit scanners that emit a
+        # top-level ``severity: "HIGH"`` must still fail the gate; this
+        # is the only severity path real ``_vuln_severity`` honours.
         report = {
             "dependencies": [
                 {
-                    "name": "listpkg",
+                    "name": "external-scanner",
                     "version": "1.0.0",
-                    "vulns": [
-                        {
-                            "id": "GHSA-list",
-                            "severity": [{"type": "CVSS_V3", "severity": "HIGH"}],
-                        }
-                    ],
+                    "vulns": [{"id": "EXT-2026-001", "severity": "HIGH", "fix_versions": []}],
                 }
             ]
         }
         rc = tool.main(["check_pip_audit", str(self._write_report(tmp_path, report))])
-        assert rc == 1, "list form with explicit HIGH tier must fail"
-
-    def test_severity_list_with_cvss_score(self, tmp_path: Path, tool) -> None:
-        # CVSS_V3 type label + 9.5 score must derive CRITICAL.
-        report = {
-            "dependencies": [
-                {
-                    "name": "scorepkg",
-                    "version": "1.0.0",
-                    "vulns": [
-                        {
-                            "id": "GHSA-score",
-                            "severity": [{"type": "CVSS_V3", "score": "9.5"}],
-                        }
-                    ],
-                }
-            ]
-        }
-        rc = tool.main(["check_pip_audit", str(self._write_report(tmp_path, report))])
-        assert rc == 1, "CVSS 9.5 must derive CRITICAL and fail the gate"
-
-    def test_severity_list_cvss_score_medium(self, tmp_path: Path, tool, capsys) -> None:
-        report = {
-            "dependencies": [
-                {
-                    "name": "midscore",
-                    "version": "1.0.0",
-                    "vulns": [
-                        {
-                            "id": "GHSA-mid-score",
-                            "severity": [{"type": "CVSS_V3", "score": 5.5}],
-                        }
-                    ],
-                }
-            ]
-        }
-        rc = tool.main(["check_pip_audit", str(self._write_report(tmp_path, report))])
-        captured = capsys.readouterr().out
-        assert rc == 0
-        assert "::warning::pip-audit" in captured
-
-    def test_aliases_nested_severity_2_6_shape(self, tmp_path: Path, tool) -> None:
-        # 2.6.x: severity buried under aliases[].severity[].
-        report = {
-            "dependencies": [
-                {
-                    "name": "legacy",
-                    "version": "1.0.0",
-                    "vulns": [
-                        {
-                            "id": "GHSA-old-shape",
-                            "aliases": [
-                                {
-                                    "id": "CVE-2026-OLD",
-                                    "severity": [{"type": "CVSS_V3", "severity": "HIGH"}],
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ]
-        }
-        rc = tool.main(["check_pip_audit", str(self._write_report(tmp_path, report))])
-        assert rc == 1, "2.6.x nested aliases shape must classify as HIGH"
+        assert rc == 1, "top-level severity string is the documented escape hatch"
 
 
 class TestSbomSerialNumberUniqueness:

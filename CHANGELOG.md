@@ -86,6 +86,25 @@ Cross-cutting:
 - `docs/standards/localization.md` — `docs/qms/*.md` row flipped
   from "No (yet)" to "Yes" to reflect the bilingual sweep.
 
+**Migration notes (Wave 4)**
+
+- **Rotation guidance reframed (`FORGELM_AUDIT_SECRET`).** Prior
+  0.5.x guidance recommended quarterly rotation. Wave 4 reframes
+  this to **between output-dir lifecycles** — every audit entry's
+  HMAC keys to the secret live at emit time, so rotating mid
+  output-dir breaks `forgelm verify-audit --require-hmac` for the
+  cross-secret span. Deployers running quarterly KMS-rotation
+  cron jobs today must align rotation to fresh `<output_dir>`
+  provisioning (rotate the secret + cut a new output-dir together).
+  See `docs/qms/access_control.md` §3.4 for the corrected procedure
+  and §8 verification checklist for the auditor-facing signal.
+- **`tools/check_bandit.py` malformed-report behaviour.** A bandit
+  JSON report carrying `{"results": null}` (malformed; rare) now
+  fails the gate (exit 1) where the prior `or []` collapse silently
+  treated it as a clean run. Operators whose nightly runs previously
+  passed against a corrupt bandit invocation must now investigate
+  the upstream bandit failure instead of consuming the silent pass.
+
 **Faz 26 — QMS bilingual mirror + compliance_summary cleanup**
 
 - 6 existing QMS TR mirrors: `README-tr.md`,

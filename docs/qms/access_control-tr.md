@@ -199,20 +199,21 @@ denetçi ihlalleri tespit edebilir:
 #    subcommand'ta tasarım gereği --output-dir / --json flag'i yoktur).
 forgelm verify-audit ./outputs/audit_log.jsonl --require-hmac
 
-# 2. Koşum başına trainer.
-jq -r 'select(.event == "training.started") |
-       [.run_id, .operator] | @tsv' \
-    ./outputs/audit_log.jsonl > /tmp/trainers.tsv
-
-# 3. Aynı koşum için trainer listesinde yer alan onaylayan-id'ye sahip
-#    approval'lar (görev ayrılığı ihlali).
-jq -r --slurpfile t /tmp/trainers.tsv \
-      'select(.event == "human_approval.granted") |
-       . as $a |
-       $t[] | split("\t") as $row |
-       select($row[0] == $a.run_id and $row[1] == $a.operator) |
-       [.run_id, .operator] | @tsv' \
-    ./outputs/audit_log.jsonl
+# 2. Single-pass jq: audit log'u slurp et, trainer'ları + approval'ları
+#    project et, in-memory join. Operatör tanımlayıcılarını paylaşılan
+#    /tmp/ dosyasından uzak tutar (multi-tenant host'larda 0644 /
+#    world-readable olur ve §3.2'ye göre operatörün
+#    FORGELM_OPERATOR'a koymuş olabileceği email'leri sızdırır).
+#    Çıktı: koşumun eğiteni ile aynı operatör tarafından onaylanmış
+#    her approval'ın TSV satırı (görev ayrılığı ihlali).
+jq -rs '
+    (map(select(.event == "training.started"))) as $trainers |
+    map(select(.event == "human_approval.granted"))[] |
+    . as $a |
+    $trainers[] |
+    select(.run_id == $a.run_id and .operator == $a.operator) |
+    [.run_id, .operator] | @tsv
+' ./outputs/audit_log.jsonl
 ```
 
 ## 7. Webhook secret ayrılığı
@@ -242,9 +243,13 @@ Erişim-kontrolü kanıtını yürüyen operatör denetçi için:
 - [ ] İki aktif pipeline aynı `FORGELM_OPERATOR` değerini paylaşmıyor.
 - [ ] `FORGELM_AUDIT_SECRET` KMS / Vault substrate'inde yaşıyor,
       VCS'de veya düz `.env` dosyasında değil.
-- [ ] KMS audit log'u `FORGELM_AUDIT_SECRET` rotasyonunu output-dir
-      lifecycle sınırlarına hizalı gösteriyor (asla output-dir
-      ortasında değil).
+- [ ] KMS audit log'u `FORGELM_AUDIT_SECRET` rotasyonunu taze
+      `<output_dir>` provisioning event'ı ile eşli gösteriyor — her
+      KMS rotasyon event'ının aynı KMS-event zaman penceresi içinde
+      karşılık gelen yeni bir `<output_dir>/audit_log.manifest.json`
+      genesis pin'i olmak zorunda. Eşleşen genesis pin'i olmayan
+      rotasyonlar (yani output-dir-ortası rotasyonlar) cross-secret
+      aralık için `forgelm verify-audit --require-hmac`'i kırar.
 - [ ] Son 90 gündeki her `human_approval.granted` event'i için
       approval-gate kimliği training kimliğinden farklı (sample-audit,
       exhaustive değil).

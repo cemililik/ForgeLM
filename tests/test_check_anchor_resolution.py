@@ -88,6 +88,25 @@ class TestSlugifyHeading:
         assert tool._normalise_heading_body("My Title #") == "My Title"
         assert tool._normalise_heading_body("My Title  ###  ") == "My Title"
 
+    def test_atx_closing_hashes_without_preceding_space_still_stripped(self):
+        # F-W4FU-TR-09 absorption: the helper greedily strips the
+        # closing-hash run even without preceding whitespace.  Off-spec
+        # per CommonMark §4.2 but defensible — pin current behaviour
+        # so a future tightening is a deliberate change, not silent
+        # drift.
+        tool = _load_tool()
+        assert tool._normalise_heading_body("foo###") == "foo"
+
+    def test_atx_all_hashes_rejected(self):
+        # F-W4FU-TR-05 / F-W4FU-07 absorption: ``## ##`` (all-hash
+        # body) trims to "" after closing-hash strip; the parser must
+        # reject rather than register the empty slug as an anchor.
+        tool = _load_tool()
+        assert tool._parse_atx_heading("## ##") is None
+        assert tool._parse_atx_heading("### #") is None
+        # Symmetric happy path: real heading still parses.
+        assert tool._parse_atx_heading("## Real Heading") == "Real Heading"
+
 
 # ---------------------------------------------------------------------------
 # §2 — Resolution: relative paths + anchors
@@ -239,15 +258,19 @@ class TestCLI:
         assert "FAIL" in captured
 
     def test_strict_mode_exits_one_on_broken_anchor(self, tmp_path: Path, capsys):
-        # F-W4-TR-03 absorption: anchor-not-found and file-not-found must
-        # be symmetrically gated under --strict.
+        # F-W4-TR-03 absorption (tightened in F-W4FU-TR-06):
+        # anchor-not-found and file-not-found must be symmetrically
+        # gated under --strict; the broken-link reason must
+        # disambiguate "anchor not found" from "target file not found".
         tool = _load_tool()
         scope = tmp_path / "docs"
         _write(scope / "target.md", "# Target\n\n## Real Section\n")
         _write(scope / "src.md", "[link](target.md#nonexistent)\n")
         rc = tool.main(["--repo-root", str(tmp_path), "--scope", "docs", "--strict"])
         assert rc == 1
-        assert "FAIL" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "FAIL" in out
+        assert "anchor" in out, f"reason should distinguish anchor-not-found from file-not-found; got: {out!r}"
 
     def test_quiet_suppresses_ok_summary(self, tmp_path: Path, capsys):
         tool = _load_tool()

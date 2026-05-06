@@ -88,8 +88,13 @@ What the regulator asks vs. how ForgeLM answers:
 
 - Implementation: `forgelm.compliance.AuditLogger` — JSON Lines
   append-only log at `<output_dir>/audit_log.jsonl`, HMAC-chained
-  with `FORGELM_AUDIT_SECRET` XOR'd against the per-output-dir salt
-  in `<output_dir>/.forgelm_audit_salt`.  Genesis manifest sidecar
+  with a per-run signing key derived as
+  `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)` (see
+  `forgelm/compliance.py:104-114`). The per-output-dir salt at
+  `<output_dir>/.forgelm_audit_salt` is a **distinct primitive** —
+  it salts identifier hashing in `forgelm purge` /
+  `forgelm reverse-pii` events (`_purge._resolve_salt`) and does
+  NOT participate in chain-key derivation. Genesis manifest sidecar
   (`audit_log.manifest.json`) refuses truncate-and-resume tampering.
 - Verification: `forgelm verify-audit [--require-hmac]` validates
   the chain end-to-end; exits 0/1/2/3.
@@ -168,7 +173,7 @@ name; this survives refactors that the prior `#L33` form did not.
   `LlamaGuardClassifier`, `_evaluate_3_layer_gate`).
 - **Audit chain + HMAC + manifest**: `forgelm.compliance` (search
   for `AuditLogger`, `_check_genesis_manifest`,
-  `compute_artefact_sha256`).
+  `generate_model_integrity`).
 - **Salted identifier hashing**: `forgelm.cli.subcommands._purge`
   (search for `_resolve_salt`, `_read_persistent_salt`,
   `_hash_target_id`).

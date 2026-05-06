@@ -31,19 +31,23 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-# pip-audit's JSON shape (≥2.7) puts findings under ``dependencies[].vulns``,
+# pip-audit's JSON shape puts findings under ``dependencies[].vulns``,
 # each vuln carrying ``id``, ``aliases``, ``description``, ``fix_versions``.
-# Severity is sourced from the OSV / GHSA aliases via ``severity`` (a list
-# of {type, score} pairs) when present; pip-audit normalises into
-# ``severity`` strings on the top-level vuln dict from 2.7.x onwards.
+#
+# Empirical note (verified against pip-audit 2.6.0–2.9.0 wheel sources
+# during Wave 4 absorption round 2): pip-audit's ``_format/json.py``
+# does NOT serialise OSV severity into the JSON output — ``aliases``
+# is a flat list of CVE/GHSA identifier strings (per
+# ``pip_audit/_service/interface.py``: ``aliases: set[str]``), no
+# nested ``severity`` field appears at any nesting level.  This means
+# `_vuln_severity` returns ``"UNKNOWN"`` for every vuln in a real
+# pip-audit JSON report, and the UNKNOWN summary annotation handles
+# the operator-triage path.  We retain the top-level string-severity
+# branch to honour the documented CLAUDE.md / pyproject.toml schema
+# (operators feeding hand-crafted JSON for non-pip-audit scanners can
+# emit a top-level ``severity: "HIGH"`` and have the gate honour it).
 _HIGH_TIERS: frozenset[str] = frozenset({"HIGH", "CRITICAL"})
 _MED_TIERS: frozenset[str] = frozenset({"MEDIUM", "MODERATE"})
-
-# OSV severity-list ``type`` values are scoring-system labels, NOT tier
-# names — recognising them lets us avoid mistaking the label for a
-# severity (otherwise the original CVSS_V3 string would resolve to
-# UNKNOWN by chance, but a renamed system would silently mis-tier).
-_SCORE_TYPE_LABELS: frozenset[str] = frozenset({"CVSS", "CVSS_V2", "CVSS_V3", "CVSS_V4", "CVSS_V31", "CVSS_V40"})
 
 
 def _normalise_severity(raw: Optional[str]) -> str:
@@ -51,95 +55,24 @@ def _normalise_severity(raw: Optional[str]) -> str:
     if not raw:
         return "UNKNOWN"
     upper = raw.upper().strip()
-    if upper in {"MODERATE"}:
+    if upper == "MODERATE":
         return "MEDIUM"
-    if upper in _SCORE_TYPE_LABELS:
-        # CVSS_V3 etc. is a scoring-system label, not a tier name.
-        return "UNKNOWN"
     return upper
-
-
-def _tier_from_cvss_score(score: Any) -> str:
-    """Map a CVSS base score to a severity tier per FIRST.org guidance.
-
-    CVSS v3 / v4 cut-points: 0.0 NONE · 0.1–3.9 LOW · 4.0–6.9 MEDIUM ·
-    7.0–8.9 HIGH · 9.0–10.0 CRITICAL.  Falls back to ``UNKNOWN`` on
-    any parse failure rather than guessing.
-    """
-    if isinstance(score, (int, float)):
-        value = float(score)
-    elif isinstance(score, str):
-        try:
-            value = float(score.strip())
-        except ValueError:
-            return "UNKNOWN"
-    else:
-        return "UNKNOWN"
-    if value >= 9.0:
-        return "CRITICAL"
-    if value >= 7.0:
-        return "HIGH"
-    if value >= 4.0:
-        return "MEDIUM"
-    if value > 0.0:
-        return "LOW"
-    return "UNKNOWN"
-
-
-def _severity_from_entry(entry: Any) -> str:
-    """Extract a severity tier from a single ``severity[]`` element."""
-    if isinstance(entry, dict):
-        # Only the ``severity`` field carries a tier label; ``type`` is
-        # the scoring-system identifier (CVSS_V3, ...).  Try the tier
-        # first, then derive from the CVSS score when only the type +
-        # score pair is available.
-        explicit = _normalise_severity(entry.get("severity"))
-        if explicit != "UNKNOWN":
-            return explicit
-        return _tier_from_cvss_score(entry.get("score"))
-    if isinstance(entry, str):
-        return _normalise_severity(entry)
-    return "UNKNOWN"
 
 
 def _vuln_severity(vuln: dict[str, Any]) -> str:
     """Extract a single severity tier from a pip-audit vuln entry.
 
-    Falls back through several fields because pip-audit's JSON shape
-    has shifted across point releases:
-    - 2.7.x: top-level ``severity`` string
-    - 2.7.x list form: top-level ``severity[]`` of ``{type, score}`` /
-      ``{severity}`` / plain string entries
-    - 2.6.x and earlier: nested under ``aliases[].severity[]``
-
-    When no field is parseable we return ``"UNKNOWN"`` and let the
-    caller surface a single summary annotation so the operator can
-    review the raw report.
+    Honours only the top-level ``severity`` string — pip-audit's JSON
+    output never carries severity (verified against 2.6.0–2.9.0 wheel
+    sources).  Hand-crafted JSON from non-pip-audit scanners can set
+    a top-level ``severity: "HIGH"`` and have the gate honour it.
+    Anything else falls through to ``"UNKNOWN"`` and surfaces via the
+    UNKNOWN summary annotation in ``main()``.
     """
     direct = vuln.get("severity")
     if isinstance(direct, str):
         return _normalise_severity(direct)
-    if isinstance(direct, list):
-        for entry in direct:
-            tier = _severity_from_entry(entry)
-            if tier != "UNKNOWN":
-                return tier
-    # 2.6.x fallback — severity buried inside aliases[].severity[].
-    aliases = vuln.get("aliases")
-    if isinstance(aliases, list):
-        for alias in aliases:
-            if not isinstance(alias, dict):
-                continue
-            nested = alias.get("severity")
-            if isinstance(nested, list):
-                for entry in nested:
-                    tier = _severity_from_entry(entry)
-                    if tier != "UNKNOWN":
-                        return tier
-            elif isinstance(nested, str):
-                tier = _normalise_severity(nested)
-                if tier != "UNKNOWN":
-                    return tier
     return "UNKNOWN"
 
 
@@ -209,10 +142,12 @@ def main(argv: list[str]) -> int:
     if unknown:
         # One summary annotation rather than per-finding spam — UNKNOWN
         # findings need operator review, not noise that buries real
-        # signal (F-W4-PS-07 / F-W4-TR-05 absorption).
+        # signal.  Includes the artefact path so an SRE on the GitHub
+        # Actions run summary can grep without walking the workflow YAML
+        # (F-W4FU-PS-05 absorption).
         print(
             f"::warning::pip-audit {len(unknown)} finding(s) without parseable "
-            "severity; review the raw report manually."
+            f"severity in {report_path}; review the raw report manually."
         )
 
     if high:

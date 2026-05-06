@@ -97,6 +97,15 @@ def _parse_atx_heading(line: str) -> str | None:
     Implemented as a single linear pass to avoid the ReDoS risk
     heuristic that flags adjacent variable-length quantifiers in
     regex form (Sonar python:S5852).
+
+    Known divergence from CommonMark §4.2 (intentional): indented
+    headings (1-3 leading spaces) are NOT recognised — project docs
+    must place ``#`` at column 0.  The pre-rewrite regex form was
+    column-anchored too, so this preserves Wave 4 behaviour.
+
+    Edge case (F-W4FU-TR-05): ``## ##`` (all-hash heading) trims to
+    an empty body after closing-hash strip; reject rather than
+    register the empty slug as an anchor.
     """
     if not line or line[0] != "#":
         return None
@@ -110,7 +119,10 @@ def _parse_atx_heading(line: str) -> str | None:
     body = line[hash_count + 1 :].strip()
     if not body:
         return None
-    return _normalise_heading_body(body)
+    body = _normalise_heading_body(body)
+    if not body:
+        return None
+    return body
 
 
 def _normalise_heading_body(body: str) -> str:

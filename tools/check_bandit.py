@@ -111,7 +111,8 @@ def main(argv: list[str]) -> int:
         print(f"usage: {argv[0]} <bandit.json>", file=sys.stderr)
         return 1
 
-    report_or_code = _load_report(Path(argv[1]))
+    report_path = Path(argv[1])
+    report_or_code = _load_report(report_path)
     if isinstance(report_or_code, int):
         return report_or_code
     results_or_code = _extract_results(report_or_code)
@@ -126,8 +127,14 @@ def main(argv: list[str]) -> int:
     if undefined_count:
         # One summary annotation rather than per-finding spam; UNDEFINED
         # rules are bandit's "rule lacks severity metadata" fall-through
-        # and merit operator review without burying real signal.
-        print(f"::warning::bandit {undefined_count} issue(s) with UNDEFINED severity; review the raw report manually.")
+        # and merit operator review without burying real signal.  Includes
+        # the artefact path so an SRE on the GitHub Actions run summary
+        # can grep without walking the workflow YAML (F-W4FU-PS-05
+        # absorption).
+        print(
+            f"::warning::bandit {undefined_count} issue(s) with UNDEFINED "
+            f"severity in {report_path}; review the raw report manually."
+        )
 
     if high:
         for line in high:

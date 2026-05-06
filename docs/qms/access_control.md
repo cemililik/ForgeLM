@@ -199,20 +199,21 @@ auditor can detect violations:
 #    --output-dir / --json flags exist on this subcommand by design).
 forgelm verify-audit ./outputs/audit_log.jsonl --require-hmac
 
-# 2. Trainer per run.
-jq -r 'select(.event == "training.started") |
-       [.run_id, .operator] | @tsv' \
-    ./outputs/audit_log.jsonl > /tmp/trainers.tsv
-
-# 3. Approvals whose approver-id appears in the trainer list for the
-#    same run (segregation violation).
-jq -r --slurpfile t /tmp/trainers.tsv \
-      'select(.event == "human_approval.granted") |
-       . as $a |
-       $t[] | split("\t") as $row |
-       select($row[0] == $a.run_id and $row[1] == $a.operator) |
-       [.run_id, .operator] | @tsv' \
-    ./outputs/audit_log.jsonl
+# 2. Single-pass jq: slurp the audit log, project trainers + approvals,
+#    join in-memory.  Keeps operator identifiers out of any shared
+#    /tmp/ file (which would land 0644 / world-readable on multi-tenant
+#    hosts and leak emails the deployer might have set as
+#    FORGELM_OPERATOR per §3.2).  Output: TSV rows of every approval
+#    where the approver matches the run's trainer (segregation
+#    violation).
+jq -rs '
+    (map(select(.event == "training.started"))) as $trainers |
+    map(select(.event == "human_approval.granted"))[] |
+    . as $a |
+    $trainers[] |
+    select(.run_id == $a.run_id and .operator == $a.operator) |
+    [.run_id, .operator] | @tsv
+' ./outputs/audit_log.jsonl
 ```
 
 ## 7. Webhook secret separation
@@ -241,8 +242,14 @@ For a deployer auditor walking access-control evidence:
 - [ ] No two active pipelines share an `FORGELM_OPERATOR` value.
 - [ ] `FORGELM_AUDIT_SECRET` lives in a KMS / Vault substrate, never
       in VCS or a plain `.env` file.
-- [ ] KMS audit log shows `FORGELM_AUDIT_SECRET` rotation aligned to
-      output-dir lifecycle boundaries (never mid-output-dir).
+- [ ] KMS audit log shows `FORGELM_AUDIT_SECRET` rotation paired
+      with a fresh `<output_dir>` provisioning event — every KMS
+      rotation event must have a corresponding new
+      `<output_dir>/audit_log.manifest.json` genesis pin within the
+      same KMS-event timestamp window. Rotations with no matching
+      genesis pin (i.e. mid-output-dir rotations) break
+      `forgelm verify-audit --require-hmac` for the cross-secret
+      span.
 - [ ] Approval-gate identity differs from training identity for every
       `human_approval.granted` event in the past 90 days
       (sample-audit, not exhaustive).
