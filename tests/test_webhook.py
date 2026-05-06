@@ -231,12 +231,18 @@ class TestSafePostHttpDiscipline:
             kwargs = mock_post.call_args.kwargs
             assert kwargs["allow_redirects"] is False
 
-    def test_http_block(self):
-        """http:// URLs are rejected unless allow_insecure_http is set."""
+    def test_http_block(
+        self,
+    ):  # NOSONAR python:S5332 — docstring describes the security guard; no insecure call is made
+        """Verify plain-HTTP URLs are rejected unless allow_insecure_http is set."""
         from forgelm._http import HttpSafetyError, safe_post
 
-        with pytest.raises(HttpSafetyError, match="http://"):
-            safe_post("http://example.com/hook", json={}, timeout=10.0)  # NOSONAR scheme blocker fixture
+        with pytest.raises(
+            HttpSafetyError, match="http://"
+        ):  # NOSONAR python:S5332 — match-regex literal, not an outbound call
+            safe_post(
+                "http://example.com/hook", json={}, timeout=10.0
+            )  # NOSONAR python:S5332 — scheme blocker fixture; verifies the guard rejects http://
 
     def test_http_allowed_with_opt_in(self):
         """allow_insecure_http=True (used by webhook) lets http:// through."""
@@ -252,13 +258,15 @@ class TestSafePostHttpDiscipline:
             )
             mock_post.assert_called_once()
 
-    def test_unsupported_scheme(self):
-        """ftp:// / file:// / etc. are rejected even with allow_insecure_http."""
+    def test_unsupported_scheme(
+        self,
+    ):  # NOSONAR python:S5332 — docstring names the rejected schemes; no insecure call is made
+        """Verify non-http(s) schemes (e.g., ftp, file) are rejected even with allow_insecure_http."""
         from forgelm._http import HttpSafetyError, safe_post
 
         with pytest.raises(HttpSafetyError, match="Unsupported URL scheme"):
             safe_post(
-                "ftp://example.com/hook",  # NOSONAR scheme blocker fixture (ftp not allowed)
+                "ftp://example.com/hook",  # NOSONAR python:S5332 — scheme blocker fixture; verifies the guard rejects ftp://
                 json={},
                 timeout=10.0,
                 allow_insecure_http=True,
@@ -416,7 +424,11 @@ class TestLifecycleVocabulary:
 
         notifier.notify_awaiting_approval(
             run_name="r",
-            model_path="/tmp/staged",
+            # Path string is sent as a webhook field; nothing is written to
+            # the filesystem in this test, so the publicly-writable-tmp
+            # concern (Sonar S5443) does not apply.  Use a project-relative
+            # placeholder shape to keep the test honest about that.
+            model_path="./outputs/run-r/final_model.staging",
         )
 
         call_kwargs = mock_post.call_args
