@@ -87,9 +87,9 @@ Chain satırı cleartext identifier'ı asla taşımaz — salt audit log'un kend
 
 İki primitif kasıtlı olarak ayrıdır:
 
-- `FORGELM_AUDIT_SECRET` rotasyonu HEM identifier-hash XOR'unu HEM de chain HMAC anahtarını rotate eder.
+- `FORGELM_AUDIT_SECRET` rotasyonu **yalnızca chain HMAC anahtarını** rotate eder. Identifier hash'leri per-output-dir salt'tan türetilir ve **env-var rotasyonlarına karşı stabildir**; rotasyondan sonra aynı `--output-dir` üzerinde mount edilen bir `forgelm reverse-pii` sorgusu, rotasyondan ÖNCE kaydedilmiş `forgelm purge` event'leriyle hâlâ korele eder.
 - Birini incelemek diğerini ifşa etmez.
-- Per-output-dir salt env-var değişikliklerinden etkilenmez; identifier hash'leri stabil ve korelatif kalır.
+- Per-output-dir salt, identifier hash'lemenin tek girdisidir; output dizininin yaşam süresi boyunca kalıcıdır ve chain HMAC'in rotasyon kadansını cross-tool digest korelasyonundan izole eder.
 
 ## Exit kodları
 

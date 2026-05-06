@@ -10,7 +10,7 @@ description: Three-layer integrity check for exported GGUF model files before se
 ## When to use it
 
 - **Before loading a GGUF into a serving runtime.** A clean `verify-gguf` exit is the minimum signal the file is what the exporter wrote.
-- **In CI/CD release gates after GGUF export.** Run after every `forgelm export` step; fail the release on exit `1`.
+- **In CI/CD release gates after GGUF export.** Run after every `forgelm export` step and **fail the release on any non-zero exit code** (the public contract follows the `0/1/2/3/4` set documented in [error-handling.md](../../../standards/error-handling.md); `1` is the most common gate trip — caller/input + integrity-mismatch — but `2` covers genuine I/O failures on existing files, and other non-zero codes propagate from upstream pipelines).
 - **When receiving a GGUF from a third-party trainer or model hub.** Recompute the magic + metadata + SHA-256 layers to detect drift between what they sent and what they signed.
 - **After moving a GGUF between machines.** Any byte-level corruption in transit shows up as a SHA-256 mismatch.
 
@@ -144,7 +144,7 @@ Install with `pip install gguf` to add the metadata layer back. This matches the
 :::
 
 :::warn
-**Skipping the metadata layer in CI by not installing `gguf`.** The metadata parse catches truncation that the magic-header check cannot. The SHA-256 sidecar will of course flag any byte change — including truncation — but only if it was generated *after* the truncation; a sidecar produced from the original full file is still on disk for an attacker to reuse against a truncated upload, and the magic header alone won't catch the truncation. Install `gguf` in your CI image so the metadata reader can reject malformed/truncated files independently of the sidecar.
+**Skipping the metadata layer in CI by not installing `gguf`.** A SHA-256 sidecar generated from the original, full GGUF file CANNOT validate a later truncated copy — any byte-level change (including truncation) alters the digest, so the sidecar correctly fails. The actual bypass shape is an attacker who removes or regenerates the `.sha256` sidecar after tampering: with the sidecar gone or re-signed, only the magic-header check remains, and the magic header alone won't catch truncation. Install `gguf` in your CI image so the metadata reader rejects malformed/truncated files independently of any sidecar manipulation — defence in depth, not a sidecar-replacement.
 :::
 
 :::tip

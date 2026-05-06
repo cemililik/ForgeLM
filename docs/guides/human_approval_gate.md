@@ -135,11 +135,12 @@ FORGELM_OPERATOR="alice@acme.example" \
 
 ## 5. What the audit chain shows
 
-After approval, three rows describe the gate's full lifecycle:
+After approval, three rows describe the gate's full lifecycle (the third is the genesis-bound "approval requested" preamble that pairs with the trainer's `human_approval.required` event for end-to-end correlation):
 
 ```jsonl
 {"event":"human_approval.required","run_id":"fg-abc123def456","operator":"gha:Acme/pipelines:training:run-42","staging_path":"outputs/run42/final_model.staging.fg-abc123def456","metrics":{...}}
 {"event":"human_approval.granted","run_id":"fg-abc123def456","operator":"alice@acme.example","approver":"alice@acme.example","comment":"Reviewed eval report; S5 max 0.04 acceptable. Ticket #4711.","promote_strategy":"rename"}
+{"event":"compliance.artifacts_exported","run_id":"fg-abc123def456","operator":"alice@acme.example","artifact_kind":"final_model","source":"final_model.staging.fg-abc123def456","destination":"final_model"}
 ```
 
 Each line carries a `prev_hash` linking it to the previous one (SHA-256), and an `_hmac` when `FORGELM_AUDIT_SECRET` is set. `forgelm verify-audit ./outputs/audit_log.jsonl --require-hmac` validates the full chain — a re-signed line with a forged operator id breaks verification.

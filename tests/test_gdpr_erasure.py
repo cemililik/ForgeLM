@@ -447,7 +447,12 @@ class TestUnknownTargetErrors:
         assert ei.value.code == 1
         payload = json.loads(capsys.readouterr().out)
         assert payload["success"] is False
-        assert "row-NOPE" in payload["error"]
+        # Round 4 absorption: error payload uses a redacted id_hash
+        # short form so the JSON envelope never echoes the raw row_id
+        # (which is potentially PII). The raw value MUST be absent and
+        # the hash-prefix marker MUST be present.
+        assert "row-NOPE" not in payload["error"]
+        assert "<id_hash:" in payload["error"]
 
         events = _read_audit_events(tmp_path / "audit_log.jsonl")
         names = [e["event"] for e in events]
@@ -455,6 +460,11 @@ class TestUnknownTargetErrors:
         assert "data.erasure_failed" in names
         # NOT data.erasure_completed.
         assert "data.erasure_completed" not in names
+        # And the audit event's `error_message` field must use the same
+        # redacted form, not the raw row_id.
+        failed = next(e for e in events if e["event"] == "data.erasure_failed")
+        assert "row-NOPE" not in failed.get("error_message", "")
+        assert "<id_hash:" in failed.get("error_message", "")
 
     def test_unknown_run_id_artefacts_emits_failed_event(self, tmp_path: Path, capsys) -> None:
         from forgelm.cli.subcommands._purge import _run_purge_cmd

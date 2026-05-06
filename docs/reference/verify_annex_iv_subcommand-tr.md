@@ -29,8 +29,8 @@ forgelm verify-annex-iv [--output-format {text,json}]
 | Kod | Anlam |
 |---|---|
 | `0` | Tüm gerekli Annex IV §1-9 alanları doldurulmuş VE (mevcutsa) `metadata.manifest_hash` yeniden hesaplanan hash ile eşleşiyor. |
-| `1` | Gerekli alan eksik / boş VEYA manifest hash uyuşmazlığı — operatör eylemli: artefakt mevcut hâliyle Annex IV uyumlu değil. |
-| `2` | Runtime hatası: dosya bulunamadı, okunamadı, bozuk JSON ya da kök bir JSON nesnesi değil. |
+| `1` | Çağıran/girdi hatası veya doğrulama başarısız (`valid=False`): dosya bulunamadı / normal dosya değil; gerekli alan eksik / boş; bozuk JSON; kök bir JSON nesnesi değil; manifest hash uyuşmazlığı. Operatör eylemli: artefakt mevcut hâliyle Annex IV uyumlu değil. |
+| `2` | Mevcut bir dosyada gerçek runtime I/O hatası — okuma hatası, ayrıştırma sırasında izin reddi vb. Yol `os.path.isfile`'a erişilebilirdi ama doğrulama sırasında okunamaz hâle geldi. |
 
 Kodlar `forgelm/cli/subcommands/_verify_annex_iv.py::_run_verify_annex_iv_cmd` tarafından emit edilir. Kamuya açık sözleşme semantiği `docs/standards/error-handling.md`'de sabitlenmiştir.
 

@@ -29,8 +29,8 @@ forgelm verify-gguf [--output-format {text,json}]
 | Kod | Anlam |
 |---|---|
 | `0` | Magic header `GGUF` VE (`gguf` yüklüyse) meta veri bloğu ayrıştırılıyor VE (sidecar mevcutsa) SHA-256 eşleşiyor. |
-| `1` | Magic uyuşmazlığı, meta veri bozulması (`gguf` okuyucu ayrıştırma sırasında istisna fırlattı), bozuk sidecar (hex değil / yanlış uzunluk) veya SHA-256 uyuşmazlığı — artefakt servis edilmek için güvenli değil. |
-| `2` | Runtime hatası: dosya bulunamadı veya okunamadı. |
+| `1` | Çağıran/girdi hatası: yol eksik, normal bir dosya değil veya magic uyuşmuyor; meta veri bozulması (`gguf` okuyucu ayrıştırma sırasında istisna fırlattı); bozuk sidecar (hex değil / yanlış uzunluk); SHA-256 uyuşmazlığı. Artefakt servis edilmek için güvenli değil. |
+| `2` | Mevcut bir dosyada gerçek runtime I/O hatası — okuma hatası, ayrıştırma sırasında izin reddi vb. Yol `os.path.isfile`'a erişilebilirdi ama doğrulama sırasında okunamaz hâle geldi. |
 
 Kodlar `forgelm/cli/subcommands/_verify_gguf.py::_run_verify_gguf_cmd` tarafından emit edilir. Kamuya açık sözleşme semantiği `docs/standards/error-handling.md`'de sabitlenmiştir.
 

@@ -135,11 +135,12 @@ FORGELM_OPERATOR="alice@acme.example" \
 
 ## 5. Audit zinciri ne gösterir
 
-Onaydan sonra üç satır kapının tam yaşam döngüsünü tarif eder:
+Onaydan sonra üç satır kapının tam yaşam döngüsünü tarif eder (üçüncüsü, terfi sonrası `compliance.artifacts_exported` post-amblümüdür ve trainer'ın `human_approval.required` event'iyle uçtan uca korelasyon kurar):
 
 ```jsonl
 {"event":"human_approval.required","run_id":"fg-abc123def456","operator":"gha:Acme/pipelines:training:run-42","staging_path":"outputs/run42/final_model.staging.fg-abc123def456","metrics":{...}}
 {"event":"human_approval.granted","run_id":"fg-abc123def456","operator":"alice@acme.example","approver":"alice@acme.example","comment":"Eval raporunu inceledim; S5 max 0.04 kabul edilebilir. Ticket #4711.","promote_strategy":"rename"}
+{"event":"compliance.artifacts_exported","run_id":"fg-abc123def456","operator":"alice@acme.example","artifact_kind":"final_model","source":"final_model.staging.fg-abc123def456","destination":"final_model"}
 ```
 
 Her satır önceki satıra bağlayan bir `prev_hash` (SHA-256) ve `FORGELM_AUDIT_SECRET` set olduğunda bir `_hmac` taşır. `forgelm verify-audit ./outputs/audit_log.jsonl --require-hmac` zincirin tamamını doğrular — sahte operatör id'siyle yeniden imzalanan bir satır doğrulamayı bozar.

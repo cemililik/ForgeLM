@@ -11,7 +11,7 @@ description: Sanity-check your fine-tuned model in a streaming REPL with safety 
 
 ```shell
 $ forgelm chat ./checkpoints/customer-support
-ForgeLM 0.5.2 — chat with checkpoints/customer-support
+ForgeLM 0.5.5 — chat with checkpoints/customer-support
 forgelm> how do I cancel my subscription?
 You can cancel from Settings → Billing → Cancel subscription. Your access
 continues until the end of the current billing period…

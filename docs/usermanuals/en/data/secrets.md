@@ -121,7 +121,7 @@ ingestion:
 :::
 
 :::tip
-For corpora that legitimately contain certificates / tokens (security training datasets, CTF content), there is no CLI escape hatch — the secrets scan is intentionally always-on (see "Always on" above). Mark the rows in your corpus's data-governance manifest as `legitimate_secret_content: true` so a downstream reviewer sees the rationale; `forgelm audit` still flags them, but the reviewer dismisses the flag with the manifest line as evidence.
+For corpora that legitimately contain certificates / tokens (security training datasets, CTF content), there is no CLI escape hatch — the secrets scan is intentionally always-on (no `--no-secrets` / `--skip-secrets` flag exists, and `forgelm audit` runs the scan unconditionally on every invocation; see the [Audit-only mode](#audit-only-mode) section above for the underlying scan-mode semantics). Mark the rows in your corpus's data-governance manifest as `legitimate_secret_content: true` so a downstream reviewer sees the rationale; `forgelm audit` still flags them, but the reviewer dismisses the flag with the manifest line as evidence.
 :::
 
 ## See also

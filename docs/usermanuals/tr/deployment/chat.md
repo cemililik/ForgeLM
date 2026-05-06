@@ -11,7 +11,7 @@ description: Akışlı REPL'de güvenlik routing'i ile fine-tuned modelinizi sı
 
 ```shell
 $ forgelm chat ./checkpoints/customer-support
-ForgeLM 0.5.2 — checkpoints/customer-support ile sohbet
+ForgeLM 0.5.5 — checkpoints/customer-support ile sohbet
 forgelm> aboneliği nasıl iptal ederim?
 Aboneliğinizi Ayarlar → Faturalandırma → Aboneliği İptal Et adımlarıyla
 iptal edebilirsiniz. Erişiminiz mevcut faturalama döneminin sonuna kadar
@@ -108,7 +108,7 @@ Oturumlar şu durumlar için faydalı:
 
 ## İki modeli karşılaştırma
 
-> Not: `chat-compare` subcommand'ı v0.6.0+ Pro CLI seviyesi için planlanmıştır ([Phase 13 yol haritası](#/roadmap/phase-13)). Bugün aynı karşılaştırma her checkpoint'e karşı `forgelm --benchmark-only` ve aşağı akış judge config'i ile koşturulur; aşağıdaki snippet planlanan özel UX'i önizler.
+> Not: `chat-compare` subcommand'ı v0.6.0+ Pro CLI için planlanmıştır ([Phase 13 yol haritası](#/roadmap/phase-13)). Bugün aynı karşılaştırma her checkpoint'e karşı `forgelm --benchmark-only` ve aşağı akış judge config'i ile koşturulur; aşağıdaki snippet planlanan özel UX'i önizler.
 
 ```shell
 $ forgelm chat-compare ./checkpoints/v1 ./checkpoints/v2 --prompts data/probes.jsonl

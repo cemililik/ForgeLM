@@ -121,7 +121,7 @@ ingestion:
 :::
 
 :::tip
-Sertifika / token meşru içeren corpus'lar için (güvenlik eğitim dataset'leri, CTF içeriği) CLI escape hatch yoktur — sırlar taraması bilinçli olarak her zaman açıktır (bkz. yukarıda "Her zaman açık"). Corpus'unuzun data-governance manifest'inde ilgili satırları `legitimate_secret_content: true` olarak işaretleyin, böylece downstream reviewer rationale'ı görür; `forgelm audit` yine de flag'ler ama reviewer manifest satırını kanıt olarak dismiss eder.
+Sertifika / token meşru içeren corpus'lar için (güvenlik eğitim dataset'leri, CTF içeriği) CLI escape hatch yoktur — sırlar taraması bilinçli olarak her zaman açıktır (`--no-secrets` / `--skip-secrets` flag'i yoktur ve `forgelm audit` taramayı her çağrıda koşulsuz koşturur; temel scan-mode semantiği için yukarıdaki [Sadece-audit modu](#sadece-audit-modu) bölümüne bkz.). Corpus'unuzun data-governance manifest'inde ilgili satırları `legitimate_secret_content: true` olarak işaretleyin, böylece downstream reviewer rationale'ı görür; `forgelm audit` yine de flag'ler ama reviewer manifest satırını kanıt olarak dismiss eder.
 :::
 
 ## Bkz.

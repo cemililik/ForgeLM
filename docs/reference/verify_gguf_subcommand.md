@@ -29,8 +29,8 @@ forgelm verify-gguf [--output-format {text,json}]
 | Code | Meaning |
 |---|---|
 | `0` | Magic header is `GGUF` AND (when `gguf` is installed) metadata block parses AND (when sidecar present) SHA-256 matches. |
-| `1` | Magic mismatch, metadata corruption (`gguf` reader raised mid-parse), malformed sidecar (non-hex / wrong length), or SHA-256 mismatch — the artifact is not safe to serve. |
-| `2` | Runtime error: file not found or unreadable. |
+| `1` | Caller / input error: path is missing, is not a regular file, or the magic mismatches; metadata corruption (`gguf` reader raised mid-parse); malformed sidecar (non-hex / wrong length); SHA-256 mismatch. The artifact is not safe to serve. |
+| `2` | Genuine runtime I/O failure on an existing file — read errors, permission denied mid-read, etc. The path was accessible to `os.path.isfile` but became unreadable during verification. |
 
 The codes are emitted by `forgelm/cli/subcommands/_verify_gguf.py::_run_verify_gguf_cmd`. Public-contract semantics are pinned in `docs/standards/error-handling.md`.
 

@@ -16,7 +16,7 @@ Three operator pains the air-gap workflow addresses:
 
 ## The two-host workflow at a glance
 
-```
+```text
 ┌─────────────────────────────────┐       ┌────────────────────────────────┐
 │ Connected staging host          │       │ Air-gapped target host         │
 │                                 │       │                                │

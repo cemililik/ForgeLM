@@ -29,8 +29,8 @@ forgelm verify-annex-iv [--output-format {text,json}]
 | Code | Meaning |
 |---|---|
 | `0` | Every required Annex IV §1-9 field is populated AND (when present) the `metadata.manifest_hash` matches the recomputed hash. |
-| `1` | Required field missing / empty OR manifest hash mismatch — operator-actionable: the artifact is not Annex IV compliant as-is. |
-| `2` | Runtime error: file not found, unreadable, malformed JSON, or root is not a JSON object. |
+| `1` | Caller / input error or validation failure (`valid=False`): file not found / not a regular file; required field missing / empty; malformed JSON; root is not a JSON object; manifest hash mismatch. Operator-actionable: the artifact is not Annex IV compliant as-is. |
+| `2` | Genuine runtime I/O failure on an existing file — read errors, permission denied mid-read, etc. The path was accessible to `os.path.isfile` but became unreadable during verification. |
 
 The codes are emitted by `forgelm/cli/subcommands/_verify_annex_iv.py::_run_verify_annex_iv_cmd`. Public-contract semantics are pinned in `docs/standards/error-handling.md`.
 

@@ -288,7 +288,7 @@ configs/deepspeed/    # ZeRO-2, ZeRO-3, ZeRO-3+Offload presets
 forgelm/safety_prompts/  # 140 adversarial prompts × 6 categories for safety evaluation
 forgelm/templates/    # Quickstart templates (SFT, code-assistant, domain-expert, medical-qa-tr, grpo-math)
 notebooks/            # Colab-ready Jupyter notebooks (data curation, SFT, DPO, KTO, GRPO, ...)
-tests/                # 68 test modules, ~1442 tests (run with `pytest tests/`)
+tests/                # Test suite — run with `pytest tests/` (count grows over time; CI gates on green-on-every-commit)
 tools/                # CI guards (check_anchor_resolution, check_bilingual_parity,
                       # check_cli_help_consistency, check_field_descriptions,
                       # check_pip_audit, check_bandit, check_site_claims,

@@ -53,7 +53,7 @@ Ingestion extra'larını kurun: `pip install 'forgelm[ingestion]'`. Bkz. [Kurulu
 
 ## Parçalama stratejileri
 
-Shipped `--strategy` seçenekleri: `sliding`, `paragraph`, `markdown`.
+Sunulan `--strategy` seçenekleri: `sliding`, `paragraph`, `markdown`.
 (`tokens` ve `sentence` daha önce tasarımdaki adlardı, parser'a
 hiç inmedi.)
 
@@ -82,7 +82,7 @@ Yetkili liste için `forgelm ingest --help`. En sık görülenler:
 | Bayrak | Açıklama |
 |---|---|
 | `--output FILE` | Hedef JSONL dosyası (parent dizinler oluşturulur). Zorunlu. |
-| `--recursive` | Alt dizinlere yürü. Varsayılan sığ (yalnız top-level dosyalar). |
+| `--recursive` | Alt dizinlere yürü. Varsayılan sığ (yalnız üst düzey dosyalar). |
 | `--strategy {sliding,paragraph,markdown}` | Parçalama stratejisi (varsayılan: `paragraph`). |
 | `--chunk-tokens N` | Chunk başına token sınırı (`--tokenizer` kullanır). `sliding` için `--overlap-tokens` ile eşleştirin. |
 | `--chunk-size N` | Chunk başına yumuşak karakter sınırı (kütüphane varsayılanı 2048). Ya bunu **YA DA** `--chunk-tokens`, ikisini birden değil. |

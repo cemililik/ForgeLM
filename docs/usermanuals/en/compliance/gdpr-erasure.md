@@ -87,9 +87,9 @@ The per-output-dir salt at `<output_dir>/.forgelm_audit_salt` (mode `0600`, atom
 
 The two primitives are intentionally separate:
 
-- Rotating `FORGELM_AUDIT_SECRET` rotates BOTH the identifier-hash XOR and the chain HMAC key.
+- Rotating `FORGELM_AUDIT_SECRET` rotates **only the chain HMAC key**. Identifier hashes derive from the per-output-dir salt and are **stable across env-var rotations**, so a `forgelm reverse-pii` query mounted on the same `--output-dir` after a rotation still correlates with `forgelm purge` events recorded before it.
 - Inspecting either primitive does not reveal the other.
-- The per-output-dir salt persists across env-var changes so identifier hashes remain stable and correlatable.
+- The per-output-dir salt is the only input to identifier hashing; it persists for the lifetime of the output dir, isolating the chain HMAC's rotation cadence from the cross-tool digest correlation.
 
 ## Exit codes
 
