@@ -284,16 +284,9 @@ auth:
 
 ## `deployment:`
 
-```yaml
-deployment:
-  target: null                                # ollama | vllm | tgi | hf-endpoints | kserve | triton
-  served_model_name: null
-  max_input_length: 4096
-  max_total_tokens: 8192
-  gpu_memory_utilization: 0.85
-  chat_template: null
-  system_prompt_default: null
-```
+v0.5.5'te `deployment:` üst-seviye YAML anahtarı yoktur — `ForgeConfig` bilinmeyen anahtarları reddeder (`extra="forbid"`), dolayısıyla eğitim config'inize eklerseniz yükleme anında `ConfigError` fırlar. Deployment knob'ları YAML yerine `forgelm deploy` CLI bayrakları olarak açılır. Canlı target seçenekleri `--target {ollama,vllm,tgi,hf-endpoints}`'dir; tam surface için [Deploy hedefleri sayfasına](#/deployment/deploy-targets) ve [CLI referansına](#/reference/cli) bakın.
+
+> **v0.6.0+ için planlanan:** YAML-destekli `deployment:` bölümü [Phase 14 pipeline-chains yol haritasında](#/roadmap/phase-14) (eski v0.5.x placeholder'larından ertelendi). O zamana kadar, üçüncü taraf şablonlarda gördüğünüz herhangi bir "deployment:" YAML'ını bilgilendirici sayın; otoriter olan yalnızca `forgelm deploy` bayraklarıdır.
 
 ## Bkz.
 

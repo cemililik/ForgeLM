@@ -11,7 +11,7 @@ description: Akışlı REPL'de güvenlik routing'i ile fine-tuned modelinizi sı
 
 ```shell
 $ forgelm chat ./checkpoints/customer-support
-ForgeLM 0.5.2 — checkpoints/customer-support ile sohbet
+ForgeLM 0.5.5 — checkpoints/customer-support ile sohbet
 forgelm> aboneliği nasıl iptal ederim?
 Aboneliğinizi Ayarlar → Faturalandırma → Aboneliği İptal Et adımlarıyla
 iptal edebilirsiniz. Erişiminiz mevcut faturalama döneminin sonuna kadar
@@ -55,15 +55,17 @@ chat:
 - HuggingFace model ID: `Qwen/Qwen2.5-7B-Instruct`
 - GGUF dosyası: `./model.gguf` (alta llama.cpp)
 
-LoRA checkpoint'lerinde base modeli override edebilirsiniz:
+LoRA checkpoint'lerinde base modeli pozisyonel argüman olarak verin ve adapter dizinini `--adapter` ile belirtin:
 
 ```shell
-$ forgelm chat ./checkpoints/run/ --base "Qwen/Qwen2.5-7B"
+$ forgelm chat "Qwen/Qwen2.5-7B" --adapter ./checkpoints/run/
 ```
 
 ## Güvenlik routing'i
 
-`--safety on` ile her prompt ve yanıt Llama Guard tarafından taranır:
+> Not: `forgelm chat` üzerinde yerleşik `--safety` bayrağı v0.6.0+ Pro CLI için planlanmıştır ([Phase 13 yol haritası](#/roadmap/phase-13)). Bugün her-tur tarama davranışı yalnızca **YAML pipeline** (`safety:` bloğu) üzerinden yayınlanmıştır — chat REPL'i bu config'i okur ve her prompt + yanıtı Llama Guard'a yönlendirir. Aşağıdaki bayraklı çağrı planlanan UX'in önizlemesi olup BUGÜN runnable DEĞİLDİR.
+
+`safety: enabled: true` config'iyle her prompt ve yanıt Llama Guard tarafından taranır:
 
 ```text
 forgelm> [adversarial prompt]
@@ -105,6 +107,8 @@ Oturumlar şu durumlar için faydalı:
 - Aynı konuşmada iki model sürümünü karşılaştırmak.
 
 ## İki modeli karşılaştırma
+
+> Not: `chat-compare` subcommand'ı v0.6.0+ Pro CLI için planlanmıştır ([Phase 13 yol haritası](#/roadmap/phase-13)). Bugün aynı karşılaştırma her checkpoint'e karşı `forgelm --benchmark-only` ve aşağı akış judge config'i ile koşturulur; aşağıdaki snippet planlanan özel UX'i önizler.
 
 ```shell
 $ forgelm chat-compare ./checkpoints/v1 ./checkpoints/v2 --prompts data/probes.jsonl

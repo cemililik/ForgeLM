@@ -65,12 +65,19 @@ Floor'ları pre-training baseline'ınızdan biraz altına ayarlayın. Hedef: *iy
 
 ## Pre-train baseline
 
-Hangi floor'u koyacağınızı bilmek için bir pre-training baseline lazım:
+Hangi floor'u koyacağınızı bilmek için bir pre-training baseline lazım. `--benchmark-only` flag'ini (eğitim yapmadan mevcut bir modeli değerlendirir) tasks + output path'i pin'leyen bir config ile kullanın:
+
+```yaml
+# baseline.yaml
+model: { name: "Qwen/Qwen2.5-7B-Instruct" }
+evaluation:
+  benchmark:
+    tasks: ["hellaswag", "arc_easy", "truthfulqa", "mmlu"]
+    output: "baselines/qwen-2.5-7b.json"
+```
 
 ```shell
-$ forgelm benchmark --model "Qwen/Qwen2.5-7B-Instruct" \
-    --tasks hellaswag,arc_easy,truthfulqa,mmlu \
-    --output baselines/qwen-2.5-7b.json
+$ forgelm --config baseline.yaml --benchmark-only "Qwen/Qwen2.5-7B-Instruct"
 {"hellaswag": 0.61, "arc_easy": 0.75, "truthfulqa": 0.49, "mmlu": 0.52}
 ```
 

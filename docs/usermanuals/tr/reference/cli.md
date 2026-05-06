@@ -173,7 +173,7 @@ Bkz. [İnsan Gözetim Gate'i](#/compliance/human-oversight). Exit kodları: `0` 
 
 ```shell
 $ forgelm verify-audit PATH/TO/audit_log.jsonl
-$ forgelm verify-audit PATH/TO/audit_log.jsonl --hmac-secret "$FORGELM_AUDIT_SECRET"
+$ forgelm verify-audit PATH/TO/audit_log.jsonl --hmac-secret-env FORGELM_AUDIT_SECRET
 $ forgelm verify-audit PATH/TO/audit_log.jsonl --require-hmac
 ```
 
@@ -243,8 +243,11 @@ $ forgelm --config configs/run.yaml --output-format json | tee run.log
 ### "Önce audit, temizse eğit"
 
 ```shell
-$ forgelm audit data/ --strict && forgelm --config configs/run.yaml
+$ forgelm audit data/
+$ forgelm --config configs/run.yaml
 ```
+
+İki komutu CI pipeline'ında sırayla çalıştırın; `forgelm audit` policy ihlalinde non-zero exit verir, dolayısıyla kirli corpus'ta ikinci komut tetiklenmez.
 
 ### "İnsan onay gate'iyle eğit; sonra promote et"
 

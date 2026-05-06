@@ -125,15 +125,22 @@ class TestVerifyAnnexIv:
             _run_verify_annex_iv_cmd(args, output_format="json")
         assert ei.value.code == 1
 
-    def test_file_not_found_exits_runtime_error(self, tmp_path: Path) -> None:
+    def test_file_not_found_exits_config_error(self, tmp_path: Path) -> None:
+        # Round 5 absorption: file-not-found is a CALLER-input error
+        # (the operator typed a wrong path), so the dispatcher emits
+        # EXIT_CONFIG_ERROR (=1), not EXIT_TRAINING_ERROR (=2). Real
+        # I/O failures on an existing file remain exit 2.
         from forgelm.cli.subcommands._verify_annex_iv import _run_verify_annex_iv_cmd
 
         args = _build_args(path=str(tmp_path / "missing.json"))
         with pytest.raises(SystemExit) as ei:
             _run_verify_annex_iv_cmd(args, output_format="json")
-        assert ei.value.code == 2
+        assert ei.value.code == 1
 
-    def test_malformed_json_exits_runtime_error(self, tmp_path: Path) -> None:
+    def test_malformed_json_exits_config_error(self, tmp_path: Path) -> None:
+        # Round 5 absorption: malformed JSON is a caller-input
+        # validation error (the artefact is reachable but unparseable),
+        # so the dispatcher emits EXIT_CONFIG_ERROR (=1).
         from forgelm.cli.subcommands._verify_annex_iv import _run_verify_annex_iv_cmd
 
         path = tmp_path / "annex_iv.json"
@@ -141,7 +148,7 @@ class TestVerifyAnnexIv:
         args = _build_args(path=str(path))
         with pytest.raises(SystemExit) as ei:
             _run_verify_annex_iv_cmd(args, output_format="json")
-        assert ei.value.code == 2
+        assert ei.value.code == 1
 
     def test_writer_round_trip_passes_verifier(self, tmp_path: Path) -> None:
         """F-W2B-01 + F-W2B-05 regression: a freshly-generated Annex IV
@@ -363,13 +370,16 @@ class TestVerifyGguf:
             _run_verify_gguf_cmd(args, output_format="json")
         assert ei.value.code == 1
 
-    def test_file_not_found_exits_runtime_error(self, tmp_path: Path) -> None:
+    def test_file_not_found_exits_config_error(self, tmp_path: Path) -> None:
+        # Round 5 absorption: file-not-found is a CALLER-input error.
+        # The dispatcher emits EXIT_CONFIG_ERROR (=1); EXIT_TRAINING_ERROR
+        # (=2) is reserved for genuine I/O failures on an existing file.
         from forgelm.cli.subcommands._verify_gguf import _run_verify_gguf_cmd
 
         args = _build_args(path=str(tmp_path / "missing.gguf"))
         with pytest.raises(SystemExit) as ei:
             _run_verify_gguf_cmd(args, output_format="json")
-        assert ei.value.code == 2
+        assert ei.value.code == 1
 
 
 # ---------------------------------------------------------------------------

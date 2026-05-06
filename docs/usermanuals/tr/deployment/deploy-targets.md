@@ -27,8 +27,8 @@ $ ollama run my-bot
 | `vllm` | `vllm-config.yaml` | Yüksek-throughput GPU servis. |
 | `tgi` | `tgi-launcher.sh` + Dockerfile | HuggingFace'in text-generation-inference. |
 | `hf-endpoints` | `endpoints-config.json` | HuggingFace Inference Endpoints'a tek-tıkla deploy. |
-| `kserve` | `inference-service.yaml` | Kubernetes-yerli model servisi. |
-| `triton` | `model_repository/` | NVIDIA Triton Inference Server. |
+
+KServe ve NVIDIA Triton v0.5.5'te **dahili** hedef değildir. `forgelm deploy --target` parser'ı yalnızca yukarıdaki dört runtime'ı kabul eder. KServe / Triton'da servis sunan operatörler `InferenceService` manifest'ini veya `model_repository/` layout'unu GGUF / safetensors artefakt'ından elle yazar.
 
 ## Ollama
 
@@ -121,47 +121,6 @@ $ curl -X POST https://api.endpoints.huggingface.cloud/v2/endpoint \
 ```
 
 Veya tek-tıkla deployment için HuggingFace UI'sına yapıştırın.
-
-## KServe (Kubernetes)
-
-```shell
-$ forgelm deploy ./checkpoints/run --target kserve --output kserve.yaml
-$ kubectl apply -f kserve.yaml
-```
-
-`InferenceService` manifest üretir:
-
-```yaml
-apiVersion: "serving.kserve.io/v1beta1"
-kind: "InferenceService"
-metadata:
-  name: customer-support-v1.2
-spec:
-  predictor:
-    model:
-      modelFormat: { name: huggingface }
-      runtime: kserve-huggingfaceserver
-      storageUri: "s3://my-models/customer-support-v1.2/"
-      resources:
-        limits:
-          nvidia.com/gpu: 1
-```
-
-## Triton Inference Server
-
-```shell
-$ forgelm deploy ./checkpoints/run --target triton --output ./model_repository/
-```
-
-Triton'un beklediği dizin yapısını üretir:
-
-```text
-model_repository/
-└── customer-support-v1.2/
-    ├── 1/
-    │   └── model.savedmodel/
-    └── config.pbtxt
-```
 
 ## Konfigürasyon
 

@@ -21,11 +21,18 @@
    ```
 
 2. [x] **`forgelm chat` — interactive terminal loop**
-   Terminal REPL in `forgelm/chat.py`: streaming output (default), `/reset`, `/save [file]`, `/temperature 0.x`, `/system <prompt>`, `/help` commands. `rich` optional rendering. Optional `--safety` flag. History management with 50-pair cap.
+   Terminal REPL in `forgelm/chat.py`: streaming output (default), `/reset`, `/save [file]`, `/temperature 0.x`, `/system <prompt>`, `/help` commands. `rich` optional rendering. History management with 50-pair cap. The `--safety` per-turn screen flag is planned for v0.6.0+ Pro CLI (today's safety pipeline runs through the YAML `safety:` block during training/eval).
    ```bash
    forgelm chat ./outputs/my_run
-   forgelm chat ./outputs/my_run --adapter ./outputs/my_run/adapter_model --safety
    ```
+
+   `forgelm chat`'s shipping form takes a positional checkpoint path
+   plus optional `--adapter`. The per-turn Llama Guard screen via
+   `--safety` is planned for v0.6.0+ Pro CLI (see Phase 13 roadmap);
+   today operators get the same screening by enabling
+   `safety: enabled: true` in the YAML config the chat REPL reads.
+   The flag-form preview (`forgelm chat ... --safety`) is NOT
+   runnable today.
 
 3. [x] **`forgelm export` — HF → GGUF conversion**
    Wraps `llama-cpp-python`'s `convert_hf_to_gguf.py`; no reimplementation. Handles adapter merge (LoRA + base → merged fp16) before conversion. Supports quants: `q2_k`, `q3_k_m`, `q4_k_m`, `q5_k_m`, `q8_0`, `f16`. SHA-256 of output artifact appended to `model_integrity.json`. Optional dependency: `pip install forgelm[export]`.

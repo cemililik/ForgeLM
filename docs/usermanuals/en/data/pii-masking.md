@@ -87,13 +87,16 @@ The audit report lists row indices and offsets, so you can inspect specific case
 | US | E.164 + (xxx) xxx-xxxx | SSN with reserved-block exclusion | |
 | Global | E.164 only | none | Fallback for unknown locales. |
 
-Set the locale at ingest:
+The regex-based PII layer triggered by `forgelm ingest --pii-mask`
+(or the audit equivalent) detects all patterns in the table above
+without a locale flag. For a Presidio ML-NER pass with an explicit
+language hint, use the audit subcommand:
 
 ```shell
-$ forgelm ingest ./docs/ --pii-mask --pii-locale de
+$ forgelm audit ./data/*.jsonl --output ./out/ --pii-ml --pii-ml-language de
 ```
 
-Or in YAML:
+Or pin it in YAML:
 
 ```yaml
 ingestion:

@@ -447,7 +447,23 @@ class TestUnknownTargetErrors:
         assert ei.value.code == 1
         payload = json.loads(capsys.readouterr().out)
         assert payload["success"] is False
-        assert "row-NOPE" in payload["error"]
+        # Round 4 absorption: error payload uses a redacted id_hash
+        # short form so the JSON envelope never echoes the raw row_id
+        # (which is potentially PII). The raw value MUST be absent and
+        # the hash-prefix marker MUST be present.
+        # Round 6 absorption: pin the EXACT token shape (12 lowercase
+        # hex + U+2026 ellipsis) and assert the SAME token appears in
+        # both the JSON payload AND the audit event — a regression that
+        # cropped the prefix to a different length, or computed a
+        # different hash for the audit-log emit, would silently slip
+        # through a substring-only check.
+        import re
+
+        TOKEN_RE = re.compile(r"<id_hash:([0-9a-f]{12})…>")
+        assert "row-NOPE" not in payload["error"]
+        match = TOKEN_RE.search(payload["error"])
+        assert match is not None, f"redaction token shape broken: {payload['error']!r}"
+        payload_hash = match.group(1)
 
         events = _read_audit_events(tmp_path / "audit_log.jsonl")
         names = [e["event"] for e in events]
@@ -455,6 +471,18 @@ class TestUnknownTargetErrors:
         assert "data.erasure_failed" in names
         # NOT data.erasure_completed.
         assert "data.erasure_completed" not in names
+        # And the audit event's `error_message` field must use the same
+        # redacted form, not the raw row_id.
+        failed = next(e for e in events if e["event"] == "data.erasure_failed")
+        assert "row-NOPE" not in failed.get("error_message", "")
+        audit_match = TOKEN_RE.search(failed.get("error_message", ""))
+        assert audit_match is not None, f"audit error_message redaction shape broken: {failed.get('error_message')!r}"
+        # Cross-tool correlation: stdout payload + audit event must
+        # carry identical hash prefix (both derive from
+        # _hash_target_id(args.row_id, salt)).
+        assert payload_hash == audit_match.group(1), (
+            f"hash prefix mismatch — stdout {payload_hash!r} vs audit {audit_match.group(1)!r}"
+        )
 
     def test_unknown_run_id_artefacts_emits_failed_event(self, tmp_path: Path, capsys) -> None:
         from forgelm.cli.subcommands._purge import _run_purge_cmd
@@ -476,15 +504,18 @@ class TestMultiRowPolicy:
         from forgelm.cli.subcommands._purge import _run_purge_cmd
 
         corpus = tmp_path / "train.jsonl"
+        # The seed `id` deliberately looks PII-shaped so the redaction
+        # contract is exercised against a realistic threat model
+        # (corpus row ids that ARE personal data, e.g. emails).
         _seed_corpus(
             corpus,
             [
-                {"id": "shared-id", "text": "first"},
-                {"id": "shared-id", "text": "second"},
+                {"id": "alice@example.com", "text": "first"},
+                {"id": "alice@example.com", "text": "second"},
             ],
         )
         args = _build_args(
-            row_id="shared-id",
+            row_id="alice@example.com",
             corpus=str(corpus),
             output_dir=str(tmp_path),
             row_matches="one",
@@ -494,6 +525,31 @@ class TestMultiRowPolicy:
         assert ei.value.code == 1
         payload = json.loads(capsys.readouterr().out)
         assert "matched" in payload["error"].lower()
+        # Round 5 absorption: the multi-match refusal path must apply
+        # the same `<id_hash:{first12}…>` redaction as the no-match
+        # path. A regression that re-introduces raw `args.row_id` in
+        # just the multi-match leg would otherwise ship undetected
+        # because the no-match leg has its own test.
+        # Round 6 absorption: pin the EXACT token shape (12 lowercase
+        # hex + U+2026 ellipsis) and assert the SAME token appears in
+        # both the JSON payload AND the audit event.
+        import re
+
+        TOKEN_RE = re.compile(r"<id_hash:([0-9a-f]{12})…>")
+        assert "alice@example.com" not in payload["error"]
+        match = TOKEN_RE.search(payload["error"])
+        assert match is not None, f"redaction token shape broken: {payload['error']!r}"
+        payload_hash = match.group(1)
+        events = _read_audit_events(tmp_path / "audit_log.jsonl")
+        failed = next(e for e in events if e["event"] == "data.erasure_failed")
+        assert failed.get("error_class") == "MultiMatchRefused"
+        assert "alice@example.com" not in failed.get("error_message", "")
+        audit_match = TOKEN_RE.search(failed.get("error_message", ""))
+        assert audit_match is not None, f"audit error_message redaction shape broken: {failed.get('error_message')!r}"
+        # Cross-tool correlation: same hash prefix in both surfaces.
+        assert payload_hash == audit_match.group(1), (
+            f"hash prefix mismatch — stdout {payload_hash!r} vs audit {audit_match.group(1)!r}"
+        )
 
     def test_multi_match_all_mode_deletes_every_match(self, tmp_path: Path) -> None:
         from forgelm.cli.subcommands._purge import _run_purge_cmd

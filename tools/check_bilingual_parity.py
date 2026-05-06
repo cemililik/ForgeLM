@@ -63,10 +63,15 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 # for predictable reporting.
 _PAIRS: Tuple[Tuple[str, str], ...] = (
     # docs/guides/
+    ("docs/guides/air_gap_deployment.md", "docs/guides/air_gap_deployment-tr.md"),
     ("docs/guides/data_audit.md", "docs/guides/data_audit-tr.md"),
     ("docs/guides/gdpr_erasure.md", "docs/guides/gdpr_erasure-tr.md"),
+    ("docs/guides/getting-started.md", "docs/guides/getting-started-tr.md"),
+    ("docs/guides/human_approval_gate.md", "docs/guides/human_approval_gate-tr.md"),
     ("docs/guides/ingestion.md", "docs/guides/ingestion-tr.md"),
     ("docs/guides/iso_soc2_deployer_guide.md", "docs/guides/iso_soc2_deployer_guide-tr.md"),
+    ("docs/guides/library_api.md", "docs/guides/library_api-tr.md"),
+    ("docs/guides/performance.md", "docs/guides/performance-tr.md"),
     # docs/qms/
     ("docs/qms/README.md", "docs/qms/README-tr.md"),
     ("docs/qms/access_control.md", "docs/qms/access_control-tr.md"),
@@ -79,15 +84,26 @@ _PAIRS: Tuple[Tuple[str, str], ...] = (
     ("docs/qms/sop_model_training.md", "docs/qms/sop_model_training-tr.md"),
     ("docs/qms/statement_of_applicability.md", "docs/qms/statement_of_applicability-tr.md"),
     # docs/reference/
+    ("docs/reference/approvals_subcommand.md", "docs/reference/approvals_subcommand-tr.md"),
+    ("docs/reference/approve_subcommand.md", "docs/reference/approve_subcommand-tr.md"),
     ("docs/reference/architecture.md", "docs/reference/architecture-tr.md"),
     ("docs/reference/audit_event_catalog.md", "docs/reference/audit_event_catalog-tr.md"),
+    ("docs/reference/cache_subcommands.md", "docs/reference/cache_subcommands-tr.md"),
     ("docs/reference/configuration.md", "docs/reference/configuration-tr.md"),
     ("docs/reference/data_preparation.md", "docs/reference/data_preparation-tr.md"),
     ("docs/reference/distributed_training.md", "docs/reference/distributed_training-tr.md"),
+    ("docs/reference/doctor_subcommand.md", "docs/reference/doctor_subcommand-tr.md"),
     ("docs/reference/iso27001_control_mapping.md", "docs/reference/iso27001_control_mapping-tr.md"),
+    ("docs/reference/library_api_reference.md", "docs/reference/library_api_reference-tr.md"),
+    ("docs/reference/purge_subcommand.md", "docs/reference/purge_subcommand-tr.md"),
+    ("docs/reference/reverse_pii_subcommand.md", "docs/reference/reverse_pii_subcommand-tr.md"),
+    ("docs/reference/safety_eval_subcommand.md", "docs/reference/safety_eval_subcommand-tr.md"),
     ("docs/reference/soc2_trust_criteria_mapping.md", "docs/reference/soc2_trust_criteria_mapping-tr.md"),
     ("docs/reference/supply_chain_security.md", "docs/reference/supply_chain_security-tr.md"),
     ("docs/reference/usage.md", "docs/reference/usage-tr.md"),
+    ("docs/reference/verify_annex_iv_subcommand.md", "docs/reference/verify_annex_iv_subcommand-tr.md"),
+    ("docs/reference/verify_audit.md", "docs/reference/verify_audit-tr.md"),
+    ("docs/reference/verify_gguf_subcommand.md", "docs/reference/verify_gguf_subcommand-tr.md"),
 )
 
 # Match a Markdown ATX heading prefix: 1-6 leading hashes followed by

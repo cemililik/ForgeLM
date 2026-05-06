@@ -15,7 +15,7 @@ Bu katman **opt-in**'dir. `--pii-ml` geçilmediğinde varsayılan audit + ingest
 
 - Korpus serbest formlu prose (mülakat, müşteri mektubu, iç iletişim) ve isimler yapılandırılmış alanlarda değil.
 - Compliance reviewer'ınız identifier'lara ek olarak person/org/location kapsamı hakkında soru soruyor.
-- Çok dilli bir korpus audit ediyorsunuz (Presidio yerelleştirmeyi destekler; aşağıdaki [Dil Seçimi](#dil-secimi) bölümüne bakın).
+- Çok dilli bir korpus audit ediyorsunuz (Presidio yerelleştirmeyi destekler; aşağıdaki [Dil Seçimi](#dil-seçimi) bölümüne bakın).
 
 Şunlarda kullanmayın:
 
@@ -32,7 +32,7 @@ $ pip install 'forgelm[ingestion-pii-ml]'
 $ python -m spacy download en_core_web_lg
 ```
 
-spaCy modeli yoksa `forgelm audit --pii-ml` hiçbir satır taranmadan **önce** typed bir `ImportError` raise eder — pre-flight checking bilinçli bir tasarım kararıdır (bkz. [Pre-flight neden önemli](#pre-flight-neden-onemli)).
+spaCy modeli yoksa `forgelm audit --pii-ml` hiçbir satır taranmadan **önce** typed bir `ImportError` raise eder — pre-flight checking bilinçli bir tasarım kararıdır (bkz. [Pre-flight neden önemli](#pre-flight-neden-önemli)).
 
 ## Hızlı örnek
 
@@ -74,7 +74,7 @@ Yeni kategoriler `forgelm.data_audit.PII_ML_SEVERITY` adında özel bir tabloda 
 
 Bu katmanlar **bilinçli olarak** regex'in `critical`/`high` zeminlerinin (kredi kartları, ulusal kimlikler) altındadır. NER false-positive oranları regex-anchored detection'dan materyal olarak yüksektir; bu yüzden bir "person" bulgusu bir "credit_card" bulgusunun yaptığı gibi bir deployment'ı gate'lememeli.
 
-## Dil Seçimi {#dil-secimi}
+## Dil Seçimi
 
 Non-English korpusları audit etmek için `--pii-ml-language` geçin. ForgeLM, desteklenen haritadaki bir kod (varsayılan İngilizce'ye ek olarak `de`, `es`, `fr`, `it`, `ja`, `ko`, `nl`, `pl`, `pt`, `ru`, `zh`) verildiğinde istenen dil için otomatik olarak bir Presidio `AnalyzerEngine` inşa eder; önce konvansiyonel spaCy modelini kurun:
 
@@ -92,7 +92,7 @@ forgelm audit data/turkish-corpus.jsonl --pii-ml --pii-ml-language xx
 
 Pre-flight (`_require_presidio(language=...)`) hiçbir satır taranmadan önce hem spaCy modelinin mevcudiyetini hem de dil kaydını doğrular; yanlış yapılandırma sessizce sıfır-bulgu döndürmek yerine actionable bir hata ile abort olur.
 
-## Pre-flight neden önemli {#pre-flight-neden-onemli}
+## Pre-flight neden önemli
 
 `forgelm.data_audit._require_presidio()` **iki şeyi birden** kontrol eder: import sentinel (extra kurulu mu?) **ve** analyzer build (spaCy modeli mevcut mu?). Hiçbir satır taranmadan önce. Önceki prototipler sadece import'u kontrol ediyordu; bu özellikle kötü bir failure mode üretiyordu:
 

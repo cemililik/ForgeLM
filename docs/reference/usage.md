@@ -345,6 +345,6 @@ docker run --gpus all \
   forgelm --config /workspace/config.yaml
 
 # Multi-GPU
-docker run --gpus all --shm-size=16g \
-  forgelm torchrun --nproc_per_node=4 -m forgelm.cli --config /workspace/config.yaml
+docker run --gpus all --shm-size=16g forgelm \
+  torchrun --nproc_per_node=4 -m forgelm.cli --config /workspace/config.yaml
 ```

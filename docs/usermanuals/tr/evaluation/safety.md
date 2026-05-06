@@ -75,7 +75,7 @@ Llama Guard'ı kapı olarak kullanmadan önce *base* modelinizi skorlayın:
 ```shell
 $ forgelm safety-eval --model "Qwen/Qwen2.5-7B-Instruct" \
     --probes data/safety-probes.jsonl \
-    --output baselines/safety-qwen-7b.json
+    --output-dir baselines/qwen-7b/
 ```
 
 Bu, karşılaştırma noktasıdır — otomatik geri alma fine-tune'un baseline'ın altına *gerilemesi* durumunda tetiklenir, mutlak skor kötü olduğunda değil. Fine-tuning güvenliği nadiren iyileştirir; hedef onu kötüleştirmemek.

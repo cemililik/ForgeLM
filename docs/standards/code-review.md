@@ -185,10 +185,19 @@ Referencing [marketing/strategy/05-yapmayacaklarimiz.md](../marketing/strategy/0
 Before pushing:
 
 ```bash
-# Formatter + linter + all tests + dry-run
+# Formatter + linter + all tests + dry-run + 3 doc CI guards
 ruff format . && ruff check . && pytest tests/ && \
-forgelm --config config_template.yaml --dry-run
+forgelm --config config_template.yaml --dry-run && \
+python3 tools/check_bilingual_parity.py --strict && \
+python3 tools/check_anchor_resolution.py --strict && \
+python3 tools/check_cli_help_consistency.py --strict
 ```
+
+The first four are the historical gauntlet (`ruff` + `pytest` + `--dry-run`).
+The three doc guards landed across Waves 3-5 (Faz 24, 26, 30J): bilingual
+EN/TR spine parity, markdown anchor resolution, and CLI ↔ docs help-text
+parity. Every PR runs all seven checks in CI; passing locally means CI will
+too.
 
 If that passes and the PR template is honest, you're ready.
 

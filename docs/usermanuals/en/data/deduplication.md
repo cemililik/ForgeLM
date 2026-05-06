@@ -14,12 +14,12 @@ Duplicates and near-duplicates inflate your training distribution towards whatev
 | **LSH-banded simhash** (default) | Exact within Hamming threshold | ~50K rows/sec | Corpora < 50K rows |
 | **MinHash LSH** | Approximate (>95% of true duplicates) | ~500K rows/sec | Corpora > 50K rows |
 
-ForgeLM auto-selects based on row count — simhash for small, MinHash for large — but you can override via `--dedup-algo`.
+Override the default via `--dedup-method {simhash,minhash}`.
 
 ## Quick example
 
 ```shell
-$ forgelm audit data/train.jsonl --dedup-threshold 3
+$ forgelm audit data/train.jsonl --near-dup-threshold 3
 ⚠ near-duplicate pairs: 47 (LSH-banded simhash, threshold 3)
 
 $ jq '.near_duplicates[]' audit/data_audit_report.json | head
@@ -31,7 +31,7 @@ A `hamming: 0` means *exact* duplicates (same simhash); higher values are progre
 
 ## Threshold tuning
 
-The `--dedup-threshold` is a Hamming distance on the 64-bit simhash. Defaults are:
+The `--near-dup-threshold` is a Hamming distance on the 64-bit simhash. Defaults are:
 
 | Threshold | Captures | False-positive rate |
 |---|---|---|
@@ -67,17 +67,18 @@ Audit runs near-dup detection both *within* and *across* splits. Cross-split dup
 For corpora over 50K rows, switch to MinHash:
 
 ```shell
-$ forgelm audit data/large.jsonl --dedup-algo minhash --num-perm 256
-✓ near-duplicate pairs: 1,247 (MinHash LSH, 256 permutations, threshold 0.85)
+$ forgelm audit data/large.jsonl --dedup-method minhash --jaccard-threshold 0.85
+✓ near-duplicate pairs: 1,247 (MinHash LSH, threshold 0.85)
 ```
 
 MinHash trades small accuracy for big speed — typical recall is >95% of true duplicates while running 10× faster than simhash on million-row datasets.
 
 | MinHash flag | Description |
 |---|---|
-| `--num-perm` | Number of hash permutations (default 128). More = higher accuracy, more memory. |
-| `--minhash-threshold` | Jaccard similarity threshold (default 0.85). |
-| `--minhash-bands` | LSH banding parameter (default auto-derived from threshold). |
+| `--dedup-method minhash` | Switch from the default simhash detector to MinHash LSH. Requires the `forgelm[ingestion-scale]` extra (datasketch). |
+| `--jaccard-threshold` | Jaccard similarity threshold (default 0.85). Ignored under simhash. |
+
+Permutation count and LSH banding are not user-tunable today — they are fixed at the library defaults that benchmark cleanly across the 50K-to-1M-row range. Track [Phase 13 roadmap](#/roadmap/phase-13) for the planned `forgelm[ingestion-scale]` knobs to expose them.
 
 ## Streaming behaviour
 
@@ -85,14 +86,21 @@ Both algorithms are streaming — they don't load the whole dataset into memory.
 
 ## Removing duplicates
 
-`forgelm audit` *detects* duplicates; it doesn't remove them by default (data modification is intentional). To deduplicate:
+`forgelm audit` *detects* duplicates; it doesn't remove them. Removal is a separate, opt-in step driven by the `audit:` block of your YAML config (so the run is reproducible and audited end-to-end). See the `audit.deduplication` section in [Configuration Reference](#/reference/configuration) for the canonical knobs:
 
-```shell
-$ forgelm audit data/train.jsonl --remove-duplicates --output-clean data/train.dedup.jsonl
-✓ removed 47 near-duplicate rows; wrote data/train.dedup.jsonl (12,353 rows)
+```yaml
+audit:
+  deduplication:
+    method: simhash          # or 'minhash'
+    near_dup_threshold: 3    # simhash Hamming distance
+    jaccard_threshold: 0.85  # MinHash similarity
+    write_clean_output: data/train.dedup.jsonl
+    keep_split: train        # cross-split tiebreak
 ```
 
-When duplicates are within a single split, ForgeLM keeps the first occurrence. Across splits, it keeps the train-side row by default and removes from validation/test (configurable).
+Re-run `forgelm audit data/train.jsonl` with that config to materialise the cleaned JSONL.
+
+When duplicates are within a single split, ForgeLM keeps the first occurrence. Across splits, it keeps the train-side row by default and removes from validation/test (configurable via `keep_split`).
 
 ## Common pitfalls
 
@@ -101,7 +109,7 @@ When duplicates are within a single split, ForgeLM keeps the first occurrence. A
 :::
 
 :::warn
-**MinHash permutations too low.** `--num-perm 64` saves memory but recall drops to ~85%. Stay above 128 for production use.
+**MinHash recall depends on the permutation count.** ForgeLM ships datasketch defaults (≥128 permutations) that keep recall above 95%. Manual override is on the [Phase 13 roadmap](#/roadmap/phase-13) — until then, do not rely on a `--num-perm` flag (it does not exist).
 :::
 
 :::tip

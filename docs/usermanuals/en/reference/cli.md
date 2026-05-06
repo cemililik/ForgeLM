@@ -173,7 +173,7 @@ See [Human Oversight Gate](#/compliance/human-oversight). Exit codes: `0` = pend
 
 ```shell
 $ forgelm verify-audit PATH/TO/audit_log.jsonl
-$ forgelm verify-audit PATH/TO/audit_log.jsonl --hmac-secret "$FORGELM_AUDIT_SECRET"
+$ forgelm verify-audit PATH/TO/audit_log.jsonl --hmac-secret-env FORGELM_AUDIT_SECRET
 $ forgelm verify-audit PATH/TO/audit_log.jsonl --require-hmac
 ```
 
@@ -243,8 +243,11 @@ $ forgelm --config configs/run.yaml --output-format json | tee run.log
 ### "Run audit, then train if clean"
 
 ```shell
-$ forgelm audit data/ --strict && forgelm --config configs/run.yaml
+$ forgelm audit data/
+$ forgelm --config configs/run.yaml
 ```
+
+Run the two commands sequentially in your CI pipeline; `forgelm audit` exits non-zero on policy violations so the second command never fires on a dirty corpus.
 
 ### "Train with human approval gate; promote later"
 

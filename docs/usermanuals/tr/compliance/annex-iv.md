@@ -1,164 +1,130 @@
 ---
-title: Annex IV
-description: EU AI Act Madde 11 teknik dokümantasyonu, eğitim koşunuzdan otomatik doldurulur.
+title: Annex IV Doğrulama
+description: EU AI Act Annex IV teknik dokümantasyon artifact'ını doğrulayın ve üretim sonrası tahrifatı tespit edin.
 ---
 
-# Annex IV
+# Annex IV Doğrulama
 
-EU AI Act'in (Tüzük (AB) 2024/1689) Annex IV bölümü, yüksek-riskli AI sistemleri için gereken sekiz bölümlü teknik dokümantasyonu tanımlar. ForgeLM bu artifact'ı otomatik üretir — `compliance.annex_iv: true` olan her koşunun ardından `artifacts/annex_iv.json`.
+`forgelm verify-annex-iv`, Annex IV teknik dokümantasyon artifact'ı (`compliance/annex_iv.json`) ile eşleşen salt-okunur doğrulayıcıdır. EU AI Act'in yüksek-riskli sistemler için talep ettiği dokuz üst-seviye alanı (§1-9) yürür, her gerekli kategorinin doldurulduğunu kontrol eder ve artifact üretildiğinden bu yana tahrifat olup olmadığını tespit etmek için manifest hash'ini yeniden hesaplar. Üretici taraf — `compliance:` YAML bloğunuzdan Annex IV'ün otomatik doldurulması — [Uyumluluk Genel Bakış](#/compliance/overview) sayfasında belgelenmiştir.
 
-## Sekiz bölüm
+## Ne zaman kullanılır
 
-| § | Bölüm | ForgeLM'in otomatik doldurduğu |
-|---|---|---|
-| 1 | Genel açıklama | Model adı, amaçlanan kullanım, coğrafyalar, sürüm. |
-| 2 | Detaylı sistem açıklaması | Base model, trainer (SFT/DPO/...), veri seti özeti. |
-| 3 | İzleme | Eval eşikleri, otomatik geri alma tetikleyicileri, trend izleme yapılandırması. |
-| 4 | Risk yönetimi | Risk sınıflandırması, uygulanan azaltıcılar, kalıntı riskler. |
-| 5 | Yaşam döngüsü | Eğitim zaman damgası, dataset sürümleri, kaynak referansları. |
-| 6 | Uyumlaştırılmış standartlar | Listelenen uyumluluk çerçeveleri (EU AI Act, GDPR, ISO 27001). |
-| 7 | AB uygunluk beyanı | İskelet; nihai aşamada bir insan tarafından imzalanır. |
-| 8 | Pazara-sonrası izleme planı | Deployment surveillance config'ine referans. |
+- **Bir Annex IV paketini "denetlemeye hazır" saymadan önce.** Temiz bir çıkış, bir düzenleyiciye veya notified body'ye verilmesi gereken minimum şema-tamamlama sinyalidir.
+- **Eğitim sonrası CI kapısında.** Annex IV emit eden her pipeline'dan sonra çalıştırın; çıkış `1`'de yayını başarısız sayın.
+- **Üçüncü-taraf bir trainer'dan Annex IV alındığında.** Gönderilen ile imzalanan arasındaki sapmayı tespit etmek için manifest hash'ini yeniden hesaplayın.
+- **Arşivlenmiş paketler genelinde periyodik olarak.** Geçmiş Annex IV dosyaları üzerinde gece taraması, sessiz arşiv-sonrası düzenlemeleri ortaya çıkarır.
 
-## Konfigürasyon → Annex IV
+## Nasıl çalışır
 
-Annex IV'ün çoğu `compliance:` YAML bloğunuzdan doldurulur. Gerekli alanlar:
+```mermaid
+sequenceDiagram
+    participant CI as CI / operatör
+    participant Verify as forgelm verify-annex-iv
+    participant File as annex_iv.json
 
-```yaml
-compliance:
-  annex_iv: true                                  # ana anahtar
-
-  # Bölüm 1: Genel açıklama
-  intended_purpose: "Çok dilli telekom müşteri-destek asistanı"
-  deployment_geographies: ["TR", "EU"]
-  responsible_party: "Acme Corp <compliance@acme.example>"
-  version: "1.2.0"
-
-  # Bölüm 4: Risk sınıflandırması
-  risk_classification: "high-risk"                # veya "minimal", "limited"
-  risk_assessment:
-    foreseeable_misuse:
-      - "Sosyal mühendislikte müşteri kimliği taklidi"
-      - "Sahte fatura üretimi"
-    mitigations:
-      - "Llama Guard S5 (iftira) kapısı zorunlu"
-      - "Ingest'te PII maskelenir"
-    residual_risks:
-      - "System prompt'a karşı adversarial jailbreak'ler"
-
-  # Bölüm 6: Standartlar
-  standards: ["EU AI Act", "GDPR", "ISO 27001"]
-
-  # Bölüm 8: Pazara-sonrası plan referansı
-  post_market_plan: "https://internal.acme.example/forgelm-monitoring"
+    CI->>Verify: verify-annex-iv path
+    Verify->>File: JSON oku
+    Verify->>Verify: _ANNEX_IV_REQUIRED_FIELDS yürü (§1-9)
+    alt herhangi bir alan eksik / boş
+        Verify-->>CI: çıkış 1 (eksik alanlar listelenir)
+    end
+    Verify->>Verify: compute_annex_iv_manifest_hash(artifact)
+    Verify->>Verify: metadata.manifest_hash ile karşılaştır
+    alt hash uyuşmazlığı
+        Verify-->>CI: çıkış 1 (tahrifat tespit edildi)
+    end
+    Verify-->>CI: çıkış 0 (artifact geçerli)
 ```
 
-Audit aşaması ([Veri Seti Denetimi](#/data/audit)) Bölüm 2'nin veri seti özetini ve Bölüm 5'in veri lineage'ını otomatik sağlar.
+Doğrulayıcı, `forgelm.compliance.build_annex_iv_artifact` içindeki yazıcı ile aynı kanonikalleştirme rutinini (`forgelm.compliance.compute_annex_iv_manifest_hash`) kullanır — böylece geçerli bir artefakt yazıcı/doğrulayıcı bayt sapması nedeniyle kendi doğrulayıcısında asla başarısız olamaz.
 
-## Çıktı yapısı
-
-`annex_iv.json` EU AI Act şemasını yakından takip eder:
-
-```json
-{
-  "schema_version": "annex_iv/1.0",
-  "section_1_general_description": {
-    "name": "Acme Customer Support v1.2.0",
-    "intended_purpose": "...",
-    "deployment_geographies": ["TR", "EU"],
-    "responsible_party": "Acme Corp <compliance@acme.example>",
-    "version": "1.2.0"
-  },
-  "section_2_detailed_system_description": {
-    "base_model": "Qwen/Qwen2.5-7B-Instruct",
-    "trainer": "dpo",
-    "datasets": [{
-      "path": "data/preferences.jsonl",
-      "row_count": 12400,
-      "audit_report": "audit/data_audit_report.json",
-      "source_documents": "data/sources.json"
-    }],
-    "training_recipe": "configs/customer-support.yaml"
-  },
-  "section_3_monitoring": {
-    "benchmark_floors": {"hellaswag": 0.55, "...": "..."},
-    "safety_thresholds": {"S5": 0.30, "...": "..."},
-    "trend_tracking": true
-  },
-  "section_4_risk_management": {
-    "classification": "high-risk",
-    "foreseeable_misuse": [...],
-    "mitigations": [...],
-    "residual_risks": [...]
-  },
-  "section_5_lifecycle": {
-    "trained_at": "2026-04-29T14:01:32Z",
-    "training_duration_seconds": 1892,
-    "config_hash": "sha256:deadbeef...",
-    "dataset_hashes": {...}
-  },
-  "section_6_harmonised_standards": ["EU AI Act", "GDPR", "ISO 27001"],
-  "section_7_declaration_of_conformity": {
-    "status": "scaffold",
-    "signed_by": null,
-    "signed_at": null,
-    "notes": "Sunulmadan önce insan incelemesi ve imza gerekir."
-  },
-  "section_8_post_market_plan": "https://internal.acme.example/forgelm-monitoring",
-  "manifest_sha256": "..."
-}
-```
-
-## Tamper-evidence
-
-`annex_iv.json` da `manifest.json`'da hashlenir; pakettin diğer her artifact'ıyla yan yana. Manifest, değişmez paketin kanonik imzasıdır:
-
-```json
-{
-  "schema": "manifest/1.0",
-  "artifacts": {
-    "annex_iv.json": "sha256:abc123...",
-    "audit_log.jsonl": "sha256:def456...",
-    "data_audit_report.json": "sha256:789abc...",
-    "safety_report.json": "sha256:fedcba...",
-    "benchmark_results.json": "sha256:111222..."
-  },
-  "generated_at": "2026-04-29T14:33:04Z"
-}
-```
-
-Gerçek tamper-evidence için `manifest.json`'u ayrı bir write-once depoya gönderin (S3 Object Lock, HSM-imzalı ledger vb.). Toolkit artifact'ı üretir; operasyonel chain-of-custody sizin sorumluluğunuzdadır.
-
-## Annex IV doğrulama
-
-Bir Annex IV'ü "denetlemeye hazır" saymadan önce şemayı doğrulayın:
+## Hızlı başlangıç
 
 ```shell
-$ forgelm verify-annex-iv checkpoints/run/artifacts/annex_iv.json
-✓ schema valid
-✓ all required fields present
-✓ manifest checksums match
-⚠ section_7 declaration unsigned (yeni koşular için beklenen)
+$ forgelm verify-annex-iv checkpoints/run/compliance/annex_iv.json
+OK: checkpoints/run/compliance/annex_iv.json
+  All Annex IV §1-9 fields populated; manifest hash matches.
 ```
 
-`forgelm verify-annex-iv` komutu manifest hash'lerini de yeniden hesaplar ve üretimden sonra tahrif olup olmadığını kontrol eder.
+## Ayrıntılı kullanım
+
+### CI tüketicileri için JSON çıktı
+
+```shell
+$ forgelm verify-annex-iv --output-format json \
+    checkpoints/run/compliance/annex_iv.json
+{
+  "success": true,
+  "valid": true,
+  "reason": "All Annex IV §1-9 fields populated; manifest hash matches.",
+  "missing_fields": [],
+  "manifest_hash_actual": "sha256:abcdef…",
+  "manifest_hash_expected": "sha256:abcdef…",
+  "path": "/abs/path/checkpoints/run/compliance/annex_iv.json"
+}
+```
+
+İnsan-okunur metin formatını ayrıştırmadan `valid` bayrağına filtrelemek için `jq`'ya boruyla bağlayın.
+
+### "Eksik alan" ne demek
+
+Bir alan; anahtar yoksa VEYA değer `None`, boş string, boş liste ya da boş dict ise eksik sayılır. Çıta "operatör bunu açıkça doldurdu", "anahtar teknik olarak var" değil — otomatik üretim şablonundan placeholder doldurmayı unutan operatör, doğrulayıcının hedeflediği hata modudur.
+
+Dokuz gerekli anahtar Annex IV §1-9 ile eşleşir:
+
+| Üst-seviye anahtar | Annex IV bölümü |
+|---|---|
+| `system_identification` | §1 — sistem tanıtımı (ad, sürüm, sağlayıcı, intended_purpose). |
+| `intended_purpose` | §1 — amaçlanan kullanım beyanı. |
+| `system_components` | §2 — yazılım / donanım bileşenleri + tedarikçi listesi. |
+| `computational_resources` | §2(g) — eğitim sırasında kullanılan hesaplama kaynakları. |
+| `data_governance` | §2(d) — veri kaynakları, yönetişim, doğrulama metodolojisi. |
+| `technical_documentation` | §3-5 — tasarım + geliştirme metodolojisi. |
+| `monitoring_and_logging` | §6 — pazara-sonrası izleme + audit-log varlığı. |
+| `performance_metrics` | §7 — doğruluk / dayanıklılık / siber güvenlik metrikleri. |
+| `risk_management` | §9 — risk yönetim sistemi referansı (Madde 9 hizalaması). |
+
+### "Manifest hash uyuşmazlığı" ne demek
+
+Artifact bir `metadata.manifest_hash` alanı taşıdığında doğrulayıcı, artifact'ın kanonik-JSON gösteriminin (metadata bloğu hariç) SHA-256'sını yeniden hesaplar ve karşılaştırır. Uyuşmazlık, dosyanın üretimden sonra düzenlendiğini gösterir — düzenleyici-yönü imza artık geçerli değildir.
+
+`metadata.manifest_hash` taşımayan artifact'lar alan-tamamlama kontrolünü geçer; ancak doğrulayıcı bunu neden metninde işaretler:
+
+```text
+OK: …/annex_iv.json
+  All Annex IV §1-9 fields populated; no manifest_hash present so tampering detection skipped.
+```
+
+### Çıkış-kodu özeti
+
+| Kod | Anlam |
+|---|---|
+| `0` | Tüm §1-9 alanları doldurulmuş VE (mevcutsa) manifest hash'i eşleşiyor. |
+| `1` | Eksik alan, manifest uyuşmazlığı, bozuk JSON veya nesne olmayan kök (validation failure — `valid=False`). |
+| `2` | Dosya bulunamadı veya okunamadı (I/O hatası — argüman ya da ortam hatası). |
 
 ## Sık hatalar
 
 :::warn
-**Bölüm 7'deki insan incelemesi adımını atlamak.** Uygunluk beyanı yasal bir belgedir. Otomatik üretilen iskelet imzasızdır ve yasal bir etkisi yoktur — sunmadan önce bir insan inceleyip imzalamalıdır.
+**ForgeLM çıktısını sertifikasyon olarak görmek.** Toolkit kanıt üretir; sertifikasyon notified-body faaliyetidir. Doğrulayıcı, artifact'ın yapısal olarak tam ve tahrifsiz olduğunu doğrular — sizin spesifik deployment bağlamınız için *doğru* olduğunu değil.
 :::
 
 :::warn
-**ForgeLM çıktısını sertifikasyon olarak görmek.** ForgeLM kanıt üretir; sertifikasyon notified-body faaliyetidir. Belgelerimizin terminolojisi bunu yansıtır: "Annex-IV-tarzı artifact", "iskelet", "kanıt paketi" — asla "sertifikalı" değil.
+**Uygunluk beyanındaki insan inceleme adımını atlamak.** Annex IV §7 (uygunluk beyanı) yasal bir belgedir. Otomatik doldurulmuş iskelet yasal bir etki taşımaz — `verify-annex-iv` ne raporlarsa raporlasın, sunmadan önce bir insan inceleyip imzalamalıdır.
+:::
+
+:::warn
+**OK çıktısındaki "manifest_hash present değil" uyarısını yok saymak.** Manifest hash olmadan doğrulayıcı üretim-sonrası tahrifatı tespit edemez. Yazıcının hash'i eklemesi için artifact'ı güncel bir `forgelm` build'i üzerinden yeniden export edin ya da depolama katmanında tamper-evidence veren bir write-once depoya geçin.
 :::
 
 :::tip
-Yüksek-riskli deployment'larda Annex IV artifact'ını model registry'nizde model sürümleriyle birlikte versiyonlayın. Denetçiler Annex IV'ü release başına görmek ister, eğitim koşusu başına değil.
+**Doğrulayıcıyı CI'da sert bir kapı olarak sabitleyin.** Annex IV üreten her pipeline'dan sonra `forgelm verify-annex-iv --output-format json`'u bağlayın; metin ayrıştırmadan yayını başarısız etmek için `jq -e '.valid'`'e boruyla bağlayın.
 :::
 
 ## Bkz.
 
-- [Uyumluluk Genel Bakış](#/compliance/overview) — paketin geri kalanı için bağlam.
-- [Audit Log](#/compliance/audit-log) — append-only event log.
-- [İnsan Gözetimi](#/compliance/human-oversight) — Madde 14.
+- [Uyumluluk Genel Bakış](#/compliance/overview) — paketin geri kalanı için bağlam (manifest, audit log, model kart).
+- [Audit Log](#/compliance/audit-log) — append-only event log; `compliance.artifacts_exported` (Madde 11 + Annex IV) bu doğrulayıcının üretici tarafındaki muadilidir.
+- [Audit Log Doğrulama](#/compliance/verify-audit) — audit log için kardeş doğrulayıcı.
+- [GGUF Doğrulama](#/deployment/verify-gguf) — deployment-bütünlük yüzeyindeki kardeş doğrulayıcı.
+- [`verify_annex_iv_subcommand.md`](../../../reference/verify_annex_iv_subcommand.md) — tam bayrak tablosu ve kütüphane-sembol atıfları içeren referans doc.

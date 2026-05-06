@@ -52,28 +52,24 @@ $ forgelm audit data/      # train.jsonl + val.jsonl + test.jsonl'ı denetler
    train ↔ test: 23 kesin, 5 near-dup
    val ↔ test: 0
 
-Audit bu split'leri onaylamayı reddeder. İndisler için `--show-leakage`.
+Audit bu split'leri onaylamayı reddeder. Çift seviyesinde tam rapor disk üzerindeki audit JSON'da.
 
 exit kodu: 3
 ```
 
+Hatayı tetikleyen satır seviyesindeki çiftleri `jq` ile inceleyin:
+
 ```shell
-$ forgelm audit data/ --show-leakage
-{train: 1240, val: 312, type: "exact", text: "Aboneliği nasıl iptal..."}
-{train: 4521, val: 890, type: "near-dup", hamming: 2, ...}
+$ jq '.cross_split_overlap.pairs[]' audit/data_audit_report.json | head
+{"train": 1240, "val": 312, "type": "exact", "text": "Aboneliği nasıl iptal..."}
+{"train": 4521, "val": 890, "type": "near-dup", "hamming": 2}
 ```
 
 ## Nasıl düzeltirsiniz
 
 1. **Veriyi yeniden bölün**, bu sefer kaynak seviyesinde gruplayarak (parafraz'ları bölmeyin, dokümanları gruplayın). Splitter'ınızda `--group-by` bayrağı kullanın.
 2. **Yeniden çıkarma** sızıntı tekrar ingest'ten geliyorsa (aynı FAQ iki kez ingest edilmiş).
-3. **Kaldırma** küçük split'ten sızdıran satırları (audit'in `--remove-cross-split-overlap`'i bunu yapar — ama buna güvenmeden önce düşünün).
-
-```shell
-$ forgelm audit data/ --remove-cross-split-overlap=val \
-    --output-clean data/clean/
-✓ val'den 47 split-arası satır kaldırıldı (train tarafı korundu)
-```
+3. **Kaldırma** küçük split'ten sızdıran satırları manuel olarak — audit JSON zarfının `cross_split_overlap.pairs` haritası her ihlal eden satır id'sini split-çifti girdisi başına adlandırır (ör. `cross_split_overlap.pairs["train↔val"]`). `jq` ile süzüp çıkarın, sonra `forgelm audit`'i yeniden koşturarak zincirin temiz geçtiğini doğrulayın. v0.5.5'te otomatik kaldırma CLI bayrağı yoktur — yol haritasında bulunsa da gelene kadar açık `jq` adımı silmeyi denetlenebilir tutar.
 
 ## Konfigürasyon
 

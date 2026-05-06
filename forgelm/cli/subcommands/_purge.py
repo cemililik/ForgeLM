@@ -466,23 +466,41 @@ def _validate_match_count_or_fail(
     matches: List[Tuple[int, Dict[str, Any]]],
     *,
     request_fields: Dict[str, Any],
+    target_id_hash: str,
     audit: Any,
     args: Any,
     output_format: str,
 ) -> None:
     """Refuse no-match / multi-match-without-opt-in.  Emits
     ``data.erasure_failed`` to the chain BEFORE exiting so a forensic
-    reviewer sees the refusal."""
+    reviewer sees the refusal.
+
+    The error messages echo a short prefix of ``target_id_hash``
+    instead of the raw ``args.row_id`` so neither the audit-log
+    ``error_message`` field nor the operator-facing stdout/JSON
+    payload leak a potentially-PII identifier.
+
+    The 12-char hex prefix (48 bits = ~2.8 × 10¹⁴ collision space) is
+    enough headroom for any plausible single-operator-day failed-purge
+    volume; the full 64-char hash is still recorded as the audit
+    event's ``target_id`` field (built into ``request_fields`` upstream)
+    for cross-tool correlation with ``forgelm reverse-pii``.  Do not
+    crop below 12 (collision risk) or grow above 16 (maintain symmetry
+    with the dry-run preview's 16-char rendering at ``_purge.py``'s
+    success-summary site; the two consumers correlate on the shared
+    prefix).
+    """
+    redacted = f"<id_hash:{target_id_hash[:12]}…>"
     if not matches:
         audit.log_event(
             _EVT_ERASURE_FAILED,
             **request_fields,
             error_class="NoMatchingRow",
-            error_message=f"No row with id matching {args.row_id!r} found in corpus.",
+            error_message=f"No row with id matching {redacted} found in corpus.",
         )
         _output_error_and_exit(
             output_format,
-            f"No row with id={args.row_id!r} in {args.corpus!r}.  Refusing to delete.",
+            f"No row with id={redacted} in {args.corpus!r}.  Refusing to delete.",
             EXIT_CONFIG_ERROR,
         )
     if len(matches) > 1 and getattr(args, "row_matches", "one") == "one":
@@ -490,12 +508,12 @@ def _validate_match_count_or_fail(
             _EVT_ERASURE_FAILED,
             **request_fields,
             error_class="MultiMatchRefused",
-            error_message=f"{len(matches)} rows matched id={args.row_id!r}; --row-matches=one refuses ambiguity.",
+            error_message=f"{len(matches)} rows matched id={redacted}; --row-matches=one refuses ambiguity.",
             match_count=len(matches),
         )
         _output_error_and_exit(
             output_format,
-            f"{len(matches)} rows matched id={args.row_id!r} in {args.corpus!r}; "
+            f"{len(matches)} rows matched id={redacted} in {args.corpus!r}; "
             "--row-matches defaults to 'one' (refuse on ambiguity).  Pass --row-matches=all to "
             "delete every match (operator confirms intent), or supply a unique id.",
             EXIT_CONFIG_ERROR,
@@ -646,6 +664,7 @@ def _run_purge_row_id(args, output_format: str) -> None:
     _validate_match_count_or_fail(
         matches,
         request_fields=request_fields,
+        target_id_hash=target_id_hash,
         audit=audit,
         args=args,
         output_format=output_format,

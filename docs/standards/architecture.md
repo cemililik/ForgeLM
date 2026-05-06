@@ -68,7 +68,23 @@ graph TB
     CLI --> SYNTH
 ```
 
-Single-file modules — count tracks the table above (≈25 today across Phase 1-11). **No sub-packages inside `forgelm/`.** If a module grows past ~1000 lines and has cohesive subsections, split into `module_name/` package, but keep the public API at `forgelm.module_name.X` so imports don't break.
+Single-file modules are the default — most concerns fit in one file under
+`forgelm/`. **The ~1000-line ceiling is the trigger for a sub-package split:**
+once a module crosses that line count and has cohesive subsections, it
+graduates to a `module_name/` sub-package, **keeping the public API at
+`forgelm.module_name.X`** so existing imports do not break.
+
+Two such splits are permanent today (Phase 12.6 closure cycle, Wave 1):
+
+| Sub-package | Pre-split source | Reason | Public surface |
+|---|---|---|---|
+| `forgelm/cli/` | legacy `cli.py` (~1756 lines) | Argparse wiring + ~17 subcommand modules grew far past the ceiling; each subcommand needed its own test boundary. | `forgelm.cli.main()` (entry point), `forgelm.cli._exit_codes` (public exit-code constants), per-subcommand modules (`_audit`, `_ingest`, `_doctor`, `_cache`, `_purge`, `_reverse_pii`, `_safety_eval`, `_verify_audit`, `_verify_annex_iv`, `_verify_gguf`, `_approve`, `_approvals`, ...) |
+| `forgelm/data_audit/` | legacy `data_audit.py` (~3098 lines) | Aggregator, simhash, MinHash, regex-PII, ML-NER PII, secrets, quality, croissant, summary, streaming reader — 10 cohesive concerns under one orchestrator. | `forgelm.data_audit.run_audit()`, `forgelm.data_audit.AuditReport`, `forgelm.data_audit.SECRET_TYPES`, `forgelm.data_audit.summarize_report()` (re-exported via the package `__init__.py`) |
+
+Future splits follow the same rule: when crossing ~1000 lines, design the
+sub-package boundary first (one design doc under `docs/design/`), execute
+across a multi-PR series, and preserve the public import path. Splits are
+never silent — they ship as a coherent series with regression tests.
 
 ## Principles
 
@@ -76,7 +92,7 @@ Single-file modules — count tracks the table above (≈25 today across Phase 1
 
 | Module | Owns | Does not own |
 |---|---|---|
-| `cli.py` | Argument parsing, top-level dispatch, exit codes | Training, data, evaluation logic |
+| `cli/` (package) | Argument parsing, top-level dispatch, exit codes, per-subcommand wiring (`_audit`, `_ingest`, `_doctor`, `_cache`, `_purge`, `_reverse_pii`, `_safety_eval`, `_verify_*`, `_approve`, `_approvals`, ...) | Training, data, evaluation logic |
 | `config.py` | Pydantic schemas, validation, YAML load | Runtime behaviour |
 | `wizard.py` | Interactive config generation | Config validation (that's `config.py`) |
 | `trainer.py` | Orchestrating SFT/DPO/…/GRPO runs | Model loading (delegates to `model.py`) |
@@ -85,13 +101,15 @@ Single-file modules — count tracks the table above (≈25 today across Phase 1
 | `benchmark.py` | lm-eval-harness wrapping | Safety scoring (that's `safety.py`) |
 | `safety.py` | Llama Guard, harm categories, auto-revert | Content generation for scoring (helpers only) |
 | `judge.py` | LLM-as-judge evaluation | Safety classification |
-| `compliance.py` | Audit log, manifests, provenance, governance artifacts | Runtime policy enforcement |
-| `webhook.py` | Slack/Teams lifecycle notifications | Decision-making (just reports) |
+| `compliance.py` | Audit log, manifests, provenance, governance artifacts, GDPR purge / reverse-pii primitives | Runtime policy enforcement |
+| `webhook.py` | Slack/Teams lifecycle notifications (5-event vocabulary) | Decision-making (just reports) |
 | `model_card.py` | HF-compatible README generation | Running the model |
 | `merging.py` | TIES/DARE/SLERP/linear | Training |
 | `synthetic.py` | Teacher-student distillation | General generation helpers |
 | `ingestion.py` | Raw docs (PDF/DOCX/EPUB/TXT) → SFT-ready JSONL; chunking strategies | Audit logic; trainer dispatch |
-| `data_audit.py` | Dataset quality + governance audit (length, language, simhash dedup, cross-split leakage, PII regex) | Ingestion logic; trainer dispatch |
+| `data_audit/` (package) | Dataset quality + governance audit: length, language, simhash + LSH dedup, MinHash LSH dedup, cross-split leakage, regex PII, ML-NER PII, secrets, quality heuristics, Croissant emission, summary truncation, streaming reader | Ingestion logic; trainer dispatch |
+| `_http.py` | Outbound HTTP chokepoint: SSRF guard, scheme allowlist, timeout floor, secret masking, redirect refusal | Caller decisions (just transport) |
+| `_version.py` | `__version__` (CLI) + `__api_version__` (Library API) constants | Anything else |
 | `results.py` | `TrainResult` dataclass | Anything else |
 | `utils.py` | HF auth + tiny cross-cutting helpers | Business logic |
 
@@ -139,13 +157,13 @@ Runtime state is held by passed-in objects (Pydantic config, trainer instance). 
 
 ### 5. CLI is a thin shim
 
-`cli.py` does three things and no more:
+`forgelm.cli/` (package) does three things and no more:
 
-1. Parse args (argparse).
-2. Load and validate config.
-3. Dispatch to one of: trainer, wizard, synthetic, merging, compliance export.
+1. Parse args (argparse) — wiring lives in `_parser.py`.
+2. Load and validate config — `_config_load.py`.
+3. Dispatch to one of: trainer, wizard, synthetic, merging, compliance export, ingest, audit, doctor, cache-models, cache-tasks, purge, reverse-pii, safety-eval, verify-audit, verify-annex-iv, verify-gguf, approve, approvals, chat, export, deploy, quickstart — each owns a `subcommands/_<name>.py`.
 
-Business logic in `cli.py` is a bug. If you find yourself writing an `if` chain that inspects config values to decide behaviour, that `if` belongs in the dispatched module.
+Business logic in any `cli/` module is a bug. If you find yourself writing an `if` chain that inspects config values to decide behaviour, that `if` belongs in the dispatched module.
 
 ## Adding a new module
 
@@ -175,6 +193,7 @@ From [`pyproject.toml`](../../pyproject.toml):
 | `ingestion-pii-ml` | presidio-analyzer (ML-NER for person/organization/location PII; Phase 12.5, opt-in) | Any |
 | `export` | llama-cpp-python (GGUF conversion) | Linux/macOS |
 | `chat` | rich (terminal rendering) | Any |
+| `security` | pip-audit + bandit (supply-chain CI guards; Phase 12.6 / Wave 4) | Any |
 | `dev` | pytest, ruff | Any (contributors) |
 
 **The core install must work on all three OSes (Linux/macOS/Windows) with no Linux-only deps.** CI enforces this by running Linux + macOS matrix.

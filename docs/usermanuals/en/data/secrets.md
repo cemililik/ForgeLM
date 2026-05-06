@@ -56,7 +56,7 @@ ForgeLM's PEM detector matches the entire block (BEGIN to END), not just the mar
 ## Audit-only mode
 
 ```shell
-$ forgelm audit data/tickets.jsonl --skip-pii
+$ forgelm audit data/tickets.jsonl
 ✓ format: instructions (8,400 rows)
 ⚠ secrets: 47 detected (severity: critical)
    12 AWS access keys
@@ -64,7 +64,7 @@ $ forgelm audit data/tickets.jsonl --skip-pii
    ...
 ```
 
-A `critical` severity flags the run for failure if you also pass `--strict`.
+The secrets scan is always on — it cannot be disabled from the CLI surface (a credential leak in training data is never something the operator should be able to wave away). A `critical` severity exits non-zero so a CI pipeline fails fast.
 
 ## Programmatic API
 
@@ -90,9 +90,9 @@ ForgeLM ships secrets detection with stricter false-positive guards than typical
 Specific guards:
 - **Entropy threshold** for OpenAI / Anthropic keys (random-looking, not human-readable).
 - **Context window check** — `AKIA*` only fires if accompanied by a secret-key-shaped neighbour or "aws" context within 100 characters.
-- **Test/example exclusion list** — common dummy values (`AKIAIOSFODNN7EXAMPLE`, `xxx`, `your_key_here`) bypass detection unless `--secrets-strict` is set.
+- **Test/example exclusion list** — common dummy values (`AKIAIOSFODNN7EXAMPLE`, `xxx`, `your_key_here`) bypass detection.
 
-For a high-stakes audit (e.g. legal disclosure scan), use `--secrets-strict` to disable these guards and accept higher false-positive rate.
+For a high-stakes audit (e.g. legal disclosure scan), the test-exclusion list is intentional — `forgelm audit` records the surviving findings under `AuditReport.secrets_summary` (one count per pattern type), and the per-row JSON output (`--output-format json`, optional `--output-jsonl`) is the canonical surface for prose-level review. Walk that JSON for any pattern-type count > 0 in your high-stakes audit so a human can confirm none of the dummies are real secrets in disguise. (A dedicated `secret_findings_review_notes` envelope is on the v0.6+ roadmap.)
 
 ## Configuration
 
@@ -121,7 +121,7 @@ ingestion:
 :::
 
 :::tip
-For corpora that legitimately contain certificates / tokens (security training datasets, CTF content), use `--skip-secrets` rather than fighting the detector. Document the exception in the audit log so future reviewers see why it was disabled.
+For corpora that legitimately contain certificates / tokens (security training datasets, CTF content), there is no CLI escape hatch — the secrets scan is intentionally always-on (no `--no-secrets` / `--skip-secrets` flag exists, and `forgelm audit` runs the scan unconditionally on every invocation; see the [Audit-only mode](#audit-only-mode) section above for the underlying scan-mode semantics). Mark the rows in your corpus's data-governance manifest as `legitimate_secret_content: true` so a downstream reviewer sees the rationale; `forgelm audit` still flags them, but the reviewer dismisses the flag with the manifest line as evidence.
 :::
 
 ## See also

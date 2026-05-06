@@ -112,9 +112,10 @@ def verify_annex_iv_artifact(path: str) -> VerifyAnnexIVResult:
     Used by ``forgelm verify-annex-iv`` and exposed for integrators via
     the package facade.  Returns a structured result; never raises on
     documented failure modes (the caller decides whether to exit 1 or
-    2 based on the result class).  Raises :class:`OSError` /
-    :class:`json.JSONDecodeError` for I/O / parse failures so the
-    dispatcher can surface them as ``EXIT_TRAINING_ERROR``.
+    2 based on the result class).  Raises :class:`OSError` for genuine
+    I/O failures on an existing file (dispatcher → ``EXIT_TRAINING_ERROR``)
+    and :class:`json.JSONDecodeError` for parse failures (dispatcher →
+    ``EXIT_CONFIG_ERROR`` since malformed JSON is a caller-input error).
     """
     with open(path, "r", encoding="utf-8") as fh:
         artifact = json.load(fh)
@@ -193,21 +194,43 @@ def _run_verify_annex_iv_cmd(args, output_format: str) -> None:
             "verify-annex-iv requires a path argument: `forgelm verify-annex-iv <annex_iv.json>`.",
             EXIT_CONFIG_ERROR,
         )
-    if not os.path.isfile(path):
-        _output_error_and_exit(
-            output_format,
-            f"Annex IV artifact not found: {path!r}.",
-            EXIT_TRAINING_ERROR,
-        )
+    # Round 6 absorption: the prior `os.path.isfile()` pre-check
+    # collapsed two distinct conditions ("path doesn't exist" and
+    # "path exists but the user can't stat it") into a single
+    # `EXIT_CONFIG_ERROR`, breaking the documented exit-code
+    # contract for the permission-denied case.  Move all path
+    # validation inside the try block and let Python's exception
+    # hierarchy disambiguate: FileNotFoundError + IsADirectoryError
+    # = caller-input error (exit 1); OSError (incl. PermissionError)
+    # = genuine I/O failure on a reachable path (exit 2).
     try:
         result = verify_annex_iv_artifact(path)
+    except (FileNotFoundError, IsADirectoryError) as exc:
+        # Caller-input error: the path is missing or refers to a
+        # directory.  Per docs/standards/error-handling.md and the
+        # public exit-code contract in
+        # docs/reference/verify_annex_iv_subcommand.md, this is
+        # exit 1 (config / caller error).
+        _output_error_and_exit(
+            output_format,
+            f"Annex IV artifact not found or not a regular file: {path!r} ({exc.__class__.__name__}).",
+            EXIT_CONFIG_ERROR,
+        )
     except json.JSONDecodeError as exc:
+        # Validation failure: the artifact is reachable but not parseable
+        # as JSON.  Operator-actionable input error per the public
+        # contract; routes to exit 1.
         _output_error_and_exit(
             output_format,
             f"Annex IV artifact at {path!r} is not valid JSON: {exc.msg} (line {exc.lineno}).",
-            EXIT_TRAINING_ERROR,
+            EXIT_CONFIG_ERROR,
         )
     except OSError as exc:
+        # Genuine runtime I/O failure on a reachable path (permission
+        # denied, mid-read I/O error, locked file, etc.).  This is the
+        # post-FileNotFoundError catch-all because Python's OSError
+        # hierarchy puts FileNotFoundError as a subclass — order
+        # matters.
         _output_error_and_exit(
             output_format,
             f"Could not read Annex IV artifact {path!r}: {exc}.",

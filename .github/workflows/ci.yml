@@ -205,6 +205,28 @@ jobs:
         # automatically the next run.
         run: python3 tools/check_bilingual_parity.py --strict
 
+      - name: Markdown anchor resolution check (strict)
+        # Wave 5 / Faz 30 Task N: every Markdown anchor + relative-link
+        # under docs/ must resolve.  Catches renamed/removed targets,
+        # slug-case drift, and forward-refs to pages that never landed
+        # (the GH-014/017/019 bug class).  Strict mode wired up after
+        # the Wave 5 cleanup zeroed the live drift count from 36 → 0;
+        # the tool itself remains usable in advisory mode (no flag) for
+        # local feedback during a docs PR.  See tools/check_anchor_resolution.py
+        # for what's checked and the GFM slug approximation used.
+        run: python3 tools/check_anchor_resolution.py --strict
+
+      - name: CLI / docs help-consistency drift check (strict)
+        # Wave 5 / Faz 30 Task J: catches docs that cite ghost flags
+        # or non-existent subcommands (the GH-008/011/016/018/020
+        # bug class).  Strict mode wired up after the Wave 5 cleanup
+        # commit zeroed the live drift count from 40 → 0 (matches the
+        # check_anchor_resolution.py precedent: gate lands advisory,
+        # baseline cleanup follows, later commit flips to --strict).
+        # The tool itself remains usable in advisory mode (no flag)
+        # for local feedback during a docs PR.
+        run: python3 tools/check_cli_help_consistency.py --strict
+
       - name: License check
         run: |
           test -f LICENSE || (echo "LICENSE file missing" && exit 1)

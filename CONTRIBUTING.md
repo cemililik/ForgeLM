@@ -38,18 +38,30 @@ Branch naming: `feat/`, `fix/`, `docs/`, `test/`, `chore/` + short description.
 
 ### 4. Make your changes
 
-Edit the code, then verify:
+Edit the code, then run the full validation gauntlet (every guard CI also
+enforces — passing locally means CI will too):
 
 ```bash
-# Run tests
+# 1. Lint + format
+ruff format . && ruff check .
+
+# 2. Test suite
 pytest tests/ -q
 
-# Run linter + format check
-ruff check . && ruff format --check .
-
-# Quick smoke test
+# 3. Config dry-run smoke test
 forgelm --config config_template.yaml --dry-run
+
+# 4. Doc-side guards (Wave 4 / Wave 5 additions)
+python3 tools/check_bilingual_parity.py --strict
+python3 tools/check_anchor_resolution.py --strict
+python3 tools/check_cli_help_consistency.py --strict
 ```
+
+The four-tool sequence at the top of the gauntlet (`ruff` + `pytest` +
+`--dry-run`) is the historical "self-review" command from
+[`docs/standards/code-review.md`](docs/standards/code-review.md). The three
+doc guards landed in Waves 3-5 and run on every PR via `.github/workflows/`;
+running them locally before pushing avoids CI round-trips.
 
 ### 5. Submit a PR
 
@@ -59,10 +71,13 @@ Push your branch and open a Pull Request against `main`.
 
 ### Project Structure
 
-ForgeLM is a single-package layout: ~26 single-file modules under `forgelm/`,
-~47 test files under `tests/`, plus `configs/`, `docs/`, and `notebooks/`. For
-the authoritative module-by-module map (purpose, public surface, dependency
-arrows), see [`docs/reference/architecture.md`](docs/reference/architecture.md).
+ForgeLM is a single-package layout: a mix of single-file modules and two
+focused sub-packages (`forgelm/cli/` post-Phase-15 split and
+`forgelm/data_audit/` post-Phase-14 split) under `forgelm/`, ~68 test files /
+~1442 tests under `tests/`, plus `configs/`, `docs/`, `tools/` (CI guards),
+and `notebooks/`. For the authoritative module-by-module map (purpose, public
+surface, dependency arrows), see
+[`docs/reference/architecture.md`](docs/reference/architecture.md).
 
 ### Running Tests
 

@@ -128,12 +128,40 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ---
 
-## v0.5.1 — "Pipeline Chains" (Planned)
+## v0.5.5 — "Closure Cycle Bundle" (Upcoming)
 
-**Status:** Planned. Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. Starts after the `v0.5.0` PyPI tag is published. Folds in [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14) (defence-in-depth on top of the existing `allow_private_destinations: false` default).
+**Status:** Upcoming. The first 4 integration waves of the [Phase 12.6 closure cycle](phase-12-6-closure-cycle.md) are merged (Wave 0/1 PR #19, Wave 2a PR #28, Wave 2b PR #30, Wave 3 PR #31, Wave 4 PR #33); Wave 5 (`closure/wave5-integration` → development) is the in-flight PR that closes Faz 30 full sweep. Once Wave 5 merges, the release commit will pin `pyproject.toml` to `version = "0.5.5"` (already brought forward in Wave 5 because `tools/check_site_claims.py --strict` enforces site/code version match), finalise the CHANGELOG `[0.5.5]` section with the release date, and tag `v0.5.5` — the tag push triggers the cross-OS publish workflow ([`.github/workflows/publish.yml`](../../.github/workflows/publish.yml)) which gates PyPI publish on 12 wheel-install matrix combos (3 OS × 4 Python).
+
+### Headline additions (consolidated from the closure-cycle phases)
+
+- **Library API surface** (`forgelm.ForgeTrainer`, `audit_dataset`, `verify_audit_log`, `verify_annex_iv_artifact`, `verify_gguf`, `mask_pii`, `mask_secrets`, ...; full set via `python -c "import forgelm; print(sorted(forgelm.__all__))"`) — every CLI surface has a stable Python entry point, version-pinned via `forgelm.__api_version__` decoupled from the CLI `__version__`.
+- **GDPR Article 17 (right-to-erasure)** — `forgelm purge --subject-id <id>` performs in-place redaction of dataset rows, audit-log compensating entries (hash chain preserved), and adapter scrubbing. Covered by `tests/test_gdpr_erasure.py`.
+- **GDPR Article 15 (right-of-access)** — `forgelm reverse-pii --query <fragment>` locates PII matches across artefacts without re-loading the source dataset. Emits `data.access_request_query` audit event.
+- **ISO 27001 / SOC 2 Type II alignment** — 93-control deployer cookbook ([`docs/guides/iso_soc2_deployer_guide.md`](../guides/iso_soc2_deployer_guide.md)), 4 new QMS docs (encryption, access control, risk treatment, statement of applicability) + 10 new TR mirrors, supply-chain security (CycloneDX 1.5 SBOM per release-tag matrix combo, `pip-audit` + `bandit` nightly + on-tag, `gitleaks` pre-commit).
+- **Operational subcommands** — `forgelm doctor` (env / GPU / CUDA / extras pre-flight), `forgelm cache-models` + `forgelm cache-tasks` (air-gap pre-cache), `forgelm safety-eval` (standalone Llama Guard run), `forgelm verify-audit` / `verify-annex-iv` / `verify-gguf` (compliance + artefact verification toolbelt), `forgelm approvals` (list pending Article 14 staging-gate runs).
+- **Cross-OS release-tag matrix** — `publish.yml` now runs Linux + macOS + Windows × Python 3.10 / 3.11 / 3.12 / 3.13 = 12 combos before PyPI publish; per-combo CycloneDX SBOM artefact preserved for downstream supply-chain audits.
+- **Pre-commit hooks (optional)** — `.pre-commit-config.yaml` mirrors CI ruff / format / gitleaks / hygiene checks for local fast feedback. Opt-in only; CI remains the enforcement boundary.
+- **Doc CI guards** — `tools/check_bilingual_parity.py` (Wave 3, Faz 24), `tools/check_anchor_resolution.py` (Wave 4, Faz 26), `tools/check_cli_help_consistency.py` (Wave 5, Faz 30 Task J) all on `--strict` in CI; bilingual parity scope expanded from 9/9 to 23/23 file pairs across `docs/qms/` + `docs/reference/`.
+- **`forgelm.cli/` and `forgelm.data_audit/` package splits** — legacy single-file `cli.py` (1756 lines) and `data_audit.py` (3098 lines) decomposed into focused sub-packages while preserving their public import surface. `[Unreleased]` CHANGELOG entries trace the refactor across Wave 1.
+- **Library + JSON envelope schema** — every subcommand's success / error JSON envelope is locked in [`docs/usermanuals/en/reference/json-output.md`](../usermanuals/en/reference/json-output.md) (+ TR mirror) per the `release.md` "Changed JSON output key names → MAJOR bump" rule.
+- **Bilingual TR mirror sweep** — `docs/qms/*.md` flipped from "No (yet)" to "Yes" in the localization standard; structural H2/H3/H4 parity enforced by CI.
+
+### Breaking changes (deliberate)
+
+- High-risk + unacceptable + safety-disabled config combinations now raise `ConfigError` (F-compliance-110 OR-across-fields strict gate). Previously logged a warning. Operators with intentionally permissive configs must explicitly enable safety eval or downgrade `eu_ai_act.system_risk_class`.
+- Webhook delivery default timeout raised from 5s to 10s (F-compliance-106) — non-breaking for happy path; flaky webhook receivers may see one fewer retry trigger.
+- `--data-audit` flag fully removed (was deprecated in v0.5.0, originally scheduled for v0.7.0). The deprecation cadence (one intervening minor before removal) was honoured by deprecation in v0.5.0 → removal in v0.5.5 with v0.5.0–v0.5.4 acting as the warning window; the release standard's "minor before removal" rule is satisfied. Use `forgelm audit` subcommand instead.
+
+CHANGELOG `[0.5.5]` entries cross-reference the originating fazlar; the [phase-12-6-closure-cycle.md](phase-12-6-closure-cycle.md) summary maps each faz to its wave and merge SHA.
+
+---
+
+## v0.6.0 — "Pipeline Chains" (Planned)
+
+**Status:** Planned. Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. Starts after the `v0.5.5` PyPI tag is published.
 
 ---
 
 ## v0.6.0-pro — "Pro CLI" (Planned, gated)
 
-Focus: [Phase 13](phase-13-pro-cli.md). Gated on traction validation — do not ship before `v0.5.0` reaches ≥1K monthly PyPI installs and ≥2 paying support contracts.
+Focus: [Phase 13](phase-13-pro-cli.md). Gated on traction validation — do not ship before `v0.5.5` reaches ≥1K monthly PyPI installs and ≥2 paying support contracts. The ISO 27001 / SOC 2 baseline shipped in `v0.5.5` underpins the Pro CLI's enterprise audit story.

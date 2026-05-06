@@ -49,14 +49,19 @@ When `enabled: true`, ForgeLM exports automatically as part of `forgelm` runs th
 
 ## Multi-quant export
 
+`forgelm export --quant` accepts a single value per invocation (one
+of `{q2_k, q3_k_m, q4_k_m, q5_k_m, q8_0, f16}`). To produce several
+quantisations from one checkpoint, run the command once per quant:
+
 ```shell
-$ forgelm export ./checkpoints/run \
-    --output ./gguf/ \
-    --quant "q4_k_m,q5_k_m,q8_0"
+$ for q in q4_k_m q5_k_m q8_0; do
+    forgelm export ./checkpoints/run \
+        --output "./gguf/model.${q}.gguf" \
+        --quant "${q}"
+  done
 ✓ wrote gguf/model.q4_k_m.gguf  (4.1 GB)
 ✓ wrote gguf/model.q5_k_m.gguf  (4.8 GB)
 ✓ wrote gguf/model.q8_0.gguf    (7.2 GB)
-✓ wrote gguf/manifest.json
 ```
 
 The manifest:

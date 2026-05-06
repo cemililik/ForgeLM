@@ -26,7 +26,7 @@ flowchart LR
 $ forgelm ingest ./policies/ \
     --recursive \
     --strategy markdown \
-    --max-tokens 1024 \
+    --chunk-tokens 1024 \
     --all-mask \
     --output data/policies.jsonl
 ✓ 47 dosya tarandı (12 PDF, 8 DOCX, 27 MD)
@@ -46,60 +46,52 @@ kısayoludur. Tam davranış ve set-union semantiği için
 | **PDF** | `pypdf` | Header/footer dedup, tablo çıkarma (best-effort). |
 | **DOCX** | `python-docx` | Tablolar Markdown tablo olarak; başlık hiyerarşisini korur. |
 | **EPUB** | `ebooklib` | Navigasyon/içindekileri çıkarır; bölüm yapısını korur. |
-| **TXT** | yerleşik | Tek doküman olarak işlenir; `--max-tokens` ile parçalanır. |
+| **TXT** | yerleşik | Tek doküman olarak işlenir; `--chunk-tokens` ile parçalanır. |
 | **Markdown** | yerleşik | Markdown-bilen splitter başlık hiyerarşisine saygı duyar. |
 
 Ingestion extra'larını kurun: `pip install 'forgelm[ingestion]'`. Bkz. [Kurulum](#/getting-started/installation).
 
 ## Parçalama stratejileri
 
+Sunulan `--strategy` seçenekleri: `sliding`, `paragraph`, `markdown`.
+(`tokens` ve `sentence` daha önce tasarımdaki adlardı, parser'a
+hiç inmedi.)
+
 | Strateji | Davranış | En iyi |
 |---|---|---|
-| `tokens` | Chunk başına `--max-tokens` sınırı; cümle sınırlarında bölmeye çalışır. | Düz metin, karışık içerik. |
-| `markdown` | Markdown başlıklarına (h1/h2/h3) göre böler, hiyerarşiye saygı duyar. | Dokümantasyon, yapılandırılmış corpus. |
-| `paragraph` | Paragraf başına bir chunk (veya sığacak şekilde birleştirilmiş paragraflar). | Kitaplar, prose. |
-| `sentence` | Cümle başına bir chunk (nadir; çok ince taneli veri için). | NLI görevleri, kısa Q&A. |
+| `sliding` | `--chunk-tokens` sınırı + `--overlap-tokens` örtüşmesi ile kayar pencere; tokenizer yoksa karakter moduna düşer. | Düz metin, karışık içerik. |
+| `markdown` | `#`/`##`/`###` sınırlarına saygı duyan ve fenced code bloklarını atomik tutan başlık-bilen splitter. | Dokümantasyon, yapılandırılmış corpus. |
+| `paragraph` | Paragraf başına bir chunk; tasarımdan örtüşmesizdir (`--overlap 0` veya bayrağı vermeyin). | Kitaplar, prose. |
 
-Çoğu ekip dokümantasyon için `markdown`, geri kalan her şey için `tokens` seçer.
+`semantic` follow-up faz için ayrılmıştır — bugün
+`NotImplementedError` raise eder ve runtime crash'ı önlemek için
+CLI yüzeyinden gizlidir.
 
-## Çıktı formatları
+## Çıktı formatı
 
-Varsayılan olarak `forgelm ingest` sentetik prompt'larla `instructions` formatı üretir:
-
-```json
-{"prompt": "Şu pasajı özetle.", "completion": "Politikanın 4.2 bölümü...", "metadata": {"source": "policy.pdf", "chunk": 17}}
-```
-
-Domain-uzmanı SFT için genelde `--format raw` istersiniz; bu chunk'ı olduğu gibi çıkarır ve prompt üretimini sonraya bırakır (veya sürdürülen ön eğitim için kullanır):
+`forgelm ingest` ham chunk'ları emit eder (`{"text": "..."}` JSONL). v0.5.5'te `--format` flag'i yoktur — tek seçenek **özet raporu** (chunk sayısı, format dağılımı, atılan-satır sebepleri) için `--output-format {text,json}`'dur, chunk kayıtlarının kendileri için değil — onlar her zaman ham `text` JSONL olarak yazılır. Sentetik-prompt veya Q&A datasetleri isteyen operatörler bu adımı bu komutun ürettiği ham JSONL üzerinden downstream bir adım olarak katmanlar (bkz. [Sentetik Veri](#/data/synthetic-data)):
 
 ```json
 {"text": "Bölüm 4.2: Tüm ödeme işlemleri PCI-DSS standartlarına uymalıdır...", "metadata": {"source": "policy.pdf", "chunk": 17}}
 ```
 
-Q&A datasetleri için prompt-üreten LLM ile `--format qa`:
-
-```yaml
-ingestion:
-  format: "qa"
-  qa_generator:
-    model: "openai:gpt-4o-mini"
-    prompts_per_chunk: 3
-```
-
 ## CLI bayrakları
+
+Yetkili liste için `forgelm ingest --help`. En sık görülenler:
 
 | Bayrak | Açıklama |
 |---|---|
-| `--recursive` | Alt dizinlere yürü. |
-| `--strategy {tokens,markdown,paragraph,sentence}` | Parçalama stratejisi. |
-| `--max-tokens N` | Chunk başına token sınırı (varsayılan 1024). |
-| `--overlap N` | Chunk'lar arası kayar-pencere örtüşmesi (varsayılan 0). |
+| `--output FILE` | Hedef JSONL dosyası (parent dizinler oluşturulur). Zorunlu. |
+| `--recursive` | Alt dizinlere yürü. Varsayılan sığ (yalnız üst düzey dosyalar). |
+| `--strategy {sliding,paragraph,markdown}` | Parçalama stratejisi (varsayılan: `paragraph`). |
+| `--chunk-tokens N` | Chunk başına token sınırı (`--tokenizer` kullanır). `sliding` için `--overlap-tokens` ile eşleştirin. |
+| `--chunk-size N` | Chunk başına yumuşak karakter sınırı (kütüphane varsayılanı 2048). Ya bunu **YA DA** `--chunk-tokens`, ikisini birden değil. |
+| `--overlap N` | `--strategy sliding` karakter-modu örtüşmesi (varsayılan 200; `paragraph` veya `markdown` için 0/unset olmalı — tasarımdan örtüşmesizler). |
+| `--overlap-tokens N` | `--strategy sliding` + `--chunk-tokens` ile eşli token-modu örtüşmesi. |
+| `--tokenizer MODEL_NAME` | `--chunk-tokens` / `--overlap-tokens` tarafından kullanılan HF tokenizer'ı. |
 | `--pii-mask` | E-posta, telefon, ID, IBAN'ı yazmadan önce maskele. Bkz. [PII Maskeleme](#/data/pii-masking). |
 | `--secrets-mask` | AWS anahtarları, GitHub PAT'ler, JWT'leri vb. redakte et. Bkz. [Sırlar](#/data/secrets). |
-| `--language LANG` | Bir dili zorla (varsayılan: chunk başına otomatik algıla). |
-| `--include "*.pdf,*.md"` | Dahil edilecek glob pattern'leri. |
-| `--exclude "drafts/*"` | Hariç tutulacak glob pattern'leri. |
-| `--output PATH` | Çıktı dosyası (`.jsonl`). |
+| `--all-mask` | `--secrets-mask --pii-mask`'in birleşik kısayolu. |
 
 ## Sık hatalar
 
@@ -112,7 +104,7 @@ ingestion:
 :::
 
 :::warn
-**`--max-tokens`'i modelin context'inden büyük yapmak.** `model.max_length`'ten uzun chunk'lar eğitim zamanında kuyruktan kesilir. `--max-tokens`'i eğitim context'iyle eşleştirin.
+**`--chunk-tokens`'i modelin context'inden büyük yapmak.** `model.max_length`'ten uzun chunk'lar eğitim zamanında kuyruktan kesilir. `--chunk-tokens`'i eğitim context'iyle eşleştirin.
 :::
 
 :::tip

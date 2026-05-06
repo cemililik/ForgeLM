@@ -1,11 +1,11 @@
 # Localization Standard
 
 > **Scope:** Which parts of ForgeLM get translated, how translations are paired with originals, and what stays English only.
-> **Enforced by:** Review + (future) CI script checking `-tr.md` ↔ `.md` structural sync.
+> **Enforced by:** Review + [`tools/check_bilingual_parity.py --strict`](../../tools/check_bilingual_parity.py) (Wave 3 / Faz 24): a CI guard that fails on any H2/H3/H4 spine mismatch between an EN file and its `-tr.md` mirror. Scope expanded from 9/9 to 23/23 pairs through Wave 4 (post-Faz-26 QMS bilingualisation).
 
 ## The policy in one line
 
-**User-facing documentation is bilingual (EN + TR). Code, CLI output, config keys, logs, and internal dev docs are English only.**
+**EN + TR are mandatory for user-facing docs. DE / FR / ES / ZH are deferred to a future translation cycle (formalised post-Phase-12.6).** Code, CLI output, config keys, logs, and internal dev docs are English only.
 
 ## Supported languages
 
@@ -32,14 +32,15 @@ Rationale:
 | `docs/reference/usage.md` | Yes | End-user how-to |
 | `docs/reference/data_preparation.md` | Yes | End-user data prep |
 | `docs/reference/distributed_training.md` | Yes | End-user distributed |
-| `docs/reference/compliance_summary.md` | No (yet) | English only for now — Turkish translation planned as Phase 10 task |
-| `docs/guides/*.md` | No (yet) | Turkish guides are an open task |
+| `docs/reference/compliance_summary.md` | No (yet) | English only for now — TR mirror open task; the Wave 4 rewrite landed EN-side first |
+| `docs/guides/*.md` | Partial (Wave 1 + 2b + 3 + 4 progressively bilingualised) | Bilingualised today: `air_gap_deployment`, `data_audit`, `gdpr_erasure`, `getting-started`, `human_approval_gate`, `ingestion`, `iso_soc2_deployer_guide`, `library_api`, `performance`, `safety_compliance`. Single-language (EN): `alignment`, `cicd_pipeline`, `enterprise_deployment`, `quickstart`, `troubleshooting` — TR mirrors are open follow-ups |
+| `docs/usermanuals/{en,tr}/` | Yes | EN+TR manual content authored & reviewed; DE/FR/ES/ZH fall back to EN via the `tableForLang(...) → DEFAULT='en'` chain (deferred to a future translation cycle) |
 | `docs/design/*.md` | No | Internal design history |
 | `docs/standards/*.md` | No | Contributor-facing |
-| `docs/qms/*.md` | Yes | QMS templates ship bilingual EN+TR — regulated orgs in Turkey adopt the TR mirror as the canonical operating template |
+| `docs/qms/*.md` | Yes | QMS templates ship bilingual EN+TR — regulated orgs in Turkey adopt the TR mirror as the canonical operating template. Wave 4 (Faz 26) drove the EN+TR pair count from 0 to 14 with the new ISO 27001 / SOC 2 alignment QMS docs |
 | `docs/marketing/**` | Mixed (strategy/ is TR, operational is EN) | Local-only; author's choice |
 | `docs/analysis/**` | Mixed | Analysis documents in whichever language suits the source |
-| `docs/roadmap/**` | No (yet) | English only; TR mirror summary at `docs/roadmap-tr.md` |
+| `docs/roadmap/**` | Partial | `docs/roadmap.md` ↔ `docs/roadmap-tr.md` mandatory mirror; sub-files (`roadmap/*.md`) English only with the TR summary surfaced through the top-level mirror |
 
 Anything not in the "Yes" set is **English only**. Don't translate preemptively.
 
@@ -139,8 +140,9 @@ Link from the TR doc back to the EN with "bu konunun detayı (İngilizce):" (det
 
 ## Future (not today)
 
-- Spanish translations — not planned for 2026. The marketing docs mention a Spanish-speaking contributor but Spanish market entry isn't in roadmap.
-- Localized CLI output behind a language flag — not planned.
-- Automatic translation in CI — not trustworthy enough, doesn't save review time.
+- **DE / FR / ES / ZH user-manual translation** — explicitly deferred at v0.5.5 (Phase 12.6 closure cycle): the user-manual side falls back to EN via the i18n chain. A follow-up cycle picks this up after v0.6.0 ships, when adoption signal justifies the translation cost.
+- **Spanish translations beyond the site UI** — not planned for 2026. The marketing docs mention a Spanish-speaking contributor but Spanish market entry isn't on the roadmap.
+- **Localized CLI output behind a language flag** — not planned.
+- **Automatic translation in CI** — not trustworthy enough, doesn't save review time.
 
 If a new language becomes strategic, update this document first, then start translations.

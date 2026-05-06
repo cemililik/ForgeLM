@@ -87,13 +87,16 @@ Audit raporu satır indisleri ve offset'leri listeler; spesifik vakaları incele
 | US | E.164 + (xxx) xxx-xxxx | Reserved-block dışlamalı SSN | |
 | Global | Sadece E.164 | yok | Bilinmeyen locale fallback. |
 
-Locale'i ingest'te ayarlayın:
+`forgelm ingest --pii-mask` (veya audit eşdeğeri) tarafından
+tetiklenen regex-bazlı PII katmanı, yukarıdaki tablodaki tüm
+pattern'leri locale flag'i olmadan tespit eder. Açık dil ipuçlu
+Presidio ML-NER pass için audit subcommand'ını kullanın:
 
 ```shell
-$ forgelm ingest ./docs/ --pii-mask --pii-locale de
+$ forgelm audit ./data/*.jsonl --output ./out/ --pii-ml --pii-ml-language de
 ```
 
-Veya YAML'da:
+Veya YAML'da pin'leyin:
 
 ```yaml
 ingestion:

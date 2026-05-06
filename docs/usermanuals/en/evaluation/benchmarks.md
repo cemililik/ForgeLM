@@ -65,12 +65,19 @@ Set floors slightly below your pre-training baseline. Goal: catch *regressions*,
 
 ## Pre-train baselines
 
-To know what floor to set, you need a pre-training baseline:
+To know what floor to set, you need a pre-training baseline. Use the `--benchmark-only` flag (which evaluates an existing model without training) with a config that pins the tasks + output path:
+
+```yaml
+# baseline.yaml
+model: { name: "Qwen/Qwen2.5-7B-Instruct" }
+evaluation:
+  benchmark:
+    tasks: ["hellaswag", "arc_easy", "truthfulqa", "mmlu"]
+    output: "baselines/qwen-2.5-7b.json"
+```
 
 ```shell
-$ forgelm benchmark --model "Qwen/Qwen2.5-7B-Instruct" \
-    --tasks hellaswag,arc_easy,truthfulqa,mmlu \
-    --output baselines/qwen-2.5-7b.json
+$ forgelm --config baseline.yaml --benchmark-only "Qwen/Qwen2.5-7B-Instruct"
 {"hellaswag": 0.61, "arc_easy": 0.75, "truthfulqa": 0.49, "mmlu": 0.52}
 ```
 

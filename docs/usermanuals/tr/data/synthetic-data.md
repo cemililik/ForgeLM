@@ -126,4 +126,4 @@ Bu lisans ve ticari kullanım için önemli — bazı teacher'ları damıtmak ka
 
 - [LLM-as-Judge](#/evaluation/judge) — sentetik veri kalitesini filtrele.
 - [Konfigürasyon Referansı](#/reference/configuration) — tam `synthetic:` bloğu.
-- [Doküman Ingest'i](#/data/ingestion) — `--format qa` sentetik prompt üretimi kullanır.
+- [Doküman Ingest'i](#/data/ingestion) — sentetik-veri araçlarının tüketmek için kullandığı ham metin JSONL'i üretir.
