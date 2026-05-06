@@ -4,6 +4,158 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+### Wave 4 — Faz 22 + 23 + 26 + 30 (`closure/wave4-integration`)
+
+ISO 27001 / SOC 2 Type II alignment + QMS bilingual sweep + final
+documentation pass.
+
+**Faz 22 — ISO 27001 / SOC 2 alignment design**
+
+- New design document at
+  [`docs/analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](docs/analysis/code_reviews/iso27001-soc2-alignment-202605052315.md)
+  (~865 lines).  Maps every ISO 27001:2022 Annex A control (93
+  controls across A.5 + A.6 + A.7 + A.8) and every SOC 2 Trust
+  Services Criterion (Common Criteria CC1.x–CC9.x mandatory + 4
+  optional categories) to the ForgeLM feature that produces audit
+  evidence.  Coverage tally: FL (full) 11 / FL-helps 48 / OOS 34
+  (row-by-row recount of §3.1–§3.4; per-theme split A.5: 3 / 24 /
+  10, A.6: 0 / 5 / 3, A.7: 0 / 0 / 14, A.8: 8 / 19 / 7).
+  10-row Decision Log + 10-question deployer FAQ.
+
+**Faz 23 — ISO 27001 / SOC 2 alignment implementation**
+
+Supply-chain security tooling:
+
+- `pyproject.toml` — new `[security]` optional extra (`pip-audit`,
+  `bandit[toml]`).
+- `tools/check_pip_audit.py` (new) — pip-audit JSON severity gate;
+  HIGH / CRITICAL → exit 1, MEDIUM → `::warning::`, LOW silent.
+- `tools/check_bandit.py` (new) — bandit JSON severity gate; same
+  HIGH / MEDIUM / LOW tiering.
+- `.github/workflows/ci.yml` — `bandit` step on `forgelm/`
+  (production code only; tests/ excluded).
+- `.github/workflows/nightly.yml` — new `supply-chain-security` job
+  running `pip-audit` + `bandit` daily at 03:00 UTC.
+- `tests/test_supply_chain_security.py` (new) — 16 tests pinning
+  SBOM determinism contract + check_pip_audit + check_bandit
+  severity-tiering logic.
+
+QMS additions (EN ships now; TR mirrors land in Faz 26):
+
+- `docs/qms/encryption_at_rest.md` (new) — substrate-side encryption
+  guidance per ForgeLM artefact class.
+- `docs/qms/access_control.md` (new) — operator identity contract;
+  `FORGELM_OPERATOR` form recommendations; `FORGELM_AUDIT_SECRET`
+  rotation cadence; CI runner identity binding examples for GHA /
+  GitLab / Jenkins.
+- `docs/qms/risk_treatment_plan.md` (new) — pre-populated 12-row
+  ISO 27005 risk register covering ForgeLM-introduced risks
+  (training-data poisoning, supply-chain compromise, audit-log
+  tampering, memorisation residual, ReDoS, etc.).
+- `docs/qms/statement_of_applicability.md` (new) — 93-control SoA
+  matrix in QMS-style format.
+- `docs/qms/sop_incident_response.md` — Wave 4 §4 expansion (security
+  incidents: audit-chain integrity violation, credential leak,
+  supply-chain CVE, webhook compromise, GDPR Art. 15/17 DSAR
+  playbooks).
+- `docs/qms/sop_change_management.md` — Wave 4 §4 expansion (CI
+  gates as formal change-control mechanism — 11-row table mapping
+  each gate to ISO controls; Article 14 approval gate as CAB
+  substitute; config-drift + SBOM-drift detection).
+
+Operator guide + reference docs (EN+TR):
+
+- `docs/guides/iso_soc2_deployer_guide.md` (+ `-tr.md`) — deployer
+  audit cookbook covering 8 common audit-floor questions with the
+  exact ForgeLM artefact + grep / command answer.
+- `docs/reference/iso27001_control_mapping.md` (+ `-tr.md`) — ISO
+  Annex A reference table (93 controls × ForgeLM evidence).
+- `docs/reference/soc2_trust_criteria_mapping.md` (+ `-tr.md`) — SOC
+  2 TSC reference table.
+- `docs/reference/supply_chain_security.md` (+ `-tr.md`) — SBOM +
+  pip-audit + bandit overview for compliance teams.
+
+Cross-cutting:
+
+- `README.md` — new "ISO 27001 / SOC 2 Type II Alignment" bullet
+  under Enterprise & MLOps with explicit "alignment, not certified"
+  framing (closes the design doc's D-22-01 wording decision).
+- `tools/check_bilingual_parity.py` `_PAIRS` registry — added 14 new
+  pairs total (4 Faz-23 pairs: deployer guide + 3 reference docs;
+  10 Faz-26 QMS pairs); registry tally now 23 (was 9).
+- `docs/standards/localization.md` — `docs/qms/*.md` row flipped
+  from "No (yet)" to "Yes" to reflect the bilingual sweep.
+
+**Migration notes (Wave 4)**
+
+- **Rotation guidance reframed (`FORGELM_AUDIT_SECRET`).** Prior
+  0.5.x guidance recommended quarterly rotation. Wave 4 reframes
+  this to **between output-dir lifecycles** — every audit entry's
+  HMAC keys to the secret live at emit time, so rotating mid
+  output-dir breaks `forgelm verify-audit --require-hmac` for the
+  cross-secret span. Deployers running quarterly KMS-rotation
+  cron jobs today must align rotation to fresh `<output_dir>`
+  provisioning (rotate the secret + cut a new output-dir together).
+  See `docs/qms/access_control.md` §3.4 for the corrected procedure
+  and §8 verification checklist for the auditor-facing signal.
+- **`tools/check_bandit.py` malformed-report behaviour.** A bandit
+  JSON report carrying `{"results": null}` (malformed; rare) now
+  fails the gate (exit 1) where the prior `or []` collapse silently
+  treated it as a clean run. Operators whose nightly runs previously
+  passed against a corrupt bandit invocation must now investigate
+  the upstream bandit failure instead of consuming the silent pass.
+
+**Faz 26 — QMS bilingual mirror + compliance_summary cleanup**
+
+- 6 existing QMS TR mirrors: `README-tr.md`,
+  `roles_responsibilities-tr.md`, `sop_model_training-tr.md`,
+  `sop_data_management-tr.md`, `sop_incident_response-tr.md`,
+  `sop_change_management-tr.md`.
+- 4 new-Faz-23 QMS TR mirrors: `encryption_at_rest-tr.md`,
+  `access_control-tr.md`, `risk_treatment_plan-tr.md`,
+  `statement_of_applicability-tr.md`.
+- `docs/qms/README.md` (+ `-tr.md`) — table extended with the 4
+  Wave 4 QMS rows; "See also" section linking to compliance_summary
+  + ISO/SOC 2 deployer guide + audit event catalog.
+- `docs/reference/compliance_summary.md` — full rewrite: H1 + scope
+  blockquote, 11 stale `forgelm/x.py#L33`-style line anchors
+  replaced with module-path + symbol-name references that survive
+  refactor, "50 prompts × 3 categories" → "140 × 6", linked from
+  QMS README.
+- `tools/check_anchor_resolution.py` (new) — markdown link
+  resolution guard; advisory mode by default + `--strict` opt-in
+  for CI wire-up once tree is clean.  21 regression tests.
+
+**Faz 30 — Final documentation pass (partial)**
+
+Tier 1 ghost-feature drift fixes + stat-block updates:
+
+- GH-008 `verify-log` → `verify-audit` rename in
+  `usermanuals/{en,tr}/compliance/audit-log.md`.
+- GH-021 `forgelm chat` slash commands aligned with parser:
+  removed `/load`, `/top_p`, `/max_tokens`, `/safety on|off`;
+  `/quit` → `/exit`.  EN+TR mirror.
+- GH-022 `q6_k` quant level removed from
+  `usermanuals/{en,tr}/deployment/gguf-export.md` (parser only
+  supports `q2_k|q3_k_m|q4_k_m|q5_k_m|q8_0|f16`); `f16` row
+  added.
+- GH-024 `FORGELM_RESUME_TOKEN` env var removed from
+  `usermanuals/{en,tr}/compliance/human-oversight.md`; replaced
+  the API-automation block with the canonical CLI subcommand
+  flow (`forgelm approve` / `reject` + `forgelm approvals
+  --pending`); the v0.6.0+ Pro CLI roadmap callout flagged.
+- GH-025 `FORGELM_CACHE_DIR` env var removed from
+  `usermanuals/{en,tr}/getting-started/project-layout.md`;
+  `HF_HOME` declared canonical.
+- `docs/standards/testing.md` stat block: 48 → 67 test modules,
+  ~1410 tests.
+
+Deferred to Faz 30 follow-up (closure-plan task A + remaining O
+items + tasks J + N): GH-016/018/019/020 reference/cli.md cleanup,
+sample-audit user-facing doc triplet completion,
+`tools/check_cli_help_consistency.py`, full-suite anchor-checker
+`--strict` CI wire-up.
+
 ### Wave 3 — Faz 24 + 28 + 38 (`closure/wave3-integration`)
 
 Single integration branch covering three closure-plan phases:

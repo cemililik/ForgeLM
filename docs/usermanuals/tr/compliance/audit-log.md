@@ -56,13 +56,13 @@ ForgeLM önceki log kayıtlarını asla yeniden yazmaz. Yeni olaylar sona ekleni
 ## Bütünlük doğrulama
 
 ```shell
-$ forgelm verify-log checkpoints/run/artifacts/audit_log.jsonl
+$ forgelm verify-audit checkpoints/run/artifacts/audit_log.jsonl
 ✓ 87 kayıt, tüm zaman damgaları monotonik
 ✓ tüm prev_hash zincirleri geçerli
 ✓ seq numaralarında boşluk yok
 ```
 
-`verify-log` zincir kırığı raporlarsa, log üretimden sonra değiştirilmiş demektir. Kanıt olarak işlem görmeden önce araştırın.
+`verify-audit` zincir kırığı raporlarsa, log üretimden sonra değiştirilmiş demektir. Kanıt olarak işlem görmeden önce araştırın.
 
 ## Koşu başı vs proje başı
 

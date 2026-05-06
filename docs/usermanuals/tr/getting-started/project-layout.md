@@ -78,7 +78,7 @@ ingested/
 | Config dosyası | `configs/<isim>.yaml` | `--config PATH` |
 | Audit çıktısı | `./audit/` | `forgelm audit --output PATH` |
 | Eğitim çıktısı | `./checkpoints/<isim>/` | YAML'da `output.dir:` |
-| Cache dizini | `~/.forgelm/cache/` | `FORGELM_CACHE_DIR` env var |
+| HuggingFace cache | `~/.cache/huggingface/` | `HF_HOME` env var (canonical; ForgeLM kendi cache-dir override'ını eklemiyor) |
 | HuggingFace token | `HF_TOKEN` env | YAML'da `auth.hf_token:` |
 
 ## Çoklu config iş akışı

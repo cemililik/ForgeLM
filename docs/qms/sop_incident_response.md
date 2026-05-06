@@ -2,10 +2,17 @@
 
 > Standard Operating Procedure — [YOUR ORGANIZATION]
 > EU AI Act Reference: Article 17(1)(h)(i)
+> ISO 27001:2022: A.5.24, A.5.25, A.5.26, A.5.27, A.6.8, A.8.15, A.8.16
+> SOC 2: CC4.2, CC7.3, CC7.4, CC7.5, CC9.2
 
 ## 1. Purpose
 
-Define the procedure for handling safety incidents, model failures, and corrective actions for deployed fine-tuned models.
+Define the procedure for handling safety incidents, model failures,
+**security incidents**, and corrective actions for deployed
+fine-tuned models. Wave 4 / Faz 23 expansion: §4 covers the security-
+incident playbook (audit-chain integrity, credential leak, supply-
+chain CVE, webhook target compromise, GDPR DSARs) alongside the
+existing AI-safety incident flow.
 
 ## 2. Incident Classification
 
@@ -59,7 +66,159 @@ Incidents may be detected by:
 4. [ ] Review and update this SOP if needed
 5. [ ] For EU AI Act: report serious incidents to relevant authority within **15 days**
 
-## 4. Serious Incident Reporting (EU AI Act)
+## 4. Security incidents — Wave 4 / Faz 23 expansion
+
+The Wave 4 ISO 27001 / SOC 2 alignment closure adds the security-
+incident playbook below. AI-safety incidents (§§1–3) and security
+incidents both flow through this SOP; the differentiator is the
+detection event class.
+
+### 4.1 Audit-chain integrity violation
+
+**Trigger:** `forgelm verify-audit` exits non-zero (chain hash
+mismatch, manifest sidecar truncation, HMAC signature mismatch).
+
+**Severity:** Critical.
+
+**Runbook:**
+
+1. [ ] **Isolate** the affected `<output_dir>` — `chmod 0500` on the
+       directory to prevent further writes.
+2. [ ] **Preserve evidence** — copy `audit_log.jsonl`,
+       `audit_log.manifest.json`, the `.sha256` sidecar (if
+       present), and `<output_dir>/.forgelm_audit_salt` to a
+       write-once forensic substrate (S3 Object Lock, Azure
+       Immutable Blob).
+3. [ ] **Identify the last trusted entry** — run
+       `forgelm verify-audit ./outputs/audit_log.jsonl --require-hmac 2>&1 | tee verify.log`;
+       the verifier exits 1 on first failure and the offending line
+       number lands in stderr. If you need the precise boundary,
+       bisect manually with `head -n N audit_log.jsonl > tmp.jsonl`
+       and re-run `verify-audit` against `tmp.jsonl` until the last
+       N that exits 0 is found. Everything up to that line is
+       forensically trusted; everything after must be considered
+       tainted.
+4. [ ] **Notify** the AI Officer + Security team + DPO (if any
+       PII-bearing event was after the bad line).
+5. [ ] **Decide** whether to retain the tainted-tail entries as
+       evidence (recommended) or roll back.
+6. [ ] **Audit** the IdP for unauthorised write access to the
+       `<output_dir>` substrate during the suspect time window.
+
+### 4.2 Credential leak detected
+
+**Trigger:** `forgelm audit` `_SECRET_PATTERNS` regex matches a
+credential in the training corpus or a webhook log; OR an
+external CVE / breach disclosure cites a token that was used.
+
+**Severity:** Critical.
+
+**Runbook:**
+
+1. [ ] **Rotate the leaked credential immediately** at the issuing
+       authority (HF Hub token, GitHub PAT, Slack webhook, OpenAI
+       API key, AWS access key, etc.).
+2. [ ] **Run `forgelm purge --row-id <leaked-row>`** against every
+       corpus that includes the leaked credential row.
+3. [ ] **Flag the run as memorisation-tainted** — the
+       `data.erasure_warning_memorisation` event documents this.
+4. [ ] **Document the rotation** in your KMS audit log; tie back to
+       the ForgeLM `data.erasure_completed` event timestamp.
+5. [ ] **Re-train from scratch** for high-risk deployments.
+6. [ ] **Update the training-data-onboarding checklist** to require
+       `forgelm audit --secrets` pre-flight.
+
+### 4.3 Supply-chain CVE flagged
+
+**Trigger:** `pip-audit` nightly fails high-severity (Wave 4 / Faz
+23 introduced this gate); OR a CVE advisory drops on a dependency
+ForgeLM uses.
+
+**Severity:** High.
+
+**Runbook:**
+
+1. [ ] **Pin to a safe version** in `pyproject.toml`.
+2. [ ] **Rebuild the SBOM** for the new pinned set
+       (`tools/generate_sbom.py`).
+3. [ ] **Regenerate downstream artefacts** — re-run dependent
+       training pipelines that consumed the affected dep.
+4. [ ] **Notify deployers** if a model already shipped with the
+       affected dep in its training-time env (`compliance_report.json`
+       lists the env).
+5. [ ] **File a tracking ticket** with the CVE id + the SBOM diff +
+       the affected runs (use the audit log's `compliance.config_hash`
+       to identify them).
+
+### 4.4 Webhook target compromised
+
+**Trigger:** Slack / Teams / custom-webhook recipient confirms a
+breach; OR `safe_post` `_mask` shows redacted Authorization headers
+that an attacker may have observed.
+
+**Severity:** High.
+
+**Runbook:**
+
+1. [ ] **Rotate `webhook.secret_env`** immediately.
+2. [ ] **Walk the audit chain** to confirm the attacker did not splice
+       events into the recipient: filter
+       `audit_log.jsonl` by event class
+       (`jq 'select(.event | startswith("notify_"))'`) and confirm
+       every emitted lifecycle entry corresponds to a real
+       `pipeline.*` event in the same `run_id`. Mismatched timestamps
+       or orphan `notify_*` rows are the splice signal.
+3. [ ] **Check `safe_post` error logs** for masked Authorization
+       headers post-rotation — confirm the attacker no longer holds
+       a valid token.
+4. [ ] **Audit the receiving system's** logs for unexpected actions
+       triggered by spliced events (Slack channel posts, Teams
+       cards, Jira tickets).
+
+### 4.5 GDPR Article 15 (right of access) request
+
+**Trigger:** Data subject submits an access request via deployer's
+DSAR portal or contact form.
+
+**Severity:** Medium (regulatory deadline 30 days).
+
+**Runbook:**
+
+1. [ ] **Verify subject identity** per deployer's DSAR procedure.
+2. [ ] **Run** `forgelm reverse-pii --query <verified-identifier>
+       --type <category> data/*.jsonl --output-dir <run-dir>`
+3. [ ] **Hash-mask scan** for any corpus that ForgeLM masked
+       (`forgelm reverse-pii --query <id> --salt-source per_dir
+       --output-dir <run-dir>`).
+4. [ ] **Compose response letter** per DSAR template; cite the run's
+       `data.access_request_query` audit-event id.
+5. [ ] **Retain** the response letter alongside the audit chain.
+
+### 4.6 GDPR Article 17 (right to erasure) request
+
+**Trigger:** Subject submits an erasure request.
+
+**Severity:** Medium (regulatory deadline 30 days; some EU member
+states require shorter response).
+
+**Runbook:**
+
+1. [ ] **Verify identity** per deployer's DSAR procedure.
+2. [ ] **Run** `forgelm purge --row-id <verified-id> --corpus
+       data/<file>.jsonl --output-dir <run-dir>`.
+3. [ ] **Check** for `data.erasure_warning_memorisation` event —
+       if a model trained on the row has a `final_model/` artefact,
+       memorisation residual risk applies.
+4. [ ] **Communicate the memorisation caveat** to the subject in
+       the response letter (template: "we deleted the row but a
+       previously-trained model may have memorised it; we will
+       retrain or apply additional safeguards as appropriate").
+5. [ ] **For high-stakes deployments** (financial advice, medical
+       triage): retrain from scratch.
+6. [ ] **Retain** the audit-event chain proving completion + warnings
+       fired.
+
+## 5. Serious Incident Reporting (EU AI Act)
 
 Under Article 73, providers must report serious incidents to market surveillance authorities. A "serious incident" includes:
 - Death or serious damage to health
@@ -69,8 +228,9 @@ Under Article 73, providers must report serious incidents to market surveillance
 **Report to:** National market surveillance authority of the affected EU member state
 **Timeline:** Within 15 days of becoming aware
 
-## 5. Review
+## 6. Review
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | [DATE] | [AUTHOR] | Initial version |
+| 1.1 | 2026-05-05 | Wave 4 / Faz 23 | Added §4 security-incident playbook (audit-chain integrity, credential leak, supply-chain CVE, webhook compromise, GDPR Art. 15/17 DSARs); ISO 27001:2022 + SOC 2 control mapping in header |

@@ -36,7 +36,7 @@ Rationale:
 | `docs/guides/*.md` | No (yet) | Turkish guides are an open task |
 | `docs/design/*.md` | No | Internal design history |
 | `docs/standards/*.md` | No | Contributor-facing |
-| `docs/qms/*.md` | No | QMS templates in English (regulated orgs translate internally) |
+| `docs/qms/*.md` | Yes | QMS templates ship bilingual EN+TR — regulated orgs in Turkey adopt the TR mirror as the canonical operating template |
 | `docs/marketing/**` | Mixed (strategy/ is TR, operational is EN) | Local-only; author's choice |
 | `docs/analysis/**` | Mixed | Analysis documents in whichever language suits the source |
 | `docs/roadmap/**` | No (yet) | English only; TR mirror summary at `docs/roadmap-tr.md` |

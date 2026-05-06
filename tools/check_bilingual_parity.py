@@ -66,12 +66,27 @@ _PAIRS: Tuple[Tuple[str, str], ...] = (
     ("docs/guides/data_audit.md", "docs/guides/data_audit-tr.md"),
     ("docs/guides/gdpr_erasure.md", "docs/guides/gdpr_erasure-tr.md"),
     ("docs/guides/ingestion.md", "docs/guides/ingestion-tr.md"),
+    ("docs/guides/iso_soc2_deployer_guide.md", "docs/guides/iso_soc2_deployer_guide-tr.md"),
+    # docs/qms/
+    ("docs/qms/README.md", "docs/qms/README-tr.md"),
+    ("docs/qms/access_control.md", "docs/qms/access_control-tr.md"),
+    ("docs/qms/encryption_at_rest.md", "docs/qms/encryption_at_rest-tr.md"),
+    ("docs/qms/risk_treatment_plan.md", "docs/qms/risk_treatment_plan-tr.md"),
+    ("docs/qms/roles_responsibilities.md", "docs/qms/roles_responsibilities-tr.md"),
+    ("docs/qms/sop_change_management.md", "docs/qms/sop_change_management-tr.md"),
+    ("docs/qms/sop_data_management.md", "docs/qms/sop_data_management-tr.md"),
+    ("docs/qms/sop_incident_response.md", "docs/qms/sop_incident_response-tr.md"),
+    ("docs/qms/sop_model_training.md", "docs/qms/sop_model_training-tr.md"),
+    ("docs/qms/statement_of_applicability.md", "docs/qms/statement_of_applicability-tr.md"),
     # docs/reference/
     ("docs/reference/architecture.md", "docs/reference/architecture-tr.md"),
     ("docs/reference/audit_event_catalog.md", "docs/reference/audit_event_catalog-tr.md"),
     ("docs/reference/configuration.md", "docs/reference/configuration-tr.md"),
     ("docs/reference/data_preparation.md", "docs/reference/data_preparation-tr.md"),
     ("docs/reference/distributed_training.md", "docs/reference/distributed_training-tr.md"),
+    ("docs/reference/iso27001_control_mapping.md", "docs/reference/iso27001_control_mapping-tr.md"),
+    ("docs/reference/soc2_trust_criteria_mapping.md", "docs/reference/soc2_trust_criteria_mapping-tr.md"),
+    ("docs/reference/supply_chain_security.md", "docs/reference/supply_chain_security-tr.md"),
     ("docs/reference/usage.md", "docs/reference/usage-tr.md"),
 )
 

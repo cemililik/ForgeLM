@@ -210,3 +210,17 @@ jobs:
           test -f LICENSE || (echo "LICENSE file missing" && exit 1)
           head -1 LICENSE | grep -q "Apache" || (echo "Expected Apache License" && exit 1)
           echo "License: OK"
+
+      # Wave 4 / Faz 23: bandit static-security analysis on forgelm/.
+      # tests/ is excluded via [tool.bandit] in pyproject.toml because
+      # test fixtures legitimately use insecure patterns (assert, dummy
+      # secrets).  HIGH severity → fail; MEDIUM → warn; LOW → silent.
+      # See tools/check_bandit.py for the severity-tiering helper.
+      - name: bandit (static security analysis)
+        run: |
+          python -m pip install 'bandit[toml]>=1.7.0,<2.0.0'
+          # bandit returns exit 1 on ANY findings.  We capture the JSON
+          # report and apply our own severity policy via the tiering
+          # helper (tools/check_bandit.py).
+          bandit -c pyproject.toml -r forgelm/ -f json -o /tmp/bandit.json || true
+          python3 tools/check_bandit.py /tmp/bandit.json

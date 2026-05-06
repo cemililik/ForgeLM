@@ -19,10 +19,10 @@ sequenceDiagram
 
     Train->>Eval: Eğitim tamam, eval koştur
     Eval->>Eval: Benchmark + güvenlik geçti
-    Eval->>Audit: "human_approval_request" ekle
+    Eval->>Audit: "human_approval.required" ekle
     Eval->>Approver: Webhook + yapılandırılmış istek
     Approver-->>Eval: Onayı imzala (CLI / webhook callback)
-    Eval->>Audit: İmzalı "human_approval_granted" ekle
+    Eval->>Audit: İmzalı "human_approval.granted" ekle
     Eval->>Output: Checkpoint'i terfi ettir
 ```
 
@@ -70,17 +70,23 @@ approval:
 
 Trainer durur ve artifact paketini webhook'unuza POST'lar. Sisteminiz insan incelemesini halleder ve imzalı JWT ile ForgeLM'in resume endpoint'ine geri POST'lar.
 
-### API
+### CLI subcommand (canonical)
 
-Self-servis otomasyon için (ör. dashboard'unuzda "bu koşuyu terfi ettir" düğmesi):
+v0.5.5'te desteklenen onay mekanizması CLI subcommand çifti `forgelm approve` / `forgelm reject`:
 
-```yaml
-approval:
-  signature_method: "api"
-  resume_token: "${FORGELM_RESUME_TOKEN}"
+```bash
+forgelm approvals --pending --output-dir <dir>            # onay bekleyen koşumları listele
+forgelm approve  <run-id> --output-dir <dir> --comment "..."  # staging → final_model'e promote
+forgelm reject   <run-id> --output-dir <dir> --comment "..."  # staged modeli at
 ```
 
-Dashboard'unuz doğrudan ForgeLM'in resume endpoint'ini koşu ID'si ve reviewer kimliğiyle çağırır. İmzalar audit log'a kaydedilir.
+**Not:** `approve` ve `reject` positional `run_id` alır (`--run-id`
+flag'i yoktur); `--comment "..."` reviewer notunu
+`human_approval.granted` / `human_approval.rejected` event'ına yazar.
+`--output-dir <dir>` zorunludur ve `audit_log.jsonl` +
+`final_model.staging/` içeren training output dizinini gösterir.
+
+Her çağrı `FORGELM_OPERATOR` (onaylayanın kimliği) gerektirir ve zincire `human_approval.granted` / `human_approval.rejected` olayı yazar. Self-servis "bu koşuyu terfi ettir" otomasyonu v0.6.0+ Pro CLI (public roadmap'te Phase 13) için planlanmıştır; o zamana kadar CLI gate audit-grade arayüzdür.
 
 ## Onay imzasında ne var
 
@@ -90,7 +96,7 @@ Her onay (veya red) `audit_log.jsonl`'a eklenir:
 {
   "ts": "2026-04-29T15:18:42Z",
   "seq": 87,
-  "event": "human_approval_granted",
+  "event": "human_approval.granted",
   "run_id": "abc123",
   "reviewer": "Cemil Ilik <cemil@example>",
   "role": "ml-compliance-lead",
@@ -120,7 +126,7 @@ Her onaylayıcı CLI komutunu bağımsız çalıştırır. Quorum imzaladıktan 
 `timeout_hours` sonrası imzasız koşu yapılandırılmış olayla exit 4 + auto-fail:
 
 ```json
-{"event": "human_approval_timeout", "expired_at": "2026-04-30T14:33:10Z"}
+{"event": "human_approval.timeout", "expired_at": "2026-04-30T14:33:10Z"}
 ```
 
 Varsayılan 48 saat. "Timeout yok — sonsuza kadar bekle" için 0 (CI'da önerilmez).

@@ -107,7 +107,9 @@
 
 **Documented behavior:** Environment check — verifies Python version, PyTorch, CUDA availability, GPU detection, optional dep install status. `--offline` variant checks cached resources for air-gapped deployments.
 
-**Code reality:** No `doctor` in `forgelm/cli/_parser.py`, no `_doctor.py` in `forgelm/cli/subcommands/`. Running `forgelm doctor` exits with "unrecognized arguments".
+**Code reality (2026-05-02 — original analysis):** No `doctor` in `forgelm/cli/_parser.py`, no `_doctor.py` in `forgelm/cli/subcommands/`. Running `forgelm doctor` exits with "unrecognized arguments".
+
+**Status update (post Wave 2a):** GH-001 closed via Phase 34. `forgelm doctor` ships in v0.5.x with `_doctor.py` at `forgelm/cli/subcommands/_doctor.py`; `forgelm doctor --help` lists Python / CUDA / GPU / extras / HF auth / disk / `FORGELM_OPERATOR` checks. The line-604 mention of `_doctor.py` (the `FORGELM_RESUME_TOKEN` defensive secret-mask entry) refers to this same shipped file — both line 110 and line 604 describe the same artefact at different points in time.
 
 **Closure plan:** Not mentioned in any phase.  
 **Roadmap:** Not mentioned in any file under `docs/roadmap/`.
@@ -601,7 +603,7 @@ ingestion:
 
 **Documented:** "Token for the API-based human approval flow"
 
-**Code reality:** `grep -rn "FORGELM_RESUME_TOKEN" forgelm/` → no results. Not used anywhere in the codebase.
+**Code reality:** `grep -rn "FORGELM_RESUME_TOKEN" forgelm/` → one defensive reference at `forgelm/cli/subcommands/_doctor.py` (the var name appears in the secret-mask pre-list so a future probe never accidentally surfaces its value); the doctor probe never reads the env var. Not consumed anywhere in the codebase. The user-facing reference doc citation is the ghost; the defensive mask-list entry is intentional and stays.
 
 ---
 

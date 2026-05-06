@@ -11,6 +11,10 @@
 | [Incident Response SOP](sop_incident_response.md) | Art. 17(1)(h)(i) | Handling model failures, safety incidents, and corrective actions |
 | [Change Management SOP](sop_change_management.md) | Art. 17(1)(b)(c) | Versioning, review, approval, and rollback procedures |
 | [Roles & Responsibilities](roles_responsibilities.md) | Art. 17(1)(m) | AI Officer, Data Steward, ML Engineer, Compliance Officer roles |
+| [Access Control](access_control.md) | Art. 17(1)(c) + ISO A.5.15-A.8.5 | Operator identity + secret rotation (Wave 4 / Faz 23) |
+| [Encryption at Rest](encryption_at_rest.md) | Art. 17(1)(c) + ISO A.5.33 + A.8.10 + A.8.24 | Substrate-side encryption guidance (Wave 4 / Faz 23) |
+| [Risk Treatment Plan](risk_treatment_plan.md) | Art. 17(1)(c) + ISO A.5.7-A.8.30 | ISO 27005 risk register template (Wave 4 / Faz 23) |
+| [Statement of Applicability](statement_of_applicability.md) | Art. 17(1)(c) + ISO 6.1.3 d) | 93-control applicability matrix (Wave 4 / Faz 23) |
 
 ## How to Use
 
@@ -19,6 +23,12 @@
 3. Assign real names to each role
 4. Review and approve with your legal/compliance team
 5. Reference ForgeLM's automated artifacts as evidence
+
+## See also
+
+- [Compliance summary](../reference/compliance_summary.md) — concise EU AI Act + ISO + SOC 2 evidence map.
+- [ISO / SOC 2 deployer guide](../guides/iso_soc2_deployer_guide.md) — Wave 4 audit cookbook.
+- [Audit event catalog](../reference/audit_event_catalog.md) — full event vocabulary.
 
 ## ForgeLM Automated Artifacts (Maps to QMS)
 

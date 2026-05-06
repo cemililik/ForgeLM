@@ -38,7 +38,7 @@ $ forgelm purge \
 
 Tool şunları yapar:
 
-1. Per-output-dir salt'ı `<output_dir>/.forgelm_audit_salt`'ta çözer (ilk kullanımda oluşturur; mode `0600`; `FORGELM_AUDIT_SECRET[:16]` set'liyse XOR'lar).
+1. Per-output-dir salt'ı `<output_dir>/.forgelm_audit_salt`'ta çözer (ilk kullanımda oluşturur; mode `0600`; `FORGELM_AUDIT_SECRET[:16]` set'liyse XOR'lar). **Not:** bu XOR yalnızca **identifier hashing**'i besler — audit-chain HMAC anahtarı bağımsız olarak `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)` şeklinde türetilir (bkz. [`docs/qms/access_control.md`](../qms/access_control.md) §3.4 / `forgelm/compliance.py:104-114`). İki primitif kasıtlı olarak ayrıdır.
 2. Audit log'a `data.erasure_requested` yazar — **hash'lenmiş** target_id (`SHA-256(salt + value)`) ve operatör-sağlanan justification ile.
 3. Eşleşen JSONL satırını `id` (veya `row_id`) field'ı ile bulur — re-order edilmiş bir dosyada sessiz yanlış-satır silmesini engellemek için satır-numarası fallback'i **reddedilir**. Id'siz corpus'lara sahip operatörler önce `forgelm audit --add-row-ids <path>` (Phase 28 follow-up) çalıştırmalı.
 4. Corpus'u atomic olarak yeniden yazar (kardeş bir temp dosyaya yazar + `os.replace`); operatörler ya tam silme-öncesi dosyayı ya da tam silme-sonrası dosyayı görür, asla kısmi state'i değil.

@@ -126,6 +126,16 @@ dev = [
   "ruff>=0.4.0",
 ]
 
+# Wave 4 / Faz 23: ISO 27001 / SOC 2 alignment supply-chain security tooling.
+# Operators install via `pip install forgelm[security]` to run the same
+# pip-audit (CVE) + bandit (static-analysis) checks ForgeLM's nightly +
+# CI workflows enforce.  Both are dev/CI tooling, never imported by
+# the runtime path.
+security = [
+  "pip-audit>=2.7.0,<3.0.0",
+  "bandit[toml]>=1.7.0,<2.0.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/cemililik/ForgeLM"
 Documentation = "https://github.com/cemililik/ForgeLM/tree/main/docs/guides"

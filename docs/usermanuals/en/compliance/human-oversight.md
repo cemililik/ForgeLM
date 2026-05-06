@@ -19,10 +19,10 @@ sequenceDiagram
 
     Train->>Eval: Training complete, run eval
     Eval->>Eval: Benchmarks + safety pass
-    Eval->>Audit: Append "human_approval_request"
+    Eval->>Audit: Append "human_approval.required"
     Eval->>Approver: Webhook + structured request
     Approver-->>Eval: Sign approval (CLI / webhook callback)
-    Eval->>Audit: Append "human_approval_granted" with signature
+    Eval->>Audit: Append "human_approval.granted" with signature
     Eval->>Output: Promote checkpoint
 ```
 
@@ -70,17 +70,23 @@ approval:
 
 The trainer halts and posts the artifact bundle to your webhook. Your system handles the human review and POSTs back to ForgeLM's resume endpoint with a signed JWT.
 
-### API
+### CLI subcommand (canonical)
 
-For self-service automation (e.g. a "promote this run" button in your dashboard):
+The supported approval mechanism in v0.5.5 is the CLI subcommand pair `forgelm approve` / `forgelm reject`:
 
-```yaml
-approval:
-  signature_method: "api"
-  resume_token: "${FORGELM_RESUME_TOKEN}"
+```bash
+forgelm approvals --pending --output-dir <dir>            # list runs awaiting approval
+forgelm approve  <run-id> --output-dir <dir> --comment "..."  # promote staging → final_model
+forgelm reject   <run-id> --output-dir <dir> --comment "..."  # discard the staged model
 ```
 
-Your dashboard calls ForgeLM's resume endpoint directly with the run ID and reviewer identity. Signatures are recorded in the audit log.
+**Note:** `approve` and `reject` take a positional `run_id` (not
+`--run-id`); `--comment "..."` is the reviewer note that lands in
+the `human_approval.granted` / `human_approval.rejected` event.
+`--output-dir <dir>` is required and points at the training output
+directory containing `audit_log.jsonl` and `final_model.staging/`.
+
+Each invocation requires `FORGELM_OPERATOR` (the approver's identity) and writes a `human_approval.granted` / `human_approval.rejected` event to the chain. Self-service "promote this run" automation is roadmapped for v0.6.0+ Pro CLI (Phase 13 in the public roadmap); until then the CLI gate is the audit-grade interface.
 
 ## What's in an approval signature
 
@@ -90,7 +96,7 @@ Every approval (or rejection) appends to `audit_log.jsonl`:
 {
   "ts": "2026-04-29T15:18:42Z",
   "seq": 87,
-  "event": "human_approval_granted",
+  "event": "human_approval.granted",
   "run_id": "abc123",
   "reviewer": "Cemil Ilik <cemil@example>",
   "role": "ml-compliance-lead",
@@ -120,7 +126,7 @@ Each approver runs the CLI command independently. Promotion happens after the qu
 After `timeout_hours`, an unsigned run auto-fails with exit code 4 + a structured event:
 
 ```json
-{"event": "human_approval_timeout", "expired_at": "2026-04-30T14:33:10Z"}
+{"event": "human_approval.timeout", "expired_at": "2026-04-30T14:33:10Z"}
 ```
 
 Default is 48 hours. Set to 0 for "no timeout — wait forever" (not recommended in CI).
