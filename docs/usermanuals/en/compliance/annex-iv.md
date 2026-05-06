@@ -1,164 +1,130 @@
 ---
-title: Annex IV
-description: The EU AI Act Article 11 technical documentation, auto-populated from your training run.
+title: Verify Annex IV
+description: Validate the EU AI Act Annex IV technical-documentation artifact and detect post-generation tampering.
 ---
 
-# Annex IV
+# Verify Annex IV
 
-Annex IV of the EU AI Act (Regulation (EU) 2024/1689) defines the eight-section technical documentation required for high-risk AI systems. ForgeLM produces this artifact automatically — `artifacts/annex_iv.json` after every run with `compliance.annex_iv: true`.
+`forgelm verify-annex-iv` is the read-only verifier paired with the Annex IV technical-documentation artifact (`compliance/annex_iv.json`). It walks the nine top-level fields the EU AI Act requires for high-risk systems (§1-9), checks that every required category is populated, and recomputes the manifest hash to detect any tampering since the artifact was generated. The producer side — the auto-population of Annex IV from your `compliance:` YAML block — is documented in the [Compliance Overview](#/compliance/overview).
 
-## The eight sections
+## When to use it
 
-| § | Section | What ForgeLM auto-populates |
-|---|---|---|
-| 1 | General description | Model name, intended purpose, geographies, version. |
-| 2 | Detailed system description | Base model, trainer (SFT/DPO/...), dataset summary. |
-| 3 | Monitoring | Eval thresholds, auto-revert triggers, trend tracking config. |
-| 4 | Risk management | Risk classification, mitigations applied, residual risks. |
-| 5 | Lifecycle | Training timestamp, dataset versions, source references. |
-| 6 | Harmonised standards | Listed compliance frameworks (EU AI Act, GDPR, ISO 27001). |
-| 7 | EU declaration of conformity | Scaffold; signed by a human as final step. |
-| 8 | Post-market monitoring plan | Reference to deployment surveillance config. |
+- **Before treating an Annex IV bundle as "audit-ready".** A clean exit is the minimum schema-completeness signal you should give to a regulator or notified body.
+- **In the post-training CI gate.** Run after every pipeline that emits Annex IV; fail the release on exit `1`.
+- **When receiving an Annex IV from a third-party trainer.** Recompute the manifest hash to detect drift between what they sent and what they signed.
+- **Periodically across archived bundles.** A nightly sweep of historical Annex IV files surfaces silent post-archive edits.
 
-## Configuration → Annex IV
+## How it works
 
-Most of Annex IV is filled from your `compliance:` YAML block. Required fields:
+```mermaid
+sequenceDiagram
+    participant CI as CI / operator
+    participant Verify as forgelm verify-annex-iv
+    participant File as annex_iv.json
 
-```yaml
-compliance:
-  annex_iv: true                                  # master switch
-
-  # Section 1: General description
-  intended_purpose: "Multilingual customer-support assistant for telecom"
-  deployment_geographies: ["TR", "EU"]
-  responsible_party: "Acme Corp <compliance@acme.example>"
-  version: "1.2.0"
-
-  # Section 4: Risk classification
-  risk_classification: "high-risk"                # or "minimal", "limited"
-  risk_assessment:
-    foreseeable_misuse:
-      - "Customer impersonation in social engineering attacks"
-      - "Generation of fraudulent invoices"
-    mitigations:
-      - "Llama Guard S5 (defamation) gate enforced"
-      - "PII masked at ingest"
-    residual_risks:
-      - "Adversarial jailbreaks against system prompt"
-
-  # Section 6: Standards
-  standards: ["EU AI Act", "GDPR", "ISO 27001"]
-
-  # Section 8: Post-market plan reference
-  post_market_plan: "https://internal.acme.example/forgelm-monitoring"
+    CI->>Verify: verify-annex-iv path
+    Verify->>File: read JSON
+    Verify->>Verify: walk _ANNEX_IV_REQUIRED_FIELDS (§1-9)
+    alt any field missing / empty
+        Verify-->>CI: exit 1 (missing fields listed)
+    end
+    Verify->>Verify: compute_annex_iv_manifest_hash(artifact)
+    Verify->>Verify: compare to metadata.manifest_hash
+    alt hash mismatch
+        Verify-->>CI: exit 1 (tamper detected)
+    end
+    Verify-->>CI: exit 0 (artifact valid)
 ```
 
-The audit step ([Dataset Audit](#/data/audit)) provides Section 2's dataset summary and Section 5's data lineage automatically.
+The verifier shares the canonicalisation routine `forgelm.compliance.compute_annex_iv_manifest_hash` with the writer in `forgelm.compliance.build_annex_iv_artifact` — so a legitimate artefact can never fail its own verifier on a writer/verifier byte drift.
 
-## Output structure
-
-`annex_iv.json` follows the EU AI Act schema closely:
-
-```json
-{
-  "schema_version": "annex_iv/1.0",
-  "section_1_general_description": {
-    "name": "Acme Customer Support v1.2.0",
-    "intended_purpose": "...",
-    "deployment_geographies": ["TR", "EU"],
-    "responsible_party": "Acme Corp <compliance@acme.example>",
-    "version": "1.2.0"
-  },
-  "section_2_detailed_system_description": {
-    "base_model": "Qwen/Qwen2.5-7B-Instruct",
-    "trainer": "dpo",
-    "datasets": [{
-      "path": "data/preferences.jsonl",
-      "row_count": 12400,
-      "audit_report": "audit/data_audit_report.json",
-      "source_documents": "data/sources.json"
-    }],
-    "training_recipe": "configs/customer-support.yaml"
-  },
-  "section_3_monitoring": {
-    "benchmark_floors": {"hellaswag": 0.55, "...": "..."},
-    "safety_thresholds": {"S5": 0.30, "...": "..."},
-    "trend_tracking": true
-  },
-  "section_4_risk_management": {
-    "classification": "high-risk",
-    "foreseeable_misuse": [...],
-    "mitigations": [...],
-    "residual_risks": [...]
-  },
-  "section_5_lifecycle": {
-    "trained_at": "2026-04-29T14:01:32Z",
-    "training_duration_seconds": 1892,
-    "config_hash": "sha256:deadbeef...",
-    "dataset_hashes": {...}
-  },
-  "section_6_harmonised_standards": ["EU AI Act", "GDPR", "ISO 27001"],
-  "section_7_declaration_of_conformity": {
-    "status": "scaffold",
-    "signed_by": null,
-    "signed_at": null,
-    "notes": "Requires human review and signature before submission."
-  },
-  "section_8_post_market_plan": "https://internal.acme.example/forgelm-monitoring",
-  "manifest_sha256": "..."
-}
-```
-
-## Tamper-evidence
-
-`annex_iv.json` is itself hashed in `manifest.json`, alongside every other artifact in the bundle. The manifest is the canonical pointer to the immutable bundle:
-
-```json
-{
-  "schema": "manifest/1.0",
-  "artifacts": {
-    "annex_iv.json": "sha256:abc123...",
-    "audit_log.jsonl": "sha256:def456...",
-    "data_audit_report.json": "sha256:789abc...",
-    "safety_report.json": "sha256:fedcba...",
-    "benchmark_results.json": "sha256:111222..."
-  },
-  "generated_at": "2026-04-29T14:33:04Z"
-}
-```
-
-For real tamper-evidence, ship `manifest.json` to a separate write-once store (S3 Object Lock, HSM-signed ledger, etc.). The toolkit produces the artefact; the operational chain-of-custody is your responsibility.
-
-## Validating Annex IV
-
-Before treating an Annex IV as "audit-ready", verify the schema:
+## Quick start
 
 ```shell
-$ forgelm verify-annex-iv checkpoints/run/artifacts/annex_iv.json
-✓ schema valid
-✓ all required fields present
-✓ manifest checksums match
-⚠ section_7 declaration unsigned (expected for new runs)
+$ forgelm verify-annex-iv checkpoints/run/compliance/annex_iv.json
+OK: checkpoints/run/compliance/annex_iv.json
+  All Annex IV §1-9 fields populated; manifest hash matches.
 ```
 
-The `forgelm verify-annex-iv` command also re-computes manifest hashes and checks for tampering since generation.
+## Detailed usage
+
+### JSON output for CI consumers
+
+```shell
+$ forgelm verify-annex-iv --output-format json \
+    checkpoints/run/compliance/annex_iv.json
+{
+  "success": true,
+  "valid": true,
+  "reason": "All Annex IV §1-9 fields populated; manifest hash matches.",
+  "missing_fields": [],
+  "manifest_hash_actual": "sha256:abcdef…",
+  "manifest_hash_expected": "sha256:abcdef…",
+  "path": "/abs/path/checkpoints/run/compliance/annex_iv.json"
+}
+```
+
+Pipe to `jq` to filter on the `valid` flag without parsing the human-readable text format.
+
+### What "missing field" means
+
+A field is considered missing when the key is absent OR the value is `None`, an empty string, an empty list, or an empty dict. The bar is "operator clearly populated this", not "the key technically exists" — operators forgetting to fill in a placeholder from the auto-generation template is the failure mode the verifier targets.
+
+The nine required keys map onto Annex IV §1-9:
+
+| Top-level key | Annex IV section |
+|---|---|
+| `system_identification` | §1 — system identification (name, version, provider, intended_purpose). |
+| `intended_purpose` | §1 — intended purpose statement. |
+| `system_components` | §2 — software / hardware components + supplier list. |
+| `computational_resources` | §2(g) — compute resources used during training. |
+| `data_governance` | §2(d) — data sources, governance, validation methodology. |
+| `technical_documentation` | §3-5 — design + development methodology. |
+| `monitoring_and_logging` | §6 — post-market monitoring + audit-log presence. |
+| `performance_metrics` | §7 — accuracy / robustness / cybersecurity metrics. |
+| `risk_management` | §9 — risk management system reference (Article 9 alignment). |
+
+### What "manifest hash mismatch" means
+
+When the artifact carries a `metadata.manifest_hash` field, the verifier recomputes the SHA-256 of the canonical-JSON representation of the artifact (excluding the metadata block itself) and compares. A mismatch means the file was edited after generation — the regulator-facing signature is no longer valid.
+
+Artifacts without `metadata.manifest_hash` pass the field-completeness check but the verifier flags this in the reason text:
+
+```text
+OK: …/annex_iv.json
+  All Annex IV §1-9 fields populated; no manifest_hash present so tampering detection skipped.
+```
+
+### Exit-code summary
+
+| Code | Meaning |
+|---|---|
+| `0` | All §1-9 fields populated AND manifest hash matches (when present). |
+| `1` | Missing field OR manifest mismatch. |
+| `2` | File not found, unreadable, malformed JSON, or non-object root. |
 
 ## Common pitfalls
 
 :::warn
-**Skipping the human review step on Section 7.** The declaration of conformity is a legal document. The auto-generated scaffold is not signed and has no legal effect — a human must review and sign before submission.
+**Treating ForgeLM's output as a certification.** The toolkit produces evidence; certification is a notified-body activity. The verifier confirms the artifact is structurally complete and untampered — not that it is *correct* for your specific deployment context.
 :::
 
 :::warn
-**Treating ForgeLM's output as a certification.** ForgeLM produces evidence; certification is a notified-body activity. The terminology in our docs reflects this: "Annex-IV-style artifact", "scaffold", "evidence bundle" — never "certified".
+**Skipping the human review step on the declaration of conformity.** Annex IV §7 (declaration of conformity) is a legal document. The auto-populated scaffold has no legal effect — a human must review and sign before submission, regardless of what `verify-annex-iv` reports.
+:::
+
+:::warn
+**Ignoring "no manifest_hash present" in the OK output.** Without the manifest hash, the verifier cannot detect post-generation tampering. Re-export the artifact through a recent `forgelm` build so the writer attaches the hash, or move to a write-once store that gives you tamper-evidence at the storage layer.
 :::
 
 :::tip
-For high-risk deployments, version the Annex IV artifact alongside model versions in your model registry. Auditors expect to see Annex IV per release, not per training run.
+**Pin the verifier in CI as a hard gate.** Wire `forgelm verify-annex-iv --output-format json` after every pipeline that produces Annex IV; pipe to `jq -e '.valid'` so exit-on-false fails the release without parsing text.
 :::
 
 ## See also
 
-- [Compliance Overview](#/compliance/overview) — context for the rest of the bundle.
-- [Audit Log](#/compliance/audit-log) — append-only event log.
-- [Human Oversight](#/compliance/human-oversight) — Article 14.
+- [Compliance Overview](#/compliance/overview) — context for the rest of the bundle (manifest, audit log, model card).
+- [Audit Log](#/compliance/audit-log) — append-only event log; `compliance.artifacts_exported` (Article 11 + Annex IV) is the production-side counterpart to this verifier.
+- [Verify Audit](#/compliance/verify-audit) — companion verifier for the audit log.
+- [Verify GGUF](#/deployment/verify-gguf) — companion verifier on the deployment-integrity surface.
+- [`verify_annex_iv_subcommand.md`](../../../reference/verify_annex_iv_subcommand.md) — the reference doc with full flag table and library-symbol citations.
