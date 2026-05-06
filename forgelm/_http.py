@@ -198,12 +198,10 @@ def safe_post(
     # Scheme policy.
     if parsed.scheme == "http":
         if not allow_insecure_http:
-            # The rejection message intentionally names the blocked scheme so
-            # operators see WHY the call failed.  This is the security guard
-            # itself, not an insecure call site — Sonar S5332 is the inverse
-            # of the actual semantic.
+            # Rejection message names the blocked scheme so operators see
+            # why the call failed; this guard rejects http://, not uses it.
             raise HttpSafetyError(
-                f"http:// blocked (use https://); url={_mask_netloc(url)}"  # NOSONAR python:S5332 — operator-facing rejection message; this code BLOCKS the insecure scheme
+                f"http:// blocked (use https://); url={_mask_netloc(url)}"  # NOSONAR python:S5332
             )
     elif parsed.scheme != "https":
         raise HttpSafetyError(f"Unsupported URL scheme {parsed.scheme!r}; only http(s) allowed.")

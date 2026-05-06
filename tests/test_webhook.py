@@ -231,42 +231,40 @@ class TestSafePostHttpDiscipline:
             kwargs = mock_post.call_args.kwargs
             assert kwargs["allow_redirects"] is False
 
-    def test_http_block(
-        self,
-    ):  # NOSONAR python:S5332 — docstring describes the security guard; no insecure call is made
+    def test_http_block(self):
         """Verify plain-HTTP URLs are rejected unless allow_insecure_http is set."""
+        # http:// literals below are scheme-blocker fixtures; no insecure
+        # outbound call is made — the test asserts the guard raises.
         from forgelm._http import HttpSafetyError, safe_post
 
-        with pytest.raises(
-            HttpSafetyError, match="http://"
-        ):  # NOSONAR python:S5332 — match-regex literal, not an outbound call
-            safe_post(
-                "http://example.com/hook", json={}, timeout=10.0
-            )  # NOSONAR python:S5332 — scheme blocker fixture; verifies the guard rejects http://
+        with pytest.raises(HttpSafetyError, match="http://"):  # NOSONAR python:S5332
+            safe_post("http://example.com/hook", json={}, timeout=10.0)  # NOSONAR python:S5332
 
     def test_http_allowed_with_opt_in(self):
         """allow_insecure_http=True (used by webhook) lets http:// through."""
+        # http:// literal is the opt-in fixture covering the webhook
+        # back-compat path; the post is mocked, no real call is made.
         from forgelm import _http
 
         with patch.object(_http.requests, "post") as mock_post:
             mock_post.return_value = MagicMock(ok=True, status_code=200)
             _http.safe_post(
-                "http://example.com/hook",  # NOSONAR opt-in fixture (webhook back-compat path)
+                "http://example.com/hook",  # NOSONAR python:S5332
                 json={},
                 timeout=10.0,
                 allow_insecure_http=True,
             )
             mock_post.assert_called_once()
 
-    def test_unsupported_scheme(
-        self,
-    ):  # NOSONAR python:S5332 — docstring names the rejected schemes; no insecure call is made
+    def test_unsupported_scheme(self):
         """Verify non-http(s) schemes (e.g., ftp, file) are rejected even with allow_insecure_http."""
+        # The ftp:// literal below is a scheme-blocker fixture; no outbound
+        # call is made — the test asserts the guard raises.
         from forgelm._http import HttpSafetyError, safe_post
 
         with pytest.raises(HttpSafetyError, match="Unsupported URL scheme"):
             safe_post(
-                "ftp://example.com/hook",  # NOSONAR python:S5332 — scheme blocker fixture; verifies the guard rejects ftp://
+                "ftp://example.com/hook",  # NOSONAR python:S5332
                 json={},
                 timeout=10.0,
                 allow_insecure_http=True,

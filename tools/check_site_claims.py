@@ -236,8 +236,10 @@ def site_template_names() -> set[str]:
         found.add(match.group(1))
     # Add any standalone slug that appears in the snippet body (e.g. the
     # bulleted list of templates in <pre>).
+    # Pattern runs against controlled static HTML emitted by the build, never
+    # user input — ReDoS risk is unreachable.
     for match in re.finditer(
-        r"^\s+([a-z][a-z0-9-]+-[a-z0-9-]+)\s{2,}",  # NOSONAR python:S5852 — controlled static HTML input, not user-facing; ReDoS not exploitable
+        r"^\s+([a-z][a-z0-9-]+-[a-z0-9-]+)\s{2,}",  # NOSONAR python:S5852
         cleaned,
         flags=re.MULTILINE,
     ):
