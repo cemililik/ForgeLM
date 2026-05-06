@@ -267,11 +267,29 @@ Current target:
 - **Minor** (`0.N.0`) — every 2-3 months, aligned with phase completion:
   - `v0.4.0` → Phase 10 done (Post-Training Completion)
   - `v0.5.0` → Phases 11 + 12 done (Ingestion + Quickstart)
+  - `v0.5.5` → Phase 12.6 closure cycle done (38 fazlar / 5 waves bundled)
+  - `v0.6.0` → Phase 14 done (Pipeline Chains)
   - `v0.6.0-pro` → Phase 13 done (Pro CLI; gated release)
 - **Patch** (`0.N.M`) — as needed; typically within 1 week of a bug report for critical issues
 - **Pre-release** (`rcN`) — at least one rc before every minor, kept on PyPI for 1-2 weeks
 
 **Don't release on Fridays.** If something breaks, weekend support is painful. Tuesday-Thursday only unless it's a critical hotfix.
+
+## v0.5.5 release sequence (Phase 12.6 closure cycle)
+
+The closure-cycle bundle is the largest single release in ForgeLM history (38 fazlar / ~52 PRs across 5 integration waves). The release commit follows the same `cut-release` skill flow used for every minor, but the `[0.5.5]` CHANGELOG section is exceptionally long and the cross-OS matrix is mandatory before publish:
+
+1. **`pyproject.toml`** — bump `version = "0.5.1rc1"` → `"0.5.5"` (single source of truth).
+2. **`forgelm/_version.py`** — review whether `__api_version__` needs a MINOR bump for the new Library API symbols (`ForgeTrainer`, `run_audit`, `verify_*`, `gdpr_purge`, `reverse_pii_query`, ...) added across Wave 2b + 3. Per the `__api_version__` rules at the top of this standard: yes, every new public symbol added to `forgelm.__all__` since the previous tag is a MINOR bump.
+3. **`CHANGELOG.md`** — move all `[Unreleased]` entries into a new `[0.5.5] — YYYY-MM-DD` section. Cross-reference each entry to its faz number (e.g. "Library API — Wave 2b / Faz 19") so reviewers can map back to the [phase-12-6-closure-cycle.md](../roadmap/phase-12-6-closure-cycle.md) inventory.
+4. **Tag** — `git tag -s v0.5.5 -m "v0.5.5 — Closure Cycle Bundle"`.
+5. **Push** — `git push origin main v0.5.5`. The tag push is the contract; `publish.yml` fires automatically.
+6. **Wait for matrix** — the cross-OS matrix runs 12 combos (3 OS × 4 Python). With Wave 4's supply-chain additions each combo also runs `pip-audit` + emits a CycloneDX SBOM. Total runtime ~25-40 minutes.
+7. **PyPI publish runs only after every combo is green** — OIDC trusted publishing, no API token in CI.
+
+Post-release sequence is identical to other minor releases (verify install, Docker build, announce, open new `[Unreleased]` section, bump to next pre-release).
+
+The [`cut-release` skill](../../.claude/skills/cut-release/SKILL.md) walks the maintainer through the entire sequence step-by-step.
 
 ## Branching
 

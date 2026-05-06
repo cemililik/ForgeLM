@@ -10,8 +10,10 @@
 | ✅ Tamam | [Faz 10 — Post-Training Tamamlama](roadmap/phase-10-post-training.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — `v0.4.0` |
 | ✅ Tamam | [Faz 10.5 — Quickstart Katmanı ve Onboarding](roadmap/phase-10-5-quickstart.md) | `forgelm quickstart <template>`, 5 hazır template, seed veri setleri — `v0.4.5` |
 | ✅ Tamam | [Faz 11 + 11.5 + 12 + 12.5 — Doküman Yutma ve Veri Curation Pipeline'ı](roadmap/releases.md#v050-document-ingestion-data-curation-pipeline) | `forgelm ingest`, `forgelm audit`, PII regex + simhash dedup, LSH banding, streaming reader, PII şiddet katmanları, wizard ingest+audit, MinHash LSH dedup, markdown splitter, code/secrets tarama, kalite heuristic'leri, DOCX tablo koruması, `--all-mask`, Croissant 1.0, Presidio NER — `v0.5.0` (PyPI 2026-04-30) |
-| 📋 Planlandı | [Faz 14 — Çok Aşamalı Pipeline Zincirleri](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO config zinciri, pipeline kaynak izleri → `v0.5.1` |
-| 📋 Planlandı | [Faz 13 — Pro CLI ve Gözlemlenebilirlik Dashboard](roadmap/phase-13-pro-cli.md) | Lisans korumalı dashboard, HPO, zamanlanmış görevler, takım config store → `v0.6.0-pro` |
+| ✅ Tamam | [Faz 12.6 — Kapanış Döngüsü (5 wave boyunca 38 faz)](roadmap/phase-12-6-closure-cycle.md) | Library API, GDPR purge + reverse-pii, ISO 27001 / SOC 2 alignment, doctor + cache subcommand'leri, compliance verification toolbelt, bilingual mirror sweep + 4 CI guard, supply-chain security, cross-OS release matrix — yaklaşan `v0.5.5` ile paketleniyor |
+| 🟡 Sıradaki | [v0.5.5 sürümü](roadmap/releases.md#v055-closure-cycle-bundle-upcoming) | Faz 12.6 kapanış döngüsü tek PyPI tag'inde paketlendi; `__version__` bump + CHANGELOG finalizasyonu + tag push `publish.yml` cross-OS matrix → PyPI'yi tetikler |
+| 📋 Planlandı | [Faz 14 — Çok Aşamalı Pipeline Zincirleri](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO config zinciri, pipeline kaynak izleri → `v0.6.0` |
+| 📋 Planlandı | [Faz 13 — Pro CLI ve Gözlemlenebilirlik Dashboard](roadmap/phase-13-pro-cli.md) | Lisans korumalı dashboard, HPO, zamanlanmış görevler, takım config store → `v0.6.0-pro` (adoption + v0.5.5'te yayınlanan ISO/SOC 2 baseline'a bağlı) |
 
 > **Durum lejantı:** ✅ Yayınlandı (PyPI) · 🟡 main'e indi, publish bekliyor · ⏳ Planlandı
 
@@ -28,9 +30,9 @@ Başlangıçta dört ardışık PyPI tag'i (`v0.5.0` / `v0.5.1` / `v0.5.2` / `v0
 
 **Daha öncesi:** `v0.4.5` — Quickstart Katmanı (2026-04-26); `v0.4.0` — Post-Training Tamamlama (2026-04-26).
 
-**Sonraki:** `v0.5.1` — Çok Aşamalı Pipeline Zincirleri (Faz 14). SFT → DPO → GRPO zincir konfigürasyonu, pipeline kaynak izleri. [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14) follow-up'ını kapsar.
+**Sonraki:** `v0.5.5` — "Kapanış döngüsü paketi" (Faz 12.6, 5 wave boyunca 38 faz). Library API + GDPR purge/reverse-pii + ISO 27001 / SOC 2 alignment + doctor / cache / safety-eval / verify-* subcommand'leri + 4 doc CI guard + cross-OS release matrix + supply-chain security baseline. [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14) follow-up'ını kapsar.
 
-**Güncel durum:** 17 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5) tamam. 2 faz (13, 14) planlandı. `v0.5.1`: Faz 14. `v0.6.0-pro` (Faz 13) adoption metriklerine bağlı.
+**Güncel durum:** `main` üzerinde 18 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6) tamam. 2 faz (13, 14) planlandı. `v0.5.5`: Faz 12.6 (release çok yakın — pyproject bump + tag push). `v0.6.0`: Faz 14 takip release'i. `v0.6.0-pro` (Faz 13) adoption metriklerine + v0.5.5'te yayınlanan ISO/SOC 2 baseline'a bağlı.
 
 ## Planlanan işlerin özeti
 
@@ -51,7 +53,7 @@ graph LR
     P115 -.-> V2
     P12 -.-> V2
     P125 -.-> V2
-    P14 -.-> V23[v0.5.1]
+    P14 -.-> V23[v0.6.0]
     P13 -.-> V3[v0.6.0-pro]
 
     style P10 fill:#003300,stroke:#00ff88
@@ -85,8 +87,9 @@ docs/
     ├── phase-11-5-backlog.md                   # Tamam (Faz 11.5) — v0.5.0'a birleştirildi; ingestion/audit cilası
     ├── phase-12-data-curation-maturity.md      # Tamam (Faz 12 Tier 1) — v0.5.0'a birleştirildi; MinHash LSH, markdown splitter, secrets scan
     ├── phase-12-5-backlog.md                   # Tamam (Faz 12.5) — v0.5.0'a birleştirildi; Presidio, Croissant, --all-mask, wizard audit-first
+    ├── phase-12-6-closure-cycle.md             # Tamam — 5 wave boyunca 38 faz, v0.5.5 ile paketlenmiş
     ├── phase-13-pro-cli.md                     # Planlandı — v0.6.0-pro (gated)
-    ├── phase-14-pipeline-chains.md             # Planlandı — v0.5.1 (v0.5.0 birleştirmesinin takip release'i)
+    ├── phase-14-pipeline-chains.md             # Planlandı — v0.6.0 (v0.5.5 kapanış döngüsünün takip release'i)
     ├── releases.md                             # v0.3.0 → v0.6.0 sürüm notları
     └── risks-and-decisions.md                  # Risk matrisi, fırsatlar, rekabet analizi, karar günlüğü
 ```

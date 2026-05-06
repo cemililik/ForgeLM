@@ -10,8 +10,10 @@
 | ✅ Done | [Phase 10 — Post-Training Completion](roadmap/phase-10-post-training.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — shipped `v0.4.0` |
 | ✅ Done | [Phase 10.5 — Quickstart Layer & Onboarding](roadmap/phase-10-5-quickstart.md) | `forgelm quickstart <template>`, 5 bundled templates with seed datasets — shipped `v0.4.5` |
 | ✅ Done | [Phase 11 + 11.5 + 12 + 12.5 — Document Ingestion & Data Curation Pipeline](roadmap/releases.md#v050-document-ingestion-data-curation-pipeline) | `forgelm ingest`, `forgelm audit`, PII regex + simhash dedup, LSH banding, streaming reader, PII severity tiers, wizard ingest+audit, MinHash LSH dedup, markdown splitter, code/secrets scan, quality heuristics, DOCX table preservation, `--all-mask`, Croissant 1.0, Presidio NER — shipped `v0.5.0` (PyPI 2026-04-30) |
-| 📋 Planned | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO chained config, pipeline provenance artifacts → `v0.5.1` |
-| 📋 Planned | [Phase 13 — Pro CLI & Observability Dashboard](roadmap/phase-13-pro-cli.md) | License-gated dashboard, HPO, scheduled jobs, team config store → `v0.6.0-pro` |
+| ✅ Done | [Phase 12.6 — Closure Cycle (38 fazlar across 5 waves)](roadmap/phase-12-6-closure-cycle.md) | Library API, GDPR purge + reverse-pii, ISO 27001 / SOC 2 alignment, doctor + cache subcommands, compliance verification toolbelt, bilingual mirror sweep + 4 CI guards, supply-chain security, cross-OS release matrix — bundled into upcoming `v0.5.5` |
+| 🟡 Next | [v0.5.5 release](roadmap/releases.md#v055-closure-cycle-bundle-upcoming) | Phase 12.6 closure cycle bundled into a single PyPI tag; `__version__` bump + CHANGELOG finalization + tag push triggers `publish.yml` cross-OS matrix → PyPI |
+| 📋 Planned | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO chained config, pipeline provenance artifacts → `v0.6.0` |
+| 📋 Planned | [Phase 13 — Pro CLI & Observability Dashboard](roadmap/phase-13-pro-cli.md) | License-gated dashboard, HPO, scheduled jobs, team config store → `v0.6.0-pro` (gated on adoption + ISO/SOC 2 baseline shipped in v0.5.5) |
 
 > **Status legend:** ✅ Released (PyPI) · 🟡 Merged on main, publish pending · ⏳ Planned
 
@@ -28,9 +30,9 @@ Originally planned as four sequential PyPI tags (`v0.5.0` / `v0.5.1` / `v0.5.2` 
 
 **Earlier:** `v0.4.5` — Quickstart Layer (2026-04-26); `v0.4.0` — Post-Training Completion (2026-04-26).
 
-**Next:** `v0.5.1` — Multi-Stage Pipeline Chains (Phase 14). SFT → DPO → GRPO chained config, pipeline provenance artifacts. Folds in [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14).
+**Next:** `v0.5.5` — "Closure cycle bundle" (Phase 12.6, all 38 fazlar across 5 waves). Library API + GDPR purge/reverse-pii + ISO 27001 / SOC 2 alignment + doctor / cache / safety-eval / verify-* subcommands + 4 doc CI guards + cross-OS release matrix + supply-chain security baseline. Folds in [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14).
 
-**Current state:** 17 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5) complete. 2 phases (13, 14) planned. `v0.5.1`: Phase 14. `v0.6.0-pro` (Phase 13) gated on adoption metrics.
+**Current state:** 18 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6) complete on `main`. 2 phases (13, 14) planned. `v0.5.5`: Phase 12.6 (release imminent — pyproject bump + tag push). `v0.6.0`: Phase 14 follow-up. `v0.6.0-pro` (Phase 13) gated on adoption metrics + ISO/SOC 2 baseline shipped in v0.5.5.
 
 ## Quick summary of what's planned
 
@@ -51,7 +53,7 @@ graph LR
     P115 -.-> V2
     P12 -.-> V2
     P125 -.-> V2
-    P14 -.-> V23[v0.5.1]
+    P14 -.-> V23[v0.6.0]
     P13 -.-> V3[v0.6.0-pro]
 
     style P10 fill:#003300,stroke:#00ff88
@@ -85,8 +87,9 @@ docs/
     ├── phase-11-5-backlog.md                   # Done (Phase 11.5) — consolidated into v0.5.0; ingestion/audit polish
     ├── phase-12-data-curation-maturity.md      # Done (Phase 12 Tier 1) — consolidated into v0.5.0; MinHash LSH, markdown splitter, secrets scan
     ├── phase-12-5-backlog.md                   # Done (Phase 12.5) — consolidated into v0.5.0; Presidio adapter, Croissant metadata, --all-mask, wizard audit-first
+    ├── phase-12-6-closure-cycle.md             # Done — 38 fazlar / 5 waves bundled into v0.5.5
     ├── phase-13-pro-cli.md                     # Planned — v0.6.0-pro (gated)
-    ├── phase-14-pipeline-chains.md             # Planned — v0.5.1 (follow-up to the v0.5.0 consolidation)
+    ├── phase-14-pipeline-chains.md             # Planned — v0.6.0 (follow-up to the v0.5.5 closure cycle)
     ├── releases.md                             # v0.3.0 → v0.6.0 release notes
     └── risks-and-decisions.md                  # Risk matrix, opportunities, competitive positioning, decision log
 ```

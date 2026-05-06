@@ -90,12 +90,16 @@
               <span class="lang">terminal</span>
               <button class="copy-btn" type="button" data-i18n="common.copy.idle">copy</button>
             </div>
-            <pre class="code-block-body"><span class="prompt">$</span> pip install forgelm
+            <pre class="code-block-body"><span class="prompt">$</span> pip install forgelm==0.5.5
 
 <span class="comment"># or with extras (pick what you need)</span>
-<span class="prompt">$</span> pip install <span class="string">'forgelm[ingestion]'</span>          <span class="comment"># PDF/DOCX/EPUB ingest</span>
-<span class="prompt">$</span> pip install <span class="string">'forgelm[ingestion-scale]'</span>    <span class="comment"># MinHash LSH for &gt;50K rows</span>
-<span class="prompt">$</span> pip install <span class="string">'forgelm[export]'</span>             <span class="comment"># GGUF export</span>
+<span class="prompt">$</span> pip install <span class="string">'forgelm[ingestion]==0.5.5'</span>          <span class="comment"># PDF/DOCX/EPUB ingest</span>
+<span class="prompt">$</span> pip install <span class="string">'forgelm[ingestion-scale]==0.5.5'</span>    <span class="comment"># MinHash LSH for &gt;50K rows</span>
+<span class="prompt">$</span> pip install <span class="string">'forgelm[export]==0.5.5'</span>             <span class="comment"># GGUF export</span>
+
+<span class="comment"># sanity-check your environment before the first run</span>
+<span class="prompt">$</span> forgelm doctor
+<span class="ok">✓</span> <span class="out">Python 3.11.7  ·  CUDA 12.1  ·  bitsandbytes ok  ·  disk 142 GB free</span>
 </pre>
           </div>
         </div>
@@ -175,7 +179,16 @@
 
 <span class="prompt">$</span> forgelm <span class="flag">--config</span> configs/quickstart-customer-support.yaml
 <span class="comment"># …45 minutes later…</span>
-<span class="ok">✔</span> <span class="out">finished, exit 0 — checkpoints/customer-support/</span>
+<span class="ok">✔</span> <span class="out">finished, exit 0 — checkpoints/customer-support/ (staging if human_approval set)</span>
+
+<span class="comment"># verify the audit chain + approve the staged checkpoint</span>
+<span class="prompt">$</span> forgelm verify-audit ./checkpoints/customer-support
+<span class="ok">✓</span> <span class="out">audit_log.jsonl chain valid (47 events, HMAC ok)</span>
+
+<span class="prompt">$</span> forgelm approvals                 <span class="comment"># list pending stagings</span>
+<span class="prompt">$</span> forgelm approve ./checkpoints/customer-support \
+    <span class="flag">--reason</span> <span class="string">"benchmark + safety floors met, reviewed model card"</span>
+<span class="ok">✔</span> <span class="out">promoted to ./checkpoints/customer-support/ — audit event emitted</span>
 </pre>
           </div>
         </div>

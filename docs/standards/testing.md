@@ -5,9 +5,9 @@
 
 ## Layout
 
-Current structure (post Wave 4 round-2 absorption: ~70 test modules,
-one per feature area; ~1413 tests collected). The tree below is a
-**representative subset** — see `git ls-files tests/` for the full
+Current structure (post Wave 5 / Phase 12.6 closure cycle: **~68 test
+modules**, one per feature area; **~1442 tests collected**). The tree below
+is a **representative subset** — see `git ls-files tests/` for the full
 inventory:
 
 ```
@@ -84,6 +84,8 @@ def minimal_config(**overrides):
 | **Integration smoke** (`test_integration_smoke.py`) | Full pipeline dry-run, no GPU, mocked HF | < 5min | Every push |
 | **Distributed** (`test_distributed.py`) | DeepSpeed/FSDP config generation (no actual multi-GPU) | < 30s | Every push |
 | **Compatibility** (via `nightly.yml`) | Upstream dep upgrades — latest TRL, PEFT, Unsloth | ~10min | Nightly only |
+| **Cross-OS release-tag matrix** (via `publish.yml`) | Wheel install + `pytest` on 3 OS × 4 Python = 12 combos. Linux-only extras (`qlora`, `unsloth`) gated to the Linux runners. | ~25-40 min | Release tag push only |
+| **Supply-chain** (via `nightly.yml` + on-tag) | `pip-audit` (CVE feed) + `bandit` (Python SAST) + CycloneDX SBOM emission per combo. `[security]` extra. | ~5min | Nightly + every release tag |
 
 **Never** write a test that requires an actual GPU. The fixture `runtime_smoke.py` exists so "full pipeline" checks are dry-runs. If you genuinely need GPU validation, document it as a manual release-gate check in [release.md](release.md), not a CI test.
 
@@ -134,11 +136,20 @@ From [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml):
 2. **Test matrix** — Python 3.10, 3.11, 3.12, 3.13 on ubuntu-latest.
 3. **Coverage** — `pytest --cov=forgelm --cov-fail-under=40` (enforced via `addopts` in `pyproject.toml`'s `[tool.pytest.ini_options]`, kept in lock-step with `[tool.coverage.report].fail_under`).
 4. **Dry-run validation** — `forgelm --config config_template.yaml --dry-run` must succeed.
+5. **Doc CI guards** (Wave 3 / Wave 4 / Wave 5):
+   - `python3 tools/check_bilingual_parity.py --strict` — H2/H3/H4 spine sync between EN and TR mirrors (23/23 pairs today).
+   - `python3 tools/check_anchor_resolution.py --strict` — every relative markdown link with a `#anchor` fragment resolves to a real heading.
+   - `python3 tools/check_cli_help_consistency.py --strict` — CLI `--help` output ↔ `docs/usermanuals/{en,tr}/reference/cli.md` parity.
 
 From [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml):
 
 - Unbounded upstream versions (latest TRL/PEFT/Unsloth) to catch breaking changes early.
+- Supply-chain pass: `pip-audit` (CVE feed) + `bandit` (Python SAST). Provided by the `[security]` optional extra.
 - Failure does **not** block PRs but triggers an issue.
+
+From [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) (release-tag trigger only):
+
+- Cross-OS matrix: 3 OS × 4 Python = 12 combos installing the packaged wheel + running pytest + emitting a per-combo CycloneDX 1.5 SBOM. **Every combo must pass before PyPI publish runs.** No `fail-fast` — all 12 combos run to completion so the failure surface is visible.
 
 **No `|| true` anywhere.** If a step is allowed to fail, use `continue-on-error: true` with a comment explaining why.
 
@@ -184,6 +195,7 @@ class TestPublicFunction:
 - [ ] `pytest tests/` passes locally
 - [ ] `ruff check . && ruff format --check .` passes
 - [ ] `forgelm --config config_template.yaml --dry-run` succeeds if you touched CLI or trainer
+- [ ] If docs touched: `python3 tools/check_bilingual_parity.py --strict`, `tools/check_anchor_resolution.py --strict`, `tools/check_cli_help_consistency.py --strict`
 - [ ] New public function or class has tests covering happy path + one error path
 - [ ] Any new exit code or exception is tested
 - [ ] No GPU or network required for new unit tests
