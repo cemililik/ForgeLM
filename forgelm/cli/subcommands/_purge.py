@@ -479,6 +479,16 @@ def _validate_match_count_or_fail(
     instead of the raw ``args.row_id`` so neither the audit-log
     ``error_message`` field nor the operator-facing stdout/JSON
     payload leak a potentially-PII identifier.
+
+    The 12-char hex prefix (48 bits = ~2.8 × 10¹⁴ collision space) is
+    enough headroom for any plausible single-operator-day failed-purge
+    volume; the full 64-char hash is still recorded as the audit
+    event's ``target_id`` field (built into ``request_fields`` upstream)
+    for cross-tool correlation with ``forgelm reverse-pii``.  Do not
+    crop below 12 (collision risk) or grow above 16 (maintain symmetry
+    with the dry-run preview's 16-char rendering at ``_purge.py``'s
+    success-summary site; the two consumers correlate on the shared
+    prefix).
     """
     redacted = f"<id_hash:{target_id_hash[:12]}…>"
     if not matches:

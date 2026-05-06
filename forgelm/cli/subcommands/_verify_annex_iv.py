@@ -112,9 +112,10 @@ def verify_annex_iv_artifact(path: str) -> VerifyAnnexIVResult:
     Used by ``forgelm verify-annex-iv`` and exposed for integrators via
     the package facade.  Returns a structured result; never raises on
     documented failure modes (the caller decides whether to exit 1 or
-    2 based on the result class).  Raises :class:`OSError` /
-    :class:`json.JSONDecodeError` for I/O / parse failures so the
-    dispatcher can surface them as ``EXIT_TRAINING_ERROR``.
+    2 based on the result class).  Raises :class:`OSError` for genuine
+    I/O failures on an existing file (dispatcher → ``EXIT_TRAINING_ERROR``)
+    and :class:`json.JSONDecodeError` for parse failures (dispatcher →
+    ``EXIT_CONFIG_ERROR`` since malformed JSON is a caller-input error).
     """
     with open(path, "r", encoding="utf-8") as fh:
         artifact = json.load(fh)
@@ -194,20 +195,30 @@ def _run_verify_annex_iv_cmd(args, output_format: str) -> None:
             EXIT_CONFIG_ERROR,
         )
     if not os.path.isfile(path):
+        # Caller-input error: the path is missing or not a regular
+        # file.  Per docs/standards/error-handling.md and the public
+        # exit-code contract in docs/reference/verify_annex_iv_subcommand.md,
+        # this is exit 1 (config / caller error).
         _output_error_and_exit(
             output_format,
             f"Annex IV artifact not found: {path!r}.",
-            EXIT_TRAINING_ERROR,
+            EXIT_CONFIG_ERROR,
         )
     try:
         result = verify_annex_iv_artifact(path)
     except json.JSONDecodeError as exc:
+        # Validation failure: the artifact is reachable but not parseable
+        # as JSON, OR the parsed root is not a JSON object.  Both are
+        # operator-actionable input errors per the public contract.
         _output_error_and_exit(
             output_format,
             f"Annex IV artifact at {path!r} is not valid JSON: {exc.msg} (line {exc.lineno}).",
-            EXIT_TRAINING_ERROR,
+            EXIT_CONFIG_ERROR,
         )
     except OSError as exc:
+        # Real I/O failure on an existing file (read error / permission
+        # denied mid-read).  os.path.isfile passed above; the path was
+        # reachable but became unreadable during verification.
         _output_error_and_exit(
             output_format,
             f"Could not read Annex IV artifact {path!r}: {exc}.",

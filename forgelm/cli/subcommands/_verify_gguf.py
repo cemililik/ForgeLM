@@ -200,14 +200,23 @@ def _run_verify_gguf_cmd(args, output_format: str) -> None:
             EXIT_CONFIG_ERROR,
         )
     if not os.path.isfile(path):
+        # Caller-input error: the path is missing or not a regular
+        # file.  Per docs/standards/error-handling.md and the public
+        # exit-code contract documented in
+        # docs/reference/verify_gguf_subcommand.md, this is exit 1
+        # (config / caller error), not exit 2 (which is reserved for
+        # genuine I/O failures on an existing file).
         _output_error_and_exit(
             output_format,
             f"GGUF file not found: {path!r}.",
-            EXIT_TRAINING_ERROR,
+            EXIT_CONFIG_ERROR,
         )
     try:
         result = verify_gguf(path)
     except OSError as exc:
+        # Real I/O failure on an existing file (read error / permission
+        # denied mid-read).  os.path.isfile passed above, so the path
+        # was reachable but became unreadable during verification.
         _output_error_and_exit(
             output_format,
             f"Could not read GGUF file {path!r}: {exc}.",

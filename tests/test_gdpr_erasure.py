@@ -486,15 +486,18 @@ class TestMultiRowPolicy:
         from forgelm.cli.subcommands._purge import _run_purge_cmd
 
         corpus = tmp_path / "train.jsonl"
+        # The seed `id` deliberately looks PII-shaped so the redaction
+        # contract is exercised against a realistic threat model
+        # (corpus row ids that ARE personal data, e.g. emails).
         _seed_corpus(
             corpus,
             [
-                {"id": "shared-id", "text": "first"},
-                {"id": "shared-id", "text": "second"},
+                {"id": "alice@example.com", "text": "first"},
+                {"id": "alice@example.com", "text": "second"},
             ],
         )
         args = _build_args(
-            row_id="shared-id",
+            row_id="alice@example.com",
             corpus=str(corpus),
             output_dir=str(tmp_path),
             row_matches="one",
@@ -504,6 +507,18 @@ class TestMultiRowPolicy:
         assert ei.value.code == 1
         payload = json.loads(capsys.readouterr().out)
         assert "matched" in payload["error"].lower()
+        # Round 5 absorption: the multi-match refusal path must apply
+        # the same `<id_hash:{first12}…>` redaction as the no-match
+        # path. A regression that re-introduces raw `args.row_id` in
+        # just the multi-match leg would otherwise ship undetected
+        # because the no-match leg has its own test.
+        assert "alice@example.com" not in payload["error"]
+        assert "<id_hash:" in payload["error"]
+        events = _read_audit_events(tmp_path / "audit_log.jsonl")
+        failed = next(e for e in events if e["event"] == "data.erasure_failed")
+        assert failed.get("error_class") == "MultiMatchRefused"
+        assert "alice@example.com" not in failed.get("error_message", "")
+        assert "<id_hash:" in failed.get("error_message", "")
 
     def test_multi_match_all_mode_deletes_every_match(self, tmp_path: Path) -> None:
         from forgelm.cli.subcommands._purge import _run_purge_cmd

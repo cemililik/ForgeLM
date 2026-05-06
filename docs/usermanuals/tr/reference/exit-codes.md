@@ -58,6 +58,23 @@ train:
     exit_codes: [4]                    # exit 4 (onay bekleme) CI'yı fail etmez
 ```
 
+### Jenkins
+
+```groovy
+stage('Train') {
+  steps {
+    script {
+      def status = sh(script: 'forgelm --config configs/run.yaml', returnStatus: true)
+      if (status == 4) {
+        currentBuild.result = 'UNSTABLE'   // onay için beklet
+      } else if (status != 0) {
+        error "Eğitim ${status} çıkış kodu ile başarısız oldu"
+      }
+    }
+  }
+}
+```
+
 ## Hangi durum hangi exit
 
 | Durum | ForgeLM exit |

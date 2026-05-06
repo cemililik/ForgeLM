@@ -277,6 +277,50 @@ class TestForwardReferenceWhitelist:
         rc = tool.main(["--repo-root", str(tmp_path), "--scope", "docs", "--strict"])
         assert rc == 1, ">±3-line forward-ref window must NOT skip the block"
 
+    def test_planlanan_marker_skips_block(self, tmp_path: Path, tool):
+        # Round 5 absorption (test-rigor F-W5R5-02): pin the Turkish
+        # bilingual-doc marker `planlanan` so a regression that drops
+        # it from `_FORWARD_REF_MARKERS` fails at unit-test runtime
+        # rather than only at the live `--strict` gate (where the
+        # failure surface is "16 invocations now flagged" — slow to
+        # debug).
+        scope = tmp_path / "docs"
+        _write(
+            scope / "rehber-tr.md",
+            (
+                "# Sohbet\n\n> Not: --top-p planlanan v0.6.0+ özelliği.\n\n"
+                "```bash\nforgelm chat ./model --top-p 0.9\n```\n"
+            ),
+        )
+        rc = tool.main(["--repo-root", str(tmp_path), "--scope", "docs", "--strict"])
+        assert rc == 0
+
+    def test_yol_haritasi_marker_skips_block(self, tmp_path: Path, tool):
+        # TR mirror of the EN `see roadmap` marker.
+        scope = tmp_path / "docs"
+        _write(
+            scope / "rehber-tr.md",
+            (
+                "# Sohbet\n\n```bash\nforgelm chat ./model --top-p 0.9\n```\n"
+                "\n> Not: yol haritası bu bayrağı v0.6.0+ için planlıyor.\n"
+            ),
+        )
+        rc = tool.main(["--repo-root", str(tmp_path), "--scope", "docs", "--strict"])
+        assert rc == 0
+
+    def test_ileride_marker_skips_block(self, tmp_path: Path, tool):
+        # TR forward-temporal marker.
+        scope = tmp_path / "docs"
+        _write(
+            scope / "rehber-tr.md",
+            (
+                "# Sohbet\n\n> Not: --top-p ileride v0.6.0+ ile gelecek.\n\n"
+                "```bash\nforgelm chat ./model --top-p 0.9\n```\n"
+            ),
+        )
+        rc = tool.main(["--repo-root", str(tmp_path), "--scope", "docs", "--strict"])
+        assert rc == 0
+
 
 class TestAntiPatternWhitelist:
     def test_wrong_tagged_block_skipped(self, tmp_path: Path, tool, capsys):
@@ -303,6 +347,12 @@ class TestAntiPatternWhitelist:
         # block. The next block in the same doc must still be scanned
         # — a regression to a sticky "wrong-block mode" would silently
         # whitelist every later real invocation.
+        #
+        # Round 5 absorption (test-rigor F-W5R5-03): also pin that the
+        # FIRST block IS skipped — the count-based assertion below
+        # would catch a regression that broke the anti-pattern
+        # whitelist entirely (every block scanned, --top-p reported
+        # twice instead of once).
         scope = tmp_path / "docs"
         _write(
             scope / "guide.md",
@@ -317,6 +367,15 @@ class TestAntiPatternWhitelist:
         assert rc == 1, "Wrong: marker must scope to one block; next block must scan"
         out = capsys.readouterr().out
         assert "--top-p" in out
+        # Wrong:-block scope: the first block must NOT contribute a
+        # finding; only the second block reports drift.  The tool's
+        # summary line counts findings (one per drifted invocation),
+        # so a regression where the Wrong-marker stopped scoping (both
+        # blocks scanned) would show "2 drift finding" here.
+        assert "1 drift finding" in out, (
+            "Wrong: must scope to one block — first block must NOT be "
+            f"reported; expected exactly 1 drift finding, got: {out!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
