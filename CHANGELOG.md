@@ -4,6 +4,158 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+### Wave 5 — Faz 30 full sweep (`closure/wave5-integration`)
+
+Final pre-release documentation + tooling closure. Wave 4 partial
+landed Faz 30 Tier 1 ghost-feature drift + stat blocks; Wave 5
+completes Faz 30 Tasks A through O end-to-end.
+
+**Faz 30 Task A — feature × {guide, reference, usermanual} EN+TR
+triplets (50 new doc files):**
+
+- 11 new reference docs: `docs/reference/{verify_audit,
+  verify_annex_iv_subcommand, verify_gguf_subcommand,
+  purge_subcommand, reverse_pii_subcommand, approve_subcommand,
+  approvals_subcommand, doctor_subcommand, cache_subcommands,
+  safety_eval_subcommand, library_api_reference}.md` (+ TR
+  mirrors). Each carries the live parser surface (flags + exit
+  codes + audit events emitted), worked examples, and stable
+  symbol citations.
+- 5 new guides: `docs/guides/{getting-started, air_gap_deployment,
+  human_approval_gate, library_api, performance}.md` (+ TR
+  mirrors). `getting-started.md` is the v0.5.5 onboarding canonical
+  (opens with `forgelm doctor`); `air_gap_deployment.md` is the
+  deep deployer cookbook for `cache-models` / `cache-tasks`;
+  `human_approval_gate.md` cross-links access_control.md §6's
+  `jq -rs` segregation-of-duties pipeline.
+- 9 new usermanual pages (`docs/usermanuals/{en,tr}/...`):
+  `compliance/{verify-audit, annex-iv, gdpr-erasure,
+  human-approval-gate}`, `deployment/verify-gguf`,
+  `operations/{iso-soc2-deployer, supply-chain}`,
+  `reference/{library-api, performance}`.
+- `docs/usermanuals/_meta.yaml` registers the 8 new pages with
+  full 6-language title sets (EN+TR mandatory; DE/FR/ES/ZH
+  fallback to EN per Task L policy).
+- `tools/check_bilingual_parity.py::_PAIRS` grew from 23 to 39
+  pairs (16 new pairs across guides + reference).
+
+**Faz 30 Task J — `tools/check_cli_help_consistency.py` (new
+guard):**
+
+- 749 LOC + 15 pinned tests (`tests/test_check_cli_help_consistency.py`).
+- Discovers the live parser surface by spawning
+  `forgelm <subcommand> --help` for every shipped subcommand;
+  walks docs / README for fenced bash/shell `forgelm` invocations;
+  reports three drift classes (subcommand not in parser; flag not
+  in parser for that subcommand; flag value not in parser's
+  `choices` list). Skip patterns honour forward-reference framing
+  (`planned`/`roadmap`/`future`/`not in v0.5.5`) and `Wrong:` /
+  `Don't:` / `Anti-pattern:` / `Legacy:` / `Yanlış:`-tagged code
+  blocks.
+- `.github/workflows/ci.yml` runs the gate in `--strict` mode in
+  the validate job (advisory in commit `c7bedc9`, flipped to
+  strict in commit `fbb082d` after baseline cleanup).
+
+**Faz 30 Task N — `tools/check_anchor_resolution.py` strict CI
+flip:**
+
+- Drift baseline cleanup: 36 → 0 broken anchor / relative-link
+  references. Fixes cluster in: `forgelm/data_audit.py` /
+  `forgelm/cli.py` references (Faz 14 / 15 package splits — paths
+  updated to `forgelm/data_audit/<sub>.py` /
+  `forgelm/cli/<sub>.py` per symbol); slug-case mismatches
+  (double-dash collapse: `#v050--document-ingestion-...` →
+  `#v050-document-ingestion-...`); Turkish-letter slug drift
+  (`#dil-secimi` → `#dil-seçimi` Unicode-preserving canonical);
+  documentation.md self-illustrative `[Other doc 1](other.md)`
+  examples rephrased as plain prose.
+- `.github/workflows/ci.yml` runs the gate in `--strict` mode.
+
+**Faz 30 Task O — Tier 1 ghost-feature drift residuals:**
+
+- GH-011: `docs/usermanuals/{en,tr}/evaluation/benchmarks.md`
+  rewritten — `forgelm benchmark --model "..."` (subcommand form
+  that doesn't exist) → `forgelm --config <yaml>
+  --benchmark-only <path>` (the shipped flag form).
+- GH-016: `--export-bundle` → `--compliance-export` rename in
+  `docs/qms/sop_model_training.md`,
+  `docs/qms/roles_responsibilities.md`,
+  `docs/roadmap/completed-phases.md`.
+- GH-018: `kserve` / `triton` rows + dedicated example sections
+  removed from `docs/usermanuals/{en,tr}/deployment/deploy-targets.md`
+  (parser only ships `{ollama,vllm,tgi,hf-endpoints}`); replaced
+  with hand-authored manifest pointer note.
+- GH-020: ingest flag drift in
+  `docs/usermanuals/{en,tr}/data/{ingestion, pii-masking,
+  language-detection, synthetic-data}.md` — `--max-tokens` →
+  `--chunk-tokens`; removed non-existent `--language` /
+  `--include` / `--exclude` / `--format` / `--pii-locale` flags;
+  `--strategy` choices clarified to `{sliding,paragraph,markdown}`
+  (no `tokens` / `sentence`); `--pii-locale` example replaced
+  with the shipped `forgelm audit --pii-ml --pii-ml-language LANG`
+  invocation.
+
+**Faz 30 Tasks B + C + D + E + F + G:**
+
+- `docs/usermanuals/_meta.yaml` +8 page entries (Task B); JS
+  bundle rebuild via `tools/build_usermanuals.py` 56 → 64 pages
+  EN+TR (Task C; artefacts gitignored, deployed by CI).
+- `site/{index,features,compliance,quickstart,privacy}.html`
+  brought to v0.5.5 final state with new Wave 2-5 feature blocks
+  (Library API, GDPR rights tooling, doctor, air-gap, ISO/SOC 2
+  alignment, supply-chain security, etc.); `site/js/translations.js`
+  6-language i18n updates (Task D).
+- `README.md` + `CONTRIBUTING.md` + `CLAUDE.md` final pass: stat
+  block refreshed (~72 modules / 1428 tests); feature list
+  reflects Wave 2-5 deliverables; CI guard list updated for the
+  two new strict gates (Task E).
+- `docs/roadmap.md` + `-tr.md`: Phase 12.6 closure cycle ✅ Done;
+  v0.5.5 next-up; `docs/roadmap/releases.md` v0.5.5 row added;
+  `docs/roadmap/risks-and-decisions.md` Wave 5 cycle decisions
+  appended; new `docs/roadmap/phase-12-6-closure-cycle.md`
+  summary (Task F).
+- 10 standards files final pass: `architecture.md` reflects
+  package splits; `documentation.md` cites the new CI guards;
+  `localization.md` formalises EN+TR mandatory + DE/FR/ES/ZH
+  deferred; `release.md` documents v0.5.5 release sequence;
+  `testing.md` test count refreshed (Task G).
+
+**Faz 30 Tasks H + I + K + L + M:** all green / closed.
+
+- H (parity strict CI): 39/39 OK.
+- I (site-claim CI strict): all green (5 templates, 16 GPU
+  profiles, version 0.5.5).
+- K (config doc auto-gen): closed without building the
+  speculatively-named `tools/regenerate_config_doc.py`. The
+  description→doc-source-of-truth contract is gated by
+  `check_field_descriptions.py --strict` +
+  `check_bilingual_parity.py --strict` +
+  `check_cli_help_consistency.py --strict` together;
+  configuration.md + `-tr.md` are hand-maintained.
+- L (locale policy): formalised in `docs/standards/localization.md`
+  via Task G.
+- M (diagram / asset sweep): user-facing tree image-free; no
+  drift.
+
+**Migration notes (Wave 5):**
+
+- **`pyproject.toml` version `0.5.1rc1` → `0.5.5`.** Brought
+  forward from Faz 33 because `tools/check_site_claims.py
+  --strict` enforces site/code version match (site cites
+  `pip install forgelm==0.5.5`). The Faz 33 release commit
+  pushes the tag + PyPI publish; v0.5.5 will be installable from
+  PyPI within minutes of that release.
+- **Two new strict CI gates land.** Operators running ForgeLM
+  CI workflows on top of the project's existing `ci.yml` gain
+  `tools/check_anchor_resolution.py --strict` (Wave 4 / Faz 26
+  tool, advisory until this commit) and
+  `tools/check_cli_help_consistency.py --strict` (Wave 5 / Faz
+  30 Task J new tool). Both fail-the-build on drift; baselines
+  are at zero before the strict flip lands.
+- **8 new usermanual pages + 16 new bilingual doc pairs.** No
+  user-facing behaviour change; the navigation surface grows
+  but the underlying capabilities all shipped in Wave 1-4.
+
 ### Wave 4 — Faz 22 + 23 + 26 + 30 (`closure/wave4-integration`)
 
 ISO 27001 / SOC 2 Type II alignment + QMS bilingual sweep + final
