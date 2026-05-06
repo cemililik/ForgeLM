@@ -52,7 +52,7 @@ from .._logging import logger
 
 # Status vocabulary.  Centralised so a future rename (e.g. "warn" ->
 # "warning") cannot drift across the renderers and the JSON contract.
-_STATUS_PASS = "pass"
+_STATUS_PASS = "pass"  # nosec B105 — status token, not a password (Codacy false positive)
 _STATUS_WARN = "warn"
 _STATUS_FAIL = "fail"
 

@@ -62,6 +62,14 @@ del _annotations  # parser pragma — runtime binding is unused after rename.
 # (Stable first, then Experimental).  Anything absent from this list is
 # internal — operators may import it but the package gives no
 # stability guarantee.
+#
+# Pylint cannot statically follow the PEP 562 ``__getattr__`` resolver
+# below, so it incorrectly flags every lazy name as ``E0603 Undefined
+# variable name 'X' in __all__``.  The TYPE_CHECKING block (~line 159)
+# imports each name for mypy / pyright; runtime resolution goes through
+# ``_LAZY_SYMBOLS`` (~line 121).  Disable the false positive at the
+# module level.
+# pylint: disable=undefined-all-variable
 __all__ = [
     # Versioning.
     "__version__",

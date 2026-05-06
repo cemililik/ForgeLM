@@ -305,7 +305,12 @@ def _signature_diff_lines(en: List[Heading], tr: List[Heading]) -> List[str]:
         en_h = en[i] if i < len(en) else None
         tr_h = tr[i] if i < len(tr) else None
         if en_h is None:
-            assert tr_h is not None  # max_len bound ensures at least one is non-None
+            # `max_len = max(len(en), len(tr))` guarantees at least one side
+            # has a heading at this index; if EN is None then TR must be set.
+            # Replace the bandit-flagged ``assert`` with a defensive narrowing
+            # ``if`` so the invariant holds even when Python is run with -O.
+            if tr_h is None:  # pragma: no cover — invariant guard
+                continue
             lines.append(f"(none)  | TR:{tr_h.signature()} L{tr_h.line} {tr_h.text!r}")
             continue
         if tr_h is None:

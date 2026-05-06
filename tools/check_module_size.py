@@ -154,12 +154,7 @@ def _is_grandfathered(path: str) -> bool:
     return path in _GRANDFATHERED_OVER_CEILING
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Walk ``forgelm/`` and apply the size-ceiling policy.
-
-    Returns the process exit code (0 / 1).  Centralised so tests can
-    invoke ``main([...])`` without ``sys.exit``-ing the test runner.
-    """
+def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Verify no module under forgelm/ has drifted past the architecture-doc 1000-LOC sub-package-split ceiling."
@@ -187,12 +182,51 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "the directory containing this script).  Test-only knob."
         ),
     )
-    args = parser.parse_args(argv)
+    return parser
 
-    if args.repo_root is not None:
-        repo_root = Path(args.repo_root).resolve()
-    else:
-        repo_root = Path(__file__).resolve().parent.parent
+
+def _emit_band(  # noqa: PLR0913 — explicit args win over a config object for one call site
+    *,
+    new_items: list,
+    grandfathered_items: list,
+    threshold: int,
+    threshold_label: str,
+    fail_drift_text: str,
+    warn_grandfathered_text: str,
+    warn_new_text: Optional[str],
+    strict: bool,
+    quiet: bool,
+) -> bool:
+    """Render one threshold band (FAIL vs WARN); return ``True`` iff fatal.
+
+    ``warn_new_text`` is ``None`` for the FAIL band (new drift is always
+    fatal regardless of strict mode); supplied for the WARN band where
+    ``--strict`` upgrades non-grandfathered drift to fatal."""
+    fatal = False
+    for m in new_items:
+        if warn_new_text is None or strict:
+            text = fail_drift_text if warn_new_text is None else warn_new_text
+            print(
+                f"FAIL: {m.path} = {m.loc} LOC (> {threshold} {threshold_label}; {text})",
+                file=sys.stderr,
+            )
+            fatal = True
+        elif not quiet:
+            print(f"WARN: {m.path} = {m.loc} LOC (> {threshold} {threshold_label}; {warn_new_text})")
+    if not quiet:
+        for m in grandfathered_items:
+            print(f"WARN: {m.path} = {m.loc} LOC (> {threshold} {threshold_label}; {warn_grandfathered_text})")
+    return fatal
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Walk ``forgelm/`` and apply the size-ceiling policy.
+
+    Returns the process exit code (0 / 1).  Centralised so tests can
+    invoke ``main([...])`` without ``sys.exit``-ing the test runner.
+    """
+    args = _build_arg_parser().parse_args(argv)
+    repo_root = Path(args.repo_root).resolve() if args.repo_root is not None else Path(__file__).resolve().parent.parent
     forgelm_root = repo_root / "forgelm"
     if not forgelm_root.is_dir():
         print(
@@ -204,49 +238,36 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     measurements = _measure(repo_root, forgelm_root)
     over_warn, over_fail = _classify(measurements)
 
-    # Bucket each band by grandfathered-vs-new for reporting + exit logic.
     new_over_fail = [m for m in over_fail if not _is_grandfathered(m.path)]
     grandfathered_over_fail = [m for m in over_fail if _is_grandfathered(m.path)]
     new_over_warn = [m for m in over_warn if not _is_grandfathered(m.path)]
     grandfathered_over_warn = [m for m in over_warn if _is_grandfathered(m.path)]
 
-    fatal = False
-
-    # Always print FAIL lines — the loudest signal first.
-    for m in new_over_fail:
-        print(
-            f"FAIL: {m.path} = {m.loc} LOC (> {_FAIL_THRESHOLD} fail-threshold; "
-            f"NEW drift — split into a sub-package before merge)",
-            file=sys.stderr,
+    fatal = _emit_band(
+        new_items=new_over_fail,
+        grandfathered_items=grandfathered_over_fail,
+        threshold=_FAIL_THRESHOLD,
+        threshold_label="fail-threshold",
+        fail_drift_text="NEW drift — split into a sub-package before merge",
+        warn_grandfathered_text="grandfathered, defer to v0.6.x split",
+        warn_new_text=None,
+        strict=args.strict,
+        quiet=args.quiet,
+    )
+    fatal = (
+        _emit_band(
+            new_items=new_over_warn,
+            grandfathered_items=grandfathered_over_warn,
+            threshold=_WARN_THRESHOLD,
+            threshold_label="warn-threshold",
+            fail_drift_text="--strict mode — NEW drift, plan a sub-package split",
+            warn_grandfathered_text="grandfathered, defer to v0.6.x split",
+            warn_new_text="plan a sub-package split before this grows further",
+            strict=args.strict,
+            quiet=args.quiet,
         )
-        fatal = True
-    for m in grandfathered_over_fail:
-        if not args.quiet:
-            print(
-                f"WARN: {m.path} = {m.loc} LOC (> {_FAIL_THRESHOLD} fail-threshold; "
-                f"grandfathered, defer to v0.6.x split)"
-            )
-
-    # WARN lines for over-1000 (non-grandfathered): fatal only under --strict.
-    for m in new_over_warn:
-        if args.strict:
-            print(
-                f"FAIL: {m.path} = {m.loc} LOC (> {_WARN_THRESHOLD} warn-threshold; "
-                f"--strict mode — NEW drift, plan a sub-package split)",
-                file=sys.stderr,
-            )
-            fatal = True
-        elif not args.quiet:
-            print(
-                f"WARN: {m.path} = {m.loc} LOC (> {_WARN_THRESHOLD} warn-threshold; "
-                f"plan a sub-package split before this grows further)"
-            )
-    for m in grandfathered_over_warn:
-        if not args.quiet:
-            print(
-                f"WARN: {m.path} = {m.loc} LOC (> {_WARN_THRESHOLD} warn-threshold; "
-                f"grandfathered, defer to v0.6.x split)"
-            )
+        or fatal
+    )
 
     grandfathered_count = len(grandfathered_over_fail) + len(grandfathered_over_warn)
     if not args.quiet:

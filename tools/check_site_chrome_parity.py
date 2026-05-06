@@ -57,6 +57,51 @@ _TIERS_DEFERRED: tuple[str, ...] = ("de", "fr", "es", "zh")
 _ALL_TIERS: tuple[str, ...] = _TIERS_ACTIVE + _TIERS_DEFERRED
 
 
+class _BlockState:
+    """Mutable cursor for ``_parse_blocks`` — folded into a class so the
+    main parse loop reads as a flat sequence of small steps rather than a
+    nested branching ladder."""
+
+    __slots__ = ("in_block", "current_lang", "current_keys", "brace_depth")
+
+    def __init__(self) -> None:
+        self.in_block = False
+        self.current_lang: str | None = None
+        self.current_keys: set[str] = set()
+        self.brace_depth = 0
+
+    def open(self, lang: str) -> None:
+        self.in_block = True
+        self.current_lang = lang
+        self.current_keys = set()
+        self.brace_depth = 1
+
+    def close(self) -> tuple[str | None, set[str]]:
+        finished = (self.current_lang, self.current_keys)
+        self.in_block = False
+        self.current_lang = None
+        self.current_keys = set()
+        return finished
+
+
+def _try_open_block(line: str, state: _BlockState) -> None:
+    match = _BLOCK_RE.search(line) or _DIRECT_RE.search(line)
+    if match:
+        state.open(match.group(1))
+
+
+def _process_block_line(line: str, state: _BlockState, aggregated: dict[str, set[str]]) -> None:
+    if state.brace_depth == 1:
+        key_match = _KEY_RE.match(line)
+        if key_match:
+            state.current_keys.add(key_match.group(1))
+    state.brace_depth += line.count("{") - line.count("}")
+    if state.brace_depth <= 0:
+        lang, keys = state.close()
+        if lang in aggregated:
+            aggregated[lang].update(keys)
+
+
 def _parse_blocks(source: str) -> dict[str, set[str]]:
     """Return ``{lang_code: set_of_keys}`` aggregated across every block.
 
@@ -65,34 +110,12 @@ def _parse_blocks(source: str) -> dict[str, set[str]]:
     values). Multiple blocks per language are unioned.
     """
     aggregated: dict[str, set[str]] = {lang: set() for lang in _ALL_TIERS}
-    in_block = False
-    current_lang: str | None = None
-    current_keys: set[str] = set()
-    brace_depth = 0
-
+    state = _BlockState()
     for line in source.split("\n"):
-        if not in_block:
-            match = _BLOCK_RE.search(line) or _DIRECT_RE.search(line)
-            if match:
-                current_lang = match.group(1)
-                in_block = True
-                brace_depth = 1
-                current_keys = set()
+        if not state.in_block:
+            _try_open_block(line, state)
             continue
-
-        if brace_depth == 1:
-            key_match = _KEY_RE.match(line)
-            if key_match:
-                current_keys.add(key_match.group(1))
-
-        brace_depth += line.count("{") - line.count("}")
-        if brace_depth <= 0:
-            if current_lang in aggregated:
-                aggregated[current_lang].update(current_keys)
-            in_block = False
-            current_lang = None
-            current_keys = set()
-
+        _process_block_line(line, state, aggregated)
     return aggregated
 
 
@@ -102,7 +125,7 @@ def _format_sample(keys: set[str], limit: int = 5) -> str:
     return ", ".join(sample) + suffix
 
 
-def main(argv: list[str] | None = None) -> int:
+def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Advisory check for site chrome translation parity.",
     )
@@ -120,7 +143,46 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Override path to translations.js (defaults to site/js/translations.js).",
     )
-    args = parser.parse_args(argv)
+    return parser
+
+
+def _check_active_tier(en_keys: set[str], tr_keys: set[str]) -> bool:
+    """Return ``True`` iff EN ↔ TR are in lockstep (no drift)."""
+    en_only = en_keys - tr_keys
+    tr_only = tr_keys - en_keys
+    if not (en_only or tr_only):
+        print("  EN <-> TR: in lockstep (active tier OK)")
+        return True
+    print()
+    print("FAIL: EN <-> TR drift (active-tier parity rule violated)")
+    if en_only:
+        print(f"  in EN, missing in TR ({len(en_only)}): {_format_sample(en_only)}")
+    if tr_only:
+        print(f"  in TR, missing in EN ({len(tr_only)}): {_format_sample(tr_only)}")
+    return False
+
+
+def _report_deferred_tiers(blocks: dict[str, set[str]], en_keys: set[str]) -> bool:
+    """Print per-deferred-tier drift; return ``True`` iff any tier drifted."""
+    print()
+    print("deferred-tier (DE/FR/ES/ZH) drift vs EN:")
+    has_drift = False
+    for lang in _TIERS_DEFERRED:
+        lang_keys = blocks.get(lang, set())
+        missing = en_keys - lang_keys
+        extra = lang_keys - en_keys
+        if missing:
+            has_drift = True
+            print(f"  INFO: {lang.upper()} missing {len(missing)} keys vs EN -> {_format_sample(missing)}")
+        else:
+            print(f"  OK:   {lang.upper()} carries every EN key")
+        if extra:
+            print(f"  WARN: {lang.upper()} has {len(extra)} keys not in EN -> {_format_sample(extra)}")
+    return has_drift
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_arg_parser().parse_args(argv)
 
     project_root = Path(__file__).resolve().parent.parent
     js_path = args.js_path or (project_root / "site" / "js" / "translations.js")
@@ -137,38 +199,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  total EN keys: {len(en_keys)}")
     print(f"  total TR keys: {len(tr_keys)}")
 
-    # Active tier — EN <-> TR drift is always a failure.
-    en_only = en_keys - tr_keys
-    tr_only = tr_keys - en_keys
-    active_drift = en_only or tr_only
-    if active_drift:
-        print()
-        print("FAIL: EN <-> TR drift (active-tier parity rule violated)")
-        if en_only:
-            print(f"  in EN, missing in TR ({len(en_only)}): {_format_sample(en_only)}")
-        if tr_only:
-            print(f"  in TR, missing in EN ({len(tr_only)}): {_format_sample(tr_only)}")
+    if not _check_active_tier(en_keys, tr_keys):
         return 1
 
-    print("  EN <-> TR: in lockstep (active tier OK)")
-
-    # Deferred tiers — informational unless --strict.
-    print()
-    print("deferred-tier (DE/FR/ES/ZH) drift vs EN:")
-    deferred_has_drift = False
-    for lang in _TIERS_DEFERRED:
-        lang_keys = blocks.get(lang, set())
-        missing = en_keys - lang_keys
-        extra = lang_keys - en_keys
-        if missing:
-            deferred_has_drift = True
-            print(f"  INFO: {lang.upper()} missing {len(missing)} keys vs EN -> {_format_sample(missing)}")
-        else:
-            print(f"  OK:   {lang.upper()} carries every EN key")
-        if extra:
-            print(f"  WARN: {lang.upper()} has {len(extra)} keys not in EN -> {_format_sample(extra)}")
-
-    if deferred_has_drift:
+    if _report_deferred_tiers(blocks, en_keys):
         print()
         print(
             "Note: deferred-tier drift is expected per "

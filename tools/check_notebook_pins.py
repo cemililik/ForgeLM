@@ -106,7 +106,7 @@ def _check_notebook(notebook: Path, expected_version: str) -> List[PinIssue]:
         for match in _PIP_INSTALL_RE.finditer(text):
             spec = match.group("spec")
             # Strip extras (``forgelm[qlora]``) for the version-pin check.
-            base_and_extra, _, version_part = spec.partition("==")
+            _, _, version_part = spec.partition("==")
             if "==" not in spec:
                 # Either no operator (bare ``forgelm``) or a range/inequality.
                 if any(op in spec for op in ("<", ">", "!=", "~=")):

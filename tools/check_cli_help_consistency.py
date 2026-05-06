@@ -522,7 +522,7 @@ def _extract_invocation(source: Path, line_no: int, line: str) -> Invocation | N
     )
 
 
-def _iter_code_block_lines(source: Path, lines: Sequence[str]) -> Iterable[tuple[int, str]]:
+def _iter_code_block_lines(lines: Sequence[str]) -> Iterable[tuple[int, str]]:
     """Yield ``(line_no, line)`` tuples for lines inside qualifying code blocks.
 
     Qualifying = lang tag in :data:`_BASH_LANG_TAGS` AND the block
@@ -617,7 +617,7 @@ def _scan_doc(source: Path) -> Iterable[Invocation]:
     lines = _read_lines(source)
     if not lines:
         return
-    for line_no, line in _iter_code_block_lines(source, lines):
+    for line_no, line in _iter_code_block_lines(lines):
         if "forgelm" not in line:
             continue
         invocation = _extract_invocation(source, line_no, line)

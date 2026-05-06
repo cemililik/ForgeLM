@@ -116,24 +116,25 @@ def _format_finding(name: str, vuln: dict[str, Any], severity: str) -> str:
     return f"[{severity}] {name} {vid} — fix: {fix_text}"
 
 
-def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print(f"usage: {argv[0]} <pip-audit.json>", file=sys.stderr)
-        return 1
-
-    report_path = Path(argv[1])
+def _load_report(report_path: Path) -> Optional[dict[str, Any]]:
+    """Read + parse the pip-audit JSON; emit ``::error::`` annotations on
+    failure and return ``None``.  Caller treats ``None`` as exit 1."""
     try:
         raw = report_path.read_text(encoding="utf-8")
     except OSError as exc:
         print(f"::error::pip-audit report not readable at {report_path}: {exc}", file=sys.stderr)
-        return 1
-
+        return None
     try:
-        report = json.loads(raw)
+        return json.loads(raw)
     except json.JSONDecodeError as exc:
         print(f"::error::pip-audit report at {report_path} is not valid JSON: {exc}", file=sys.stderr)
-        return 1
+        return None
 
+
+def _bucket_findings(report: dict[str, Any]) -> tuple[list[str], list[str], list[str]]:
+    """Walk every (name, vuln) pair and return ``(high, medium, unknown)``
+    lists of pre-formatted finding lines.  LOW tier is silent — the raw
+    JSON remains in build artefacts for post-mortem if needed."""
     high: list[str] = []
     medium: list[str] = []
     unknown: list[str] = []
@@ -146,7 +147,20 @@ def main(argv: list[str]) -> int:
             medium.append(line)
         elif severity == "UNKNOWN":
             unknown.append(line)
-        # LOW is silent; the raw JSON remains in artefacts.
+    return high, medium, unknown
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 2:
+        print(f"usage: {argv[0]} <pip-audit.json>", file=sys.stderr)
+        return 1
+
+    report_path = Path(argv[1])
+    report = _load_report(report_path)
+    if report is None:
+        return 1
+
+    high, medium, unknown = _bucket_findings(report)
 
     for line in medium:
         # GitHub Actions annotation; surfaces in the run summary without

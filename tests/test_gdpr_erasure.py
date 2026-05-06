@@ -953,7 +953,6 @@ class TestAuditAgeLookup:
         from forgelm.cli.subcommands._purge import _build_audit_age_lookup
 
         # Two runs, ten days apart.
-        now = 1_710_000_000.0
         ten_days_ago = "2026-04-15T00:00:00Z"
         one_day_ago = "2026-04-24T00:00:00Z"
         log = tmp_path / "audit_log.jsonl"
