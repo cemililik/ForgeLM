@@ -46,26 +46,46 @@ Each skill's `SKILL.md` has the full checklist. Follow it; don't skip steps to s
 
 ```
 ForgeLM/
-├── forgelm/                 # Source code (17 single-file modules)
-│   ├── cli.py               # Entry point
+├── forgelm/                 # Source code: ~22 single-file modules + 2 sub-packages
+│   ├── cli/                 # CLI package (Phase 15 split): _parser, _dispatch,
+│   │                        # _exit_codes, subcommands/{ingest, audit, chat,
+│   │                        # export, deploy, quickstart, doctor, cache,
+│   │                        # purge, reverse_pii, approve, approvals,
+│   │                        # safety_eval, verify_audit, verify_annex_iv,
+│   │                        # verify_gguf, ...}
+│   ├── data_audit/          # Audit package (Phase 14 split): _orchestrator,
+│   │                        # _aggregator, _streaming, _simhash, _minhash,
+│   │                        # _pii_regex, _pii_ml, _secrets, _quality,
+│   │                        # _croissant, _summary, _splits
 │   ├── config.py            # Pydantic schemas (19 models)
 │   ├── trainer.py           # TRL wrapper (SFT/DPO/SimPO/KTO/ORPO/GRPO)
 │   ├── model.py             # HF + PEFT model loading
 │   ├── data.py              # Dataset loading + format detection
+│   ├── ingestion.py         # Raw docs → SFT JSONL (`forgelm ingest`)
 │   ├── safety.py            # Llama Guard + harm categories + auto-revert
-│   ├── compliance.py        # EU AI Act Articles 9-17 + Annex IV
-│   ├── webhook.py           # Slack/Teams notifications
+│   ├── compliance.py        # EU AI Act Articles 9-17 + Annex IV + GDPR purge / reverse-pii primitives
+│   ├── webhook.py           # Slack/Teams notifications (5-event vocabulary)
 │   ├── grpo_rewards.py      # Built-in GRPO format/length shaping reward fallback
-│   └── ...                  # benchmark, judge, merging, synthetic, wizard, ...
-├── tests/                   # pytest, 26 test modules
+│   ├── _http.py             # SSRF-guarded HTTP chokepoint (safe_post / safe_get)
+│   ├── _version.py          # `__version__` + `__api_version__` (decoupled)
+│   └── ...                  # benchmark, judge, merging, synthetic, wizard,
+│                            # quickstart, model_card, fit_check, deploy, chat,
+│                            # export, inference, results, utils
+├── tests/                   # 68 test modules; count grows over time (run `pytest --collect-only -q` for current)
+├── tools/                   # CI guards: check_anchor_resolution,
+│                            # check_bilingual_parity, check_cli_help_consistency,
+│                            # check_field_descriptions, check_pip_audit,
+│                            # check_bandit, check_site_claims,
+│                            # generate_sbom, build_usermanuals
 ├── docs/
 │   ├── roadmap.md           # Public roadmap (short index)
 │   ├── roadmap/             # Detailed phase files + archive
 │   ├── reference/           # User-facing API/config reference
 │   ├── guides/              # User-facing tutorials
+│   ├── usermanuals/{en,tr}/ # 4-section user manual (training, eval, deploy, ref)
 │   ├── design/              # Design specs (internal)
 │   ├── standards/           # Engineering standards (this project's rulebook)
-│   ├── qms/                 # Quality management SOPs (EU AI Act Art. 17)
+│   ├── qms/                 # Quality management SOPs (EU AI Act Art. 17, EN+TR)
 │   ├── analysis/            # Research, code reviews, external repo analyses
 │   └── marketing/           # Local-only (gitignored): marketing + strategy
 ├── config_template.yaml     # Canonical YAML example — CI dry-runs this
@@ -127,10 +147,16 @@ Default workflow for a non-trivial change:
 
    ```bash
    ruff format . && ruff check . && pytest tests/ && \
-     forgelm --config config_template.yaml --dry-run
+     forgelm --config config_template.yaml --dry-run && \
+     python3 tools/check_bilingual_parity.py --strict && \
+     python3 tools/check_anchor_resolution.py --strict && \
+     python3 tools/check_cli_help_consistency.py --strict
    ```
 
-   All four must pass.
+   All seven must pass. The first four are the historical gauntlet; the
+   three doc guards (Wave 3 / Wave 4 / Wave 5 additions) catch bilingual
+   structural drift, broken markdown anchors, and CLI ↔ docs help-text
+   drift before the PR opens.
 
 ## Etiquette when communicating with the user
 

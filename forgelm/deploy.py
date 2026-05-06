@@ -97,8 +97,15 @@ def _ollama_modelfile(
         "",
     ]
     if system_prompt:
-        # Escape any double quotes in the system prompt
-        safe_prompt = system_prompt.replace('"', '\\"')
+        # Escape double quotes AND newlines.  Ollama's single-quoted
+        # SYSTEM line is parsed line-wise; a literal newline inside the
+        # value breaks the directive and silently falls through to the
+        # next line as its own (malformed) directive.  Round-3 / Faz
+        # 28 (M-205): convert \n / \r to escape sequences instead of
+        # bare characters so multi-line operator-supplied prompts
+        # round-trip correctly through ``ollama create``.
+        safe_prompt = system_prompt.replace("\\", "\\\\").replace('"', '\\"')
+        safe_prompt = safe_prompt.replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\n")
         lines.append(f'SYSTEM "{safe_prompt}"')
         lines.append("")
 
@@ -297,6 +304,6 @@ def generate_deploy_config(
         logger.info("Deploy config written to %s", output_path)
         return DeployResult(success=True, target=target, output_path=output_path, content=content)
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort: deploy-config generators cross filesystem writes (OSError), template rendering (KeyError/ValueError), and target-specific YAML/JSON serialisation; surfacing every variant as a structured DeployResult is the documented public contract.  # NOSONAR
         logger.error("Failed to generate deploy config for target '%s': %s", target, e)
         return DeployResult(success=False, target=target, error=str(e))

@@ -77,8 +77,8 @@ QLoRA bu sayıları ~3-4× düşürür. Full precision'da 22 GB isteyen 7B DPO k
 |---|---|---|
 | Yardımsever + güvenli müşteri destek botu | `customer-support` | SFT → DPO |
 | Kod-tamamlama modeli | `code-assistant` | SFT → ORPO |
-| PDF'lerinizden alan uzmanı | `byod-domain-expert` | Sadece SFT |
-| Matematik akıl yürütme | `math-reasoning` | format-shaping reward'lı GRPO |
+| PDF'lerinizden alan uzmanı | `domain-expert` | Sadece SFT |
+| Matematik akıl yürütme | `grpo-math` | format-shaping reward'lı GRPO |
 | Türkçe medikal Q&A | `medical-qa-tr` | Sadece SFT |
 
 ## Anti-pattern'ler

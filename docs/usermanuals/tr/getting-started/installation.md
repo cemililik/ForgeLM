@@ -64,21 +64,23 @@ $ pip install 'forgelm[export]'
 
 Yerel inference için (Ollama, llama.cpp) kuantize GGUF export'u ekler. `gguf` writer'ı ve destekleyici kütüphaneleri kurar. Opsiyonel çünkü her iş akışı GGUF ile bitmez — birçok kullanıcı doğrudan vLLM veya TGI'a teslim eder.
 
-### Dağıtık eğitim (`[deepspeed]`)
+### Dağıtık eğitim (`[distributed]`)
 
 ```shell
-$ pip install 'forgelm[deepspeed]'
+$ pip install 'forgelm[distributed]'
 ```
 
-Çoklu-GPU eğitim için DeepSpeed ZeRO-2 / ZeRO-3 desteği ekler. Sadece tek GPU'ya sığmayan model eğitiyorsanız gerekli.
+Çoklu-GPU eğitim için DeepSpeed ZeRO-2 / ZeRO-3 desteği ekler. Sadece tek GPU'ya sığmayan model eğitiyorsanız gerekli. (Extra adı `distributed`; çektiği gerçek bağımlılık `deepspeed>=0.14.0`.)
 
-### Her şey (`[all]`)
+### Extra'ları birleştirme
+
+`pyproject.toml` bir `[all]` aggregate tanımlamaz. Gerçekten ihtiyaç duyduğunuz extra'ları virgülle ayırarak listeleyin:
 
 ```shell
-$ pip install 'forgelm[all]'
+$ pip install 'forgelm[qlora,eval,tracking,merging,export,ingestion]'
 ```
 
-Tüm extra'ları çeker. Tüm kod yollarını test etmesi gereken CI runner'ları için kullanışlı; minimal bağımlılık ağacı isteyen üretim ortamları için önerilmez.
+Bu kasıtlıdır — DeepSpeed / bitsandbytes / Presidio / sentence-transformers'ı CPU-only bir laptop'a hep birden çekmek nadiren operatörün istediği şey, bu yüzden seçimi explicit tutuyoruz.
 
 ## Container kurulumu
 
@@ -100,12 +102,16 @@ GPU eğitimi için kurduysanız CUDA'nın doğru bağlandığını teyit edin:
 $ forgelm doctor
 ```
 
-`forgelm doctor` şunları raporlar:
-- Python ve PyTorch sürümleri
-- CUDA varlığı ve sürücü sürümü
-- Algılanan GPU modeli ve VRAM
-- Mevcut compute capability
-- bitsandbytes / Unsloth tespiti (kuruluysa)
+`forgelm doctor` tabular bir pass / warn / fail teşhis raporu üretir:
+- Python sürümü (>=3.10 zorunlu, >=3.11 önerilen)
+- torch + CUDA varlığı (CPU-only `warn`'dur, `fail` değil)
+- GPU envanteri (cihaz başına VRAM, GiB)
+- Opsiyonel extras: `qlora`, `unsloth`, `distributed`, `eval`, `tracking`, `merging`, `export`, `ingestion`, `ingestion-pii-ml`, `ingestion-scale` — eksik extra'lar tam `pip install 'forgelm[<isim>]'` ipucu ile `warn`'lanır
+- HuggingFace Hub erişimi (varsa `HF_ENDPOINT` üzerinden; `--offline` ile atlanır)
+- Workspace disk alanı (<10 GiB → `fail`, <50 GiB → `warn`)
+- `FORGELM_OPERATOR` audit kimliği ipucu (Madde 12)
+
+`--output-format json` yapısal zarf döner (`{"success": bool, "checks": [...], "summary": {pass, warn, fail}}`); `--offline` air-gap modu (ağ probe'unu atlar, yerel HF cache'i inceler).
 
 :::tip
 Yeni bir ortamda `forgelm --config ...` koşmadan *önce* `forgelm doctor` çalıştırın. Eksik CUDA kütüphanelerini, sürüm uyumsuzluklarını ve "GPU bulunamadı" hatalarını eğitime saatler kala değil saniyeler içinde yakalar.

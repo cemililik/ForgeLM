@@ -7,6 +7,11 @@ on:
 
 # No workflow-level permissions — each job declares the minimal set it needs.
 
+# Set FORGELM_OPERATOR so future operator-identity checks (Phase 3 hardening)
+# do not raise on distroless runners where USER is unset.
+env:
+  FORGELM_OPERATOR: ci-smoke
+
 jobs:
   test-latest-deps:
     name: Test with latest dependencies
@@ -25,6 +30,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install with latest deps (no upper bounds)
+        # NOTE: intentionally unconstrained — designed to surface upstream-API
+        # breakage early. The notify-failure job dedups against existing
+        # 'nightly-failure' issues to bound noise (see also: testing.md
+        # CI gates discussion). Do NOT add `|| true` here.
         run: |
           pip install --upgrade pip
           pip install torch transformers peft datasets accelerate trl pydantic pyyaml tensorboard huggingface_hub requests
@@ -70,6 +79,18 @@ jobs:
             forgelm quickstart "$tpl" --dry-run --output "/tmp/qs-$tpl.yaml"
             forgelm --config "/tmp/qs-$tpl.yaml" --dry-run
           done
+
+      - name: Forbid git+https in notebooks
+        run: |
+          # Notebooks must install ForgeLM from PyPI with a pinned version,
+          # never from a git+https URL. Closure plan Faz 5 — git+https makes
+          # Colab installs depend on a specific branch HEAD, breaking
+          # reproducibility and confusing users when main moves ahead of
+          # the latest released wheel.
+          if grep -rn 'git+https://github.com/cemililik/ForgeLM' notebooks/; then
+            echo "::error::Notebooks must install from PyPI, not git+https"
+            exit 1
+          fi
 
       - name: Ingestion + audit smoke test (Phase 11)
         run: |
@@ -184,7 +205,7 @@ jobs:
           pip install --upgrade pip
           # Install TRL first (most restrictive), let pip resolve transitive deps
           pip install \
-            "torch==2.1.0" \
+            "torch==2.3.0" \
             "trl==0.12.0" \
             "peft==0.11.0" \
             "pydantic==2.0.0" \
@@ -198,9 +219,67 @@ jobs:
       - name: Run tests
         run: pytest tests/ -q --tb=short
 
+  supply-chain-security:
+    # ------------------------------------------------------------------
+    # Wave 4 / Faz 23: ISO 27001 / SOC 2 Type II alignment supply-chain
+    # security gate.
+    #
+    # Two scans, both run on the latest published deps so we catch CVEs
+    # the moment a dependency advisory drops, even before the team
+    # re-bumps versions:
+    #
+    # - pip-audit (transitive CVEs against the OSV / GHSA databases)
+    # - bandit (static-analysis on forgelm/ production code only)
+    #
+    # Severity policy (per tools/check_pip_audit.py + tools/check_bandit.py):
+    # HIGH → fail; MEDIUM → ::warning::; LOW → silent.
+    # (CRITICAL findings are reported by pip-audit at HIGH tier — same gate.)
+    # Operators install the same tooling locally via
+    # `pip install forgelm[security]`.
+    # ------------------------------------------------------------------
+    name: Supply-chain security (pip-audit + bandit)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ForgeLM with [security] extra
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[security]"
+
+      - name: pip-audit (transitive CVE scan)
+        run: |
+          # pip-audit returns non-zero on any finding; capture the JSON
+          # and apply our own severity policy via tools/check_pip_audit.py.
+          pip-audit --format json --output /tmp/pip-audit.json || true
+          python3 tools/check_pip_audit.py /tmp/pip-audit.json
+
+      - name: bandit (static security analysis)
+        run: |
+          # Same scope/severity policy as ci.yml; nightly cadence catches
+          # newly-introduced HIGH issues even on long-lived branches.
+          bandit -c pyproject.toml -r forgelm/ -f json -o /tmp/bandit.json || true
+          python3 tools/check_bandit.py /tmp/bandit.json
+
+      - name: Upload security scan artifacts
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: supply-chain-scans
+          path: |
+            /tmp/pip-audit.json
+            /tmp/bandit.json
+
   notify-failure:
     name: Notify on failure
-    needs: [test-latest-deps, test-min-deps, wheel-install-smoke]
+    needs: [test-latest-deps, test-min-deps, wheel-install-smoke, supply-chain-security]
     if: failure()
     runs-on: ubuntu-latest
     permissions:

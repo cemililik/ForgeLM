@@ -1,0 +1,196 @@
+"""Non-training modes that share the top-level config: benchmark-only,
+merge, generate-data, compliance-export, plus the dispatch helper that
+chooses between them based on the parsed flags.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+from ..config import ForgeConfig
+from ._dry_run import _run_dry_run
+from ._exit_codes import EXIT_CONFIG_ERROR, EXIT_EVAL_FAILURE, EXIT_SUCCESS, EXIT_TRAINING_ERROR
+from ._fit_check import _run_fit_check
+from ._logging import logger
+
+
+def _run_benchmark_only(config: ForgeConfig, model_path: str, output_format: str) -> None:
+    """Run benchmark evaluation on an existing model without training."""
+    from ..benchmark import run_benchmark
+    from ..model import get_model_and_tokenizer
+
+    eval_cfg = config.evaluation
+    if not eval_cfg or not eval_cfg.benchmark or not eval_cfg.benchmark.tasks:
+        logger.error("No benchmark tasks configured. Add evaluation.benchmark.tasks to your config.")
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    bench_cfg = eval_cfg.benchmark
+
+    # Override model path to the provided one
+    config.model.name_or_path = model_path
+    logger.info("Loading model from %s for benchmark evaluation...", model_path)
+
+    model, tokenizer = get_model_and_tokenizer(config)
+
+    output_dir = bench_cfg.output_dir or os.path.join(os.path.dirname(model_path), "benchmark")
+
+    result = run_benchmark(
+        model=model,
+        tokenizer=tokenizer,
+        tasks=bench_cfg.tasks,
+        num_fewshot=bench_cfg.num_fewshot,
+        batch_size=bench_cfg.batch_size,
+        limit=bench_cfg.limit,
+        output_dir=output_dir,
+        min_score=bench_cfg.min_score,
+    )
+
+    if output_format == "json":
+        output = {
+            "success": result.passed,
+            "model_path": model_path,
+            "benchmark": {
+                "scores": result.scores,
+                "average": result.average_score,
+                "passed": result.passed,
+            },
+        }
+        if result.failure_reason:
+            output["failure_reason"] = result.failure_reason
+        print(json.dumps(output, indent=2))
+    else:
+        logger.info("Benchmark Results:")
+        for task, score in result.scores.items():
+            logger.info("  %s: %.4f", task, score)
+        logger.info("  Average: %.4f", result.average_score)
+        if result.passed:
+            logger.info("Benchmark evaluation PASSED.")
+        else:
+            logger.error("Benchmark evaluation FAILED: %s", result.failure_reason)
+
+    if not result.passed:
+        sys.exit(EXIT_EVAL_FAILURE)
+
+
+def _run_merge(config: ForgeConfig, output_format: str) -> None:
+    """Run model merging from config without training."""
+    if not config.merge or not config.merge.enabled:
+        logger.error("No merge configuration found or merge not enabled. Add a 'merge' section to your config.")
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    from ..merging import merge_peft_adapters
+
+    result = merge_peft_adapters(
+        base_model_path=config.model.name_or_path,
+        adapters=config.merge.models,
+        method=config.merge.method,
+        output_dir=config.merge.output_dir,
+        trust_remote_code=config.model.trust_remote_code,
+    )
+
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "success": result.success,
+                    "method": result.method,
+                    "num_models": result.num_models,
+                    "output_dir": result.output_dir,
+                    "error": result.error,
+                },
+                indent=2,
+            )
+        )
+    else:
+        if result.success:
+            logger.info(
+                "Model merge completed: %d models merged with '%s' → %s",
+                result.num_models,
+                result.method,
+                result.output_dir,
+            )
+        else:
+            logger.error("Model merge failed: %s", result.error)
+
+    if not result.success:
+        sys.exit(EXIT_TRAINING_ERROR)
+
+
+def _run_generate_data(config: ForgeConfig, output_format: str) -> None:
+    """Generate synthetic training data using teacher model."""
+    from ..synthetic import SyntheticDataGenerator
+
+    if not config.synthetic or not config.synthetic.enabled:
+        logger.error("Synthetic data generation not configured. Add 'synthetic' section to config.")
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    generator = SyntheticDataGenerator(config)
+    result = generator.generate()
+
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "success": result.successful > 0,
+                    "total_prompts": result.total_prompts,
+                    "successful": result.successful,
+                    "failed": result.failed,
+                    "success_rate": round(result.success_rate, 4),
+                    "output_file": result.output_file,
+                    "duration_seconds": round(result.duration_seconds, 2),
+                    "errors": result.errors[:10],
+                },
+                indent=2,
+            )
+        )
+    else:
+        logger.info(
+            "Synthetic data generation: %d/%d successful (%.1f%%) → %s",
+            result.successful,
+            result.total_prompts,
+            result.success_rate * 100,
+            result.output_file,
+        )
+
+    if result.successful == 0:
+        sys.exit(EXIT_TRAINING_ERROR)
+
+
+def _run_compliance_export(config: ForgeConfig, output_dir: str, output_format: str) -> None:
+    """Generate compliance artifacts from config without training."""
+    from ..compliance import export_compliance_artifacts, generate_training_manifest
+
+    logger.info("Generating compliance artifacts to %s...", output_dir)
+    manifest = generate_training_manifest(config=config, metrics={})
+    files = export_compliance_artifacts(manifest, output_dir)
+
+    if output_format == "json":
+        print(json.dumps({"success": True, "files": files, "output_dir": output_dir}, indent=2))
+    else:
+        logger.info("Compliance artifacts exported:")
+        for f in files:
+            logger.info("  %s", f)
+
+
+def _maybe_run_no_train_mode(config, args) -> None:
+    """If a non-training mode flag is set, run it and exit."""
+    if args.dry_run:
+        _run_dry_run(config, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+    if args.fit_check:
+        _run_fit_check(config, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+    if args.benchmark_only:
+        _run_benchmark_only(config, args.benchmark_only, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+    if args.merge:
+        _run_merge(config, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+    if args.generate_data:
+        _run_generate_data(config, args.output_format)
+        sys.exit(EXIT_SUCCESS)
+    if args.compliance_export:
+        _run_compliance_export(config, args.compliance_export, args.output_format)
+        sys.exit(EXIT_SUCCESS)

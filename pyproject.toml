@@ -1,10 +1,18 @@
+# NOSONAR text:S8565 — Sonar wants a deterministic uv.lock / poetry.lock.
+# ForgeLM does not use uv or poetry; supply-chain determinism is provided
+# instead by (a) bounded dependency ranges in [project.dependencies], (b)
+# pip-audit nightly gating in .github/workflows/nightly.yml, (c) per-OS
+# CycloneDX SBOM emission in publish.yml. A pip-tools workflow producing
+# requirements.lock for development environments is tracked under
+# F-PR29-A6-lock-file in docs/roadmap/risks-and-decisions.md (v0.6.x).
+
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "forgelm"
-version = "0.5.1rc1"
+version = "0.5.5"
 description = "Config-driven LLM fine-tuning with safety evaluation, EU AI Act compliance, 6 alignment methods, and one-command bundled quickstart templates."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -31,7 +39,7 @@ classifiers = [
 ]
 
 dependencies = [
-  "torch>=2.0.0,<3.0.0",
+  "torch>=2.3.0,<3.0.0",
   "transformers>=4.38.0,<5.0.0",
   "peft>=0.9.0,<1.0.0",
   "datasets>=2.21.0,<5.0.0",
@@ -45,33 +53,37 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# QLoRA/bitsandbytes is effectively Linux-only for most setups.
+# QLoRA via bitsandbytes 4-bit/8-bit quantization (Linux-only for most setups).
 qlora = [
   "bitsandbytes>=0.42.0,<1.0.0; sys_platform == 'linux'",
 ]
 
+# Unsloth fused-kernel acceleration for SFT/DPO (Linux-only).
 unsloth = [
   "unsloth>=2024.3.0; sys_platform == 'linux'",
 ]
 
-# Phase 2 benchmarking; keep optional to avoid dependency bloat.
+# Benchmarking — lm-eval-harness for OpenLLM-style tasks.
 eval = [
   "lm-eval>=0.4.4,<1.0.0",
 ]
 
+# Experiment tracking — Weights & Biases run logging.
 tracking = [
   "wandb>=0.16.0",
 ]
 
+# Multi-GPU/multi-node training via DeepSpeed (ZeRO-1/2/3).
 distributed = [
   "deepspeed>=0.14.0",
 ]
 
+# Model merging — mergekit (TIES / DARE / SLERP).
 merging = [
   "mergekit>=0.0.5",
 ]
 
-# Phase 10: GGUF export via llama-cpp-python's bundled convert_hf_to_gguf.py.
+# GGUF export via llama-cpp-python's bundled convert_hf_to_gguf.py.
 # Produces f16 and q8_0 GGUF directly. K-quants (q4_k_m etc.) require a
 # separate llama-quantize step; see docs/guides/export.md for the full flow.
 # Linux and macOS only; Windows builds are available but less reliable.
@@ -79,12 +91,12 @@ export = [
   "llama-cpp-python>=0.2.90; sys_platform != 'win32'",
 ]
 
-# Phase 11: document ingestion — PDF/DOCX/EPUB/TXT → SFT-ready JSONL.
+# Document ingestion — PDF/DOCX/EPUB/TXT → SFT-ready JSONL.
 # pypdf is pure-Python (cross-platform); ebooklib + beautifulsoup4 parse
 # EPUB containers; langdetect powers the audit's top-3 language stat.
-# Phase 11.5: xxhash is an optional non-cryptographic 64-bit hash that
-# materially speeds up the simhash backend; we fall back to BLAKE2b when
-# it is not present so a bare install still works.
+# xxhash is an optional non-cryptographic 64-bit hash that materially speeds
+# up the simhash backend; we fall back to BLAKE2b when it is not present
+# so a bare install still works.
 # OCR is intentionally out of scope (handle externally with Tesseract).
 ingestion = [
   "pypdf>=4.0.0,<6.0.0",
@@ -95,7 +107,7 @@ ingestion = [
   "xxhash>=3.0.0,<4.0.0",
 ]
 
-# Phase 12: optional MinHash LSH near-duplicate detector for >50K-row corpora.
+# Optional MinHash LSH near-duplicate detector for >50K-row corpora.
 # Default audit path stays simhash + LSH banding; this extra unlocks
 # `forgelm audit --dedup-method minhash --jaccard-threshold 0.85` for
 # operators auditing larger datasets where MinHash's recall/precision
@@ -104,34 +116,37 @@ ingestion-scale = [
   "datasketch>=1.6.0,<2.0.0",
 ]
 
-# Phase 12: optional code/credential leakage scanner for SFT corpora.
-# detect-secrets is the de-facto standard; without it ForgeLM falls back
-# to a regex-only set covering ~10 common patterns (AWS, GitHub, Slack,
-# OpenAI, Google, JWT, OpenSSH/PGP private-key headers).
-ingestion-secrets = [
-  "detect-secrets>=1.5.0,<2.0.0",
-]
-
-# Phase 12.5: optional Presidio ML-NER PII detector. Adds the
-# unstructured-identifier categories (person / organization / location)
-# that the regex detector inherently misses. Heavyweight install
-# (≈ 50 MB spaCy model on first analyzer build), so opt-in only — the
-# regex set already covers the GDPR-mandated structured identifiers
-# (email, phone, IBAN, credit card, national IDs).
+# Optional Presidio ML-NER PII detector. Adds the unstructured-identifier
+# categories (person / organization / location) that the regex detector
+# inherently misses. Heavyweight install (≈ 50 MB spaCy model on first
+# analyzer build), so opt-in only — the regex set already covers the
+# GDPR-mandated structured identifiers (email, phone, IBAN, credit card,
+# national IDs).
 ingestion-pii-ml = [
   "presidio-analyzer>=2.2.0,<3.0.0",
 ]
 
-# Phase 10: rich terminal rendering for the forgelm chat REPL.
+# Rich terminal rendering for the `forgelm chat` REPL.
 # Falls back to plain text output when not installed.
 chat = [
   "rich>=13.0.0",
 ]
 
+# Developer tooling — test runner, coverage, linter/formatter.
 dev = [
   "pytest>=8.0.0",
   "pytest-cov>=5.0.0",
   "ruff>=0.4.0",
+]
+
+# ISO 27001 / SOC 2 alignment supply-chain security tooling.
+# Operators install via `pip install forgelm[security]` to run the same
+# pip-audit (CVE) + bandit (static-analysis) checks ForgeLM's nightly +
+# CI workflows enforce.  Both are dev/CI tooling, never imported by
+# the runtime path.
+security = [
+  "pip-audit>=2.7.0,<3.0.0",
+  "bandit[toml]>=1.7.0,<2.0.0",
 ]
 
 [project.urls]
@@ -161,10 +176,25 @@ include = ["forgelm*"]
   "*/*.jsonl",
   "*/*.md",
 ]
+# Phase 19: PEP 561 type-hint distribution marker so downstream
+# `mypy --strict` / pyright consumers see in-source type hints without
+# a separate stubs package.  Empty file at forgelm/py.typed.
+"forgelm" = ["py.typed"]
+# Phase 36: bundled default safety probes so `forgelm safety-eval
+# --default-probes` works after a wheel install.
+"forgelm.safety_prompts" = ["*.jsonl"]
 
 [tool.pytest.ini_options]
+addopts = "--cov=forgelm --cov-report=term-missing --cov-fail-under=40"
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+    "unit: fast unit tests (default — no marker required)",
+    "integration: tests that span multiple subsystems (still no GPU/network)",
+    "smoke: minimal contract-pinning tests (test_smoke.py et al.)",
+    "slow: tests > 5s (used by `pytest -m 'not slow'` selection)",
+    "fixture_drift: tests sensitive to upstream pricing/dataset drift (excluded from release matrix)",
+]
 
 [tool.ruff]
 target-version = "py310"
@@ -175,15 +205,20 @@ select = ["F", "E9", "W", "B", "I"]
 ignore = ["B008", "B905"]
 
 # Bandit static-analysis config (consumed by Codacy + standalone bandit).
-# - B101 (assert_used) is disabled for tests/ because pytest requires asserts.
 # - tests/ is excluded from the broader scan; we still scan the package itself.
+# - No `skips` entry: B101 (assert_used) is left enabled repo-wide so any
+#   stray `assert` in production source under `forgelm/` is flagged.  Tests
+#   are already out of scope via `exclude_dirs`, so an explicit B101 skip
+#   would only mask real findings in product code.  If a genuine in-product
+#   assert is ever needed (e.g. invariant guard the type checker depends on),
+#   tag the line with `# nosec B101 — <rationale>` rather than re-adding a
+#   global skip.
 [tool.bandit]
 exclude_dirs = ["tests", ".venv", "build", "dist"]
-skips = ["B101"]
 
 [tool.coverage.run]
 source = ["forgelm"]
-omit = ["forgelm/wizard.py"]
+omit = ["forgelm/templates/__init__.py"]
 
 [tool.coverage.report]
 fail_under = 40

@@ -30,12 +30,22 @@ Before anything else, run `forgelm doctor` to check that Python, PyTorch, CUDA, 
 
 ```shell
 $ forgelm doctor
-ForgeLM 0.5.2
-Python 3.11.4 · PyTorch 2.4.0
-CUDA available · driver 535.171 · NVIDIA RTX 4090 · 24 GB
-bitsandbytes ✓ (installed)
-Unsloth ✓ (installed)
+forgelm doctor — environment check
+
+  [✓ pass] python.version          Python 3.11.4 (CPython).
+  [✓ pass] torch.cuda              torch 2.4.0 with CUDA 12.4.
+  [✓ pass] gpu.inventory           1 GPU(s) — GPU0: NVIDIA RTX 4090 (24.0 GiB).
+  [✓ pass] extras.qlora            Installed (module bitsandbytes, purpose: 4-bit / 8-bit QLoRA training).
+  [✓ pass] extras.unsloth          Installed (module unsloth, purpose: Unsloth-accelerated training (Linux GPUs only)).
+  [! warn] extras.deepspeed        Optional extra missing — install with: pip install 'forgelm[deepspeed]' (purpose: DeepSpeed ZeRO + offload distributed training).
+  [✓ pass] hf_hub.reachable        HuggingFace Hub reachable (HTTP 200).
+  [✓ pass] disk.workspace          Workspace /home/me/forgelm — 387.0 GiB free of 500.0 GiB.
+  [! warn] operator.identity       FORGELM_OPERATOR not set; audit events will fall back to 'me@workstation'. Pin FORGELM_OPERATOR=<id> for CI / pipeline runs.
+
+Summary: 7 pass, 2 warn, 0 fail.
 ```
+
+`--output-format json` returns a structured envelope (`{"success": bool, "checks": [...], "summary": {...}}`) so CI can filter on individual probe results without parsing the table. Pass `--offline` to skip the HF Hub network probe and inspect the local cache instead — useful for air-gapped deployments.
 
 :::tip
 If `forgelm doctor` reports a problem (missing CUDA, version mismatch, no GPU), fix that first. Every other ForgeLM command will fail in confusing ways otherwise. See [Troubleshooting](#/operations/troubleshooting).
@@ -49,9 +59,9 @@ ForgeLM ships with five starter templates that cover most real-world fine-tuning
 $ forgelm quickstart --list
   customer-support     Multi-turn helpful + safe (SFT + DPO)
   code-assistant       Code-completion fine-tune (SFT + ORPO)
-  byod-domain-expert   PDF/DOCX corpus → domain Q&A (SFT)
+  domain-expert        PDF/DOCX corpus → domain Q&A (SFT)
   medical-qa-tr        Turkish medical Q&A (SFT)
-  math-reasoning       Step-by-step reasoning (GRPO)
+  grpo-math            Step-by-step reasoning (GRPO)
 ```
 
 For your first run, pick `customer-support` — it's small, finishes in ~30 minutes on a 12 GB GPU, and exercises every feature (SFT, DPO, eval, safety, audit):
@@ -108,7 +118,7 @@ $ forgelm --config configs/quickstart-customer-support.yaml
 [2026-04-28 14:18:55] DPO preference pass · β=0.1 · KL=4.2
 [2026-04-28 14:32:11] benchmark hellaswag=0.62 truthfulqa=0.48
 [2026-04-28 14:33:02] Llama Guard S1-S14: clean
-[2026-04-28 14:33:04] Annex IV → checkpoints/customer-support/artifacts/annex_iv.json
+[2026-04-28 14:33:04] Annex IV → checkpoints/customer-support/artifacts/annex_iv_metadata.json
 [2026-04-28 14:33:04] ✔ finished, exit 0
 ```
 
@@ -126,7 +136,7 @@ continues until the end of the current billing period…
 ```text
 checkpoints/customer-support/
 ├── artifacts/
-│   ├── annex_iv.json              ← Article 11 technical documentation
+│   ├── annex_iv_metadata.json              ← Article 11 technical documentation
 │   ├── audit_log.jsonl            ← Article 12 append-only event log
 │   ├── data_audit_report.json     ← Article 10 data governance evidence
 │   ├── safety_report.json         ← Llama Guard verdict

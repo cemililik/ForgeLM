@@ -31,10 +31,18 @@ $ forgelm audit data/ingested.jsonl
    bullet_only: 3
 ```
 
-Flaglenen satırları düşürmek için:
+Audit, düşük kaliteli satırları *flagler* ama silmez. Düşürmek için, YAML konfigürasyonunuzdaki `audit.quality_filter.drop_flagged` ve `audit.quality_filter.write_clean_output` knob'larıyla opt-in olun ([Configuration Referansı](#/reference/configuration)) ve audit'i tekrar koşturun:
+
+```yaml
+audit:
+  quality_filter:
+    enabled: true
+    drop_flagged: true
+    write_clean_output: data/clean.jsonl
+```
 
 ```shell
-$ forgelm audit data/ingested.jsonl --drop-quality-flags --output-clean data/clean.jsonl
+$ forgelm audit data/ingested.jsonl --quality-filter
 ✓ 45 satır düşürüldü; data/clean.jsonl yazıldı (12,355 satır)
 ```
 

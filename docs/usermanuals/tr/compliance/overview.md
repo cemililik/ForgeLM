@@ -37,7 +37,7 @@ flowchart TD
 
 ```text
 checkpoints/run/artifacts/
-├── annex_iv.json                  ← Madde 11 — teknik dokümantasyon
+├── annex_iv_metadata.json                  ← Madde 11 — teknik dokümantasyon
 ├── audit_log.jsonl                ← Madde 12 — append-only event log
 ├── data_audit_report.json         ← Madde 10 — veri yönetimi kanıtı
 ├── safety_report.json             ← Madde 9 + 15 — risk + güvenlik
@@ -54,14 +54,14 @@ Bu paket compliance incelemeleri için teslim edilebilir. İçindeki her dosya `
 |---|---|---|
 | **9** | Risk yönetimi | Otomatik geri alma + eşik kapıları + trend izleme. |
 | **10** | Veri yönetimi | `forgelm audit` veri seti başına yönetişim kanıtı üretir. |
-| **11** | Teknik dokümantasyon | `annex_iv.json` dolu Annex IV. |
+| **11** | Teknik dokümantasyon | `annex_iv_metadata.json` dolu Annex IV. |
 | **12** | Kayıt tutma | Eğitim başlangıcı, eval kapıları, geri alma kararlarını kapsayan append-only `audit_log.jsonl`. |
 | **13** | Şeffaflık | Otomatik üretilen model card; yetenekleri, sınırları, eğitim özetini listeler. |
 | **14** | İnsan gözetimi | Opsiyonel `compliance.human_approval: true` insan imzalayana kadar terfi engeller. |
 | **15** | Doğruluk ve sağlamlık | Benchmark kapıları + güvenlik eval + cybersec (ingest'te PII / sırlar). |
 | **16-17** | Uygunluk ve QMS | Beyan iskeleti + `docs/qms/`'deki QMS SOP'ları. |
 
-Tam kod referansları için sitenin [Compliance sayfası](compliance.html).
+Tam kod referansları için [Compliance özeti](../../../reference/compliance_summary.md).
 
 ## ForgeLM'in iddia *etmediği*
 
@@ -88,7 +88,22 @@ compliance:
   responsible_party: "Acme Corp <compliance@acme.example>"
 ```
 
-`compliance:` bloğundan her alan `annex_iv.json`'a akar. Gerekli alanlar config yüklenirken doğrulanır.
+`compliance:` bloğundan her alan `annex_iv_metadata.json`'a akar. Gerekli alanlar config yüklenirken doğrulanır — eksik bir `intended_purpose` `--dry-run`'ı fail eder.
+
+## Annex IV neyi içerir
+
+Annex IV artefact'ının sekiz bölümü vardır; tamamı otomatik doldurulur:
+
+1. **Genel açıklama** — model adı, kullanım amacı, dağıtım coğrafyası.
+2. **Detaylı sistem açıklaması** — base model, eğitim paradigması, veri seti özeti.
+3. **İzleme** — eval eşikleri, otomatik geri alma tetikleyicileri, trend takibi.
+4. **Risk yönetimi** — risk sınıflandırması, azaltıcı önlemler, kalan riskler.
+5. **Yaşam döngüsü** — eğitim tarihi, sürüm, kaynak verisine referanslar.
+6. **Standartlar** — listelenen uyumluluk çerçeveleri (EU AI Act, GDPR, ISO 27001).
+7. **Uyumluluk beyanı** — iskelet; nihai beyan insan imzası gerektirir.
+8. **Pazar-sonrası izleme planı** — dağıtılmış gözetim config'ine işaretçi.
+
+Tam şema için bkz. [Annex IV](#/compliance/annex-iv).
 
 ## Operasyonel sorumluluklar (siz, ForgeLM değil)
 

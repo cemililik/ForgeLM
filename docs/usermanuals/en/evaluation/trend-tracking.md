@@ -74,9 +74,22 @@ Commit this file. It's small (one row per run, JSON), and it's the only way to t
 
 ## Visualisation
 
-ForgeLM ships a CLI report:
+ForgeLM ships a CLI report. The dedicated `forgelm trend` subcommand is planned for v0.6.0+ Pro CLI tier (see [Phase 13 roadmap](#/roadmap/phase-13)) — today the same data is queryable directly from the JSONL with `jq`. Today's working flow:
 
 ```shell
+# Last 20 S5 (defamation) scores from the trend log:
+$ jq -r 'select(.safety.S5 != null) | "\(.ts) \(.safety.S5)"' \
+    .forgelm/eval-history.jsonl | tail -20
+```
+
+For visualisation, the JSONL is easy to load into Grafana / Datadog
+(see "For dashboards" below).
+
+The dedicated `forgelm trend` subcommand will look like this when it
+ships in v0.6.0+ — pseudo-output, NOT runnable today:
+
+```text
+# planned-v0.6.0+ pseudo-output (not runnable today):
 $ forgelm trend --metric "safety.S5" --lookback 20
 
 S5 (defamation) — last 20 runs:
@@ -101,9 +114,16 @@ $ jq '.benchmark.truthfulqa, .ts' .forgelm/eval-history.jsonl > truthfulqa-trend
 
 Each run has a `run_id` (UUID) and a `config_hash` (hash of the YAML config). When you compare runs, compare like-for-like — a hyperparameter change can shift baselines without that being a regression.
 
-Filter the history:
+Filter the history. Today's working flow uses `jq`:
 
 ```shell
+$ jq 'select(.config_hash == "deadbeef") | .benchmark.hellaswag' \
+    .forgelm/eval-history.jsonl | tail -30
+```
+
+The dedicated `forgelm trend` subcommand (planned v0.6.0+ Pro CLI form, not runnable today):
+
+```text
 $ forgelm trend --metric "benchmark.hellaswag" \
     --filter "config_hash=deadbeef" \
     --lookback 30

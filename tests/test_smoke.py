@@ -6,9 +6,17 @@ def test_config_template_parses():
     assert cfg.training.output_dir
 
 
-def test_cli_help_runs(capsys):
-    # Importing should not require heavy deps beyond core.
-    from forgelm.cli import parse_args
+def test_cli_help_runs(monkeypatch, capsys):
+    """Invoking ``forgelm --help`` exits 0 and prints the documented usage."""
+    import pytest
 
-    # parse_args requires argv; we only assert module import works here.
-    assert callable(parse_args)
+    from forgelm.cli import main
+
+    monkeypatch.setattr("sys.argv", ["forgelm", "--help"])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    # argparse ``--help`` exits 0 by design.
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert "usage:" in captured.out
+    assert "--config" in captured.out

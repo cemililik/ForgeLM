@@ -28,3 +28,9 @@ class TrainResult:
     judge_details: Optional[List[Dict[str, Any]]] = None
     # Cost estimation
     estimated_cost_usd: Optional[float] = None
+    # Article 14 — human approval gate. Populated when
+    # ``evaluation.require_human_approval=true`` so the saved adapters land in
+    # ``<final_model_dir>.staging/`` instead of ``<final_model_dir>/``. The
+    # canonical ``final_model/`` directory only appears after
+    # ``forgelm approve <run_id>`` promotes the staging artefacts.
+    staging_path: Optional[str] = None

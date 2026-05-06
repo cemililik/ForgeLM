@@ -26,7 +26,7 @@ flowchart LR
 $ forgelm ingest ./policies/ \
     --recursive \
     --strategy markdown \
-    --max-tokens 1024 \
+    --chunk-tokens 1024 \
     --all-mask \
     --output data/policies.jsonl
 ✓ scanned 47 files (12 PDF, 8 DOCX, 27 MD)
@@ -46,60 +46,53 @@ full behaviour and set-union semantics.
 | **PDF** | `pypdf` | Header/footer dedup, table extraction (best-effort). |
 | **DOCX** | `python-docx` | Tables emit as Markdown tables; preserves headings. |
 | **EPUB** | `ebooklib` | Strips navigation/index; preserves chapter structure. |
-| **TXT** | built-in | Treated as one document; chunked by `--max-tokens`. |
+| **TXT** | built-in | Treated as one document; chunked by `--chunk-tokens`. |
 | **Markdown** | built-in | Markdown-aware splitter respects heading hierarchy. |
 
 Install the ingestion extras: `pip install 'forgelm[ingestion]'`. See [Installation](#/getting-started/installation).
 
 ## Chunking strategies
 
+The shipped `--strategy` choices are `sliding`, `paragraph`, and
+`markdown`. (`tokens` and `sentence` were earlier-design names that
+never landed in the parser.)
+
 | Strategy | Behaviour | Best for |
 |---|---|---|
-| `tokens` | Hard cap at `--max-tokens` per chunk; tries to split on sentence boundaries. | Plain text, mixed content. |
-| `markdown` | Splits on Markdown headings (h1/h2/h3), respects hierarchy. | Documentation, structured corpora. |
-| `paragraph` | One chunk per paragraph (or merged paragraphs to fit). | Books, prose. |
-| `sentence` | One chunk per sentence (rare; for very fine-grained data). | NLI tasks, short Q&A. |
+| `sliding` | Sliding window with `--chunk-tokens` cap + `--overlap-tokens` overlap; falls back to character mode when no tokenizer is available. | Plain text, mixed content. |
+| `markdown` | Heading-aware splitter that respects `#`/`##`/`###` boundaries and keeps fenced code blocks atomic. | Documentation, structured corpora. |
+| `paragraph` | One chunk per paragraph; non-overlapping by design (pass `--overlap 0` or omit it). | Books, prose. |
 
-Most teams pick `markdown` for documentation and `tokens` for everything else.
+`semantic` is reserved for a follow-up phase — it raises
+`NotImplementedError` today and is hidden from the CLI surface to
+avoid runtime crashes.
 
 ## Output formats
 
-By default, `forgelm ingest` emits the `instructions` format with synthetic prompts:
-
-```json
-{"prompt": "Summarise the following passage.", "completion": "Section 4.2 of the policy specifies…", "metadata": {"source": "policy.pdf", "chunk": 17}}
-```
-
-For domain-expert SFT, you typically want `--format raw` which emits the chunk as-is and lets you generate prompts later (or use it for continued pre-training):
+`forgelm ingest` emits raw chunks (`{"text": "..."}` JSONL). There is no `--format` flag in v0.5.5 — the only choice is `--output-format {text,json}` for the **summary report** (chunk count, format breakdown, dropped-row reasons), not for the chunk records themselves, which are always raw `text` JSONL. Operators that want synthetic-prompt or Q&A datasets layer that as a downstream step (see [Synthetic Data](#/data/synthetic-data)) against the raw JSONL this command produces:
 
 ```json
 {"text": "Section 4.2: All payment processing must comply with PCI-DSS standards…", "metadata": {"source": "policy.pdf", "chunk": 17}}
 ```
 
-For Q&A datasets, use `--format qa` with a prompt-generation LLM:
-
-```yaml
-ingestion:
-  format: "qa"
-  qa_generator:
-    model: "openai:gpt-4o-mini"        # or local model
-    prompts_per_chunk: 3
-```
-
 ## CLI flags
+
+Run `forgelm ingest --help` for the authoritative list. The flags
+that appear most often:
 
 | Flag | Description |
 |---|---|
-| `--recursive` | Walk subdirectories. |
-| `--strategy {tokens,markdown,paragraph,sentence}` | Chunking strategy. |
-| `--max-tokens N` | Token cap per chunk (default 1024). |
-| `--overlap N` | Sliding-window overlap between chunks (default 0). |
+| `--output FILE` | Destination JSONL file (parent dirs are created). Required. |
+| `--recursive` | Walk subdirectories. Default is shallow (top-level files only). |
+| `--strategy {sliding,paragraph,markdown}` | Chunking strategy (default: `paragraph`). |
+| `--chunk-tokens N` | Token cap per chunk (uses `--tokenizer`). Pair with `--overlap-tokens` for `sliding`. |
+| `--chunk-size N` | Soft per-chunk character cap (library default 2048). Use **either** this OR `--chunk-tokens`, not both. |
+| `--overlap N` | Sliding-strategy character-mode overlap (default 200 when `--strategy sliding`; must be 0 / unset for `paragraph` or `markdown` — they're non-overlapping by design). |
+| `--overlap-tokens N` | Token-mode overlap for `--strategy sliding` paired with `--chunk-tokens`. |
+| `--tokenizer MODEL_NAME` | HF tokenizer used by `--chunk-tokens` / `--overlap-tokens`. |
 | `--pii-mask` | Mask emails, phone, IDs, IBAN before writing. See [PII Masking](#/data/pii-masking). |
 | `--secrets-mask` | Redact AWS keys, GitHub PATs, JWTs, etc. See [Secrets Scrubbing](#/data/secrets). |
-| `--language LANG` | Force a language (default: auto-detect per chunk). |
-| `--include "*.pdf,*.md"` | Glob patterns to include. |
-| `--exclude "drafts/*"` | Glob patterns to exclude. |
-| `--output PATH` | Output file (`.jsonl`). |
+| `--all-mask` | Shorthand for `--secrets-mask --pii-mask` together. |
 
 ## Common pitfalls
 
@@ -112,7 +105,7 @@ ingestion:
 :::
 
 :::warn
-**`--max-tokens` larger than the model's context.** Chunks longer than `model.max_length` will be truncated at training time, losing the tail. Match `--max-tokens` to the training context.
+**`--chunk-tokens` larger than the model's context.** Chunks longer than `model.max_length` will be truncated at training time, losing the tail. Match `--chunk-tokens` to the training context.
 :::
 
 :::tip

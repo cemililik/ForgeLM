@@ -6,11 +6,21 @@ name: Validate user-manuals
 # source. Catches structural problems before they hit main.
 
 on:
+  push:
+    branches: [main, development]
+    paths:
+      - "docs/usermanuals/**"
+      - "tools/build_usermanuals.py"
   pull_request:
     branches: [main]
     paths:
       - "docs/usermanuals/**"
       - "tools/build_usermanuals.py"
+
+# Mirror CI's operator identity so any future pytest invocation does not
+# raise on distroless runners where USER is unset.
+env:
+  FORGELM_OPERATOR: ci-smoke
 
 jobs:
   validate:
@@ -45,4 +55,38 @@ jobs:
                   print(f"  - {m}")
               raise SystemExit(1)
           print("OK — every declared page has an English source.")
+          PY
+
+      - name: Orphan-markdown detection (strict)
+        # The reverse of the smoke test above: a markdown file under
+        # docs/usermanuals/<lang>/<section>/<page>.md that is NOT declared
+        # in _meta.yaml will silently never appear on the site. Strict
+        # mode fails the build so abandoned drafts are caught before
+        # they merge to main.
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys, yaml
+          meta = yaml.safe_load(pathlib.Path("docs/usermanuals/_meta.yaml").read_text(encoding="utf-8"))
+          declared = set()
+          for sec in meta.get("sections", []):
+              for page in sec.get("pages", []):
+                  declared.add(f"{sec['id']}/{page['id']}.md")
+          root = pathlib.Path("docs/usermanuals")
+          orphans = []
+          for md in root.rglob("*.md"):
+              rel = md.relative_to(root)
+              parts = rel.parts
+              if len(parts) < 3:
+                  continue
+              # parts = (lang, section, page.md, ...). Only the <section>/<page>.md
+              # portion is matched against _meta.yaml.
+              key = "/".join(parts[1:])
+              if key not in declared:
+                  orphans.append(str(rel))
+          if orphans:
+              print("ERROR: markdown files not declared in _meta.yaml (strict orphan check):")
+              for o in sorted(orphans):
+                  print(f"  - {o}")
+              sys.exit(1)
+          print("OK — no orphan markdown under docs/usermanuals/.")
           PY

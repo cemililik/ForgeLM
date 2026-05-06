@@ -1,14 +1,19 @@
 import logging
+import re
 from typing import Any, Optional, Tuple
 
-import torch
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+# NOTE: Heavy ML imports (torch, transformers AutoModelForCausalLM/AutoTokenizer/
+# BitsAndBytesConfig, peft helpers) are deferred to function bodies so
+# `import forgelm.model` is cheap. Eagerly importing torch/peft here costs
+# ~3-5s of CLI startup per invocation (peft pulls transformers which pulls
+# torch). See closure-plan F-performance-101.
 
 logger = logging.getLogger("forgelm.model")
 
 
 def _resolve_bnb_compute_dtype(dtype_str: str):
+    import torch
+
     if not dtype_str or dtype_str == "auto":
         return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     normalized = str(dtype_str).lower()
@@ -59,6 +64,8 @@ def _load_tokenizer(config: Any, trust_remote_code: bool) -> Any:
 
         tokenizer = AutoProcessor.from_pretrained(config.model.name_or_path, trust_remote_code=trust_remote_code)
     else:
+        from transformers import AutoTokenizer
+
         tokenizer = AutoTokenizer.from_pretrained(config.model.name_or_path, trust_remote_code=trust_remote_code)
 
     if hasattr(tokenizer, "pad_token") and tokenizer.pad_token is None:
@@ -69,6 +76,8 @@ def _load_tokenizer(config: Any, trust_remote_code: bool) -> Any:
 
 def _device_map_for(config: Any, is_distributed: bool):
     """Pick a from_pretrained device_map suited to the current environment."""
+    import torch
+
     if is_distributed:
         logger.info("Distributed training detected — skipping device_map.")
         return None
@@ -84,6 +93,8 @@ def _device_map_for(config: Any, is_distributed: bool):
 
 def _build_model_kwargs(config: Any, trust_remote_code: bool) -> dict:
     """Assemble from_pretrained kwargs (device_map, BnB, RoPE, sliding window)."""
+    import torch
+
     dist_cfg = getattr(config, "distributed", None)
     is_distributed = bool(dist_cfg and dist_cfg.strategy)
 
@@ -93,6 +104,8 @@ def _build_model_kwargs(config: Any, trust_remote_code: bool) -> dict:
         kwargs["device_map"] = device_map
 
     if torch.cuda.is_available() and config.model.load_in_4bit:
+        from transformers import BitsAndBytesConfig
+
         logger.info("Using 4-bit QLoRA quantization...")
         compute_dtype = _resolve_bnb_compute_dtype(config.model.bnb_4bit_compute_dtype)
         kwargs["quantization_config"] = BitsAndBytesConfig(
@@ -128,8 +141,10 @@ def _apply_moe_config(model: Any, config: Any) -> None:
         _freeze_unselected_experts(model, moe_cfg.experts_to_train, num_experts)
 
 
-def _build_lora_config(config: Any) -> LoraConfig:
+def _build_lora_config(config: Any) -> "LoraConfig":  # noqa: F821 — peft import is lazy
     """Resolve PEFT method (lora / dora / rslora / pissa) and build LoraConfig."""
+    from peft import LoraConfig
+
     peft_method = getattr(config.lora, "method", "lora")
     use_dora = config.lora.use_dora or peft_method == "dora"
     use_rslora = getattr(config.lora, "use_rslora", False) or peft_method == "rslora"
@@ -159,6 +174,10 @@ def _build_lora_config(config: Any) -> LoraConfig:
 
 def get_model_and_tokenizer(config: Any) -> Tuple[Any, Any]:
     """Loads the base model, tokenizer, and configures LoRA."""
+    import torch
+    from peft import get_peft_model, prepare_model_for_kbit_training
+    from transformers import AutoModelForCausalLM
+
     logger.info("Loading Base Model: %s with backend: %s", config.model.name_or_path, config.model.backend)
 
     trust_remote_code = getattr(config.model, "trust_remote_code", False)
@@ -206,7 +225,7 @@ def _recast_expert_weight(name: str, module, target_dtype) -> bool:
         return False
     try:
         module.weight.data = module.weight.data.to(target_dtype)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort: per-expert weight recast runs across hundreds of MoE expert tensors; surface includes RuntimeError (dtype unsupported on device), AttributeError (frozen / shared parameter), and torch internal errors on edge architectures.  Returning False keeps the per-expert loop running so a single recast failure cannot abort the whole sweep.  # NOSONAR
         logger.debug("Could not optimize %s: %s", name, e)
         return False
     return True
@@ -219,6 +238,8 @@ def _apply_moe_expert_quantization(model) -> None:
     Note: True int8 quantization requires bitsandbytes Linear8bitLt —
     raw dtype casting to int8 destroys weight values and is NOT used here.
     """
+    import torch
+
     target_dtype = torch.float16
     if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
         target_dtype = torch.bfloat16
@@ -262,13 +283,73 @@ def _parse_selected_experts(experts_to_train: str, num_experts: int) -> Optional
     return selected
 
 
+# Tracks parameter names already logged as unrecognized so repeated calls on
+# the same checkpoint don't produce a log line per-parameter.
+# Per-process state; deduplication scope is the running process only — under
+# DDP / DeepSpeed each rank holds its own copy and may emit the warning once.
+_LOGGED_UNKNOWN_EXPERT_NAMES: set = set()
+
+# Per-architecture regex registry for resolving the expert index inside an
+# MoE state-dict parameter name. ASCII-bound \d so we can't match exotic
+# Unicode digits, anchored on a literal trailing dot/underscore so we don't
+# accidentally match neighbouring fields like ``experts.norm``. Patterns
+# verified against the published state-dict listings of:
+#   * Mixtral 8x7B / 8x22B  -> ``model.layers.{L}.block_sparse_moe.experts.{E}.w1.weight``
+#   * Qwen 3 MoE            -> ``model.layers.{L}.mlp.experts.{E}.up_proj.weight``
+#   * DeepSeek-V3           -> ``model.layers.{L}.mlp.experts.{E}.gate_proj.weight``
+#   * Phi-MoE / GShard      -> ``model.layers.{L}.mlp.expert_{E}.gate_proj.weight``
+#   * Nested / experimental -> ``...experts.expert_{E}.weight``
+# Add new architectures by appending one regex; the resolver below short-
+# circuits on the first match and returns the captured index.
+_EXPERT_NAME_PATTERNS: Tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?:^|\.)experts\.(\d+)\.", re.ASCII),  # Mixtral / Qwen 3 / DeepSeek-V3
+    re.compile(r"(?:^|\.)experts\.expert_(\d+)\.", re.ASCII),  # nested expert_{i} under experts/
+    re.compile(r"(?:^|\.)expert_(\d+)\.", re.ASCII),  # Phi-MoE / GShard-style flat
+)
+
+
 def _expert_index_in_name(name: str, num_experts: int) -> Optional[int]:
-    """Return the expert index appearing in *name*, or None if not an expert param."""
-    if "expert" not in name.lower():
-        return None
-    for i in range(num_experts):
-        if f"experts.{i}." in name or f"expert_{i}." in name:
-            return i
+    """Return the expert index appearing in *name*, or None if not an expert param.
+
+    Resolves the index via :data:`_EXPERT_NAME_PATTERNS` so adding support
+    for a new MoE architecture is a one-line registry change rather than a
+    behaviour edit on the freezing logic. If the name looks like an expert
+    param (``"expert"`` substring) but doesn't match any registered
+    pattern, log a single INFO line so an unfamiliar checkpoint surfaces
+    in operator logs instead of silently making every expert trainable.
+    """
+    for pattern in _EXPERT_NAME_PATTERNS:
+        match = pattern.search(name)
+        if match:
+            idx = int(match.group(1))
+            if 0 <= idx < num_experts:
+                return idx
+            # Index outside the configured expert range — caller's
+            # num_experts is wrong, or the regex caught a non-expert
+            # field whose number happens to exceed the count.  Surface a
+            # single warning per (num_experts) so an operator with a
+            # mis-configured count notices instead of silently ending up
+            # with every expert trainable.
+            sentinel = f"_OUT_OF_RANGE_{num_experts}_"
+            if sentinel not in _LOGGED_UNKNOWN_EXPERT_NAMES:
+                _LOGGED_UNKNOWN_EXPERT_NAMES.add(sentinel)
+                logger.warning(
+                    "Expert index %d in %r exceeds configured num_experts=%d. "
+                    "Either the model's expert count was misread or this is a "
+                    "non-expert field whose suffix happens to be numeric.",
+                    idx,
+                    name,
+                    num_experts,
+                )
+            return None
+    if "expert" in name.lower() and "_UNKNOWN_EXPERT_LAYOUT_" not in _LOGGED_UNKNOWN_EXPERT_NAMES:
+        _LOGGED_UNKNOWN_EXPERT_NAMES.add("_UNKNOWN_EXPERT_LAYOUT_")
+        logger.info(
+            "Unrecognized MoE expert parameter naming: %r — falling back to "
+            "trainable. Add a regex to forgelm.model._EXPERT_NAME_PATTERNS "
+            "to teach the resolver about this architecture.",
+            name,
+        )
     return None
 
 

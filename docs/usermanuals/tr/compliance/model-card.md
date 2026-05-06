@@ -98,7 +98,7 @@ Tam rapor `artifacts/safety_report.json`'da.
 
 ## Uyumluluk
 
-- EU AI Act: `artifacts/annex_iv.json`'da Annex IV teknik dokümantasyonu
+- EU AI Act: `artifacts/annex_iv_metadata.json`'da Annex IV teknik dokümantasyonu
 - GDPR: PII ingest'te maskelendi; eğitim verisi tanımlanabilir özne tutmaz
 - Audit log: `artifacts/audit_log.jsonl`
 

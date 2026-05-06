@@ -1,0 +1,80 @@
+# Pre-commit hooks for ForgeLM (optional, developer-installed).
+#
+# CI is the enforcement boundary: ruff and gitleaks already run as separate
+# steps in .github/workflows/ci.yml. These hooks exist purely as a local
+# ergonomic optimization for contributors who want fast feedback before push.
+#
+# Install:
+#   pip install pre-commit && pre-commit install
+#
+# Run all hooks against the whole tree:
+#   pre-commit run --all-files
+#
+# Skip a hook (e.g. when committing a known-test fixture):
+#   SKIP=gitleaks git commit -m "..."
+#
+# Versions are pinned per closure-plan-202604300906.md Faz 32.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.0
+    hooks:
+      - id: ruff
+      - id: ruff-format
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.0
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+
+  # Project-specific doc / structural guards. These run in ADVISORY mode
+  # (no --strict flag) because the strict variants walk the whole docs/
+  # tree and are too slow for an interactive pre-commit cycle. CI re-runs
+  # them with --strict in .github/workflows/ci.yml — that remains the
+  # enforcement boundary; these hooks just give contributors a fast
+  # local heads-up before push.
+  - repo: local
+    hooks:
+      - id: check-bilingual-parity
+        name: bilingual parity (advisory)
+        entry: python3 tools/check_bilingual_parity.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: check-anchor-resolution
+        name: markdown anchor resolution (advisory)
+        entry: python3 tools/check_anchor_resolution.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: check-cli-help-consistency
+        name: CLI / docs help-consistency (advisory)
+        entry: python3 tools/check_cli_help_consistency.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: check-field-descriptions
+        name: pydantic field descriptions (advisory)
+        entry: python3 tools/check_field_descriptions.py forgelm/config.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: check-site-claims
+        name: site-as-tested-surface (advisory)
+        entry: python3 tools/check_site_claims.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]

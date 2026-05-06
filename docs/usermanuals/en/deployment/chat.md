@@ -11,7 +11,7 @@ description: Sanity-check your fine-tuned model in a streaming REPL with safety 
 
 ```shell
 $ forgelm chat ./checkpoints/customer-support
-ForgeLM 0.5.2 — chat with checkpoints/customer-support
+ForgeLM 0.5.5 — chat with checkpoints/customer-support
 forgelm> how do I cancel my subscription?
 You can cancel from Settings → Billing → Cancel subscription. Your access
 continues until the end of the current billing period…
@@ -30,14 +30,10 @@ yolunu izleyebilirsiniz...
 |---|---|
 | `/reset` | Clear conversation history. |
 | `/save <path>` | Save the conversation to JSONL. |
-| `/load <path>` | Load a previous conversation. |
 | `/system <prompt>` | Set or update the system prompt. |
 | `/temperature <value>` | Set sampling temperature (0.0 to 2.0). |
-| `/top_p <value>` | Set nucleus sampling parameter. |
-| `/max_tokens <N>` | Cap response length. |
-| `/safety on|off` | Toggle Llama Guard pre/post screening. |
 | `/help` | Show this list. |
-| `/quit` or `Ctrl+D` | Exit. |
+| `/exit` or `Ctrl+D` | Exit. |
 
 ## Configuration
 
@@ -59,15 +55,17 @@ chat:
 - A HuggingFace model ID: `Qwen/Qwen2.5-7B-Instruct`
 - A GGUF file: `./model.gguf` (uses llama.cpp under the hood)
 
-For LoRA checkpoints, you can override the base model:
+For LoRA checkpoints, pass the base model as the positional argument and the adapter directory via `--adapter`:
 
 ```shell
-$ forgelm chat ./checkpoints/run/ --base "Qwen/Qwen2.5-7B"
+$ forgelm chat "Qwen/Qwen2.5-7B" --adapter ./checkpoints/run/
 ```
 
 ## Safety routing
 
-With `--safety on`, every prompt and response is screened by Llama Guard:
+> Note: A built-in `--safety` flag on `forgelm chat` is planned for v0.6.0+ Pro CLI (see [Phase 13 roadmap](#/roadmap/phase-13)). Today the screen-every-turn behaviour ships via the YAML `safety:` block (set `safety: enabled: true` and bind it to the same chat session through your runner); the snippet below illustrates the planned `--safety` UX as preview output, NOT as a runnable v0.5.5 command.
+
+With `safety: enabled: true` in your YAML config (or under the planned v0.6.0+ `--safety on` flag, illustrated for preview only below), every prompt and response is screened by Llama Guard:
 
 ```text
 forgelm> [adversarial prompt]
@@ -97,10 +95,10 @@ To start fresh: `/reset`.
 ```shell
 forgelm> /save sessions/qa-1.jsonl
 [saved 6 turns to sessions/qa-1.jsonl]
-
-forgelm> /load sessions/qa-1.jsonl
-[loaded 6 turns; ready to continue]
 ```
+
+The saved JSONL is replayable by feeding it back through a fresh
+session's prompt history (replay tooling is roadmapped for v0.6.0+ Pro CLI).
 
 Sessions are useful for:
 - Reproducing a bug you found during testing.
@@ -108,6 +106,8 @@ Sessions are useful for:
 - Comparing two model versions on the same conversation.
 
 ## Comparing two models
+
+> Note: The `chat-compare` subcommand is planned for v0.6.0+ Pro CLI tier (see [Phase 13 roadmap](#/roadmap/phase-13)). Today the same comparison runs through `forgelm --benchmark-only` against each checkpoint and a downstream judge config; the snippet below previews the dedicated UX.
 
 ```shell
 $ forgelm chat-compare ./checkpoints/v1 ./checkpoints/v2 --prompts data/probes.jsonl

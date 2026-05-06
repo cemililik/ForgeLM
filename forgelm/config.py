@@ -1,6 +1,7 @@
 import logging
 import os
-from typing import Any, Dict, List, Literal, Optional
+import warnings
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -13,8 +14,8 @@ class MoeConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    quantize_experts: bool = False  # quantize inactive experts for VRAM savings
-    experts_to_train: str = "all"  # "all" or comma-separated expert indices
+    quantize_experts: bool = Field(default=False, description="Quantize inactive experts for VRAM savings.")
+    experts_to_train: str = Field(default="all", description="`all` or comma-separated expert indices to train.")
 
 
 class MultimodalConfig(BaseModel):
@@ -22,9 +23,9 @@ class MultimodalConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
-    image_column: str = "image"  # column name for image paths/URLs
-    text_column: str = "text"  # column name for text/captions
+    enabled: bool = Field(default=False, description="Enable VLM multimodal fine-tuning path.")
+    image_column: str = Field(default="image", description="Dataset column name for image paths or URLs.")
+    text_column: str = Field(default="text", description="Dataset column name for text or captions.")
 
 
 class MergeConfig(BaseModel):
@@ -32,27 +33,54 @@ class MergeConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
-    method: Literal["ties", "dare", "slerp", "linear"] = "ties"
-    models: List[Dict[str, Any]] = []  # list of {path, weight} dicts
-    output_dir: str = "./merged_model"
+    enabled: bool = Field(default=False, description="Enable post-training model merging via mergekit.")
+    method: Literal["ties", "dare", "slerp", "linear"] = Field(
+        default="ties",
+        description="Merge algorithm: `ties` (TIES-merging), `dare` (DARE), `slerp` (spherical interpolation), `linear` (weighted average).",
+    )
+    models: List[Dict[str, Any]] = Field(
+        default=[],
+        description="List of `{path, weight}` dicts naming the source models to merge.",
+    )
+    output_dir: str = Field(default="./merged_model", description="Directory to write the merged model into.")
 
 
 class ModelConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name_or_path: str
-    max_length: int = 2048
-    load_in_4bit: bool = True
-    backend: Literal["transformers", "unsloth"] = "transformers"
-    trust_remote_code: bool = False  # Security: disabled by default for enterprise safety
-    offline: bool = False  # Air-gapped mode: no HF Hub calls, local models/datasets only
-    moe: Optional[MoeConfig] = None  # MoE-specific settings
-    multimodal: Optional[MultimodalConfig] = None  # VLM fine-tuning settings
-    # Optional advanced bitsandbytes knobs (Transformers backend)
-    bnb_4bit_use_double_quant: bool = True
-    bnb_4bit_quant_type: Literal["nf4", "fp4"] = "nf4"
-    bnb_4bit_compute_dtype: str = "auto"  # "auto" | "bfloat16" | "float16" | "float32"
+    name_or_path: str = Field(description="HuggingFace Hub repo ID or local path to the base model.")
+    max_length: int = Field(default=2048, description="Tokenizer/context max sequence length used during training.")
+    load_in_4bit: bool = Field(default=True, description="Load the model in 4-bit NF4 quantisation (QLoRA path).")
+    backend: Literal["transformers", "unsloth"] = Field(
+        default="transformers",
+        description="Model backend: `transformers` (HF stock) or `unsloth` (Linux + CUDA only, faster).",
+    )
+    trust_remote_code: bool = Field(
+        default=False,
+        description="Allow execution of model-bundled code.  Security: disabled by default for enterprise safety; set true only for models that explicitly require it.",
+    )
+    offline: bool = Field(
+        default=False,
+        description="Air-gapped mode: refuse HF Hub network calls.  Models/datasets/extras must be available locally.",
+    )
+    moe: Optional[MoeConfig] = Field(
+        default=None, description="MoE-specific settings (only consulted on MoE checkpoints)."
+    )
+    multimodal: Optional[MultimodalConfig] = Field(
+        default=None, description="VLM fine-tuning settings (only consulted for image-text models)."
+    )
+    bnb_4bit_use_double_quant: bool = Field(
+        default=True,
+        description="bitsandbytes: enable double-quantisation for the 4-bit codebook (small VRAM win).",
+    )
+    bnb_4bit_quant_type: Literal["nf4", "fp4"] = Field(
+        default="nf4",
+        description="bitsandbytes 4-bit quantisation scheme: `nf4` (recommended) or `fp4`.",
+    )
+    bnb_4bit_compute_dtype: str = Field(
+        default="auto",
+        description="bitsandbytes 4-bit compute dtype: `auto` | `bfloat16` | `float16` | `float32`.  `float32` negates most VRAM savings.",
+    )
 
     @model_validator(mode="after")
     def _warn_float32_qlora(self):
@@ -71,15 +99,32 @@ class ModelConfig(BaseModel):
 class LoraConfigModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    r: int = 8
-    alpha: int = 16
-    dropout: float = 0.1
-    bias: str = "none"
-    method: Literal["lora", "dora", "pissa", "rslora"] = "lora"
-    use_dora: bool = False  # kept for backward compat; method="dora" also works
-    use_rslora: bool = False  # rank-stabilized LoRA for high ranks (r>64)
-    target_modules: List[str] = ["q_proj", "v_proj"]
-    task_type: str = "CAUSAL_LM"
+    r: int = Field(default=8, description="LoRA rank: dimension of the low-rank update matrices.")
+    alpha: int = Field(default=16, description="LoRA scaling factor (typically `2 * r`).")
+    dropout: float = Field(default=0.1, description="Dropout rate applied to the LoRA update.")
+    bias: Literal["none", "all", "lora_only"] = Field(
+        default="none",
+        description="Which bias parameters to train: `none` (no biases), `all`, or `lora_only` (LoRA-injected layers only).",
+    )
+    method: Literal["lora", "dora", "pissa", "rslora"] = Field(
+        default="lora",
+        description="PEFT method: `lora` (standard), `dora` (weight-decomposed), `pissa` (singular value initialised), `rslora` (rank-stabilised).",
+    )
+    use_dora: bool = Field(
+        default=False,
+        description='Deprecated boolean shortcut for `method="dora"`; kept for backward compatibility.',
+    )
+    use_rslora: bool = Field(
+        default=False,
+        description='Deprecated boolean shortcut for `method="rslora"`; rank-stabilised LoRA for high ranks (r>64).',
+    )
+    target_modules: List[str] = Field(
+        default=["q_proj", "v_proj"],
+        description="Module-name fragments LoRA is injected into (typically attention projections).",
+    )
+    task_type: str = Field(
+        default="CAUSAL_LM", description="PEFT task type label (passed through to the PEFT library)."
+    )
 
     @model_validator(mode="after")
     def _normalize_peft_method(self):
@@ -105,29 +150,57 @@ class TrainingConfig(BaseModel):
     # canonical name.
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    output_dir: str = "./checkpoints"
-    final_model_dir: str = "final_model"
-    merge_adapters: bool = False
-    trainer_type: Literal["sft", "orpo", "dpo", "simpo", "kto", "grpo"] = "sft"
-    max_steps: int = -1  # -1 = use num_train_epochs; positive value overrides epochs
-    num_train_epochs: int = 3
-    per_device_train_batch_size: int = 4
-    gradient_accumulation_steps: int = 2
-    learning_rate: float = 2e-5
-    warmup_ratio: float = 0.1
-    weight_decay: float = 0.01
-    eval_steps: int = 200
-    save_steps: int = 200
-    save_total_limit: int = 3
-    packing: bool = False
-    early_stopping_patience: int = 3
-    # --- Alignment trainer parameters ---
-    orpo_beta: float = 0.1  # ORPO odds ratio weight
-    dpo_beta: float = 0.1  # DPO temperature parameter
-    simpo_gamma: float = 0.5  # SimPO margin term
-    simpo_beta: float = 2.0  # SimPO scaling parameter
-    kto_beta: float = 0.1  # KTO loss parameter
-    grpo_num_generations: int = 4  # GRPO: number of responses to generate per prompt
+    output_dir: str = Field(
+        default="./checkpoints", description="Directory for intermediate checkpoints + audit log + compliance bundle."
+    )
+    final_model_dir: str = Field(
+        default="final_model", description="Subdirectory of `output_dir` where the final promoted model lands."
+    )
+    merge_adapters: bool = Field(
+        default=False,
+        description="When SFT finishes, merge LoRA adapters into the base model (writes a full-weight model).",
+    )
+    trainer_type: Literal["sft", "orpo", "dpo", "simpo", "kto", "grpo"] = Field(
+        default="sft",
+        description="Alignment paradigm: `sft` (supervised), `orpo`, `dpo`, `simpo`, `kto`, or `grpo`.",
+    )
+    max_steps: int = Field(
+        default=-1, description="Hard step cap; `-1` = use `num_train_epochs`, positive value overrides epochs."
+    )
+    num_train_epochs: int = Field(
+        default=3, description="Number of training epochs (only consulted when `max_steps == -1`)."
+    )
+    per_device_train_batch_size: int = Field(
+        default=4,
+        description="Micro-batch size per GPU.  Multiply by `gradient_accumulation_steps` × world size for effective batch.",
+    )
+    gradient_accumulation_steps: int = Field(
+        default=2, description="Number of micro-batches to accumulate before each optimiser step."
+    )
+    learning_rate: float = Field(
+        default=2e-5, description="Peak learning rate.  LoRA / QLoRA usually tolerates 2e-4; full-finetune wants 2e-5."
+    )
+    warmup_ratio: float = Field(
+        default=0.1, description="Fraction of total steps spent warming up the learning rate from 0 → peak."
+    )
+    weight_decay: float = Field(default=0.01, description="L2 weight-decay coefficient applied by the optimiser.")
+    eval_steps: int = Field(default=200, description="Run validation every N optimiser steps.")
+    save_steps: int = Field(default=200, description="Write a checkpoint every N optimiser steps.")
+    save_total_limit: int = Field(default=3, description="Retain at most N checkpoints (oldest evicted first).")
+    packing: bool = Field(
+        default=False, description="Pack short sequences into one to maximise GPU compute utilisation."
+    )
+    early_stopping_patience: int = Field(
+        default=3, description="Stop training after N evals without validation-loss improvement."
+    )
+    orpo_beta: float = Field(default=0.1, description="ORPO odds-ratio weight (alignment paradigm parameter).")
+    dpo_beta: float = Field(default=0.1, description="DPO temperature parameter.")
+    simpo_gamma: float = Field(default=0.5, description="SimPO margin term.")
+    simpo_beta: float = Field(default=2.0, description="SimPO scaling parameter.")
+    kto_beta: float = Field(default=0.1, description="KTO loss parameter.")
+    grpo_num_generations: int = Field(
+        default=4, description="GRPO: number of responses to generate per prompt during rollout."
+    )
     # TRL >=0.12 renamed `max_new_tokens` to `max_completion_length` on GRPOConfig.
     # We mirror the TRL spelling, but accept the legacy name via Pydantic alias
     # so existing YAML configs and templates keep working without edits.
@@ -136,39 +209,77 @@ class TrainingConfig(BaseModel):
         alias="grpo_max_new_tokens",
         description="GRPO: max tokens per generated completion (TRL field name).",
     )
-    grpo_reward_model: Optional[str] = (
-        # GRPO: HF model path for reward scoring. When None, the trainer wires
-        # `combined_format_length_reward` as a baseline (always-on, gradient-rich
-        # format + length shaping signal). If the dataset additionally carries a
-        # `gold_answer` field (see the grpo-math template), a regex correctness
-        # reward is appended for additive scoring — TRL sums multiple reward funcs.
-        None
+    grpo_reward_model: Optional[str] = Field(
+        default=None,
+        description=(
+            "GRPO: HF model path for reward scoring.  When None, the trainer wires "
+            "`combined_format_length_reward` as a baseline (always-on, gradient-rich "
+            "format + length shaping signal).  If the dataset additionally carries a "
+            "`gold_answer` field (see the grpo-math template), a regex correctness "
+            "reward is appended for additive scoring — TRL sums multiple reward funcs."
+        ),
     )
-    # --- GaLore (optimizer-level memory optimization, alternative to LoRA) ---
-    galore_enabled: bool = False
-    galore_optim: str = "galore_adamw"  # galore_adamw, galore_adamw_8bit, galore_adafactor, + _layerwise variants
-    galore_rank: int = 128  # Low-rank subspace dimension for gradient projection
-    galore_update_proj_gap: int = 200  # Steps between SVD re-computations
-    galore_scale: float = 0.25  # Gradient scaling factor (analogous to LoRA alpha)
-    galore_proj_type: str = "std"  # "std", "reverse_std", "right", "left", "full"
-    galore_target_modules: Optional[List[str]] = None  # Regex list; None = auto [r".*.attn.*", r".*.mlp.*"]
-    # --- Long-context optimizations ---
-    rope_scaling: Optional[Dict[str, Any]] = (
-        None  # RoPE scaling config: {"type": "linear"|"dynamic"|"yarn"|"longrope", "factor": 4.0}
+    galore_enabled: bool = Field(
+        default=False, description="GaLore: enable optimizer-level memory optimisation (alternative to LoRA)."
     )
-    neftune_noise_alpha: Optional[float] = (
-        None  # NEFTune: add noise to embeddings (5.0 is a common value, improves quality)
+    galore_optim: Literal[
+        "galore_adamw",
+        "galore_adamw_8bit",
+        "galore_adafactor",
+        "galore_adamw_layerwise",
+        "galore_adamw_8bit_layerwise",
+        "galore_adafactor_layerwise",
+    ] = Field(
+        default="galore_adamw",
+        description="GaLore optimiser variant.  `_8bit` halves optimiser-state VRAM; `_layerwise` cuts peak by recomputing per-layer.",
     )
-    sliding_window_attention: Optional[int] = None  # Override model's sliding window size (e.g. 4096 for Mistral)
-    sample_packing: bool = False  # Pack multiple short sequences into one (saves compute, requires packing=true)
-    # --- OOM recovery ---
-    oom_recovery: bool = False  # Auto-halve batch size on CUDA OOM and retry
-    oom_recovery_min_batch_size: int = 1  # Stop retrying when batch size reaches this value
-    # --- Tracking ---
-    report_to: Literal["tensorboard", "wandb", "mlflow", "none"] = "tensorboard"
-    run_name: Optional[str] = None  # W&B/MLflow run name; auto-generated if None
-    # --- Cost estimation ---
-    gpu_cost_per_hour: Optional[float] = None  # $/hour for GPU; None = auto-detect from known GPUs
+    galore_rank: int = Field(default=128, description="GaLore: low-rank subspace dimension for gradient projection.")
+    galore_update_proj_gap: int = Field(
+        default=200, description="GaLore: number of steps between SVD re-computations of the projection."
+    )
+    galore_scale: float = Field(default=0.25, description="GaLore: gradient scaling factor (analogous to LoRA alpha).")
+    galore_proj_type: Literal["std", "reverse_std", "right", "left", "full"] = Field(
+        default="std",
+        description="GaLore projection type.  `std` is the documented default; `full` disables projection (debug only).",
+    )
+    galore_target_modules: Optional[List[str]] = Field(
+        default=None,
+        description='GaLore target-module regexes.  `None` falls back to `[r".*.attn.*", r".*.mlp.*"]`.',
+    )
+    rope_scaling: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "RoPE scaling config for long-context fine-tuning, e.g. "
+            '`{"type": "linear"|"dynamic"|"yarn"|"longrope", "factor": 4.0}`.'
+        ),
+    )
+    neftune_noise_alpha: Optional[float] = Field(
+        default=None,
+        description="NEFTune: add Gaussian noise to embeddings during training (5.0 is a common value; improves SFT quality).",
+    )
+    sliding_window_attention: Optional[int] = Field(
+        default=None,
+        description="Override the model's sliding-window-attention size (e.g. 4096 for Mistral).  None = use the model default.",
+    )
+    sample_packing: bool = Field(
+        default=False,
+        description="Pack multiple short sequences into one micro-batch slot.  Requires `packing=true`; saves compute on length-skewed corpora.",
+    )
+    oom_recovery: bool = Field(
+        default=False, description="Auto-halve `per_device_train_batch_size` on CUDA OOM and retry."
+    )
+    oom_recovery_min_batch_size: int = Field(
+        default=1, description="Stop OOM retry once batch size reaches this floor; raise instead."
+    )
+    report_to: Literal["tensorboard", "wandb", "mlflow", "none"] = Field(
+        default="tensorboard",
+        description="Experiment-tracking backend.  `wandb` / `mlflow` require the `[tracking]` extra.",
+    )
+    run_name: Optional[str] = Field(default=None, description="W&B / MLflow run name.  Auto-generated when None.")
+    gpu_cost_per_hour: Optional[float] = Field(
+        default=None,
+        description="USD per hour for the training GPU.  None = auto-detect from known GPUs (used by the cost-estimation report).",
+    )
 
 
 class DistributedConfig(BaseModel):
@@ -176,15 +287,30 @@ class DistributedConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    strategy: Optional[str] = None  # values: deepspeed, fsdp, or None for single-GPU
-    # --- DeepSpeed ---
-    deepspeed_config: Optional[str] = None  # path to DS JSON or preset name: "zero2", "zero3", "zero3_offload"
-    # --- FSDP ---
-    fsdp_strategy: Literal["full_shard", "shard_grad_op", "no_shard", "hybrid_shard"] = "full_shard"
-    fsdp_auto_wrap: bool = True  # auto wrap transformer layers
-    fsdp_offload: bool = False  # offload parameters to CPU
-    fsdp_backward_prefetch: str = "backward_pre"  # "backward_pre" or "backward_post"
-    fsdp_state_dict_type: str = "FULL_STATE_DICT"  # "FULL_STATE_DICT" or "SHARDED_STATE_DICT"
+    strategy: Optional[str] = Field(
+        default=None,
+        description="Distributed strategy: `deepspeed`, `fsdp`, or `None` for single-GPU (no distributed wrapping).",
+    )
+    deepspeed_config: Optional[str] = Field(
+        default=None,
+        description="DeepSpeed config: filesystem path to a DS JSON OR preset name (`zero2`, `zero3`, `zero3_offload`).",
+    )
+    fsdp_strategy: Literal["full_shard", "shard_grad_op", "no_shard", "hybrid_shard"] = Field(
+        default="full_shard",
+        description="FSDP sharding strategy.  `full_shard` is the production default; `hybrid_shard` for multi-node intra-node sharding.",
+    )
+    fsdp_auto_wrap: bool = Field(default=True, description="FSDP: auto-wrap transformer layers (recommended).")
+    fsdp_offload: bool = Field(
+        default=False, description="FSDP: offload parameters to CPU between forward and backward (slower, less VRAM)."
+    )
+    fsdp_backward_prefetch: Literal["backward_pre", "backward_post"] = Field(
+        default="backward_pre",
+        description="FSDP backward-prefetch policy.  `backward_pre` overlaps comm + compute; `backward_post` is more memory-conservative.",
+    )
+    fsdp_state_dict_type: Literal["FULL_STATE_DICT", "SHARDED_STATE_DICT"] = Field(
+        default="FULL_STATE_DICT",
+        description="FSDP checkpoint format.  `FULL_STATE_DICT` consolidates to rank 0 (HF-compatible); `SHARDED_STATE_DICT` keeps shards separate.",
+    )
 
 
 class DataGovernanceConfig(BaseModel):
@@ -192,23 +318,47 @@ class DataGovernanceConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    collection_method: str = ""
-    annotation_process: str = ""
-    known_biases: str = ""
-    personal_data_included: bool = False
-    dpia_completed: bool = False  # Data Protection Impact Assessment
+    collection_method: str = Field(
+        default="", description="Article 10(2)(b): how the training data was collected (free-text)."
+    )
+    annotation_process: str = Field(
+        default="", description="Article 10(2)(b): annotation / labelling methodology (free-text)."
+    )
+    known_biases: str = Field(
+        default="", description="Article 10(2)(f): documented data biases the operator is aware of."
+    )
+    personal_data_included: bool = Field(
+        default=False,
+        description="Article 10(5): whether the training data contains personal data of identifiable subjects.",
+    )
+    dpia_completed: bool = Field(
+        default=False, description="Article 35 GDPR: Data Protection Impact Assessment completed for this dataset."
+    )
 
 
 class DataConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    dataset_name_or_path: str
-    extra_datasets: Optional[List[str]] = None  # additional datasets to mix in
-    mix_ratio: Optional[List[float]] = None  # weight per dataset (primary + extras); uniform if None
-    shuffle: bool = True
-    clean_text: bool = True
-    add_eos: bool = True
-    governance: Optional[DataGovernanceConfig] = None  # Art. 10: data governance metadata
+    dataset_name_or_path: str = Field(
+        description="Primary dataset: HuggingFace Hub ID, local JSONL path, or directory of JSONL files."
+    )
+    extra_datasets: Optional[List[str]] = Field(
+        default=None, description="Additional datasets to mix in alongside the primary."
+    )
+    mix_ratio: Optional[List[float]] = Field(
+        default=None,
+        description="Per-dataset weight (primary + extras).  Uniform when None; values must be non-negative and not all zero.",
+    )
+    shuffle: bool = Field(default=True, description="Shuffle the merged corpus before splitting train/validation.")
+    clean_text: bool = Field(
+        default=True, description="Strip excessive whitespace + control characters before tokenisation."
+    )
+    add_eos: bool = Field(
+        default=True, description="Append the EOS token to every example so generation knows where to stop."
+    )
+    governance: Optional[DataGovernanceConfig] = Field(
+        default=None, description="EU AI Act Article 10 data governance metadata."
+    )
 
     @field_validator("mix_ratio")
     @classmethod
@@ -226,13 +376,20 @@ class BenchmarkConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
-    tasks: List[str] = []  # e.g. ["arc_easy", "hellaswag", "mmlu"]
-    num_fewshot: Optional[int] = None  # task default if None
-    batch_size: str = "auto"  # "auto" or integer string
-    limit: Optional[int] = None  # limit samples per task (useful for quick checks)
-    output_dir: Optional[str] = None  # save benchmark results JSON; defaults to training output_dir
-    min_score: Optional[float] = None  # minimum average accuracy; triggers revert if below
+    enabled: bool = Field(default=False, description="Enable lm-evaluation-harness benchmark scoring after training.")
+    tasks: List[str] = Field(default=[], description='lm-eval task names (e.g. `["arc_easy", "hellaswag", "mmlu"]`).')
+    num_fewshot: Optional[int] = Field(
+        default=None, description="Few-shot example count.  None = use the task's documented default."
+    )
+    batch_size: str = Field(default="auto", description='lm-eval batch size: `"auto"` or an integer string.')
+    limit: Optional[int] = Field(default=None, description="Cap samples per task for quick checks.  None = full task.")
+    output_dir: Optional[str] = Field(
+        default=None, description="Where to save benchmark results JSON.  Defaults to the training output_dir."
+    )
+    min_score: Optional[float] = Field(
+        default=None,
+        description="Minimum average accuracy.  When set + auto_revert=True, falling below triggers an auto-revert to the prior model.",
+    )
 
 
 class SafetyConfig(BaseModel):
@@ -240,18 +397,38 @@ class SafetyConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
-    classifier: str = "meta-llama/Llama-Guard-3-8B"  # safety classifier model
-    test_prompts: str = "safety_prompts.jsonl"  # adversarial test prompts file
-    max_safety_regression: float = 0.05  # max allowed unsafe ratio (0.0–1.0)
-    # Phase 9: Advanced scoring
-    scoring: str = "binary"  # "binary" (default) or "confidence_weighted"
-    min_safety_score: Optional[float] = (
-        None  # weighted score threshold (0.0-1.0), used when scoring="confidence_weighted"
+    enabled: bool = Field(default=False, description="Enable post-training safety evaluation.")
+    classifier: str = Field(
+        default="meta-llama/Llama-Guard-3-8B", description="Harm classifier model (HF Hub ID or local path)."
     )
-    min_classifier_confidence: float = 0.7  # flag responses below this confidence
-    track_categories: bool = False  # parse Llama Guard S1-S14 harm categories
-    severity_thresholds: Optional[Dict[str, float]] = None  # per-severity limits: {"critical": 0, "high": 0.01}
+    test_prompts: str = Field(
+        default="safety_prompts.jsonl", description="Path to JSONL file with adversarial test prompts."
+    )
+    max_safety_regression: float = Field(
+        default=0.05,
+        description="Maximum allowed unsafe-response ratio (0.0–1.0).  Auto-revert triggers when exceeded.",
+    )
+    scoring: Literal["binary", "confidence_weighted"] = Field(
+        default="binary",
+        description="Scoring scheme: `binary` (safe/unsafe per response) or `confidence_weighted` (Llama Guard probability).",
+    )
+    min_safety_score: Optional[float] = Field(
+        default=None,
+        description='Weighted score threshold (0.0–1.0); used when `scoring="confidence_weighted"`.',
+    )
+    min_classifier_confidence: float = Field(
+        default=0.7, description="Flag responses with classifier confidence below this floor for human review."
+    )
+    track_categories: bool = Field(
+        default=False, description="Parse Llama Guard S1-S14 harm categories per-response and surface in the report."
+    )
+    severity_thresholds: Optional[Dict[str, float]] = Field(
+        default=None,
+        description='Per-severity limits: e.g. `{"critical": 0, "high": 0.01}`.  Auto-revert when exceeded.',
+    )
+    batch_size: int = Field(
+        default=8, ge=1, description="Batched generation size for safety evaluation.  1 disables batching."
+    )
 
 
 class JudgeConfig(BaseModel):
@@ -259,24 +436,85 @@ class JudgeConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
-    judge_model: str = "gpt-4o"  # API model name or local model path
-    judge_api_key_env: Optional[str] = None  # env var name for API key; None = local judge
-    judge_api_base: Optional[str] = None
-    eval_dataset: str = "eval_prompts.jsonl"  # evaluation prompts file
-    min_score: float = 5.0  # minimum average score (1-10 scale)
+    enabled: bool = Field(default=False, description="Enable LLM-as-Judge scoring after training.")
+    judge_model: str = Field(
+        default="gpt-4o", description="Judge model: API model name (e.g. `gpt-4o`) or local model path."
+    )
+    judge_api_key_env: Optional[str] = Field(
+        default=None, description="Env var name carrying the judge API key.  None = local judge model."
+    )
+    judge_api_base: Optional[str] = Field(
+        default=None, description="Override the judge API base URL (Azure OpenAI, self-hosted vLLM, etc.)."
+    )
+    eval_dataset: str = Field(default="eval_prompts.jsonl", description="JSONL file of evaluation prompts to score.")
+    min_score: float = Field(
+        default=5.0, description="Minimum average judge score (1–10 scale) to consider the model passing."
+    )
+    batch_size: int = Field(
+        default=8,
+        ge=1,
+        description="Batched fine-tuned-model generation size during judge evaluation.  1 disables batching.",
+    )
 
 
 class EvaluationConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    auto_revert: bool = False
-    max_acceptable_loss: Optional[float] = None
-    baseline_loss: Optional[float] = None  # if not provided, computed automatically (when validation exists)
-    benchmark: Optional[BenchmarkConfig] = None  # post-training benchmark via lm-eval-harness
-    safety: Optional[SafetyConfig] = None  # post-training safety evaluation
-    llm_judge: Optional[JudgeConfig] = None  # LLM-as-Judge scoring
-    require_human_approval: bool = False  # Art. 14: pause pipeline for human review before final save
+    auto_revert: bool = Field(
+        default=False,
+        description="Restore the pre-training model on quality regression (loss / benchmark / safety threshold).",
+    )
+    max_acceptable_loss: Optional[float] = Field(
+        default=None,
+        description="Hard cap on validation loss.  When exceeded + auto_revert=True, training auto-reverts.",
+    )
+    baseline_loss: Optional[float] = Field(
+        default=None,
+        description="Pre-training baseline loss for regression detection.  Auto-computed when validation set exists.",
+    )
+    benchmark: Optional[BenchmarkConfig] = Field(
+        default=None, description="Post-training benchmark via lm-evaluation-harness."
+    )
+    safety: Optional[SafetyConfig] = Field(default=None, description="Post-training safety evaluation block.")
+    llm_judge: Optional[JudgeConfig] = Field(default=None, description="LLM-as-Judge scoring block.")
+    require_human_approval: bool = Field(
+        default=False,
+        description="Article 14: pause the pipeline for human review (stages model under `final_model.staging.<run_id>/` and exits 4).",
+    )
+    # ``final_model.staging/`` retention horizon for `forgelm reject` paths.
+    # Documented now (v0.5.5) so operators can plan their evidence-preservation
+    # policy; auto-deletion enforcement is deferred to Phase 21 (GDPR
+    # right-to-erasure) where it lands alongside the broader retention
+    # framework. Setting the value today has no runtime effect — it is
+    # surfaced in the compliance manifest so reviewers can audit the policy.
+    staging_ttl_days: int = Field(
+        default=7,
+        ge=0,
+        description=(
+            "Article 14: number of days to retain `final_model.staging/` after a "
+            "`forgelm reject` decision before scheduled cleanup. Zero means retain "
+            "indefinitely. Auto-deletion enforcement is deferred to Phase 21 "
+            "(GDPR right-to-erasure)."
+        ),
+    )
+
+
+# EU AI Act risk taxonomy — single source of truth shared by
+# ``RiskAssessmentConfig.risk_category`` and
+# ``ComplianceMetadataConfig.risk_classification`` so the two Pydantic fields
+# can never drift.  ``unacceptable`` covers Article 5 prohibited practices;
+# ``high-risk`` covers Article 6 systems requiring full Annex IV documentation;
+# ``limited-risk`` and ``minimal-risk`` cover the transparency-only and
+# unrestricted tiers; ``unknown`` is the explicit placeholder for systems that
+# have not yet been classified.  The default for both fields stays
+# ``"minimal-risk"`` so existing configs validate unchanged.
+RiskTier = Literal["unknown", "minimal-risk", "limited-risk", "high-risk", "unacceptable"]
+
+# Tiers that demand full Annex IV documentation + auto-revert + safety gates
+# under the EU AI Act.  Keep this set in lockstep with
+# ``ForgeConfig._warn_high_risk_compliance`` and the wizard prompt so the new
+# tier is reachable + enforced everywhere the old high-risk-only set was.
+_STRICT_RISK_TIERS: frozenset[str] = frozenset({"high-risk", "unacceptable"})
 
 
 class RiskAssessmentConfig(BaseModel):
@@ -284,11 +522,23 @@ class RiskAssessmentConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    intended_use: str = ""
-    foreseeable_misuse: List[str] = []
-    risk_category: Literal["high-risk", "limited-risk", "minimal-risk"] = "minimal-risk"
-    mitigation_measures: List[str] = []
-    vulnerable_groups_considered: bool = False
+    intended_use: str = Field(
+        default="", description="Article 9(2)(a): the intended purpose of the system (free-text)."
+    )
+    foreseeable_misuse: List[str] = Field(
+        default=[], description="Article 9(2)(b): reasonably-foreseeable misuse scenarios the deployer must mitigate."
+    )
+    risk_category: RiskTier = Field(
+        default="minimal-risk",
+        description="Article 6 risk tier.  `high-risk` and `unacceptable` trigger Annex IV documentation requirements.",
+    )
+    mitigation_measures: List[str] = Field(
+        default=[], description="Article 9(2)(c): operator-supplied mitigation steps (free-text list)."
+    )
+    vulnerable_groups_considered: bool = Field(
+        default=False,
+        description="Article 9(2)(b): the operator considered potential impact on vulnerable groups (children, minorities, etc.).",
+    )
 
 
 class MonitoringConfig(BaseModel):
@@ -296,12 +546,21 @@ class MonitoringConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
-    endpoint: str = ""  # monitoring system webhook URL
-    endpoint_env: Optional[str] = None  # env var name for endpoint URL
-    metrics_export: Literal["none", "prometheus", "datadog", "custom_webhook"] = "none"
-    alert_on_drift: bool = True
-    check_interval_hours: int = 24
+    enabled: bool = Field(default=False, description="Enable Article 12 post-market monitoring hooks.")
+    endpoint: str = Field(
+        default="", description="Monitoring-system webhook URL (Prometheus push gateway / Datadog / custom)."
+    )
+    endpoint_env: Optional[str] = Field(
+        default=None, description="Env var name carrying the endpoint URL (overrides `endpoint` when set)."
+    )
+    metrics_export: Literal["none", "prometheus", "datadog", "custom_webhook"] = Field(
+        default="none",
+        description="Metrics exporter: `none`, `prometheus`, `datadog`, or `custom_webhook`.",
+    )
+    alert_on_drift: bool = Field(
+        default=True, description="Emit a webhook alert when drift detector flags a regression."
+    )
+    check_interval_hours: int = Field(default=24, description="Monitoring check cadence in hours.")
 
 
 class ComplianceMetadataConfig(BaseModel):
@@ -309,13 +568,22 @@ class ComplianceMetadataConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    provider_name: str = ""
-    provider_contact: str = ""
-    system_name: str = ""
-    intended_purpose: str = ""
-    known_limitations: str = ""
-    system_version: str = ""
-    risk_classification: str = "minimal-risk"  # "high-risk", "limited-risk", "minimal-risk"
+    provider_name: str = Field(default="", description="Annex IV §1: legal-entity name of the system provider.")
+    provider_contact: str = Field(
+        default="", description="Annex IV §1: provider's regulatory point of contact (email or phone)."
+    )
+    system_name: str = Field(default="", description="Annex IV §1: human-readable system name (operator-chosen).")
+    intended_purpose: str = Field(
+        default="", description="Annex IV §1: declared intended purpose of the system (free-text)."
+    )
+    known_limitations: str = Field(
+        default="", description="Annex IV §3: documented system limitations the operator is aware of."
+    )
+    system_version: str = Field(default="", description="Annex IV §1: operator-supplied system version string.")
+    risk_classification: RiskTier = Field(
+        default="minimal-risk",
+        description="Article 6 risk tier classification (paired with `risk_assessment.risk_category`).",
+    )
 
 
 class SyntheticConfig(BaseModel):
@@ -323,21 +591,35 @@ class SyntheticConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
-    teacher_model: str = ""  # HF model path or API model name (e.g., "gpt-4", "meta-llama/Llama-3-70B")
-    teacher_backend: Literal["api", "local", "file"] = "api"
-    api_base: str = ""  # API endpoint (e.g., "https://api.openai.com/v1")
-    api_key: Optional[str] = None  # API key (prefer api_key_env for security)
-    api_key_env: Optional[str] = None  # Env var name for API key (e.g., "OPENAI_API_KEY")
-    api_delay: float = 0.5  # Seconds between API calls (rate limiting)
-    api_timeout: int = 60  # API call timeout in seconds
-    seed_file: str = ""  # Path to seed prompts file (JSONL or plain text, one per line)
-    seed_prompts: List[str] = []  # Inline seed prompts (alternative to seed_file)
-    system_prompt: str = ""  # System prompt for teacher model
-    max_new_tokens: int = 1024  # Max tokens per teacher response
-    temperature: float = 0.7  # Generation temperature
-    output_file: str = "synthetic_data.jsonl"  # Output JSONL file path
-    output_format: Literal["messages", "instruction", "chatml", "prompt_response"] = "messages"
+    enabled: bool = Field(default=False, description="Enable synthetic-data generation.")
+    teacher_model: str = Field(
+        default="", description="HF Hub ID or API model name (e.g. `gpt-4`, `meta-llama/Llama-3-70B`)."
+    )
+    teacher_backend: Literal["api", "local", "file"] = Field(
+        default="api",
+        description="Teacher backend: `api` (OpenAI/Anthropic), `local` (HF), `file` (read pre-generated JSONL).",
+    )
+    api_base: str = Field(default="", description="API endpoint (e.g. `https://api.openai.com/v1`).")
+    api_key: Optional[str] = Field(
+        default=None, description="API key.  Prefer `api_key_env` to avoid committing secrets."
+    )
+    api_key_env: Optional[str] = Field(
+        default=None, description="Env var name carrying the API key (e.g. `OPENAI_API_KEY`)."
+    )
+    api_delay: float = Field(default=0.5, description="Seconds between API calls (rate limiting).")
+    api_timeout: int = Field(default=60, description="Per-call API timeout in seconds.")
+    seed_file: str = Field(
+        default="", description="Path to seed prompts file (JSONL or plain text, one prompt per line)."
+    )
+    seed_prompts: List[str] = Field(default=[], description="Inline seed prompts (alternative to `seed_file`).")
+    system_prompt: str = Field(default="", description="System prompt prepended on every teacher call.")
+    max_new_tokens: int = Field(default=1024, description="Max tokens per teacher response.")
+    temperature: float = Field(default=0.7, description="Sampling temperature passed to the teacher.")
+    output_file: str = Field(default="synthetic_data.jsonl", description="Output JSONL file path.")
+    output_format: Literal["messages", "instruction", "chatml", "prompt_response"] = Field(
+        default="messages",
+        description="Output format: `messages` (chat-style array), `instruction` (Alpaca-style), `chatml`, or `prompt_response`.",
+    )
 
     @model_validator(mode="after")
     def _warn_direct_api_key(self):
@@ -359,26 +641,46 @@ class SyntheticConfig(BaseModel):
 class WebhookConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    url: Optional[str] = None
-    url_env: Optional[str] = None
-    notify_on_start: bool = True
-    notify_on_success: bool = True
-    notify_on_failure: bool = True
-    timeout: int = 5  # HTTP request timeout in seconds (clamped to ≥ 1s by the notifier)
-    # SSRF guard — webhooks default to public-internet destinations only.
-    # Operators that genuinely target an internal monitoring endpoint
-    # (in-cluster Slack proxy, on-prem Teams gateway) must opt in.
-    allow_private_destinations: bool = False
-    # Optional path to a custom CA bundle forwarded as `requests`'s
-    # `verify=` argument (e.g. corporate MITM CA on regulated estates).
-    # When unset, `requests` uses its bundled certifi CA store.
-    tls_ca_bundle: Optional[str] = None
+    url: Optional[str] = Field(
+        default=None,
+        description="Webhook URL (Slack / Teams / Discord / custom).  Use `url_env` to read from env to avoid committing secrets.",
+    )
+    url_env: Optional[str] = Field(
+        default=None, description="Env var name carrying the webhook URL (overrides `url` when set)."
+    )
+    notify_on_start: bool = Field(default=True, description="POST a `notify_start` event when training begins.")
+    notify_on_success: bool = Field(
+        default=True, description="POST a `notify_success` event when training completes successfully."
+    )
+    notify_on_failure: bool = Field(
+        default=True, description="POST a `notify_failure` event when training fails (any non-zero exit)."
+    )
+    timeout: int = Field(
+        default=10,
+        description=(
+            "HTTP request timeout in seconds.  Clamped to ≥ 1s by the notifier.  "
+            "Default raised to 10s in v0.5.5 (was 5s) — Slack/Teams gateway latency "
+            "spikes regularly cross 5s in production, and a webhook timeout silently "
+            "degrades the audit chain (webhook failure is best-effort)."
+        ),
+    )
+    allow_private_destinations: bool = Field(
+        default=False,
+        description="SSRF opt-in.  Webhooks default to public-internet destinations only; in-cluster Slack proxies / on-prem Teams gateways need this set.",
+    )
+    tls_ca_bundle: Optional[str] = Field(
+        default=None,
+        description="Path to a custom CA bundle forwarded as `requests`'s `verify=` argument (corporate MITM CA on regulated estates).  None = bundled certifi CA store.",
+    )
 
 
 class AuthConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    hf_token: Optional[str] = None
+    hf_token: Optional[str] = Field(
+        default=None,
+        description="HuggingFace Hub access token.  Auto-redacted from log output and serialised manifests.",
+    )
 
     def __repr__(self) -> str:
         return "AuthConfig(hf_token='***')" if self.hf_token else "AuthConfig(hf_token=None)"
@@ -391,22 +693,114 @@ class AuthConfig(BaseModel):
         return data
 
 
+class RetentionConfig(BaseModel):
+    """Phase 21 / GDPR Article 5(1)(e) storage limitation + Article 17
+    erasure horizons.
+
+    Top-level retention block (per Phase 20 design `gdpr-erasure-design`
+    §3 + closure-plan §15.5 v2.5).  All four horizons default to values
+    chosen to be compliant out of the box for typical enterprise EU AI
+    Act use:  audit logs at 5 years (Article 12 record-keeping
+    obligation × statute-of-limitations buffer), staging at 7 days
+    (operator gets one work-week to act on a `forgelm reject`),
+    ephemeral artefacts at 90 days (compliance bundle + audit reports
+    have a quarterly review cadence in most QMS), raw documents at 90
+    days (typical ingestion-window before re-running data audit).
+
+    Setting any horizon to ``0`` disables the policy for that artefact
+    kind (retain indefinitely).  ``enforce`` controls how the trainer
+    pre-flight gate reacts to violations:  ``log_only`` records a
+    notice, ``warn_on_excess`` emits a structured warning, and
+    ``block_on_excess`` aborts training with EXIT_EVAL_FAILURE so a
+    regulated CI cannot accidentally extend the retention horizon by
+    re-using a stale workspace.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    audit_log_retention_days: int = Field(
+        default=1825,
+        ge=0,
+        description=(
+            "Days to retain `audit_log.jsonl` before flagging it as overdue under Article 5(1)(e). "
+            "Default 1825 = 5 years.  Set to 0 to retain indefinitely (Article 17(3)(b) defence)."
+        ),
+    )
+    staging_ttl_days: int = Field(
+        default=7,
+        ge=0,
+        description=(
+            "Days to retain `final_model.staging.<run_id>/` after a `forgelm reject` decision before scheduled cleanup. "
+            "Set to 0 to retain indefinitely.  Replaces (and supersedes) the deprecated "
+            "`evaluation.staging_ttl_days`; both fields are accepted with identical values during the v0.5.5 → v0.6.x deprecation window."
+        ),
+    )
+    ephemeral_artefact_retention_days: int = Field(
+        default=90,
+        ge=0,
+        description=(
+            "Days to retain compliance bundles, data audit reports, and other run-scoped derived artefacts. "
+            "Set to 0 to retain indefinitely."
+        ),
+    )
+    raw_documents_retention_days: int = Field(
+        default=90,
+        ge=0,
+        description=(
+            "Days to retain ingested raw documents (PDF / DOCX / EPUB / TXT / Markdown) under "
+            "the operator's ingestion-output directory.  Set to 0 to retain indefinitely. "
+            "Closes ghost-features GH-023 (was nested as `ingestion.retention.raw_documents.ttl_days`; now top-level)."
+        ),
+    )
+    enforce: Literal["log_only", "warn_on_excess", "block_on_excess"] = Field(
+        default="log_only",
+        description=(
+            "Policy enforcement mode.  `log_only` records violations in the audit log without operator-visible output; "
+            "`warn_on_excess` adds a structured warning to stderr; `block_on_excess` aborts the trainer pre-flight with "
+            "EXIT_EVAL_FAILURE (3) so a regulated CI gate does not silently extend the retention horizon."
+        ),
+    )
+
+
 class ForgeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    model: ModelConfig
-    lora: LoraConfigModel
-    training: TrainingConfig
-    data: DataConfig
-    auth: Optional[AuthConfig] = None
-    evaluation: Optional[EvaluationConfig] = None
-    webhook: Optional[WebhookConfig] = None
-    distributed: Optional[DistributedConfig] = None
-    merge: Optional[MergeConfig] = None
-    compliance: Optional[ComplianceMetadataConfig] = None
-    risk_assessment: Optional[RiskAssessmentConfig] = None
-    monitoring: Optional[MonitoringConfig] = None
-    synthetic: Optional[SyntheticConfig] = None
+    model: ModelConfig = Field(description="Base-model + quantisation + backend block (required).")
+    lora: LoraConfigModel = Field(description="PEFT / LoRA configuration block (required).")
+    training: TrainingConfig = Field(
+        description="Trainer hyperparameters + alignment-method parameters block (required)."
+    )
+    data: DataConfig = Field(description="Dataset + governance configuration block (required).")
+    auth: Optional[AuthConfig] = Field(default=None, description="HuggingFace Hub authentication block (optional).")
+    evaluation: Optional[EvaluationConfig] = Field(
+        default=None,
+        description="Post-training evaluation block (loss / benchmark / safety / judge / human-approval gate).",
+    )
+    webhook: Optional[WebhookConfig] = Field(
+        default=None, description="Webhook notification block (Slack / Teams / Discord / custom)."
+    )
+    distributed: Optional[DistributedConfig] = Field(
+        default=None, description="DeepSpeed / FSDP multi-GPU configuration block."
+    )
+    merge: Optional[MergeConfig] = Field(default=None, description="Post-training mergekit configuration block.")
+    compliance: Optional[ComplianceMetadataConfig] = Field(
+        default=None,
+        description="Annex IV technical-documentation metadata block (provider name, system version, etc.).",
+    )
+    risk_assessment: Optional[RiskAssessmentConfig] = Field(
+        default=None,
+        description="EU AI Act Article 9 risk-management block (intended use, foreseeable misuse, risk tier).",
+    )
+    monitoring: Optional[MonitoringConfig] = Field(
+        default=None, description="EU AI Act Article 12 + 17 post-market monitoring block."
+    )
+    synthetic: Optional[SyntheticConfig] = Field(
+        default=None, description="Teacher→student synthetic-data generation block."
+    )
+    retention: Optional[RetentionConfig] = Field(
+        default=None,
+        description="Phase 21 / GDPR Article 5(1)(e) storage limitation + Article 17 erasure horizons block.",
+    )
 
     def _warn_general_consistency(self) -> None:
         """Emit warnings for the broad cross-field config inconsistencies."""
@@ -446,46 +840,137 @@ class ForgeConfig(BaseModel):
                 self.training.save_steps,
             )
 
-    def _warn_high_risk_compliance(self) -> None:
-        """EU AI Act high-risk compliance recommendations."""
-        is_high_risk = (self.risk_assessment and self.risk_assessment.risk_category == "high-risk") or (
-            self.compliance and self.compliance.risk_classification == "high-risk"
+    def _risk_tiers(self) -> Tuple[Optional[str], Optional[str]]:
+        """Return the (risk_assessment.risk_category, compliance.risk_classification) pair.
+
+        Both sibling fields share the same RiskTier Literal but are
+        independent — Pydantic does not enforce equality between them,
+        so a hand-written YAML can reach an asymmetric state where the
+        technical and compliance views disagree.  All strict-gate
+        decisions OR across both fields (F-W3FU-S-01 / F-W3FU-01
+        regression fix): if EITHER is in the strict tier, the gate
+        fires; if EITHER is ``unacceptable``, the Article 5 banner
+        fires.  ``_resolve_risk_label`` produces a *display* label for
+        log messages; the gate boolean is computed independently to
+        avoid the asymmetric-tier silent bypass.
+        """
+        ra = self.risk_assessment.risk_category if self.risk_assessment else None
+        cm = self.compliance.risk_classification if self.compliance else None
+        return ra, cm
+
+    def _resolve_risk_label(self) -> Optional[str]:
+        """Return the active risk label for log messages.
+
+        Display-only — used to fill the ``%r`` slot in the auto_revert
+        warning and the ``ConfigError`` raise.  See ``_risk_tiers`` /
+        ``_is_strict_tier`` / ``_is_unacceptable`` for the actual gate
+        logic, which OR's across both sibling fields rather than
+        picking one.
+        """
+        ra, cm = self._risk_tiers()
+        # When the two siblings disagree, prefer whichever side carries
+        # a strict tier so the warning message names the strict label
+        # the operator needs to address.
+        if ra in _STRICT_RISK_TIERS:
+            return ra
+        if cm in _STRICT_RISK_TIERS:
+            return cm
+        return ra or cm
+
+    def _is_strict_tier(self) -> bool:
+        """True iff EITHER sibling field is in ``_STRICT_RISK_TIERS``.
+
+        The OR-across-fields semantics matches the pre-Wave-3 behaviour
+        and is required so that an asymmetric config (e.g.
+        ``risk_assessment.risk_category="limited-risk"`` AND
+        ``compliance.risk_classification="high-risk"``) cannot silently
+        bypass the F-compliance-110 strict gate.
+        """
+        ra, cm = self._risk_tiers()
+        return ra in _STRICT_RISK_TIERS or cm in _STRICT_RISK_TIERS
+
+    def _is_unacceptable(self) -> bool:
+        """True iff EITHER sibling field is ``"unacceptable"``.
+
+        Article 5 prohibited-practice banner fires whenever either view
+        marks the deployment unacceptable — disagreement between the
+        technical and compliance views must NOT silence the notice.
+        """
+        ra, cm = self._risk_tiers()
+        return ra == "unacceptable" or cm == "unacceptable"
+
+    def _warn_unacceptable_practice(self) -> None:
+        """Article 5 — prohibited-practices banner.
+
+        Louder operator notice on top of the auto_revert nudge — the
+        deployment itself is unlawful in the EU regardless of how well
+        the safety gates are wired up.
+        """
+        logger.warning(
+            "Risk classification 'unacceptable' corresponds to EU AI Act Article 5 prohibited "
+            "practices. ForgeLM will not refuse the run, but deploying such a system inside the "
+            "EU is unlawful — confirm operator intent before continuing."
         )
-        if not is_high_risk:
-            return
-        if not self.evaluation or not self.evaluation.auto_revert:
-            logger.warning(
-                "High-risk AI classification requires evaluation.auto_revert: true "
-                "for EU AI Act compliance. Safety gates should be enabled."
-            )
+
+    def _enforce_safety_gate_for_strict_tier(self, label: Optional[str]) -> None:
+        """Article 9 — risk management evidence requires safety eval enabled.
+
+        Wave 3 / Faz 28 (F-compliance-110): a high-risk / unacceptable
+        classification REQUIRES an enabled safety evaluation gate to
+        back the EU AI Act Article 9 risk-management claim.  Earlier
+        versions only emitted a warning, which let regulated runs
+        ship Annex IV bundles whose risk-management section was not
+        actually evidenced.  v0.5.5 escalates the warning to a hard
+        ``ConfigError``: operators who genuinely want a sandboxed run
+        without safety eval must lower the risk_classification (e.g.
+        to ``limited-risk``) or enable ``evaluation.safety``.
+        """
         safety = self.evaluation.safety if self.evaluation else None
         if not safety or not safety.enabled:
-            logger.warning(
-                "High-risk AI classification: safety evaluation is strongly recommended. "
-                "Set evaluation.safety.enabled: true."
+            raise ConfigError(
+                f"Risk classification {label!r} requires evaluation.safety.enabled: true "
+                "(EU AI Act Article 9 risk-management evidence cannot be derived "
+                "from a disabled safety eval).  Either enable safety evaluation "
+                "or lower the risk_classification to a non-strict tier."
             )
-        elif not safety.track_categories:
+        if not safety.track_categories:
             logger.warning(
                 "High-risk AI: harm category tracking (track_categories: true) is recommended "
                 "for detailed EU AI Act compliance documentation."
             )
 
+    def _warn_high_risk_compliance(self) -> None:
+        """EU AI Act compliance recommendations for strict risk tiers.
+
+        ``unacceptable`` (Article 5 prohibited practices) is treated at least
+        as strictly as ``high-risk`` for ForgeLM's purposes — the gate exists
+        to nudge the operator into running with auto-revert + safety eval,
+        and ``unacceptable`` should never get *less* gating than ``high-risk``
+        because the underlying use case is not allowed at all under the Act.
+
+        Strict-tier detection ORs across both sibling fields
+        (``risk_assessment.risk_category`` and
+        ``compliance.risk_classification``) — see ``_is_strict_tier``
+        for rationale.  The display label is whichever sibling carries
+        a strict tier; this is NOT the gate decision (the gate is the
+        OR), only the message text.
+        """
+        if not self._is_strict_tier():
+            return
+        label = self._resolve_risk_label()
+        if not self.evaluation or not self.evaluation.auto_revert:
+            logger.warning(
+                "Risk classification %r requires evaluation.auto_revert: true "
+                "for EU AI Act compliance. Safety gates should be enabled.",
+                label,
+            )
+        if self._is_unacceptable():
+            self._warn_unacceptable_practice()
+        self._enforce_safety_gate_for_strict_tier(label)
+
     def _validate_galore(self) -> None:
         if not self.training.galore_enabled:
             return
-        valid_galore_optims = {
-            "galore_adamw",
-            "galore_adamw_8bit",
-            "galore_adafactor",
-            "galore_adamw_layerwise",
-            "galore_adamw_8bit_layerwise",
-            "galore_adafactor_layerwise",
-        }
-        if self.training.galore_optim not in valid_galore_optims:
-            raise ValueError(
-                f"Invalid galore_optim: '{self.training.galore_optim}'. "
-                f"Must be one of: {', '.join(sorted(valid_galore_optims))}"
-            )
         if self.lora.r > 0:
             logger.info(
                 "GaLore (gradient rank=%d) enabled alongside LoRA (adapter rank=%d). "
@@ -529,7 +1014,129 @@ class ForgeConfig(BaseModel):
         # bespoke `_validate_trainer_type` runtime check became redundant.
         self._validate_galore()
         self._validate_distributed()
+        self._reconcile_staging_ttl_days()
         return self
+
+    def _reconcile_staging_ttl_days(self) -> None:
+        """Phase 21 deprecation cadence:  reconcile the legacy
+        ``evaluation.staging_ttl_days`` against the canonical
+        ``retention.staging_ttl_days``.
+
+        Per Phase 20 design §3.1 v2 (and gdpr-erasure-design L75-81):
+
+        - When **only** ``evaluation.staging_ttl_days`` is set →
+          alias-forward to ``retention.staging_ttl_days`` (creating
+          ``retention`` block if missing) and emit a single
+          ``DeprecationWarning`` naming the new field + the v0.7.0
+          removal target.
+        - When **only** ``retention.staging_ttl_days`` is set → no
+          warning; canonical path.
+        - When **both** are set with **identical** values → emit
+          ``DeprecationWarning`` for the deprecated field; the canonical
+          ``retention.staging_ttl_days`` value wins; operator's intent
+          is unambiguous.
+        - When **both** are set with **different** values → raise
+          ``ConfigError`` at validation time naming both keys, both
+          values, and instructing the operator to remove the deprecated
+          entry.  Silent winner = wrong winner.
+
+        Wave 2b Round-4 review F-W2B-02 fix: Pydantic v2 exposes
+        ``model_fields_set`` exactly to distinguish "operator wrote
+        the field in YAML" from "Pydantic filled the default".  We
+        consult that set so an operator who follows the documented
+        deprecation cadence (delete the deprecated key, add the
+        canonical block) is not refused with ``ConfigError`` because
+        the deprecated default-7 was re-filled.  The previous
+        "value differs from default" heuristic mis-handled the
+        explicit-default + canonical-different scenario.
+        """
+        # Bind the optional sub-models locally so the type narrowing is
+        # visible to static analysers (SonarCloud S2259) and the field-
+        # explicitness checks below cannot race against another mutator.
+        evaluation = self.evaluation
+        retention = self.retention
+
+        legacy_was_explicitly_set = bool(evaluation is not None and "staging_ttl_days" in evaluation.model_fields_set)
+        legacy = evaluation.staging_ttl_days if (legacy_was_explicitly_set and evaluation is not None) else None
+        # Wave 2b Round-5 review F-W2B-RETENTION: applying the same
+        # ``model_fields_set`` test to the canonical block.  An operator
+        # who writes ``retention: {audit_log_retention_days: 1825}``
+        # (no staging key) leaves ``staging_ttl_days`` at its default
+        # of 7; treating that 7 as an explicit canonical value would
+        # spuriously raise ``ConfigError`` when paired with
+        # ``evaluation.staging_ttl_days: 14``.  We only treat
+        # ``retention.staging_ttl_days`` as canonical when the operator
+        # actually wrote it.
+        canonical_was_explicitly_set = bool(retention is not None and "staging_ttl_days" in retention.model_fields_set)
+        canonical = retention.staging_ttl_days if (canonical_was_explicitly_set and retention is not None) else None
+
+        # Both unset → nothing to do.
+        if legacy is None and canonical is None:
+            return
+        # Only canonical set (or operator deleted the deprecated key) →
+        # canonical path; no warning.
+        if legacy is None and canonical is not None:
+            return
+        # Only legacy set explicitly → alias-forward.
+        if legacy is not None and canonical is None:
+            self._apply_legacy_alias_forward(legacy, retention)
+            return
+        # Both set.  Compare.
+        if legacy == canonical:
+            self._emit_legacy_match_warning()
+            return
+        # Both set with different values → refuse.
+        raise ConfigError(
+            "Conflicting staging_ttl_days values: "
+            f"`evaluation.staging_ttl_days={legacy}` (deprecated, forwards to "
+            f"`retention.staging_ttl_days`) vs `retention.staging_ttl_days={canonical}` "
+            "(canonical).  Remove the deprecated entry; the canonical block wins.  "
+            "(Tracking issue: removal scheduled for v0.7.0 per "
+            "docs/standards/release.md#deprecation-cadence.)"
+        )
+
+    def _apply_legacy_alias_forward(self, legacy: int, retention: Optional["RetentionConfig"]) -> None:
+        """Mirror ``evaluation.staging_ttl_days`` onto ``retention.staging_ttl_days``.
+
+        ``model_copy(update=...)`` preserves any other ``retention.*`` keys
+        the operator already wrote (e.g. ``audit_log_retention_days: 1825``
+        paired with ``evaluation.staging_ttl_days: 14``).  The previous
+        ``RetentionConfig(staging_ttl_days=legacy)`` constructor call would
+        have silently discarded those.
+
+        ``stacklevel=5`` is tuned so the DeprecationWarning surfaces at the
+        operator's ``ForgeConfig(...)`` call site rather than inside the
+        Pydantic ``@model_validator`` machinery (caller →
+        ``_reconcile_staging_ttl_days`` → here).
+        """
+        if retention is not None:
+            self.retention = retention.model_copy(update={"staging_ttl_days": legacy})
+        else:
+            self.retention = RetentionConfig(staging_ttl_days=legacy)
+        warnings.warn(
+            "`evaluation.staging_ttl_days` is deprecated and forwards to "
+            "`retention.staging_ttl_days` for the v0.5.5 → v0.6.x window. "
+            "Move the value under the new top-level `retention:` block; the "
+            "deprecated field is removed in v0.7.0.",
+            DeprecationWarning,
+            stacklevel=5,
+        )
+
+    def _emit_legacy_match_warning(self) -> None:
+        """Warn when both fields are set to identical values; canonical wins.
+
+        ``stacklevel=5`` matches :meth:`_apply_legacy_alias_forward` so both
+        deprecation paths attribute the warning to the same operator
+        call frame.
+        """
+        warnings.warn(
+            "`evaluation.staging_ttl_days` is deprecated; the value matches "
+            "`retention.staging_ttl_days` so the canonical block wins.  Remove "
+            "`evaluation.staging_ttl_days` from your YAML — the deprecated field "
+            "is removed in v0.7.0.",
+            DeprecationWarning,
+            stacklevel=5,
+        )
 
 
 class ConfigError(Exception):

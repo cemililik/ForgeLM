@@ -25,8 +25,8 @@ $ forgelm export ./checkpoints/customer-support \
 
 | Seviye | Boyut (7B base) | Kalite | Kullanım |
 |---|---|---|---|
-| `q8_0` | 7.2 GB | En yüksek | Kalite benchmark; bellek bol üretim. |
-| `q6_k` | 5.5 GB | Çok yüksek | Üretim için varsayılan. |
+| `f16` | 13 GB | Kayıpsız | Kalite benchmark; tam-precision arşiv. |
+| `q8_0` | 7.2 GB | En yüksek | Bellek bol üretim. |
 | `q5_k_m` | 4.8 GB | Yüksek | Mantıklı denge. |
 | `q4_k_m` | 4.1 GB | İyi | **Yerel inference için varsayılan.** |
 | `q3_k_m` | 3.3 GB | Kabul edilebilir | Dar bellek; biraz kalite kaybı. |
@@ -49,14 +49,20 @@ output:
 
 ## Çoklu-quant export
 
+`forgelm export --quant` invocation başına tek değer kabul eder
+(seçenekler: `{q2_k, q3_k_m, q4_k_m, q5_k_m, q8_0, f16}`). Tek bir
+checkpoint'ten birden çok quantisation üretmek için komutu her
+quant için bir kez çalıştırın:
+
 ```shell
-$ forgelm export ./checkpoints/run \
-    --output ./gguf/ \
-    --quant "q4_k_m,q5_k_m,q8_0"
+$ for q in q4_k_m q5_k_m q8_0; do
+    forgelm export ./checkpoints/run \
+        --output "./gguf/model.${q}.gguf" \
+        --quant "${q}"
+  done
 ✓ gguf/model.q4_k_m.gguf yazıldı  (4.1 GB)
 ✓ gguf/model.q5_k_m.gguf yazıldı  (4.8 GB)
 ✓ gguf/model.q8_0.gguf yazıldı    (7.2 GB)
-✓ gguf/manifest.json yazıldı
 ```
 
 Manifest:
@@ -112,13 +118,13 @@ $ ./main -m model.q4_k_m.gguf -p "Merhaba, nasılsın?" -n 256
 
 ## Doğrudan dönüştürme (kuantizasyon yok)
 
-Nadir olarak fp16 GGUF isterseniz (kuantizasyon-duyarlı bir inference engine için):
+Nadir olarak full-precision GGUF isterseniz (kuantizasyon-duyarlı bir inference engine için):
 
 ```shell
-$ forgelm export ./checkpoints/run --output model.gguf --quant fp16
+$ forgelm export ./checkpoints/run --output model.gguf --quant f16
 ```
 
-Sonuç full-precision GGUF, 7B model için ~14 GB.
+Sonuç full-precision GGUF, 7B model için ~13 GB.
 
 ## Sık hatalar
 

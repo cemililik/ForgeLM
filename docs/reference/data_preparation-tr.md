@@ -17,7 +17,7 @@ ForgeLM sırasıyla kendi içerisinde eşleştirme yapabileceği sütun başlık
 
 ## Örnek JSONL Yapısı (Yerel Veri)
 
-Eğer sisteme şirketinize ve size özel bir şirket içi model veri aktarımı yapmak istiyorsanız, bunu her satırın birer JSON nesnesi olduğu `.jsonl` dosyası şekline getirebilirsiniz. `.jsonl` yapınızın var olan `dataset_name_or_path` dosyası üzerindeki yoluna (config kısmından) dosyanızın tam adresini (mutlak konumunu) vermeniz yeterli olacaktır. 
+Eğer sisteme şirketinize ve size özel bir şirket içi model veri aktarımı yapmak istiyorsanız, bunu her satırın birer JSON nesnesi olduğu `.jsonl` dosyası şekline getirebilirsiniz. `.jsonl` yapınızın var olan `dataset_name_or_path` dosyası üzerindeki yoluna (config kısmından) dosyanızın tam adresini (mutlak konumunu) vermeniz yeterli olacaktır.
 
 Aşağıda standart kabul görmüş örnek JSONL yapısı:
 ```json

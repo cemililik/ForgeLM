@@ -2,7 +2,6 @@
 
 import pytest
 import yaml
-from conftest import minimal_config as _minimal_config
 
 from forgelm.config import ForgeConfig, TrainingConfig, load_config
 
@@ -14,14 +13,14 @@ class TestTrainerTypeConfig:
         t = TrainingConfig()
         assert t.trainer_type == "sft"
 
-    def test_all_valid_types(self):
+    def test_all_valid_types(self, minimal_config):
         for tt in ["sft", "orpo", "dpo", "simpo", "kto", "grpo"]:
-            cfg = ForgeConfig(**_minimal_config(training={"trainer_type": tt}))
+            cfg = ForgeConfig(**minimal_config(training={"trainer_type": tt}))
             assert cfg.training.trainer_type == tt
 
-    def test_invalid_trainer_type_raises(self):
+    def test_invalid_trainer_type_raises(self, minimal_config):
         with pytest.raises((ValueError, TypeError)):
-            ForgeConfig(**_minimal_config(training={"trainer_type": "invalid"}))
+            ForgeConfig(**minimal_config(training={"trainer_type": "invalid"}))
 
     def test_dpo_parameters(self):
         t = TrainingConfig(trainer_type="dpo", dpo_beta=0.2)
@@ -57,8 +56,8 @@ class TestTrainerTypeConfig:
 
 
 class TestAlignmentFullConfig:
-    def test_dpo_config_from_yaml(self, tmp_path):
-        data = _minimal_config(
+    def test_dpo_config_from_yaml(self, tmp_path, minimal_config):
+        data = minimal_config(
             training={
                 "trainer_type": "dpo",
                 "dpo_beta": 0.15,
@@ -72,8 +71,8 @@ class TestAlignmentFullConfig:
         assert cfg.training.trainer_type == "dpo"
         assert cfg.training.dpo_beta == pytest.approx(0.15)
 
-    def test_simpo_config_from_yaml(self, tmp_path):
-        data = _minimal_config(
+    def test_simpo_config_from_yaml(self, tmp_path, minimal_config):
+        data = minimal_config(
             training={
                 "trainer_type": "simpo",
                 "simpo_gamma": 0.8,
@@ -86,8 +85,8 @@ class TestAlignmentFullConfig:
         assert cfg.training.trainer_type == "simpo"
         assert cfg.training.simpo_gamma == pytest.approx(0.8)
 
-    def test_grpo_config_from_yaml(self, tmp_path):
-        data = _minimal_config(
+    def test_grpo_config_from_yaml(self, tmp_path, minimal_config):
+        data = minimal_config(
             training={
                 "trainer_type": "grpo",
                 "grpo_num_generations": 6,
@@ -106,20 +105,20 @@ class TestAlignmentFullConfig:
 
 
 class TestDryRunAlignment:
-    def test_dry_run_shows_trainer_type(self, capsys):
+    def test_dry_run_shows_trainer_type(self, capsys, minimal_config):
         from forgelm.cli import _run_dry_run
 
-        cfg = ForgeConfig(**_minimal_config(training={"trainer_type": "dpo"}))
+        cfg = ForgeConfig(**minimal_config(training={"trainer_type": "dpo"}))
         _run_dry_run(cfg, "json")
         import json
 
         result = json.loads(capsys.readouterr().out)
         assert result["status"] == "valid"
 
-    def test_dry_run_grpo(self, capsys):
+    def test_dry_run_grpo(self, capsys, minimal_config):
         from forgelm.cli import _run_dry_run
 
-        cfg = ForgeConfig(**_minimal_config(training={"trainer_type": "grpo"}))
+        cfg = ForgeConfig(**minimal_config(training={"trainer_type": "grpo"}))
         _run_dry_run(cfg, "json")
         import json
 

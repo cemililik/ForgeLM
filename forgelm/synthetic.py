@@ -62,7 +62,7 @@ class SyntheticDataGenerator:
         """
         try:
             response = self._call_teacher(prompt)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort: per-prompt teacher invocation crosses three backends (api / local model / pre-recorded file) each with their own failure tail (network HTTPError, RuntimeError on CUDA OOM, KeyError on missing seed entry); per-prompt soft-fail with structured error capture is the documented contract so a single bad prompt cannot abort a corpus-scale run.  # NOSONAR
             result.failed += 1
             result.errors.append(f"Prompt {idx}: {e}")
             logger.warning("Generation failed for prompt %d: %s", idx, e)
@@ -179,8 +179,14 @@ class SyntheticDataGenerator:
             raise ValueError(f"Unknown teacher_backend: {backend}")
 
     def _call_api_teacher(self, prompt: str) -> str:
-        """Call an OpenAI-compatible API teacher."""
-        import requests
+        """Call an OpenAI-compatible API teacher.
+
+        Routes through :func:`forgelm._http.safe_post` so the same SSRF /
+        scheme / redirect / TLS / timeout policy that protects the webhook
+        and judge call sites also covers synthetic-data generation. The
+        bearer token in ``Authorization`` is masked from the failure log.
+        """
+        from ._http import safe_post
 
         api_base = self.synth_cfg.api_base.rstrip("/")
         api_key = self.synth_cfg.api_key or os.environ.get(self.synth_cfg.api_key_env or "", "")
@@ -204,7 +210,7 @@ class SyntheticDataGenerator:
             "temperature": self.synth_cfg.temperature,
         }
 
-        response = requests.post(
+        response = safe_post(
             f"{api_base}/chat/completions",
             headers=headers,
             json=payload,
@@ -251,11 +257,16 @@ class SyntheticDataGenerator:
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         logger.info("Loading local teacher model: %s", self.synth_cfg.teacher_model)
-        tokenizer = AutoTokenizer.from_pretrained(self.synth_cfg.teacher_model)
+        # ``trust_remote_code=False`` is the secure default (Phase 7 acceptance):
+        # synthetic-data generation must never execute repo-bundled code from
+        # an arbitrary teacher checkpoint.  Operators that genuinely need a
+        # custom architecture should fork and pre-convert.
+        tokenizer = AutoTokenizer.from_pretrained(self.synth_cfg.teacher_model, trust_remote_code=False)
         model = AutoModelForCausalLM.from_pretrained(
             self.synth_cfg.teacher_model,
             torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
             device_map="auto" if torch.cuda.is_available() else None,
+            trust_remote_code=False,
         )
         self._teacher = (model, tokenizer)
 

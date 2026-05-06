@@ -30,12 +30,22 @@ Her şeyden önce Python, PyTorch, CUDA ve opsiyonel bağımlılıkların doğru
 
 ```shell
 $ forgelm doctor
-ForgeLM 0.5.2
-Python 3.11.4 · PyTorch 2.4.0
-CUDA available · driver 535.171 · NVIDIA RTX 4090 · 24 GB
-bitsandbytes ✓ (installed)
-Unsloth ✓ (installed)
+forgelm doctor — environment check
+
+  [✓ pass] python.version          Python 3.11.4 (CPython).
+  [✓ pass] torch.cuda              torch 2.4.0 with CUDA 12.4.
+  [✓ pass] gpu.inventory           1 GPU(s) — GPU0: NVIDIA RTX 4090 (24.0 GiB).
+  [✓ pass] extras.qlora            Installed (module bitsandbytes, purpose: 4-bit / 8-bit QLoRA training).
+  [✓ pass] extras.unsloth          Installed (module unsloth, purpose: Unsloth-accelerated training (Linux GPUs only)).
+  [! warn] extras.deepspeed        Optional extra missing — install with: pip install 'forgelm[deepspeed]' (purpose: DeepSpeed ZeRO + offload distributed training).
+  [✓ pass] hf_hub.reachable        HuggingFace Hub reachable (HTTP 200).
+  [✓ pass] disk.workspace          Workspace /home/me/forgelm — 387.0 GiB free of 500.0 GiB.
+  [! warn] operator.identity       FORGELM_OPERATOR not set; audit events will fall back to 'me@workstation'. Pin FORGELM_OPERATOR=<id> for CI / pipeline runs.
+
+Summary: 7 pass, 2 warn, 0 fail.
 ```
+
+`--output-format json` yapısal bir zarf döner (`{"success": bool, "checks": [...], "summary": {...}}`); CI ayrı ayrı probe sonuçlarını tabloyu parse etmeden filtreleyebilir. `--offline` HF Hub ağ probe'unu atlar ve onun yerine yerel cache'i inceler — air-gap dağıtımları için faydalı.
 
 :::tip
 `forgelm doctor` bir sorun raporlarsa (eksik CUDA, sürüm uyumsuzluğu, GPU yok), önce onu düzeltin. Diğer her ForgeLM komutu kafa karıştırıcı şekillerde patlar. Bkz. [Sorun Giderme](#/operations/troubleshooting).
@@ -49,9 +59,9 @@ ForgeLM, gerçek-dünya fine-tuning senaryolarının çoğunu kapsayan beş baş
 $ forgelm quickstart --list
   customer-support     Multi-turn helpful + safe (SFT + DPO)
   code-assistant       Code-completion fine-tune (SFT + ORPO)
-  byod-domain-expert   PDF/DOCX corpus → domain Q&A (SFT)
+  domain-expert        PDF/DOCX corpus → domain Q&A (SFT)
   medical-qa-tr        Turkish medical Q&A (SFT)
-  math-reasoning       Step-by-step reasoning (GRPO)
+  grpo-math            Step-by-step reasoning (GRPO)
 ```
 
 İlk koşunuz için `customer-support` seçin — küçük, 12 GB GPU'da ~30 dakikada biter ve her özelliği egzersiz eder (SFT, DPO, eval, güvenlik, audit):
@@ -108,7 +118,7 @@ $ forgelm --config configs/quickstart-customer-support.yaml
 [2026-04-29 14:18:55] DPO preference pass · β=0.1 · KL=4.2
 [2026-04-29 14:32:11] benchmark hellaswag=0.62 truthfulqa=0.48
 [2026-04-29 14:33:02] Llama Guard S1-S14: clean
-[2026-04-29 14:33:04] Annex IV → checkpoints/customer-support/artifacts/annex_iv.json
+[2026-04-29 14:33:04] Annex IV → checkpoints/customer-support/artifacts/annex_iv_metadata.json
 [2026-04-29 14:33:04] ✔ finished, exit 0
 ```
 
@@ -126,7 +136,7 @@ Erişiminiz mevcut faturalama döneminin sonuna kadar devam eder…
 ```text
 checkpoints/customer-support/
 ├── artifacts/
-│   ├── annex_iv.json              ← Article 11 teknik dokümantasyon
+│   ├── annex_iv_metadata.json              ← Article 11 teknik dokümantasyon
 │   ├── audit_log.jsonl            ← Article 12 append-only event log
 │   ├── data_audit_report.json     ← Article 10 veri yönetimi kanıtı
 │   ├── safety_report.json         ← Llama Guard verdict

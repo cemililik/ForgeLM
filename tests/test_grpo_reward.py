@@ -100,8 +100,15 @@ class TestGrpoRewardCallable:
         }
 
         with (
-            patch("forgelm.trainer.SFTTrainer"),
-            patch("forgelm.trainer.SFTConfig"),
+            # Patch in the lazy-import source modules.  ``forgelm/trainer.py``
+            # defers ``from trl import SFTTrainer/SFTConfig`` to method bodies
+            # (closure-plan F-performance-101) so they are NOT module-level
+            # attributes on ``forgelm.trainer`` — patching that path raises
+            # ``AttributeError: module 'forgelm.trainer' does not have the
+            # attribute 'SFTTrainer'``.  Patch the upstream modules instead;
+            # the lazy ``from trl import …`` resolves the patched symbol.
+            patch("trl.SFTTrainer"),
+            patch("trl.SFTConfig"),
             patch("trl.GRPOTrainer", side_effect=fake_grpo_trainer),
             patch("trl.GRPOConfig", return_value=MagicMock()),
             patch(
@@ -277,4 +284,40 @@ class TestGrpoRewardCallable:
             "When gold_answer is present and no reward model is configured, both the "
             "combined format+length reward (always-on baseline) AND the gold_answer "
             "correctness reward must be wired additively."
+        )
+
+
+@pytest.mark.skipif(not torch_available, reason="ForgeTrainer requires torch")
+class TestGrpoClassifierTrustRemoteCode:
+    """Phase 7 (M-202): the GRPO classifier reward must load HF artifacts with
+    ``trust_remote_code=False``.
+
+    A reward model is operator-supplied configuration, but we should not
+    silently execute arbitrary repo code at load time — a malicious or
+    typo-grabbed Hub repo could otherwise run code in the trainer process
+    on every GRPO step setup.
+    """
+
+    def test_classifier_reward_passes_trust_remote_code_false(self):
+        """Both AutoTokenizer.from_pretrained and AutoModelForSequenceClassification.from_pretrained
+        in ``ForgeTrainer._build_classifier_reward`` must pass ``trust_remote_code=False``."""
+        import inspect
+        import re
+
+        from forgelm.trainer import ForgeTrainer
+
+        src = inspect.getsource(ForgeTrainer._build_classifier_reward)
+        # Strip docstring + comments so "trust_remote_code=False" hits in
+        # those don't false-positive the assertion.
+        code_only = re.sub(r"#[^\n]*", "", src)
+        code_only = re.sub(r'""".*?"""', "", code_only, flags=re.DOTALL)
+
+        # Two from_pretrained calls; both must carry trust_remote_code=False.
+        assert code_only.count("from_pretrained") == 2, (
+            "Test guard: expected exactly two from_pretrained calls in "
+            "_build_classifier_reward. If the implementation grew, update this test."
+        )
+        assert code_only.count("trust_remote_code=False") == 2, (
+            "Both from_pretrained calls in _build_classifier_reward must pass "
+            "trust_remote_code=False (M-202). Found:\n" + code_only
         )

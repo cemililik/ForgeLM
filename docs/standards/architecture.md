@@ -68,7 +68,23 @@ graph TB
     CLI --> SYNTH
 ```
 
-Single-file modules — count tracks the table above (≈25 today across Phase 1-11). **No sub-packages inside `forgelm/`.** If a module grows past ~1000 lines and has cohesive subsections, split into `module_name/` package, but keep the public API at `forgelm.module_name.X` so imports don't break.
+Single-file modules are the default — most concerns fit in one file under
+`forgelm/`. **The ~1000-line ceiling is the trigger for a sub-package split:**
+once a module crosses that line count and has cohesive subsections, it
+graduates to a `module_name/` sub-package, **keeping the public API at
+`forgelm.module_name.X`** so existing imports do not break.
+
+Two such splits are permanent today (Phase 12.6 closure cycle, Wave 1):
+
+| Sub-package | Pre-split source | Reason | Public surface |
+|---|---|---|---|
+| `forgelm/cli/` | legacy `cli.py` (~1756 lines) | Argparse wiring + ~17 subcommand modules grew far past the ceiling; each subcommand needed its own test boundary. | `forgelm.cli.main()` (entry point), `forgelm.cli._exit_codes` (public exit-code constants), per-subcommand modules (`_audit`, `_ingest`, `_doctor`, `_cache`, `_purge`, `_reverse_pii`, `_safety_eval`, `_verify_audit`, `_verify_annex_iv`, `_verify_gguf`, `_approve`, `_approvals`, ...) |
+| `forgelm/data_audit/` | legacy `data_audit.py` (~3098 lines) | Aggregator, simhash, MinHash, regex-PII, ML-NER PII, secrets, quality, croissant, summary, streaming reader — 10 cohesive concerns under one orchestrator. | `forgelm.data_audit.run_audit()`, `forgelm.data_audit.AuditReport`, `forgelm.data_audit.SECRET_TYPES`, `forgelm.data_audit.summarize_report()` (re-exported via the package `__init__.py`) |
+
+Future splits follow the same rule: when crossing ~1000 lines, design the
+sub-package boundary first (one design doc under `docs/design/`), execute
+across a multi-PR series, and preserve the public import path. Splits are
+never silent — they ship as a coherent series with regression tests.
 
 ## Principles
 
@@ -76,7 +92,7 @@ Single-file modules — count tracks the table above (≈25 today across Phase 1
 
 | Module | Owns | Does not own |
 |---|---|---|
-| `cli.py` | Argument parsing, top-level dispatch, exit codes | Training, data, evaluation logic |
+| `cli/` (package) | Argument parsing, top-level dispatch, exit codes, per-subcommand wiring (`_audit`, `_ingest`, `_doctor`, `_cache`, `_purge`, `_reverse_pii`, `_safety_eval`, `_verify_*`, `_approve`, `_approvals`, ...) | Training, data, evaluation logic |
 | `config.py` | Pydantic schemas, validation, YAML load | Runtime behaviour |
 | `wizard.py` | Interactive config generation | Config validation (that's `config.py`) |
 | `trainer.py` | Orchestrating SFT/DPO/…/GRPO runs | Model loading (delegates to `model.py`) |
@@ -85,13 +101,15 @@ Single-file modules — count tracks the table above (≈25 today across Phase 1
 | `benchmark.py` | lm-eval-harness wrapping | Safety scoring (that's `safety.py`) |
 | `safety.py` | Llama Guard, harm categories, auto-revert | Content generation for scoring (helpers only) |
 | `judge.py` | LLM-as-judge evaluation | Safety classification |
-| `compliance.py` | Audit log, manifests, provenance, governance artifacts | Runtime policy enforcement |
-| `webhook.py` | Slack/Teams lifecycle notifications | Decision-making (just reports) |
+| `compliance.py` | Audit log, manifests, provenance, governance artifacts, GDPR purge / reverse-pii primitives | Runtime policy enforcement |
+| `webhook.py` | Slack/Teams lifecycle notifications (5-event vocabulary) | Decision-making (just reports) |
 | `model_card.py` | HF-compatible README generation | Running the model |
 | `merging.py` | TIES/DARE/SLERP/linear | Training |
 | `synthetic.py` | Teacher-student distillation | General generation helpers |
 | `ingestion.py` | Raw docs (PDF/DOCX/EPUB/TXT) → SFT-ready JSONL; chunking strategies | Audit logic; trainer dispatch |
-| `data_audit.py` | Dataset quality + governance audit (length, language, simhash dedup, cross-split leakage, PII regex) | Ingestion logic; trainer dispatch |
+| `data_audit/` (package) | Dataset quality + governance audit: length, language, simhash + LSH dedup, MinHash LSH dedup, cross-split leakage, regex PII, ML-NER PII, secrets, quality heuristics, Croissant emission, summary truncation, streaming reader | Ingestion logic; trainer dispatch |
+| `_http.py` | Outbound HTTP chokepoint: SSRF guard, scheme allowlist, timeout floor, secret masking, redirect refusal | Caller decisions (just transport) |
+| `_version.py` | `__version__` (CLI) + `__api_version__` (Library API) constants | Anything else |
 | `results.py` | `TrainResult` dataclass | Anything else |
 | `utils.py` | HF auth + tiny cross-cutting helpers | Business logic |
 
@@ -127,6 +145,19 @@ Do **not**:
 - Make a heavy dep a hard requirement of the core package.
 - Add a new heavy dep without adding a new extra.
 
+#### Optional accelerator dependencies — sanctioned carve-out
+
+The CLAUDE.md "silent import fallback" pitfall (`try: import X; except ImportError: X = None`) is forbidden as a general pattern, but the following four conditions justify an exception:
+
+1. Every read site gates on a `_HAS_X: bool` boolean — never on the imported handle's truthiness.
+2. The missing-extra path provides a behaviourally equivalent (slower / less precise) fallback rather than a feature gate. If the absent extra disables a feature, raise `ImportError` with the install hint instead.
+3. The pattern lives in a **single dedicated module** so the fallback surface is auditable in one place.
+4. Tests monkeypatch the boolean to exercise both paths (extras-installed and extras-missing).
+
+The canonical example is [`forgelm/data_audit/_optional.py`](../../forgelm/data_audit/_optional.py), which gates the four optional `data_audit` accelerators / models — `xxhash` (simhash backend; falls back to BLAKE2b), `numpy` (vectorised bit-unpack; falls back to pure-Python loop), `datasketch` (MinHash LSH; user opts in via `--dedup-method minhash`), and `presidio-analyzer` (ML-NER PII; layered on top of the regex detector). Each block is paired with a `_HAS_*` boolean and tests exercising both paths.
+
+New optional accelerators may follow this template. New **behaviour gates** (where the absent extra silently disables a feature instead of falling back) may NOT — those must raise `ImportError` with an install hint at the call site.
+
 ### 4. No global state
 
 Module-level state is limited to:
@@ -139,13 +170,13 @@ Runtime state is held by passed-in objects (Pydantic config, trainer instance). 
 
 ### 5. CLI is a thin shim
 
-`cli.py` does three things and no more:
+`forgelm.cli/` (package) does three things and no more:
 
-1. Parse args (argparse).
-2. Load and validate config.
-3. Dispatch to one of: trainer, wizard, synthetic, merging, compliance export.
+1. Parse args (argparse) — wiring lives in `_parser.py`.
+2. Load and validate config — `_config_load.py`.
+3. Dispatch to one of: trainer, wizard, synthetic, merging, compliance export, ingest, audit, doctor, cache-models, cache-tasks, purge, reverse-pii, safety-eval, verify-audit, verify-annex-iv, verify-gguf, approve, approvals, chat, export, deploy, quickstart — each owns a `subcommands/_<name>.py`.
 
-Business logic in `cli.py` is a bug. If you find yourself writing an `if` chain that inspects config values to decide behaviour, that `if` belongs in the dispatched module.
+Business logic in any `cli/` module is a bug. If you find yourself writing an `if` chain that inspects config values to decide behaviour, that `if` belongs in the dispatched module.
 
 ## Adding a new module
 
@@ -172,17 +203,42 @@ From [`pyproject.toml`](../../pyproject.toml):
 | `merging` | mergekit | Any |
 | `ingestion` | pypdf, python-docx, ebooklib, beautifulsoup4, langdetect, xxhash | Any |
 | `ingestion-scale` | datasketch (MinHash LSH dedup; Phase 12, opt-in) | Any |
-| `ingestion-secrets` | detect-secrets (credential leakage scanner; Phase 12, opt-in regex fallback when missing) | Any |
 | `ingestion-pii-ml` | presidio-analyzer (ML-NER for person/organization/location PII; Phase 12.5, opt-in) | Any |
 | `export` | llama-cpp-python (GGUF conversion) | Linux/macOS |
 | `chat` | rich (terminal rendering) | Any |
+| `security` | pip-audit + bandit (supply-chain CI guards; Phase 12.6 / Wave 4) | Any |
 | `dev` | pytest, ruff | Any (contributors) |
 
 **The core install must work on all three OSes (Linux/macOS/Windows) with no Linux-only deps.** CI enforces this by running Linux + macOS matrix.
 
+## HTTP discipline
+
+> **Rule:** every outbound HTTP call from `forgelm/` goes through `forgelm/_http.py` (`safe_post` / `safe_get`).  Direct use of `requests.*`, `urllib.request.urlopen`, `httpx.*` etc. outside `forgelm/_http.py` is forbidden.
+
+`forgelm/_http.py` is the single chokepoint that enforces:
+
+- **Scheme allowlist** — only `https://` by default; `http://` requires the caller to pass `allow_insecure_http=True` and is logged.
+- **SSRF guard** — pre-resolves hostnames + refuses RFC 1918 / link-local / loopback destinations unless the caller passes `allow_private=True`.
+- **Timeout floor** — minimum 5 s connect, 30 s read; callers cannot pass `timeout=0` to disable.
+- **Secret masking** — `_mask_secrets_in_text` redacts query-param tokens / `Authorization` headers in error messages so a `URLError(reason=...)` cannot leak `?api_key=ghp_...` into logs.
+- **Redirect refusal** — `allow_redirects=False` by default; redirects to a different host require explicit opt-in.
+
+**Why a single chokepoint:** the policy lives in one module so that a future fix (rotate to a stricter allowlist, add a new mask pattern, plug a new metric) lands in one place rather than `N` scattered call sites.  Webhook delivery (`forgelm/webhook.py`), the doctor's HF Hub probe (`forgelm/cli/subcommands/_doctor.py`), and any future telemetry / license / cloud integration all share the same policy.
+
+**Acceptance gate (CI-enforced — see `.github/workflows/ci.yml` `lint-http-discipline` step):**
+
+```bash
+! grep -rn -E "(requests\.(get|post|put|delete|patch)|urllib\.request\.urlopen|httpx\.[a-z]+)" forgelm/ \
+    --include='*.py' | grep -v "forgelm/_http.py"
+```
+
+The gate stays empty.  A new contributor who reaches for `requests.get` directly fails CI immediately and is redirected to `safe_get`.  If `_http.py` itself needs to expand (e.g., add `safe_get` because no helper covers an outbound HEAD probe yet — Phase 34's doctor surfaced this gap), the addition lands inside `_http.py` and gets a corresponding test in `tests/test_http.py`.
+
+**Deliberate exceptions:** `forgelm/compliance.py:1146-1182` (audit-log HMAC verifier) does its own JSONL line-byte parsing because it must hash raw bytes — but it does not perform outbound HTTP.  No HTTP-discipline carve-outs exist today; if one is ever needed (e.g., a cloud provider's SDK that wraps its own HTTP), document it inline + add a `# noqa: forgelm-http-discipline` style marker.
+
 ## Things we do not own
 
-Reaffirming [marketing/strategy/05-yapmayacaklarimiz.md](../marketing/strategy/05-yapmayacaklarimiz.md):
+Reaffirming the internal "what we don't build" strategy doc (also captured under "What ForgeLM is not" in the root [`CLAUDE.md`](../../CLAUDE.md)):
 
 - **Inference engine.** We hand off to Ollama / vLLM / TGI / llama.cpp. `forgelm/inference.py` (Phase 10) is a thin client, not a server.
 - **Web UI.** Config-driven is the identity. Dashboards live in Pro CLI (Phase 13), not core.

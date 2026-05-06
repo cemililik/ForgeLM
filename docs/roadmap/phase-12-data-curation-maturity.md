@@ -2,10 +2,10 @@
 
 > **Note (post-consolidation):** Originally targeted `v0.5.2`, now ships
 > as part of the consolidated `v0.5.0` release alongside Phases 11, 11.5,
-> and 12.5 — see [releases.md](releases.md#v050--document-ingestion--data-curation-pipeline).
+> and 12.5 — see [releases.md](releases.md#v050-document-ingestion-data-curation-pipeline).
 > Version-label references below preserve the historical planning trail.
 >
-> **Status:** ✅ **Tier 1 DONE** — landed on `development` for the (originally) `v0.5.2` cycle. All five must-have tasks shipped: MinHash LSH dedup option (`[ingestion-scale]` extra via `datasketch`), markdown-aware splitter (`--strategy markdown`), code/secrets leakage tagger (`[ingestion-secrets]` extra via `detect-secrets` with regex fallback), heuristic quality filter (`--quality-filter`), DOCX/Markdown table preservation. Tier 2 (Presidio adapter, Croissant metadata) and Tier 3 (`--all-mask` composite, wizard "audit first" hook) are deferred to a follow-up **Phase 12.5** backlog file (analogous to Phase 11.5 → `phase-11-5-backlog.md`). Modules: [`forgelm/data_audit.py`](../../forgelm/data_audit.py), [`forgelm/ingestion.py`](../../forgelm/ingestion.py), [`forgelm/cli.py`](../../forgelm/cli.py); tests: [`tests/test_data_audit_phase12.py`](../../tests/test_data_audit_phase12.py), [`tests/test_ingestion_phase12.py`](../../tests/test_ingestion_phase12.py); CLI tests added in [`tests/test_cli_subcommands.py`](../../tests/test_cli_subcommands.py).
+> **Status:** ✅ **Tier 1 DONE** — landed on `development` for the (originally) `v0.5.2` cycle. All five must-have tasks shipped: MinHash LSH dedup option (`[ingestion-scale]` extra via `datasketch`), markdown-aware splitter (`--strategy markdown`), code/secrets leakage tagger (`[ingestion-secrets]` extra via `detect-secrets` with regex fallback), heuristic quality filter (`--quality-filter`), DOCX/Markdown table preservation. Tier 2 (Presidio adapter, Croissant metadata) and Tier 3 (`--all-mask` composite, wizard "audit first" hook) are deferred to a follow-up **Phase 12.5** backlog file (analogous to Phase 11.5 → `phase-11-5-backlog.md`). Modules: [`forgelm/data_audit.py`](../../forgelm/data_audit/), [`forgelm/ingestion.py`](../../forgelm/ingestion.py), [`forgelm/cli.py`](../../forgelm/cli/); tests: [`tests/test_data_audit_phase12.py`](../../tests/test_data_audit_phase12.py), [`tests/test_ingestion_phase12.py`](../../tests/test_ingestion_phase12.py); CLI tests added in [`tests/test_cli_subcommands.py`](../../tests/test_cli_subcommands.py).
 
 > **Not:** Bu dosya tek bir planlanan fazı detaylandırır. Tüm fazların özeti için [../roadmap.md](../roadmap.md). Phase 11 + 11.5 built the ingestion / audit lineage (Phase 11 → `v0.5.0`, Phase 11.5 → `v0.5.1`); this phase moves the same lineage from **enterprise-acceptable** to **enterprise-competitive**.
 
@@ -119,7 +119,7 @@ For the quarterly gate review:
 - **Tier 1 task #1 (MinHash LSH)**: If it doesn't land within 6 weeks **and** a 100K-row smoke fixture under `forgelm audit --dedup-method minhash` doesn't beat the brute-force O(n²) baseline by ≥ 5× → demote to Tier 2, keep simhash as default, push the MinHash extra to v0.5.3.
 - **Tier 1 task #4 (Quality filter)**: If false-positive rate on industry benchmark fixtures exceeds 10 % → opt-in default-off (already the plan), document the limitation, add a *"calibrate before applying"* note for operators.
 - **Compatibility regression**: If a v0.5.1 audit consumer (the Phase 11/11.5 compliance bundle inliner) cannot parse a v0.5.2 report → kill, roll back any non-additive changes.
-- **Performance regression**: If the default simhash path slows by > 5 % vs. the Phase 11.5 baseline (`tests/bench_simhash.py`) → revisit the refactor.
+- **Performance regression**: If the default simhash path slows by > 5 % vs. the Phase 11.5 baseline (`tools/bench_simhash.py`) → revisit the refactor.
 
 If fewer than three Tier 1 items land within three months, Phase 12 is reset; the "Data Curation Maturity" thesis is re-examined (refresh the competitive analysis, ask whether it's still the right work).
 

@@ -3,15 +3,20 @@
 import os
 
 from forgelm.config import ForgeConfig
+from tests._helpers.factories import minimal_config
 
 
-def _minimal_config(**overrides):
-    data = {
-        "model": {"name_or_path": "org/test-model"},
-        "lora": {"r": 16, "alpha": 32, "use_dora": True},
-        "training": {"num_train_epochs": 3},
-        "data": {"dataset_name_or_path": "org/dataset"},
-    }
+def _card_config(**overrides):
+    """Model-card-specific defaults (DoRA enabled, custom model name) on top
+    of the shared ``minimal_config`` factory. Module-local because the
+    surrounding tests assert on these specific values (e.g. ``"dora"`` tag in
+    frontmatter, ``"org/test-model"`` substring in the rendered card).
+    """
+    data = minimal_config(
+        model={"name_or_path": "org/test-model"},
+        lora={"r": 16, "alpha": 32, "use_dora": True},
+        training={"num_train_epochs": 3},
+    )
     data.update(overrides)
     return data
 
@@ -20,7 +25,7 @@ class TestGenerateModelCard:
     def test_generates_readme(self, tmp_path):
         from forgelm.model_card import generate_model_card
 
-        config = ForgeConfig(**_minimal_config())
+        config = ForgeConfig(**_card_config())
         final_path = str(tmp_path / "model")
         card_path = generate_model_card(
             config=config,
@@ -38,7 +43,7 @@ class TestGenerateModelCard:
     def test_includes_benchmark_section(self, tmp_path):
         from forgelm.model_card import generate_model_card
 
-        config = ForgeConfig(**_minimal_config())
+        config = ForgeConfig(**_card_config())
         final_path = str(tmp_path / "model")
         card_path = generate_model_card(
             config=config,
@@ -55,7 +60,7 @@ class TestGenerateModelCard:
     def test_no_benchmark_section_when_none(self, tmp_path):
         from forgelm.model_card import generate_model_card
 
-        config = ForgeConfig(**_minimal_config())
+        config = ForgeConfig(**_card_config())
         final_path = str(tmp_path / "model")
         card_path = generate_model_card(
             config=config,
@@ -68,7 +73,7 @@ class TestGenerateModelCard:
     def test_excludes_auth_from_config(self, tmp_path):
         from forgelm.model_card import generate_model_card
 
-        config = ForgeConfig(**_minimal_config(auth={"hf_token": "hf_SECRET"}))
+        config = ForgeConfig(**_card_config(auth={"hf_token": "hf_SECRET"}))
         final_path = str(tmp_path / "model")
         card_path = generate_model_card(
             config=config,
@@ -81,7 +86,7 @@ class TestGenerateModelCard:
     def test_dora_tag_in_frontmatter(self, tmp_path):
         from forgelm.model_card import generate_model_card
 
-        config = ForgeConfig(**_minimal_config())
+        config = ForgeConfig(**_card_config())
         final_path = str(tmp_path / "model")
         card_path = generate_model_card(
             config=config,
@@ -94,7 +99,7 @@ class TestGenerateModelCard:
     def test_empty_metrics(self, tmp_path):
         from forgelm.model_card import generate_model_card
 
-        config = ForgeConfig(**_minimal_config())
+        config = ForgeConfig(**_card_config())
         final_path = str(tmp_path / "model")
         card_path = generate_model_card(
             config=config,
@@ -108,7 +113,7 @@ class TestGenerateModelCard:
         from forgelm.model_card import generate_model_card
 
         secret_url = "https://hooks.slack.com/services/SECRET_TOKEN/MORE_SECRET"
-        config = ForgeConfig(**_minimal_config(webhook={"url": secret_url}))
+        config = ForgeConfig(**_card_config(webhook={"url": secret_url}))
         final_path = str(tmp_path / "model")
         card_path = generate_model_card(
             config=config,

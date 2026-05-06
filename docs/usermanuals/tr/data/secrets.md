@@ -56,7 +56,7 @@ ForgeLM'in PEM detector'ı tüm bloğu (BEGIN'den END'e) eşleştirir, sadece ma
 ## Sadece-audit modu
 
 ```shell
-$ forgelm audit data/tickets.jsonl --skip-pii
+$ forgelm audit data/tickets.jsonl
 ✓ format: instructions (8,400 satır)
 ⚠ sırlar: 47 tespit (severity: critical)
    12 AWS access key
@@ -64,7 +64,7 @@ $ forgelm audit data/tickets.jsonl --skip-pii
    ...
 ```
 
-`critical` severity, `--strict` de geçirirseniz koşuyu başarısız olarak flagler.
+Sırlar taraması her zaman açıktır — CLI yüzeyinden devre dışı bırakılamaz (eğitim verisinde credential sızıntısı, operatörün asla kapatabilmesi gereken bir şey değildir). `critical` severity non-zero exit verir, böylece CI pipeline hızlı fail eder.
 
 ## Programatik API
 
@@ -90,9 +90,9 @@ ForgeLM tipik "git-secrets" tarzı araçlardan daha sıkı false-positive guard'
 Spesifik guard'lar:
 - OpenAI / Anthropic key'leri için **entropi eşiği** (insan-okunur değil, rastgele görünüm).
 - **Bağlam pencere kontrolü** — `AKIA*` sadece secret-key-şeklinde komşu veya 100 karakter içinde "aws" bağlamı varsa tetiklenir.
-- **Test/örnek dışlama listesi** — yaygın dummy değerler (`AKIAIOSFODNN7EXAMPLE`, `xxx`, `your_key_here`) `--secrets-strict` ayarlanmadıkça tespiti atlar.
+- **Test/örnek dışlama listesi** — yaygın dummy değerler (`AKIAIOSFODNN7EXAMPLE`, `xxx`, `your_key_here`) tespiti atlar.
 
-Yüksek-stake audit (ör. yasal açıklama taraması) için `--secrets-strict` ile bu guard'ları devre dışı bırakıp daha yüksek false-positive oranını kabul edin.
+Yüksek-stake audit (ör. yasal açıklama taraması) için test-dışlama listesi bilinçlidir — `forgelm audit` hayatta kalan bulguları `AuditReport.secrets_summary` altında kaydeder (pattern türü başına bir sayım) ve prose-seviyesinde inceleme için kanonik yüzey satır başına JSON çıktısıdır (`--output-format json`, opsiyonel `--output-jsonl`). Yüksek-stake audit'inizde sayımı > 0 olan herhangi bir pattern türü için bu JSON'u dolaşın; bir insan dummy'lerin gizlenmiş gerçek bir secret olmadığını teyit etsin. (Özel `secret_findings_review_notes` zarfı v0.6+ yol haritasında.)
 
 ## Konfigürasyon
 
@@ -121,7 +121,7 @@ ingestion:
 :::
 
 :::tip
-Sertifika / token meşru içeren corpus'lar için (güvenlik eğitim dataset'leri, CTF içeriği) detector'la mücadele etmek yerine `--skip-secrets` kullanın. Gelecek reviewer'ların neden kapatıldığını görmesi için audit log'a istisna belgeleyin.
+Sertifika / token meşru içeren corpus'lar için (güvenlik eğitim dataset'leri, CTF içeriği) CLI escape hatch yoktur — sırlar taraması bilinçli olarak her zaman açıktır (`--no-secrets` / `--skip-secrets` flag'i yoktur ve `forgelm audit` taramayı her çağrıda koşulsuz koşturur; temel scan-mode semantiği için yukarıdaki [Sadece-audit modu](#sadece-audit-modu) bölümüne bkz.). Corpus'unuzun data-governance manifest'inde ilgili satırları `legitimate_secret_content: true` olarak işaretleyin, böylece downstream reviewer rationale'ı görür; `forgelm audit` yine de flag'ler ama reviewer manifest satırını kanıt olarak dismiss eder.
 :::
 
 ## Bkz.

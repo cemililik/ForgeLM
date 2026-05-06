@@ -190,7 +190,9 @@ data:
 #   intended_purpose: "Automated customer support for insurance claims"
 #   known_limitations: "Not suitable for medical or legal advice"
 #   system_version: "1.0.0"
-#   risk_classification: "high-risk"  # "high-risk", "limited-risk", "minimal-risk"
+#   risk_classification: "high-risk"  # one of: "unknown" | "minimal-risk" | "limited-risk" | "high-risk" | "unacceptable"
+#   #   "unacceptable" triggers an EU AI Act Article 5 prohibited-practice banner;
+#   #   "unknown" is the explicit pre-classification placeholder.
 
 # Risk Assessment (Art. 9)
 # risk_assessment:
@@ -198,7 +200,8 @@ data:
 #   foreseeable_misuse:
 #     - "Users may ask for medical advice"
 #     - "Model may generate incorrect policy details"
-#   risk_category: "high-risk"
+#   risk_category: "high-risk"  # same valid values as risk_classification:
+#   #   "unknown" | "minimal-risk" | "limited-risk" | "high-risk" | "unacceptable"
 #   mitigation_measures:
 #     - "Safety classifier blocks harmful outputs"
 #     - "Human review required for policy-related responses"
@@ -211,3 +214,12 @@ data:
 #   metrics_export: "prometheus"  # "none", "prometheus", "datadog", "custom_webhook"
 #   alert_on_drift: true
 #   check_interval_hours: 24
+
+# Retention horizons — GDPR Article 5(1)(e) "storage limitation" + Article 17
+# "right to erasure".  Replaces deprecated `evaluation.staging_ttl_days`.
+# retention:
+#   audit_log_retention_days: 1825    # ~5 years (Article 12 record-keeping baseline)
+#   staging_ttl_days: 7               # final_model.staging.<run_id>/ TTL after `forgelm reject`
+#   ephemeral_artefact_retention_days: 90   # compliance bundles + audit reports
+#   raw_documents_retention_days: 90        # ingested raw docs (PDF/DOCX/EPUB/TXT/MD)
+#   enforce: "log_only"               # "log_only" | "warn_on_excess" | "block_on_excess"

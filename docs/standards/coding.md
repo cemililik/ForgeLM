@@ -119,9 +119,32 @@ Default to no comments. Only add them when *why* is non-obvious:
 
 **Never** write comments that restate the code. **Never** write comments that reference a specific PR, issue, or past fix — that belongs in git history or the changelog.
 
+## NOSONAR discipline
+
+Suppressing a SonarCloud rule with `# NOSONAR` is allowed only when the rule's premise genuinely does not bite, and the suppression must be auditable. Every new `# NOSONAR` site must satisfy:
+
+1. **The Sonar rule code on the same line.** Write `# NOSONAR python:S5332` for a plain-HTTP rejection-message string, `# NOSONAR python:S5852` for a regex over controlled (non-user-facing) input, and so on. Bare `# NOSONAR` without the rule code is rejected — Sonar treats unscoped suppressions as low-confidence and may continue flagging.
+2. **A one-line rationale.** Either trailing on the same line (terse) or in a prose block immediately above the offending line. The rationale must explain *why* the rule's premise does not bite — e.g. "rejection-path message, not an outbound HTTP call" or "controlled static-HTML input, not user-facing".
+3. **Combined Sonar + bandit suppressions on a single line.** Prefer `# NOSONAR python:S5332  # nosec B603 — rationale` over two stacked comments on adjacent lines.
+4. **BLE001 + NOSONAR pairing.** `except Exception` sites that already carry `# noqa: BLE001 — <rationale>` per [error-handling.md](error-handling.md) may trail the line with `# NOSONAR` to silence Sonar's broad-catch warning; the BLE001 rationale doubles as the NOSONAR rationale, but the explicit Sonar rule code (`python:S5754`) should still be present.
+
+Examples grounded in shipped code:
+
+```python
+# Good — outbound-HTTP rule muted because the string is a rejection message:
+raise ValueError(
+    f"http:// blocked (use https://); url={_mask_netloc(url)}"  # NOSONAR python:S5332
+)
+
+# Good — broad-catch + Sonar pairing on a BLE001 site:
+except Exception as e:  # noqa: BLE001 — best-effort: lm-eval HFLM wrapper crosses a wide error tail (HF introspection AttributeError, tokenizer ValueError, CUDA RuntimeError); BenchmarkResult(passed=False) is the documented gate surface.  # NOSONAR python:S5754
+```
+
+`# NOSONAR` is never a substitute for fixing the underlying issue. If a Sonar rule fires on input you control (e.g. a regex consuming user-supplied text), prefer rewriting to satisfy the rule (state machine, anchored regex, narrower exception class) over suppressing it.
+
 ## Anti-patterns (rejected at review)
 
-These come from [`docs/analysis/QKV-Core/14-forgelm-icin-cikarimlar.md`](../analysis/QKV-Core/14-forgelm-icin-cikarimlar.md) — concrete sins ForgeLM avoids:
+These come from the internal QKV-Core repo analysis (synthesised in the public [`master-review-opus-202604300906.md`](../analysis/code_reviews/master-review-opus-202604300906.md)) — concrete sins ForgeLM avoids:
 
 | Anti-pattern | Why rejected | Correct form |
 |---|---|---|
@@ -134,7 +157,7 @@ These come from [`docs/analysis/QKV-Core/14-forgelm-icin-cikarimlar.md`](../anal
 | `[A-Za-z0-9_]` in regex | Verbose; SonarCloud `python:S6353` | `\w` |
 | `[ ]{0,3}` (single-char class) | Noisy; SonarCloud `python:S6328` | ` {0,3}` |
 | Two competing greedy/lazy quantifiers over the same char class (`[ \t]+(.+?)[ \t]*$`) | O(n²) ReDoS — confirmed at `n=2000` in `_MARKDOWN_HEADING_PATTERN`; review round 2.5 | Anchor on `\S` at body boundaries: `[ \t]+(\S(?:[^\n]*\S)?)[ \t]*$` |
-| `.*?` + back-reference + `re.DOTALL` | SonarCloud `python:S5852`; replace with state machine | Per-line walker (see [`_strip_code_fences`](../../forgelm/data_audit.py)) |
+| `.*?` + back-reference + `re.DOTALL` | SonarCloud `python:S5852`; replace with state machine | Per-line walker (see [`_strip_code_fences`](../../forgelm/data_audit/_quality.py)) |
 
 For deeper regex rules (8 hard rules + ReDoS exposure budget + test fixture hygiene), see [regex.md](regex.md).
 

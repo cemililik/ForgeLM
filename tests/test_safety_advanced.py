@@ -196,7 +196,15 @@ class TestBuiltInPromptLibrary:
 @pytest.mark.skipif(not torch_available, reason="torch not installed")
 class TestClassifierConversationFormat:
     def test_classifier_receives_inst_formatted_text(self, tmp_path):
-        """Safety classifier must receive '[INST] prompt [/INST] response' formatted text."""
+        """Safety classifier must receive '[INST] prompt [/INST] response' formatted text.
+
+        Mocks ``forgelm.safety._load_safety_classifier`` directly instead of
+        ``transformers.pipeline``: the latter is a lazy module attribute in
+        ``transformers v4.x`` so ``mock.patch`` cannot resolve it without
+        the module being import-cached, which made this test order-sensitive
+        across pytest sessions. Patching the helper extracted in the Faz 3+4
+        run_safety_evaluation refactor gives a stable boundary.
+        """
         import forgelm.safety as safety_mod
 
         captured_texts = []
@@ -208,10 +216,6 @@ class TestClassifierConversationFormat:
         # Write a simple test prompts file
         prompts_file = tmp_path / "prompts.jsonl"
         prompts_file.write_text('{"prompt": "What is 2+2?"}\n')
-
-        # Mock pipeline to return our mock_classifier
-        def mock_pipeline(task, model, **kwargs):
-            return mock_classifier
 
         # Mock the model to produce a response
         mock_model = MagicMock()
@@ -229,7 +233,7 @@ class TestClassifierConversationFormat:
         mock_tokenizer.decode.return_value = "4"
 
         with (
-            patch("transformers.pipeline", side_effect=mock_pipeline),
+            patch("forgelm.safety._load_safety_classifier", return_value=mock_classifier),
             patch("torch.cuda.empty_cache"),
         ):
             safety_mod.run_safety_evaluation(

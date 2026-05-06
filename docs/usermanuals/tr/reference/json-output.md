@@ -1,0 +1,463 @@
+---
+title: JSON çıktı şemaları
+description: Her forgelm subcommand için kilitli --output-format json envelope yapısı. CI tüketicileri bu alan adlarına bağımlıdır.
+---
+
+# JSON çıktı şemaları
+
+`--output-format json` destekleyen her `forgelm` subcommand'ı stdout'a stabil bir JSON envelope üretir. Alan adları ve nesting [`docs/standards/release.md`](#/standards/release) gereği public CLI kontratının parçası: bir anahtarı yeniden adlandırmak MAJOR-version break sayılır.
+
+Bu sayfa kanonik referanstır. `forgelm` çıktısını parse eden CI/CD pipeline'ları burada belgelenen yapılara karşı pin'lemelidir.
+
+## Ortak konvansiyonlar
+
+- **stdout vs stderr.** JSON envelope **stdout**'a gider. İnsana okunabilir loglar (info / warning / error) **stderr**'e gider. `forgelm ... --output-format json | jq .` ile pipe edip operatör mesajlarını `2>` ile ayrı okuyun.
+- **Üst seviye sarmalayıcı.** Her envelope `"success": true | false` ile başlar. Tüketiciler önce bu tek anahtarda branch açabilir.
+- **Hata envelope'u.** `success: false` olduğunda envelope `"error": "<mesaj>"` (string) taşır. Opsiyonel zenginleştirilmiş alanlar (`exit_code`, `error_type`, `details`) [`error-handling.md`](#/standards/error-handling) gereği var olabilir. Bu alanlardan kesinlik isteyen tüketiciler `$?` ile süreç exit kodunu da kontrol etmelidir.
+- **Exit kodları.** Bkz. [Exit Kodları](#/reference/exit-codes). Envelope, exit code ile tutarlıdır: `success: true` ⟺ exit `0`; `success: false` ⟺ non-zero exit.
+
+## `forgelm doctor`
+
+Ortam kontrolü. Bkz. [Doctor komutu](#/getting-started/first-run).
+
+**Başarı envelope'u** (`forgelm doctor [--offline] --output-format json`):
+
+```json
+{
+  "success": true,
+  "checks": [
+    {
+      "name": "python.version",
+      "status": "pass",
+      "detail": "Python 3.11.7 (CPython).",
+      "extras": {"version": "3.11.7", "implementation": "CPython"}
+    }
+  ],
+  "summary": {"pass": 8, "warn": 1, "fail": 0, "crashed": 0}
+}
+```
+
+| Anahtar | Tip | Notlar |
+|---|---|---|
+| `success` | bool | Hiçbir probe `fail` değilse VE hiçbir probe crash etmediyse `true`; aksi halde `false`. |
+| `checks` | list[object] | Çalıştırma sırasıyla probe başına bir entry. Probe adları stabildir (örn. `python.version`, `torch.cuda`, `gpu.inventory`, `extras.qlora`, `hf_hub.reachable`, `hf_hub.offline_cache`, `disk.workspace`, `operator.identity`). |
+| `checks[].name` | str | Probe adı. Sürümler arası stabil; yeni probe'lar yeniden adlandırma yerine eklenir. |
+| `checks[].status` | str | `pass`, `warn`, `fail`, `crashed`'tan biri. |
+| `checks[].detail` | str | Sonuç için operatör-yüzlü tek satırlık açıklama. |
+| `checks[].extras` | object | Probe-spesifik yapısal veri. Per-probe anahtarlar `_doctor.py` docstring'lerinde belgelidir; tüketiciler bilinmeyen anahtarları forward-compatible olarak ele almalıdır. |
+| `summary` | object | `checks` arasında her status'ın sayısı. Toplam `len(checks)`'a eşittir. |
+
+**Exit code mapping:** `0` = tüm probe'lar `pass` veya `warn`; `1` = en az bir `fail`; `2` = en az bir `crashed` (probe raise etti; sonraki probe'lar yine de çalıştı).
+
+## `forgelm approvals --pending`
+
+Bekleyen Madde 14 onay isteklerini en yeniden başa doğru listeler.
+
+```json
+{
+  "success": true,
+  "pending": [
+    {
+      "run_id": "fg-abc123def456",
+      "staging_path": "/work/output/final_model.staging.fg-abc123def456",
+      "staging_exists": true,
+      "requested_at": "2026-05-04T12:34:56+00:00",
+      "age_seconds": 3600.5,
+      "metrics": {"safety_score": 0.91, "benchmark.hellaswag": 0.78},
+      "config_hash": "sha256:...",
+      "reason": "post-train safety eval below threshold"
+    }
+  ],
+  "count": 1
+}
+```
+
+| Anahtar | Tip | Notlar |
+|---|---|---|
+| `success` | bool | `true` (her zaman — boş liste başarıdır). |
+| `pending` | list[object] | En yeniden başa; `count == len(pending)`. Boş liste = bekleyen onay yok. |
+| `pending[].run_id` | str \| null | Audit event'inden run identifier. |
+| `pending[].staging_path` | str \| null | Çözülmüş staging dizini (audit event `staging_path` taşımıyorsa ve canonical fallback yoksa `null`). Path-traversal korumalı — `--output-dir` dışındaki yollar resolve aşamasında reddedilir. |
+| `pending[].staging_exists` | bool | `staging_path` mevcut bir dizine resolve oluyorsa `True`. |
+| `pending[].requested_at` | str \| null | Audit event'inden ISO-8601 timestamp. |
+| `pending[].age_seconds` | number \| null | `requested_at`'tan beri saniye; timestamp parse edilemezse `null`. |
+| `pending[].metrics` | object | Audit event'inden serbest-form per-run metric'ler. |
+| `pending[].config_hash` | str \| null | Bilindiğinde config fingerprint. |
+| `pending[].reason` | str \| null | Audit event'inden operatör tarafından sağlanan sebep. |
+| `count` | int | Bekleyen sayı; `len(pending)`'a eşit. |
+
+## `forgelm approvals --show RUN_ID`
+
+Bir koşu için tam onay-gate audit chain'i + staging içeriğini incele.
+
+```json
+{
+  "success": true,
+  "run_id": "fg-abc123def456",
+  "status": "pending",
+  "chain": [
+    {"event": "human_approval.required", "run_id": "fg-abc123def456", "timestamp": "2026-05-04T12:34:56+00:00", "...": "..."}
+  ],
+  "staging_contents": ["adapter_config.json", "adapter_model.safetensors", "tokenizer.json"]
+}
+```
+
+| Anahtar | Tip | Notlar |
+|---|---|---|
+| `success` | bool | Koşu bulunduğunda `true`; `RUN_ID`'nin audit event'i yoksa `false` (`error` ile). |
+| `run_id` | str | Echo'lanan input `RUN_ID`. |
+| `status` | str | `pending`, `granted`, `rejected`, `unknown`'dan biri. Latest-wins semantik: önceki bir karardan sonra re-stage edilen koşu `pending` gösterir. |
+| `chain` | list[object] | `run_id` için her onay-gate audit event'i, append sırasıyla. |
+| `staging_contents` | list[str] | `<output_dir>/final_model.staging.<run_id>` (veya canonical fallback) altında sıralı dosya/dizin adları. Staging eksik veya okunamıyorsa boş. |
+
+## `forgelm audit`
+
+Eğitim öncesi veri denetimi. Tam rapor; ana alanlar gösterildi.
+
+```json
+{
+  "success": true,
+  "report_path": "audit/data_audit_report.json",
+  "splits": {"train": {"sample_count": 100, "...": "..."}, "...": {}},
+  "pii_summary": {"total_findings": 0, "by_kind": {}},
+  "secrets_summary": {"total_findings": 0, "by_kind": {}},
+  "cross_split_overlap": {"pairs": {}},
+  "leakage": {"...": "..."},
+  "quality_filter": null,
+  "near_duplicates": {"...": "..."},
+  "languages_top3": [{"code": "en", "count": 87}],
+  "generated_at": "2026-05-04T12:34:56+00:00",
+  "warnings": []
+}
+```
+
+Tam şema [`docs/guides/data_audit.md`](#/data/audit)'dedir. CI gate'leri için `report_path` (on-disk JSON'un yeri) + `success`'e karşı pin'leyin.
+
+## `forgelm verify-audit`
+
+Audit log chain bütünlüğü kontrolü.
+
+```json
+{
+  "success": true,
+  "valid": true,
+  "entries_count": 87,
+  "hmac_verified": true,
+  "errors": []
+}
+```
+
+| Anahtar | Tip | Notlar |
+|---|---|---|
+| `success` | bool | `true` ⟺ `valid: true`. |
+| `valid` | bool | Herhangi bir prev_hash mismatch / monotonicity break / seq gap varsa `false`. |
+| `entries_count` | int | Düzgün-formed audit satır sayısı. |
+| `hmac_verified` | bool \| null | `--hmac-secret` her `hmac` alanıyla eşleşince `true`; mismatch'te `false`; chain'de HMAC alanı yoksa `null`. |
+| `errors` | list[str] | Tespit edilen sorun başına bir insan-okunur satır. |
+
+## `forgelm approve` / `forgelm reject`
+
+```json
+{
+  "success": true,
+  "run_id": "fg-abc123def456",
+  "approver": "alice@example.com@workstation-7",
+  "final_model_path": "/work/output/final_model",
+  "promote_strategy": "atomic_rename"
+}
+```
+
+`approve` başarıda `0` ile çıkar; `reject` rejection kaydı sonrası `0` ile çıkar (staging dizini forensics için korunur). Bilinmeyen `run_id` / config hatasında `error` ile `success: false`.
+
+## `forgelm purge`
+
+Üç-modlu dispatcher: `--row-id`, `--run-id` veya `--check-policy`. Wave 2b Phase 21 — GDPR Madde 17 silme hakkı.
+
+**Satır-silme başarı zarfı — wet run** (`forgelm purge --row-id ROW --corpus PATH`):
+
+```json
+{
+  "success": true,
+  "mode": "row",
+  "dry_run": false,
+  "row_id_hash": "abc123...64-hex",
+  "salt_source": "per_dir",
+  "corpus_path": "/work/train.jsonl",
+  "matches": 1,
+  "first_line": 42,
+  "bytes_freed": 142,
+  "warnings": []
+}
+```
+
+**Satır-silme başarı zarfı — dry run:** aynı şekil eksi `bytes_freed` (rewrite atlanır); `warnings: []` ve `dry_run: true`.
+
+**Run-silme başarı zarfı — wet run** (`--run-id RUN --kind {staging,artefacts}`):
+
+```json
+{
+  "success": true,
+  "mode": "run",
+  "kind": "staging",
+  "dry_run": false,
+  "run_id": "fg-abc123",
+  "deleted": ["/work/output/final_model.staging.fg-abc123"],
+  "bytes_freed": 1048576
+}
+```
+
+**Run-silme başarı zarfı — dry run:** `deleted` yerine `would_delete` (aynı liste-of-paths şekli); `bytes_freed`'i çıkar.
+
+**Check-policy başarı zarfı — retention block configured** (`--check-policy [--config PATH]`):
+
+```json
+{
+  "success": true,
+  "violations": [
+    {
+      "artefact_kind": "staging_dir[fg-abc123]",
+      "path": "/work/output/final_model.staging.fg-abc123",
+      "age_days": 14.7,
+      "horizon_days": 7,
+      "age_source": "audit"
+    }
+  ],
+  "count": 1
+}
+```
+
+**Check-policy başarı zarfı — retention block yok** (operatörün config'i `retention:` block'unu atladı veya `--config` verilmedi): zarf `count`'u düşürür ve no-op'u açıklayan bir `note` field ekler:
+
+```json
+{
+  "success": true,
+  "violations": [],
+  "note": "No `retention:` block in the loaded config; nothing to enforce.  See `docs/guides/gdpr_erasure.md` for the schema."
+}
+```
+
+| Anahtar | Tip | Notlar |
+|---|---|---|
+| `success` | bool | Başarılı operasyon için `true`; config / runtime hatasında `false` (`error` ile). |
+| `mode` (row/run) | str | Discriminator; `"row"` veya `"run"`. `--check-policy`'de yok. |
+| `kind` (run) | str | `"staging"` veya `"artefacts"`. Sadece run mode. |
+| `dry_run` | bool | `--dry-run` flag'ini yansıtır. Row + run zarflarında mevcut; `--check-policy`'de yok (mode tanım gereği read-only). |
+| `row_id_hash` | str | `salt + raw_value`'nun 64-karakter küçük-harfli hex SHA-256 digest'i. Cleartext değer hiçbir zaman zarfta yer almaz. **Not:** digest plain hex olarak emit edilir (`sha256:` öneki YOK) — tüketiciler `hashlib.sha256(...).hexdigest()` ile doğrudan `==` karşılaştırma yapabilsin diye. |
+| `salt_source` | str | `FORGELM_AUDIT_SECRET` toggle'ına göre `"per_dir"` veya `"env_var"`. |
+| `corpus_path` | str | Operatörün `--corpus` ile geçtiği JSONL corpus'un absolute path'i. Sadece row mode. |
+| `matches` | int | `--row-id` ile eşleşen satırların sayısı. Sadece row mode. |
+| `first_line` | int | İlk eşleşen satırın 1-tabanlı satır numarası, rewrite *öncesi* yakalanmış. Sadece row mode. |
+| `bytes_freed` | int | Silme tarafından geri kazanılan byte. Wet run'larda mevcut (row + run); dry run'larda yok. |
+| `warnings` | list[str] | Row erasure ile birlikte emit edilen `data.erasure_warning_*` audit event isimleri (memorisation / synthetic-data / external-copies). Sadece row mode. |
+| `would_delete` (run dry) / `deleted` (run wet) | list[str] | Run mode: dispatcher'ın silmek için hedeflediği path'ler. Dry vs wet'te farklı anahtar — tüketiciler şekle göre branch'leyebilsin diye. |
+| `violations` | list[object] | Sadece `--check-policy`. `artefact_kind` şunlardan biri: `audit_log`, `staging_dir`, `staging_dir[<run_id>]`, `compliance_bundle`, `data_audit_report`, `raw_documents[...]`. `age_source` ∈ `{audit, mtime}`. |
+| `count` | int | Sadece `--check-policy` ve `retention:` block configured ise; `len(violations)`'a eşit. No-retention-block dalında yok (onun yerine `note` ekler). |
+| `note` | str | Sadece `--check-policy` ve `retention:` block configured DEĞİLSE. GDPR guide'a işaret eden operator-facing tek-satır. |
+
+**Exit kodu:** `0` = başarı veya başarılı policy raporu; `1` = config hatası (bilinmeyen satır, eksik corpus, çelişen flag, malformed `--check-policy --config`); `2` = runtime hatası (I/O, atomic rename başarısız).
+
+## `forgelm reverse-pii`
+
+Wave 3 Phase 38 — GDPR Madde 15 erişim hakkı, `forgelm purge`'ün companion'ı. JSONL corpora'larını dolaşır ve sağlanan identifier'ın görüldüğü her satırı raporlar.
+
+**Başarı zarfı:**
+
+```json
+{
+  "success": true,
+  "query_hash": "abc...64-hex",
+  "identifier_type": "email",
+  "scan_mode": "plaintext",
+  "salt_source": "per_dir",
+  "matches": [
+    {
+      "file": "/work/data/train.jsonl",
+      "line": 42,
+      "snippet": "…Contact: alice@example.com regarding the appointment…"
+    }
+  ],
+  "files_scanned": [
+    {"path": "/work/data/train.jsonl", "match_count": 1}
+  ],
+  "match_count": 1
+}
+```
+
+| Anahtar | Tip | Notlar |
+|---|---|---|
+| `query_hash` | str | `salt + raw --query`'nin 64-karakter küçük-harfli hex SHA-256 digest'i — `salt`, `forgelm purge`'ün `target_id` için de kullandığı per-output-dir audit salt'ı.  Raw değer hiçbir zaman zarfta yer almaz; purge'ün `target_id`'si ile cross-tool korelasyon hazır gelir. |
+| `identifier_type` | str | `--type` echo'su ∈ `{literal, email, phone, tr_id, us_ssn, iban, credit_card, custom}`.  Varsayılan `literal` — query literal substring olarak eşleştirilir. |
+| `scan_mode` | str | `"plaintext"` (varsayılan — verbatim arama; mask-leak detection) veya `"hash"` (`--salt-source` set; corpus'ta `salt + query`'nin SHA-256'sı aranır). |
+| `salt_source` | str | Hangi salt-resolution path kullanıldı: `"plaintext"` (`--salt-source` yok), `"per_dir"` (yalnız per-output-dir salt dosyası) veya `"env_var"` (`FORGELM_AUDIT_SECRET` ile XOR).  Audit event'inde de yansıtılır; bir compliance reviewer iki digest'in aynı şekilde salt'lanıp salt'lanmadığını anlayabilir. |
+| `matches` | list[object] | Eşleşen her satır için bir entry.  `snippet` eşleşen span'in etrafında merkezlenip 160 karaktere kapanır (`…` ayraç); eşleşen identifier her zaman pencere içinde kalır. |
+| `files_scanned` | list[object] | Glob-resolution sırasında per-file match sayıları.  Hangi path'lerin tarandığının kaynağı budur. |
+| `match_count` | int | `len(matches)`'a eşit; "match var mı yok mu" branch'leyen CI gate'leri için convenience. |
+
+**Exit kodu:** `0` = scan tamamlandı (matches listesi boş olabilir); `1` = config hatası (boş `--query`, `--type custom` malformed regex, empty glob expansion, `FORGELM_AUDIT_SECRET` olmadan `--salt-source env_var` — veya `FORGELM_AUDIT_SECRET` set iken `--salt-source per_dir`); `2` = runtime hatası (mid-scan I/O failure, malformed UTF-8 corpus, custom-regex ReDoS timeout, `--audit-dir` explicit verildiğinde audit-init başarısızlığı).
+
+## `forgelm cache-models`
+
+Wave 2b Phase 35 — air-gap workflow blocker. HuggingFace Hub cache'ini önceden doldurur.
+
+**Başarı zarfı** (`forgelm cache-models --model M [--safety S] [--output DIR]`):
+
+```json
+{
+  "success": true,
+  "models": [
+    {
+      "name": "meta-llama/Llama-3.2-3B",
+      "cached_path": "/work/hf_cache/models--meta-llama--Llama-3.2-3B",
+      "size_bytes": 3221225472,
+      "size_mb": 3072.0,
+      "duration_s": 142.7
+    }
+  ],
+  "total_size_mb": 3072.0,
+  "cache_dir": "/work/hf_cache"
+}
+```
+
+| Anahtar | Tip | Notlar |
+|---|---|---|
+| `models` | list[object] | Her `--model` için bir entry; `--safety` (verildiyse) son entry olarak görünür. |
+| `models[].cached_path` | str | `huggingface_hub.snapshot_download`'un döndüğü path (operatörün `--output`'u veya env-resolved `HF_HUB_CACHE`). |
+| `total_size_mb` | float | Tüm `models[].size_mb`'in toplamı. |
+| `cache_dir` | str | Operatörün `--output`'u veya env-resolved (`HF_HUB_CACHE > HF_HOME/hub > ~/.cache/huggingface/hub`). |
+
+**Exit kodu:** `0` = her model cache'lendi; `1` = config hatası (no `--model`, malformed isim); `2` = runtime hatası (Hub failure, disk-full, broken environment / eksik core dep).
+
+## `forgelm cache-tasks`
+
+Wave 2b Phase 35 — lm-evaluation-harness task dataset cache'ini önceden doldurur. `[eval]` extra'sı gerekir.
+
+**Başarı zarfı** (`forgelm cache-tasks --tasks CSV [--output DIR]`):
+
+```json
+{
+  "success": true,
+  "tasks": [
+    {"name": "hellaswag", "cached": true, "error": null},
+    {"name": "arc_easy", "cached": true, "error": null}
+  ],
+  "cache_dir": "/work/datasets_cache"
+}
+```
+
+| Anahtar | Tip | Notlar |
+|---|---|---|
+| `tasks` | list[object] | Her task için bir entry; `cached: false` + non-null `error` per-task best-effort'tür (batch devam eder). |
+| `cache_dir` | str | Operatörün `--output`'u veya env-resolved (`HF_DATASETS_CACHE > HF_HOME/datasets > ~/.cache/huggingface/datasets` — Hub chain'inden ayrı *Datasets* chain'idir). |
+
+**Exit kodu:** `0` = enumeration başarılı (per-task download hataları `tasks[].error`'da raporlanır ama batch'i fail etmez); `1` = config hatası (boş `--tasks`, bilinmeyen task, eksik `[eval]` extra); `2` = runtime hatası (broken environment / mid-batch failure).
+
+## `forgelm safety-eval`
+
+Wave 2b Phase 36 — bir model checkpoint'ine karşı standalone safety evaluation.
+
+**Başarı zarfı** (`forgelm safety-eval --model M {--probes JSONL | --default-probes}`):
+
+```json
+{
+  "success": true,
+  "model": "/work/final_model",
+  "classifier": "meta-llama/Llama-Guard-3-8B",
+  "probes": "/work/probes.jsonl",
+  "output_dir": "/work/eval",
+  "passed": true,
+  "safety_score": 0.93,
+  "safe_ratio": 0.95,
+  "category_distribution": {"S1": 0, "S2": 1, "S3": 0},
+  "failure_reason": null
+}
+```
+
+| Anahtar | Tip | Notlar |
+|---|---|---|
+| `success` | bool | `passed`'i yansıtır. `success: false` dispatcher crash anlamına gelmez — model safety gate'i geçemedi demektir. |
+| `passed` | bool | `safety_score` ve `safe_ratio` configured threshold'ları geçtiyse `true`. |
+| `safety_score` | float \| null | `forgelm.safety.run_safety_evaluation`'dan agregate skor. |
+| `category_distribution` | object | Per-harm-category sayımları (`track_categories=False` ise boş). |
+| `failure_reason` | str \| null | `passed: false` durumunda `SafetyResult`'tan human-readable sebep. |
+
+**Exit kodu:** `0` = threshold'lar geçildi; `1` = config hatası (eksik `--model`, çelişen probe flag'leri, GGUF model yolu); `2` = runtime hatası (model load failure, classifier load failure, broken environment); `3` = `EXIT_EVAL_FAILURE` — evaluation tamamlandı ama safety gate hayır dedi (operator-actionable: re-train veya re-classify).
+
+## `forgelm verify-annex-iv`
+
+Wave 2b Phase 36 — EU AI Act Annex IV §1-9 artefact bütünlük kontrolü.
+
+**Başarı zarfı** (`forgelm verify-annex-iv PATH`):
+
+```json
+{
+  "success": true,
+  "path": "/work/output/compliance/annex_iv_metadata.json",
+  "valid": true,
+  "missing_fields": [],
+  "manifest_hash_actual": "abcd1234...",
+  "manifest_hash_expected": "abcd1234...",
+  "manifest_hash_present": true,
+  "reason": ""
+}
+```
+
+| Anahtar | Tip | Notlar |
+|---|---|---|
+| `valid` | bool | Tüm 9 §1-9 field'ı mevcutsa VE (`metadata.manifest_hash` mevcutsa) yeniden hesaplanan hash eşleşirse `true`. |
+| `missing_fields` | list[str] | Eksik / boş `_ANNEX_IV_REQUIRED_FIELDS`'ın isimleri. |
+| `manifest_hash_actual` | str \| null | Artefact-minus-metadata'nın yeniden hesaplanan canonical SHA-256'sı. |
+| `manifest_hash_expected` | str \| null | Artefact'in `metadata.manifest_hash` field'ından çıkarılan değer. |
+| `manifest_hash_present` | bool | Artefact hash taşımıyorsa `false` (eski export — verifier warning ile geçer). |
+| `reason` | str | `valid: true` ise boş; aksi halde tek-satır failure açıklaması. |
+
+**Exit kodu:** `0` = `valid: true`; `1` = `valid: false` (eksik field veya hash mismatch — auditor-facing rejection); `2` = runtime hatası (file not found, unreadable, malformed JSON).
+
+## `forgelm verify-gguf`
+
+Wave 2b Phase 36 — GGUF model dosyası bütünlük kontrolü.
+
+**Başarı zarfı** (`forgelm verify-gguf PATH`):
+
+```json
+{
+  "success": true,
+  "path": "/work/exports/model.q4_k_m.gguf",
+  "valid": true,
+  "reason": "GGUF magic OK, metadata parsed, SHA-256 sidecar match",
+  "checks": {
+    "magic_ok": true,
+    "metadata_parsed": true,
+    "sidecar_present": true,
+    "sidecar_match": true,
+    "sha256_actual": "abcd1234...",
+    "sha256_expected": "abcd1234..."
+  }
+}
+```
+
+| Anahtar | Tip | Notlar |
+|---|---|---|
+| `valid` | bool | Magic header geçerli VE *denenen* her check (metadata block, SHA-256 sidecar) başarılıysa `true`. Skipped bir check (örn. opsiyonel `gguf` paketi yoksa `metadata_parsed: false`) `valid: false`'a zorlamaz — sadece *denenip-failed* check zorlar. `tests/test_verification_toolbelt.py` bu sözleşmeyi pin'liyor: `checks.metadata_parsed == false` iken `valid == true` olabilir (paket-eksik yolu). |
+| `checks.magic_ok` | bool | İlk 4 byte `b"GGUF"`'ya eşit. |
+| `checks.metadata_parsed` | bool | `gguf` metadata block başarıyla parse edildiyse `true`; block bozuksa **VEYA** opsiyonel `gguf` paketi yok / skipped ise `false`. Tek başına `false` değer `valid: false`'a zorlamaz — bozulma `reason`'ı set edip reddediyor, ama paket-eksik yolu `valid`'i etkilemiyor. |
+| `checks.sidecar_present` | bool | `<path>.sha256` mevcutsa `true`. |
+| `checks.sidecar_match` | bool \| null | Byte-for-byte eşleşmede `true`; mismatch veya malformed sidecar'da `false`; sidecar yoksa `null`. *Malformed* sidecar (empty / non-hex / yanlış uzunluk) fail-closed olur. |
+| `reason` | str | Tek-satır özet; `valid: false` durumunda failure detayını taşır. |
+
+**Exit kodu:** `0` = `valid: true`; `1` = `valid: false` (magic mismatch, metadata block *bozuk*, SHA-256 mismatch, malformed sidecar); `2` = runtime hatası (file not found, unreadable). Opsiyonel-`gguf`-paketi-eksik yolu `valid: true` + exit `0` olarak kalır (operatörün "metadata check skipped" durumu — magic header + SHA-256 sidecar checks load-bearing integrity yüzeyi olmaya devam eder).
+
+## Yeni subcommand eklerken
+
+`--output-format json` destekleyen yeni bir subcommand şunlarla landed olmalıdır:
+
+1. Bu sayfada belgelenen envelope (EN + TR mirror).
+2. Üst seviye anahtarların tam setini pin'leyen `tests/test_json_envelope_contract.py` (veya per-subcommand test dosyası) testi.
+3. Per-collection anahtar "sonuçlar subcommand'in birincil ismine göre adlandırılmış bir anahtar altında yaşar" konvansiyonunu izler (yani `doctor` → `checks`, `approvals --pending` → `pending` vb.).
+
+Merge sonrası bir anahtarı yeniden adlandırmak [`release.md`](#/standards/release) gereği MAJOR-version bump'tır.
+
+## Ayrıca bakın
+
+- [Exit Kodları](#/reference/exit-codes) — `success: bool`'ın aligned olduğu kontrat.
+- [`error-handling.md`](#/standards/error-handling) — hata envelope kontratı.
+- [`release.md`](#/standards/release) — JSON yeniden adlandırmaları ne zaman breaking sayılır.

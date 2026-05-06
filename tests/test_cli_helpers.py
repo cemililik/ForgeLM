@@ -49,11 +49,14 @@ def test_inherited_flags_propagates_offline_to_both() -> None:
     assert "--offline" in chat_flags
 
 
-def test_inherited_flags_output_format_only_in_train() -> None:
+def test_inherited_flags_output_format_not_forwarded() -> None:
+    # --output-format json must never be forwarded to the training subprocess.
+    # The quickstart parent owns the JSON envelope; forwarding would produce two
+    # top-level JSON objects on stdout, making the stream unparseable.
     args = _ns(output_format="json")
     train_flags, chat_flags = _build_quickstart_inherited_flags(args)
-    assert "--output-format" in train_flags
-    assert train_flags[train_flags.index("--output-format") + 1] == "json"
+    assert "--output-format" not in train_flags
+    assert "json" not in train_flags
     assert "--output-format" not in chat_flags
     assert "json" not in chat_flags
 
@@ -66,14 +69,7 @@ def test_inherited_flags_combined() -> None:
         output_format="json",
     )
     train_flags, chat_flags = _build_quickstart_inherited_flags(args)
-    assert train_flags == [
-        "--output-format",
-        "json",
-        "--quiet",
-        "--log-level",
-        "INFO",
-        "--offline",
-    ]
+    assert train_flags == ["--quiet", "--log-level", "INFO", "--offline"]
     assert chat_flags == ["--quiet", "--log-level", "INFO", "--offline"]
 
 

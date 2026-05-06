@@ -1,7 +1,11 @@
 # Documentation Standard
 
 > **Scope:** All markdown under [`docs/`](../), plus `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, and docstrings in [`forgelm/`](../../forgelm/).
-> **Enforced by:** Review + (future) link-check CI job.
+> **Enforced by:** Review + three `--strict` CI guards under [`tools/`](../../tools/):
+> - [`tools/check_bilingual_parity.py`](../../tools/check_bilingual_parity.py) — H2/H3/H4 spine sync between `*.md` and `*-tr.md` mirrors (Wave 3 / Faz 24).
+> - [`tools/check_anchor_resolution.py`](../../tools/check_anchor_resolution.py) — every relative markdown link with a `#anchor` fragment resolves to a real heading in the target file (Wave 4 / Faz 26; flipped to `--strict` in Wave 5 after the 36-baseline cleanup).
+> - [`tools/check_cli_help_consistency.py`](../../tools/check_cli_help_consistency.py) — every flag in CLI `--help` output appears in [`docs/usermanuals/{en,tr}/reference/cli.md`](../usermanuals/en/reference/cli.md) and vice-versa (Wave 5 / Faz 30 Task J).
+> Every PR runs these gates; passing locally before pushing avoids CI round-trips.
 
 ## Directory topology
 
@@ -54,8 +58,8 @@ Content...
 
 ## Related
 
-- `[Other doc 1](other.md)`
-- `[Other doc 2](../other.md)`
+- Link to a sibling doc, e.g. `sibling.md` — one-line reason
+- Link to a parent-tree doc, e.g. `../parent.md` — one-line reason
 ```
 
 Rules:
@@ -71,15 +75,15 @@ Rules:
 **Relative paths from the current file.** Absolute paths break under GitHub rendering for forks:
 
 ```markdown
-✅ [Configuration](../reference/configuration.md)
-✅ [Error Handling](error-handling.md)
-❌ [Configuration](/docs/reference/configuration.md)   (absolute path)
-❌ [Configuration](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/configuration.md)   (external URL)
+✅ Relative sibling: error-handling.md
+✅ Relative parent-tree: ../reference/configuration.md
+❌ Absolute repo path: /docs/reference/configuration.md
+❌ Full GitHub URL: https://github.com/cemililik/ForgeLM/blob/main/docs/reference/configuration.md
 ```
 
 **External links:** full HTTPS URL. Prefer stable archives (arxiv.org, github.com) over transient news sites.
 
-**Anchor links:** use GitHub's auto-generated slug format (lowercase, hyphens): `[see below](#the-standards)`. Avoid deep anchors into other files — they break silently when the target's headings change.
+**Anchor links:** use GitHub's auto-generated slug format (lowercase, hyphens) — e.g. an anchor `#the-standards` referring back to a heading in the same file. Avoid deep anchors into other files — they break silently when the target's headings change.
 
 ## Docstrings (in code)
 
@@ -138,9 +142,34 @@ graph LR
 
 See [localization.md](localization.md) for the full rule. Summary:
 
-- User-facing docs in `docs/` root, `docs/reference/`, `docs/roadmap.md` have `-tr.md` mirrors.
-- Internal docs (`standards/`, `marketing/`, `analysis/`, `qms/`, `design/`) are English only.
-- Mirrors must stay in structural sync. Cosmetic wording differences OK; structural divergence (sections added in one, missing in other) is a bug.
+- User-facing docs in `docs/` root, `docs/reference/`, `docs/roadmap.md`, `docs/qms/`, and `docs/usermanuals/{en,tr}/` have `-tr.md` (or `tr/`-tree) mirrors.
+- Internal docs (`standards/`, `marketing/`, `analysis/`, `design/`) are English only.
+- Mirrors must stay in **H2 + H3 + H4 structural sync** (Wave 3 / Faz 24 formalisation): every heading at depth 2-4 in the EN file must have a matching same-position heading in the TR file. Cosmetic wording differences inside a section are fine; structural divergence (sections added in one, missing in other; reordered headings) is a bug. The `tools/check_bilingual_parity.py --strict` gate fails CI on any mismatch — bilingual parity scope was expanded from 9/9 to 23/23 file pairs across `docs/qms/` + `docs/reference/` during Wave 4.
+
+## Cross-linking from bilingual content to EN-only docs
+
+`docs/standards/*.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`, and
+`CHANGELOG.md` are EN-only by design (per [localization.md](localization.md)).
+User-facing bilingual content (`docs/guides/*.md`, `docs/usermanuals/{en,tr}/*.md`,
+`docs/qms/*.md`) may cross-link to these EN-only docs as long as the
+context the link sits in is itself bilingual. The convention is:
+
+1. **Prefer a bilingual mirror** when one exists (e.g. `docs/guides/getting-started{,-tr}.md`).
+2. **Cross-link to EN-only standards / READMEs** is permitted when no mirror
+   exists (e.g. `docs/standards/release.md#deprecation-cadence` referenced
+   from CHANGELOG entries). Turkish readers reaching the link see English
+   text — that is the explicit trade-off recorded in [localization.md](localization.md)
+   for the standards-and-process documentation tier.
+3. **Do not** cross-link from EN-only standards files into bilingual mirrors
+   asymmetrically (e.g. `release.md` → `docs/guides/foo.md` but not
+   `release.md` → `docs/guides/foo-tr.md`). When standards reference user
+   guides, link to the EN side only — the TR mirror is reachable through
+   the bilingual nav.
+
+The bilingual-parity gate ([`tools/check_bilingual_parity.py`](../../tools/check_bilingual_parity.py))
+does not enforce this convention; the anchor-resolution gate
+([`tools/check_anchor_resolution.py`](../../tools/check_anchor_resolution.py))
+catches broken links regardless of which side they land on.
 
 ## CHANGELOG
 
@@ -185,7 +214,7 @@ Don't copy or paraphrase long sections from other docs — link and summarize in
 | "TL;DR" as section header | Reader already at the top | Use a blockquote intro instead |
 | Multi-dialect within one doc (TR + EN mixed) | Cognitive overhead | Pick one; mirror if needed |
 | Hypothetical code paths in docs | Future drift | Only document what exists in `main` |
-| "See above" / "as mentioned" | Forces re-reading | Be specific: "see [Error Handling](#error-handling)" |
+| "See above" / "as mentioned" | Forces re-reading | Be specific, e.g. "see the Error Handling section" with an explicit anchor link to that section's slug |
 | "Simply", "just", "obviously" | Dismissive | Remove or rephrase |
 
 ## Checklist before merging docs

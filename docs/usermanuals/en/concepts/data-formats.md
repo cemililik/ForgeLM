@@ -162,7 +162,7 @@ Always run `forgelm audit` before training:
 ```shell
 $ forgelm audit data/preferences.jsonl
 ✓ format: preference (12,400 rows, 3 splits)
-✓ no PII detected (5 medium severity, see report)
+⚠ PII detected: 5 medium severity (see report)
 ⚠ 12 chosen-rejected identical rows — likely collection bug
 ✓ no cross-split leakage
 ```

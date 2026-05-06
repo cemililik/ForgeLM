@@ -116,6 +116,18 @@ Her zaman göndermeden önce `--fit-check` koşturun.
 **Sample packing dramatik hızlandırır.** Ortalama örneğiniz `max_length`'ten çok kısaysa `packing: true` ayarlayın — kısa örnekleri tek diziye paketler, %30-50 throughput. Talimat ayarı için kalite farkı yok.
 :::
 
+## Diskte ne elde edersiniz
+
+Eğitim sonrası:
+
+```text
+checkpoints/sft/
+├── adapter_model.safetensors      ← LoRA ağırlıkları (LoRA kullanılmıyorsa merged checkpoint)
+├── README.md                      ← model kartı
+├── config_snapshot.yaml           ← kullanılan tam config
+└── artifacts/                     ← uyumluluk kanıtı (compliance.annex_iv etkinse)
+```
+
 ## Bkz.
 
 - [DPO](#/training/dpo) — SFT'den sonra olağan adım.

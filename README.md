@@ -5,6 +5,8 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/cemililik/ForgeLM/actions/workflows/ci.yml/badge.svg)](https://github.com/cemililik/ForgeLM/actions/workflows/ci.yml)
 
+**Runs on Linux, macOS, and Windows.** The PyPI metadata's `Operating System :: OS Independent` classifier is backed by a release-tag CI matrix that builds the wheel on Linux and re-installs + tests it across **3 operating systems × 4 Python versions = 12 combinations** (Ubuntu, macOS, Windows × Python 3.10, 3.11, 3.12, 3.13) — every combo must pass before PyPI publish runs. See [`.github/workflows/publish.yml`](.github/workflows/publish.yml). Linux-only extras (`qlora`, `unsloth`) are flagged on each `pip install "forgelm[...]"` line below.
+
 **ForgeLM** is a config-driven, enterprise-ready LLM fine-tuning toolkit. It supports the full modern post-training stack — from supervised fine-tuning to preference alignment to reasoning RL — with integrated safety evaluation, EU AI Act compliance, and CI/CD-native design.
 
 ## Features
@@ -19,7 +21,7 @@
 - **Synthetic Data Pipeline**: Teacher-to-student distillation with `--generate-data` CLI flag
 - **DeepSpeed & FSDP**: Multi-GPU distributed training with ZeRO-2/3 presets
 - **MoE Support**: Fine-tune Mixture of Experts models (Qwen3, Mixtral, DeepSeek)
-- **GPU Cost Estimation**: Auto-detection for 18 GPU models with per-run cost tracking
+- **GPU Cost Estimation**: Auto-detection for 16 GPU models with per-run cost tracking
 
 ### Evaluation & Safety
 - **Automated Benchmarking**: Post-training evaluation via `lm-evaluation-harness`
@@ -39,7 +41,7 @@
 - **Wizard "audit first"**: when the wizard resolves a JSONL (typed or produced by `forgelm ingest`) it offers to run `forgelm audit` inline and prints the verdict before continuing — closes the BYOD audit loop end-to-end.
 
 ### Quickstart Layer (v0.4.5)
-- **One-Command Templates**: `forgelm quickstart customer-support` — 4 bundled templates (SFT customer-support, code-assistant, medical-qa-tr, GRPO math-reasoning) plus a bring-your-own-data domain-expert scaffold. Auto-downsizes models on small GPUs.
+- **One-Command Templates**: `forgelm quickstart customer-support` — 5 bundled templates (SFT customer-support, code-assistant, medical-qa-tr, domain-expert, GRPO grpo-math). Auto-downsizes models on small GPUs.
 - **Conservative Defaults**: Every template ships QLoRA 4-bit, rank=8, batch=1, gradient checkpointing on — designed to run on a single 12 GB GPU.
 - **Wizard Integration**: `forgelm --wizard` opens with "Start from a template?" — same code paths, same YAML schema as a hand-written config.
 
@@ -52,13 +54,18 @@
 ### Enterprise & MLOps
 - **Config-Driven**: Declarative YAML — built for CI/CD pipelines, not notebooks
 - **EU AI Act Compliance**: Auto-generated audit trails, data provenance (SHA-256), training manifests
+- **ISO 27001 / SOC 2 Type II Alignment**: Software cannot be ISO/SOC 2 *certified* — only organisations can — but ForgeLM produces the audit-trail, change-management, data-lineage, and supply-chain evidence the deployer's auditor explicitly asks for. CycloneDX 1.5 SBOM per release, `pip-audit` nightly, `bandit` CI, append-only HMAC-chained audit log (HMAC integrity is active **only when** `FORGELM_AUDIT_SECRET` is set + KMS-managed + rotated between output-dir lifecycles — see [`docs/qms/access_control.md`](docs/qms/access_control.md) §3.4), Article 14 staging gate, Article 15/17 GDPR tooling. See [`docs/guides/iso_soc2_deployer_guide.md`](docs/guides/iso_soc2_deployer_guide.md) for the deployer audit cookbook + 93-control coverage map.
+- **Library API**: `from forgelm import ForgeTrainer, audit_dataset, verify_audit_log, verify_annex_iv_artifact, verify_gguf, mask_pii, mask_secrets, ...` — every CLI surface has a stable Python entry point under `forgelm.__all__`, version-pinned via `forgelm.__api_version__` (decoupled from `__version__`). Run `python -c "import forgelm; print(sorted(forgelm.__all__))"` for the full surface.
+- **GDPR Tooling**: `forgelm purge --subject-id <id>` (Article 17 right-to-erasure: redacts data + adapters in place; the audit log itself is append-only — Article 17(3)(b) preservation — and the erasure is recorded by appending six compensating events (`data.erasure_requested`, `data.erasure_completed`, etc.) so the hash chain remains intact) and `forgelm reverse-pii --query <fragment>` (Article 15 right-of-access: locates PII matches across artefacts without re-loading raw data).
+- **Operational Subcommands**: `forgelm doctor` (env / GPU / CUDA / extras pre-flight), `forgelm cache-models` + `forgelm cache-tasks` (air-gap pre-cache for HF models + lm-eval tasks), `forgelm safety-eval` (standalone Llama Guard run), `forgelm verify-audit` / `verify-annex-iv` / `verify-gguf` (compliance + artefact verification toolbelt), `forgelm approvals` (list pending Article 14 staging-gate runs).
 - **Docker**: Official Dockerfile and docker-compose for portable deployment
 - **Offline / Air-Gapped**: Full operation without internet for regulated industries
-- **JSON Output**: Machine-readable results with `--output-format json` for pipeline integration
-- **Webhook Notifications**: Slack/Teams alerts on training start, success, or failure
+- **JSON Output**: Machine-readable results with `--output-format json` for pipeline integration; the per-subcommand schema is locked in [`docs/usermanuals/en/reference/json-output.md`](docs/usermanuals/en/reference/json-output.md).
+- **Webhook Notifications**: Slack/Teams alerts on training start, success, failure, reverted, or awaiting_approval (5-event vocabulary, paired with audit events)
 - **W&B / MLflow / TensorBoard**: Flexible experiment tracking via `report_to`
 - **Model Card Generation**: Auto-generated HF-compatible model cards with metrics and benchmarks
 - **Model Merging**: TIES, DARE, SLERP, linear merge of multiple adapters via `--merge`
+- **Supply-Chain Security**: CycloneDX 1.5 SBOM per release-tag matrix combo (12 SBOMs per tag), `pip-audit` + `bandit` nightly + on-tag, `gitleaks` pre-commit. See [`docs/reference/supply_chain_security.md`](docs/reference/supply_chain_security.md).
 
 ---
 
@@ -174,7 +181,6 @@ pip install "forgelm[distributed]"       # DeepSpeed multi-GPU
 pip install "forgelm[merging]"           # mergekit model merging
 pip install "forgelm[ingestion]"         # PDF/DOCX/EPUB/Markdown → JSONL + langdetect + xxhash
 pip install "forgelm[ingestion-scale]"   # MinHash LSH dedup (datasketch) for >50K-row corpora
-pip install "forgelm[ingestion-secrets]" # detect-secrets scanner for SFT corpora (falls back to regex if absent)
 pip install "forgelm[ingestion-pii-ml]"  # Presidio ML-NER for person/organization/location PII (Phase 12.5; ALSO needs `python -m spacy download en_core_web_lg`)
 pip install "forgelm[export]"            # GGUF export via llama-cpp-python
 pip install "forgelm[chat]"              # Rich terminal rendering for `forgelm chat`
@@ -231,10 +237,29 @@ forgelm --version                            # Show version
 
 ```
 forgelm/
-├── cli.py            # CLI with 10+ modes (train, dry-run, merge, benchmark, wizard, ingest, audit, ...)
+├── cli/              # CLI package (split out of legacy single-file cli.py)
+│   ├── __main__.py   # `python -m forgelm.cli` entrypoint
+│   ├── _parser.py    # argparse wiring for the top-level + every subcommand
+│   ├── _dispatch.py  # subcommand router; one entry per *_subcommand* below
+│   ├── _exit_codes.py# 0/1/2/3/4 — public CLI contract
+│   └── subcommands/  # _audit, _ingest, _chat, _export, _deploy, _quickstart,
+│                     # _doctor, _cache, _purge, _reverse_pii, _approve,
+│                     # _approvals, _safety_eval, _verify_audit,
+│                     # _verify_annex_iv, _verify_gguf, ...
+├── data_audit/       # Audit package (split out of legacy single-file data_audit.py)
+│   ├── _orchestrator.py   # `run_audit` entry point + parallel split walker
+│   ├── _aggregator.py     # per-split metric aggregator
+│   ├── _streaming.py      # streaming JSONL reader
+│   ├── _simhash.py        # 64-bit simhash + LSH banding (default dedup)
+│   ├── _minhash.py        # MinHash LSH dedup (`[ingestion-scale]` extra)
+│   ├── _pii_regex.py      # PII regex engine (Luhn, IBAN, TC Kimlik validators)
+│   ├── _pii_ml.py         # Presidio NER adapter (`[ingestion-pii-ml]` extra)
+│   ├── _secrets.py        # 9-family credential scan (always-on)
+│   ├── _quality.py        # Gopher / C4 / RefinedWeb-style heuristics
+│   ├── _croissant.py      # Croissant 1.0 dataset card emitter
+│   └── _summary.py        # `summarize_report` truncation policy
 ├── config.py         # Pydantic config (19 models: training, evaluation, distributed, ...)
 ├── data.py           # Dataset loading (SFT, DPO, KTO, GRPO formats + multi-dataset)
-├── data_audit.py     # Audit pipeline (length / language / dedup / leakage / PII / secrets / quality) — `forgelm audit`
 ├── ingestion.py      # Raw docs → SFT JSONL (PDF/DOCX/EPUB/TXT/Markdown + chunking + masking) — `forgelm ingest`
 ├── model.py          # Model loading (transformers, unsloth, MoE, PEFT)
 ├── trainer.py        # Training orchestration (6 trainer types via TRL, GaLore, long-context)
@@ -243,26 +268,33 @@ forgelm/
 ├── export.py         # GGUF export via llama-cpp-python
 ├── fit_check.py      # Pre-flight VRAM estimator (FITS / TIGHT / OOM / UNKNOWN)
 ├── deploy.py         # Deployment config generator (Ollama, vLLM, TGI, HF Endpoints)
-├── results.py        # TrainResult dataclass (AuditReport lives in data_audit.py, IngestionResult in ingestion.py)
+├── results.py        # TrainResult dataclass (AuditReport lives in data_audit/, IngestionResult in ingestion.py)
 ├── benchmark.py      # lm-evaluation-harness integration
 ├── safety.py         # Post-training safety evaluation (Llama Guard)
 ├── judge.py          # LLM-as-Judge evaluation (API + local)
-├── compliance.py     # EU AI Act compliance export & data provenance
+├── compliance.py     # EU AI Act compliance export, audit log + HMAC chain, GDPR purge / reverse-pii primitives
 ├── model_card.py     # Auto-generated HF model cards
 ├── merging.py        # Model merging (TIES, DARE, SLERP, linear)
 ├── synthetic.py      # Synthetic data generation (teacher→student distillation)
 ├── grpo_rewards.py   # Built-in GRPO reward shapers (format / length fallbacks)
 ├── quickstart.py     # `forgelm quickstart <template>` — bundled SFT / code / domain templates
 ├── wizard.py         # Interactive configuration wizard (offers `forgelm ingest` for raw-doc dirs)
-├── webhook.py        # Slack/Teams webhook notifications
+├── webhook.py        # Slack/Teams webhook notifications (5-event vocabulary)
+├── _http.py          # Single chokepoint for outbound HTTP (SSRF guard, timeout floor, secret masking)
+├── _version.py       # `__version__` + `__api_version__` constants
 └── utils.py          # Authentication & checkpoint management
 
 configs/deepspeed/    # ZeRO-2, ZeRO-3, ZeRO-3+Offload presets
-configs/safety_prompts/  # 140 adversarial prompts × 6 categories for safety evaluation
+forgelm/safety_prompts/  # 140 adversarial prompts × 6 categories for safety evaluation
 forgelm/templates/    # Quickstart templates (SFT, code-assistant, domain-expert, medical-qa-tr, grpo-math)
 notebooks/            # Colab-ready Jupyter notebooks (data curation, SFT, DPO, KTO, GRPO, ...)
-tests/                # pytest suite spanning every module (run with `pytest tests/`)
-docs/guides/          # Quickstart, ingestion, audit, alignment, CI/CD, enterprise, safety guides
+tests/                # Test suite — run with `pytest tests/` (count grows over time; CI gates on green-on-every-commit)
+tools/                # CI guards (check_anchor_resolution, check_bilingual_parity,
+                      # check_cli_help_consistency, check_field_descriptions,
+                      # check_pip_audit, check_bandit, check_site_claims,
+                      # generate_sbom, build_usermanuals)
+docs/guides/          # Quickstart, ingestion, audit, alignment, CI/CD, enterprise, safety, ISO/SOC 2 guides
+docs/usermanuals/{en,tr}/  # 4-section user manual: training, evaluation, deployment, reference
 ```
 
 ---

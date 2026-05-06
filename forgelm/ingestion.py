@@ -47,6 +47,18 @@ logger = logging.getLogger("forgelm.ingestion")
 SUPPORTED_EXTENSIONS: Tuple[str, ...] = (".pdf", ".docx", ".epub", ".txt", ".md")
 
 
+class OptionalDependencyError(ImportError):
+    """Raised when an optional ingestion extra (PDF / DOCX / EPUB) is missing.
+
+    Subclasses :class:`ImportError` so existing call sites that catch the
+    broader class keep working, while CLI dispatchers can opt into the narrower
+    type to distinguish operator-actionable "install the extra" failures from
+    genuine import bugs inside ``forgelm`` itself (which should propagate with
+    their original traceback rather than be swallowed and re-emitted as a
+    generic install hint).
+    """
+
+
 CHUNK_STRATEGIES: Tuple[str, ...] = ("sliding", "paragraph", "markdown", "semantic")
 
 # Validation messages — pinned as module constants so ruff / SonarCloud
@@ -215,7 +227,7 @@ def _read_pdf_pages(reader: Any, path: Path) -> List[str]:
     for idx, page in enumerate(reader.pages):
         try:
             text = page.extract_text() or ""
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — best-effort: pypdf's per-page extraction surface is wide (KeyError on malformed object refs, AssertionError on broken cross-ref tables, UnicodeDecodeError on font encodings, plus its own internal errors); per-page soft-fail keeps the run going so a single bad page cannot abort a multi-thousand-document corpus ingest.  # NOSONAR
             logger.warning(
                 "PDF page extraction failed (file=%s, page_index=%d): %s — page skipped, run continues.",
                 path,
@@ -231,14 +243,21 @@ def _read_pdf_pages(reader: Any, path: Path) -> List[str]:
 def _extract_pdf(path: Path, *, dedup_state: Optional[Dict[str, int]] = None) -> str:
     try:
         from pypdf import PdfReader
-    except ImportError as exc:  # pragma: no cover — covered by extras
-        raise ImportError(
+    except ModuleNotFoundError as exc:  # pragma: no cover — covered by extras
+        # Narrow on ModuleNotFoundError + name match so we only convert
+        # genuine "extra not installed" failures.  A corrupt install or
+        # circular-import in pypdf raises a plain ImportError (or
+        # ModuleNotFoundError with a different ``name``); re-raising those
+        # preserves the original traceback for debugging.
+        if exc.name != "pypdf":
+            raise
+        raise OptionalDependencyError(
             "PDF ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
         ) from exc
 
     try:
         reader = PdfReader(str(path))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — best-effort: PdfReader open surfaces OSError (file/permission), pypdf-internal errors (bad header, unsupported version, malformed xref), and on rare adversarial inputs InfiniteLoopError; converting all to a typed ValueError keeps the per-file error path uniform with DOCX/EPUB extractors.  # NOSONAR
         raise ValueError(f"Could not open PDF '{path}': {exc}") from exc
 
     if getattr(reader, "is_encrypted", False):
@@ -340,8 +359,13 @@ def _extract_docx(path: Path) -> str:
     try:
         from docx import Document
         from docx.table import Table
-    except ImportError as exc:  # pragma: no cover
-        raise ImportError(
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        # See PDF block above for the narrowing rationale.  ``python-docx``
+        # imports as ``docx``; ``docx.table`` is in the same package so a
+        # missing-extra failure surfaces as exc.name == "docx".
+        if exc.name not in ("docx", "docx.table"):
+            raise
+        raise OptionalDependencyError(
             "DOCX ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
         ) from exc
 
@@ -369,8 +393,14 @@ def _extract_epub(path: Path) -> str:
     try:
         from bs4 import BeautifulSoup
         from ebooklib import ITEM_DOCUMENT, epub
-    except ImportError as exc:  # pragma: no cover
-        raise ImportError(
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        # See PDF block above for the narrowing rationale.  EPUB ingestion
+        # depends on ``beautifulsoup4`` (imported as ``bs4``) and
+        # ``ebooklib``; ``ebooklib.epub`` is a submodule so a missing extra
+        # surfaces as one of these three names.
+        if exc.name not in ("bs4", "ebooklib", "ebooklib.epub"):
+            raise
+        raise OptionalDependencyError(
             "EPUB ingestion requires the 'ingestion' extra. Install with: pip install 'forgelm[ingestion]'"
         ) from exc
 
@@ -485,9 +515,22 @@ def _chunk_paragraph(text: str, max_chunk_size: int) -> Iterable[str]:
 
 
 def _chunk_semantic(text: str, chunk_size: int) -> Iterable[str]:
+    # Embedding-based semantic chunking was deliberately deferred past
+    # Phase 12 (see docs/roadmap/phase-12-data-curation-maturity.md — the
+    # "deferred to Phase 13+" entry on embedding-based semantic dedup)
+    # because a runtime embedding-model dependency conflicts with the
+    # air-gapped Annex IV reproducibility guarantee. The closure plan
+    # tracks the eventual ship vehicle as C-52 with a new optional
+    # [chunking-semantic] extra. The placeholder issue tracking follow-up
+    # work is recorded in docs/roadmap/risks-and-decisions.md under
+    # F-PR29-A6-05-issue-link.
     raise NotImplementedError(
-        "Semantic chunking requires an embedding model and is planned for a "
-        "follow-up phase. Use 'sliding' or 'paragraph' for now."
+        "Semantic chunking requires an embedding model and is deferred past "
+        "Phase 12 (see docs/roadmap/phase-12-data-curation-maturity.md — "
+        "embedding-based semantic dedup deferred to Phase 13+ for Annex IV "
+        "reproducibility); tracked under F-PR29-A6-05-issue-link in "
+        "docs/roadmap/risks-and-decisions.md. Use 'sliding' or 'paragraph' "
+        "for now."
     )
 
 
@@ -895,11 +938,15 @@ def _chunk_paragraph_tokens(text: str, max_tokens: int, tokenizer: Any) -> Itera
         return
 
     sep_tokens = len(tokenizer.encode("\n\n", add_special_tokens=False))
+    # Single batch tokenize call (closure F-performance-103) instead of
+    # re-encoding each paragraph in the loop. Reuses the markdown-chunker
+    # helper which already handles old/minimal tokenizers that don't accept
+    # list input.
+    paragraph_token_counts = _count_section_tokens(paragraphs, tokenizer)
 
     current: List[str] = []
     current_tokens = 0
-    for para in paragraphs:
-        para_tokens = len(tokenizer.encode(para, add_special_tokens=False))
+    for para, para_tokens in zip(paragraphs, paragraph_token_counts):
         # When we already have packed paragraphs, joining adds a "\n\n"
         # which costs ``sep_tokens`` on top of the new paragraph itself.
         cost = para_tokens + (sep_tokens if current else 0)
@@ -1021,7 +1068,7 @@ def _extract_text_for_ingest(
         return extractor(fpath)
     except ImportError:
         raise
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — best-effort: per-file dispatcher catch — each format-specific extractor (PDF/DOCX/EPUB/TXT/MD) raises its own typed ValueError above + a wide tail of corpus-data-driven failures; per-file soft-fail with skip-and-continue keeps a multi-thousand-file corpus ingest running.  ImportError stays narrow above so missing-extra failures still propagate.  # NOSONAR
         logger.warning("Skipping '%s' (extraction failed): %s", fpath, exc)
         return None
 

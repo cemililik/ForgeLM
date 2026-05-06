@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from datasets import DatasetDict, concatenate_datasets, load_dataset
-from transformers import PreTrainedTokenizer
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizer
 
 logger = logging.getLogger("forgelm.data")
 
@@ -39,6 +41,8 @@ def clean_string(text: str, do_clean: bool) -> str:
 
 def _load_single_dataset(path: str):
     """Load a single dataset from a local file or HF Hub."""
+    from datasets import load_dataset
+
     if os.path.isfile(path):
         _, ext_with_dot = os.path.splitext(path)
         ext = ext_with_dot.lstrip(".").lower()
@@ -194,6 +198,8 @@ def _apply_mix_ratio(all_train: list, mix_ratio: list) -> list:
 
 def _merge_extra_datasets(primary_dataset, extra_paths: list, mix_ratio: Optional[list]):
     """Concatenate primary + extra dataset training splits, optionally weighted."""
+    from datasets import DatasetDict, concatenate_datasets
+
     all_train = [primary_dataset["train"]]
     for i, extra_path in enumerate(extra_paths):
         logger.info("Loading extra dataset [%d]: %s", i + 1, extra_path)
@@ -220,6 +226,8 @@ def _merge_extra_datasets(primary_dataset, extra_paths: list, mix_ratio: Optiona
 
 def _ensure_validation_split(dataset):
     """Make sure ``dataset['validation']`` exists, deriving it from train if needed."""
+    from datasets import DatasetDict
+
     if "validation" in dataset:
         return dataset
     if "test" in dataset:

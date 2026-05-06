@@ -16,6 +16,24 @@ import yaml
 
 logger = logging.getLogger("forgelm.wizard")
 
+
+def _print(*args, **kwargs) -> None:
+    """Indirection over the builtin :func:`print`.
+
+    Mirrors the pattern used by :mod:`forgelm.chat` so wizard output can be
+    captured via ``capsys`` in tests and (later) re-routed through ``rich``
+    or a structured logger without touching every call site. Accepts the
+    same ``*args, **kwargs`` as :func:`print` so existing call sites need
+    only a name swap, not a signature change.
+    """
+    # NOTE: bypass the wizard's own ``print(`` → ``_print(`` rewrite by going
+    # through ``builtins.print`` — a bare ``print(...)`` here would be picked
+    # up by future codemods and turned into infinite recursion.
+    import builtins as _builtins
+
+    _builtins.print(*args, **kwargs)
+
+
 # Defaults
 DEFAULT_MAX_LENGTH = 2048
 DEFAULT_LORA_R = 16
@@ -56,17 +74,19 @@ _HF_HUB_ID_RE = re.compile(r"^[\w.-]{1,96}/[\w.-]{1,96}$", flags=re.ASCII)
 def _prompt(question: str, default: str = "") -> str:
     """Prompt user with a default value."""
     suffix = f" [{default}]" if default else ""
-    answer = input(f"  {question}{suffix}: ").strip()
+    answer = input(
+        f"  {question}{suffix}: "
+    ).strip()  # pragma: no cover  -- stdin read, exercised via builtins.input patch
     return answer if answer else default
 
 
 def _prompt_choice(question: str, options: list, default: int = 1) -> str:
     """Prompt user to pick from numbered options."""
-    print(f"\n  {question}")
+    _print(f"\n  {question}")
     for i, opt in enumerate(options, 1):
         marker = " *" if i == default else ""
-        print(f"    {i}) {opt}{marker}")
-    choice = input(f"  Choice [{default}]: ").strip()
+        _print(f"    {i}) {opt}{marker}")
+    choice = input(f"  Choice [{default}]: ").strip()  # pragma: no cover  -- stdin read
     try:
         idx = int(choice) if choice else default
         return options[idx - 1]
@@ -77,7 +97,7 @@ def _prompt_choice(question: str, options: list, default: int = 1) -> str:
 def _prompt_yes_no(question: str, default: bool = True) -> bool:
     """Prompt user for yes/no."""
     hint = "Y/n" if default else "y/N"
-    answer = input(f"  {question} [{hint}]: ").strip().lower()
+    answer = input(f"  {question} [{hint}]: ").strip().lower()  # pragma: no cover  -- stdin read
     if not answer:
         return default
     return answer in ("y", "yes")
@@ -91,9 +111,9 @@ def _prompt_int(question: str, default: int, min_val: int = 1, max_val: int = 65
             val = int(raw)
             if min_val <= val <= max_val:
                 return val
-            print(f"    Value must be between {min_val} and {max_val}.")
+            _print(f"    Value must be between {min_val} and {max_val}.")
         except ValueError:
-            print("    Please enter a valid integer.")
+            _print("    Please enter a valid integer.")
 
 
 def _detect_hardware() -> dict:
@@ -116,7 +136,7 @@ def _collect_rope_scaling(max_length: int) -> Optional[dict]:
     """Prompt for RoPE scaling parameters when context is long; otherwise None."""
     if max_length <= 4096:
         return None
-    print(f"\n  Long context detected ({max_length} tokens).")
+    _print(f"\n  Long context detected ({max_length} tokens).")
     if not _prompt_yes_no("Enable RoPE scaling for extended context?", default=True):
         return None
     rope_type = _prompt_choice(
@@ -126,7 +146,7 @@ def _collect_rope_scaling(max_length: int) -> Optional[dict]:
     )
     base_context = 4096
     rope_factor = max_length / base_context
-    print(
+    _print(
         f"  Note: RoPE factor {rope_factor:.1f}x computed assuming base context of "
         f"{base_context} tokens. Adjust manually if your model has a different "
         f"original context length (e.g., Llama 3.1 = 131072, Mistral v0.3 = 32768)."
@@ -198,9 +218,12 @@ def _collect_compliance_config() -> Optional[dict]:
         "provider_name": _prompt("Organization name"),
         "intended_purpose": _prompt("Intended purpose of the model"),
         "risk_classification": _prompt_choice(
+            # Five-tier set kept in lockstep with ``forgelm.config.RiskTier``
+            # so the wizard never offers a value the Pydantic schema would
+            # reject (and never hides a value the schema accepts).
             "Risk classification:",
-            ["minimal-risk", "limited-risk", "high-risk"],
-            default=1,
+            ["unknown", "minimal-risk", "limited-risk", "high-risk", "unacceptable"],
+            default=1,  # ``minimal-risk`` — same default as the Pydantic field.
         ),
     }
 
@@ -210,12 +233,12 @@ def _save_config_to_file(config: dict, requested_filename: str) -> str:
     try:
         with open(requested_filename, "w") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-        print(f"\n  Config saved to: {requested_filename}")
+        _print(f"\n  Config saved to: {requested_filename}")
         logger.info("Wizard config saved to %s", requested_filename)
         return requested_filename
     except OSError as e:
         logger.error("Could not save wizard config to %s: %s", requested_filename, e)
-        print(f"\n  Error: Could not save config to {requested_filename}: {e}")
+        _print(f"\n  Error: Could not save config to {requested_filename}: {e}")
 
     # Pick a fallback that's guaranteed different from the path that just failed
     # (a hardcoded "my_config.yaml" would just re-raise the same OSError when
@@ -227,12 +250,12 @@ def _save_config_to_file(config: dict, requested_filename: str) -> str:
     try:
         with open(fallback, "w") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-        print(f"  Saved to fallback location: {fallback}")
+        _print(f"  Saved to fallback location: {fallback}")
         logger.info("Wizard config saved to fallback location %s", fallback)
         return fallback
     except OSError as e:
         logger.error("Fallback wizard config save also failed (%s): %s", fallback, e)
-        print(f"  Fallback save also failed ({fallback}): {e}")
+        _print(f"  Fallback save also failed ({fallback}): {e}")
         raise
 
 
@@ -252,11 +275,11 @@ def _print_wizard_summary(
     output_dir: str,
 ) -> None:
     """Pretty-print the chosen configuration before the start-now prompt."""
-    print("\n" + "=" * 60)
-    print("  Configuration Summary")
-    print("=" * 60)
-    print(f"  Model:    {model_name}")
-    print(f"  Backend:  {suggested_backend}")
+    _print("\n" + "=" * 60)
+    _print("  Configuration Summary")
+    _print("=" * 60)
+    _print(f"  Model:    {model_name}")
+    _print(f"  Backend:  {suggested_backend}")
     if use_galore:
         strategy_str = "GaLore"
     elif load_in_4bit:
@@ -265,23 +288,23 @@ def _print_wizard_summary(
         strategy_str = "LoRA"
     if use_dora:
         strategy_str += " + DoRA"
-    print(f"  Strategy: {strategy_str}")
-    print(f"  Trainer:  {trainer_type.upper()}")
-    print(f"  LoRA:     r={lora_r}, alpha={lora_alpha}")
-    print(f"  Dataset:  {dataset_path}")
-    print(f"  Epochs:   {epochs}, Batch: {batch_size}")
-    print(f"  Output:   {output_dir}/final_model")
-    print()
+    _print(f"  Strategy: {strategy_str}")
+    _print(f"  Trainer:  {trainer_type.upper()}")
+    _print(f"  LoRA:     r={lora_r}, alpha={lora_alpha}")
+    _print(f"  Dataset:  {dataset_path}")
+    _print(f"  Epochs:   {epochs}, Batch: {batch_size}")
+    _print(f"  Output:   {output_dir}/final_model")
+    _print()
 
 
 def _select_model() -> str:
     """Prompt for a model from POPULAR_MODELS or allow a custom entry."""
-    print("\n[2/8] Model Selection")
-    print("  Popular models:")
+    _print("\n[2/8] Model Selection")
+    _print("  Popular models:")
     for i, m in enumerate(POPULAR_MODELS, 1):
-        print(f"    {i}) {m}")
-    print(f"    {len(POPULAR_MODELS) + 1}) Custom (enter your own)")
-    model_choice = input("  Choice [1]: ").strip()
+        _print(f"    {i}) {m}")
+    _print(f"    {len(POPULAR_MODELS) + 1}) Custom (enter your own)")
+    model_choice = input("  Choice [1]: ").strip()  # pragma: no cover  -- stdin read
     try:
         idx = int(model_choice) if model_choice else 1
         if idx <= len(POPULAR_MODELS):
@@ -314,9 +337,9 @@ def _parse_trainer_type(objective: str) -> tuple:
 def _collect_galore_config(use_galore: bool) -> dict:
     """Prompt for GaLore-specific knobs when GaLore was selected; otherwise empty."""
     if not use_galore:
-        print("\n[7/8] Advanced Options")
+        _print("\n[7/8] Advanced Options")
         return {}
-    print("\n[7/8] GaLore Configuration")
+    _print("\n[7/8] GaLore Configuration")
     galore_rank = _prompt_int("GaLore rank (lower = less memory)", 128, min_val=1, max_val=4096)
     galore_optim = _prompt_choice(
         "GaLore optimizer:",
@@ -377,7 +400,7 @@ def _offer_ingest_for_directory(directory: Path) -> Optional[str]:
     """
     resolved = directory.expanduser().resolve()
     if not _directory_has_ingestible_files(resolved):
-        print(
+        _print(
             f"  '{resolved}' is a directory, but it doesn't contain any "
             f"{', '.join(_INGEST_SUPPORTED_EXTENSIONS)} files. "
             "Pass a JSONL file or a directory with ingestible documents."
@@ -388,7 +411,7 @@ def _offer_ingest_for_directory(directory: Path) -> Optional[str]:
         f"\n  '{resolved}' is a directory of raw documents. Run ingestion now and use the resulting JSONL?",
         default=True,
     ):
-        print(
+        _print(
             "  Skipped — to ingest manually:\n"
             f"      forgelm ingest {resolved} --recursive --output data/from_docs.jsonl\n"
             "  Then re-run the wizard with the resulting JSONL path."
@@ -414,10 +437,10 @@ def _offer_ingest_for_directory(directory: Path) -> Optional[str]:
     try:
         from .ingestion import ingest_path
     except ImportError as exc:  # pragma: no cover — extras-skip path
-        print(f"  ingestion subsystem unavailable: {exc}")
+        _print(f"  ingestion subsystem unavailable: {exc}")
         return None
 
-    print(f"\n  Running ingest on '{resolved}' (this may take a moment for large corpora)…")
+    _print(f"\n  Running ingest on '{resolved}' (this may take a moment for large corpora)…")
     try:
         result = ingest_path(
             str(resolved),
@@ -426,27 +449,29 @@ def _offer_ingest_for_directory(directory: Path) -> Optional[str]:
             pii_mask=pii_mask,
         )
     except (FileNotFoundError, ValueError) as exc:
-        print(f"  Ingest failed: {exc}")
+        _print(f"  Ingest failed: {exc}")
         return None
     except (PermissionError, IsADirectoryError, OSError) as exc:
         # Filesystem-level errors (output path not writable, source tree
         # locked, ENOSPC, broken symlink during walk, etc.) — the operator
         # may want to retype the output path or fix permissions and retry,
         # so we return None to re-prompt rather than crash the wizard.
-        print(f"  Ingest failed due to filesystem error: {exc} — check permissions or output path.")
+        _print(f"  Ingest failed due to filesystem error: {exc} — check permissions or output path.")
         return None
     except ImportError as exc:
-        print(f"  Ingest needs the optional 'ingestion' extra: {exc}\n  Install with: pip install 'forgelm[ingestion]'")
+        _print(
+            f"  Ingest needs the optional 'ingestion' extra: {exc}\n  Install with: pip install 'forgelm[ingestion]'"
+        )
         return None
 
     if result.chunk_count == 0:
-        print(
+        _print(
             "  Ingestion produced 0 chunks — the directory had no extractable text. "
             "Pass a JSONL file or a directory with text-bearing documents."
         )
         return None
 
-    print(f"  Ingest complete: {result.chunk_count} chunk(s) from {result.files_processed} file(s) → {out_path}")
+    _print(f"  Ingest complete: {result.chunk_count} chunk(s) from {result.files_processed} file(s) → {out_path}")
     # Phase 12.5: now that we have a JSONL produced from raw docs, offer to
     # run a quality + governance audit on it before handing it to the wizard.
     # Closes the BYOD loop — operators see length / language / dedup / PII
@@ -510,8 +535,8 @@ def _offer_audit_for_jsonl(jsonl_path: Path) -> bool:
             "PII, secrets — CPU-only, runtime depends on dataset size)"
         )
     if not _prompt_yes_no(prompt, default=True):
-        print("  Skipped — audit can be run later via:")
-        print(f"      forgelm audit {jsonl_path}")
+        _print("  Skipped — audit can be run later via:")
+        _print(f"      forgelm audit {jsonl_path}")
         return False
 
     try:
@@ -520,10 +545,10 @@ def _offer_audit_for_jsonl(jsonl_path: Path) -> bool:
         # ``_offer_ingest_for_directory``'s ``ingest_path`` import).
         from .data_audit import audit_dataset, summarize_report
     except ImportError as exc:  # pragma: no cover — extras-skip path
-        print(f"  audit subsystem unavailable: {exc}")
+        _print(f"  audit subsystem unavailable: {exc}")
         return False
 
-    print(f"\n  Running audit on '{jsonl_path}'…")
+    _print(f"\n  Running audit on '{jsonl_path}'…")
     try:
         # Default flags only — the courtesy audit doesn't reach for
         # ``--quality-filter`` / ``--pii-ml`` / ``--croissant`` because
@@ -535,14 +560,14 @@ def _offer_audit_for_jsonl(jsonl_path: Path) -> bool:
         # Filesystem / parse errors — same defensive shape we use for
         # ``_offer_ingest_for_directory`` so the wizard never aborts on a
         # courtesy step.
-        print(f"  Audit could not run: {exc}")
+        _print(f"  Audit could not run: {exc}")
         return False
     except ImportError as exc:
         # The wizard's audit hook never asks for ``--dedup-method=minhash``
         # or any other feature gated on an optional extra; an ImportError
         # here would only fire if a future feature inside ``audit_dataset``
         # added an unguarded import. Surface and recover.
-        print(f"  Audit could not run (missing optional dep): {exc}")
+        _print(f"  Audit could not run (missing optional dep): {exc}")
         return False
     except Exception as exc:  # noqa: BLE001 — see docstring
         # Last-ditch guard: a malformed JSONL row mid-file, a datasketch
@@ -552,11 +577,11 @@ def _offer_audit_for_jsonl(jsonl_path: Path) -> bool:
         # let the operator continue. ``KeyboardInterrupt`` /
         # ``SystemExit`` propagate by virtue of being ``BaseException``
         # subclasses, so Ctrl-C still aborts the wizard cleanly.
-        print(f"  Audit could not run: {exc}")
+        _print(f"  Audit could not run: {exc}")
         return False
 
-    print("\n  Audit complete. Summary:")
-    print(summarize_report(report, verbose=False))
+    _print("\n  Audit complete. Summary:")
+    _print(summarize_report(report, verbose=False))
     return True
 
 
@@ -571,7 +596,7 @@ def _prompt_dataset_path_with_ingest_offer(question: str) -> str:
     while True:
         raw = _prompt(question, "").strip()
         if not raw:
-            print("  A dataset reference is required.")
+            _print("  A dataset reference is required.")
             continue
         candidate = Path(raw).expanduser()
         if candidate.is_dir():
@@ -623,7 +648,7 @@ def _validate_local_jsonl(raw_path: str):
             raise ValueError("file is empty")
         json.loads(first_line)
     except (OSError, ValueError) as e:
-        print(f"  File is not valid JSONL (first line failed to parse): {e}")
+        _print(f"  File is not valid JSONL (first line failed to parse): {e}")
         return None
     # Phase 12.5: confirmed local JSONL → offer to audit it before returning
     # the path to the caller. Closes the BYOD audit loop documented in
@@ -655,10 +680,10 @@ def _resolve_byod_dataset_path() -> Optional[str]:
             "",
         )
         if dataset_path.strip().lower() in _BYOD_CANCEL_TOKENS:
-            print("  Cancelled — falling back to the full wizard.")
+            _print("  Cancelled — falling back to the full wizard.")
             return None
         if not dataset_path:
-            print("  A dataset path is required for this template. Type 'cancel' to use the full wizard instead.")
+            _print("  A dataset path is required for this template. Type 'cancel' to use the full wizard instead.")
             continue
 
         # Try local file first. The HF Hub ID regex would otherwise misclassify
@@ -674,10 +699,10 @@ def _resolve_byod_dataset_path() -> Optional[str]:
 
         # result is the _BYOD_LOCAL_NOT_FOUND sentinel — try HF Hub ID.
         if _HF_HUB_ID_RE.match(dataset_path):
-            print(f"  Treating '{dataset_path}' as an HF Hub dataset ID (no local validation).")
+            _print(f"  Treating '{dataset_path}' as an HF Hub dataset ID (no local validation).")
             return dataset_path
 
-        print(f"  Path not found or not a regular file: {dataset_path}")
+        _print(f"  Path not found or not a regular file: {dataset_path}")
 
 
 def _maybe_run_quickstart_template() -> Optional[str]:
@@ -689,9 +714,9 @@ def _maybe_run_quickstart_template() -> Optional[str]:
     """
     from .quickstart import TEMPLATES, list_templates, run_quickstart
 
-    print("\n" + "=" * 60)
-    print("  ForgeLM Configuration Wizard")
-    print("=" * 60)
+    _print("\n" + "=" * 60)
+    _print("  ForgeLM Configuration Wizard")
+    _print("=" * 60)
 
     if not _prompt_yes_no(
         "\nStart from a curated quickstart template? (recommended for first runs)",
@@ -699,12 +724,12 @@ def _maybe_run_quickstart_template() -> Optional[str]:
     ):
         return None
 
-    print("\nAvailable templates:")
+    _print("\nAvailable templates:")
     names = []
     for tpl in list_templates():
         bundled = "[x] data" if tpl.bundled_dataset else "[ ] BYOD"
         names.append(tpl.name)
-        print(f"  {len(names)}) {tpl.name}  —  {tpl.title}  ({bundled}, ~{tpl.estimated_minutes}min)")
+        _print(f"  {len(names)}) {tpl.name}  —  {tpl.title}  ({bundled}, ~{tpl.estimated_minutes}min)")
     raw = _prompt("Pick a template by number or name", names[0])
 
     chosen: Optional[str] = None
@@ -715,12 +740,12 @@ def _maybe_run_quickstart_template() -> Optional[str]:
     elif raw in TEMPLATES:
         chosen = raw
     if chosen is None:
-        print(f"  Could not interpret '{raw}'. Falling back to the full wizard.")
+        _print(f"  Could not interpret '{raw}'. Falling back to the full wizard.")
         return None
 
     template = TEMPLATES[chosen]
     if not template.bundled_dataset:
-        print(f"  '{chosen}' is BYOD — bring your own JSONL dataset.")
+        _print(f"  '{chosen}' is BYOD — bring your own JSONL dataset.")
         dataset_path = _resolve_byod_dataset_path()
         if dataset_path is None:
             return None
@@ -733,41 +758,41 @@ def _maybe_run_quickstart_template() -> Optional[str]:
             dataset_override=dataset_path or None,
         )
     except (FileNotFoundError, ValueError) as e:
-        print(f"  Quickstart failed: {e}. Falling back to the full wizard.")
+        _print(f"  Quickstart failed: {e}. Falling back to the full wizard.")
         return None
 
-    print(f"\n  Quickstart config generated at: {result.config_path}")
-    print(f"  Selected model: {result.chosen_model}  ({result.selection_reason})")
-    print(f"  Dataset       : {result.dataset_path}")
-    print()
+    _print(f"\n  Quickstart config generated at: {result.config_path}")
+    _print(f"  Selected model: {result.chosen_model}  ({result.selection_reason})")
+    _print(f"  Dataset       : {result.dataset_path}")
+    _print()
     return str(result.config_path)
 
 
 def _finalize_quickstart_path(quickstart_path: str) -> Optional[str]:
     """Ask whether to start training now with the quickstart-generated config."""
     if _prompt_yes_no("Start training now with the generated config?", default=False):
-        print(f"\n  Running: forgelm --config {quickstart_path}")
+        _print(f"\n  Running: forgelm --config {quickstart_path}")
         return quickstart_path
-    print("\n  To start training later, run:")
-    print(f"    forgelm --config {quickstart_path}")
+    _print("\n  To start training later, run:")
+    _print(f"    forgelm --config {quickstart_path}")
     return None
 
 
 def _detect_hardware_and_backend() -> tuple:
     """Run the wizard's hardware-detection step and pick a backend hint."""
-    print("\n[1/8] Hardware Detection")
+    _print("\n[1/8] Hardware Detection")
     hw = _detect_hardware()
     if hw["gpu_available"]:
-        print(f"  GPU detected: {hw['gpu_name']} ({hw['vram_gb']} GB VRAM, CUDA {hw['cuda_version']})")
+        _print(f"  GPU detected: {hw['gpu_name']} ({hw['vram_gb']} GB VRAM, CUDA {hw['cuda_version']})")
     else:
-        print("  No GPU detected. Training will use CPU (very slow for real workloads).")
+        _print("  No GPU detected. Training will use CPU (very slow for real workloads).")
 
     suggested_backend = "transformers"
     if hw["gpu_available"] and sys.platform == "linux":
         suggested_backend = "unsloth"
-        print("  Recommended backend: unsloth (Linux + GPU detected)")
+        _print("  Recommended backend: unsloth (Linux + GPU detected)")
     elif hw["gpu_available"]:
-        print("  Recommended backend: transformers (Unsloth requires Linux)")
+        _print("  Recommended backend: transformers (Unsloth requires Linux)")
     return hw, suggested_backend
 
 
@@ -783,7 +808,7 @@ def run_wizard() -> Optional[str]:
         return _finalize_quickstart_path(quickstart_path)
 
     # Full 8-step flow (fallback when user declined the quickstart shortcut).
-    print("\n  Falling back to the full configuration wizard.")
+    _print("\n  Falling back to the full configuration wizard.")
     return _run_full_wizard()
 
 
@@ -794,10 +819,10 @@ def _run_full_wizard() -> Optional[str]:
 
     # Step 2: Model Selection
     model_name = _select_model()
-    print(f"  Selected: {model_name}")
+    _print(f"  Selected: {model_name}")
 
     # Step 3: Strategy Selection
-    print("\n[3/8] Fine-Tuning Strategy")
+    _print("\n[3/8] Fine-Tuning Strategy")
     strategies = [
         "QLoRA (4-bit quantization — recommended, lowest memory)",
         "LoRA (full precision — more memory, slightly better quality)",
@@ -820,7 +845,7 @@ def _run_full_wizard() -> Optional[str]:
     lora_alpha = _prompt_int("LoRA alpha", lora_r * 2, min_val=1, max_val=1024)
 
     # Step 4: Training Objective
-    print("\n[4/8] Training Objective")
+    _print("\n[4/8] Training Objective")
     objectives = [
         "SFT — Supervised Fine-Tuning (standard instruction tuning)",
         "DPO — Direct Preference Optimization (chosen/rejected pairs)",
@@ -831,16 +856,16 @@ def _run_full_wizard() -> Optional[str]:
     ]
     objective = _prompt_choice("Choose your training objective:", objectives, default=1)
     trainer_type, dataset_format_hint = _parse_trainer_type(objective)
-    print(f"  Dataset format: {dataset_format_hint}")
+    _print(f"  Dataset format: {dataset_format_hint}")
 
     # Step 5: Dataset
-    print("\n[5/8] Dataset")
+    _print("\n[5/8] Dataset")
     dataset_path = _prompt_dataset_path_with_ingest_offer(
         "HuggingFace dataset name or local file path (or directory of raw documents)",
     )
 
     # Step 6: Training Parameters
-    print("\n[6/8] Training Parameters")
+    _print("\n[6/8] Training Parameters")
     epochs = _prompt_int("Number of epochs", DEFAULT_EPOCHS, min_val=1, max_val=1000)
     batch_size = _prompt_int("Batch size per device", DEFAULT_BATCH_SIZE, min_val=1, max_val=512)
     max_length = _prompt_int("Max sequence length", DEFAULT_MAX_LENGTH, min_val=64, max_val=131072)
@@ -859,7 +884,7 @@ def _run_full_wizard() -> Optional[str]:
     galore_config = _collect_galore_config(use_galore)
 
     # Step 8: Build config
-    print("\n[8/8] Output")
+    _print("\n[8/8] Output")
 
     config = {
         "model": {
@@ -941,11 +966,11 @@ def _run_full_wizard() -> Optional[str]:
 
     # Quick run
     if _prompt_yes_no("Start training now?", default=False):
-        print(f"\n  Running: forgelm --config {config_filename}")
-        print()
+        _print(f"\n  Running: forgelm --config {config_filename}")
+        _print()
         return config_filename
     else:
-        print("\n  To start training later, run:")
-        print(f"    forgelm --config {config_filename}")
-        print()
+        _print("\n  To start training later, run:")
+        _print(f"    forgelm --config {config_filename}")
+        _print()
         return None

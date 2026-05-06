@@ -196,6 +196,7 @@ across retries. Each retry attempt is logged to the audit trail.
 | `min_classifier_confidence` | float | `0.7` | Flag responses below this confidence for manual review |
 | `track_categories` | bool | `false` | Parse Llama Guard S1-S14 harm categories |
 | `severity_thresholds` | dict | `null` | Per-severity limits: `{"critical": 0, "high": 0.01, "medium": 0.05}` |
+| `batch_size` | int | `8` | Batched generation size for safety evaluation. `1` disables batching; raise for throughput on large VRAM, lower to reduce OOM risk on small VRAM. |
 
 #### `evaluation.llm_judge` (Optional)
 
@@ -204,8 +205,40 @@ across retries. Each retry attempt is logged to the audit trail.
 | `enabled` | bool | `false` | Enable LLM-as-Judge scoring |
 | `judge_model` | string | `"gpt-4o"` | Judge model (API or local path) |
 | `judge_api_key_env` | string | `null` | Env var name for API key (null = local) |
+| `judge_api_base` | string | `null` | Override the judge API base URL (Azure OpenAI, self-hosted vLLM, OpenAI-compatible gateway, e.g. `https://api.together.xyz/v1`). When unset, the SDK default endpoint is used. |
 | `eval_dataset` | string | `"eval_prompts.jsonl"` | Evaluation prompts file |
 | `min_score` | float | `5.0` | Minimum average score (1-10) |
+| `batch_size` | int | `8` | Number of (prompt, completion) pairs scored per LLM-judge round. `1` disables batching. |
+
+> **Deprecated:** `evaluation.staging_ttl_days` is superseded by
+> [`retention.staging_ttl_days`](#retention-optional-gdpr-article-17-erasure-horizons).
+> The legacy key is alias-forwarded with a `DeprecationWarning` during the
+> v0.5.5 → v0.6.x window and removed in v0.7.0. See
+> [release.md](../standards/release.md#deprecation-cadence).
+
+---
+
+## `retention` (Optional — GDPR Article 17 erasure horizons)
+
+Defines maximum retention horizons for compliance, training, and evaluation
+artefacts. Horizons honour GDPR Article 5(1)(e) "storage limitation" and
+Article 17 "right to erasure" deadlines. The `enforce` knob switches between
+log-only, warning, and hard-block modes so a regulated CI gate cannot
+silently extend the retention horizon by re-using a stale workspace.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `audit_log_retention_days` | int | `1825` (~5 years) | Days to retain `audit_log.jsonl` before flagging it as overdue under Article 5(1)(e). Set to `0` to retain indefinitely (Article 17(3)(b) defence). |
+| `staging_ttl_days` | int | `7` | Days to retain `final_model.staging.<run_id>/` after a `forgelm reject` decision before scheduled cleanup. Set to `0` to retain indefinitely. Replaces the deprecated `evaluation.staging_ttl_days`; both keys accepted with identical values during the v0.5.5 → v0.6.x deprecation window. |
+| `ephemeral_artefact_retention_days` | int | `90` | Days to retain compliance bundles, data audit reports, and other run-scoped derived artefacts. Set to `0` to retain indefinitely. |
+| `raw_documents_retention_days` | int | `90` | Days to retain ingested raw documents (PDF / DOCX / EPUB / TXT / Markdown) under the operator's ingestion-output directory. Set to `0` to retain indefinitely. |
+| `enforce` | string | `"log_only"` | Policy enforcement mode: `"log_only"` (audit-log only), `"warn_on_excess"` (structured stderr warning), `"block_on_excess"` (abort trainer pre-flight with `EXIT_EVAL_FAILURE` = 3). |
+
+> **Deprecation:** `evaluation.staging_ttl_days` is deprecated as of v0.5.5 in
+> favour of `retention.staging_ttl_days`. The legacy key is alias-forwarded
+> with a `DeprecationWarning` until v0.7.0. See
+> [release.md](../standards/release.md#deprecation-cadence) for the full
+> deprecation cadence policy.
 
 ---
 
@@ -259,7 +292,7 @@ across retries. Each retry attempt is logged to the audit trail.
 | `intended_purpose` | string | `""` | What the model is for |
 | `known_limitations` | string | `""` | What it should not be used for |
 | `system_version` | string | `""` | Version identifier |
-| `risk_classification` | string | `"minimal-risk"` | `"high-risk"`, `"limited-risk"`, `"minimal-risk"` |
+| `risk_classification` | string | `"minimal-risk"` | One of the 5 EU AI Act `RiskTier` values: `"unknown"` (pre-classification placeholder), `"minimal-risk"`, `"limited-risk"`, `"high-risk"` (Article 6 — full Annex IV documentation), `"unacceptable"` (Article 5 prohibited practice — emits a startup banner). |
 
 ---
 
@@ -269,7 +302,7 @@ across retries. Each retry attempt is logged to the audit trail.
 |-------|------|---------|-------------|
 | `intended_use` | string | `""` | Intended use description |
 | `foreseeable_misuse` | list | `[]` | List of misuse scenarios |
-| `risk_category` | string | `"minimal-risk"` | Risk classification |
+| `risk_category` | string | `"minimal-risk"` | Same 5 `RiskTier` values as `compliance.risk_classification`: `"unknown"`, `"minimal-risk"`, `"limited-risk"`, `"high-risk"`, `"unacceptable"`. Drives auto-revert thresholds and Annex IV gating. |
 | `mitigation_measures` | list | `[]` | Risk mitigation measures |
 | `vulnerable_groups_considered` | bool | `false` | Impact on vulnerable groups assessed |
 

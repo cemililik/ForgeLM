@@ -12,7 +12,7 @@ CHANGELOG stay grounded in numbers.
 Run manually — it is **not** part of ``pytest`` because wall-clock timing is
 noisy on shared CI:
 
-    python tests/bench_simhash.py
+    python tools/bench_simhash.py
 
 Results are written to stdout; copy the table back into
 ``docs/roadmap/phase-11-5-backlog.md`` if it has shifted materially after

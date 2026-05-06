@@ -5,14 +5,18 @@
 
 ## Layout
 
-Current structure (26 test modules, one per feature area):
+Current structure (post Wave 5 / Phase 12.6 closure cycle: **~68 test
+modules**, one per feature area; the collected-test count grows over time —
+run `pytest --collect-only -q` for current). The tree below is a
+**representative subset** — see `git ls-files tests/` for the full
+inventory:
 
 ```
 tests/
 ├── conftest.py                     # Shared fixtures (minimal_config factory)
 ├── runtime_smoke.py                # Full-pipeline smoke fixture generator
 ├── test_smoke.py                   # Basic imports + CLI invocation
-├── test_integration_smoke.py       # End-to-end dry-run across trainer types
+├── test_integration.py             # End-to-end dry-run across trainer types
 ├── test_cli.py                     # CLI argument parsing + exit codes
 ├── test_cli_subcommands.py         # Subcommand dispatching
 ├── test_config.py                  # Pydantic schemas + validators
@@ -33,7 +37,12 @@ tests/
 ├── test_cost_estimation.py         # GPU cost heuristics
 ├── test_webhook.py                 # Slack/Teams notifier
 ├── test_distributed.py             # DeepSpeed / FSDP config
-└── test_data_edge_cases.py         # Malformed datasets, edge cases
+├── test_data_edge_cases.py         # Malformed datasets, edge cases
+├── test_supply_chain_security.py   # Wave 4 / Faz 23 — pip-audit + bandit + SBOM
+├── test_check_anchor_resolution.py # Wave 4 / Faz 26 — markdown anchor resolver
+├── test_check_bilingual_parity.py  # Bilingual EN/TR mirror parity
+├── test_gdpr_erasure.py            # GDPR Article 17 (forgelm purge)
+└── …
 ```
 
 **Rules:**
@@ -73,9 +82,11 @@ def minimal_config(**overrides):
 |---|---|---|---|
 | **Smoke** (`test_smoke.py`) | Import + CLI `--help` works | < 5s | Every push |
 | **Unit** (`test_<module>.py`) | One function / method at a time, heavy mocking | < 60s total | Every push |
-| **Integration smoke** (`test_integration_smoke.py`) | Full pipeline dry-run, no GPU, mocked HF | < 5min | Every push |
+| **Integration smoke** (`test_integration.py`) | Full pipeline dry-run, no GPU, mocked HF | < 5min | Every push |
 | **Distributed** (`test_distributed.py`) | DeepSpeed/FSDP config generation (no actual multi-GPU) | < 30s | Every push |
 | **Compatibility** (via `nightly.yml`) | Upstream dep upgrades — latest TRL, PEFT, Unsloth | ~10min | Nightly only |
+| **Cross-OS release-tag matrix** (via `publish.yml`) | Wheel install + `pytest` on 3 OS × 4 Python = 12 combos. Linux-only extras (`qlora`, `unsloth`) gated to the Linux runners. | ~25-40 min | Release tag push only |
+| **Supply-chain** (via `nightly.yml` + on-tag) | `pip-audit` (CVE feed) + `bandit` (Python SAST) + CycloneDX SBOM emission per combo. `[security]` extra. | ~5min | Nightly + every release tag |
 
 **Never** write a test that requires an actual GPU. The fixture `runtime_smoke.py` exists so "full pipeline" checks are dry-runs. If you genuinely need GPU validation, document it as a manual release-gate check in [release.md](release.md), not a CI test.
 
@@ -124,15 +135,39 @@ From [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml):
 
 1. **Lint** — `ruff check` + `ruff format --check` on entire repo. Failure = PR blocked.
 2. **Test matrix** — Python 3.10, 3.11, 3.12, 3.13 on ubuntu-latest.
-3. **Coverage** — `pytest --cov=forgelm --cov-fail-under=25`.
+3. **Coverage** — `pytest --cov=forgelm --cov-fail-under=40` (enforced via `addopts` in `pyproject.toml`'s `[tool.pytest.ini_options]`, kept in lock-step with `[tool.coverage.report].fail_under`).
 4. **Dry-run validation** — `forgelm --config config_template.yaml --dry-run` must succeed.
+5. **Doc CI guards** (Wave 3 / Wave 4 / Wave 5):
+   - `python3 tools/check_bilingual_parity.py --strict` — H2/H3/H4 spine sync between EN and TR mirrors (39/39 pairs today).
+   - `python3 tools/check_anchor_resolution.py --strict` — every relative markdown link with a `#anchor` fragment resolves to a real heading.
+   - `python3 tools/check_cli_help_consistency.py --strict` — CLI `--help` output ↔ `docs/usermanuals/{en,tr}/reference/cli.md` parity.
 
 From [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml):
 
 - Unbounded upstream versions (latest TRL/PEFT/Unsloth) to catch breaking changes early.
+- Supply-chain pass: `pip-audit` (CVE feed) + `bandit` (Python SAST). Provided by the `[security]` optional extra.
 - Failure does **not** block PRs but triggers an issue.
 
-**No `|| true` anywhere.** If a step is allowed to fail, use `continue-on-error: true` with a comment explaining why.
+From [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) (release-tag trigger only):
+
+- Cross-OS matrix: 3 OS × 4 Python = 12 combos installing the packaged wheel + running pytest + emitting a per-combo CycloneDX 1.5 SBOM. **Every combo must pass before PyPI publish runs.** No `fail-fast` — all 12 combos run to completion so the failure surface is visible.
+
+**`|| true` discipline.**
+Bare `<command> || true` in CI is forbidden — it converts non-zero exits into success and creates a fake-green status. The only sanctioned exception is the **scanner + severity-tiering helper** pattern:
+
+```yaml
+- run: |
+    pip-audit --format json > pip-audit.json || true
+    python3 tools/check_pip_audit.py pip-audit.json
+```
+
+In this shape, `|| true` only captures the scanner's exit code so the helper can read its JSON output; the helper itself enforces the actual severity gate. Allowed only when:
+
+1. The `|| true` is on the immediately preceding scanner line (not on a `pytest`, `ruff`, or test command).
+2. The next line in the same `run:` block invokes a `tools/check_*.py` helper that does its own severity-tiered exit code.
+3. Both lines live in the same step (so the helper truly gates the scanner output).
+
+The canonical examples are [`tools/check_pip_audit.py`](../../tools/check_pip_audit.py) (CVE severity tier) and [`tools/check_bandit.py`](../../tools/check_bandit.py) (issue-severity tier). Any other `|| true` in CI must be replaced with `continue-on-error: true` at the YAML step level, and that step must explicitly document the rationale in a YAML `# comment:`.
 
 ## Writing a new test
 
@@ -176,6 +211,7 @@ class TestPublicFunction:
 - [ ] `pytest tests/` passes locally
 - [ ] `ruff check . && ruff format --check .` passes
 - [ ] `forgelm --config config_template.yaml --dry-run` succeeds if you touched CLI or trainer
+- [ ] If docs touched: `python3 tools/check_bilingual_parity.py --strict`, `python3 tools/check_anchor_resolution.py --strict`, `python3 tools/check_cli_help_consistency.py --strict`
 - [ ] New public function or class has tests covering happy path + one error path
 - [ ] Any new exit code or exception is tested
 - [ ] No GPU or network required for new unit tests

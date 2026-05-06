@@ -280,6 +280,43 @@ Audit'in `near_duplicate_pairs` metriğindeki gürültüyü azaltır. 3
 sayfadan kısa belgelerde devre dışı kalır. Yapılandırılmış notlar
 çıktısı `pdf_header_footer_lines_stripped` alanını taşır.
 
+### Markdown-bilen splitter — `--strategy markdown` (Faz 12)
+
+Girdi gerçek bir markdown yapısına sahipse (teknik wiki'ler, README
+koleksiyonları, knowledge-base export'ları), heading-bilen chunking
+paragraph-greedy chunking'i geçer: her chunk bir heading ile başlayan
+tutarlı bir bölümdür ve **parent heading yolu chunk'ın başına
+breadcrumb olarak inline edilir** — böylece SFT loss'u doküman
+bağlamını görür.
+
+```bash
+forgelm ingest ./engineering_wiki/ --recursive --output data/wiki.jsonl \
+  --strategy markdown --chunk-size 4000
+```
+
+Davranış notları:
+
+- Sınırlar markdown heading'leri (`# H1` … `###### H6`); chunker bir
+  bölümün ortasından asla kesmez.
+- Code-fenced blok'lar (` ``` `) atomik tutulur — asla blok ortasından
+  bölünmez.  Bu, uzun bir kod listing'i içeren tek bölümün soft-cap'i
+  aşabileceği anlamına gelir (paragraph stratejisinin "uzun-paragraph
+  tek başına" kuralının aynısı).
+- Fenced blok **içindeki** heading-şekilli satırlar (`# whoami`,
+  `# noqa: E402`) bölüm sınırı olarak yorumlanmaz.
+- Token-bilen mod ile birleşir: `--strategy markdown --chunk-tokens
+  1024 --tokenizer "Qwen/Qwen2.5-7B-Instruct"`.
+
+### DOCX tablo koruması (Faz 12)
+
+DOCX tabloları artık önceki `" | "`-birleştirilmiş düz satır yerine
+**markdown tablo syntax'ı** olarak çıkarılır (header satırı + `---`
+ayraç + body satırları).  `--strategy markdown` ile birleştirildiğinde
+tablolar chunk'lar arası bütünlüğünü korur.  Eşit-olmayan satırlar
+boş hücrelerle sağdan paddinglenir; tüm-boş satırlar düşürülür; ilk
+boş-olmayan satır header olur.  Bunun fark yarattığı SFT use-case'leri:
+tablo Q&A, finansal asistan, kod-ile-veri prompt'ları.
+
 ---
 
 ## Sorun giderme

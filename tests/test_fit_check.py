@@ -10,17 +10,6 @@ import pytest
 from forgelm.config import ForgeConfig
 
 
-def _minimal_config(**overrides):
-    data = {
-        "model": {"name_or_path": "org/llama-7b"},
-        "lora": {},
-        "training": {},
-        "data": {"dataset_name_or_path": "org/dataset"},
-    }
-    data.update(overrides)
-    return data
-
-
 def _make_torch_no_cuda():
     t = MagicMock()
     t.cuda.is_available.return_value = False
@@ -161,7 +150,7 @@ class TestActivationGb:
 
 
 class TestEstimateVramNoCuda:
-    def test_returns_fit_check_result(self):
+    def test_returns_fit_check_result(self, minimal_config):
         torch_stub = _make_torch_no_cuda()
 
         auto_config_stub = MagicMock()
@@ -179,14 +168,14 @@ class TestEstimateVramNoCuda:
         with patch.dict(sys.modules, {"torch": torch_stub, "transformers": transformers_stub}):
             from forgelm.fit_check import estimate_vram
 
-            cfg = ForgeConfig(**_minimal_config())
+            cfg = ForgeConfig(**minimal_config(model={"name_or_path": "org/llama-7b"}))
             result = estimate_vram(cfg)
 
         assert result.verdict == "UNKNOWN"
         assert result.hypothetical is True
         assert result.estimated_gb > 0
 
-    def test_breakdown_keys_present(self):
+    def test_breakdown_keys_present(self, minimal_config):
         torch_stub = _make_torch_no_cuda()
         auto_config_stub = MagicMock()
         auto_config_stub.from_pretrained.return_value = MagicMock(
@@ -203,7 +192,7 @@ class TestEstimateVramNoCuda:
         with patch.dict(sys.modules, {"torch": torch_stub, "transformers": transformers_stub}):
             from forgelm.fit_check import estimate_vram
 
-            cfg = ForgeConfig(**_minimal_config())
+            cfg = ForgeConfig(**minimal_config(model={"name_or_path": "org/llama-7b"}))
             result = estimate_vram(cfg)
 
         assert "base_model_gb" in result.breakdown
@@ -213,7 +202,7 @@ class TestEstimateVramNoCuda:
 
 
 class TestEstimateVramWithCuda:
-    def test_fits_on_large_gpu(self):
+    def test_fits_on_large_gpu(self, minimal_config):
         # 80 GB A100 — a 7B model in 4-bit should FITS easily
         torch_stub = _make_torch_with_cuda(total_bytes=80 * 1024**3)
 
@@ -232,14 +221,14 @@ class TestEstimateVramWithCuda:
         with patch.dict(sys.modules, {"torch": torch_stub, "transformers": transformers_stub}):
             from forgelm.fit_check import estimate_vram
 
-            cfg = ForgeConfig(**_minimal_config(model={"name_or_path": "llama-7b", "load_in_4bit": True}))
+            cfg = ForgeConfig(**minimal_config(model={"name_or_path": "llama-7b", "load_in_4bit": True}))
             result = estimate_vram(cfg)
 
         assert result.verdict == "FITS"
         # available_gb uses free_bytes (90% of 80 GiB in the mock = 72 GiB)
         assert result.available_gb == pytest.approx(72.0, abs=0.1)
 
-    def test_oom_on_tiny_gpu(self):
+    def test_oom_on_tiny_gpu(self, minimal_config):
         # 4 GB GPU — a large model should OOM
         torch_stub = _make_torch_with_cuda(total_bytes=4 * 1024**3)
 
@@ -259,14 +248,14 @@ class TestEstimateVramWithCuda:
         with patch.dict(sys.modules, {"torch": torch_stub, "transformers": transformers_stub}):
             from forgelm.fit_check import estimate_vram
 
-            cfg = ForgeConfig(**_minimal_config())
+            cfg = ForgeConfig(**minimal_config(model={"name_or_path": "org/llama-7b"}))
             result = estimate_vram(cfg)
 
         assert result.verdict == "OOM"
 
 
 class TestEstimateVramRecommendations:
-    def test_recommendations_provided_when_tight(self):
+    def test_recommendations_provided_when_tight(self, minimal_config):
         # 8 GB GPU — 7B model bf16 is tight/OOM
         torch_stub = _make_torch_with_cuda(total_bytes=8 * 1024**3)
 
@@ -286,14 +275,14 @@ class TestEstimateVramRecommendations:
             from forgelm.fit_check import estimate_vram
 
             # No 4-bit → higher memory usage on a small GPU
-            cfg = ForgeConfig(**_minimal_config(model={"name_or_path": "llama-7b", "load_in_4bit": False}))
+            cfg = ForgeConfig(**minimal_config(model={"name_or_path": "llama-7b", "load_in_4bit": False}))
             result = estimate_vram(cfg)
 
         # Should have recommendations (could be OOM or TIGHT)
         if result.verdict in ("OOM", "TIGHT"):
             assert len(result.recommendations) > 0
 
-    def test_no_recommendations_when_fits_comfortably(self):
+    def test_no_recommendations_when_fits_comfortably(self, minimal_config):
         # 80 GB GPU, 4-bit quantized — should FITS with no recs
         torch_stub = _make_torch_with_cuda(total_bytes=80 * 1024**3)
 
@@ -312,7 +301,7 @@ class TestEstimateVramRecommendations:
         with patch.dict(sys.modules, {"torch": torch_stub, "transformers": transformers_stub}):
             from forgelm.fit_check import estimate_vram
 
-            cfg = ForgeConfig(**_minimal_config(model={"name_or_path": "llama-7b", "load_in_4bit": True}))
+            cfg = ForgeConfig(**minimal_config(model={"name_or_path": "llama-7b", "load_in_4bit": True}))
             result = estimate_vram(cfg)
 
         assert result.verdict == "FITS"

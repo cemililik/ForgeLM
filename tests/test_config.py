@@ -16,6 +16,7 @@ from forgelm.config import (
     WebhookConfig,
     load_config,
 )
+from tests._helpers.factories import minimal_config
 
 # --- Helper ---
 
@@ -26,14 +27,17 @@ def _write_yaml(data: dict, path: str) -> str:
     return path
 
 
-def _minimal_config() -> dict:
-    """Smallest valid config dict."""
-    return {
-        "model": {"name_or_path": "some-org/some-model"},
-        "lora": {},
-        "training": {},
-        "data": {"dataset_name_or_path": "some-org/some-dataset"},
-    }
+def _full_config() -> dict:
+    """Smallest valid config dict using ``some-org/...`` names.
+
+    Test assertions in this module reference these specific strings, so we
+    pin them here on top of the shared ``minimal_config`` factory rather
+    than inline an override at every call site.
+    """
+    return minimal_config(
+        model={"name_or_path": "some-org/some-model"},
+        data={"dataset_name_or_path": "some-org/some-dataset"},
+    )
 
 
 # --- ModelConfig ---
@@ -125,6 +129,11 @@ class TestWebhookConfig:
         assert w.notify_on_start is True
         assert w.notify_on_success is True
         assert w.notify_on_failure is True
+        # F-W3T-09 regression: pin the F-compliance-106 default
+        # (5 → 10) here next to every other field default so a
+        # contributor editing WebhookConfig sees the pin in the
+        # obvious reading position.
+        assert w.timeout == 10
 
     def test_url_env(self):
         w = WebhookConfig(url_env="MY_WEBHOOK_URL")
@@ -136,14 +145,14 @@ class TestWebhookConfig:
 
 class TestForgeConfig:
     def test_minimal_config(self):
-        cfg = ForgeConfig(**_minimal_config())
+        cfg = ForgeConfig(**_full_config())
         assert cfg.model.name_or_path == "some-org/some-model"
         assert cfg.auth is None
         assert cfg.evaluation is None
         assert cfg.webhook is None
 
     def test_full_config(self):
-        data = _minimal_config()
+        data = _full_config()
         data["auth"] = {"hf_token": "hf_test"}
         data["evaluation"] = {"auto_revert": True, "max_acceptable_loss": 2.0}
         data["webhook"] = {"url": "https://example.com/hook"}
@@ -153,13 +162,13 @@ class TestForgeConfig:
         assert cfg.webhook.url == "https://example.com/hook"
 
     def test_invalid_type_raises(self):
-        data = _minimal_config()
+        data = _full_config()
         data["model"]["max_length"] = "not_a_number"
         with pytest.raises((ValueError, TypeError)):
             ForgeConfig(**data)
 
     def test_missing_required_field(self):
-        data = _minimal_config()
+        data = _full_config()
         del data["data"]["dataset_name_or_path"]
         with pytest.raises((ValueError, TypeError, KeyError)):
             ForgeConfig(**data)
@@ -171,7 +180,7 @@ class TestForgeConfig:
 class TestLoadConfig:
     def test_valid_file(self, tmp_path):
         cfg_path = str(tmp_path / "config.yaml")
-        _write_yaml(_minimal_config(), cfg_path)
+        _write_yaml(_full_config(), cfg_path)
         cfg = load_config(cfg_path)
         assert isinstance(cfg, ForgeConfig)
         assert cfg.model.name_or_path == "some-org/some-model"
@@ -197,7 +206,7 @@ class TestLoadConfig:
             assert cfg.model.name_or_path
 
     def test_trust_remote_code_in_yaml(self, tmp_path):
-        data = _minimal_config()
+        data = _full_config()
         data["model"]["trust_remote_code"] = True
         cfg_path = str(tmp_path / "config.yaml")
         _write_yaml(data, cfg_path)
@@ -206,7 +215,7 @@ class TestLoadConfig:
 
     def test_extra_fields_raise_error(self, tmp_path):
         """Unknown keys in any sub-model must raise ConfigError (extra='forbid')."""
-        data = _minimal_config()
+        data = _full_config()
         data["model"]["unknown_field_xyz"] = 42
         cfg_path = str(tmp_path / "config.yaml")
         _write_yaml(data, cfg_path)
@@ -215,7 +224,7 @@ class TestLoadConfig:
 
     def test_extra_fields_forbidden_in_training(self, tmp_path):
         """Extra fields in training sub-model must raise ConfigError."""
-        data = _minimal_config()
+        data = _full_config()
         data["training"]["nonexistent_training_param"] = 999
         cfg_path = str(tmp_path / "config.yaml")
         _write_yaml(data, cfg_path)
@@ -224,7 +233,7 @@ class TestLoadConfig:
 
     def test_extra_fields_forbidden_in_lora(self, tmp_path):
         """Extra fields in lora sub-model must raise ConfigError."""
-        data = _minimal_config()
+        data = _full_config()
         data["lora"]["typo_lora_param"] = True
         cfg_path = str(tmp_path / "config.yaml")
         _write_yaml(data, cfg_path)
@@ -233,7 +242,7 @@ class TestLoadConfig:
 
     def test_extra_fields_forbidden_in_data(self, tmp_path):
         """Extra fields in data sub-model must raise ConfigError."""
-        data = _minimal_config()
+        data = _full_config()
         data["data"]["unknown_data_option"] = "bad"
         cfg_path = str(tmp_path / "config.yaml")
         _write_yaml(data, cfg_path)

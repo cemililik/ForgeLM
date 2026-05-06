@@ -27,8 +27,8 @@ $ ollama run my-bot
 | `vllm` | `vllm-config.yaml` | High-throughput GPU serving. |
 | `tgi` | `tgi-launcher.sh` + Dockerfile | HuggingFace's text-generation-inference. |
 | `hf-endpoints` | `endpoints-config.json` | One-click deploy to HuggingFace Inference Endpoints. |
-| `kserve` | `inference-service.yaml` | Kubernetes-native model serving. |
-| `triton` | `model_repository/` | NVIDIA Triton Inference Server. |
+
+KServe and NVIDIA Triton are **not** built-in targets in v0.5.5. The `forgelm deploy --target` parser accepts only the four runtimes above. Operators serving on KServe / Triton author the `InferenceService` manifest or `model_repository/` layout by hand from the GGUF / safetensors artefact.
 
 ## Ollama
 
@@ -121,47 +121,6 @@ $ curl -X POST https://api.endpoints.huggingface.cloud/v2/endpoint \
 ```
 
 Or paste into HuggingFace's UI for one-click deployment.
-
-## KServe (Kubernetes)
-
-```shell
-$ forgelm deploy ./checkpoints/run --target kserve --output kserve.yaml
-$ kubectl apply -f kserve.yaml
-```
-
-Generates a `InferenceService` manifest:
-
-```yaml
-apiVersion: "serving.kserve.io/v1beta1"
-kind: "InferenceService"
-metadata:
-  name: customer-support-v1.2
-spec:
-  predictor:
-    model:
-      modelFormat: { name: huggingface }
-      runtime: kserve-huggingfaceserver
-      storageUri: "s3://my-models/customer-support-v1.2/"
-      resources:
-        limits:
-          nvidia.com/gpu: 1
-```
-
-## Triton Inference Server
-
-```shell
-$ forgelm deploy ./checkpoints/run --target triton --output ./model_repository/
-```
-
-Generates the directory structure Triton expects:
-
-```text
-model_repository/
-└── customer-support-v1.2/
-    ├── 1/
-    │   └── model.savedmodel/
-    └── config.pbtxt
-```
 
 ## Configuration
 

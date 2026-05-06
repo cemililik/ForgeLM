@@ -7,15 +7,21 @@ Article 15 (Model Integrity).
 """
 
 import concurrent.futures
+import getpass
 import hashlib
 import hmac as _hmac_module
 import json
 import logging
 import os
+import socket
 import uuid
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+from ._version import __version__ as _forgelm_version
+from .config import ConfigError
 
 # flock is Unix-only; Windows falls back to advisory-only (no hard lock).
 try:
@@ -53,7 +59,49 @@ class AuditLogger:
         os.makedirs(output_dir, exist_ok=True)
         self.log_path = os.path.join(output_dir, "audit_log.jsonl")
         self._manifest_path = self.log_path + ".manifest.json"
-        self.operator = os.getenv("FORGELM_OPERATOR", os.getenv("USER", "unknown"))
+        # Article 12 record-keeping requires a real operator on every entry.
+        # The previous fallback chain ``$FORGELM_OPERATOR -> $USER -> "unknown"``
+        # silently produced ``operator="unknown"`` when both env vars were
+        # missing (CI runners, container images with no login user). That made
+        # the audit log unattributable — a regulator cannot identify who ran
+        # the job. New policy:
+        #
+        # 1. If ``FORGELM_OPERATOR`` is set, use it verbatim (CI / pipelines
+        #    pin a deliberate identity here).
+        # 2. Otherwise derive ``<getpass.getuser()>@<socket.gethostname()>`` —
+        #    matches how Unix audit subsystems attribute work.
+        # 3. If no username can be resolved, refuse to start unless the
+        #    operator opts in to anonymous logging via
+        #    ``FORGELM_ALLOW_ANONYMOUS_OPERATOR=1``. Loud failure beats a
+        #    silent ``"unknown"`` smear across the chain.
+        operator_env = os.getenv("FORGELM_OPERATOR")
+        if operator_env:
+            self.operator = operator_env
+        else:
+            try:
+                username = getpass.getuser()
+            except OSError:
+                # ``getpass.getuser()`` raises ``OSError`` on systems where
+                # neither ``LOGNAME``/``USER``/``LNAME``/``USERNAME`` env vars
+                # nor the ``pwd`` lookup resolves an identity (rootless
+                # containers, sandboxed CI). We still honour the explicit
+                # opt-in below; fall through with no username.
+                username = None
+            hostname = socket.gethostname() or "unknown-host"
+            if username:
+                self.operator = f"{username}@{hostname}"
+            else:
+                allow_anonymous = os.getenv("FORGELM_ALLOW_ANONYMOUS_OPERATOR") == "1"
+                if not allow_anonymous:
+                    raise ConfigError(
+                        "Operator identity unavailable: no FORGELM_OPERATOR set, "
+                        "and getpass.getuser() could not resolve a username. "
+                        "Set FORGELM_OPERATOR=<id> for CI/CD pipelines, or "
+                        "FORGELM_ALLOW_ANONYMOUS_OPERATOR=1 to opt in to "
+                        "anonymous audit entries (not recommended for "
+                        "EU AI Act Article 12 record-keeping)."
+                    )
+                self.operator = f"anonymous@{hostname}"
         # Per-run HMAC key: SHA-256(operator_secret || run_id).  The secret is
         # required for tamper-evident HMACs because ``run_id`` is part of the
         # public log header — without a non-empty secret an attacker who can
@@ -102,28 +150,32 @@ class AuditLogger:
                 "log before resuming."
             )
 
-        seek_start = max(0, size - 4096)
-        fh.seek(seek_start)
-        # When the seek lands mid-line, the first newline-bounded chunk
-        # would be a partial entry — skip it so every line we parse is whole.
-        if seek_start > 0:
-            fh.readline()
-        tail = fh.read()
-        lines = self._decode_lines(tail)
-        if lines:
-            return hashlib.sha256(lines[-1].encode("utf-8")).hexdigest()
-        # Empty after skipping the partial-first-line means the final entry
-        # itself exceeds the 4 KiB tail window. Re-read from ``seek_start``
-        # without skipping so we still recover the (oversized) last record.
-        # The trailing-newline guard above guarantees the recovered line
-        # is complete; we just need a wider tail window.
-        if seek_start > 0:
+        # Progressive-widen tail read.
+        #
+        # Start at a 4 KiB tail (typical audit entry < 1 KiB so this hits in
+        # one read for the common case). When the tail starts mid-record
+        # (seek-landed inside an entry > tail size) ``readline()`` consumes
+        # the partial first line, leaving an empty whole-records segment;
+        # we then **double the window** and retry, up to the full file.
+        # This guarantees we never hash a truncated record — the prior
+        # 4 KiB-only fallback would silently re-root to a partial entry
+        # when a single record exceeded 4 KiB.
+        window = 4096
+        while True:
+            seek_start = max(0, size - window)
             fh.seek(seek_start)
+            if seek_start > 0:
+                fh.readline()  # drop partial first line
             tail = fh.read()
             lines = self._decode_lines(tail)
             if lines:
                 return hashlib.sha256(lines[-1].encode("utf-8")).hexdigest()
-        return "genesis"
+            if seek_start == 0:
+                # We read the entire file and got no whole record — the
+                # log starts mid-record (impossible for a valid file with
+                # the trailing-newline guard above). Treat as fresh log.
+                return "genesis"
+            window *= 2
 
     def _decode_lines(self, blob: bytes) -> list:
         """UTF-8 decode + split into non-empty stripped lines, or raise."""
@@ -262,6 +314,16 @@ class AuditLogger:
                     f.seek(0, 2)
                     f.write((entry_json + "\n").encode("utf-8"))
                     f.flush()
+                    # ``flush()`` only pushes user-space buffers into the OS
+                    # kernel; an unclean shutdown (power loss, kernel panic,
+                    # OOM-kill of the container host) before the kernel
+                    # write-back can still drop the entry. ``fsync`` blocks
+                    # until the write reaches stable storage, so the
+                    # ``self._prev_hash`` advance below is durable. The cost
+                    # (one fsync per audit event, typically a handful per
+                    # training run) is negligible next to the cost of losing
+                    # a record-keeping line.
+                    os.fsync(f.fileno())
                     new_hash = hashlib.sha256(entry_json.encode()).hexdigest()
                 finally:
                     _flock_un(f)
@@ -289,7 +351,12 @@ def _build_text_length_stats(split_data: Any, split_name: str) -> Optional[Dict[
     try:
         texts = split_data["text"]
         lengths = sorted(len(t) for t in texts if isinstance(t, str))
-    except Exception as exc:
+    except (KeyError, ValueError, TypeError, OSError, IndexError) as exc:
+        # KeyError: column dropped between the membership check and access.
+        # OSError: HF Datasets lazy-load failure on Arrow / Parquet shard.
+        # ValueError/TypeError: column dtype not coercible into Python str
+        # iteration (e.g., binary blobs, nested struct columns). Stats are
+        # advisory — return None and let the caller record an empty entry.
         logger.debug("Could not compute text stats for %s: %s", split_name, exc)
         return None
     if not lengths:
@@ -342,7 +409,14 @@ def _maybe_inline_audit_report(config: Any) -> Optional[Dict[str, Any]]:
         return None
     audit_path = os.path.join(output_dir, "data_audit_report.json")
     if not os.path.isfile(audit_path):
-        logger.info(
+        # Wave 3 / Faz 28 (F-compliance-111): escalated from INFO to
+        # WARNING.  A missing data_audit_report.json is a real Article
+        # 10 compliance gap — the governance bundle ships without its
+        # data-quality section, which is exactly the surface a regulator
+        # would inspect first.  Operators reading INFO-level logs out
+        # of habit miss the signal; WARNING is the documented level for
+        # "nothing crashed but something compliance-relevant degraded."
+        logger.warning(
             "No data_audit_report.json at %s — governance report will lack the "
             "Article 10 data-quality section. Run "
             "`forgelm audit <dataset> --output %s` before training to populate it.",
@@ -434,6 +508,91 @@ def generate_model_integrity(final_path: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _fingerprint_local_file(dataset_path: str, fingerprint: Dict[str, Any]) -> None:
+    """Populate ``fingerprint`` with size/mtime/sha256 of a local file.
+
+    Symlinks are resolved before hashing; ``stat`` is captured from the
+    same open fd as the SHA-256 stream so a concurrent writer surfaces as
+    an inconsistent fingerprint rather than a silent partial read.
+    """
+    resolved = os.path.realpath(dataset_path)
+    if resolved != dataset_path:
+        fingerprint["resolved_path"] = resolved
+
+    sha256 = hashlib.sha256()
+    with open(resolved, "rb") as f:
+        stat = os.fstat(f.fileno())
+        fingerprint["size_bytes"] = stat.st_size
+        fingerprint["modified"] = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha256.update(chunk)
+    fingerprint["sha256"] = sha256.hexdigest()
+
+
+def _fingerprint_hf_metadata(dataset_path: str, fingerprint: Dict[str, Any]) -> None:
+    """Populate ``fingerprint`` with HF Hub builder metadata (version, description, size).
+
+    Best-effort: catches realistic ``load_dataset_builder`` failure modes
+    (missing extra, malformed id, info-shape drift, offline). A broad
+    ``Exception`` here would hide genuine bugs in the rest of the
+    manifest pipeline.
+    """
+    try:
+        from datasets import load_dataset_builder
+
+        builder = load_dataset_builder(dataset_path)
+        if builder.info.version:
+            fingerprint["version"] = str(builder.info.version)
+        if builder.info.description:
+            fingerprint["description"] = builder.info.description[:200]
+        if builder.info.download_size:
+            fingerprint["download_size_bytes"] = builder.info.download_size
+    except (
+        ImportError,
+        FileNotFoundError,
+        ValueError,
+        AttributeError,
+        ConnectionError,
+        TimeoutError,
+    ) as e:
+        logger.debug("HF Hub metadata fetch skipped for '%s': %s", dataset_path, e)
+
+
+def _fingerprint_hf_revision(dataset_path: str, fingerprint: Dict[str, Any]) -> None:
+    """Closure plan Faz 3 (F-compliance-117): pin the Hub commit SHA.
+
+    The only stable identifier that lets Article 10 reviewers reproduce
+    the exact corpus the model was trained on. ``HfApi.dataset_info`` is
+    part of the always-installed ``huggingface_hub`` (pulled in by
+    ``datasets``).
+
+    Two-layer error handling so the failure mode is informative:
+
+    1. Module import is guarded separately — if ``huggingface_hub`` is
+       missing it's an environment issue, not a transient API hiccup.
+    2. The actual ``dataset_info`` call uses a broad ``Exception`` catch
+       (with ``# noqa: BLE001`` justification) because the HF Hub client
+       surface raises a long tail of error types (``HfHubHTTPError``,
+       ``RepositoryNotFoundError``, ``RevisionNotFoundError``, plus the
+       transport ``OSError``/``ValueError`` family). Enumerating them
+       couples ``compliance.py`` to ``huggingface_hub`` internals;
+       failing best-effort is the documented contract.
+    """
+    try:
+        from huggingface_hub import HfApi
+    except ImportError as e:
+        logger.debug("HF Hub revision pin skipped for '%s' — huggingface_hub not installed: %s", dataset_path, e)
+        return
+
+    try:
+        info = HfApi().dataset_info(dataset_path)
+        revision_sha = getattr(info, "sha", None)
+        if revision_sha:
+            fingerprint["hf_revision"] = revision_sha
+    except Exception as e:  # noqa: BLE001 — best-effort revision pin; HF Hub surface raises a wide error tail
+        logger.debug("HF Hub revision pin skipped for '%s': %s", dataset_path, e)
+
+
 def compute_dataset_fingerprint(dataset_path: str) -> Dict[str, Any]:
     """Compute a fingerprint for a dataset file or directory.
 
@@ -448,14 +607,16 @@ def compute_dataset_fingerprint(dataset_path: str) -> Dict[str, Any]:
        hashed independently; mutating the target invalidated only one
        cache entry.
     3. **Non-atomic stat + read**: ``os.stat()`` and the subsequent open
-       read could race a concurrent writer, producing a (size, mtime,
-       sha256) triple where the size belonged to one revision and the
-       hash to another.
+       read could race a concurrent writer.
 
     The cache is dropped (cost is dominated by the file read anyway, and
     a per-process memo would still suffer the staleness problem); symlinks
     are resolved before hashing; ``stat`` is captured from the same open
     file descriptor as the SHA-256 stream so the triple is consistent.
+
+    Per-source helpers (``_fingerprint_local_file`` /
+    ``_fingerprint_hf_metadata`` / ``_fingerprint_hf_revision``) keep the
+    orchestrator linear; this function just routes by source kind.
     """
     fingerprint = {
         "path": dataset_path,
@@ -463,54 +624,12 @@ def compute_dataset_fingerprint(dataset_path: str) -> Dict[str, Any]:
     }
 
     if os.path.isfile(dataset_path):
-        # Resolve symlinks: the artefact we attest to is the resolved file,
-        # not the link. Preserve the original path so the caller can still
-        # see what they passed.
-        resolved = os.path.realpath(dataset_path)
-        if resolved != dataset_path:
-            fingerprint["resolved_path"] = resolved
-
-        sha256 = hashlib.sha256()
-        with open(resolved, "rb") as f:
-            # Capture stat from the open fd so size/mtime cannot drift from
-            # the byte stream we are hashing — a concurrent writer would
-            # surface as an inconsistent fingerprint downstream rather than
-            # a silent partial read.
-            stat = os.fstat(f.fileno())
-            fingerprint["size_bytes"] = stat.st_size
-            fingerprint["modified"] = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
-            for chunk in iter(lambda: f.read(8192), b""):
-                sha256.update(chunk)
-        fingerprint["sha256"] = sha256.hexdigest()
+        _fingerprint_local_file(dataset_path, fingerprint)
     else:
         fingerprint["source"] = "huggingface_hub"
         fingerprint["dataset_id"] = dataset_path
-        # Attempt to capture dataset version/revision from HF Hub.
-        # Narrow the catch to realistic load_dataset_builder failure modes:
-        # ImportError (datasets extra not installed), FileNotFoundError /
-        # ValueError (dataset id missing or malformed), AttributeError
-        # (info shape drift across `datasets` versions), and ConnectionError /
-        # TimeoutError (offline run). A broad ``Exception`` here would hide
-        # genuine bugs in the rest of the manifest pipeline.
-        try:
-            from datasets import load_dataset_builder
-
-            builder = load_dataset_builder(dataset_path)
-            if builder.info.version:
-                fingerprint["version"] = str(builder.info.version)
-            if builder.info.description:
-                fingerprint["description"] = builder.info.description[:200]
-            if builder.info.download_size:
-                fingerprint["download_size_bytes"] = builder.info.download_size
-        except (
-            ImportError,
-            FileNotFoundError,
-            ValueError,
-            AttributeError,
-            ConnectionError,
-            TimeoutError,
-        ) as e:
-            logger.debug("HF Hub metadata fetch skipped for '%s': %s", dataset_path, e)
+        _fingerprint_hf_metadata(dataset_path, fingerprint)
+        _fingerprint_hf_revision(dataset_path, fingerprint)
 
     return fingerprint
 
@@ -604,6 +723,48 @@ def generate_training_manifest(
             "check_interval_hours": mon_cfg.check_interval_hours,
         }
 
+    # Webhook config — preserved into the compliance report so the
+    # post-training approve / reject dispatchers (which run with no --config
+    # flag, only the output_dir) can rebuild a WebhookNotifier from the
+    # co-located JSON.  Without this the operator's Slack / Teams hook
+    # configured in the original training YAML produces a silent no-op on
+    # ``forgelm approve`` / ``forgelm reject`` because
+    # ``_build_approval_notifier`` reads ``webhook_config`` from this exact
+    # report and would otherwise see ``None``.
+    #
+    # Wave 2b Round-5 review F-W2B-WEBHOOK: the literal ``url`` field can
+    # carry a Slack/Teams webhook secret embedded in the URL path; even
+    # though ``url_env`` is the recommended channel, an operator who pasted
+    # the URL inline historically had it written verbatim into a
+    # plain-JSON compliance artefact that is typically committed to the
+    # auditor's evidence bundle.  Strip ``url`` from the persisted shape
+    # and rely on the env-backed ``url_env`` / ``secret_env`` indirection
+    # so the artefact carries enough to *re-resolve* the webhook at
+    # approve/reject time without leaking the credential into the bundle.
+    _WEBHOOK_PERSIST_FIELDS = (
+        "url_env",
+        "notify_on_success",
+        "notify_on_failure",
+        "notify_on_revert",
+        "notify_on_awaiting_approval",
+        "secret_env",
+        "timeout_seconds",
+        "retry_count",
+        "retry_backoff_seconds",
+    )
+    webhook_cfg = getattr(config, "webhook", None)
+    if webhook_cfg is not None:
+        try:
+            dumped = webhook_cfg.model_dump(mode="json")
+            manifest["webhook_config"] = {k: dumped.get(k) for k in _WEBHOOK_PERSIST_FIELDS}
+        except AttributeError:
+            # Defensive — pre-pydantic-v2 callers or hand-rolled config dicts.
+            # Falls through to a best-effort attribute dump so the approve /
+            # reject dispatchers still see *something* rather than a silent
+            # absent key.  ``url`` is intentionally absent from the field
+            # set so the credential never reaches disk via this branch.
+            manifest["webhook_config"] = {k: getattr(webhook_cfg, k, None) for k in _WEBHOOK_PERSIST_FIELDS}
+
     if resource_usage:
         manifest["resource_usage"] = resource_usage
     if safety_result:
@@ -644,6 +805,27 @@ def _sanitize_md(text: Optional[str]) -> str:
     # Backslash-escape every CommonMark special character
     escaped = "".join(("\\" + ch if ch in _COMMONMARK_SPECIALS else ch) for ch in text)
     return escaped.strip()
+
+
+def _sanitize_md_list(items: Optional[List[Any]]) -> List[str]:
+    """Apply :func:`_sanitize_md` element-wise to ``items``.
+
+    Wave 3 / Faz 28 (M-204): a small ergonomic shim used by the
+    deployer-instructions builder when interpolating list-shaped
+    config fields (foreseeable misuse list, dataset names, etc.) into
+    Markdown bullets / table rows.  Centralises the per-element
+    sanitisation so a future migration to a stricter escape policy
+    only has to touch :func:`_sanitize_md`.
+
+    Returns ``[]`` for ``None`` / empty inputs so callers can spread
+    the result directly into a join without a None guard.  Non-string
+    elements are stringified first (mirrors :func:`_sanitize_md`'s
+    permissive ``Any`` shape — operators occasionally drop ints into
+    list fields).
+    """
+    if not items:
+        return []
+    return [_sanitize_md(str(item) if not isinstance(item, str) else item) for item in items]
 
 
 def generate_deployer_instructions(config: Any, metrics: Dict[str, float], final_path: str) -> str:
@@ -690,8 +872,8 @@ def generate_deployer_instructions(config: Any, metrics: Dict[str, float], final
 **This model should NOT be used for:**
 """
     if risk_cfg and risk_cfg.foreseeable_misuse:
-        for misuse in risk_cfg.foreseeable_misuse:
-            content += f"- {_sanitize_md(misuse)}\n"
+        for misuse in _sanitize_md_list(risk_cfg.foreseeable_misuse):
+            content += f"- {misuse}\n"
     else:
         content += "- Use cases not covered by the intended purpose above\n"
 
@@ -732,6 +914,131 @@ If the model produces harmful, biased, or incorrect outputs in production:
         f.write(content)
     logger.info("Deployer instructions saved to %s", doc_path)
     return doc_path
+
+
+# ---------------------------------------------------------------------------
+# Annex IV §1-9 canonical layout (writer + hash for verify-annex-iv)
+# ---------------------------------------------------------------------------
+
+
+def build_annex_iv_artifact(manifest: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Synthesise the EU AI Act Annex IV §1-9 canonical artifact from the
+    training manifest produced by :func:`generate_training_manifest`.
+
+    The verifier (``forgelm verify-annex-iv``) checks nine top-level
+    categories (per Annex IV §1-9); the training manifest carries
+    closely-related but differently-shaped sub-blocks
+    (``model_lineage``, ``training_parameters``, ``data_provenance``,
+    ``annex_iv``, ``risk_assessment``, etc.).  This helper bridges the
+    two so a freshly-generated artefact passes its own verifier.
+
+    Returns ``None`` when the manifest lacks the operator-supplied
+    Annex IV metadata block (``manifest["annex_iv"]``) — without that,
+    the §1 system identification cannot be populated and the verifier
+    would reject the artefact as incomplete anyway.  Skipping the file
+    is more honest than emitting a half-populated stub.
+
+    The returned dict carries a ``metadata.manifest_hash`` stamp via
+    :func:`compute_annex_iv_manifest_hash` so the verifier's tampering-
+    detection branch fires.
+
+    Wave 2b Round-4 review F-W2B-01 + F-W2B-05:  previously the writer
+    emitted the operator-supplied 7-key provider block verbatim, which
+    is operator-friendly but does not match the §1-9 verifier surface.
+    The new layout keeps the original block intact via
+    ``provider_metadata`` so existing tooling that reads it does not
+    break, and surfaces the §1-9 keys at the top level for verifier
+    compatibility.
+    """
+    operator_block = manifest.get("annex_iv")
+    if not isinstance(operator_block, dict):
+        return None
+
+    artifact: Dict[str, Any] = {
+        # Annex IV §1: system identification + intended purpose.  Pulled
+        # from the operator-supplied compliance block; the verifier
+        # accepts a dict shape.
+        "system_identification": {
+            "provider_name": operator_block.get("provider_name", ""),
+            "provider_contact": operator_block.get("provider_contact", ""),
+            "system_name": operator_block.get("system_name", ""),
+            "system_version": operator_block.get("system_version", ""),
+            "intended_purpose": operator_block.get("intended_purpose", ""),
+            "risk_classification": operator_block.get("risk_classification", "minimal-risk"),
+        },
+        "intended_purpose": operator_block.get("intended_purpose", ""),
+        # Annex IV §2: software / hardware components + supplier list.
+        # Synthesised from the manifest's model lineage + training
+        # hyperparameters so the auditor can reconstruct what was run.
+        "system_components": {
+            "model_lineage": manifest.get("model_lineage", {}),
+            "training_parameters": manifest.get("training_parameters", {}),
+        },
+        "computational_resources": (
+            manifest.get("resource_usage")
+            or manifest.get("training_parameters", {}).get("resource_usage")
+            or {"recorded": "see resource_usage block when training runs with --resource-tracking"}
+        ),
+        # Annex IV §2(d): data sources, governance, validation methodology.
+        "data_governance": manifest.get("data_provenance", {}),
+        # Annex IV §3-5: design + development methodology.
+        "technical_documentation": {
+            "forgelm_version": manifest.get("forgelm_version", ""),
+            "generated_at": manifest.get("generated_at", ""),
+            "known_limitations": operator_block.get("known_limitations", ""),
+        },
+        # Annex IV §6: post-market monitoring + audit-log presence.
+        "monitoring_and_logging": (manifest.get("monitoring") or {"audit_log": "audit_log.jsonl"}),
+        # Annex IV §7: accuracy / robustness metrics.
+        "performance_metrics": manifest.get("evaluation_results", {}).get("metrics", {}),
+        # Annex IV §9: risk management system reference.
+        "risk_management": manifest.get("risk_assessment")
+        or {
+            "art9_reference": "no risk_assessment block configured",
+        },
+        # Operator-friendly view: keep the original 7-key provider block
+        # under a separate top-level key so existing downstream tooling
+        # that reads `compliance_block` directly does not break.
+        "provider_metadata": dict(operator_block),
+    }
+
+    # Stamp manifest_hash so the verifier's tampering-detection branch
+    # fires.  Computed AFTER the §1-9 fields are populated so the hash
+    # covers the full payload.  ``metadata`` block is intentionally
+    # added LAST so its presence does not perturb prior key ordering.
+    artifact["metadata"] = {"manifest_hash": compute_annex_iv_manifest_hash(artifact)}
+    return artifact
+
+
+def compute_annex_iv_manifest_hash(artifact: Dict[str, Any]) -> str:
+    """Canonical SHA-256 over the artifact MINUS its metadata block.
+
+    Both the writer (:func:`build_annex_iv_artifact`) and the verifier
+    (``forgelm verify-annex-iv``) call this helper so the
+    canonicalisation cannot drift byte-for-byte across the two paths.
+
+    Strips ``metadata.manifest_hash`` and ``metadata.manifest_signature``
+    before serialisation (those are derived from the rest of the
+    artefact and would otherwise create a chicken-and-egg cycle).
+    Serialises the rest with ``sort_keys=True, separators=(",", ":")``
+    so non-significant whitespace + key ordering does not affect the
+    digest.
+    """
+    import copy
+    import hashlib as _hashlib
+
+    payload = copy.deepcopy(artifact)
+    metadata = payload.get("metadata")
+    if isinstance(metadata, dict):
+        metadata.pop("manifest_hash", None)
+        metadata.pop("manifest_signature", None)
+        # Drop the now-empty metadata block so an artefact written
+        # without metadata at all hashes identically to one whose
+        # metadata block carried only the (now-stripped) hash.
+        if not metadata:
+            payload.pop("metadata", None)
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return _hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -794,11 +1101,21 @@ def export_compliance_artifacts(
             json.dump(manifest["risk_assessment"], f, indent=2)
         generated_files.append(risk_path)
 
-    # 5. Annex IV metadata (JSON) — if present
-    if "annex_iv" in manifest:
+    # 5. Annex IV metadata (JSON) — emitted in the §1-9 canonical layout
+    # the verifier expects, with a manifest_hash stamp so tampering is
+    # detectable.  Wave 2b Round-4 review F-W2B-01 + F-W2B-05 fix:
+    # previously this wrote the flat 7-key provider-metadata block
+    # (provider_name / system_name / etc.) which the verifier rejected
+    # as missing 8 of 9 required fields, AND never emitted a
+    # manifest_hash so the verifier silently skipped tampering
+    # detection.  build_annex_iv_artifact synthesises the §1-9 keys
+    # from the manifest sub-blocks; compute_annex_iv_manifest_hash
+    # produces a hash the verifier recomputes byte-for-byte.
+    annex_artifact = build_annex_iv_artifact(manifest)
+    if annex_artifact is not None:
         annex_path = os.path.join(output_dir, "annex_iv_metadata.json")
         with open(annex_path, "w") as f:
-            json.dump(manifest["annex_iv"], f, indent=2)
+            json.dump(annex_artifact, f, indent=2, default=str)
         generated_files.append(annex_path)
 
     logger.info("Compliance artifacts exported to %s (%d files)", output_dir, len(generated_files))
@@ -852,22 +1169,318 @@ def _describe_adapter_method(config: Any) -> str:
 
 
 def _get_version() -> str:
-    """Resolve ForgeLM's version for compliance-manifest stamping.
+    """Return the runtime forgelm version for compliance / audit-log stamping."""
+    return _forgelm_version
 
-    Prefers the installed distribution metadata (single source of truth with
-    ``pyproject.toml``); falls back to the package-level ``__version__``
-    attribute (which itself uses ``importlib.metadata``); finally returns
-    ``"unknown"`` if both paths fail (raw source import without install).
+
+# ---------------------------------------------------------------------------
+# Audit log verification (forgelm verify-audit)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class VerifyResult:
+    """Outcome of :func:`verify_audit_log`.
+
+    Attributes:
+        valid: ``True`` when the SHA-256 hash chain (and optional HMAC tags)
+            are intact across every entry. ``False`` on the first detected
+            mismatch.
+        entries_count: Number of newline-terminated JSON entries inspected.
+        first_invalid_index: 1-based line number of the first invalid entry,
+            or ``None`` when ``valid`` is ``True``.
+        reason: Human-readable explanation of the first failure (chain
+            break, HMAC mismatch, JSON decode error, manifest mismatch,
+            missing-but-required HMAC tag), or ``None`` when valid.
     """
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as _pkg_version
 
+    valid: bool
+    entries_count: int
+    first_invalid_index: Optional[int] = None
+    reason: Optional[str] = None
+
+
+def _verify_hmac_for_entry(
+    idx: int,
+    entry: Dict[str, Any],
+    hmac_secret: Optional[str],
+    require_hmac: bool,
+    entries_count: int,
+) -> Optional[VerifyResult]:
+    """Return None if HMAC check passes (or is skipped); a failing VerifyResult otherwise."""
+    if hmac_secret is None and not require_hmac:
+        return None
+    tag = entry.get("_hmac")
+    if tag is None:
+        if require_hmac:
+            return VerifyResult(
+                valid=False,
+                entries_count=entries_count,
+                first_invalid_index=idx,
+                reason=f"line {idx} lacks _hmac field but --require-hmac is set",
+            )
+        # Secret given but the writer wasn't keyed for this entry:
+        # skip silently (mixed-mode logs are not a chain failure).
+        return None
+    if hmac_secret is None:
+        return None
+    run_id = entry.get("run_id")
+    if not run_id:
+        return VerifyResult(
+            valid=False,
+            entries_count=entries_count,
+            first_invalid_index=idx,
+            reason=f"line {idx} has _hmac but no run_id — cannot derive key",
+        )
+    # Mirror AuditLogger's key derivation byte-for-byte.
+    key = hashlib.sha256(hmac_secret.encode() + run_id.encode()).digest()
+    # Recompute the HMAC over the entry sans the _hmac field. Insertion
+    # order is preserved by ``dict`` and ``log_event`` adds ``_hmac``
+    # last, so removing it leaves the original ordering intact.
+    entry_without_hmac = {k: v for k, v in entry.items() if k != "_hmac"}
+    expected_tag = _hmac_module.new(
+        key,
+        json.dumps(entry_without_hmac, default=str).encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    if not _hmac_module.compare_digest(expected_tag, tag):
+        return VerifyResult(
+            valid=False,
+            entries_count=entries_count,
+            first_invalid_index=idx,
+            reason=f"line {idx}: HMAC mismatch",
+        )
+    return None
+
+
+def _verify_genesis_manifest(
+    path: str,
+    first_run_id: Optional[str],
+    first_line_hash: Optional[str],
+    entries_count: int,
+) -> Optional[VerifyResult]:
+    """Cross-check the ``<path>.manifest.json`` genesis pin; None on success."""
+    manifest_path = path + ".manifest.json"
+    if not os.path.isfile(manifest_path):
+        logger.debug(
+            "No genesis manifest at %s — truncate-and-resume detection limited to in-chain hash continuity.",
+            manifest_path,
+        )
+        return None
+    # Manifest is present (the truncate-and-resume detector). A
+    # present-but-unreadable / present-but-malformed manifest is itself a
+    # failure signal: an attacker who corrupted the manifest could be
+    # disguising a chain rewrite. Fail verification rather than warning
+    # and continuing.
     try:
-        return _pkg_version("forgelm")
-    except PackageNotFoundError:
-        try:
-            from forgelm import __version__
+        with open(manifest_path, "r", encoding="utf-8") as mfh:
+            manifest = json.load(mfh)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Audit genesis manifest unreadable (%s): %s", manifest_path, exc)
+        return VerifyResult(
+            valid=False,
+            entries_count=entries_count,
+            first_invalid_index=1,
+            reason=f"manifest present but unreadable at {manifest_path!r}: {exc}",
+        )
+    pinned = manifest.get("first_entry_sha256")
+    pinned_run = manifest.get("run_id")
+    if not pinned or not pinned_run:
+        return VerifyResult(
+            valid=False,
+            entries_count=entries_count,
+            first_invalid_index=1,
+            reason=(f"manifest missing required pinned fields (first_entry_sha256={pinned!r}, run_id={pinned_run!r})"),
+        )
+    if first_line_hash and pinned != first_line_hash:
+        return VerifyResult(
+            valid=False,
+            entries_count=entries_count,
+            first_invalid_index=1,
+            reason=(
+                "manifest mismatch: pinned first_entry_sha256 "
+                f"{pinned!r} does not match line 1 hash {first_line_hash!r} "
+                "(log may have been truncated and rewritten)"
+            ),
+        )
+    if first_run_id and pinned_run != first_run_id:
+        return VerifyResult(
+            valid=False,
+            entries_count=entries_count,
+            first_invalid_index=1,
+            reason=(f"manifest mismatch: pinned run_id {pinned_run!r} does not match line 1 run_id {first_run_id!r}"),
+        )
+    return None
 
-            return __version__
-        except ImportError:  # pragma: no cover
-            return "unknown"
+
+def _verify_chain_walk(
+    lines: List[str],
+    hmac_secret: Optional[str],
+    require_hmac: bool,
+) -> VerifyResult:
+    """Walk every line, verify chain + HMAC; return final VerifyResult.
+
+    Returns valid=True with first_run_id and first_line_hash buried in the
+    reason (not pretty, but keeps the public dataclass shape unchanged) —
+    actually the caller passes those forward via the ``_chain_walk_state``
+    closure. Simpler: we expose a private 2-tuple via ``reason`` only when
+    valid; on failure ``reason`` is the human message.
+
+    The orchestrator captures first_run_id/first_line_hash separately by
+    re-parsing line 1 — cheaper than threading state through this helper.
+    """
+    entries_count = len(lines)
+    expected_prev = "genesis"
+
+    for idx, line in enumerate(lines, start=1):
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as exc:
+            return VerifyResult(
+                valid=False,
+                entries_count=entries_count,
+                first_invalid_index=idx,
+                reason=f"line {idx} is not valid JSON: {exc}",
+            )
+
+        if not isinstance(entry, dict):
+            return VerifyResult(
+                valid=False,
+                entries_count=entries_count,
+                first_invalid_index=idx,
+                reason=f"line {idx} is not a JSON object",
+            )
+
+        prev_hash = entry.get("prev_hash")
+        if prev_hash != expected_prev:
+            return VerifyResult(
+                valid=False,
+                entries_count=entries_count,
+                first_invalid_index=idx,
+                reason=(f"chain broken at line {idx}: prev_hash={prev_hash!r} expected={expected_prev!r}"),
+            )
+
+        hmac_failure = _verify_hmac_for_entry(idx, entry, hmac_secret, require_hmac, entries_count)
+        if hmac_failure is not None:
+            return hmac_failure
+
+        # Advance the chain. ``line`` here is the exact JSON body the
+        # writer hashed (post-HMAC, without the trailing newline).
+        expected_prev = hashlib.sha256(line.encode("utf-8")).hexdigest()
+
+    return VerifyResult(valid=True, entries_count=entries_count)
+
+
+def _read_audit_log_lines(path: str) -> Tuple[Optional[VerifyResult], List[str]]:
+    """Stream the audit log line-by-line; return (failure-or-None, non-empty-lines).
+
+    Streaming via line iteration avoids ``fh.read()`` into a single string
+    which would balloon RAM for large logs. Lines are stripped of trailing
+    newline so ``hashlib.sha256(line.encode("utf-8"))`` matches the writer's
+    canonicalisation byte-for-byte.
+    """
+    if not os.path.isfile(path):
+        return (
+            VerifyResult(
+                valid=False,
+                entries_count=0,
+                first_invalid_index=None,
+                reason=f"audit log not found at {path!r}",
+            ),
+            [],
+        )
+    lines: List[str] = []
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for raw_line in fh:
+                line = raw_line.rstrip("\n")
+                if line:
+                    lines.append(line)
+    except OSError as exc:
+        return (
+            VerifyResult(
+                valid=False,
+                entries_count=0,
+                first_invalid_index=None,
+                reason=f"could not read audit log: {exc}",
+            ),
+            [],
+        )
+    except UnicodeDecodeError as exc:
+        return (
+            VerifyResult(
+                valid=False,
+                entries_count=0,
+                first_invalid_index=None,
+                reason=f"audit log is not valid UTF-8: {exc}",
+            ),
+            [],
+        )
+    return None, lines
+
+
+def verify_audit_log(
+    path: str,
+    *,
+    hmac_secret: Optional[str] = None,
+    require_hmac: bool = False,
+) -> VerifyResult:
+    """Verify a ForgeLM ``audit_log.jsonl`` chain integrity.
+
+    Mirrors :meth:`AuditLogger.log_event` exactly:
+
+    - Each line is the JSON encoding produced by ``json.dumps(entry, default=str)``
+      (no key sorting, no separator overrides).
+    - The first entry's ``prev_hash`` must be ``"genesis"``.
+    - Every subsequent entry's ``prev_hash`` must equal
+      ``sha256(prior_full_line_json).hexdigest()`` — including any ``_hmac``
+      field present on the prior line, since the chain is computed over the
+      *post-HMAC* line as written.
+    - When ``hmac_secret`` is provided, each entry's ``_hmac`` field is
+      verified as ``HMAC-SHA256(key, entry_json_without_hmac)`` where
+      ``key = sha256(secret + run_id).digest()`` (operator's per-run key).
+
+    Args:
+        path: Path to the ``audit_log.jsonl`` file.
+        hmac_secret: Optional operator secret. When provided, HMAC tags on
+            each line are verified. Lines lacking an ``_hmac`` field are
+            tolerated (the writer omits the field when no secret is set)
+            unless ``require_hmac=True``.
+        require_hmac: When ``True``, every entry must carry a valid
+            ``_hmac`` field — a missing tag fails verification. Used by the
+            CLI's ``--require-hmac`` flag for strict enterprise audits.
+
+    Returns:
+        :class:`VerifyResult`. ``valid=True`` only when the chain is intact
+        end-to-end (and HMAC tags pass when a secret was supplied / required).
+
+    Notes:
+        Reads the log line-by-line (streaming) so RAM usage stays
+        bounded for large logs. Genesis-manifest sidecar
+        (``<path>.manifest.json``) is checked when present.
+    """
+    failure, lines = _read_audit_log_lines(path)
+    if failure is not None:
+        return failure
+    if not lines:
+        return VerifyResult(valid=True, entries_count=0)
+
+    chain_result = _verify_chain_walk(lines, hmac_secret, require_hmac)
+    if not chain_result.valid:
+        return chain_result
+
+    # Re-parse line 1 to capture first_run_id / first_line_hash for the
+    # manifest cross-check. Cheaper than threading state out of the walk.
+    try:
+        first_entry = json.loads(lines[0])
+    except json.JSONDecodeError:
+        # Should be unreachable — _verify_chain_walk already accepted line 1.
+        return chain_result
+    first_run_id = first_entry.get("run_id")
+    first_line_hash = hashlib.sha256(lines[0].encode("utf-8")).hexdigest()
+
+    manifest_failure = _verify_genesis_manifest(path, first_run_id, first_line_hash, len(lines))
+    if manifest_failure is not None:
+        return manifest_failure
+
+    return chain_result

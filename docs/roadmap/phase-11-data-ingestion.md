@@ -2,7 +2,7 @@
 
 > **Status:** ✅ **DONE** — shipped as `v0.5.0` (PR #11 merged to `main` 2026-04-27).
 > Modules: [`forgelm/ingestion.py`](../../forgelm/ingestion.py),
-> [`forgelm/data_audit.py`](../../forgelm/data_audit.py); CLI:
+> [`forgelm/data_audit.py`](../../forgelm/data_audit/); CLI:
 > `forgelm ingest <path>` + `forgelm --data-audit <path>`; tests:
 > [`tests/test_ingestion.py`](../../tests/test_ingestion.py),
 > [`tests/test_data_audit.py`](../../tests/test_data_audit.py); docs:
@@ -24,7 +24,7 @@
 1. [x] **`forgelm/ingestion.py` — multi-format → JSONL**
    Parsers for PDF (`pypdf`), DOCX (`python-docx`, including table cells), EPUB (`ebooklib` + `beautifulsoup4`), plain TXT, Markdown. Chunking strategies as shipped: `sliding` (fixed character window with `--overlap`) and `paragraph` (greedy paragraph packer; default). `semantic` is reserved for a follow-up phase and intentionally hidden from the CLI `--strategy` choice list — it raises `NotImplementedError` if invoked programmatically. Output is `{"text": "<chunk>"}` JSONL — recognized by `forgelm/data.py` as pre-formatted SFT input without further preprocessing. Optional dependency group: `pip install forgelm[ingestion]`.
    ```bash
-   forgelm ingest ./book.epub --chunk 2048 --strategy paragraph --output data/sft.jsonl
+   forgelm ingest ./book.epub --chunk-size 2048 --strategy paragraph --output data/sft.jsonl
    forgelm ingest ./policies/ --recursive --output data/policies.jsonl
    ```
 

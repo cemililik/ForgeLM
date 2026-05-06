@@ -5,7 +5,7 @@
 
 ## Exit codes
 
-Defined in [`forgelm/cli.py`](../../forgelm/cli.py):
+Defined in [`forgelm/cli/_exit_codes.py`](../../forgelm/cli/_exit_codes.py):
 
 ```python
 EXIT_SUCCESS = 0
@@ -124,6 +124,88 @@ except Exception as e:
 
 **Rule:** If you `except`, you must either (a) recover with a known-good fallback, (b) log and re-raise with `from e`, or (c) convert to a domain exception with `from e`. "Log and swallow" is a bug unless the failure is explicitly non-fatal (webhooks, cleanup).
 
+## Best-effort artefact carve-out
+
+The default rule above is "narrow class or don't catch." There is exactly one sanctioned escape hatch, and it has a precise scope.
+
+### When the carve-out applies
+
+The only sanctioned form for keeping `except Exception:` is
+
+```python
+except Exception as e:  # noqa: BLE001 — best-effort: <one-line reason>
+```
+
+and "best-effort" has a single specific meaning here:
+
+> An **outer** error path is already responsible for the primary failure.
+> This catch protects a **secondary side effect** — audit log emission, webhook delivery, cleanup of advisory artefacts (model card, integrity checksum, governance report, trend file, deployer instructions) — from masking the primary failure.
+
+If you cannot point at the outer error handler that owns the primary failure, you do **not** have a best-effort path; you have an unknown failure mode that should be diagnosed and either narrowed or surfaced.
+
+### Mandatory hygiene for every BLE001 site
+
+1. The `# noqa: BLE001` comment carries a one-line rationale that names the artefact and explains why a wider class is genuinely infeasible.
+2. The handler logs at `WARNING` (or `ERROR` for outage events) so the failure shows up in the run log even though the run continues.
+3. A surrounding error path or audit event records the primary failure independently — the BLE001 catch is the secondary, not the primary, surface.
+4. **Never** use BLE001 to dodge thinking about the failure modes. If the narrow tuple is `(OSError, ValueError, TypeError)`, write that — only fall back to BLE001 when the protected operation crosses a third-party library surface that documents a wide error tail (HF Hub repository errors, Pydantic mixed validation/runtime errors, etc.).
+
+### Forbidden forms
+
+The bare `except:` form is **forbidden** everywhere, no exceptions. It catches `KeyboardInterrupt` and `SystemExit` and routinely masks `Ctrl-C` during long training runs. Ruff `E722` enforces this in CI.
+
+`except Exception: pass` (no log, no rationale, no re-raise) is **forbidden**. The BLE001 carve-out exists so the deliberate cases are visible; silent swallowing is what the carve-out replaces.
+
+**Named `except KeyboardInterrupt:` is allowed at top-level CLI dispatch sites** (and `except (KeyboardInterrupt, SystemExit):` likewise) for graceful Ctrl-C handling — emit a "interrupted by user" log line, run any cheap cleanup, and exit with a non-zero code. Library modules under `forgelm/` (everything outside `forgelm/cli/`) **must not** catch `KeyboardInterrupt` — let it propagate so a long-running trainer can be aborted from the CLI seam.
+
+### Examples
+
+**Good — narrow class first:**
+
+```python
+try:
+    with open(trend_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+except (OSError, TypeError, ValueError) as e:
+    # OSError: filesystem (permissions, full disk).
+    # TypeError/ValueError: json.dumps on unexpected entry shape.
+    # Trend logging is non-fatal — a missing entry must not abort the
+    # safety pass that already concluded successfully.
+    logger.warning("Failed to write safety trend entry: %s", e)
+```
+
+**Good — best-effort BLE001 with rationale:**
+
+```python
+try:
+    info = HfApi().dataset_info(dataset_path)
+    if info.sha:
+        fingerprint["hf_revision"] = info.sha
+except Exception as e:  # noqa: BLE001 — best-effort revision pin; HF Hub surface raises a wide error tail (HfHubHTTPError, RepositoryNotFoundError, RevisionNotFoundError, OSError, ValueError) and enumerating them couples this module to huggingface_hub internals.
+    logger.warning("HF Hub revision pin skipped for '%s': %s", dataset_path, e)
+```
+
+**Bad — silent swallow with no rationale:**
+
+```python
+try:
+    do_critical_thing()
+except Exception:  # ❌ no narrow class, no BLE001, no rationale, no log
+    pass
+```
+
+**Bad — BLE001 used to dodge thinking:**
+
+```python
+try:
+    config = ForgeConfig.load(path)
+except Exception as e:  # noqa: BLE001 — "just in case"  ❌
+    logger.warning("Config load failed: %s", e)
+    config = ForgeConfig()
+```
+
+The protected operation is config validation. Pydantic raises `ValidationError`, the loader raises `FileNotFoundError` and `yaml.YAMLError`. That is a precise tuple — write it.
+
 ## User-facing error messages
 
 The audience is an engineer reading a CLI terminal in the dark. Messages must be:
@@ -155,19 +237,30 @@ Reverting is a deliberate gate, not a panic. Treat it that way.
 
 ## What errors look like in JSON output
 
-When `--output-format json` is set, errors still go to stdout as a single JSON object:
+When `--output-format json` is set, errors still go to stdout as a single JSON object.  **Shipped envelope (canonical, used by every CLI subcommand as of v0.5.5):**
 
 ```json
 {
-  "status": "error",
-  "exit_code": 1,
-  "error_type": "ConfigError",
-  "message": "training.trainer_type must be one of [sft, dpo, simpo, kto, orpo, grpo], got 'spo'",
-  "details": {"field": "training.trainer_type", "value": "spo"}
+  "success": false,
+  "error": "training.trainer_type must be one of [sft, dpo, simpo, kto, orpo, grpo], got 'spo'"
 }
 ```
 
+The 2-key shape is intentionally minimal so every subcommand can emit it without coupling to a richer error model: `success: false` is the unambiguous CI gate signal (paired with the non-zero exit code from `$?`); `error` is the operator-actionable message.
+
+**Optional richer fields** that subcommands MAY add when they have the information at hand (none required, but consumers can rely on them being absent rather than wrong-typed):
+
+| Field | Type | When to emit |
+|---|---|---|
+| `exit_code` | int | When the dispatcher knows the exit code at JSON-emit time and wants to save consumers from reading `$?` separately. |
+| `error_type` | str | Exception class name (`ConfigError`, `OSError`, etc.) for callers that want to branch on category. |
+| `details` | object | Field-level error data (e.g. `{"field": "training.trainer_type", "value": "spo"}`). |
+
 Human-friendly logs still go to **stderr**. Pipeline consumers read stdout. Never mix the two.
+
+### Success envelope
+
+Each subcommand's success envelope wraps the result in a per-command collection key (`checks` for doctor, `pending` / `chain` for approvals, etc.).  The full per-subcommand schema lives in [`docs/usermanuals/en/reference/json-output.md`](../usermanuals/en/reference/json-output.md) (+ TR mirror) — that page is the locked contract per `release.md` ("Changed JSON output key names → MAJOR bump").  Adding a new subcommand without updating that page is a documentation-drift defect.
 
 ## Testing error paths
 

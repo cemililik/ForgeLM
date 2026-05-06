@@ -4,7 +4,6 @@ import json
 import os
 
 import yaml
-from conftest import minimal_config as _minimal_config
 
 from forgelm.config import (
     ForgeConfig,
@@ -29,12 +28,12 @@ class TestMoeConfig:
         m = MoeConfig(quantize_experts=True, experts_to_train="0,1,2")
         assert m.quantize_experts is True
 
-    def test_in_model_config(self):
-        cfg = ForgeConfig(**_minimal_config(model={"name_or_path": "org/moe-model", "moe": {"quantize_experts": True}}))
+    def test_in_model_config(self, minimal_config):
+        cfg = ForgeConfig(**minimal_config(model={"name_or_path": "org/moe-model", "moe": {"quantize_experts": True}}))
         assert cfg.model.moe.quantize_experts is True
 
-    def test_model_config_without_moe(self):
-        cfg = ForgeConfig(**_minimal_config())
+    def test_model_config_without_moe(self, minimal_config):
+        cfg = ForgeConfig(**minimal_config())
         assert cfg.model.moe is None
 
 
@@ -75,9 +74,9 @@ class TestMergeConfig:
         assert len(m.models) == 2
         assert m.method == "slerp"
 
-    def test_in_forge_config(self):
+    def test_in_forge_config(self, minimal_config):
         cfg = ForgeConfig(
-            **_minimal_config(merge={"enabled": True, "method": "linear", "models": [{"path": "a", "weight": 1.0}]})
+            **minimal_config(merge={"enabled": True, "method": "linear", "models": [{"path": "a", "weight": 1.0}]})
         )
         assert cfg.merge.enabled is True
         assert cfg.merge.method == "linear"
@@ -121,8 +120,8 @@ class TestAdvancedPeft:
         assert lora.use_dora is True
         assert lora.method == "dora"
 
-    def test_full_config_pissa(self, tmp_path):
-        data = _minimal_config(lora={"method": "pissa", "r": 32})
+    def test_full_config_pissa(self, tmp_path, minimal_config):
+        data = minimal_config(lora={"method": "pissa", "r": 32})
         cfg_path = str(tmp_path / "config.yaml")
         with open(cfg_path, "w") as f:
             yaml.dump(data, f)
@@ -130,8 +129,8 @@ class TestAdvancedPeft:
         assert cfg.lora.method == "pissa"
         assert cfg.lora.r == 32
 
-    def test_full_config_rslora(self, tmp_path):
-        data = _minimal_config(lora={"method": "rslora", "use_rslora": True, "r": 128})
+    def test_full_config_rslora(self, tmp_path, minimal_config):
+        data = minimal_config(lora={"method": "rslora", "use_rslora": True, "r": 128})
         cfg_path = str(tmp_path / "config.yaml")
         with open(cfg_path, "w") as f:
             yaml.dump(data, f)
@@ -144,8 +143,8 @@ class TestAdvancedPeft:
 
 
 class TestPhase7YamlParsing:
-    def test_moe_yaml(self, tmp_path):
-        data = _minimal_config(
+    def test_moe_yaml(self, tmp_path, minimal_config):
+        data = minimal_config(
             model={
                 "name_or_path": "Qwen/Qwen3-30B-A3B",
                 "moe": {"quantize_experts": True, "experts_to_train": "0,1"},
@@ -157,8 +156,8 @@ class TestPhase7YamlParsing:
         cfg = load_config(cfg_path)
         assert cfg.model.moe.quantize_experts is True
 
-    def test_merge_yaml(self, tmp_path):
-        data = _minimal_config(
+    def test_merge_yaml(self, tmp_path, minimal_config):
+        data = minimal_config(
             merge={
                 "enabled": True,
                 "method": "dare",

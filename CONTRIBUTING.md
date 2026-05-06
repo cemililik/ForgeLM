@@ -27,6 +27,14 @@ git remote add upstream https://github.com/cemililik/ForgeLM.git
 python3 -m pip install -e ".[dev]"
 ```
 
+> **Note on the `[dev]` extras + coverage gate.** The `pytest` invocation
+> in `pyproject.toml` carries `--cov-fail-under=40`. The `[dev]` extras
+> are required to reach that floor — installing `pip install -e .` (no
+> extras) trips the gate because optional-dep test paths can't run.
+> Always use `pip install -e ".[dev]"` for contributor work. The floor
+> itself is intentional ([`docs/standards/testing.md`](docs/standards/testing.md));
+> do not lower it.
+
 ### 3. Create a branch
 
 ```bash
@@ -38,18 +46,30 @@ Branch naming: `feat/`, `fix/`, `docs/`, `test/`, `chore/` + short description.
 
 ### 4. Make your changes
 
-Edit the code, then verify:
+Edit the code, then run the full validation gauntlet (every guard CI also
+enforces — passing locally means CI will too):
 
 ```bash
-# Run tests
+# 1. Lint + format
+ruff format . && ruff check .
+
+# 2. Test suite
 pytest tests/ -q
 
-# Run linter + format check
-ruff check . && ruff format --check .
-
-# Quick smoke test
+# 3. Config dry-run smoke test
 forgelm --config config_template.yaml --dry-run
+
+# 4. Doc-side guards (Wave 4 / Wave 5 additions)
+python3 tools/check_bilingual_parity.py --strict
+python3 tools/check_anchor_resolution.py --strict
+python3 tools/check_cli_help_consistency.py --strict
 ```
+
+The four-tool sequence at the top of the gauntlet (`ruff` + `pytest` +
+`--dry-run`) is the historical "self-review" command from
+[`docs/standards/code-review.md`](docs/standards/code-review.md). The three
+doc guards landed in Waves 3-5 and run on every PR via `.github/workflows/`;
+running them locally before pushing avoids CI round-trips.
 
 ### 5. Submit a PR
 
@@ -59,30 +79,14 @@ Push your branch and open a Pull Request against `main`.
 
 ### Project Structure
 
-```
-forgelm/
-├── cli.py           # CLI entry point
-├── config.py        # Pydantic config models
-├── data.py          # Dataset loading
-├── model.py         # Model + LoRA setup
-├── trainer.py       # Training orchestration
-├── results.py       # TrainResult dataclass
-├── benchmark.py     # lm-eval-harness
-├── safety.py        # Safety evaluation
-├── judge.py         # LLM-as-Judge
-├── compliance.py    # EU AI Act artifacts
-├── model_card.py    # Model card generation
-├── merging.py       # Model merging (TIES/DARE/SLERP)
-├── wizard.py        # Interactive config wizard
-├── synthetic.py     # Synthetic data pipeline
-├── webhook.py       # Notifications
-└── utils.py         # Auth & checkpoints
-
-tests/               # 47 test files
-notebooks/           # 10 Colab notebooks
-configs/deepspeed/   # ZeRO presets
-docs/guides/         # user guides
-```
+ForgeLM is a single-package layout: a mix of single-file modules and two
+focused sub-packages (`forgelm/cli/` post-Phase-15 split and
+`forgelm/data_audit/` post-Phase-14 split) under `forgelm/`, ~68 test files
+under `tests/` (collected-test count grows over time — run
+`pytest --collect-only -q` for current), plus `configs/`, `docs/`, `tools/`
+(CI guards), and `notebooks/`. For the authoritative module-by-module map
+(purpose, public surface, dependency arrows), see
+[`docs/reference/architecture.md`](docs/reference/architecture.md).
 
 ### Running Tests
 
@@ -114,6 +118,37 @@ ruff format .
 ```
 
 Configuration is in `pyproject.toml` under `[tool.ruff]`.
+
+### Pre-commit hooks (optional)
+
+ForgeLM ships a [`.pre-commit-config.yaml`](.pre-commit-config.yaml) that mirrors
+the CI checks (`ruff`, `ruff-format`, `gitleaks`, plus a few hygiene hooks for
+trailing whitespace, EOF newlines, and YAML/TOML syntax). The hooks are an
+**optional ergonomic optimization** — CI enforces the same checks on every PR,
+so installing them locally is purely about getting feedback before you push.
+
+To opt in:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+Run all hooks against the whole tree at any time:
+
+```bash
+pre-commit run --all-files
+```
+
+If a hook ever flags a known-good fixture (e.g. a credential-shaped test
+string the gitleaks hook can't tell apart from a real secret), skip just that
+hook for the commit:
+
+```bash
+SKIP=gitleaks git commit -m "test: add credential-shape fixture"
+```
+
+CI remains the enforcement boundary; skipping a hook locally never bypasses CI.
 
 ## Guidelines
 

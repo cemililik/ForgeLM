@@ -10,10 +10,14 @@
   <meta property="og:title" data-i18n-attr="content:meta.title.compliance" content="Compliance — ForgeLM">
   <meta property="og:description" data-i18n-attr="content:meta.desc.compliance" content="EU AI Act compliance wired into ForgeLM.">
   <meta property="og:type" content="website">
-  <meta property="og:image" content="https://YOUR_DOMAIN/assets/og.png">
-  <meta property="og:url" content="https://YOUR_DOMAIN/compliance.html">
+  <meta property="og:image" content="https://forgelm.dev/assets/og.png">
+  <meta property="og:url" content="https://forgelm.dev/compliance.html">
   <meta property="og:locale" content="en_US">
-  <link rel="canonical" href="https://YOUR_DOMAIN/compliance.html">
+  <meta property="og:locale:alternate" content="tr_TR">
+  <link rel="alternate" hreflang="en" href="https://forgelm.dev/compliance.html">
+  <link rel="alternate" hreflang="tr" href="https://forgelm.dev/compliance.html">
+  <link rel="alternate" hreflang="x-default" href="https://forgelm.dev/compliance.html">
+  <link rel="canonical" href="https://forgelm.dev/compliance.html">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="icon" href="favicon.ico">
@@ -99,7 +103,7 @@
         <span class="article-num">Article 11</span>
         <h3 data-i18n="compliance.art11.title">Technical documentation</h3>
         <p data-i18n="compliance.art11.body">Annex IV's eight required sections — auto-populated from the run.</p>
-        <div class="article-evidence"><b>artifacts/annex_iv.json</b></div>
+        <div class="article-evidence"><b>artifacts/annex_iv_metadata.json</b></div>
       </article>
 
       <article class="article-card">
@@ -119,8 +123,8 @@
       <article class="article-card">
         <span class="article-num">Article 14</span>
         <h3 data-i18n="compliance.art14.title">Human oversight</h3>
-        <p data-i18n-html="compliance.art14.body">Optional <code>compliance.human_approval: true</code> blocks model promotion until a human signs off.</p>
-        <div class="article-evidence"><b>compliance.human_approval</b></div>
+        <p data-i18n-html="compliance.art14.body">Optional <code>compliance.human_approval: true</code> moves the trained checkpoint into a staging directory; <code>forgelm approve</code> / <code>reject</code> + <code>forgelm approvals</code> drive the dual-controlled sign-off, all stamped into the audit log.</p>
+        <div class="article-evidence"><b>forgelm approve</b> · <b>forgelm reject</b> · <b>forgelm approvals</b></div>
       </article>
 
       <article class="article-card">
@@ -143,7 +147,64 @@
         <p data-i18n-html="compliance.gdpr.body"><code>--pii-mask</code> redacts emails, phones, credit cards, IBAN, national IDs before chunks land in JSONL.</p>
         <div class="article-evidence"><b>forgelm/data_audit.py::mask_pii</b></div>
       </article>
+
+      <article class="article-card">
+        <span class="article-num">GDPR Art. 15</span>
+        <h3 data-i18n="compliance.gdpr15.title">Right of access</h3>
+        <p data-i18n-html="compliance.gdpr15.body"><code>forgelm reverse-pii</code> walks the redaction map back from a data-subject identifier to every row of every split where that subject appears, satisfying the access-request side of the GDPR's data-subject rights.</p>
+        <div class="article-evidence"><b>forgelm reverse-pii</b></div>
+      </article>
+
+      <article class="article-card">
+        <span class="article-num">GDPR Art. 17</span>
+        <h3 data-i18n="compliance.gdpr17.title">Right to erasure</h3>
+        <p data-i18n-html="compliance.gdpr17.body"><code>forgelm purge</code> deletes a data-subject's rows from training corpora, stamps the deletion in the append-only audit log, and updates the data-provenance manifest so post-deletion runs reflect the new dataset state.</p>
+        <div class="article-evidence"><b>forgelm purge</b></div>
+      </article>
     </div>
+  </div>
+</section>
+
+<!-- ISO 27001 / SOC 2 alignment -->
+<section>
+  <div class="container">
+    <div class="section-header">
+      <span class="eyebrow" data-i18n="compliance.iso.eyebrow">ISO 27001 · SOC 2 Type II</span>
+      <h2 data-i18n="compliance.iso.title">Aligned, not certified</h2>
+      <p data-i18n-html="compliance.iso.lead"><strong>Software cannot be ISO 27001 or SOC 2 certified — only organisations can.</strong> ForgeLM is <em>aligned</em> with the controls an auditor asks the deployer about: it produces the audit-trail, change-management, data-lineage, and supply-chain evidence on every run, ready to drop into your audit binder.</p>
+    </div>
+
+    <div class="articles-grid">
+      <article class="article-card">
+        <span class="article-num">Pillar 1</span>
+        <h3 data-i18n="compliance.iso.audit.title">Audit trail</h3>
+        <p data-i18n-html="compliance.iso.audit.body">Append-only <code>audit_log.jsonl</code> per run with HMAC + SHA-256 hash chain + genesis manifest sidecar. <code>forgelm verify-audit</code> validates the chain end-to-end. HMAC integrity is active when <code>FORGELM_AUDIT_SECRET</code> is KMS-managed and rotated per output-dir lifecycle.</p>
+        <div class="article-evidence"><b>audit_log.jsonl</b> · <b>forgelm verify-audit</b></div>
+      </article>
+
+      <article class="article-card">
+        <span class="article-num">Pillar 2</span>
+        <h3 data-i18n="compliance.iso.change.title">Change control</h3>
+        <p data-i18n-html="compliance.iso.change.body">Article 14 staging gate (<code>forgelm approve</code> / <code>reject</code>) plus <code>human_approval.required/granted/rejected</code> audit events plus <code>compliance.config_hash</code> stamped per run — every model promotion is dual-controlled and forensically attributed.</p>
+        <div class="article-evidence"><b>forgelm approve</b> · <b>compliance.config_hash</b></div>
+      </article>
+
+      <article class="article-card">
+        <span class="article-num">Pillar 3</span>
+        <h3 data-i18n="compliance.iso.lineage.title">Data lineage</h3>
+        <p data-i18n-html="compliance.iso.lineage.body"><code>data_provenance.json</code> (SHA-256 fingerprint + size + mtime + HF Hub revision pin) and <code>data_governance_report.json</code> (collection method, annotation process, known biases, personal-data flag, DPIA completion) cover the lineage questions an auditor asks first.</p>
+        <div class="article-evidence"><b>data_provenance.json</b> · <b>data_governance_report.json</b></div>
+      </article>
+
+      <article class="article-card">
+        <span class="article-num">Pillar 4</span>
+        <h3 data-i18n="compliance.iso.supply.title">Supply chain</h3>
+        <p data-i18n-html="compliance.iso.supply.body">CycloneDX 1.5 SBOM emitted per release tag for every (OS x Python-version) cell of the publish matrix. Wave 4 added <code>pip-audit</code> nightly + <code>bandit</code> in CI for static + dynamic security scanning of the build itself.</p>
+        <div class="article-evidence"><b>SBOM</b> · <b>pip-audit</b> · <b>bandit</b></div>
+      </article>
+    </div>
+
+    <p style="margin-top:2rem; font-size:0.95rem; color:var(--text-muted); text-align:center;" data-i18n-html="compliance.iso.cookbook">For the full audit cookbook, including 8 audit-floor questions and a 93-control coverage map, see <a href="https://github.com/cemililik/ForgeLM/blob/main/docs/guides/iso_soc2_deployer_guide.md" target="_blank" rel="noopener"><code>docs/guides/iso_soc2_deployer_guide.md</code></a>.</p>
   </div>
 </section>
 
@@ -163,16 +224,20 @@
           <button class="copy-btn" type="button" data-i18n="common.copy.idle">copy</button>
         </div>
         <pre class="code-block-body">artifacts/
-├── annex_iv.json              <span class="comment"># Article 11 technical documentation</span>
-├── audit_log.jsonl            <span class="comment"># Article 12 append-only event log</span>
-├── data_audit_report.json     <span class="comment"># Article 10 data governance evidence</span>
-├── safety_report.json         <span class="comment"># Llama Guard verdict (Article 9 + 15)</span>
-├── benchmark_results.json     <span class="comment"># lm-eval-harness scores per task (Article 15)</span>
-├── conformity_declaration.md  <span class="comment"># Article 16 declaration scaffold</span>
-└── manifest.json              <span class="comment"># SHA-256 over every artifact above</span>
-README.md                      <span class="comment"># Article 13 model card</span>
-config_snapshot.yaml           <span class="comment"># the YAML this run actually used</span>
-checkpoints/                   <span class="comment"># PEFT adapter or merged weights</span>
+├── annex_iv_metadata.json         <span class="comment"># Article 11 technical documentation (flat JSON, not Markdown)</span>
+├── compliance_report.json         <span class="comment"># Full Article 9-17 manifest — superset of the per-artefact files</span>
+├── training_manifest.yaml         <span class="comment"># Human-readable summary (model, data, params, final metrics)</span>
+├── data_provenance.json           <span class="comment"># Data lineage extracted from the manifest (Article 10)</span>
+├── risk_assessment.json           <span class="comment"># Article 9 risk-management output (when risk fields are set)</span>
+├── audit_log.jsonl                <span class="comment"># Article 12 append-only event log</span>
+├── audit_log.jsonl.manifest.json  <span class="comment"># SHA-256 sidecar over the audit log</span>
+├── data_audit_report.json         <span class="comment"># Article 10 data governance — quality/PII/bias scan</span>
+├── data_governance_report.json    <span class="comment"># Article 10 governance summary (sources, licenses)</span>
+├── model_card.md                  <span class="comment"># Article 13 model card (capabilities, intended use)</span>
+├── model_integrity.json           <span class="comment"># SHA-256 over weights/adapter for Article 15</span>
+└── deployer_instructions.md       <span class="comment"># Article 13 downstream-deployer guidance</span>
+config_snapshot.yaml               <span class="comment"># the YAML this run actually used</span>
+checkpoints/                       <span class="comment"># PEFT adapter or merged weights</span>
 </pre>
       </div>
     </div>

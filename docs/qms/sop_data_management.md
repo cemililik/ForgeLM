@@ -71,33 +71,38 @@ ForgeLM automated checks:
 - Dataset fingerprinting (SHA-256 hash, size, timestamp)
 - Format validation per trainer type (SFT, DPO, KTO, GRPO)
 - Text cleaning (`clean_text: true`)
-- **Audit pipeline (`forgelm audit <jsonl>`, v0.5.1+; legacy
-  `forgelm --data-audit` still works)** — produces
-  `data_audit_report.json` with per-split sample counts, length
-  distribution, top-3 language detection, simhash near-duplicate rate
-  (or **MinHash LSH** in v0.5.2 via `--dedup-method minhash` for
-  >50K-row corpora), cross-split leakage check, PII flag counts
-  (email / phone / Luhn-validated credit card / IBAN /
-  TR–DE–FR–US national IDs) with **severity tiers** (v0.5.1) and
-  always-on **secrets/credentials scan** (v0.5.2 — AWS / GitHub /
-  Slack / OpenAI / Google / JWT / private-key headers). Optional
-  **heuristic quality filter** (`--quality-filter`, v0.5.2) adds a
-  `quality_summary` block. The report is auto-inlined into the EU AI
-  Act Article 10 governance artifact when present in the trainer's
-  `output_dir` — operators must run the audit **before** training to
-  keep the bundle self-contained.
-- **Ingestion pipeline (`forgelm ingest`, v0.5.0+; v0.5.2 added
-  markdown-aware splitter + DOCX→markdown table preservation +
-  `--secrets-mask`)** — turns raw PDF / DOCX / EPUB / TXT / Markdown
-  into SFT-ready JSONL with optional `--pii-mask` and (v0.5.2)
-  `--secrets-mask` to redact detected PII / credential spans before
-  chunks reach storage.
+- **ForgeLM audit pipeline (v0.5.0+, `forgelm audit <jsonl>`; legacy
+  `forgelm --data-audit` deprecated, removal scheduled v0.7.0)** —
+  produces `data_audit_report.json` with per-split sample counts,
+  length distribution, top-3 language detection, near-duplicate rate
+  (default 64-bit simhash, or **MinHash LSH** via
+  `--dedup-method minhash` for >50K-row corpora), cross-split
+  leakage check, PII flag counts (email / phone / Luhn-validated
+  credit card / IBAN / TR–DE–FR–US national IDs) with **severity
+  tiers**, always-on **secrets/credentials scan** (AWS / GitHub /
+  Slack / OpenAI / Google / JWT / private-key headers), and an
+  optional **heuristic quality filter** (`--quality-filter`) that
+  adds a `quality_summary` block. `forgelm audit --croissant` emits a
+  Google Croissant 1.0 dataset card alongside the report. The report
+  is auto-inlined into the EU AI Act Article 10 governance artifact
+  when present in the trainer's `output_dir` — operators must run
+  the audit **before** training to keep the bundle self-contained.
+  Phases 11 + 11.5 + 12 + 12.5 shipped together in the
+  `v0.5.0` consolidation release (PyPI 2026-04-30); the per-feature
+  list above describes the v0.5.0 surface.
+- **ForgeLM ingestion pipeline (v0.5.0+, `forgelm ingest`)** — turns
+  raw PDF / DOCX / EPUB / TXT / Markdown into SFT-ready JSONL with
+  paragraph / sliding / **markdown-aware** chunking, DOCX→markdown
+  table preservation, optional **Presidio ML-NER** adapter
+  (`--pii-ml`, `[ingestion-pii-ml]` extra), and
+  `--pii-mask` / `--secrets-mask` / `--all-mask` shorthands to redact
+  detected PII / credential spans before chunks reach storage.
 
 Manual checks:
 - [ ] Run `forgelm audit` and review `data_audit_report.json` for:
   cross-split leakage > 0%, near-duplicate rate, unexpected language mix,
-  PII flag counts, **`secrets_summary` (v0.5.2 — any non-zero count is
-  a stop-the-line event; remediate before training)**, and
+  PII flag counts, **`secrets_summary` (any non-zero count is a
+  stop-the-line event; remediate before training)**, and
   `quality_summary` if `--quality-filter` was used.
 - [ ] Sample review: inspect 50+ random examples.
 - [ ] Verify label correctness (for preference/KTO data).

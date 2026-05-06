@@ -159,14 +159,23 @@ class TestFullConfigValidation:
         assert cfg.risk_assessment.foreseeable_misuse[0] == "Users may ask for medical advice"
         assert cfg.data.governance.collection_method == "Manual curation by domain experts"
 
-    def test_high_risk_without_safety_warns(self, caplog):
-        import logging
+    @pytest.mark.parametrize("tier", ["high-risk", "unacceptable"])
+    def test_strict_tier_without_safety_raises_config_error(self, tier):
+        """Wave 3 / Faz 28 F-compliance-110 + F-W3FU-T-05: BOTH strict
+        tiers (Article 9 ``high-risk`` AND Article 5 ``unacceptable``)
+        are hard ``ConfigError`` when safety eval is disabled at the
+        full-config integration layer.  EU AI Act risk-management
+        evidence cannot be derived from a disabled safety eval; the
+        unit test in test_eu_ai_act.py pins the validator-layer
+        contract, and this test pins the YAML round-trip + Pydantic
+        validator interaction at the integration layer."""
+        from forgelm.config import ConfigError
 
         data = _full_config()
+        data["risk_assessment"]["risk_category"] = tier
         del data["evaluation"]["safety"]
-        with caplog.at_level(logging.WARNING, logger="forgelm.config"):
+        with pytest.raises(ConfigError, match="evaluation.safety.enabled"):
             ForgeConfig(**data)
-        assert "High-risk AI" in caplog.text
 
 
 class TestDryRunWithCompliance:
@@ -244,8 +253,16 @@ class TestComplianceExportIntegration:
         annex_path = os.path.join(output_dir, "annex_iv_metadata.json")
         with open(annex_path) as f:
             annex = json.load(f)
-        assert annex["provider_name"] == "Test Corp"
-        assert annex["system_name"] == "Customer Support Bot"
+        # Wave 2b Round-4 (F-W2B-01): writer now emits the §1-9 canonical
+        # layout that ``verify-annex-iv`` accepts; the operator-friendly
+        # 7-key provider block is preserved under ``provider_metadata``.
+        assert annex["system_identification"]["provider_name"] == "Test Corp"
+        assert annex["system_identification"]["system_name"] == "Customer Support Bot"
+        assert annex["provider_metadata"]["provider_name"] == "Test Corp"
+        assert annex["provider_metadata"]["system_name"] == "Customer Support Bot"
+        # Tampering-detection hash must be present and canonical.
+        assert "metadata" in annex
+        assert "manifest_hash" in annex["metadata"]
 
     def test_risk_assessment_file_content(self, tmp_path):
         cfg = ForgeConfig(**_full_config())
@@ -270,7 +287,11 @@ class TestAuditLoggerIntegration:
         audit.log_event("training.started")
         audit.log_event("evaluation.loss_check", eval_loss=0.5, passed=True)
         audit.log_event("evaluation.safety", safe_ratio=0.95, passed=True)
-        audit.log_event("human_approval.required", model_path="/tmp/model")
+        # Sonar python:S5443 hotspot avoidance: route the path-shaped
+        # literal through the per-test ``tmp_path`` fixture so it cannot
+        # be misread as a publicly-writable directory reference.  The
+        # value is a structured-log payload only — no file is created.
+        audit.log_event("human_approval.required", model_path=str(tmp_path / "model"))
         audit.log_event("pipeline.completed", success=True)
 
         log_path = os.path.join(str(tmp_path), "audit_log.jsonl")

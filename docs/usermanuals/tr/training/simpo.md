@@ -43,6 +43,11 @@ output:
   dir: "./checkpoints/simpo"
 ```
 
+## Veri formatı
+
+DPO ile aynı — `prompt`, `chosen`, `rejected` taşıyan `preference` formatı.
+Bkz. [Veri Formatları](#/concepts/data-formats).
+
 ## Parametreler
 
 | Parametre | Tip | Vars. | Açıklama |

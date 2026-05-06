@@ -79,6 +79,22 @@ OUTPUT_DIR = REPO_ROOT / "site" / "js" / "usermanuals"
 META_FILE = SOURCE_DIR / "_meta.yaml"
 
 
+# Supported vs. deferred languages — see docs/standards/localization.md.
+#
+# SUPPORTED_LANGUAGES: shipped in the site picker; their JS bags are emitted.
+# DEFERRED_LANGUAGES: source skeletons may exist under docs/usermanuals/<lang>/,
+# and _meta.yaml may keep them in its `languages:` list, but this script does
+# NOT emit a JS bag for them — they are not user-visible until translator
+# capacity arrives.
+#
+# Adding a language: move it from DEFERRED_LANGUAGES to SUPPORTED_LANGUAGES,
+# add the picker entries to all eight site/*.html files, and add the
+# Object.assign blocks to site/js/translations.js. site-deploy.yml's verify
+# step also iterates over the supported set.
+SUPPORTED_LANGUAGES: tuple[str, ...] = ("en", "tr")
+DEFERRED_LANGUAGES: tuple[str, ...] = ("de", "fr", "es", "zh")
+
+
 @dataclass
 class Page:
     section_id: str
@@ -395,25 +411,56 @@ def serialise_index(sections: list[Section], languages: list[str]) -> str:
 
 
 def _render_outputs(languages: list, sections: list[Section], default_lang: str) -> dict[Path, str]:
-    """Render the full set of output files keyed by absolute path."""
+    """Render the full set of output files keyed by absolute path.
+
+    Sparse-emit: only languages in :data:`SUPPORTED_LANGUAGES` get a JS bag.
+    Languages in :data:`DEFERRED_LANGUAGES` are skipped silently (deferred per
+    docs/standards/localization.md). The shared `_index.js` records only the
+    emitted set so the site picker and the build artefact agree.
+    """
     written: dict[Path, str] = {}
+    emitted_langs: list[str] = []
+    skipped: list[str] = []
     for lang in languages:
+        if lang in DEFERRED_LANGUAGES:
+            skipped.append(lang)
+            continue
+        if lang not in SUPPORTED_LANGUAGES:
+            print(f"  {lang}: skipped (not in SUPPORTED_LANGUAGES; add to tools/build_usermanuals.py to emit)")
+            continue
         pages, ok, fb = build_language(lang, sections, default_lang)
         out_path = OUTPUT_DIR / f"{lang}.js"
         written[out_path] = serialise_data(pages, lang)
-        marker = "✓" if fb == 0 else "fallbacks=" + str(fb)
+        marker = "OK" if fb == 0 else "fallbacks=" + str(fb)
         print(f"  {lang}: {ok} pages translated, {marker}")
-    written[OUTPUT_DIR / "_index.js"] = serialise_index(sections, languages)
+        emitted_langs.append(lang)
+    if skipped:
+        print(f"  deferred (no bag emitted): {', '.join(skipped)}")
+    written[OUTPUT_DIR / "_index.js"] = serialise_index(sections, emitted_langs)
     return written
+
+
+def _extra_generated_files(written: dict[Path, str]) -> list[Path]:
+    """Return OUTPUT_DIR/*.js paths that exist on disk but are not in *written*.
+
+    These are stale bundles left behind when a language moves from
+    SUPPORTED_LANGUAGES to DEFERRED_LANGUAGES — the build no longer emits
+    them, but the old files linger in the working tree.
+    """
+    if not OUTPUT_DIR.exists():
+        return []
+    return [p for p in OUTPUT_DIR.glob("*.js") if p not in written]
 
 
 def _check_stale(written: dict[Path, str]) -> int:
     """Compare in-memory output against on-disk files. Return CI exit code."""
-    stale = [
+    stale: list[Path] = [
         path.relative_to(REPO_ROOT)
         for path, content in written.items()
         if not path.exists() or path.read_text(encoding="utf-8") != content
     ]
+    for extra in _extra_generated_files(written):
+        stale.append(extra.relative_to(REPO_ROOT))
     if stale:
         print("\nstale generated files (run tools/build_usermanuals.py):")
         for s in stale:
@@ -424,6 +471,9 @@ def _check_stale(written: dict[Path, str]) -> int:
 
 
 def _write_outputs(written: dict[Path, str]) -> None:
+    for extra in _extra_generated_files(written):
+        extra.unlink()
+        print(f"  removed stale {extra.relative_to(REPO_ROOT)}")
     for path, content in written.items():
         path.write_text(content, encoding="utf-8")
         print(f"  wrote {path.relative_to(REPO_ROOT)} ({len(content):,} bytes)")

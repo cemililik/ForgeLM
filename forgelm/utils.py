@@ -40,7 +40,7 @@ def setup_authentication(token: Optional[str] = None) -> None:
     try:
         login(token=hf_token)
         logger.info("Hugging Face authentication successful.")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort: huggingface_hub login surfaces network errors (ConnectionError/Timeout), API errors (HTTPError, repo-permission), config errors (LocalEntryNotFoundError), and credential errors (ValueError on malformed token); auth failure is non-fatal so a public-models-only run can still proceed.  # NOSONAR
         logger.warning(
             "Hugging Face authentication failed: %s. Private models and gated datasets may not be accessible.",
             e,

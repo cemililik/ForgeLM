@@ -10,10 +10,14 @@
   <meta property="og:title" data-i18n-attr="content:meta.title.quickstart" content="Quickstart — ForgeLM">
   <meta property="og:description" data-i18n-attr="content:meta.desc.quickstart" content="From pip install to a fine-tuned model in five steps.">
   <meta property="og:type" content="website">
-  <meta property="og:image" content="https://YOUR_DOMAIN/assets/og.png">
-  <meta property="og:url" content="https://YOUR_DOMAIN/quickstart.html">
+  <meta property="og:image" content="https://forgelm.dev/assets/og.png">
+  <meta property="og:url" content="https://forgelm.dev/quickstart.html">
   <meta property="og:locale" content="en_US">
-  <link rel="canonical" href="https://YOUR_DOMAIN/quickstart.html">
+  <meta property="og:locale:alternate" content="tr_TR">
+  <link rel="alternate" hreflang="en" href="https://forgelm.dev/quickstart.html">
+  <link rel="alternate" hreflang="tr" href="https://forgelm.dev/quickstart.html">
+  <link rel="alternate" hreflang="x-default" href="https://forgelm.dev/quickstart.html">
+  <link rel="canonical" href="https://forgelm.dev/quickstart.html">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="icon" href="favicon.ico">
@@ -86,12 +90,16 @@
               <span class="lang">terminal</span>
               <button class="copy-btn" type="button" data-i18n="common.copy.idle">copy</button>
             </div>
-            <pre class="code-block-body"><span class="prompt">$</span> pip install forgelm
+            <pre class="code-block-body"><span class="prompt">$</span> pip install forgelm==0.5.5
 
 <span class="comment"># or with extras (pick what you need)</span>
-<span class="prompt">$</span> pip install <span class="string">'forgelm[ingestion]'</span>          <span class="comment"># PDF/DOCX/EPUB ingest</span>
-<span class="prompt">$</span> pip install <span class="string">'forgelm[ingestion-scale]'</span>    <span class="comment"># MinHash LSH for &gt;50K rows</span>
-<span class="prompt">$</span> pip install <span class="string">'forgelm[export]'</span>             <span class="comment"># GGUF export</span>
+<span class="prompt">$</span> pip install <span class="string">'forgelm[ingestion]==0.5.5'</span>          <span class="comment"># PDF/DOCX/EPUB ingest</span>
+<span class="prompt">$</span> pip install <span class="string">'forgelm[ingestion-scale]==0.5.5'</span>    <span class="comment"># MinHash LSH for &gt;50K rows</span>
+<span class="prompt">$</span> pip install <span class="string">'forgelm[export]==0.5.5'</span>             <span class="comment"># GGUF export</span>
+
+<span class="comment"># sanity-check your environment before the first run</span>
+<span class="prompt">$</span> forgelm doctor
+<span class="ok">✓</span> <span class="out">Python 3.11.7  ·  CUDA 12.1  ·  bitsandbytes ok  ·  disk 142 GB free</span>
 </pre>
           </div>
         </div>
@@ -109,11 +117,11 @@
               <button class="copy-btn" type="button" data-i18n="common.copy.idle">copy</button>
             </div>
             <pre class="code-block-body"><span class="prompt">$</span> forgelm quickstart <span class="flag">--list</span>
-<span class="out">  customer-support     Multi-turn helpful + safe (SFT + DPO)</span>
 <span class="out">  code-assistant       Code-completion fine-tune (SFT + ORPO)</span>
-<span class="out">  byod-domain-expert   PDF/DOCX corpus → domain Q&A (SFT)</span>
+<span class="out">  customer-support     Multi-turn helpful + safe (SFT + DPO)</span>
+<span class="out">  domain-expert        PDF/DOCX corpus → domain Q&A (SFT)</span>
+<span class="out">  grpo-math            Step-by-step math reasoning (GRPO)</span>
 <span class="out">  medical-qa-tr        Turkish medical Q&A (SFT)</span>
-<span class="out">  math-reasoning       Step-by-step reasoning (GRPO)</span>
 
 <span class="prompt">$</span> forgelm quickstart customer-support <span class="flag">--dry-run</span>
 <span class="comment"># renders configs/quickstart-customer-support.yaml — open it, edit it, own it.</span>
@@ -171,7 +179,17 @@
 
 <span class="prompt">$</span> forgelm <span class="flag">--config</span> configs/quickstart-customer-support.yaml
 <span class="comment"># …45 minutes later…</span>
-<span class="ok">✔</span> <span class="out">finished, exit 0 — checkpoints/customer-support/</span>
+<span class="ok">✔</span> <span class="out">finished, exit 0 — checkpoints/customer-support/ (staging if human_approval set)</span>
+
+<span class="comment"># verify the audit chain + approve the staged checkpoint</span>
+<span class="prompt">$</span> forgelm verify-audit ./checkpoints/customer-support
+<span class="ok">✓</span> <span class="out">audit_log.jsonl chain valid (47 events, HMAC ok)</span>
+
+<span class="prompt">$</span> forgelm approvals --pending --output-dir ./checkpoints/customer-support  <span class="comment"># list pending stagings</span>
+<span class="prompt">$</span> forgelm approve <span class="string">&lt;run-id&gt;</span> \
+    <span class="flag">--output-dir</span> ./checkpoints/customer-support \
+    <span class="flag">--comment</span> <span class="string">"benchmark + safety floors met, reviewed model card"</span>
+<span class="ok">✔</span> <span class="out">promoted to ./checkpoints/customer-support/ — audit event emitted</span>
 </pre>
           </div>
         </div>

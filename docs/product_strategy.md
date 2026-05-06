@@ -36,7 +36,7 @@ As of August 2, 2026, EU AI Act applies to high-risk AI systems. ForgeLM is the 
   - Art. 14 Human Oversight → `require_human_approval: true` + exit code 4
   - Art. 15 Accuracy & Robustness → `model_integrity.json` + safety evaluation results
 - **Tamper-evident audit log**: SHA-256 hash chain — each entry includes the hash of the previous entry; deletion or modification is detectable
-- **Human approval gate**: exit code 4 signals "awaiting human approval" to CI/CD orchestrators — no custom pipeline logic needed
+- **Human approval gate**: exit code 4 signals "awaiting human approval" to CI/CD orchestrators; the final model lands in `final_model.staging/` — operators run `forgelm approve <run_id>` to promote (atomic rename to `final_model/`) or `forgelm reject <run_id>` to discard, with both decisions recorded in the audit chain
 
 ### 3. Config-Driven CI/CD
 
@@ -65,7 +65,7 @@ ForgeLM's core architectural identity: a YAML file fully describes a training ru
 
 **Profile:** Banking, healthcare, defense, government. Cannot send proprietary data to external APIs. Face EU AI Act (EU), KVKK/BDDK (Turkey), HIPAA (US), or equivalent regulations. Require on-premise or air-gapped execution with full audit trails.
 
-**Why ForgeLM:** The only fine-tuning tool that produces a complete EU AI Act compliance evidence bundle automatically. On-premise Docker deployment. `trust_remote_code: false` by default. Human approval gate (exit code 4) fits into existing governance workflows. Audit log with SHA-256 hash chain satisfies record-keeping requirements.
+**Why ForgeLM:** The only fine-tuning tool that produces a complete EU AI Act compliance evidence bundle automatically. On-premise Docker deployment. `trust_remote_code: false` by default. Human approval gate (exit code 4) defers production deployment; the final model lands in `final_model.staging/`; operators run `forgelm approve <run_id>` to promote, or `forgelm reject <run_id>` to discard. Audit log with SHA-256 hash chain satisfies record-keeping requirements.
 
 ### Tertiary: Independent Researchers and Developers
 

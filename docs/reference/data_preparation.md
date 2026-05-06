@@ -25,7 +25,7 @@ If you are bringing custom company data, format it into a `.jsonl` file where ea
 ```
 
 ## Chat Templates & Formatting
-In 2026, modern conversational fine-tuning no longer relies on manual string formatting (e.g., `[SYSTEM]...[USER]...`). 
+In 2026, modern conversational fine-tuning no longer relies on manual string formatting (e.g., `[SYSTEM]...[USER]...`).
 
 Instead, ForgeLM utilizes Hugging Face's `tokenizer.apply_chat_template()`. This means ForgeLM dynamically understands the architecture of the model you are using (be it Llama-3, Mistral, Gemma, or Qwen) and automatically formats your data into that specific model's native conversational token structure (e.g., `<|im_start|>user\n...<|im_end|>`).
 

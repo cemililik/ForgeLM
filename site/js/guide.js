@@ -433,7 +433,7 @@
     if (!results) return;
     var bag = (window.ForgeLMUserManuals || {})[state.lang] || (window.ForgeLMUserManuals || {}).en || {};
     var idx = window.ForgeLMUserManualsIndex || { sections: [] };
-    var q = query.trim().toLowerCase();
+    var q = query.trim().toLocaleLowerCase(state.lang);
 
     // Build a flat list of {route, sectionTitle, pageTitle, snippet, score}.
     var hits = [];
@@ -445,17 +445,17 @@
         var doc = bag[route];
         if (!doc) return;
 
-        var titleLow = pageTitle.toLowerCase();
+        var titleLow = pageTitle.toLocaleLowerCase(state.lang);
         var headingsText = (doc.headings || []).map(function (h) { return h.text; }).join(' ');
         // Cache the plain-text version of the page on the doc record so
         // we don't re-parse the same HTML on every keystroke. The cache
         // lives only as long as the language bag itself; switching
         // languages loads a fresh bag and the cache rebuilds.
         if (doc._searchText === undefined) {
-          doc._searchText = stripTags(doc.html).toLowerCase();
+          doc._searchText = stripTags(doc.html).toLocaleLowerCase(state.lang);
         }
         var bodyTextLow = doc._searchText;
-        var blob = (titleLow + ' ' + headingsText.toLowerCase() + ' ' + bodyTextLow);
+        var blob = (titleLow + ' ' + headingsText.toLocaleLowerCase(state.lang) + ' ' + bodyTextLow);
 
         var score = 0;
         if (!q) {
@@ -463,7 +463,7 @@
         } else {
           if (titleLow === q) score += 100;
           if (titleLow.indexOf(q) !== -1) score += 50;
-          if (headingsText.toLowerCase().indexOf(q) !== -1) score += 20;
+          if (headingsText.toLocaleLowerCase(state.lang).indexOf(q) !== -1) score += 20;
           if (blob.indexOf(q) !== -1) score += 5;
           // Multi-token: each token must appear somewhere
           var tokens = q.split(/\s+/).filter(Boolean);
@@ -651,7 +651,7 @@
 
   function highlight(text, query) {
     if (!query) return escapeHtml(text);
-    var lower = text.toLowerCase();
+    var lower = text.toLocaleLowerCase(state.lang);
     var idx = lower.indexOf(query);
     if (idx === -1) return escapeHtml(text);
     var end = idx + query.length;

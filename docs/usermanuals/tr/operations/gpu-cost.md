@@ -5,6 +5,14 @@ description: 18 GPU profilinde otomatik tespit ve saatlik tarifenize göre koşu
 
 # GPU Maliyet Tahmini
 
+> **Durum (v0.5.5):** GPU tespiti + koşu süresi + audit-log damgalama
+> bugün gönderiliyor; konfigürasyon-tabanlı `cost_tracking:` bloğu
+> (tarife tabloları, uyarı / durdurma eşikleri) **v0.6.x'e
+> planlanmıştır** ve `forgelm/config.py` tarafından şu an honure
+> edilmiyor. Aşağıdaki `cost_tracking:` örnekleri ileriye dönük
+> yer tutuculardır — YAML yüzeyi inene kadar saatlik tarifeleri
+> manuel ayarlayın. Erteleme için bkz. `docs/roadmap/risks-and-decisions.md`.
+
 ForgeLM, üzerinde koştuğunuz GPU'yu tespit eder, profilini (bellek, compute, tipik saatlik tarife) bulur ve koşu başı maliyeti izler. Her koşunun ardından audit log tam olarak ne kadar GPU zamanı kullanıldığını ve maliyetini kaydeder.
 
 ## Tespit nasıl çalışır
@@ -93,18 +101,20 @@ output:
 
 4×A100 koşusu 2 saat = 4 × 2 × $1.10 = $8.80; ZeRO veya FSDP kullanmak fark etmez.
 
-## Maliyet uyarıları
+## Maliyet uyarıları (v0.6.x'e planlanmıştır)
 
-Kontrolden çıkabilecek koşular için:
+Kontrolden çıkabilecek koşular için planlanan `cost_tracking` bloğu eşik
+tabanlı uyarı + durdurma destekleyecek:
 
 ```yaml
+# planlanmış — v0.5.5'te forgelm/config.py tarafından honure edilmez
 output:
   cost_tracking:
     alert_threshold_usd: 50.0          # geçildiğinde webhook fırlat
     halt_threshold_usd: 200.0          # eğitim durur
 ```
 
-Uyarı konfigüre webhook'u fırlatır (bkz. [Webhook'lar](#/operations/webhooks)) — yanlış konfigüre koşunun gece bütçeyi haftalık bitirmesini CI'da yakalamak için faydalı.
+İmplemente edildiğinde, uyarı konfigüre webhook'u fırlatır (bkz. [Webhook'lar](#/operations/webhooks)) — yanlış konfigüre koşunun gece bütçeyi haftalık bitirmesini CI'da yakalamak için faydalı. O zamana kadar maliyeti audit log + zamanlayıcınızdaki bütçe-tarafı koruyucu ile manuel izleyin.
 
 ## Özel GPU profilleri
 

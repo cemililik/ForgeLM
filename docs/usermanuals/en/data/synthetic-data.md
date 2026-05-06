@@ -126,4 +126,4 @@ This matters for licensing and commercial use — distilling some teachers requi
 
 - [LLM-as-Judge](#/evaluation/judge) — filter synthetic data quality.
 - [Configuration Reference](#/reference/configuration) — full `synthetic:` block.
-- [Document Ingestion](#/data/ingestion) — `--format qa` uses synthetic prompt generation.
+- [Document Ingestion](#/data/ingestion) — produces the raw text JSONL that downstream synthetic-data tools consume.

@@ -37,7 +37,7 @@ Every run that has `compliance.annex_iv: true` produces an artifacts directory:
 
 ```text
 checkpoints/run/artifacts/
-├── annex_iv.json                  ← Article 11 — technical documentation
+├── annex_iv_metadata.json                  ← Article 11 — technical documentation
 ├── audit_log.jsonl                ← Article 12 — append-only event log
 ├── data_audit_report.json         ← Article 10 — data governance evidence
 ├── safety_report.json             ← Article 9 + 15 — risk + safety assessment
@@ -54,14 +54,14 @@ This bundle is the deliverable for compliance reviews. Every file is hashed in `
 |---|---|---|
 | **9** | Risk management | Auto-revert + threshold gates + trend tracking. |
 | **10** | Data governance | `forgelm audit` produces governance evidence per dataset. |
-| **11** | Technical documentation | `annex_iv.json` is a populated Annex IV. |
+| **11** | Technical documentation | `annex_iv_metadata.json` is a populated Annex IV. |
 | **12** | Record-keeping | Append-only `audit_log.jsonl` covering training start, eval gates, revert decisions. |
 | **13** | Transparency | Auto-generated model card listing capabilities, limitations, training summary. |
 | **14** | Human oversight | Optional `compliance.human_approval: true` blocks promotion until a human signs off. |
 | **15** | Accuracy & robustness | Benchmark gates + safety eval + cybersecurity (PII / secrets at ingest). |
 | **16-17** | Conformity & QMS | Declaration scaffold + QMS SOPs in `docs/qms/`. |
 
-For the full mapping with code references, see the [Compliance page on the public site](compliance.html).
+For the full mapping with code references, see the [Compliance summary](../../../reference/compliance_summary.md).
 
 ## What ForgeLM doesn't claim
 
@@ -88,7 +88,7 @@ compliance:
   responsible_party: "Acme Corp <compliance@acme.example>"
 ```
 
-Every field from `compliance:` flows into `annex_iv.json`. Required fields are validated at config load — a missing `intended_purpose` fails `--dry-run`.
+Every field from `compliance:` flows into `annex_iv_metadata.json`. Required fields are validated at config load — a missing `intended_purpose` fails `--dry-run`.
 
 ## What goes into Annex IV
 

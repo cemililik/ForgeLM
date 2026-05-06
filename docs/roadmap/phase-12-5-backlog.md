@@ -2,7 +2,7 @@
 
 > **Note (post-consolidation):** Originally targeted `v0.5.3`; all four
 > backlog items now ship together with Phases 11 / 11.5 / 12 in the
-> consolidated `v0.5.0` release (see [releases.md](releases.md#v050--document-ingestion--data-curation-pipeline)).
+> consolidated `v0.5.0` release (see [releases.md](releases.md#v050-document-ingestion-data-curation-pipeline)).
 > The version-label references below preserve the historical planning
 > trail.
 >
