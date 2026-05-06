@@ -134,7 +134,7 @@ These come from [`docs/analysis/QKV-Core/14-forgelm-icin-cikarimlar.md`](../anal
 | `[A-Za-z0-9_]` in regex | Verbose; SonarCloud `python:S6353` | `\w` |
 | `[ ]{0,3}` (single-char class) | Noisy; SonarCloud `python:S6328` | ` {0,3}` |
 | Two competing greedy/lazy quantifiers over the same char class (`[ \t]+(.+?)[ \t]*$`) | O(n²) ReDoS — confirmed at `n=2000` in `_MARKDOWN_HEADING_PATTERN`; review round 2.5 | Anchor on `\S` at body boundaries: `[ \t]+(\S(?:[^\n]*\S)?)[ \t]*$` |
-| `.*?` + back-reference + `re.DOTALL` | SonarCloud `python:S5852`; replace with state machine | Per-line walker (see [`_strip_code_fences`](../../forgelm/data_audit.py)) |
+| `.*?` + back-reference + `re.DOTALL` | SonarCloud `python:S5852`; replace with state machine | Per-line walker (see [`_strip_code_fences`](../../forgelm/data_audit/_quality.py)) |
 
 For deeper regex rules (8 hard rules + ReDoS exposure budget + test fixture hygiene), see [regex.md](regex.md).
 

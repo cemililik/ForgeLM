@@ -52,28 +52,24 @@ $ forgelm audit data/      # audits train.jsonl + val.jsonl + test.jsonl
    train ↔ test: 23 exact, 5 near-dup
    val ↔ test: 0
 
-Audit refuses to certify these splits. Run `--show-leakage` for indices.
+Audit refuses to certify these splits. The full pair-level report lives in the on-disk audit JSON.
 
 exit code: 3
 ```
 
+Inspect the per-row pairs that triggered the failure with `jq`:
+
 ```shell
-$ forgelm audit data/ --show-leakage
-{train: 1240, val: 312, type: "exact", text: "How do I cancel..."}
-{train: 4521, val: 890, type: "near-dup", hamming: 2, ...}
+$ jq '.cross_split_overlap.pairs[]' audit/data_audit_report.json | head
+{"train": 1240, "val": 312, "type": "exact", "text": "How do I cancel..."}
+{"train": 4521, "val": 890, "type": "near-dup", "hamming": 2}
 ```
 
 ## How to fix it
 
 1. **Re-split the data**, this time grouping at the source level (don't split paraphrases, group documents). Use the `--group-by` flag in your splitter.
 2. **Re-extract** if leakage came from duplicate ingestion (the same FAQ ingested twice).
-3. **Remove** the leaked rows from the smaller split (audit's `--remove-cross-split-overlap` does this — but think before relying on it).
-
-```shell
-$ forgelm audit data/ --remove-cross-split-overlap=val \
-    --output-clean data/clean/
-✓ removed 47 cross-split rows from val (kept train side)
-```
+3. **Remove** the leaked rows from the smaller split via the `audit.leakage_check.remove_cross_split_overlap` YAML knob — see the configuration block below — then re-run `forgelm audit` to regenerate the cleaned splits.
 
 ## Configuration
 

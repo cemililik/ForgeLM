@@ -56,7 +56,7 @@ ForgeLM's PEM detector matches the entire block (BEGIN to END), not just the mar
 ## Audit-only mode
 
 ```shell
-$ forgelm audit data/tickets.jsonl --skip-pii
+$ forgelm audit data/tickets.jsonl
 ✓ format: instructions (8,400 rows)
 ⚠ secrets: 47 detected (severity: critical)
    12 AWS access keys
@@ -64,7 +64,7 @@ $ forgelm audit data/tickets.jsonl --skip-pii
    ...
 ```
 
-A `critical` severity flags the run for failure if you also pass `--strict`.
+The secrets scan is always on — it cannot be disabled from the CLI surface (a credential leak in training data is never something the operator should be able to wave away). A `critical` severity exits non-zero so a CI pipeline fails fast.
 
 ## Programmatic API
 

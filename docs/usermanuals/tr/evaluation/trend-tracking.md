@@ -74,7 +74,7 @@ Bu dosyayı commit edin. Küçüktür (koşu başına bir satır, JSON) ve CI ko
 
 ## Görselleştirme
 
-ForgeLM bir CLI raporu yayınlar:
+ForgeLM bir CLI raporu yayınlar. Özel `forgelm trend` subcommand'ı v0.6.0+ Pro CLI seviyesi için planlanmıştır ([Phase 13 yol haritası](#/roadmap/phase-13)) — bugün aynı veri JSONL'dan `jq` ile sorgulanabilir; aşağıdaki snippet planlanan UX'i önizler:
 
 ```shell
 $ forgelm trend --metric "safety.S5" --lookback 20
@@ -101,7 +101,7 @@ $ jq '.benchmark.truthfulqa, .ts' .forgelm/eval-history.jsonl > truthfulqa-trend
 
 Her koşunun `run_id` (UUID) ve `config_hash` (YAML config'in hash'i) vardır. Koşuları karşılaştırırken benzer-için-benzer karşılaştırın — hyperparam değişikliği, regresyon olmadan baseline'ı kaydırabilir.
 
-Geçmişi filtrele:
+Geçmişi filtrele (planlanan v0.6.0+ Pro CLI formu):
 
 ```shell
 $ forgelm trend --metric "benchmark.hellaswag" \

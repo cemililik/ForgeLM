@@ -120,7 +120,7 @@ def _strip_code_fences(text: str) -> str:
         ...
 ```
 
-The principle: when a regex with a back-reference needs to span multiple lines, write it as a state machine. The line-walker pattern in [`forgelm/ingestion.py::_markdown_sections`](../../forgelm/ingestion.py) and [`forgelm/data_audit.py::_strip_code_fences`](../../forgelm/data_audit.py) is the model.
+The principle: when a regex with a back-reference needs to span multiple lines, write it as a state machine. The line-walker pattern in [`forgelm/ingestion.py::_markdown_sections`](../../forgelm/ingestion.py) and [`forgelm/data_audit/_quality.py::_strip_code_fences`](../../forgelm/data_audit/_quality.py) is the model.
 
 ### 7. Anchor `^` / `$` and use `re.MULTILINE` deliberately
 
@@ -155,7 +155,7 @@ Some regexes consume operator-controlled input (e.g. `audit` / `ingest` walking 
 For any regex that runs on operator-controlled input:
 
 - **Verify linearity empirically — measure scaling, not absolute milliseconds.** Run the regex at *multiple* input sizes (e.g. 1K / 5K / 10K characters of pathological input) and take the **median of N runs** (we use 5 in [`tests/test_phase12_review_fixes.py`](../../tests/test_phase12_review_fixes.py)) to absorb shared-CI jitter. Acceptable: roughly linear growth — doubling the input doubles the time. Broken: super-linear (≥ ~3× on a 2× input) or any explosive jump. Don't pin a hard ms cutoff in the standard; what matters is the *shape* of the curve, not the wall-clock on whoever's laptop. Existing ReDoS-regression tests assert generous absolute bounds (≤ 100 ms / ≤ 1 s on 10K input) only as a safety floor — a real ReDoS blows past those by orders of magnitude.
-- **Or replace with a non-regex parser.** State machines (line walkers) are O(n) by construction. We use them in [`forgelm/data_audit.py::_strip_code_fences`](../../forgelm/data_audit.py) and [`forgelm/ingestion.py::_markdown_sections`](../../forgelm/ingestion.py) precisely because the regex equivalents tripped SonarCloud.
+- **Or replace with a non-regex parser.** State machines (line walkers) are O(n) by construction. We use them in [`forgelm/data_audit/_quality.py::_strip_code_fences`](../../forgelm/data_audit/_quality.py) and [`forgelm/ingestion.py::_markdown_sections`](../../forgelm/ingestion.py) precisely because the regex equivalents tripped SonarCloud.
 
 The pathological-input benchmark for our regexes:
 
@@ -188,7 +188,7 @@ FAKE_AWS_KEY: str = "AKIA" + "IOSFODNN7" + "EXAMPLE"
 text = f"config: aws_access_key_id={FAKE_AWS_KEY} end"
 ```
 
-The same applies to PEM block markers in regex source (we split `r"-----" + r"BEGIN " + r"..."` in [`forgelm/data_audit.py::_SECRET_PATTERNS`](../../forgelm/data_audit.py) for this reason).
+The same applies to PEM block markers in regex source (we split `r"-----" + r"BEGIN " + r"..."` in [`forgelm/data_audit/_secrets.py::_SECRET_PATTERNS`](../../forgelm/data_audit/_secrets.py) for this reason).
 
 ## Pre-merge checklist
 
@@ -196,7 +196,7 @@ Before opening a PR that touches regex:
 
 - [ ] No unintentional `[A-Za-z0-9_]` (use `\w`); explicit ASCII-only classes
       are permitted for deliberate ASCII-only grammars when paired with
-      `re.ASCII` or a documented justification (see [Rule 1](#1-w-is-unicode-by-default--pick-the-right-form-for-your-input) — `\w` + `re.ASCII` and an explicit ASCII class are both listed as RIGHT).
+      `re.ASCII` or a documented justification (see [Rule 1](#1-w-is-unicode-by-default-pick-the-right-form-for-your-input) — `\w` + `re.ASCII` and an explicit ASCII class are both listed as RIGHT).
 - [ ] No single-char character classes (use the character).
 - [ ] Quantifiers bounded where the spec allows (`{1,6}` not `+`).
 - [ ] No two competing unbounded quantifiers over the same character class.

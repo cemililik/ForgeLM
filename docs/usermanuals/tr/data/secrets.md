@@ -56,7 +56,7 @@ ForgeLM'in PEM detector'ı tüm bloğu (BEGIN'den END'e) eşleştirir, sadece ma
 ## Sadece-audit modu
 
 ```shell
-$ forgelm audit data/tickets.jsonl --skip-pii
+$ forgelm audit data/tickets.jsonl
 ✓ format: instructions (8,400 satır)
 ⚠ sırlar: 47 tespit (severity: critical)
    12 AWS access key
@@ -64,7 +64,7 @@ $ forgelm audit data/tickets.jsonl --skip-pii
    ...
 ```
 
-`critical` severity, `--strict` de geçirirseniz koşuyu başarısız olarak flagler.
+Sırlar taraması her zaman açıktır — CLI yüzeyinden devre dışı bırakılamaz (eğitim verisinde credential sızıntısı, operatörün asla kapatabilmesi gereken bir şey değildir). `critical` severity non-zero exit verir, böylece CI pipeline hızlı fail eder.
 
 ## Programatik API
 

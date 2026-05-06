@@ -54,8 +54,8 @@ Content...
 
 ## Related
 
-- `[Other doc 1](other.md)`
-- `[Other doc 2](../other.md)`
+- Link to a sibling doc, e.g. `sibling.md` — one-line reason
+- Link to a parent-tree doc, e.g. `../parent.md` — one-line reason
 ```
 
 Rules:
@@ -71,15 +71,15 @@ Rules:
 **Relative paths from the current file.** Absolute paths break under GitHub rendering for forks:
 
 ```markdown
-✅ [Configuration](../reference/configuration.md)
-✅ [Error Handling](error-handling.md)
-❌ [Configuration](/docs/reference/configuration.md)   (absolute path)
-❌ [Configuration](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/configuration.md)   (external URL)
+✅ Relative sibling: error-handling.md
+✅ Relative parent-tree: ../reference/configuration.md
+❌ Absolute repo path: /docs/reference/configuration.md
+❌ Full GitHub URL: https://github.com/cemililik/ForgeLM/blob/main/docs/reference/configuration.md
 ```
 
 **External links:** full HTTPS URL. Prefer stable archives (arxiv.org, github.com) over transient news sites.
 
-**Anchor links:** use GitHub's auto-generated slug format (lowercase, hyphens): `[see below](#the-standards)`. Avoid deep anchors into other files — they break silently when the target's headings change.
+**Anchor links:** use GitHub's auto-generated slug format (lowercase, hyphens) — e.g. an anchor `#the-standards` referring back to a heading in the same file. Avoid deep anchors into other files — they break silently when the target's headings change.
 
 ## Docstrings (in code)
 
@@ -185,7 +185,7 @@ Don't copy or paraphrase long sections from other docs — link and summarize in
 | "TL;DR" as section header | Reader already at the top | Use a blockquote intro instead |
 | Multi-dialect within one doc (TR + EN mixed) | Cognitive overhead | Pick one; mirror if needed |
 | Hypothetical code paths in docs | Future drift | Only document what exists in `main` |
-| "See above" / "as mentioned" | Forces re-reading | Be specific: "see [Error Handling](#error-handling)" |
+| "See above" / "as mentioned" | Forces re-reading | Be specific, e.g. "see the Error Handling section" with an explicit anchor link to that section's slug |
 | "Simply", "just", "obviously" | Dismissive | Remove or rephrase |
 
 ## Checklist before merging docs

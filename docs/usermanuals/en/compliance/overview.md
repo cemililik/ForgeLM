@@ -61,7 +61,7 @@ This bundle is the deliverable for compliance reviews. Every file is hashed in `
 | **15** | Accuracy & robustness | Benchmark gates + safety eval + cybersecurity (PII / secrets at ingest). |
 | **16-17** | Conformity & QMS | Declaration scaffold + QMS SOPs in `docs/qms/`. |
 
-For the full mapping with code references, see the [Compliance page on the public site](compliance.html).
+For the full mapping with code references, see the [Compliance summary](../../../reference/compliance_summary.md).
 
 ## What ForgeLM doesn't claim
 

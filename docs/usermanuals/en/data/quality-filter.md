@@ -31,10 +31,18 @@ $ forgelm audit data/ingested.jsonl
    bullet_only: 3
 ```
 
-To drop flagged rows:
+Audit *flags* low-quality rows but does not delete them. To drop them, opt in via the `audit.quality_filter.drop_flagged` and `audit.quality_filter.write_clean_output` knobs in your YAML config (see [Configuration Reference](#/reference/configuration)) and re-run audit:
+
+```yaml
+audit:
+  quality_filter:
+    enabled: true
+    drop_flagged: true
+    write_clean_output: data/clean.jsonl
+```
 
 ```shell
-$ forgelm audit data/ingested.jsonl --drop-quality-flags --output-clean data/clean.jsonl
+$ forgelm audit data/ingested.jsonl --quality-filter
 ✓ dropped 45 rows; wrote data/clean.jsonl (12,355 rows)
 ```
 

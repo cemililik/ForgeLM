@@ -21,9 +21,10 @@
    ```
 
 2. [x] **`forgelm chat` — interactive terminal loop**
-   Terminal REPL in `forgelm/chat.py`: streaming output (default), `/reset`, `/save [file]`, `/temperature 0.x`, `/system <prompt>`, `/help` commands. `rich` optional rendering. Optional `--safety` flag. History management with 50-pair cap.
+   Terminal REPL in `forgelm/chat.py`: streaming output (default), `/reset`, `/save [file]`, `/temperature 0.x`, `/system <prompt>`, `/help` commands. `rich` optional rendering. History management with 50-pair cap. The `--safety` per-turn screen flag is planned for v0.6.0+ Pro CLI (today's safety pipeline runs through the YAML `safety:` block during training/eval).
    ```bash
    forgelm chat ./outputs/my_run
+   # planned (v0.6.0+ Pro CLI): per-turn Llama Guard screen via --safety
    forgelm chat ./outputs/my_run --adapter ./outputs/my_run/adapter_model --safety
    ```
 

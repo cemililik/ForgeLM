@@ -61,7 +61,7 @@ Bu paket compliance incelemeleri için teslim edilebilir. İçindeki her dosya `
 | **15** | Doğruluk ve sağlamlık | Benchmark kapıları + güvenlik eval + cybersec (ingest'te PII / sırlar). |
 | **16-17** | Uygunluk ve QMS | Beyan iskeleti + `docs/qms/`'deki QMS SOP'ları. |
 
-Tam kod referansları için sitenin [Compliance sayfası](compliance.html).
+Tam kod referansları için [Compliance özeti](../../../reference/compliance_summary.md).
 
 ## ForgeLM'in iddia *etmediği*
 

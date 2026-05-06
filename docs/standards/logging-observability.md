@@ -5,7 +5,7 @@
 
 ## Logger setup
 
-From [`forgelm/cli.py`](../../forgelm/cli.py):
+From [`forgelm/cli/_logging.py`](../../forgelm/cli/_logging.py):
 
 ```python
 def _setup_logging(log_level: str, json_format: bool = False) -> None:

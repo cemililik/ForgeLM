@@ -110,7 +110,9 @@ training:
 
 ## Koşu karşılaştırma
 
-Her backend'in UI'sı karşılaştırmayı doğal şekilde halleder — karşılaştırılabilir koşular `run_name` öneki, etiketler ve config hash paylaşır. ForgeLM CLI'sı da yardım eder:
+Her backend'in UI'sı karşılaştırmayı doğal şekilde halleder — karşılaştırılabilir koşular `run_name` öneki, etiketler ve config hash paylaşır. Yerleşik CLI özeti yolda:
+
+> Not: `forgelm compare-runs` subcommand'ı v0.6.0+ Pro CLI seviyesi için planlanmıştır ([Phase 13 yol haritası](#/roadmap/phase-13)). Bugün aynı karşılaştırma tracking backend'inizin UI'sı (W&B / MLflow / Comet) veya her koşunun JSON envelope'una karşı küçük bir `jq` ile koşturulur; aşağıdaki snippet özel UX'i önizler.
 
 ```shell
 $ forgelm compare-runs runs/v1.0 runs/v1.1 runs/v1.2

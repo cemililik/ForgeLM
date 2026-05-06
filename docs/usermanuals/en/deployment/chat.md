@@ -55,13 +55,15 @@ chat:
 - A HuggingFace model ID: `Qwen/Qwen2.5-7B-Instruct`
 - A GGUF file: `./model.gguf` (uses llama.cpp under the hood)
 
-For LoRA checkpoints, you can override the base model:
+For LoRA checkpoints, pass the base model as the positional argument and the adapter directory via `--adapter`:
 
 ```shell
-$ forgelm chat ./checkpoints/run/ --base "Qwen/Qwen2.5-7B"
+$ forgelm chat "Qwen/Qwen2.5-7B" --adapter ./checkpoints/run/
 ```
 
 ## Safety routing
+
+> Note: A built-in `--safety` flag on `forgelm chat` is planned for v0.6.0+ Pro CLI (see [Phase 13 roadmap](#/roadmap/phase-13)). Today the screen-every-turn behaviour shipped via the YAML pipeline (`safety:` block); the snippet below illustrates the planned UX.
 
 With `--safety on`, every prompt and response is screened by Llama Guard:
 
@@ -104,6 +106,8 @@ Sessions are useful for:
 - Comparing two model versions on the same conversation.
 
 ## Comparing two models
+
+> Note: The `chat-compare` subcommand is planned for v0.6.0+ Pro CLI tier (see [Phase 13 roadmap](#/roadmap/phase-13)). Today the same comparison runs through `forgelm --benchmark-only` against each checkpoint and a downstream judge config; the snippet below previews the dedicated UX.
 
 ```shell
 $ forgelm chat-compare ./checkpoints/v1 ./checkpoints/v2 --prompts data/probes.jsonl

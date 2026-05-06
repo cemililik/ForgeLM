@@ -110,7 +110,9 @@ For very large checkpoints, prefer model registries (HuggingFace Hub) over W&B/M
 
 ## Comparing runs
 
-Each backend's UI handles comparison naturally — comparable runs share a `run_name` prefix, tags, and config hash. ForgeLM's CLI also helps:
+Each backend's UI handles comparison naturally — comparable runs share a `run_name` prefix, tags, and config hash. A built-in CLI summary is on the way:
+
+> Note: The `forgelm compare-runs` subcommand is planned for v0.6.0+ Pro CLI tier (see [Phase 13 roadmap](#/roadmap/phase-13)). Today the same comparison runs through your tracking backend's UI (W&B / MLflow / Comet) or a small `jq` over each run's JSON envelope; the snippet below previews the dedicated UX.
 
 ```shell
 $ forgelm compare-runs runs/v1.0 runs/v1.1 runs/v1.2

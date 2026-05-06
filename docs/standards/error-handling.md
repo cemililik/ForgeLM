@@ -5,7 +5,7 @@
 
 ## Exit codes
 
-Defined in [`forgelm/cli.py`](../../forgelm/cli.py):
+Defined in [`forgelm/cli/_exit_codes.py`](../../forgelm/cli/_exit_codes.py):
 
 ```python
 EXIT_SUCCESS = 0
