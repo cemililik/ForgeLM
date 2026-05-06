@@ -169,7 +169,7 @@ merge_adapters(
 :::
 
 :::tip
-For exploratory merging, generate a small grid of `(algorithm, parameters)` combinations and evaluate each. ForgeLM ships a `forgelm merge-sweep` helper that automates this.
+For exploratory merging, generate a small grid of `(algorithm, parameters)` combinations and evaluate each. A `forgelm merge-sweep` helper that automates this is **planned for v0.6.0+ pipeline-chains scope** (Phase 14 roadmap; not in v0.5.5 — see [phase-14-pipeline-chains](../../../roadmap/phase-14-pipeline-chains.md)). Until then, write a small shell loop that calls `forgelm` once per `(algorithm, parameters)` pair.
 :::
 
 ## See also
