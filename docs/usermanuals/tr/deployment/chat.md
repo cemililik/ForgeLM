@@ -63,9 +63,9 @@ $ forgelm chat "Qwen/Qwen2.5-7B" --adapter ./checkpoints/run/
 
 ## Güvenlik routing'i
 
-> Not: `forgelm chat` üzerinde yerleşik `--safety` bayrağı v0.6.0+ Pro CLI için planlanmıştır ([Phase 13 yol haritası](#/roadmap/phase-13)). Bugün her-tur tarama davranışı YAML pipeline'ı (`safety:` bloğu) üzerinden yayınlanmıştır; aşağıdaki snippet planlanan UX'i önizler.
+> Not: `forgelm chat` üzerinde yerleşik `--safety` bayrağı v0.6.0+ Pro CLI için planlanmıştır ([Phase 13 yol haritası](#/roadmap/phase-13)). Bugün her-tur tarama davranışı yalnızca **YAML pipeline** (`safety:` bloğu) üzerinden yayınlanmıştır — chat REPL'i bu config'i okur ve her prompt + yanıtı Llama Guard'a yönlendirir. Aşağıdaki bayraklı çağrı planlanan UX'in önizlemesi olup BUGÜN runnable DEĞİLDİR.
 
-`--safety on` ile her prompt ve yanıt Llama Guard tarafından taranır:
+`safety: enabled: true` config'iyle her prompt ve yanıt Llama Guard tarafından taranır:
 
 ```text
 forgelm> [adversarial prompt]

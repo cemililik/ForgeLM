@@ -70,13 +70,21 @@ env:
   FORGELM_OPERATOR: gha:${{ github.repository }}:${{ github.workflow }}:run-${{ github.run_id }}
   FORGELM_AUDIT_SECRET: ${{ secrets.FORGELM_AUDIT_SECRET }}
 steps:
-  - run: forgelm --config run.yaml
+  - id: train
+    run: forgelm --config run.yaml
     continue-on-error: true     # exit 4 bir duraklamadır, başarısızlık değil
-  - if: ${{ steps.train.outcome == 'success' || steps.train.exit_code == 4 }}
-    run: echo "::notice::Run insan onayı bekliyor"
+  - if: ${{ steps.train.outcome == 'success' || steps.train.outcome == 'failure' }}
+    run: |
+      # `outcome` exit 0 (success) VE exit 4 (pause) durumlarını
+      # birlikte kapsar; `continue-on-error: true` non-zero'yu
+      # downstream bir `if:` için "failure" outcome'una toplar.
+      # Sonraki approvals-keşif adımı, audit log'da bu run_id'ye
+      # bağlı `human_approval.required` event'i arayarak ikisini
+      # ayırt eder.
+      echo "::notice::Eğitim adımı bitti — bekleyen onay kontrol ediliyor"
 ```
 
-`continue-on-error` adımı kilit unsurdur: workflow'un build'i başarısız kılmadan exit 4'ü kaydetmesini sağlar. Sonraki bir kapı-keşif adımı (veya downstream cron) `forgelm approvals --pending` çağırarak koşumu bulur.
+`continue-on-error` adımı kilit unsurdur: workflow'un build'i başarısız kılmadan exit 4'ü kaydetmesini sağlar. Sonraki bir kapı-keşif adımı (veya downstream cron) `forgelm approvals --pending` çağırarak koşumu bulur; audit chain run'ın paused / succeeded / failed olduğunu söyleyen tek doğruluk kaynağıdır (GitHub Actions'ın `steps.<id>.exit_code` alanı belgelenmiş bir context değildir, doğrudan ona güvenmeyin — audit zincirini okuyun).
 
 ## 3. Reviewer'a haber ver
 

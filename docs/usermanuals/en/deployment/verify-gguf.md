@@ -130,8 +130,8 @@ Install with `pip install gguf` to add the metadata layer back. This matches the
 | Code | Meaning |
 |---|---|
 | `0` | Magic OK AND (when `gguf` is installed) metadata parses AND (when sidecar present) SHA-256 matches. |
-| `1` | Magic mismatch, metadata corruption, malformed sidecar, or SHA-256 mismatch. |
-| `2` | File not found or unreadable. |
+| `1` | Magic mismatch, metadata corruption, malformed sidecar, SHA-256 mismatch, OR a path that is not a regular file (operator passed the wrong argument). |
+| `2` | I/O error reading a real file (permission denied, mid-read disk error). |
 
 ## Common pitfalls
 

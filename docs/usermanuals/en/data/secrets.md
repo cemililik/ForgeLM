@@ -90,9 +90,9 @@ ForgeLM ships secrets detection with stricter false-positive guards than typical
 Specific guards:
 - **Entropy threshold** for OpenAI / Anthropic keys (random-looking, not human-readable).
 - **Context window check** — `AKIA*` only fires if accompanied by a secret-key-shaped neighbour or "aws" context within 100 characters.
-- **Test/example exclusion list** — common dummy values (`AKIAIOSFODNN7EXAMPLE`, `xxx`, `your_key_here`) bypass detection unless `--secrets-strict` is set.
+- **Test/example exclusion list** — common dummy values (`AKIAIOSFODNN7EXAMPLE`, `xxx`, `your_key_here`) bypass detection.
 
-For a high-stakes audit (e.g. legal disclosure scan), use `--secrets-strict` to disable these guards and accept higher false-positive rate.
+For a high-stakes audit (e.g. legal disclosure scan), the test-exclusion list is intentional — review the scan output's `secret_findings_review_notes` (one row per excluded match, with the prose context) so a human can confirm none of the dummies are real secrets in disguise.
 
 ## Configuration
 
@@ -121,7 +121,7 @@ ingestion:
 :::
 
 :::tip
-For corpora that legitimately contain certificates / tokens (security training datasets, CTF content), use `--skip-secrets` rather than fighting the detector. Document the exception in the audit log so future reviewers see why it was disabled.
+For corpora that legitimately contain certificates / tokens (security training datasets, CTF content), there is no CLI escape hatch — the secrets scan is intentionally always-on (see "Always on" above). Mark the rows in your corpus's data-governance manifest as `legitimate_secret_content: true` so a downstream reviewer sees the rationale; `forgelm audit` still flags them, but the reviewer dismisses the flag with the manifest line as evidence.
 :::
 
 ## See also

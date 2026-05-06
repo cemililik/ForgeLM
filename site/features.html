@@ -374,7 +374,7 @@
       <article class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="9 12 11 14 15 10"/></svg></div>
         <h3 data-i18n="features.gov.gguf.title">GGUF integrity verifier</h3>
-        <p data-i18n-html="features.gov.gguf.body"><code>forgelm verify-gguf</code> re-checks the SHA-256 + size manifest stamped at export time before you ship a quantized model.</p>
+        <p data-i18n-html="features.gov.gguf.body"><code>forgelm verify-gguf</code> validates the GGUF magic header, parses the metadata block, and re-checks the SHA-256 sidecar (when present) before you ship a quantized model.</p>
       </article>
       <article class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg></div>

@@ -100,8 +100,8 @@ OK: …/annex_iv.json
 | Code | Meaning |
 |---|---|
 | `0` | All §1-9 fields populated AND manifest hash matches (when present). |
-| `1` | Missing field OR manifest mismatch. |
-| `2` | File not found, unreadable, malformed JSON, or non-object root. |
+| `1` | Missing field, manifest mismatch, malformed JSON, or non-object root (validation failure — `valid=False`). |
+| `2` | File not found or unreadable (I/O error — argument or environment mistake). |
 
 ## Common pitfalls
 

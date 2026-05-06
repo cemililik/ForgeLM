@@ -70,7 +70,7 @@
 - `--dry-run` validates all stages' configs before any GPU allocation.
 
 ### Delivery:
-- Target release: `v0.5.1` (reslotted from `v0.5.3`; Phases 11 / 11.5 / 12 / 12.5 were consolidated into a single `v0.5.0` release because the four phases form one coherent ingestion + audit + curation surface — see [releases.md](releases.md#v050-document-ingestion-data-curation-pipeline)).
-- No hard blockers; Phase 12.5 (the most recent of the consolidated phases) is merged to `main`. Starts after the `v0.5.0` PyPI tag is published.
+- Target release: `v0.6.0` (reslotted from earlier `v0.5.x` placeholders; Phase 14 is grouped with the Phase 13 Pro CLI tier per the v0.5.5 closure cycle's deferred-callout policy in `docs/usermanuals/{en,tr}/deployment/model-merging.md` and the [phase-12-6-closure-cycle.md](phase-12-6-closure-cycle.md) summary).
+- No hard blockers; the v0.5.5 closure cycle has merged. Phase 14 starts after the v0.5.5 PyPI tag is published.
 
 ---

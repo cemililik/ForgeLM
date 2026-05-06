@@ -100,8 +100,8 @@ OK: …/annex_iv.json
 | Kod | Anlam |
 |---|---|
 | `0` | Tüm §1-9 alanları doldurulmuş VE (mevcutsa) manifest hash'i eşleşiyor. |
-| `1` | Eksik alan VEYA manifest uyuşmazlığı. |
-| `2` | Dosya bulunamadı, okunamadı, bozuk JSON ya da nesne olmayan kök. |
+| `1` | Eksik alan, manifest uyuşmazlığı, bozuk JSON veya nesne olmayan kök (validation failure — `valid=False`). |
+| `2` | Dosya bulunamadı veya okunamadı (I/O hatası — argüman ya da ortam hatası). |
 
 ## Sık hatalar
 

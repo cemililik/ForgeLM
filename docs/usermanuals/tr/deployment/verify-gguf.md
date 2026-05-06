@@ -130,8 +130,8 @@ Meta veri katmanını geri eklemek için `pip install gguf` ile yükleyin. Bu, p
 | Kod | Anlam |
 |---|---|
 | `0` | Magic tamam VE (`gguf` yüklüyse) meta veri ayrıştırılıyor VE (sidecar mevcutsa) SHA-256 eşleşiyor. |
-| `1` | Magic uyuşmazlığı, meta veri bozulması, bozuk sidecar veya SHA-256 uyuşmazlığı. |
-| `2` | Dosya bulunamadı veya okunamadı. |
+| `1` | Magic uyuşmazlığı, meta veri bozulması, bozuk sidecar, SHA-256 uyuşmazlığı VEYA regular file olmayan bir path (operatör yanlış argüman geçirdi). |
+| `2` | Gerçek bir dosyayı okurken I/O hatası (permission denied, okuma sırasında disk hatası). |
 
 ## Sık hatalar
 

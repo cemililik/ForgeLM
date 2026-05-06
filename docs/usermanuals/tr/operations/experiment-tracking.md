@@ -112,9 +112,20 @@ training:
 
 Her backend'in UI'sı karşılaştırmayı doğal şekilde halleder — karşılaştırılabilir koşular `run_name` öneki, etiketler ve config hash paylaşır. Yerleşik CLI özeti yolda:
 
-> Not: `forgelm compare-runs` subcommand'ı v0.6.0+ Pro CLI seviyesi için planlanmıştır ([Phase 13 yol haritası](#/roadmap/phase-13)). Bugün aynı karşılaştırma tracking backend'inizin UI'sı (W&B / MLflow / Comet) veya her koşunun JSON envelope'una karşı küçük bir `jq` ile koşturulur; aşağıdaki snippet özel UX'i önizler.
+> Not: `forgelm compare-runs` subcommand'ı v0.6.0+ Pro CLI seviyesi için planlanmıştır ([Phase 13 yol haritası](#/roadmap/phase-13)). Bugün aynı karşılaştırma tracking backend'inizin UI'sı (W&B / MLflow / Comet) veya her koşunun JSON envelope'una karşı küçük bir `jq` ile koşturulur.
+
+Bugünkü çalışan akış (W&B / MLflow / Comet UI canonical yüzey; aşağıdaki ad-hoc CLI karşılaştırma için `jq` kısayolu):
 
 ```shell
+$ for v in v1.0 v1.1 v1.2; do
+    jq --arg v "$v" '{run: $v, hellaswag: .benchmark.hellaswag, truthfulqa: .benchmark.truthfulqa, S5_max: .safety.S5}' \
+       runs/$v/eval.json
+  done
+```
+
+Özel `forgelm compare-runs` UX'i (planlanan v0.6.0+, BUGÜN runnable DEĞİL):
+
+```text
 $ forgelm compare-runs runs/v1.0 runs/v1.1 runs/v1.2
                   v1.0    v1.1    v1.2
 hellaswag        0.612   0.617   0.621

@@ -185,9 +185,10 @@
 <span class="prompt">$</span> forgelm verify-audit ./checkpoints/customer-support
 <span class="ok">✓</span> <span class="out">audit_log.jsonl chain valid (47 events, HMAC ok)</span>
 
-<span class="prompt">$</span> forgelm approvals                 <span class="comment"># list pending stagings</span>
-<span class="prompt">$</span> forgelm approve ./checkpoints/customer-support \
-    <span class="flag">--reason</span> <span class="string">"benchmark + safety floors met, reviewed model card"</span>
+<span class="prompt">$</span> forgelm approvals --pending --output-dir ./checkpoints/customer-support  <span class="comment"># list pending stagings</span>
+<span class="prompt">$</span> forgelm approve <span class="string">&lt;run-id&gt;</span> \
+    <span class="flag">--output-dir</span> ./checkpoints/customer-support \
+    <span class="flag">--comment</span> <span class="string">"benchmark + safety floors met, reviewed model card"</span>
 <span class="ok">✔</span> <span class="out">promoted to ./checkpoints/customer-support/ — audit event emitted</span>
 </pre>
           </div>

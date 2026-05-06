@@ -74,9 +74,22 @@ Bu dosyayı commit edin. Küçüktür (koşu başına bir satır, JSON) ve CI ko
 
 ## Görselleştirme
 
-ForgeLM bir CLI raporu yayınlar. Özel `forgelm trend` subcommand'ı v0.6.0+ Pro CLI seviyesi için planlanmıştır ([Phase 13 yol haritası](#/roadmap/phase-13)) — bugün aynı veri JSONL'dan `jq` ile sorgulanabilir; aşağıdaki snippet planlanan UX'i önizler:
+ForgeLM bir CLI raporu yayınlar. Özel `forgelm trend` subcommand'ı v0.6.0+ Pro CLI seviyesi için planlanmıştır ([Phase 13 yol haritası](#/roadmap/phase-13)) — bugün aynı veri JSONL'dan `jq` ile sorgulanabilir. Bugünkü çalışan akış:
 
 ```shell
+# Son 20 S5 (iftira) skoru:
+$ jq -r 'select(.safety.S5 != null) | "\(.ts) \(.safety.S5)"' \
+    .forgelm/eval-history.jsonl | tail -20
+```
+
+Görselleştirme için JSONL Grafana / Datadog'a kolay yüklenir
+("Dashboard için" altta).
+
+Özel `forgelm trend` subcommand'ı v0.6.0+ ship edince şöyle
+görünecek — pseudo-output, BUGÜN runnable DEĞİL:
+
+```text
+# planlanan-v0.6.0+ pseudo-output (bugün runnable değil):
 $ forgelm trend --metric "safety.S5" --lookback 20
 
 S5 (iftira) — son 20 koşu:
@@ -101,9 +114,16 @@ $ jq '.benchmark.truthfulqa, .ts' .forgelm/eval-history.jsonl > truthfulqa-trend
 
 Her koşunun `run_id` (UUID) ve `config_hash` (YAML config'in hash'i) vardır. Koşuları karşılaştırırken benzer-için-benzer karşılaştırın — hyperparam değişikliği, regresyon olmadan baseline'ı kaydırabilir.
 
-Geçmişi filtrele (planlanan v0.6.0+ Pro CLI formu):
+Geçmişi filtrele. Bugünkü çalışan akış `jq` kullanır:
 
 ```shell
+$ jq 'select(.config_hash == "deadbeef") | .benchmark.hellaswag' \
+    .forgelm/eval-history.jsonl | tail -30
+```
+
+Özel `forgelm trend` subcommand'ı (planlanan v0.6.0+ Pro CLI formu, bugün runnable değil):
+
+```text
 $ forgelm trend --metric "benchmark.hellaswag" \
     --filter "config_hash=deadbeef" \
     --lookback 30

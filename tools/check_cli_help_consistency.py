@@ -211,10 +211,15 @@ def discover_parser_surface() -> ParserSurface:
     for name in sub_names:
         sub_help = _run_help([name, "--help"])
         if not sub_help.strip():
-            # Skip silent-help subcommands; they will simply not be
-            # checked.  Better to under-report than to crash on a
-            # weird build.
-            continue
+            # Empty `--help` output is a parser-discovery failure,
+            # not "this subcommand has no flags".  Surface it loudly
+            # instead of silently dropping the subcommand from the
+            # surface (which would falsely report every doc citing
+            # the command as "subcommand not in parser surface").
+            raise RuntimeError(
+                f"forgelm {name} --help returned empty output — parser discovery "
+                "failed; refusing to silently drop the subcommand."
+            )
         flags, choices = _parse_usage_flags(sub_help)
         surfaces[name] = SubcommandSurface(name=name, flags=flags, choices=choices)
     return ParserSurface(
@@ -293,10 +298,11 @@ class DriftFinding:
 
 
 def _read_lines(path: Path) -> list[str]:
-    try:
-        return path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return []
+    # Fail-loud on unreadable files: silently returning [] would
+    # hide real drift in strict CI by excluding the file from the
+    # scan.  The caller can catch OSError if it has a deliberate
+    # tolerance policy; the default is loud.
+    return path.read_text(encoding="utf-8").splitlines()
 
 
 def _is_anti_pattern_context(prev_prose_line: str | None) -> bool:

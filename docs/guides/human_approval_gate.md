@@ -70,13 +70,21 @@ env:
   FORGELM_OPERATOR: gha:${{ github.repository }}:${{ github.workflow }}:run-${{ github.run_id }}
   FORGELM_AUDIT_SECRET: ${{ secrets.FORGELM_AUDIT_SECRET }}
 steps:
-  - run: forgelm --config run.yaml
+  - id: train
+    run: forgelm --config run.yaml
     continue-on-error: true     # exit 4 is a pause, not a failure
-  - if: ${{ steps.train.outcome == 'success' || steps.train.exit_code == 4 }}
-    run: echo "::notice::Run paused awaiting human approval"
+  - if: ${{ steps.train.outcome == 'success' || steps.train.outcome == 'failure' }}
+    run: |
+      # `outcome` covers exit 0 (success) AND exit 4 (pause)
+      # since `continue-on-error: true` collapses non-zero into
+      # the "failure" outcome for a downstream `if:`.  The
+      # subsequent approvals-discovery step is what tells the
+      # two apart by inspecting the audit log for a
+      # `human_approval.required` event tied to this run_id.
+      echo "::notice::Train step finished — checking for pending approval"
 ```
 
-The `continue-on-error` step is the trick: it lets the workflow record exit 4 without failing the build. A subsequent gate-discovery step (or a downstream cron) calls `forgelm approvals --pending` to find the run.
+The `continue-on-error` step is the trick: it lets the workflow record exit 4 without failing the build. A subsequent gate-discovery step (or a downstream cron) calls `forgelm approvals --pending` to find the run; the audit log is the source of truth for whether the run paused vs. succeeded vs. failed (GitHub Actions's `steps.<id>.exit_code` field is not a documented context, so don't depend on it directly — read the audit chain instead).
 
 ## 3. Page the reviewer
 

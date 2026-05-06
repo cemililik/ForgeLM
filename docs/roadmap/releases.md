@@ -130,11 +130,11 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ## v0.5.5 — "Closure Cycle Bundle" (Upcoming)
 
-**Status:** Upcoming. All 38 fazlar of the [Phase 12.6 closure cycle](phase-12-6-closure-cycle.md) merged across 5 integration waves (Wave 0/1 PR #19, Wave 2a PR #28, Wave 2b PR #30, Wave 3 PR #31, Wave 4 PR #33, Wave 5 pending). Release commit will pin `pyproject.toml` `version = "0.5.5"`, finalize CHANGELOG `[0.5.5]` section with date, and tag `v0.5.5` — tag push triggers the cross-OS publish workflow ([`.github/workflows/publish.yml`](../../.github/workflows/publish.yml)) which gates PyPI publish on 12 wheel-install matrix combos (3 OS × 4 Python).
+**Status:** Upcoming. The first 4 integration waves of the [Phase 12.6 closure cycle](phase-12-6-closure-cycle.md) are merged (Wave 0/1 PR #19, Wave 2a PR #28, Wave 2b PR #30, Wave 3 PR #31, Wave 4 PR #33); Wave 5 (`closure/wave5-integration` → development) is the in-flight PR that closes Faz 30 full sweep. Once Wave 5 merges, the release commit will pin `pyproject.toml` to `version = "0.5.5"` (already brought forward in Wave 5 because `tools/check_site_claims.py --strict` enforces site/code version match), finalise the CHANGELOG `[0.5.5]` section with the release date, and tag `v0.5.5` — the tag push triggers the cross-OS publish workflow ([`.github/workflows/publish.yml`](../../.github/workflows/publish.yml)) which gates PyPI publish on 12 wheel-install matrix combos (3 OS × 4 Python).
 
 ### Headline additions (consolidated from the closure-cycle phases)
 
-- **Library API surface** (`forgelm.ForgeTrainer`, `run_audit`, `run_ingest`, `verify_audit`, `verify_annex_iv`, `verify_gguf`, `gdpr_purge`, `reverse_pii_query`, ...) — every CLI surface now has a stable Python entry point, version-pinned via `forgelm.__api_version__` decoupled from the CLI `__version__`.
+- **Library API surface** (`forgelm.ForgeTrainer`, `audit_dataset`, `verify_audit_log`, `verify_annex_iv_artifact`, `verify_gguf`, `mask_pii`, `mask_secrets`, ...; full set via `python -c "import forgelm; print(sorted(forgelm.__all__))"`) — every CLI surface has a stable Python entry point, version-pinned via `forgelm.__api_version__` decoupled from the CLI `__version__`.
 - **GDPR Article 17 (right-to-erasure)** — `forgelm purge --subject-id <id>` performs in-place redaction of dataset rows, audit-log compensating entries (hash chain preserved), and adapter scrubbing. Covered by `tests/test_gdpr_erasure.py`.
 - **GDPR Article 15 (right-of-access)** — `forgelm reverse-pii --query <fragment>` locates PII matches across artefacts without re-loading the source dataset. Emits `data.access_request_query` audit event.
 - **ISO 27001 / SOC 2 Type II alignment** — 93-control deployer cookbook ([`docs/guides/iso_soc2_deployer_guide.md`](../guides/iso_soc2_deployer_guide.md)), 4 new QMS docs (encryption, access control, risk treatment, statement of applicability) + 10 new TR mirrors, supply-chain security (CycloneDX 1.5 SBOM per release-tag matrix combo, `pip-audit` + `bandit` nightly + on-tag, `gitleaks` pre-commit).
@@ -150,7 +150,7 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 - High-risk + unacceptable + safety-disabled config combinations now raise `ConfigError` (F-compliance-110 OR-across-fields strict gate). Previously logged a warning. Operators with intentionally permissive configs must explicitly enable safety eval or downgrade `eu_ai_act.system_risk_class`.
 - Webhook delivery default timeout raised from 5s to 10s (F-compliance-106) — non-breaking for happy path; flaky webhook receivers may see one fewer retry trigger.
-- `--data-audit` flag fully removed (was deprecated in v0.5.0, scheduled for v0.7.0; brought forward into v0.5.5 because the closure cycle landed early). Use `forgelm audit` subcommand instead.
+- `--data-audit` flag fully removed (was deprecated in v0.5.0, originally scheduled for v0.7.0). The deprecation cadence (one intervening minor before removal) was honoured by deprecation in v0.5.0 → removal in v0.5.5 with v0.5.0–v0.5.4 acting as the warning window; the release standard's "minor before removal" rule is satisfied. Use `forgelm audit` subcommand instead.
 
 CHANGELOG `[0.5.5]` entries cross-reference the originating fazlar; the [phase-12-6-closure-cycle.md](phase-12-6-closure-cycle.md) summary maps each faz to its wave and merge SHA.
 
