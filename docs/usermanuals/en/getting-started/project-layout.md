@@ -93,16 +93,29 @@ configs/
 └── customer-support.dev.yaml      — dev iteration (faster)
 ```
 
-The dev YAML can `extends:` the prod one to avoid duplication:
+ForgeLM YAML does **not** support a `extends:` inheritance key; each config is a self-contained `ForgeConfig`. To avoid duplication between prod and dev configs, use a YAML anchor (`&base` / `<<: *base`) in a single file, or templated diff via your CI:
 
 ```yaml
-# customer-support.dev.yaml
-extends: "customer-support.yaml"
+# customer-support.dev.yaml — full self-contained config (the dev variant)
+model:
+  name_or_path: "Qwen/Qwen2.5-7B-Instruct"
+  max_length: 2048
+
+lora:
+  r: 8
+  alpha: 16
+  target_modules: ["q_proj", "v_proj"]
+
 training:
-  epochs: 1                # was 3
-  max_steps: 200           # cap iterations
+  trainer_type: "sft"
+  num_train_epochs: 1                    # was 3 in prod
+  max_steps: 200                          # cap iterations
+  per_device_train_batch_size: 1
+  output_dir: "./checkpoints/customer-support.dev"
+
 data:
-  - path: "data/dev/100rows.jsonl"
+  dataset_name_or_path: "data/dev/100rows.jsonl"
+
 evaluation:
   benchmark: { enabled: false }
   safety:    { enabled: false }

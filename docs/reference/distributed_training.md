@@ -57,7 +57,7 @@ ForgeLM provides three built-in DeepSpeed presets. Set `deepspeed_config` to one
 |--------|-----------|---------|----------|
 | `zero2` | 2 | No | 7B-13B models on 2-4 GPUs |
 | `zero3` | 3 | No | 13B-30B models, parameter sharding across GPUs |
-| `zero3_offload` | 3 | CPU | 30B-70B models, limited VRAM, CPU RAM available |
+| `zero3_offload` | 3 | optimizer state + parameters → CPU | 30B-70B models, limited VRAM, CPU RAM available |
 
 ### Usage
 
@@ -128,7 +128,7 @@ distributed:
   strategy: "fsdp"
   fsdp_strategy: "full_shard"
   fsdp_auto_wrap: true          # Auto-wrap transformer layers
-  fsdp_offload: false           # Offload parameters to CPU
+  fsdp_offload: false           # Offload parameters AND gradients (between forward/backward) to CPU
   fsdp_backward_prefetch: "backward_pre"  # Prefetch strategy
   fsdp_state_dict_type: "FULL_STATE_DICT" # State dict handling
 ```

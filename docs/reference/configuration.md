@@ -114,7 +114,7 @@ across retries. Each retry attempt is logged to the audit trail.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `rope_scaling` | string | `null` | RoPE scaling method: `"linear"`, `"dynamic"` |
+| `rope_scaling` | `Optional[Dict[str, Any]]` | `null` | RoPE scaling method dict (`{"type": "linear", "factor": 2.0}` etc.). Supported types: `"linear"`, `"dynamic"`, `"yarn"`, `"longrope"`. |
 | `neftune_noise_alpha` | float | `null` | NEFTune noise injection alpha (e.g., `5.0`) |
 | `sliding_window_attention` | int | `null` | Sliding window attention size in tokens |
 | `sample_packing` | bool | `false` | Pack multiple short samples into full-length sequences |
@@ -251,7 +251,7 @@ silently extend the retention horizon by re-using a stale workspace.
 | `notify_on_start` | bool | `true` | Notify on training start |
 | `notify_on_success` | bool | `true` | Notify on success |
 | `notify_on_failure` | bool | `true` | Notify on failure |
-| `timeout` | int | `5` | HTTP request timeout (seconds) |
+| `timeout` | int | `10` | HTTP request timeout (seconds). Clamped to ≥ 1s by the notifier. Default raised to 10s in v0.5.5 (was 5s) — Slack/Teams gateway latency spikes regularly cross 5s in production, and a webhook timeout silently degrades the audit chain (webhook failure is best-effort). |
 | `allow_private_destinations` | bool | `false` | Opt in to webhooks pointing at RFC1918 / loopback / link-local hosts (in-cluster Slack proxy, on-prem Teams gateway). Defaults to public-internet only — SSRF guard |
 | `tls_ca_bundle` | string | `null` | Path to a custom CA bundle forwarded to `requests` as `verify=` (e.g. corporate MITM CA). When unset, `certifi`'s bundled store is used |
 

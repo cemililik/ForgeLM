@@ -256,7 +256,7 @@ ForgeLM contributes nothing here.
 | A.8.26 Application security requirements | FL-helps | F-compliance-110 strict gate; Pydantic config validation; ReDoS guard in `_reverse_pii` | App-level threat modelling |
 | A.8.27 Secure system architecture and engineering principles | FL-helps | Append-only audit log architecture (`flock`+`fsync` per line); audit chain HMAC; lazy import discipline; `safe_post` SSRF guard | Defence-in-depth design |
 | A.8.28 Secure coding | FL-helps | `docs/standards/coding.md` standards; type hints throughout; CommonMark escaping in `_sanitize_md_list` | Custom-extension review |
-| A.8.29 Security testing in development and acceptance | FL-helps | `pytest` 1300+ tests (post-Wave 3); `bandit` static analysis (Faz 23); `forgelm safety-eval` standalone gate | E2E security tests |
+| A.8.29 Security testing in development and acceptance | FL-helps | `pytest` test suite across ~70 modules (post-Wave 5); `bandit` static analysis (Faz 23); `forgelm safety-eval` standalone gate | E2E security tests |
 | A.8.30 Outsourced development | OOS | — | Third-party-developer security |
 | A.8.31 Separation of development, test and production environments | FL-helps | `forgelm --dry-run` flag; staging dir (Phase 9); `evaluation.require_human_approval` gate | Separate pipelines |
 | A.8.32 Change management | FL | `human_approval.required/granted/rejected` chain; `config_hash` (per-run manifest sidecar field); staging dir snapshot | Change Advisory Board process |
@@ -685,68 +685,68 @@ A.6.8, A.8.15, A.8.16.
 
 ### 13.1 Tooling
 
-- [ ] `pyproject.toml` — add `[project.optional-dependencies] security`.
-- [ ] `tools/check_pip_audit.py` — parse pip-audit JSON, exit 1 on
+- [x] `pyproject.toml` — add `[project.optional-dependencies] security`.
+- [x] `tools/check_pip_audit.py` — parse pip-audit JSON, exit 1 on
       high-severity, warn on med/low.
-- [ ] `tools/check_bandit.py` — parse bandit JSON, same severity
+- [x] `tools/check_bandit.py` — parse bandit JSON, same severity
       tiering.
-- [ ] `tests/test_sbom.py` — determinism contract + schema validation.
-- [ ] `.github/workflows/ci.yml` — bandit step.
-- [ ] `.github/workflows/nightly.yml` — pip-audit + bandit steps.
+- [x] `tests/test_sbom.py` — determinism contract + schema validation.
+- [x] `.github/workflows/ci.yml` — bandit step.
+- [x] `.github/workflows/nightly.yml` — pip-audit + bandit steps.
 
 ### 13.2 QMS docs (EN + TR pairs)
 
-- [ ] `docs/qms/encryption_at_rest.md` (+ `-tr.md`) — §8.1 outline.
-- [ ] `docs/qms/access_control.md` (+ `-tr.md`) — §8.2 outline.
-- [ ] `docs/qms/risk_treatment_plan.md` (+ `-tr.md`) — §8.3 outline.
-- [ ] `docs/qms/statement_of_applicability.md` (+ `-tr.md`) — §8.4 outline.
-- [ ] `docs/qms/sop_incident_response.md` — §9 expansion (+ TR mirror
+- [x] `docs/qms/encryption_at_rest.md` (+ `-tr.md`) — §8.1 outline.
+- [x] `docs/qms/access_control.md` (+ `-tr.md`) — §8.2 outline.
+- [x] `docs/qms/risk_treatment_plan.md` (+ `-tr.md`) — §8.3 outline.
+- [x] `docs/qms/statement_of_applicability.md` (+ `-tr.md`) — §8.4 outline.
+- [x] `docs/qms/sop_incident_response.md` — §9 expansion (+ TR mirror
       lands in Faz 26).
-- [ ] `docs/qms/sop_change_management.md` — §10 expansion (+ TR mirror
+- [x] `docs/qms/sop_change_management.md` — §10 expansion (+ TR mirror
       lands in Faz 26).
 
 ### 13.3 Guides + references
 
-- [ ] `docs/guides/iso_soc2_deployer_guide.md` (+ `-tr.md`) — §11 outline.
-- [ ] `docs/reference/iso27001_control_mapping.md` (+ `-tr.md`) — §3
+- [x] `docs/guides/iso_soc2_deployer_guide.md` (+ `-tr.md`) — §11 outline.
+- [x] `docs/reference/iso27001_control_mapping.md` (+ `-tr.md`) — §3
       table reformatted as reference doc.
-- [ ] `docs/reference/soc2_trust_criteria_mapping.md` (+ `-tr.md`) — §4
+- [x] `docs/reference/soc2_trust_criteria_mapping.md` (+ `-tr.md`) — §4
       table reformatted as reference doc.
-- [ ] `docs/reference/supply_chain_security.md` (+ `-tr.md`) — SBOM /
+- [x] `docs/reference/supply_chain_security.md` (+ `-tr.md`) — SBOM /
       pip-audit / bandit overview.
 
 ### 13.4 Cross-cutting
 
-- [ ] `README.md` — 1 paragraph "ISO 27001 / SOC 2 Type II alignment"
+- [x] `README.md` — 1 paragraph "ISO 27001 / SOC 2 Type II alignment"
       section + link to deployer guide.
-- [ ] `CHANGELOG.md` — Wave 4 / Faz 22-23 line.
-- [ ] `tools/check_bilingual_parity.py` `_PAIRS` — register the new
+- [x] `CHANGELOG.md` — Wave 4 / Faz 22-23 line.
+- [x] `tools/check_bilingual_parity.py` `_PAIRS` — register the new
       EN ↔ TR pairs (≈8 new pairs).
 
 ### 13.5 Tests
 
-- [ ] `tests/test_sbom.py::test_deterministic`.
-- [ ] `tests/test_sbom.py::test_cyclonedx_1_5_schema_valid`.
-- [ ] `tests/test_pip_audit_check.py` — `tools/check_pip_audit.py`
+- [x] `tests/test_sbom.py::test_deterministic`.
+- [x] `tests/test_sbom.py::test_cyclonedx_1_5_schema_valid`.
+- [x] `tests/test_pip_audit_check.py` — `tools/check_pip_audit.py`
       severity-tiering logic on synthetic JSON.
-- [ ] `tests/test_bandit_check.py` — `tools/check_bandit.py` severity
+- [x] `tests/test_bandit_check.py` — `tools/check_bandit.py` severity
       tiering on synthetic JSON.
 
 ## 14. Acceptance criteria
 
 Faz 22 (this design):
 
-- [ ] **Length ≥ 800 lines** (closure-plan acceptance bar). This file
+- [x] **Length ≥ 800 lines** (closure-plan acceptance bar). This file
       will satisfy that on commit.
-- [ ] **§3 covers all 93 ISO 27001:2022 Annex A controls.** ✓ (37 + 8
+- [x] **§3 covers all 93 ISO 27001:2022 Annex A controls.** ✓ (37 + 8
       + 14 + 34 = 93).
-- [ ] **§4 covers all 5 SOC 2 categories with full Common Criteria.** ✓.
-- [ ] **§13 work breakdown is the canonical Faz 23 task list.** ✓.
-- [ ] **Cited symbols are real.** ✓ (all symbols verified against
+- [x] **§4 covers all 5 SOC 2 categories with full Common Criteria.** ✓.
+- [x] **§13 work breakdown is the canonical Faz 23 task list.** ✓.
+- [x] **Cited symbols are real.** ✓ (all symbols verified against
       `closure/wave4-integration` HEAD `b87c872`).
-- [ ] **Bilingual parity unaffected.** ✓ (this file lives under
+- [x] **Bilingual parity unaffected.** ✓ (this file lives under
       `docs/analysis/` which is not in `_PAIRS`).
-- [ ] **Adds zero behaviour change.** ✓ (design doc only).
+- [x] **Adds zero behaviour change.** ✓ (design doc only).
 
 Faz 23 (next phase, gated on this design landing):
 

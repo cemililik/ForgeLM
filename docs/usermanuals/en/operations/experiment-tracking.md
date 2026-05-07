@@ -11,13 +11,12 @@ ForgeLM doesn't reinvent experiment tracking — it integrates with whatever you
 
 ```yaml
 training:
-  trainer: "sft"
-  report_to: ["wandb", "tensorboard"]    # both at once
-  run_name: "customer-support-v1.2.0"
-  tags: ["dpo", "qlora", "tr"]
+  trainer_type: "sft"
+  report_to: "wandb"                     # single value: tensorboard | wandb | mlflow | none
+  run_name: "customer-support-v1.2.0"    # optional; auto-generated when None
 ```
 
-ForgeLM streams loss, learning rate, evaluation metrics, and benchmark scores to every configured backend.
+ForgeLM streams loss, learning rate, evaluation metrics, and benchmark scores to the configured backend. **Per-backend nested config blocks (e.g. `wandb: { project: ... }`) are not part of the schema** — each backend is configured via its own well-known environment variables (the framework convention HF Transformers' Trainer follows).
 
 ## Supported backends
 
@@ -25,50 +24,45 @@ ForgeLM streams loss, learning rate, evaluation metrics, and benchmark scores to
 
 ```yaml
 training:
-  report_to: ["wandb"]
-  wandb:
-    project: "forgelm-customer-support"
-    entity: "acme-ml"
-    api_key: "${WANDB_API_KEY}"
-    log_artifacts: true                  # upload checkpoints to W&B
+  report_to: "wandb"
 ```
 
-Auth: set `WANDB_API_KEY` environment variable, or run `wandb login` once on the training host.
+Configuration via environment variables (no nested YAML block):
+
+- `WANDB_API_KEY` — auth token (or run `wandb login` once on the training host).
+- `WANDB_PROJECT` — project name.
+- `WANDB_ENTITY` — team / org slug.
+- `WANDB_LOG_MODEL` — set to `true` to upload checkpoints as W&B artefacts.
+
+W&B requires the `[tracking]` extra: `pip install 'forgelm[tracking]'`.
 
 ### MLflow
 
 ```yaml
 training:
-  report_to: ["mlflow"]
-  mlflow:
-    tracking_uri: "http://mlflow.internal:5000"
-    experiment_name: "customer-support"
-    registry_uri: "http://mlflow.internal:5000"
-    log_model: true                      # promote to MLflow Model Registry
+  report_to: "mlflow"
 ```
 
-Auth: standard MLflow env vars (`MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_PASSWORD`, or token).
+Configuration via environment variables:
+
+- `MLFLOW_TRACKING_URI` — server URL (e.g. `http://mlflow.internal:5000`).
+- `MLFLOW_EXPERIMENT_NAME` — experiment name.
+- `MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD` (or `MLFLOW_TRACKING_TOKEN`).
+
+MLflow requires the `[tracking]` extra.
 
 ### TensorBoard
 
 ```yaml
 training:
-  report_to: ["tensorboard"]
-  tensorboard:
-    log_dir: "${output.dir}/tensorboard"
+  report_to: "tensorboard"
 ```
 
-No external service needed — log files are local.
+The default. Log files land at `<training.output_dir>/runs/`. No external service or extra needed (`tensorboardX` ships with `transformers`).
 
-### Comet ML
+### Streaming to multiple backends
 
-```yaml
-training:
-  report_to: ["comet_ml"]
-  comet_ml:
-    api_key: "${COMET_API_KEY}"
-    project_name: "forgelm-customer-support"
-```
+`training.report_to` is a single Literal value, not a list. To stream to multiple backends in the same run, use the `--report-to` CLI override per HF Transformers convention, or set `TRAINER_REPORT_TO=wandb,tensorboard` in the environment — both are surfaced through the underlying `transformers.TrainingArguments.report_to` plumbing. The single-Literal config field is the safe default that pins one canonical backend.
 
 ## What gets logged
 
@@ -76,7 +70,7 @@ training:
 |---|---|
 | `train/loss` | Every step |
 | `train/lr` | Every step |
-| `train/grad_norm` | Every step (if `log_grad_norm: true`) |
+| `train/grad_norm` | Every step (always logged by HF Trainer) |
 | `eval/loss` | Every eval interval |
 | `benchmark/<task>` | Once per run (after eval) |
 | `safety/<category>/max` | Once per run (after safety eval) |

@@ -175,7 +175,7 @@ ekler.
 |---|---|
 | Açıklama | Operatör human approval'ı atlar; high-risk model ML Lead / AI Officer sign-off olmadan üretime ulaşır |
 | L × I (inherent) | Med × High = HIGH |
-| Treatment | `risk_classification` ∈ `{high-risk, unacceptable}` için `evaluation.require_human_approval: true`; staging dizini `forgelm approve` olana kadar modeli tutar; F-compliance-110 yapılandırılmamışsa ConfigError raise eder; `human_approval.required/granted/rejected` chain her kararı forensic olarak kaydeder |
+| Treatment | `risk_classification` ∈ `{high-risk, unacceptable}` için `evaluation.require_human_approval: true`; staging dizini `forgelm approve` olana kadar modeli tutar. (Not: F-compliance-110 strict gate yüksek-risk koşumlar için `evaluation.safety.enabled: true`'yi zorunlu kılar — `require_human_approval`'i değil — yukarıdaki R-04 satırına bakın; insan-onay kapısı bu satırın pinlediği deployer-tarafı bir disiplindir.) `human_approval.required/granted/rejected` chain her kararı forensic olarak kaydeder |
 | Residual L × I | Low × Med = LOW |
 | Sahip | ML Lead + AI Officer |
 | Review cadence | High-risk için eğitim koşumu başına |

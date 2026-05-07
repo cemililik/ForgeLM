@@ -91,16 +91,29 @@ configs/
 └── customer-support.dev.yaml      — dev iterasyon (daha hızlı)
 ```
 
-Dev YAML, prod'unkini `extends:` ile referansta bulunabilir:
+ForgeLM YAML, `extends:` miras anahtarını **desteklemez**; her config kendi başına yeterli bir `ForgeConfig`'tir. Prod ve dev config'ler arasında tekrarlamayı önlemek için tek dosyada YAML anchor (`&base` / `<<: *base`) kullanın ya da CI üzerinden templated diff:
 
 ```yaml
-# customer-support.dev.yaml
-extends: "customer-support.yaml"
+# customer-support.dev.yaml — kendi başına yeterli tam config (dev varyantı)
+model:
+  name_or_path: "Qwen/Qwen2.5-7B-Instruct"
+  max_length: 2048
+
+lora:
+  r: 8
+  alpha: 16
+  target_modules: ["q_proj", "v_proj"]
+
 training:
-  epochs: 1                # idi 3
-  max_steps: 200           # iterasyonu sınırla
+  trainer_type: "sft"
+  num_train_epochs: 1                    # prod'da 3'tü
+  max_steps: 200                          # iterasyonu sınırla
+  per_device_train_batch_size: 1
+  output_dir: "./checkpoints/customer-support.dev"
+
 data:
-  - path: "data/dev/100rows.jsonl"
+  dataset_name_or_path: "data/dev/100rows.jsonl"
+
 evaluation:
   benchmark: { enabled: false }
   safety:    { enabled: false }

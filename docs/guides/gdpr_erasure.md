@@ -104,9 +104,9 @@ Six new events ship with `forgelm purge` (catalogued in `docs/reference/audit_ev
 | `data.erasure_requested` | First step of any `forgelm purge --row-id` / `--run-id` invocation, before any deletion (`--check-policy` is read-only and emits no audit events) | `target_kind` ∈ `{row, staging, artefacts}`, `target_id` (hashed in row mode), `salt_source` (row mode), `corpus_path` (row), `output_dir` (run), `justification`, `dry_run` |
 | `data.erasure_completed` | Successful deletion finishes | All `requested` fields + `bytes_freed`, `files_modified`, `pre_erasure_line_number` (row mode), `match_count` (row mode) |
 | `data.erasure_failed` | Disk operation raised, OR no matching row/run found, OR multi-row policy refused on ambiguity | All `requested` fields + `error_class`, `error_message` |
-| `data.erasure_warning_memorisation` | Row erasure × `final_model/` exists | All `completed` fields + `affected_run_ids` |
-| `data.erasure_warning_synthetic_data_present` | Row erasure × `synthetic_data*.jsonl` exists | All `completed` fields + `synthetic_files` |
-| `data.erasure_warning_external_copies` | Loaded config has a webhook block | All `completed` fields + `webhook_targets` |
+| `data.erasure_warning_memorisation` | **Row mode only.** Row erasure × `final_model/` exists for any run that consumed the corpus. (Run mode does not emit memorisation warnings — the run-scoped `staging` / `artefacts` kinds are by definition pre-promotion.) | All `completed` fields + `affected_run_ids` |
+| `data.erasure_warning_synthetic_data_present` | **Row mode only.** Row erasure × `synthetic_data*.jsonl` exists in `output_dir`. (Run mode does not surface this warning — synthetic data is corpus-scoped, not run-scoped.) | All `completed` fields + `synthetic_files` |
+| `data.erasure_warning_external_copies` | Loaded config has a webhook block (both modes). | All `completed` fields + `webhook_targets` |
 
 ## Verifying a chain post-erasure
 

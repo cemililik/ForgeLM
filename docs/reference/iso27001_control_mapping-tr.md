@@ -17,7 +17,7 @@
 > (design doc §3.1–§3.4 row-by-row yeniden sayım; tema başına
 > A.5: 3 / 24 / 10, A.6: 0 / 5 / 3, A.7: 0 / 0 / 14, A.8: 8 / 19 / 7).
 
-## A.5 Organisational controls (37)
+## A.5 Organizasyonel kontroller (37)
 
 | Kontrol | Tier | ForgeLM kanıtı |
 |---|---|---|
@@ -59,7 +59,7 @@
 | A.5.36 Bilgi güvenliği için politikalar, kurallar ve standartlara uyum | FL-helps | Pydantic config validation; `forgelm doctor`; CI gates |
 | A.5.37 Dokümante edilmiş işletim prosedürleri | FL-helps | `docs/qms/` SOPs |
 
-## A.6 People controls (8)
+## A.6 İnsan kaynağı kontrolleri (8)
 
 | Kontrol | Tier | ForgeLM kanıtı |
 |---|---|---|
@@ -72,7 +72,7 @@
 | A.6.7 Uzaktan çalışma | FL-helps | `forgelm doctor --offline`; air-gap pre-cache |
 | A.6.8 Bilgi güvenliği olay raporlama | FL-helps | `pipeline.failed`, `data.erasure_failed`, `audit.classifier_load_failed`; webhook |
 
-## A.7 Physical controls (14)
+## A.7 Fiziksel kontroller (14)
 
 Tüm A.7 kontrolleri **OOS**'tur (ForgeLM yazılımdır). Operatörün
 SoA'sının uçtan uca auditable olması için tamlık adına listelenmiştir.
@@ -94,7 +94,7 @@ SoA'sının uçtan uca auditable olması için tamlık adına listelenmiştir.
 | A.7.13 Ekipman bakımı | OOS |
 | A.7.14 Ekipmanın güvenli imhası veya yeniden kullanımı | OOS |
 
-## A.8 Technological controls (34)
+## A.8 Teknolojik kontroller (34)
 
 | Kontrol | Tier | ForgeLM kanıtı |
 |---|---|---|

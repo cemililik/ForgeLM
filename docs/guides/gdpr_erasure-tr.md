@@ -104,8 +104,8 @@ Deprecate edilen field **v0.7.0**'da kaldırılır.
 | `data.erasure_requested` | Herhangi bir `forgelm purge --row-id` / `--run-id` çağrısının ilk adımı, herhangi bir silmeden önce (`--check-policy` salt-okunur; audit event yaymaz) | `target_kind` ∈ `{row, staging, artefacts}`, `target_id` (row mode'da hash'lenmiş), `salt_source` (row mode), `corpus_path` (row), `output_dir` (run), `justification`, `dry_run` |
 | `data.erasure_completed` | Başarılı silme bittiğinde | Tüm `requested` field'ları + `bytes_freed`, `files_modified`, `pre_erasure_line_number` (row mode), `match_count` (row mode) |
 | `data.erasure_failed` | Disk operasyonu raise etti VEYA eşleşen satır/koşum bulunamadı VEYA çoklu-satır policy belirsizliği reddetti | Tüm `requested` field'ları + `error_class`, `error_message` |
-| `data.erasure_warning_memorisation` | Row erasure × `final_model/` mevcut | Tüm `completed` field'ları + `affected_run_ids` |
-| `data.erasure_warning_synthetic_data_present` | Row erasure × `synthetic_data*.jsonl` mevcut | Tüm `completed` field'ları + `synthetic_files` |
+| `data.erasure_warning_memorisation` | **Yalnız row modunda.** Row erasure × corpus'u tüketen herhangi bir koşum için `final_model/` mevcut. (Run modu memorisation uyarısı emit etmez — run-scoped `staging` / `artefacts` türleri tanım gereği promote-öncesi.) | Tüm `completed` field'ları + `affected_run_ids` |
+| `data.erasure_warning_synthetic_data_present` | **Yalnız row modunda.** Row erasure × `output_dir`'de `synthetic_data*.jsonl` mevcut. (Run modu bu uyarıyı yüzeylemez — synthetic veri corpus-scoped'dur, run-scoped değil.) | Tüm `completed` field'ları + `synthetic_files` |
 | `data.erasure_warning_external_copies` | Yüklü config webhook block'u içeriyor | Tüm `completed` field'ları + `webhook_targets` |
 
 ## Silme sonrası zincir doğrulama

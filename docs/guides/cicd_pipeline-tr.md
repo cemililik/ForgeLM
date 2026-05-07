@@ -1,23 +1,29 @@
-# CI/CD Pipeline Integration Guide
+# CI/CD Pipeline Entegrasyon Rehberi
 
-ForgeLM is built for automation. This guide shows how to integrate fine-tuning into GitHub Actions, GitLab CI, and generic CI/CD pipelines.
+ForgeLM otomasyon için tasarlandı. Bu rehber, fine-tuning'i GitHub
+Actions, GitLab CI ve generic CI/CD pipeline'larına nasıl entegre
+edeceğinizi gösterir.
 
 ---
 
-## Core Principles
+## Çekirdek prensipler
 
-ForgeLM's CI/CD-native design provides:
-- **YAML-driven**: Entire training runs defined in version-controlled config files
-- **Meaningful exit codes**: `0` success, `1` config error, `2` training error, `3` eval failure
-- **JSON output**: `--output-format json` for machine-readable results
-- **Dry-run validation**: `--dry-run` validates without GPU
-- **Webhook notifications**: Real-time Slack/Teams alerts on start/success/failure
+ForgeLM'in CI/CD-yerlisi tasarımı şunları sağlar:
+
+- **YAML-tahrikli**: Tüm eğitim koşumları version-controlled config
+  dosyalarında tanımlanır
+- **Anlamlı exit kodları**: `0` başarı, `1` config hatası, `2` eğitim
+  hatası, `3` eval hatası, `4` insan onayı bekliyor
+- **JSON çıktı**: Makine-okunabilir sonuçlar için `--output-format json`
+- **Dry-run doğrulama**: GPU olmadan `--dry-run` doğrular
+- **Webhook bildirimleri**: Başlangıç/başarı/hata için gerçek-zamanlı
+  Slack/Teams alarmları
 
 ---
 
 ## GitHub Actions
 
-### Basic Training Workflow
+### Temel eğitim iş akışı
 
 ```yaml
 # .github/workflows/train.yml
@@ -31,7 +37,7 @@ on:
   workflow_dispatch:
     inputs:
       config:
-        description: 'Config file path'
+        description: 'Config dosya yolu'
         required: true
         default: 'configs/production.yaml'
 
@@ -44,7 +50,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -e .
-      - name: Validate config
+      - name: Config'i doğrula
         run: forgelm --config ${{ github.event.inputs.config || 'configs/production.yaml' }} --dry-run --output-format json
 
   train:
@@ -54,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: pip install -e ".[qlora,eval]"
 
-      - name: Train model
+      - name: Modeli eğit
         env:
           HUGGINGFACE_TOKEN: ${{ secrets.HF_TOKEN }}
           FORGELM_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
@@ -63,14 +69,14 @@ jobs:
             --output-format json > training_result.json
           echo "EXIT_CODE=$?" >> $GITHUB_ENV
 
-      - name: Upload model artifacts
+      - name: Model artefakt'larını yükle
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: fine-tuned-model
           path: checkpoints/final_model/
 
-      - name: Upload training results
+      - name: Eğitim sonuçlarını yükle
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -81,7 +87,7 @@ jobs:
             checkpoints/benchmark/
 ```
 
-### Multi-Model Matrix Training
+### Çoklu-model matris eğitimi
 
 ```yaml
 jobs:
@@ -96,7 +102,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: pip install -e ".[qlora,eval]"
-      - name: Train ${{ matrix.config }}
+      - name: ${{ matrix.config }} eğit
         run: forgelm --config ${{ matrix.config }} --output-format json
 ```
 
@@ -110,6 +116,7 @@ stages:
   - validate
   - train
   - evaluate
+  - deploy
 
 validate:
   stage: validate
@@ -125,7 +132,7 @@ train:
   stage: train
   tags:
     - gpu
-  image: forgelm:latest  # or build from Dockerfile
+  image: forgelm:latest  # ya da Dockerfile'dan build et
   variables:
     HUGGINGFACE_TOKEN: $HF_TOKEN
   script:
@@ -144,15 +151,15 @@ train:
 
 ---
 
-## Docker-Based Pipeline
+## Docker tabanlı pipeline
 
-For environments without Python setup:
+Python kurulumu olmayan ortamlar için:
 
 ```bash
-# Build once
+# Bir kez build et
 docker build -t forgelm:latest --build-arg INSTALL_EVAL=true .
 
-# Run in pipeline
+# Pipeline'da koştur
 docker run --gpus all \
   -v $(pwd)/configs:/workspace/configs:ro \
   -v $(pwd)/data:/workspace/data:ro \
@@ -165,12 +172,12 @@ docker run --gpus all \
 
 ---
 
-## Webhook Integration
+## Webhook entegrasyonu
 
 ### Slack
 
 ```yaml
-# In your ForgeLM config
+# ForgeLM config'inizde
 webhook:
   url_env: "FORGELM_WEBHOOK_URL"
   notify_on_start: true
@@ -178,7 +185,7 @@ webhook:
   notify_on_failure: true
 ```
 
-ForgeLM sends structured payloads:
+ForgeLM yapılandırılmış payload'lar gönderir:
 
 ```json
 {
@@ -192,8 +199,8 @@ ForgeLM sends structured payloads:
   },
   "attachments": [
     {
-      "title": "Training Succeeded: Llama-3.1-8B-Instruct_finetune",
-      "text": "The job completed successfully.\n\nMetrics:\n• eval_loss: 1.2500\n• train_loss: 0.8900",
+      "title": "Eğitim Başarılı: Llama-3.1-8B-Instruct_finetune",
+      "text": "İş başarıyla tamamlandı.\n\nMetrikler:\n• eval_loss: 1.2500\n• train_loss: 0.8900",
       "color": "#36a64f"
     }
   ]
@@ -201,7 +208,7 @@ ForgeLM sends structured payloads:
 ```
 
 ```json
-// Exit code 4 — awaiting human approval
+// Exit kod 4 — insan onayı bekliyor
 {
   "event": "approval.required",
   "run_name": "Llama-3.1-8B-Instruct_finetune",
@@ -210,39 +217,41 @@ ForgeLM sends structured payloads:
 }
 ```
 
-(Wire-format event name is `approval.required` — see `docs/reference/audit_event_catalog.md` Webhook lifecycle table for the full 5-event surface and `forgelm/webhook.py:notify_awaiting_approval` for the emitter.)
+(Wire-format event adı `approval.required`'tır — tam 5-event yüzeyi
+için bkz. `docs/reference/audit_event_catalog-tr.md` Webhook lifecycle
+tablosu, emitter için bkz. `forgelm/webhook.py:notify_awaiting_approval`.)
 
 ---
 
-## Exit Code Handling
+## Exit kod yönetimi
 
 ```bash
 forgelm --config job.yaml --output-format json > result.json
 EXIT_CODE=$?
 
 case $EXIT_CODE in
-  0) echo "Training succeeded" ;;
-  1) echo "Config error — fix your YAML" ;;
-  2) echo "Training crashed — check GPU/memory" ;;
-  3) echo "Evaluation failed — model quality below threshold" ;;
-  4) echo "Awaiting human approval — review results before deploying" ;;
+  0) echo "Eğitim başarılı" ;;
+  1) echo "Config hatası — YAML'inizi düzeltin" ;;
+  2) echo "Eğitim çöktü — GPU/bellek kontrol et" ;;
+  3) echo "Değerlendirme başarısız — model kalitesi eşiğin altında" ;;
+  4) echo "İnsan onayı bekleniyor — deploy'dan önce sonuçları incele" ;;
 esac
 ```
 
 ---
 
-## Parsing JSON Output
+## JSON çıktıyı parse etme
 
 ### Bash (jq)
 
 ```bash
-# Get eval_loss
+# eval_loss al
 forgelm --config job.yaml --output-format json | jq '.metrics.eval_loss'
 
-# Check if benchmark passed
+# Benchmark geçti mi kontrol et
 forgelm --config job.yaml --output-format json | jq '.benchmark.passed'
 
-# Get GPU hours
+# GPU saatlerini al
 forgelm --config job.yaml --output-format json | jq '.resource_usage.gpu_hours'
 ```
 
@@ -257,22 +266,34 @@ result = subprocess.run(
     capture_output=True, text=True
 )
 data = json.loads(result.stdout)
-print(f"Success: {data['success']}")
+print(f"Başarı: {data['success']}")
 print(f"Eval Loss: {data['metrics'].get('eval_loss')}")
-print(f"GPU Hours: {data.get('resource_usage', {}).get('gpu_hours')}")
+print(f"GPU Saatleri: {data.get('resource_usage', {}).get('gpu_hours')}")
 ```
 
 ---
 
-## Best Practices
+## En iyi pratikler
 
-1. **Always validate first**: Use `--dry-run` in a lightweight job before GPU training
-2. **Pin your config in git**: Training configs are code — version control them
-3. **Use `--output-format json`**: Machine-readable output for pipeline decisions
-4. **Set `auto_revert: true`**: Prevent deploying degraded models
-5. **Use `--offline` for air-gapped**: Ensure models/datasets are pre-cached
-6. **Use `--resume`**: Long training jobs on preemptible instances should auto-resume
-7. **Check exit codes**: Different codes mean different things — handle them
-8. **Store compliance artifacts**: `checkpoints/compliance/` contains audit trails
-9. **Expect config errors to fail fast**: Since v0.3.1rc1, unknown YAML fields raise `ConfigError` immediately — this catches typos in CI before GPU allocation
-10. **Compliance artifacts in version control**: Consider committing `checkpoints/compliance/` alongside model cards for full regulatory audit trails
+1. **Her zaman önce doğrula**: GPU eğitiminden önce hafif bir job'da
+   `--dry-run` kullan
+2. **Config'inizi git'e pinleyin**: Eğitim config'leri koddur — sürüm
+   kontrolüne alın
+3. **`--output-format json` kullanın**: Pipeline kararları için
+   makine-okunabilir çıktı
+4. **`auto_revert: true` set edin**: Bozulmuş modellerin deploy
+   edilmesini engelle
+5. **Air-gapped için `--offline` kullanın**: Modellerin/dataset'lerin
+   önceden cache'lendiğinden emin olun
+6. **`--resume` kullanın**: Preemptible instance'lardaki uzun eğitim
+   işleri otomatik resume etmeli
+7. **Exit kodları kontrol edin**: Farklı kodlar farklı şeyler ifade eder
+   — onları handle edin
+8. **Compliance artefakt'larını saklayın**: `checkpoints/compliance/`
+   audit izlerini içerir
+9. **Config hatalarının hızlı başarısız olmasını bekleyin**: v0.3.1rc1'den
+   beri bilinmeyen YAML alanları hemen `ConfigError` atar — bu, GPU
+   tahsis edilmeden CI'da typo'ları yakalar
+10. **Compliance artefakt'ları sürüm kontrolünde**: Tam düzenleyici
+    audit izleri için `checkpoints/compliance/` ve model kartlarını
+    birlikte commit'lemeyi düşünün

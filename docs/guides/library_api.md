@@ -83,11 +83,11 @@ config = load_config("configs/run.yaml")
 # 2. Audit the corpus before training. The same gate the CLI's
 #    `forgelm audit` subcommand walks.
 report = audit_dataset(
-    config.dataset.path,
-    output_dir=config.output_dir,
+    config.data.dataset_name_or_path,
+    output_dir=config.training.output_dir,
     enable_pii_ml=True,
 )
-if report.duplicate_count > 50 or report.pii_findings:
+if report.near_duplicate_summary["pairs"] > 50 or report.pii_summary:
     raise SystemExit("data quality gate failed; fix before training")
 
 # 3. Train. Heavy deps (torch, trl, transformers) load only on .train().
@@ -171,9 +171,9 @@ def audit_corpus(**ctx):
         emit_croissant=True,
         workers=4,
     )
-    if report.duplicate_count > 100:
-        raise ValueError(f"too many duplicates: {report.duplicate_count}")
-    return {"samples": report.total_samples, "duplicates": report.duplicate_count}
+    if report.near_duplicate_summary["pairs"] > 100:
+        raise ValueError(f"too many duplicates: {report.near_duplicate_summary["pairs"]}")
+    return {"samples": report.total_samples, "duplicates": report.near_duplicate_summary["pairs"]}
 
 audit_task = PythonOperator(
     task_id="audit_corpus",
@@ -211,7 +211,7 @@ from forgelm import WebhookNotifier, load_config
 
 config = load_config("configs/notification-only.yaml")
 notifier = WebhookNotifier(config)
-notifier.notify_training_start(run_name="manual-smoke-2026-05-06")
+notifier.notify_start(run_name="manual-smoke-2026-05-06")
 ```
 
 ## Common pitfalls

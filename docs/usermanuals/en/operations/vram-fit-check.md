@@ -86,10 +86,10 @@ If the upper end of the confidence range exceeds available VRAM, treat the run a
 
 ## Multi-GPU
 
-For distributed training, fit-check accounts for sharding:
+For distributed training, fit-check reads the GPU count from `nvidia-smi` automatically:
 
 ```shell
-$ forgelm --config configs/zero3.yaml --fit-check --gpus 4
+$ forgelm --config configs/zero3.yaml --fit-check
 FITS  est. peak 14.2 GB / 80 GB per GPU (sharded across 4)
 
 ZeRO-3 sharding:
@@ -97,6 +97,8 @@ ZeRO-3 sharding:
   Gradients: 1/4 per GPU
   Parameters: 1/4 per GPU
 ```
+
+(There is no `--gpus N` flag; the estimator probes the live device tree.)
 
 ## Programmatic API
 
@@ -119,7 +121,7 @@ Edge cases where the estimate is off:
 - **CPU offload.** ZeRO-3 with `offload_param: cpu` reduces VRAM unpredictably; estimate is conservative (over-estimates VRAM use).
 - **Very long sequences** (>64K). The `O(N²)` attention term dominates; small differences in implementation matter.
 
-For these cases, run with `--fit-check-strict` which uses the worst-case estimate and reports `TIGHT` even when the median estimate says `FITS`.
+For these cases, treat any `TIGHT` verdict from `--fit-check` as a hard refusal to start training, and run a short calibration training (1-2 steps with `training.max_steps: 2`) to compare actual peak against the estimate. (A `--fit-check-strict` flag was discussed but not shipped — use the calibration approach instead.)
 
 ## Common pitfalls
 

@@ -92,7 +92,7 @@ options above at the resulting JSONL:
 ```bash
 pip install -e ".[ingestion]"
 forgelm ingest ./policies/ --recursive --output data/policies.jsonl
-forgelm --data-audit data/policies.jsonl --output ./audit/
+forgelm audit data/policies.jsonl --output ./audit/
 # Now `data/policies.jsonl` is ready to plug into a config.
 ```
 
@@ -270,11 +270,14 @@ synthetic:
   enabled: true
   teacher_model: "gpt-4o"
   teacher_backend: "api"
-  teacher_api_key_env: "OPENAI_API_KEY"
+  api_key_env: "OPENAI_API_KEY"
+  api_base: "https://api.openai.com/v1"
   seed_file: "seed_prompts.jsonl"
   output_file: "synthetic_data.jsonl"
-  num_samples: 500
+  output_format: "messages"
 ```
+
+The number of synthetic rows is controlled by the seed-file size (one teacher call per seed); see [`forgelm/config.py:589-635`](https://github.com/cemililik/ForgeLM/blob/main/forgelm/config.py#L589) for the full `SyntheticConfig` field set.
 
 ---
 

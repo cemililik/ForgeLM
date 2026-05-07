@@ -60,8 +60,9 @@ build environment.
 ### Consuming the SBOM
 
 ```bash
-# Download all SBOMs for a release.
-gh release download v0.5.5 --pattern 'sbom-*'
+# Download all SBOMs for a release. Replace v<X.Y.Z> with the tag you
+# pinned in your CI; the SBOM artefact format is stable across releases.
+gh release download v<X.Y.Z> --pattern 'sbom-*'
 
 # Pretty-print for human review.
 jq . sbom-ubuntu-latest-py3.11.json | less

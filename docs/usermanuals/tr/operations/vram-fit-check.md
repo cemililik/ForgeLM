@@ -86,10 +86,10 @@ Güven aralığının üst sınırı mevcut VRAM'i aşıyorsa OOM-olası muamele
 
 ## Çoklu-GPU
 
-Dağıtık eğitim için fit-check sharding'i hesaba katar:
+Dağıtık eğitim için fit-check, GPU sayısını `nvidia-smi`'den otomatik okur:
 
 ```shell
-$ forgelm --config configs/zero3.yaml --fit-check --gpus 4
+$ forgelm --config configs/zero3.yaml --fit-check
 FITS  est. peak 14.2 GB / 80 GB GPU başına (4'e shardlı)
 
 ZeRO-3 sharding:
@@ -97,6 +97,8 @@ ZeRO-3 sharding:
   Gradients: GPU başına 1/4
   Parameters: GPU başına 1/4
 ```
+
+(`--gpus N` flag'i yoktur; tahminci canlı device tree'yi prob eder.)
 
 ## Programatik API
 
@@ -119,7 +121,7 @@ Uç durumlar:
 - **CPU offload.** `offload_param: cpu` ile ZeRO-3 VRAM'i öngörülemeyecek şekilde düşürür; tahmin muhafazakar (VRAM kullanımını fazla tahmin eder).
 - **Çok uzun diziler** (>64K). `O(N²)` attention terimi baskın; uygulamadaki küçük farklar önemli.
 
-Bu durumlar için `--fit-check-strict` kullanın; en kötü durum tahminini kullanır ve median tahmin `FITS` derken bile `TIGHT` raporlar.
+Bu durumlar için `--fit-check`'ten gelen herhangi bir `TIGHT` verdict'i eğitime başlamayı reddetmek için sert bir sinyal olarak ele alın ve gerçek peak'i tahmin ile karşılaştırmak için kısa bir kalibrasyon eğitimi (1-2 adım, `training.max_steps: 2` ile) koşturun. (Bir `--fit-check-strict` flag'i tartışıldı ama ship edilmedi — bunun yerine kalibrasyon yaklaşımını kullanın.)
 
 ## Sık hatalar
 

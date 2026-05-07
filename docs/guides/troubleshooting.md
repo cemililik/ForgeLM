@@ -178,10 +178,15 @@ If the teacher model API times out during `--generate-data`:
 
 ```yaml
 synthetic:
-  timeout: 120       # increase from default 60 seconds
-  retry_attempts: 5  # increase retries (default: 3)
-  batch_size: 5      # reduce batch size for slower APIs
+  api_timeout: 120   # increase from default 60 seconds
+  api_delay: 1.0     # seconds between API calls (rate limiting; default 0.5)
+  max_new_tokens: 512 # cap teacher response size if it's hanging
 ```
+
+`SyntheticConfig` does not surface dedicated retry / batch knobs in v0.5.5
+— retries are handled at the HTTP-client layer, and batch size is fixed
+at one prompt per API call. Phase 28+ backlog tracks adding explicit
+retry-count and batched-call parameters.
 
 For local teacher models, ensure sufficient GPU memory is available. Consider using a smaller teacher model or reducing `max_tokens`.
 

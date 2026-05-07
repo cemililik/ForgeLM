@@ -94,7 +94,7 @@ training:
 
 | Alan | Tip | Varsayılan | Açıklama |
 |------|-----|-----------|----------|
-| `rope_scaling` | string | `null` | RoPE ölçekleme yöntemi: `"linear"`, `"dynamic"` |
+| `rope_scaling` | `Optional[Dict[str, Any]]` | `null` | RoPE ölçekleme yöntemi sözlüğü (`{"type": "linear", "factor": 2.0}` vs.). Desteklenen tipler: `"linear"`, `"dynamic"`, `"yarn"`, `"longrope"`. |
 | `neftune_noise_alpha` | float | `null` | NEFTune gürültü enjeksiyonu alpha değeri (ör. `5.0`) |
 | `sliding_window_attention` | int | `null` | Kayan pencere dikkat boyutu (token) |
 | `sample_packing` | bool | `false` | Kısa örnekleri tam uzunluklu dizilere paketle |
@@ -283,7 +283,7 @@ uzatmasını engeller.
 | `notify_on_start` | bool | `true` | Eğitim başlangıcında bildir |
 | `notify_on_success` | bool | `true` | Başarıda bildir |
 | `notify_on_failure` | bool | `true` | Hata durumunda bildir |
-| `timeout` | int | `5` | HTTP istek zaman aşımı (saniye) |
+| `timeout` | int | `10` | HTTP istek zaman aşımı (saniye). Notifier ≥ 1s'ye clamp'ler. v0.5.5'te varsayılan 10s'ye çıkarıldı (önceden 5s'di) — Slack/Teams gateway gecikme atışları production'da düzenli olarak 5s'yi aşıyor ve bir webhook zaman aşımı audit chain'i sessizce zayıflatıyor (webhook arızası best-effort). |
 | `allow_private_destinations` | bool | `false` | RFC1918 / loopback / link-local hedeflere webhook gönderimine izin verir (cluster içi Slack proxy, on-prem Teams gateway gibi). Varsayılan yalnızca genel internet — SSRF koruması |
 | `tls_ca_bundle` | string | `null` | `requests`'e `verify=` olarak iletilen özel CA bundle yolu (örn. kurumsal MITM CA). Boşsa `certifi` paketinin gömülü deposu kullanılır |
 

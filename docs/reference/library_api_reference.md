@@ -156,9 +156,15 @@ print(f"verified {result.entries_checked} entries; head={result.chain_head}")
 from forgelm import ForgeConfig, ForgeTrainer
 
 config = ForgeConfig(
-    model={"name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0"},
-    dataset={"path": "data/train.jsonl", "format": "alpaca"},
-    training={"trainer_type": "sft", "num_epochs": 1, "batch_size": 1},
+    model={"name_or_path": "TinyLlama/TinyLlama-1.1B-Chat-v1.0"},
+    lora={"r": 8, "alpha": 16, "target_modules": ["q_proj", "v_proj"]},
+    data={"dataset_name_or_path": "data/train.jsonl"},
+    training={
+        "trainer_type": "sft",
+        "num_train_epochs": 1,
+        "per_device_train_batch_size": 1,
+        "output_dir": "./checkpoints/quick",
+    },
 )
 
 trainer = ForgeTrainer(config)
@@ -168,6 +174,8 @@ print(f"success={result.success}  output={result.output_dir}")
 if not result.success and result.revert_reason:
     print(f"reverted: {result.revert_reason}")
 ```
+
+The keys above are the **only** required ones; everything else falls back to `forgelm/config.py` defaults. `model.name_or_path`, the `lora:` block, `data.dataset_name_or_path`, and `training.{trainer_type, output_dir}` are required by the Pydantic schema; `num_epochs` / `batch_size` are not the canonical names and would raise `ValidationError`.
 
 ### 4. Emit Article 12 audit events from your own pipeline
 

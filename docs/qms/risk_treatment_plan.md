@@ -174,7 +174,7 @@ section §4.
 |---|---|
 | Description | Operator skips human approval; high-risk model reaches production without ML Lead / AI Officer sign-off |
 | L × I (inherent) | Med × High = HIGH |
-| Treatment | `evaluation.require_human_approval: true` for `risk_classification` ∈ `{high-risk, unacceptable}`; staging directory holds the model until `forgelm approve`; F-compliance-110 raises ConfigError if not configured; `human_approval.required/granted/rejected` chain forensically records every decision |
+| Treatment | `evaluation.require_human_approval: true` for `risk_classification` ∈ `{high-risk, unacceptable}`; staging directory holds the model until `forgelm approve`. (Note: F-compliance-110 strict gate enforces `evaluation.safety.enabled: true` for high-risk runs — not `require_human_approval` — see R-04 above; the human-approval gate is a deployer-side discipline pinned by this row.) `human_approval.required/granted/rejected` chain forensically records every decision |
 | Residual L × I | Low × Med = LOW |
 | Owner | ML Lead + AI Officer |
 | Review cadence | Per training run for high-risk |

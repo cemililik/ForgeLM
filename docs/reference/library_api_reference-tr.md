@@ -156,9 +156,15 @@ print(f"verified {result.entries_checked} entries; head={result.chain_head}")
 from forgelm import ForgeConfig, ForgeTrainer
 
 config = ForgeConfig(
-    model={"name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0"},
-    dataset={"path": "data/train.jsonl", "format": "alpaca"},
-    training={"trainer_type": "sft", "num_epochs": 1, "batch_size": 1},
+    model={"name_or_path": "TinyLlama/TinyLlama-1.1B-Chat-v1.0"},
+    lora={"r": 8, "alpha": 16, "target_modules": ["q_proj", "v_proj"]},
+    data={"dataset_name_or_path": "data/train.jsonl"},
+    training={
+        "trainer_type": "sft",
+        "num_train_epochs": 1,
+        "per_device_train_batch_size": 1,
+        "output_dir": "./checkpoints/quick",
+    },
 )
 
 trainer = ForgeTrainer(config)
@@ -168,6 +174,8 @@ print(f"success={result.success}  output={result.output_dir}")
 if not result.success and result.revert_reason:
     print(f"reverted: {result.revert_reason}")
 ```
+
+Yukarıdaki anahtarlar tek **gerekli** olanlardır; geri kalan her şey `forgelm/config.py` varsayılanlarına düşer. `model.name_or_path`, `lora:` bloğu, `data.dataset_name_or_path` ve `training.{trainer_type, output_dir}` Pydantic şeması tarafından zorunlu kılınır; `num_epochs` / `batch_size` kanonik adlar değildir ve `ValidationError` atar.
 
 ### 4. Kendi pipeline'ınızdan Article 12 audit olayları yaymak
 

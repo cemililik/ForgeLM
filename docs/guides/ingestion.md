@@ -132,7 +132,7 @@ forgelm ingest ./mixed_corpus/ --output data/clean.jsonl --secrets-mask --pii-ma
 Detected spans are replaced with `[REDACTED-SECRET]`. The
 `ingest_path()` masking path delegates to
 `forgelm.data_audit.mask_secrets`, which scans with the regex set
-described in [data_audit.md](data_audit.md) (≈10 prefix-anchored
+described in [data_audit.md](data_audit.md) (9 prefix-anchored
 patterns: AWS, GitHub, Slack, OpenAI, Google, JWT, full
 OpenSSH/RSA/DSA/EC/PGP private-key blocks, Azure storage). The
 `[ingestion-secrets]` extra is reserved for a follow-up release —

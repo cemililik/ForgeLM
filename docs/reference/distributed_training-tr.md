@@ -57,7 +57,7 @@ ForgeLM, üç yerleşik DeepSpeed ön ayarı sunar. `deepspeed_config` parametre
 |---------|-------------|---------|----------|
 | `zero2` | 2 | Hayır | 2-4 GPU'da 7B-13B modeller |
 | `zero3` | 3 | Hayır | 13B-30B modeller, parametrelerin GPU'lar arasında bölünmesi |
-| `zero3_offload` | 3 | CPU | 30B-70B modeller, sınırlı VRAM, yeterli CPU RAM |
+| `zero3_offload` | 3 | optimizer state + parametreler → CPU | 30B-70B modeller, sınırlı VRAM, yeterli CPU RAM |
 
 ### Kullanım
 

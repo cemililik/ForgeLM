@@ -124,6 +124,15 @@ class RetentionConfig(BaseModel):
     # `lang_sample` fields.
     ephemeral_artefact_retention_days: int = Field(default=90, ge=0)
 
+    # Raw-document retention (typically `data/raw_documents/<run_id>/`).
+    # Phase 21 implementation note: this field was added to the shipped
+    # RetentionConfig after the original design draft — the `forgelm
+    # purge --check-policy` scan ages each `raw_documents/<run_id>/`
+    # directory against its owning run's audit-genesis timestamp.
+    # Default 90 days; matches the typical ingestion-window cadence in
+    # most deployer QMS templates.
+    raw_documents_retention_days: int = Field(default=90, ge=0)
+
     # Enforcement mode: how strict is the policy?
     # - "log_only": writes a notice to the audit log; never refuses a run.
     # - "warn_on_excess": logger.warning + audit notice; run continues.
@@ -187,7 +196,7 @@ A single invocation does exactly one of the three.  Combining flags is a `Config
 | `--config <path>` | policy mode (optional) | str | Config to load for the retention block; defaults to `./forgelm.yaml` then walks up. |
 | `--justification <text>` | always optional | str | Free-text reason recorded in the audit event.  Strongly recommended for compliance review. |
 | `--dry-run` | always optional (corpus / run mode only) | bool | Print what would be deleted; do not modify.  **Mutually exclusive with `--check-policy`** (which is itself a dry-run report); combining the two is a `ConfigError`. |
-| `--yes` | always optional | bool | Skip the interactive "confirm erasure of row X?" prompt.  Required for unattended / scripted use; an interactive `forgelm purge` without `--yes` always prompts on a TTY and aborts (`EXIT_CONFIG_ERROR`) on a non-TTY. |
+| `--yes` *(not yet implemented; Phase 28+ backlog)* | always optional | bool | The original design called for a `--yes` flag to skip an interactive "confirm erasure of row X?" prompt. The shipped `forgelm purge` is **non-interactive by default** — it never prompts, so `--yes` was not wired in v0.5.5. CI invocations get the same behaviour as TTY invocations: the operator-supplied `--justification` carries the consent record into the audit chain. The flag is preserved on the Phase 28+ backlog if a future interactive review-prompt mode lands. |
 | `--output-format {text,json}` | always optional | enum | Output format.  Default `text`. |
 
 ### 4.3 Exit codes

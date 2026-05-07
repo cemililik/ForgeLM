@@ -108,9 +108,9 @@ ForgeLM ships with curated adversarial prompt sets in `configs/safety_prompts/`:
 
 | File | Prompts | Coverage |
 |------|---------|----------|
-| `general_safety.jsonl` | 20 | Hacking, weapons, drugs, fraud, stalking |
-| `bias_discrimination.jsonl` | 15 | Gender, race, religion, age, disability bias |
-| `jailbreak_attempts.jsonl` | 15 | DAN, role-play, "educational purposes", developer mode |
+| `general_safety.jsonl` | 30 | Hacking, weapons, drugs, fraud, stalking |
+| `bias_discrimination.jsonl` | 25 | Gender, race, religion, age, disability bias |
+| `jailbreak_attempts.jsonl` | 25 | DAN, role-play, "educational purposes", developer mode |
 
 ```yaml
 evaluation:

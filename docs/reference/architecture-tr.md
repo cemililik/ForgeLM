@@ -7,33 +7,56 @@ ForgeLM modülerlik ve genişletilebilirlik gözetilerek tasarlanmıştır. İş
 ```
 forgelm --config job.yaml
     │
-    ├── cli.py          → Argüman ayrıştırma, config yükleme, orkestrasyon
-    ├── config.py       → Pydantic doğrulama (19+ config modeli)
-    ├── utils.py        → HF kimlik doğrulama
-    ├── model.py        → Model + tokenizer + LoRA/PEFT yükleme
-    ├── data.py         → Veri seti yükleme + formatlama
-    ├── trainer.py      → Eğitim (TRL üzerinden 6 trainer tipi)
-    │   ├── benchmark.py    → lm-eval-harness değerlendirme
-    │   ├── safety.py       → Güvenlik kontrolü (confidence, S1-S14, ciddiyet)
-    │   ├── judge.py        → LLM-Hakim puanlama
-    │   ├── model_card.py   → HF model kartı üretimi
-    │   ├── compliance.py   → EU AI Act denetim belgeleri + audit log
-    │   └── webhook.py      → Slack/Teams bildirimleri
-    ├── merging.py      → TIES/DARE/SLERP model birleştirme (--merge)
-    ├── synthetic.py    → Sentetik veri üretimi (--generate-data)
-    └── wizard.py       → Etkileşimli config üretici (--wizard)
+    ├── cli/                → CLI paketi (Faz 15 split)
+    │   ├── _parser.py          → 18 subcommand + global flag
+    │   ├── _dispatch.py        → Mod yönlendirici
+    │   ├── _exit_codes.py      → 0/1/2/3/4 sözleşmesi
+    │   └── subcommands/        → Subcommand-başına handler'lar
+    │       ├── ingest, audit, chat, export, deploy, doctor,
+    │       │   cache, purge, reverse_pii, approve, approvals,
+    │       │   safety_eval, verify_audit, verify_annex_iv,
+    │       │   verify_gguf, quickstart
+    ├── config.py           → Pydantic doğrulama (21 config modeli)
+    ├── utils.py            → HF kimlik doğrulama
+    ├── model.py            → Model + tokenizer + LoRA/PEFT yükleme
+    ├── data.py             → Veri seti yükleme + formatlama
+    ├── data_audit/         → Audit paketi (Faz 14 split)
+    │   ├── _orchestrator, _aggregator, _streaming, _simhash,
+    │   │   _minhash, _pii_regex, _pii_ml, _secrets, _quality,
+    │   │   _croissant, _summary, _splits
+    ├── trainer.py          → Eğitim (TRL üzerinden 6 trainer tipi)
+    │   ├── benchmark.py        → lm-eval-harness değerlendirme
+    │   ├── safety.py           → Güvenlik kontrolü (confidence, S1-S14, ciddiyet)
+    │   ├── judge.py            → LLM-Hakim puanlama
+    │   ├── model_card.py       → HF model kartı üretimi
+    │   ├── compliance.py       → EU AI Act denetim belgeleri + audit log
+    │   └── webhook.py          → Slack/Teams bildirimleri
+    ├── merging.py          → TIES/DARE/SLERP model birleştirme
+    ├── synthetic.py        → Sentetik veri üretimi
+    └── wizard.py           → Etkileşimli config üretici
 ```
 
 ## Dizin Yapısı
 
 ```
 ForgeLM/
-├── forgelm/                  # Çekirdek Python Paketi (26 modül)
+├── forgelm/                  # Çekirdek Python paketi (~22 tek-dosya modül + 2 alt-paket)
 │   ├── __init__.py           # Hızlı CLI başlatma için lazy import
-│   ├── cli.py                # CLI giriş noktası ve mod yönlendirici
-│   ├── config.py             # 19 Pydantic config modeli
+│   ├── cli/                  # CLI alt-paketi (Faz 15 split)
+│   │   ├── _parser.py            # 18 subcommand + global flag
+│   │   ├── _dispatch.py          # Mod yönlendirici
+│   │   ├── _exit_codes.py        # Public 0/1/2/3/4 sözleşmesi
+│   │   └── subcommands/          # Per-subcommand handler modülleri
+│   │       └── _audit, _ingest, _chat, _export, _deploy, _doctor,
+│   │           _cache, _purge, _reverse_pii, _approve, _approvals,
+│   │           _safety_eval, _verify_audit, _verify_annex_iv,
+│   │           _verify_gguf, _quickstart
+│   ├── data_audit/           # Audit alt-paketi (Faz 14 split)
+│   │   └── _orchestrator, _aggregator, _streaming, _simhash,
+│   │       _minhash, _pii_regex, _pii_ml, _secrets, _quality,
+│   │       _croissant, _summary, _splits, _types, _optional
+│   ├── config.py             # 21 Pydantic config modeli
 │   ├── data.py               # Veri yükleme (SFT/DPO/KTO/GRPO/multimodal)
-│   ├── data_audit.py         # Denetim pipeline'ı (uzunluk/dil/dedup/sızıntı/PII/sır)
 │   ├── ingestion.py          # Ham doküman → SFT JSONL (PDF/DOCX/EPUB/TXT/Markdown)
 │   ├── model.py              # Model + LoRA/DoRA/PiSSA + MoE algılama
 │   ├── trainer.py            # Eğitim orkestrasyonu (6 trainer tipi)
@@ -54,13 +77,19 @@ ForgeLM/
 │   ├── quickstart.py         # Tek komutlu hazır şablonlar
 │   ├── wizard.py             # Etkileşimli yapılandırma sihirbazı
 │   ├── webhook.py            # Webhook bildirimleri (Slack/Teams)
+│   ├── _http.py              # SSRF-korumalı HTTP chokepoint
+│   ├── _version.py           # __version__ + __api_version__ (decoupled)
 │   └── utils.py              # Kimlik doğrulama + checkpoint yönetimi
-├── forgelm/templates/        # Quickstart şablon paketleri (config.yaml + tohum veri)
+├── forgelm/templates/        # 5 quickstart şablon paketi
 ├── configs/
 │   ├── deepspeed/            # ZeRO-2, ZeRO-3, ZeRO-3+Offload ön ayarları
 │   └── safety_prompts/       # Yerleşik adversarial prompt kütüphanesi (140 prompt, 6 kategori)
 ├── notebooks/                # 10 Colab-uyumlu Jupyter notebook
-├── tests/                    # 800+ birim test, 47 test dosyası
+├── tests/                    # ~70 test modülü
+├── tools/                    # CI guard'ları: bilingual_parity, anchor_resolution,
+│                              # cli_help_consistency, yaml_snippets,
+│                              # audit_event_catalog, library_api_doc,
+│                              # doc_numerical_claims, bilingual_code_blocks
 ├── docs/
 │   ├── guides/               # Kullanıcı rehberleri (ingest, audit, alignment, CI/CD, …)
 │   └── qms/                  # EU AI Act QMS SOP şablonları
@@ -71,11 +100,11 @@ ForgeLM/
 
 ## Bileşen Detayları
 
-### `cli.py`
-Orkestratör. 13+ CLI flag'ini ayrıştırır: `--config`, `--wizard`, `--dry-run`, `--offline`, `--resume`, `--quiet`, `--benchmark-only`, `--merge`, `--compliance-export`, `--output-format`, `--log-level`, `--version`. Çıkış kodları: 0 (başarı), 1 (config hatası), 2 (eğitim hatası), 3 (değerlendirme hatası), 4 (insan onayı bekleniyor).
+### `cli/`
+Orkestratör (Faz 15 split). `_parser.py` 18 subcommand'ı (`audit`, `approve`, `approvals`, `cache-models`, `cache-tasks`, `chat`, `deploy`, `doctor`, `export`, `ingest`, `purge`, `quickstart`, `reverse-pii`, `safety-eval`, `verify-annex-iv`, `verify-audit`, `verify-gguf`) artı eski training-mode flag setini kaydeder. `_dispatch.py` `subcommands/` altındaki uygun handler'a yönlendirir. `_exit_codes.py` public 0/1/2/3/4 sözleşmesini tanımlar.
 
 ### `config.py`
-19+ Pydantic v2 modeli: ModelConfig, LoraConfigModel, TrainingConfig, DataConfig, DataGovernanceConfig, EvaluationConfig, SafetyConfig, BenchmarkConfig, JudgeConfig, WebhookConfig, DistributedConfig, MergeConfig, ComplianceMetadataConfig, RiskAssessmentConfig, MonitoringConfig, MoeConfig, MultimodalConfig, AuthConfig. Çapraz alan doğrulaması içerir.
+21 Pydantic v2 modeli: ModelConfig, LoraConfigModel, TrainingConfig, DataConfig, DataGovernanceConfig, EvaluationConfig, SafetyConfig, BenchmarkConfig, JudgeConfig, WebhookConfig, DistributedConfig, MergeConfig, ComplianceMetadataConfig, RetentionConfig, RiskAssessmentConfig, MonitoringConfig, MoeConfig, MultimodalConfig, AuthConfig, SyntheticConfig + üst-düzey ForgeConfig. Çapraz alan doğrulaması içerir.
 
 ### `data.py`
 HuggingFace `datasets` kütüphanesi ile arayüz. Veri formatını otomatik algılar (SFT, DPO, KTO, GRPO, multimodal) ve uyumsuzlukta önerili trainer_type ile hata verir. Mix ratio ile çoklu veri seti karıştırma. `tokenizer.apply_chat_template()` ile sohbet şablonları.
