@@ -4,7 +4,7 @@
 > Annex A controls. Companion to
 > [`../guides/iso_soc2_deployer_guide.md`](../guides/iso_soc2_deployer_guide.md)
 > and the design doc
-> [`../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md).
+> [`../design/iso27001_soc2_alignment.md`](../design/iso27001_soc2_alignment.md).
 >
 > **Coverage tier legend:**
 >
@@ -137,7 +137,7 @@ completeness so the deployer's SoA is auditable end-to-end.
 ## See also
 
 - [`../guides/iso_soc2_deployer_guide.md`](../guides/iso_soc2_deployer_guide.md) — deployer audit cookbook.
-- [`../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md) — full design rationale.
+- [`../design/iso27001_soc2_alignment.md`](../design/iso27001_soc2_alignment.md) — full design rationale.
 - [`soc2_trust_criteria_mapping.md`](soc2_trust_criteria_mapping.md) — SOC 2 mapping companion.
 - [`supply_chain_security.md`](supply_chain_security.md) — SBOM + pip-audit + bandit.
 - [`audit_event_catalog.md`](audit_event_catalog.md) — audit-event vocabulary.

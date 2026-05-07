@@ -4,8 +4,7 @@ This is the package facade.  The CLI surface is exposed via the
 ``forgelm`` console script (and ``python -m forgelm.cli``); the Python
 **library API** that integrators reach via ``from forgelm import ...``
 is documented in
-``docs/analysis/code_reviews/library-api-design-202605021414.md`` and
-finalised here in Phase 19.
+``docs/design/library_api.md`` and finalised here in Phase 19.
 
 Lazy-import discipline (Phase 19):
 

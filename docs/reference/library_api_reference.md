@@ -6,7 +6,7 @@
 >
 > **Companion guide:** [`../guides/library_api.md`](../guides/library_api.md) — three end-to-end worked examples.
 >
-> **Design source:** [`../analysis/code_reviews/library-api-design-202605021414.md`](../analysis/code_reviews/library-api-design-202605021414.md) (Phase 18).
+> **Design source:** [`../design/library_api.md`](../design/library_api.md) (Phase 18).
 
 ForgeLM ships a Python library API alongside the `forgelm` console script. The library surface is declared in `forgelm/__init__.py` via `__all__`, lazy-resolved through PEP 562 `__getattr__`, and type-hinted under `TYPE_CHECKING` so downstream `mypy --strict` consumers see real signatures. `forgelm/py.typed` ships in the wheel as the PEP 561 marker.
 
@@ -289,5 +289,5 @@ A breaking change to a stable signature without following the cadence is a relea
 - [`../guides/library_api.md`](../guides/library_api.md) — three end-to-end worked examples.
 - [`audit_event_catalog.md`](audit_event_catalog.md) — full event vocabulary `AuditLogger.log_event` accepts.
 - [`configuration.md`](configuration.md) — `ForgeConfig` field reference.
-- [`../analysis/code_reviews/library-api-design-202605021414.md`](../analysis/code_reviews/library-api-design-202605021414.md) — Phase 18 design + 16-row Phase 19 task plan.
+- [`../design/library_api.md`](../design/library_api.md) — Phase 18 design + 16-row Phase 19 task plan.
 - [`../standards/release.md`](../standards/release.md) — deprecation cadence and release process.

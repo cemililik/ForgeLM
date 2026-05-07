@@ -1,15 +1,13 @@
-# ISO 27001 / SOC 2 Type II — ForgeLM Alignment Design (Faz 22)
+# ISO 27001 / SOC 2 Type II — ForgeLM Alignment Design
 
-> Branch: `closure/wave4-integration` · Frozen: `2026-05-05 23:15`
-> Closure-plan reference: [Faz 22](./closure-plan-202604300906.md#faz-22--iso-27001--soc-2-type-ii-alignment--analysis--gap-assessment-tek-pr-design-dosyası)
-> Faz 22 acceptance bar: ≥800 satır design — see §13 acceptance criteria
-
-## Status
-
-**Wave 4 design pass.** Faz 22 ships a single deliverable: this document. Faz 23
-implements the gaps identified here (pip-audit + bandit CI, four new QMS docs,
-deployer guide, two reference tables, README + CHANGELOG entries). Faz 26 picks
-up QMS bilingual mirror obligations downstream of Faz 23.
+> **Scope:** Deployer evidence map showing how ForgeLM artefacts
+> (audit-trail, change-management, data-governance, encryption-at-rest,
+> incident-response records) populate the ISO 27001 / SOC 2 Type II
+> control surface a deployer faces during certification audit. Living
+> spec — kept in sync with the implementation under
+> `docs/qms/`, `docs/reference/iso27001_control_mapping.md`,
+> `docs/reference/soc2_trust_criteria_mapping.md`, the pip-audit /
+> bandit CI guards, and the QMS documents.
 
 **Important framing.** ForgeLM is a Python library + CLI. *Software cannot be
 ISO 27001 certified* — only **organisations** running an ISMS can. What
@@ -20,8 +18,12 @@ requests is produced by ForgeLM as a byproduct of running the training
 pipeline. This document is the deployer's evidence map.
 
 The phrasing in customer-facing material is therefore **"ISO 27001 / SOC 2
-Type II alignment"** — never "certified" / "compliant". The README ISO/SOC 2
-section in Faz 23 follows this rule explicitly.
+Type II alignment"** — never "certified" / "compliant". The
+README ISO / SOC 2 section follows this rule explicitly.
+
+**Status:** Implemented in v0.5.5. See `CHANGELOG.md`,
+`docs/guides/iso_soc2_deployer_guide.md`, and the QMS / reference
+documents listed under §Scope above for the user-facing surface.
 
 ## 1. Background and scope
 
@@ -859,12 +861,16 @@ code?*
   TSC source-of-truth.
 - [CycloneDX 1.5 specification](https://cyclonedx.org/specification/overview/) —
   SBOM format.
-- [`docs/analysis/code_reviews/closure-plan-202604300906.md`](./closure-plan-202604300906.md)
-  — Faz 22 + Faz 23 source closure plan.
-- [`docs/qms/`](../../qms/) — existing QMS templates (Wave 0).
-- [`docs/reference/audit_event_catalog.md`](../../reference/audit_event_catalog.md)
+- [`docs/qms/`](../qms/) — QMS templates (statement of applicability,
+  data management SOP, change management, incident response, key
+  management, retention).
+- [`docs/reference/audit_event_catalog.md`](../reference/audit_event_catalog.md)
   — audit-event vocabulary.
-- [`docs/standards/`](../../standards/) — engineering standards.
+- [`docs/reference/iso27001_control_mapping.md`](../reference/iso27001_control_mapping.md)
+  — ISO/IEC 27001:2022 Annex A control → ForgeLM evidence map.
+- [`docs/reference/soc2_trust_criteria_mapping.md`](../reference/soc2_trust_criteria_mapping.md)
+  — SOC 2 Type II Trust Services Criteria → ForgeLM evidence map.
+- [`docs/standards/`](../standards/) — engineering standards.
 
 ---
 

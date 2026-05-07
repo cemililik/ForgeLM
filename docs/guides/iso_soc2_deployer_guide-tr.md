@@ -12,7 +12,7 @@
 > ForgeLM artefaktının cevap verdiğini gösterir.
 >
 > Çapraz referans:
-> [`docs/analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md)
+> [`docs/design/iso27001_soc2_alignment.md`](../design/iso27001_soc2_alignment.md)
 > tam tasarım gerekçesi + 93 kontrollü kapsama haritası için.
 
 ## ForgeLM'in size out-of-the-box sağladıkları
@@ -279,7 +279,7 @@ Operatörlerin ilk denetimlerinde yanlış yaptığı şeyler:
 
 ## Bkz.
 
-- [`../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md) — tam tasarım gerekçesi + 93 kontrol haritası.
+- [`../design/iso27001_soc2_alignment.md`](../design/iso27001_soc2_alignment.md) — tam tasarım gerekçesi + 93 kontrol haritası.
 - [`../qms/encryption_at_rest-tr.md`](../qms/encryption_at_rest-tr.md) — substrate-side şifreleme rehberi.
 - [`../qms/access_control-tr.md`](../qms/access_control-tr.md) — operator identity + secrets management.
 - [`../qms/risk_treatment_plan-tr.md`](../qms/risk_treatment_plan-tr.md) — pre-populated risk register.

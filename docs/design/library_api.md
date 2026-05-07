@@ -1,11 +1,14 @@
-# ForgeLM Library API — Analysis & Design
+# ForgeLM Library API — Design
 
-**Document ID:** `library-api-design-202605021414`
-**Status:** Draft (Phase 18 deliverable)
-**Author:** Closure Wave 2a
-**Companion:** [`closure-plan-202604300906.md §7 Phase 18`](./closure-plan-202604300906.md)
-**Implements (next phase):** Phase 19 — Library API Implementation
-**Base commit:** `0ffdfd6` (post-Wave-1 merge into `development`); Round-1 + Round-2 review fixes absorbed in the same wave (PR #28 `closure/wave2a-integration`).
+> **Scope:** Design specification for ForgeLM as a Python library (the
+> `from forgelm import ...` import surface). Defines stability tiers,
+> lazy-import discipline, semver scope (`__api_version__`), and the
+> documentation + test strategy for the library API. Living spec —
+> kept in sync with the implementation under `forgelm/__init__.py`,
+> `forgelm/_version.py`, and `tests/test_library_api.py`.
+
+**Status:** Implemented in v0.5.5. See `CHANGELOG.md` and
+`docs/guides/library_api.md` for the user-facing surface.
 
 ---
 
@@ -242,7 +245,7 @@ def __dir__() -> list[str]:
     return sorted({*globals().keys(), *_LAZY_SYMBOLS.keys()})
 ```
 
-### 4.3 Wave 1 round-5 carry-over: `forgelm/cli/__init__.py`
+### 4.3 CLI facade lazy migration: `forgelm/cli/__init__.py`
 
 The CLI facade currently has ~200 lines of eager `from .submodule import ...` calls (23 import statements pulling 50+ names; verified 2026-05-04 against `forgelm/cli/__init__.py`).  That makes `import forgelm.cli` heavyweight even though most of those subcommand dispatchers are not needed for any single command.
 
@@ -293,11 +296,11 @@ We add a regression test (`tests/test_cli_lazy_imports.py`) that:
 
 > **Status: Implementation diverged from this section.** The design doc
 > as drafted (Phase 18) committed to a 2-segment `__api_version__` (e.g.
-> `"0.5"`).  After drafting, [`docs/standards/release.md`](../../standards/release.md)
+> `"0.5"`).  After drafting, [`docs/standards/release.md`](../standards/release.md)
 > §"`__api_version__` (Python library surface)" (lines 27-39) codified
 > the canonical shape as **3-segment semver** (e.g. `"1.0.0"`) with
 > explicit MAJOR / MINOR / PATCH bump rules, and the implementation in
-> [`forgelm/_version.py`](../../../forgelm/_version.py) lines 32-39
+> [`forgelm/_version.py`](../../forgelm/_version.py) lines 32-39
 > follows the codified standard (`__api_version__ = "1.0.0"` at v0.5.5).
 > Defer to `release.md` for the public contract; the 2-segment shape
 > below is preserved here for historical context only.
@@ -509,7 +512,7 @@ Things this design **does not** do, with the reason:
 | Out of scope | Why |
 |---|---|
 | Automatic `__api_version__` bumping in CI | Manual decision is the whole point — see Q4. |
-| `forgelm.serve(...)` (HTTP wrapper) | Different product (Pro CLI dashboard); see [Phase 13 Pro CLI plan](../../roadmap/phase-13-pro-cli.md). |
+| `forgelm.serve(...)` (HTTP wrapper) | Different product (Pro CLI dashboard); see [Phase 13 Pro CLI plan](../roadmap/phase-13-pro-cli.md). |
 | `mypy --strict` on the whole codebase | See Q3. |
 | Automatic `library_api.md` generation | See Q2. |
 | Async variants (`async def train(...)`) | Trainer is fundamentally synchronous (TRL holds GPU state).  An async wrapper would be a different module. |
@@ -517,21 +520,14 @@ Things this design **does not** do, with the reason:
 
 ---
 
-## 12. Sign-off checklist (Phase 18 acceptance)
+## 12. Implementation status
 
-- [x] Document is ≥400 lines.  (Line count ≈ 470 incl. tables.)
-- [x] Every stable-tier symbol from §2.1 has an explicit signature snippet **or** is referenced by a stable-tier file we already ship.  *(Audited 2026-05-02: zero existing tests do `from forgelm import X` for any of the new stable names — that gap is exactly what Phase 19 task #7 closes.  The §2.1 listing is the design promise; Phase 19 ships the regression coverage.)*
-- [x] §3 names a CI step + sample command for type-hint enforcement.
-- [x] §4 documents the existing lazy-import invariant + names the regression test that pins it.
-- [x] §4.3 explicitly resolves the Wave 1 round-5 carry-over (CLI facade lazy migration).
-- [x] §5 names two version strings + their semantics + the deprecation cadence.
-- [x] §6 enumerates the integration test cases Phase 19 must implement.
-- [x] §7 lists every documentation deliverable Phase 19 must produce.
-- [x] §8 covers logging, config-from-dict, errors, and concurrency.
-- [x] §9 is a 16-row task plan precise enough to execute Phase 19 from this document alone.
-- [x] §10 records and resolves the five open questions.
-- [x] §11 names what is deliberately out of scope.
+The design above shipped end-to-end in v0.5.5:
 
----
-
-*End of Phase 18 design — `library-api-design-202605021414`.*
+- Stable / Experimental / Internal tiers (§2): pinned in `forgelm/__init__.py::__all__` + `_LAZY_SYMBOLS`.
+- Type-hint surface (§3): `py.typed` marker ships in the wheel; public functions carry annotations.
+- Lazy-import discipline (§4): `forgelm/__init__.py::__getattr__` resolves on first access; `forgelm/cli/__init__.py` mirrors the pattern; regression test corpus at `tests/test_lazy_imports.py` covers `forgelm.trainer`, `model`, `data`, `benchmark`, `safety`, `inference`, `synthetic`, `judge` (no eager torch / transformers / trl / datasets).
+- Two version strings (§5): `__version__` (runtime, `importlib.metadata`-derived) + `__api_version__` (semver `1.0.0`); both live in `forgelm/_version.py`.
+- Integration tests (§6): `tests/test_library_api.py` (audit-dataset, verify-audit-log, train-and-chat journeys) + `tests/test_lazy_imports.py`.
+- Docs (§7): `docs/reference/library_api_reference{,-tr}.md`, `docs/guides/library_api{,-tr}.md`, `docs/usermanuals/{en,tr}/reference/library-api.md`, README "Library API" section.
+- Errors + concurrency (§8): `ConfigError`, `OptionalDependencyError`, `HttpSafetyError`; multiprocess-safe `AuditLogger.log_event` via `fcntl.flock` / `msvcrt.locking`.

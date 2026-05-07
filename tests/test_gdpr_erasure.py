@@ -1,7 +1,7 @@
 """Phase 21 — GDPR Article 17 erasure (`forgelm purge`).
 
 Mirrors the design spec at
-``docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`` §7
+``docs/design/gdpr_erasure.md`` §7
 which enumerates the 11 tests Phase 21 must ship.  Tests run torch-free
 and use synthetic JSONL fixtures so every CI matrix combo exercises the
 full surface.

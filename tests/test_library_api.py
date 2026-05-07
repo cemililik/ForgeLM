@@ -1,7 +1,7 @@
 """Phase 19 — Library API integration tests.
 
 Verifies the public Python surface that
-``docs/analysis/code_reviews/library-api-design-202605021414.md`` pins:
+``docs/design/library_api.md`` pins:
 
 - Stable symbol set matches ``forgelm.__all__``.
 - Lazy-import discipline holds — ``import forgelm`` does NOT pull
@@ -124,7 +124,7 @@ class TestPublicSurface:
 
     def test_design_doc_experimental_symbols_are_exported(self) -> None:
         """F-PR29-A3-05: symbols listed Experimental in
-        ``docs/analysis/code_reviews/library-api-design-202605021414.md``
+        ``docs/design/library_api.md``
         MUST be importable from the top-level ``forgelm`` package.
         Otherwise consumers who follow the design doc and write
         ``from forgelm import compute_minhash`` get an

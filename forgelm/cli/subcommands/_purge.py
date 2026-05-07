@@ -1,7 +1,7 @@
 """``forgelm purge`` subcommand (Phase 21 — GDPR Article 17 erasure).
 
 Implements the operator-facing surface specified in
-``docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md``:
+``docs/design/gdpr_erasure.md``:
 
 - ``forgelm purge --row-id <id> --corpus <path>`` — atomic JSONL row
   erasure with hashed audit event (Article 17 right-to-erasure for

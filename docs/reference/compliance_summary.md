@@ -122,7 +122,7 @@ What the regulator asks vs. how ForgeLM answers:
 
 ### ISO 27001 / SOC 2 Type II alignment (Wave 4)
 
-- Design doc: [`../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md)
+- Design doc: [`../design/iso27001_soc2_alignment.md`](../design/iso27001_soc2_alignment.md)
   (~865 lines, full 93-control coverage map).
 - Deployer cookbook: [`../guides/iso_soc2_deployer_guide.md`](../guides/iso_soc2_deployer_guide.md).
 - Reference tables: [`iso27001_control_mapping.md`](iso27001_control_mapping.md),

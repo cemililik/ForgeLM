@@ -6,7 +6,7 @@
 >
 > **Eşlik eden rehber:** [`../guides/library_api-tr.md`](../guides/library_api-tr.md) — uçtan uca üç işlenmiş örnek.
 >
-> **Tasarım kaynağı:** [`../analysis/code_reviews/library-api-design-202605021414.md`](../analysis/code_reviews/library-api-design-202605021414.md) (Faz 18).
+> **Tasarım kaynağı:** [`../design/library_api.md`](../design/library_api.md) (Faz 18).
 
 ForgeLM, `forgelm` console script'inin yanında bir Python kütüphane API'si de yayınlar. Kütüphane yüzeyi `forgelm/__init__.py` içinde `__all__` ile beyan edilir, PEP 562 `__getattr__` üzerinden lazy-resolve edilir ve downstream `mypy --strict` tüketicilerin gerçek imzaları görmesi için `TYPE_CHECKING` altında tip ipucu ile işaretlenir. `forgelm/py.typed` PEP 561 işaretçisi olarak wheel ile birlikte yayınlanır.
 
@@ -289,5 +289,5 @@ Cadence'i izlemeden stable bir imzaya kırıcı değişiklik yapmak release-proc
 - [`../guides/library_api-tr.md`](../guides/library_api-tr.md) — uçtan uca üç işlenmiş örnek.
 - [`audit_event_catalog-tr.md`](audit_event_catalog-tr.md) — `AuditLogger.log_event`'in kabul ettiği tam olay kelime dağarcığı.
 - [`configuration-tr.md`](configuration-tr.md) — `ForgeConfig` alan referansı.
-- [`../analysis/code_reviews/library-api-design-202605021414.md`](../analysis/code_reviews/library-api-design-202605021414.md) — Faz 18 tasarım + 16 satırlık Faz 19 görev planı.
+- [`../design/library_api.md`](../design/library_api.md) — Faz 18 tasarım + 16 satırlık Faz 19 görev planı.
 - [`../standards/release.md`](../standards/release.md) — deprecation cadence ve sürüm süreci.

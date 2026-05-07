@@ -5,7 +5,7 @@
 > tablo. Şu belgelere eşlik eder:
 > [`../guides/iso_soc2_deployer_guide-tr.md`](../guides/iso_soc2_deployer_guide-tr.md)
 > ve tasarım dökümanı
-> [`../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md).
+> [`../design/iso27001_soc2_alignment.md`](../design/iso27001_soc2_alignment.md).
 
 ## Kategoriler
 
@@ -123,7 +123,7 @@ Güçlü ForgeLM katkısı.
 ## Bkz.
 
 - [`../guides/iso_soc2_deployer_guide-tr.md`](../guides/iso_soc2_deployer_guide-tr.md) — operatör denetim cookbook'u.
-- [`../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md) — tam tasarım gerekçesi.
+- [`../design/iso27001_soc2_alignment.md`](../design/iso27001_soc2_alignment.md) — tam tasarım gerekçesi.
 - [`iso27001_control_mapping-tr.md`](iso27001_control_mapping-tr.md) — ISO 27001 mapping eşlikçisi.
 - [`supply_chain_security-tr.md`](supply_chain_security-tr.md) — SBOM + pip-audit + bandit.
 - [`audit_event_catalog-tr.md`](audit_event_catalog-tr.md) — audit-event vocabulary.

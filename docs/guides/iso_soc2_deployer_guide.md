@@ -12,7 +12,7 @@
 > ForgeLM artefact answers it.
 >
 > Cross-reference:
-> [`docs/analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md)
+> [`docs/design/iso27001_soc2_alignment.md`](../design/iso27001_soc2_alignment.md)
 > for the full design rationale + 93-control coverage map.
 
 ## What ForgeLM gives you out-of-the-box
@@ -280,7 +280,7 @@ Things deployers get wrong on their first audit:
 
 ## References
 
-- [`../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md) — full design rationale + 93-control coverage map.
+- [`../design/iso27001_soc2_alignment.md`](../design/iso27001_soc2_alignment.md) — full design rationale + 93-control coverage map.
 - [`../qms/encryption_at_rest.md`](../qms/encryption_at_rest.md) — substrate-side encryption guidance.
 - [`../qms/access_control.md`](../qms/access_control.md) — operator identity + secrets management.
 - [`../qms/risk_treatment_plan.md`](../qms/risk_treatment_plan.md) — pre-populated risk register.

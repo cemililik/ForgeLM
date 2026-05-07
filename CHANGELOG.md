@@ -177,7 +177,7 @@ documentation pass.
 **Faz 22 — ISO 27001 / SOC 2 alignment design**
 
 - New design document at
-  [`docs/analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](docs/analysis/code_reviews/iso27001-soc2-alignment-202605052315.md)
+  [`docs/design/iso27001_soc2_alignment.md`](docs/design/iso27001_soc2_alignment.md)
   (~865 lines).  Maps every ISO 27001:2022 Annex A control (93
   controls across A.5 + A.6 + A.7 + A.8) and every SOC 2 Trust
   Services Criterion (Common Criteria CC1.x–CC9.x mandatory + 4
@@ -845,7 +845,7 @@ enough that the move can land alongside Phase 21's first commit.
 
 **Docs:**
 
-- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md` §5.1
+- `docs/design/gdpr_erasure.md` §5.1
   event catalog row for `data.erasure_requested` now lists `salt_source`
   (row mode only).  Wave 2a Round-5 F-R5-05 introduced the field in
   §5.4 (per-event personal-data table) but did not propagate it to
@@ -984,7 +984,7 @@ in this revision.  Full delta:
 **Design-doc fixes** (no behavioural change to v0.5.5; tightens Phase 19
 / 21 implementer guidance):
 
-- Library API design (`library-api-design-202605021414.md`): CI trigger
+- Library API design (`library_api.md`): CI trigger
   fixed (was `release-*` branch which release.md:259 forbids; now
   `pull_request` to main + `workflow_dispatch`); `[evaluation]` extra
   name fixed to `[eval]`; lazy-import test #9 promise corrected
@@ -993,7 +993,7 @@ in this revision.  Full delta:
   attribute access fixed to `["pairs"]` dict key access; tier table
   10th test row added (`test_config_from_dict`); `__dir__()` recipe
   alignment; `forgelm.ingestion` correctly labelled "the module".
-- GDPR erasure design (`gdpr-erasure-design-202605021414.md`):
+- GDPR erasure design (`gdpr_erasure.md`):
   `staging_ttl_days` dual-set semantics resolved (ConfigError on
   conflict + tracking issue per release.md:95); §4.3 vs §10 Q5
   contradiction resolved (`--check-policy` always exits 0; report-not-
@@ -1059,7 +1059,7 @@ shipped a fix.  Three were rejected with rationale:
 
 Fixed:
 
-- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md` —
+- `docs/design/gdpr_erasure.md` —
   unescaped `|` in markdown table cell (`compliance/*.json|yaml` →
   `compliance/*.{json,yaml}`); outdated hard-coded line count "445" in
   §12 sign-off replaced with a "recheck with `wc -l`" note that won't
@@ -1153,17 +1153,17 @@ Fixed:
 - *qodo-code-review L682 ("doctor uses non-secret env-vars")* — same
   rejection as the round-1 entry above; doctor mirrors what
   `compliance.py::AuditLogger` and `huggingface_hub` upstream read.
-- *CodeRabbit "Count erasure events consistently" (gdpr-erasure-design
+- *CodeRabbit "Count erasure events consistently" (gdpr_erasure design
   L388 file map + L454 sign-off)* — file map already says six events at
   L389; the sign-off line at L454 says "six new audit events (three
   core erasure events + three operator-warning events)"; the L449 "+ 3
   new warning events" parenthetical refers to what Round-2 *added* on
   top of Round-1's three core events, not the document's total.
 - *CodeRabbit "--check-policy exit code unambiguous"* — already
-  resolved at gdpr-erasure-design L196 (exit-code table cross-references
+  resolved at gdpr_erasure design L196 (exit-code table cross-references
   §10 Q5) + L199 (paragraph: "**`--check-policy` always exits 0**").
 - *CodeRabbit "ForgeTrainer access must stay lazy"* — the test at
-  library-api-design L349 already pins lazy behaviour
+  library_api design L349 already pins lazy behaviour
   (`assert "torch" not in sys.modules` after `_ = forgelm.ForgeTrainer`);
   the bot misread it as the opposite.
 - *CodeRabbit TR installation L109 "`distributed` → `deepspeed` rename"* —
@@ -1200,13 +1200,13 @@ Fixed:
   CI/CD scripts that branch on exit code.  The
   `_SIGINT_GUARDED_SUBCOMMANDS` constant was deleted because the new
   policy is uniform across every subcommand.
-- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+- `docs/design/gdpr_erasure.md`
   §5.4 `target_id` row-mode source claim aligned with §4.2 — removed
   the "or line number" fallback from the table cell (it was already
   rejected at the CLI per L174); the cell now explicitly cites the
   Phase 28 `forgelm audit --add-row-ids` follow-up that operators with
   id-less corpora must run first.
-- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+- `docs/design/gdpr_erasure.md`
   §3.1 dual-set conflict-resolution bullets — varied the leading
   phrase across the four bullets ("When only X is set", "When only Y
   is set", "In the case where both are set with identical values",
@@ -1214,10 +1214,10 @@ Fixed:
   prose-style lint stops flagging the four-in-a-row "If" pattern.
   Behaviour spec (alias-forward / canonical / DeprecationWarning /
   ConfigError) is unchanged.
-- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+- `docs/design/gdpr_erasure.md`
   §3.3 mtime-distrust sentence reworded to remove the "consumer that
   distrusts mtime" person/object ambiguity.
-- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+- `docs/design/gdpr_erasure.md`
   §5.3 wording: "by mistake" → "accidentally" for concision.
 - `docs/usermanuals/tr/reference/cli.md`: `--output DIR` row "ya da"
   → "veya" (more formal Turkish for the docs register); `forgelm
@@ -1297,20 +1297,20 @@ OSError at ERROR level which `--quiet`'s WARNING floor surfaces).
   claimed the symbol was a re-export for tests.  (F-R5-08)
 - `CHANGELOG.md` — inserted blank line before the
   `### Added — Wave 2a / Phase 34` heading (MD022 fix).  (Inline A)
-- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+- `docs/design/gdpr_erasure.md`
   §5.3 reconciled with §5.4: clarified that `target_id` handling
   depends on `target_kind` (run mode = clear, row mode = SHA-256
   hash), and that the `row_id=42` examples in operator-facing prose
   show what the operator typed on the CLI rather than what lands in
   the audit chain.  (Inline B)
-- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+- `docs/design/gdpr_erasure.md`
   §3.4 reconciled with §4.1: `compliance/*.json` IS deletable via
   `forgelm purge --run-id <id> --kind artefacts`; the previous
   "deleting them requires deleting the whole `<output_dir>`" claim
   contradicted the purge-mode table.  Whole-`<output_dir>` deletion
   is now framed as the operator's manual escalation when the entire
   run is being scrubbed.  (Inline C)
-- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`
+- `docs/design/gdpr_erasure.md`
   §5.4 — `target_id` salt-fallback semantics tightened: the
   per-output-dir salt is **persistent** (written at
   `<output_dir>/.forgelm_audit_salt`, mode 0600, on first emission)
@@ -1328,7 +1328,7 @@ OSError at ERROR level which `--quiet`'s WARNING floor surfaces).
 ### Added — Wave 2a — Phase 18 Library API design + Phase 20 GDPR erasure design
 
 - **Phase 18 — Library API analysis & design** —
-  `docs/analysis/code_reviews/library-api-design-202605021414.md` (525 lines).
+  `docs/design/library_api.md` (525 lines).
   12 sections + 16-row task plan that pin the public Python surface for
   downstream consumers.  Resolves the stable / experimental / internal tier
   split; documents the lazy-import invariant (`import forgelm` does not pull
@@ -1340,7 +1340,7 @@ OSError at ERROR level which `--quiet`'s WARNING floor surfaces).
   `__getattr__` migration for `forgelm/cli/__init__.py`); specifies the
   `tests/test_library_api.py` integration suite Phase 19 must ship.
 - **Phase 20 — GDPR Article 17 erasure analysis & design** —
-  `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md`.  12
+  `docs/design/gdpr_erasure.md`.  12
   sections + 11-test plan + file map that pin the scope of Phase 21's
   `forgelm purge` implementation.  Maps every Article 17(1) trigger to a
   ForgeLM action; enumerates the seven artefact kinds that may carry
@@ -1590,7 +1590,7 @@ Both are design-only PRs — Phase 19 + Phase 21 implementations follow.
   [master-review-opus-202604300906.md](docs/analysis/code_reviews/master-review-opus-202604300906.md)
   (175 findings).
 - `data_audit/` + `cli/` package split design:
-  [split-design-data_audit-cli-202604300906.md](docs/analysis/code_reviews/split-design-data_audit-cli-202604300906.md)
+  [data_audit_cli_split.md](docs/design/data_audit_cli_split.md)
   (Faz 14-15 forward-looking).
 
 ### Deprecated
@@ -1624,7 +1624,7 @@ Both are design-only PRs — Phase 19 + Phase 21 implementations follow.
   so external callers (`forgelm.ingestion`, `forgelm.wizard`) and the
   test suite keep working without code changes. Closes F-code-103 (Major).
   See
-  [split-design-data_audit-cli-202604300906.md](docs/analysis/code_reviews/split-design-data_audit-cli-202604300906.md)
+  [data_audit_cli_split.md](docs/design/data_audit_cli_split.md)
   §1 for the design.
 - **`forgelm/cli.py` → `forgelm/cli/` package (Faz 15)** — the ~2300-line
   monolith was split into a 24-module package (subcommands/, `_dispatch`,

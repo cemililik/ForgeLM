@@ -1,10 +1,15 @@
 # Split Design — `forgelm/data_audit.py` and `forgelm/cli.py`
 
-**Created:** 2026-04-30
-**Commit:** `6b515ed912f8f22304194c1b3f55ed07a26f519c`
-**Branch:** `main`
-**Companion to:** [`master-review-opus-202604300906.md`](./master-review-opus-202604300906.md) (§3 Theme γ, §5.5, §8.3) and [`closure-plan-202604300906.md`](./closure-plan-202604300906.md)
-**Author:** Plan agent (read-only design pass; full file reads of both modules + every cross-import in `tests/` and `forgelm/`)
+> **Scope:** Design specification for the sub-package split of two
+> historically-monolithic modules: `forgelm/data_audit.py` (was 3098
+> lines) → `forgelm/data_audit/` package, and `forgelm/cli.py` (was
+> 1756 lines) → `forgelm/cli/` package. Records the chosen module
+> boundary, public-symbol re-export shape, and lazy-import contract
+> rationale. Living spec — kept in sync with the implementation under
+> `forgelm/data_audit/__init__.py` and `forgelm/cli/__init__.py`.
+
+**Status:** Implemented in v0.5.5 (Phase 14 + Phase 15 splits). See
+`CHANGELOG.md` for the user-facing summary.
 
 ---
 
