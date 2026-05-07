@@ -1703,15 +1703,33 @@ section { padding: 5rem 0; }
 }
 
 /* Body: 60/40 split — step pane + YAML preview.
-   ``min-height: 0`` is mandatory on flex/grid children that contain a
-   scrollable region — without it the child takes its content's intrinsic
-   height and overflow:auto never fires. This was the root cause of the
-   "modal won't scroll" bug; both the wizard-body grid container and the
-   step-pane grid item need it. */
+
+   Three things that all have to be true for the step pane to scroll:
+
+   1. .wizard-dialog has a *definite* height (set above as
+      ``height: min(720px, calc(100vh - 4rem))``). Without that, the
+      flex chain has no frame to overflow against.
+
+   2. .wizard-body has ``min-height: 0`` so it can shrink under
+      ``flex: 1`` instead of pinning to its grid content's intrinsic
+      height.
+
+   3. .wizard-body declares ``grid-template-rows: minmax(0, 1fr)``.
+      THIS is the one that bit us repeatedly: a grid container with
+      no explicit row sizing creates an implicit ``auto`` row, which
+      grows to max-content. So the grid row was sizing to the step
+      pane's content, the step pane was filling its track, and the
+      pane's ``overflow-y: auto`` had nothing to overflow against —
+      it scrolled relative to its own (content-sized) height, i.e.
+      not at all. ``minmax(0, 1fr)`` pins the row to the body's
+      definite height, the step pane fills 1fr, and scroll fires
+      whenever content exceeds the available row height.
+*/
 .wizard-body {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 0;
   min-height: 0;
   overflow: hidden;
@@ -2182,7 +2200,10 @@ section { padding: 5rem 0; }
   }
   .wizard-body {
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr auto;
+    /* ``minmax(0, 1fr)`` for the step-pane row — same reason as the
+       desktop rule above: without the ``min: 0`` floor a 1fr track
+       can refuse to shrink below its content. */
+    grid-template-rows: minmax(0, 1fr) auto;
   }
   .wizard-step-pane {
     padding: 1.4rem;
