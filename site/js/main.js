@@ -22,37 +22,10 @@
   });
 
   /* ── Helpers ──────────────────────────────────────── */
-  // Resolve the per-language sub-table without bracket access on a
-  // user-supplied key. Each branch returns a property by name so static
-  // analyzers see no dynamic key reaching the object.
-  function tableForLang(all, lang) {
-    if (!all) return undefined;
-    switch (lang) {
-      case 'en': return all.en;
-      case 'tr': return all.tr;
-      case 'de': return all.de;
-      case 'fr': return all.fr;
-      case 'es': return all.es;
-      case 'zh': return all.zh;
-      default:   return undefined;
-    }
-  }
-
-  // Pull a translation by key from the current language table, with EN
-  // fallback. Returns the key itself if no entry is found, so the UI
-  // doesn't show "undefined". Object.hasOwn (ES2022) replaces the older
-  // Object.prototype.hasOwnProperty.call pattern; the subsequent bracket
-  // read is gated to own properties only.
-  function tr(key) {
-    if (typeof key !== 'string') return key;
-    var lang = document.documentElement.lang || 'en';
-    var all = (window && window.ForgeLMTranslations) || {};
-    var table = tableForLang(all, lang) || (all && all.en) || {};
-    if (Object.hasOwn(table, key)) return table[key];
-    var en = (all && all.en) || {};
-    if (Object.hasOwn(en, key)) return en[key];
-    return key;
-  }
+  // tr() + tableForLang live in js/_shared.js so all four consumers
+  // (main.js, wizard.js, i18n.js, guide.js) use the same lookup. We
+  // hold a local alias here so the rest of the file reads naturally.
+  var tr = (window.ForgeLMShared && window.ForgeLMShared.tr) || function (k) { return k; };
 
   /* ── Nav (mobile hamburger) ──────────────────────── */
   function initNav() {
@@ -425,7 +398,11 @@
         if (!target) return;
         e.preventDefault();
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        history.pushState(null, '', id);
+        // ``replaceState`` instead of ``pushState`` so multiple anchor
+        // clicks don't bloat the back-button stack with N intermediate
+        // hash entries — pressing Back returns to the page the user
+        // arrived from, not to each scroll position they passed through.
+        history.replaceState(null, '', id);
       });
     });
   }

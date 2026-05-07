@@ -29,32 +29,10 @@
 
   /* ── Helpers (translation + DOM utilities) ────────────── */
 
-  // Resolve a translation key. main.js owns the canonical helper but
-  // doesn't export it on window; mirror the lookup here so wizard.js
-  // is self-sufficient (avoids cross-file ordering issues if scripts
-  // load in unexpected sequence).
-  function tableForLang(all, lang) {
-    if (!all) return undefined;
-    switch (lang) {
-      case 'en': return all.en;
-      case 'tr': return all.tr;
-      case 'de': return all.de;
-      case 'fr': return all.fr;
-      case 'es': return all.es;
-      case 'zh': return all.zh;
-      default:   return undefined;
-    }
-  }
-  function tr(key) {
-    if (typeof key !== 'string') return key;
-    var lang = document.documentElement.lang || 'en';
-    var all = (window && window.ForgeLMTranslations) || {};
-    var table = tableForLang(all, lang) || (all && all.en) || {};
-    if (Object.hasOwn(table, key)) return table[key];
-    var en = (all && all.en) || {};
-    if (Object.hasOwn(en, key)) return en[key];
-    return key;
-  }
+  // tr() lives in js/_shared.js — single source of truth shared with
+  // main.js, i18n.js, and guide.js. Local alias keeps the rest of the
+  // file readable.
+  var tr = (window.ForgeLMShared && window.ForgeLMShared.tr) || function (k) { return k; };
 
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
@@ -286,11 +264,35 @@
     }
   }
 
+  // Track storage failures so the renderer can surface a banner.
+  // We only flag once per modal session — repeated failures are
+  // expected once the bucket is full and would otherwise spam the
+  // user. ``window.ForgeLMWizardStorageWarn`` survives across saves
+  // so a refresh of the wizard pane carries the warning forward.
   function saveState(state) {
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
-      /* private mode / quota — non-fatal, in-memory state still works */
+      /* Private mode + quota-exceeded both land here. In-memory state
+         keeps the operator going within the current modal session;
+         the banner tells them their progress isn't persisted. */
+      window.ForgeLMWizardStorageWarn = true;
+      try {
+        var msg = (window.ForgeLMShared && window.ForgeLMShared.tr)
+          ? window.ForgeLMShared.tr('wizard.storage.unavailable')
+          : 'Browser storage is unavailable — your wizard progress will not survive a refresh.';
+        var existing = document.querySelector('[data-wizard-storage-warn]');
+        if (!existing) {
+          var banner = document.createElement('div');
+          banner.setAttribute('data-wizard-storage-warn', '');
+          banner.setAttribute('role', 'status');
+          banner.setAttribute('aria-live', 'polite');
+          banner.className = 'wizard-storage-warn';
+          banner.textContent = msg;
+          var modal = document.querySelector('[data-wizard-modal]');
+          if (modal) modal.appendChild(banner);
+        }
+      } catch (_) { /* defensive — never let the banner crash a save */ }
     }
   }
 
@@ -817,10 +819,12 @@
   // + booleans + numbers in different colours. The output is HTML so
   // it lives inside the ``<code>`` element directly — no heavy
   // tokeniser, just a series of targeted replacements with HTML
-  // escaping done first to avoid XSS.
-  function escapeHtml(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
+  // escaping done first to avoid XSS. Shared escape helper from
+  // js/_shared.js with a local fallback for paranoia.
+  var escapeHtml = (window.ForgeLMShared && window.ForgeLMShared.escapeHtml) ||
+    function (s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    };
   function tintYaml(yaml) {
     var lines = yaml.split('\n');
     return lines.map(function (line) {
@@ -1285,7 +1289,10 @@
 
   function stepHeader(state, titleKey, descKey, tutorialKey) {
     var nodes = [];
-    nodes.push(el('h2', { class: 'wizard-step-title', text: tr(titleKey) }));
+    // ``id="wizard-title"`` matches the dialog's aria-labelledby on
+    // quickstart.html — without it the WAI-ARIA reference is an
+    // orphan and screen readers announce "dialog" with no name.
+    nodes.push(el('h2', { class: 'wizard-step-title', id: 'wizard-title', text: tr(titleKey) }));
     if (descKey) nodes.push(el('p', { class: 'wizard-step-desc', text: tr(descKey) }));
     if (tutorialKey && state.detailsVisible) {
       nodes.push(el('div', { class: 'wizard-step-tutorial', text: tr(tutorialKey) }));
@@ -1295,7 +1302,7 @@
 
   /* Step 1: Welcome / experience level */
   STEP_RENDERERS['welcome'] = function (pane, state, rerender, persist) {
-    pane.appendChild(el('h2', { class: 'wizard-step-title', text: tr('wizard.step.welcome.title') }));
+    pane.appendChild(el('h2', { class: 'wizard-step-title', id: 'wizard-title', text: tr('wizard.step.welcome.title') }));
     pane.appendChild(el('p', { class: 'wizard-step-desc', text: tr('wizard.step.welcome.desc') }));
     pane.appendChild(el('div', { class: 'wizard-step-tutorial', text: tr('wizard.step.welcome.tutorial') }));
 
@@ -2778,7 +2785,7 @@
 
   /* Step 7: Review + download */
   STEP_RENDERERS['review'] = function (pane, state, rerender, persist) {
-    pane.appendChild(el('h2', { class: 'wizard-step-title', text: tr('wizard.step.review.title') }));
+    pane.appendChild(el('h2', { class: 'wizard-step-title', id: 'wizard-title', text: tr('wizard.step.review.title') }));
     pane.appendChild(el('p', { class: 'wizard-step-desc', text: tr('wizard.step.review.desc') }));
     pane.appendChild(el('div', { class: 'wizard-step-tutorial', text: tr('wizard.step.review.tutorial') }));
 

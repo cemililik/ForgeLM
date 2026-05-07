@@ -25,6 +25,7 @@
     "common.nav.guide":        "Guide",
     "common.nav.compliance":   "Compliance",
     "common.nav.contact":      "Contact",
+"common.skip_to_main": "Skip to main content",
     "common.btn.menu":         "Menu",
     "common.btn.theme":        "Toggle theme",
     "common.btn.lang":         "Language",
@@ -52,6 +53,7 @@
     "common.nav.guide":        "Rehber",
     "common.nav.compliance":   "Uyumluluk",
     "common.nav.contact":      "İletişim",
+"common.skip_to_main": "Ana içeriğe geç",
     "common.btn.menu":         "Menü",
     "common.btn.theme":        "Temayı değiştir",
     "common.btn.lang":         "Dil",
@@ -79,6 +81,7 @@
     "common.nav.guide":        "Handbuch",
     "common.nav.compliance":   "Compliance",
     "common.nav.contact":      "Kontakt",
+"common.skip_to_main": "Zum Hauptinhalt springen",
     "common.btn.menu":         "Menü",
     "common.btn.theme":        "Design wechseln",
     "common.btn.lang":         "Sprache",
@@ -106,6 +109,7 @@
     "common.nav.guide":        "Guide",
     "common.nav.compliance":   "Conformité",
     "common.nav.contact":      "Contact",
+"common.skip_to_main": "Aller au contenu principal",
     "common.btn.menu":         "Menu",
     "common.btn.theme":        "Changer le thème",
     "common.btn.lang":         "Langue",
@@ -133,6 +137,7 @@
     "common.nav.guide":        "Guía",
     "common.nav.compliance":   "Cumplimiento",
     "common.nav.contact":      "Contacto",
+"common.skip_to_main": "Saltar al contenido principal",
     "common.btn.menu":         "Menú",
     "common.btn.theme":        "Cambiar tema",
     "common.btn.lang":         "Idioma",
@@ -160,6 +165,7 @@
     "common.nav.guide":        "指南",
     "common.nav.compliance":   "合规",
     "common.nav.contact":      "联系",
+"common.skip_to_main": "跳到主内容",
     "common.btn.menu":         "菜单",
     "common.btn.theme":        "切换主题",
     "common.btn.lang":         "语言",
@@ -301,7 +307,7 @@
   /* ── Home page (index.html) ──────────────────────────────── */
   Object.assign(T.en, {
     "meta.title.home":           "ForgeLM — Config-driven LLM fine-tuning toolkit",
-    "meta.desc.home":            "ForgeLM is a YAML-driven, enterprise-ready LLM fine-tuning toolkit. SFT, DPO, SimPO, KTO, ORPO, GRPO — with safety evaluation, EU AI Act compliance, and CI/CD-integrated design.",
+    "meta.desc.home":            "YAML-driven LLM fine-tuning with safety eval, EU AI Act compliance, and CI/CD-integrated design — for teams shipping into regulated environments.",
     "home.hero.badge":           "Open source · Apache 2.0 · v0.5.5",
     "home.hero.title":           "YAML in.<br><span class=\"text-gradient\">Fine-tuned model</span> out.",
     "home.hero.lead":            "ForgeLM is the config-driven LLM fine-tuning toolkit for teams that ship into regulated environments. The full alignment stack — SFT, DPO, SimPO, KTO, ORPO, GRPO — with integrated safety evaluation, EU AI Act audit trails, and auto-revert on quality regression.",
@@ -401,7 +407,7 @@
 
   Object.assign(T.tr, {
     "meta.title.home":           "ForgeLM — Konfigürasyon odaklı LLM fine-tuning araç seti",
-    "meta.desc.home":            "ForgeLM, YAML temelli kurumsal seviyede LLM fine-tuning araç setidir. SFT, DPO, SimPO, KTO, ORPO, GRPO — güvenlik değerlendirmesi, EU AI Act uyumu ve CI/CD ile entegre tasarımıyla.",
+    "meta.desc.home":            "YAML temelli LLM fine-tuning — güvenlik değerlendirmesi, EU AI Act uyumu ve CI/CD entegrasyonuyla regülasyonlu ortamlara üretim çıkışı için.",
     "home.hero.badge":           "Açık kaynak · Apache 2.0 · v0.5.5",
     "home.hero.title":           "YAML gir.<br><span class=\"text-gradient\">Fine-tuned model</span> al.",
     "home.hero.lead":            "ForgeLM, regülasyonlu ortamlara üretim çıkaran ekipler için konfigürasyon odaklı LLM fine-tuning araç setidir. Tam alignment yığını — SFT, DPO, SimPO, KTO, ORPO, GRPO — entegre güvenlik değerlendirmesi, EU AI Act denetim kayıtları ve kalite regresyonunda otomatik geri alma ile.",
@@ -501,7 +507,7 @@
 
   Object.assign(T.de, {
     "meta.title.home":           "ForgeLM — Konfigurationsgesteuertes LLM-Fine-Tuning-Toolkit",
-    "meta.desc.home":            "ForgeLM ist ein YAML-getriebenes, unternehmensreifes LLM-Fine-Tuning-Toolkit. SFT, DPO, SimPO, KTO, ORPO, GRPO — mit Sicherheitsbewertung, EU-AI-Act-Compliance und CI/CD-integriertem Design.",
+    "meta.desc.home":            "YAML-gesteuertes LLM-Fine-Tuning — mit Safety-Evaluation, EU-AI-Act-Compliance und CI/CD-Integration für regulierte Umgebungen.",
     "home.hero.badge":           "Open Source · Apache 2.0 · v0.5.5",
     "home.hero.title":           "YAML rein.<br><span class=\"text-gradient\">Fine-Tuned Modell</span> raus.",
     "home.hero.lead":            "ForgeLM ist das konfigurationsgesteuerte LLM-Fine-Tuning-Toolkit für Teams, die in regulierte Umgebungen liefern. Der vollständige Alignment-Stack — SFT, DPO, SimPO, KTO, ORPO, GRPO — mit integrierter Sicherheitsbewertung, EU-AI-Act-Audit-Trails und automatischem Rollback bei Qualitätsregression.",
@@ -601,7 +607,7 @@
 
   Object.assign(T.fr, {
     "meta.title.home":           "ForgeLM — Boîte à outils de fine-tuning LLM pilotée par configuration",
-    "meta.desc.home":            "ForgeLM est une boîte à outils de fine-tuning LLM pilotée par YAML, prête pour l'entreprise. SFT, DPO, SimPO, KTO, ORPO, GRPO — avec évaluation de sécurité, conformité EU AI Act et conception intégrée à CI/CD.",
+    "meta.desc.home":            "Fine-tuning LLM piloté par YAML — évaluation safety, conformité EU AI Act et intégration CI/CD pour environnements régulés.",
     "home.hero.badge":           "Open source · Apache 2.0 · v0.5.5",
     "home.hero.title":           "Du YAML.<br>Un <span class=\"text-gradient\">modèle fine-tuné</span>.",
     "home.hero.lead":            "ForgeLM est la boîte à outils de fine-tuning LLM pilotée par configuration pour les équipes qui livrent en environnement régulé. La pile d'alignement complète — SFT, DPO, SimPO, KTO, ORPO, GRPO — avec évaluation de sécurité intégrée, pistes d'audit EU AI Act et rollback automatique en cas de régression de qualité.",
@@ -701,7 +707,7 @@
 
   Object.assign(T.es, {
     "meta.title.home":           "ForgeLM — Toolkit de fine-tuning de LLM basado en configuración",
-    "meta.desc.home":            "ForgeLM es un toolkit de fine-tuning de LLM impulsado por YAML y listo para empresas. SFT, DPO, SimPO, KTO, ORPO, GRPO — con evaluación de seguridad, cumplimiento del EU AI Act y diseño integrado con CI/CD.",
+    "meta.desc.home":            "Fine-tuning de LLM dirigido por YAML — con evaluación de safety, cumplimiento EU AI Act e integración CI/CD para entornos regulados.",
     "home.hero.badge":           "Código abierto · Apache 2.0 · v0.5.5",
     "home.hero.title":           "YAML entra.<br><span class=\"text-gradient\">Modelo fine-tuned</span> sale.",
     "home.hero.lead":            "ForgeLM es el toolkit de fine-tuning de LLM basado en configuración para equipos que despliegan en entornos regulados. El stack de alignment completo — SFT, DPO, SimPO, KTO, ORPO, GRPO — con evaluación de seguridad integrada, registros de auditoría EU AI Act y reversión automática ante regresiones de calidad.",
@@ -801,7 +807,7 @@
 
   Object.assign(T.zh, {
     "meta.title.home":           "ForgeLM — 基于配置的 LLM 微调工具包",
-    "meta.desc.home":            "ForgeLM 是一个基于 YAML、面向企业的 LLM 微调工具包。SFT、DPO、SimPO、KTO、ORPO、GRPO — 配备安全评估、EU AI Act 合规以及与 CI/CD 集成的设计。",
+    "meta.desc.home":            "YAML 驱动的 LLM 微调 — 集成安全评估、EU AI Act 合规和 CI/CD,面向受监管环境部署。",
     "home.hero.badge":           "开源 · Apache 2.0 · v0.5.5",
     "home.hero.title":           "输入 YAML。<br>输出<span class=\"text-gradient\">微调模型</span>。",
     "home.hero.lead":            "ForgeLM 是面向需要在受监管环境中交付的团队的、基于配置的 LLM 微调工具包。完整对齐栈 — SFT、DPO、SimPO、KTO、ORPO、GRPO — 配备内置安全评估、EU AI Act 审计轨迹,以及质量回归时的自动回滚。",
@@ -1439,6 +1445,7 @@
     "quickstart.header.wizard_aside": "Don't want to write YAML by hand?",
     "quickstart.header.wizard_cta":   "Open the wizard",
     "wizard.close.aria":          "Close wizard",
+    "wizard.storage.unavailable": "Browser storage is unavailable — your wizard progress will not survive a refresh.",
     "wizard.detail.show":         "Show details",
     "wizard.detail.hide":         "Hide details",
     "wizard.locked.badge":        "required for risk tier",
@@ -1833,6 +1840,7 @@
     "quickstart.header.wizard_aside": "YAML'ı elle yazmak istemiyor musun?",
     "quickstart.header.wizard_cta":   "Sihirbazı aç",
     "wizard.close.aria":          "Sihirbazı kapat",
+    "wizard.storage.unavailable": "Tarayıcı depolaması kullanılamıyor — wizard ilerlemen sayfa yenilemesinden sonra kaybolur.",
     "wizard.detail.show":         "Detayları göster",
     "wizard.detail.hide":         "Detayları gizle",
     "wizard.locked.badge":        "risk seviyesi gereği",
@@ -2227,6 +2235,7 @@
     "quickstart.header.wizard_aside": "Möchten Sie kein YAML von Hand schreiben?",
     "quickstart.header.wizard_cta":   "Wizard öffnen",
     "wizard.close.aria":          "Wizard schließen",
+    "wizard.storage.unavailable": "Browser-Speicher ist nicht verfügbar — Ihr Wizard-Fortschritt überlebt keinen Refresh.",
     "wizard.detail.show":         "Details anzeigen",
     "wizard.detail.hide":         "Details ausblenden",
     "wizard.locked.badge":        "für Risikoklasse erforderlich",
@@ -2621,6 +2630,7 @@
     "quickstart.header.wizard_aside": "Vous ne voulez pas écrire de YAML à la main ?",
     "quickstart.header.wizard_cta":   "Ouvrir l'assistant",
     "wizard.close.aria":          "Fermer l'assistant",
+    "wizard.storage.unavailable": "Stockage navigateur indisponible — votre progression de l'assistant ne survivra pas à un rafraîchissement.",
     "wizard.detail.show":         "Afficher les détails",
     "wizard.detail.hide":         "Masquer les détails",
     "wizard.locked.badge":        "requis pour ce niveau de risque",
@@ -3015,6 +3025,7 @@
     "quickstart.header.wizard_aside": "¿No quieres escribir YAML a mano?",
     "quickstart.header.wizard_cta":   "Abrir el asistente",
     "wizard.close.aria":          "Cerrar asistente",
+    "wizard.storage.unavailable": "Almacenamiento del navegador no disponible — el progreso del asistente no sobrevivirá a una recarga.",
     "wizard.detail.show":         "Mostrar detalles",
     "wizard.detail.hide":         "Ocultar detalles",
     "wizard.locked.badge":        "requerido por nivel de riesgo",
@@ -3409,6 +3420,7 @@
     "quickstart.header.wizard_aside": "不想手写 YAML?",
     "quickstart.header.wizard_cta":   "打开向导",
     "wizard.close.aria":          "关闭向导",
+    "wizard.storage.unavailable": "浏览器存储不可用 — 你的向导进度在刷新后不会保留。",
     "wizard.detail.show":         "显示详情",
     "wizard.detail.hide":         "隐藏详情",
     "wizard.locked.badge":        "风险等级要求",

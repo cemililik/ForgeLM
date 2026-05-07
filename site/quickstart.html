@@ -14,27 +14,76 @@
   <meta property="og:url" content="https://forgelm.dev/quickstart.html">
   <meta property="og:locale" content="en_US">
   <meta property="og:locale:alternate" content="tr_TR">
+  <meta property="og:locale:alternate" content="de_DE">
+  <meta property="og:locale:alternate" content="fr_FR">
+  <meta property="og:locale:alternate" content="es_ES">
+  <meta property="og:locale:alternate" content="zh_CN">
+  <!-- The site serves a single English-baseline URL per page; locale
+       switching is a runtime JS layer (translations.js + data-i18n attrs)
+       rather than separate /tr/ /de/ paths. We declare hreflang="en" +
+       x-default only — declaring per-locale alternates here would point at
+       the same URL and mislead crawlers. -->
   <link rel="alternate" hreflang="en" href="https://forgelm.dev/quickstart.html">
-  <link rel="alternate" hreflang="tr" href="https://forgelm.dev/quickstart.html">
   <link rel="alternate" hreflang="x-default" href="https://forgelm.dev/quickstart.html">
   <link rel="canonical" href="https://forgelm.dev/quickstart.html">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
   <link rel="icon" href="favicon.ico">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="css/style.css">
-  <script src="js/translations.js"></script>
-  <script src="js/i18n.js"></script>
+  <script src="js/_shared.js" defer></script>
+  <script src="js/translations.js" defer></script>
+  <script src="js/i18n.js" defer></script>
+
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "ForgeLM",
+  "applicationCategory": "DeveloperApplication",
+  "applicationSubCategory": "MachineLearning",
+  "description": "From pip install to a fine-tuned model in five steps \u2014 manual or guided wizard.",
+  "url": "https://forgelm.dev/quickstart.html",
+  "downloadUrl": "https://pypi.org/project/forgelm/",
+  "operatingSystem": "Linux, macOS",
+  "license": "https://www.apache.org/licenses/LICENSE-2.0",
+  "softwareVersion": "0.5.5",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "author": {
+    "@type": "Organization",
+    "name": "ForgeLM",
+    "url": "https://forgelm.dev/"
+  }
+}
+  </script>
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "ForgeLM",
+  "url": "https://forgelm.dev/",
+  "sameAs": [
+    "https://github.com/cemililik/ForgeLM",
+    "https://pypi.org/project/forgelm/"
+  ]
+}
+  </script>
 </head>
 <body>
+<a href="#main-content" class="skip-link" data-i18n="common.skip_to_main">Skip to main content</a>
 
 <nav class="navbar" role="navigation" aria-label="Main">
   <div class="container">
     <a href="index.html" class="nav-brand">
-      <span class="nav-brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l6 6-6 6"/><path d="M4 12h13"/></svg></span>
+      <span class="nav-brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 6l6 6-6 6"/><path d="M4 12h13"/></svg></span>
       ForgeLM
     </a>
-    <button class="nav-hamburger" data-i18n-attr="aria-label:common.btn.menu" aria-label="Menu" aria-expanded="false" aria-controls="primary-nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+    <button class="nav-hamburger" data-i18n-attr="aria-label:common.btn.menu" aria-label="Menu" aria-expanded="false" aria-controls="primary-nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
     <ul class="nav-menu" id="primary-nav">
       <li><a href="index.html" data-i18n="common.nav.home">Home</a></li>
       <li><a href="features.html" data-i18n="common.nav.features">Features</a></li>
@@ -46,9 +95,9 @@
     <div class="nav-actions">
       <div class="lang-toggle">
         <button class="lang-toggle-btn" type="button" aria-haspopup="true" aria-expanded="false" data-i18n-attr="aria-label:common.btn.lang" aria-label="Language">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10"/><path d="M12 2a15 15 0 0 0-4 10 15 15 0 0 0 4 10"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10"/><path d="M12 2a15 15 0 0 0-4 10 15 15 0 0 0 4 10"/></svg>
           <span class="lang-toggle-current">EN</span>
-          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
         <ul class="lang-toggle-menu">
           <li><button data-set-lang="en" type="button">English</button></li>
@@ -60,13 +109,15 @@
         </ul>
       </div>
       <button class="theme-toggle" type="button" data-i18n-attr="aria-label:common.btn.theme" aria-label="Toggle theme" aria-pressed="false">
-        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
       </button>
     </div>
   </div>
 </nav>
 
+
+  <main id="main-content">
 <header class="page-header">
   <div class="container">
     <span class="eyebrow" data-i18n="quickstart.header.eyebrow">From zero to fine-tuned</span>
@@ -99,18 +150,18 @@
           <a href="#manual-steps" class="btn btn-ghost" data-i18n="quickstart.spotlight.cta_secondary">Or follow the 5-step guide</a>
         </div>
         <div class="wizard-spotlight-meta">
-          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
             <span data-i18n="quickstart.spotlight.meta1">7 guided steps</span></span>
-          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
             <span data-i18n="quickstart.spotlight.meta2">Live YAML preview</span></span>
-          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
             <span data-i18n="quickstart.spotlight.meta3">EU AI Act presets</span></span>
         </div>
       </div>
       <div class="wizard-spotlight-visual" aria-hidden="true">
         <div class="wizard-spotlight-stage">
           <div class="wizard-spotlight-stage-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
           </div>
           <div>
             <span class="wizard-spotlight-stage-label" data-i18n="quickstart.spotlight.stage1.label">Answer 7 questions</span>
@@ -118,11 +169,11 @@
           </div>
         </div>
         <div class="wizard-spotlight-arrow">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
         </div>
         <div class="wizard-spotlight-stage">
           <div class="wizard-spotlight-stage-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           </div>
           <div>
             <span class="wizard-spotlight-stage-label" data-i18n="quickstart.spotlight.stage2.label">Get a valid YAML</span>
@@ -130,11 +181,11 @@
           </div>
         </div>
         <div class="wizard-spotlight-arrow">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
         </div>
         <div class="wizard-spotlight-stage">
           <div class="wizard-spotlight-stage-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           </div>
           <div>
             <span class="wizard-spotlight-stage-label" data-i18n="quickstart.spotlight.stage3.label">Run it</span>
@@ -292,10 +343,10 @@
     </div>
 
     <!-- Wizard hint -->
-    <div class="container-narrow" style="margin-top: 4rem; padding: 0;">
-      <div class="cta-card" style="padding: 2rem;">
-        <h2 style="font-size: 1.4rem; margin-bottom:0.5rem;" data-i18n="quickstart.wizard.title">Prefer a guided wizard?</h2>
-        <p style="font-size: 0.95rem; margin-bottom:1.2rem;" data-i18n-html="quickstart.wizard.body">Skip the YAML — the in-browser wizard walks through trainer choice, model, dataset, LoRA rank, and evaluation gates, then writes a working config you can run with one command.</p>
+    <div class="container-narrow stack-narrow">
+      <div class="cta-card cta-card-compact">
+        <h2 class="quickstart-wizard-h2" data-i18n="quickstart.wizard.title">Prefer a guided wizard?</h2>
+        <p class="quickstart-wizard-p" data-i18n-html="quickstart.wizard.body">Skip the YAML — the in-browser wizard walks through trainer choice, model, dataset, LoRA rank, and evaluation gates, then writes a working config you can run with one command.</p>
         <div class="cta-actions">
           <button type="button" class="btn btn-primary" data-wizard-open data-i18n="quickstart.wizard.btn1">Launch the wizard</button>
           <a href="https://github.com/cemililik/ForgeLM#quick-start" target="_blank" rel="noopener" class="btn btn-secondary" data-i18n="quickstart.wizard.btn2">CLI version (forgelm --wizard)</a>
@@ -320,7 +371,7 @@
         <div class="wizard-progress-track">
           <div class="wizard-progress-fill" data-wizard-progress style="width: 0%"></div>
         </div>
-        <span class="wizard-progress-counter" data-wizard-counter>
+        <span class="wizard-progress-counter" data-wizard-counter aria-current="step" aria-live="polite">
           <span data-i18n="wizard.progress.step">Step</span>
           <span data-wizard-counter-current>1</span>
           <span data-i18n="wizard.progress.of">of</span>
@@ -373,16 +424,57 @@
   </div>
 </div>
 
+  </main>
+
 <footer class="footer">
   <div class="container">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-brand">
+          <span class="nav-brand-mark footer-brand-mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="footer-brand-icon" aria-hidden="true">
+              <path d="M14 6l6 6-6 6"/><path d="M4 12h13"/>
+            </svg>
+          </span>
+          ForgeLM
+        </div>
+        <p class="footer-desc" data-i18n="common.footer.brand_desc">Config-driven LLM fine-tuning toolkit.</p>
+      </div>
+
+      <div class="footer-col">
+        <h4 data-i18n="common.footer.product">Product</h4>
+        <ul>
+          <li><a href="features.html" data-i18n="common.nav.features">Features</a></li>
+          <li><a href="quickstart.html" data-i18n="common.nav.quickstart">Quickstart</a></li>
+          <li><a href="compliance.html" data-i18n="common.nav.compliance">Compliance</a></li>
+          <li><a href="https://pypi.org/project/forgelm/" target="_blank" rel="noopener">PyPI</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-col">
+        <h4 data-i18n="common.footer.community">Community</h4>
+        <ul>
+          <li><a href="https://github.com/cemililik/ForgeLM" target="_blank" rel="noopener">GitHub</a></li>
+          <li><a href="https://github.com/cemililik/ForgeLM/issues" target="_blank" rel="noopener" data-i18n="common.footer.issues">Issues</a></li>
+          <li><a href="https://github.com/cemililik/ForgeLM/discussions" target="_blank" rel="noopener" data-i18n="common.footer.discussions">Discussions</a></li>
+          <li><a href="https://github.com/cemililik/ForgeLM/releases" target="_blank" rel="noopener" data-i18n="common.footer.releases">Releases</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-col">
+        <h4 data-i18n="common.footer.legal">Legal</h4>
+        <ul>
+          <li><a href="privacy.html" data-i18n="common.footer.privacy">Privacy</a></li>
+          <li><a href="terms.html" data-i18n="common.footer.terms">Terms</a></li>
+          <li><a href="contact.html" data-i18n="common.footer.contact">Contact</a></li>
+          <li><a href="https://opensource.org/licenses/Apache-2.0" target="_blank" rel="noopener">Apache 2.0</a></li>
+        </ul>
+      </div>
+    </div>
+
     <div class="footer-bottom">
       <span>&copy; 2026 ForgeLM</span>
-      <span>
-        <a href="index.html" data-i18n="common.footer.home">Home</a> ·
-        <a href="privacy.html" data-i18n="common.footer.privacy">Privacy</a> ·
-        <a href="terms.html" data-i18n="common.footer.terms">Terms</a> ·
-        <a href="contact.html" data-i18n="common.footer.contact">Contact</a>
-      </span>
+      <span data-i18n="common.footer.tagline">Built for teams that ship into regulated environments.</span>
     </div>
   </div>
 </footer>

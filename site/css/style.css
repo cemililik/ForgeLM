@@ -2,9 +2,13 @@
    ForgeLM — Site Stylesheet
    Forge metaphor: ember orange + steel cyan
    Dark-first, vanilla CSS, no framework, no build step.
-   ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+   Note on fonts: Google Fonts CSS is loaded via a <link> tag in
+   each page's <head> (right after the preconnects). Loading via
+   HTML link is faster than CSS @import — the browser can fetch
+   the font CSS in parallel with style.css instead of waiting for
+   style.css to parse before discovering the @import.
+   ============================================================ */
 
 /* ── Tokens ──────────────────────────────────────────────── */
 :root {
@@ -73,7 +77,27 @@
   --glow-ember: 0 0 0 1px rgba(249,115,22,.35), 0 8px 32px rgba(249,115,22,.18);
   --glow-steel: 0 0 0 1px rgba(14,165,233,.35), 0 8px 32px rgba(14,165,233,.18);
   --transition: .22s cubic-bezier(.4,0,.2,1);
+  --transition-fast: .15s cubic-bezier(.4,0,.2,1);
   --transition-slow: .4s cubic-bezier(.4,0,.2,1);
+
+  /* Responsive breakpoints — canonical 4-tier scale.
+     Existing media queries in this file use a wider mix of breakpoint
+     values (480 / 560 / 600 / 720 / 880 / 900 / 980 / 1100 / 1180 /
+     1280) chosen for individual component layouts. We do NOT migrate
+     them en masse — that would risk subtle visual regressions. New
+     rules should reach for these tokens in CSS calc() / clamp()
+     contexts; @media queries still need literal values per CSS spec. */
+  --bp-sm: 480px;   /* small mobile */
+  --bp-md: 768px;   /* tablet portrait */
+  --bp-lg: 900px;   /* small desktop / wizard mobile cutoff */
+  --bp-xl: 1200px;  /* wide desktop */
+
+  /* Terminal/window-control dot colors — macOS-style red/yellow/green
+     used in the hero terminal mock + wizard YAML preview. Tokens only
+     so future surfaces can stay visually consistent. */
+  --dot-red:    #ff5f56;
+  --dot-yellow: #ffbd2e;
+  --dot-green:  #27c93f;
 }
 
 /* Light mode override */
@@ -101,6 +125,51 @@
   --pill-warn-bg:   #fef9c3;
   --pill-danger-fg: #7f1d1d;
   --pill-danger-bg: #fee2e2;
+}
+
+/* ── Wizard storage-unavailable banner ───────────────────────
+   Painted only when localStorage save fails (private-mode, quota,
+   blocked storage). Uses role="status" + aria-live="polite" so a
+   screen reader announces it without trapping focus. */
+.wizard-storage-warn {
+  position: absolute;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 110;
+  max-width: min(560px, calc(100% - 2rem));
+  padding: 0.7rem 1rem;
+  background: var(--pill-warn-bg, #fef9c3);
+  color: var(--pill-warn-fg, #713f12);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--warn, #d97706);
+  font-size: 0.85rem;
+  box-shadow: var(--shadow);
+}
+
+/* ── Skip to main content (a11y, WCAG 2.4.1 Bypass Blocks) ─── */
+/* Visually hidden until focused. First Tab on any page reveals
+   the link as a banner above the navbar so keyboard users can
+   jump past nav into the page's <main>. */
+.skip-link {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 200;
+  padding: 0.6rem 1rem;
+  background: var(--ember);
+  color: #fff;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  transform: translateY(-200%);
+  transition: transform var(--transition);
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 /* ── Reset ───────────────────────────────────────────────── */
@@ -197,6 +266,59 @@ section { padding: 5rem 0; }
 }
 
 .text-center { text-align: center; }
+.text-center-mt {
+  text-align: center;
+  margin-top: 2rem;
+}
+
+/* ── Section + container utilities — extracted from inline ``style=""``
+   attributes that previously lived in HTML. The class names describe
+   the design intent (alternate-band section, full-bleed container,
+   compact CTA card) so future authors don't reach for inline styles.
+*/
+.section-alt {
+  background: var(--bg-alt);
+}
+.container-flush {
+  padding-left: 0;
+  padding-right: 0;
+}
+.stack-narrow {
+  margin-top: 4rem;
+  padding: 0;
+}
+.cta-card-compact {
+  padding: 2rem;
+}
+
+/* Quickstart wizard CTA inside the manual 5-step page — compact h2 +
+   lead so it sits comfortably below the steps without dwarfing them. */
+.quickstart-wizard-h2 {
+  font-size: 1.4rem;
+  margin-bottom: 0.5rem;
+}
+.quickstart-wizard-p {
+  font-size: 0.95rem;
+  margin-bottom: 1.2rem;
+}
+
+/* Compliance page closing remark linking to the audit cookbook. */
+.compliance-cookbook {
+  margin-top: 2rem;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Contact page hero strip + form intro. */
+.contact-section { padding-top: 3rem; }
+.contact-form-intro {
+  font-size: 0.9rem;
+  margin-bottom: 1.4rem;
+}
+
+/* Compliance page article-grid wrapper that needs a small upper gap. */
+.legal-content-mt { margin-top: 1rem; }
 .text-gradient {
   background: linear-gradient(135deg, var(--ember) 0%, var(--steel) 100%);
   -webkit-background-clip: text;
@@ -289,7 +411,7 @@ section { padding: 5rem 0; }
   color: var(--text-secondary);
   font-size: 0.92rem;
   font-weight: 500;
-  transition: all var(--transition);
+  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
 }
 .nav-menu a:hover, .nav-menu a.active {
   color: var(--text);
@@ -321,7 +443,7 @@ section { padding: 5rem 0; }
   font: 600 0.78rem var(--font-sans);
   color: var(--text);
   cursor: pointer;
-  transition: all var(--transition);
+  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
 }
 .lang-toggle-btn:hover {
   border-color: var(--ember);
@@ -361,7 +483,7 @@ section { padding: 5rem 0; }
   font: 500 0.88rem var(--font-sans);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all var(--transition);
+  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
 }
 .lang-toggle-menu button:hover {
   background: var(--bg-elev);
@@ -382,7 +504,7 @@ section { padding: 5rem 0; }
   place-items: center;
   cursor: pointer;
   color: var(--text-secondary);
-  transition: all var(--transition);
+  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
 }
 .theme-toggle:hover {
   color: var(--ember-bright);
@@ -443,7 +565,7 @@ section { padding: 5rem 0; }
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: all var(--transition);
+  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
   white-space: nowrap;
   line-height: 1.2;
 }
@@ -502,7 +624,7 @@ section { padding: 5rem 0; }
   background:
     radial-gradient(ellipse at 30% 40%, rgba(249,115,22,.18), transparent 55%),
     radial-gradient(ellipse at 70% 60%, rgba(14,165,233,.14), transparent 55%);
-  filter: blur(40px);
+  filter: blur(24px);
   pointer-events: none;
   z-index: 0;
 }
@@ -561,9 +683,16 @@ section { padding: 5rem 0; }
   50% { opacity: .35; }
 }
 
-.hero h1 {
+/* Hero-slide titles share the same visual treatment regardless of tag.
+   Slide 1 uses <h1> (the page's primary heading); slides 2 + 3 use <h2>
+   so each page has exactly one h1 — required for SEO + WCAG heading
+   hierarchy. The font-size scale collapses h1 + h2 to identical values
+   in this slot. */
+.hero h1,
+.hero h2 {
   margin-bottom: 1.2rem;
   letter-spacing: -0.03em;
+  font-size: clamp(2rem, 5vw, 3.25rem);
 }
 
 .hero-lead {
@@ -825,9 +954,9 @@ section { padding: 5rem 0; }
   height: 11px;
   border-radius: 50%;
 }
-.terminal-bar .dot.r { background: #ff5f56; }
-.terminal-bar .dot.y { background: #ffbd2e; }
-.terminal-bar .dot.g { background: #27c93f; }
+.terminal-bar .dot.r { background: var(--dot-red); }
+.terminal-bar .dot.y { background: var(--dot-yellow); }
+.terminal-bar .dot.g { background: var(--dot-green); }
 
 .terminal-body {
   padding: 1.2rem 1.3rem;
@@ -921,7 +1050,7 @@ section { padding: 5rem 0; }
   padding: 1.2rem 1rem;
   text-align: center;
   position: relative;
-  transition: all var(--transition);
+  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
   cursor: default;
 }
 .pipeline-stage:hover {
@@ -966,7 +1095,7 @@ section { padding: 5rem 0; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1.6rem;
-  transition: all var(--transition);
+  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
   position: relative;
   overflow: hidden;
 }
@@ -1158,7 +1287,7 @@ section { padding: 5rem 0; }
   border-radius: 4px;
   cursor: pointer;
   font: 500 0.72rem var(--font-mono);
-  transition: all var(--transition);
+  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
   min-height: 32px;
 }
 .copy-btn:hover { color: var(--ember-bright); border-color: var(--ember); }
@@ -1179,7 +1308,7 @@ section { padding: 5rem 0; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1.4rem;
-  transition: all var(--transition);
+  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
   position: relative;
 }
 .article-card:hover {
@@ -1296,7 +1425,7 @@ section { padding: 5rem 0; }
   background:
     radial-gradient(ellipse at 30% 50%, rgba(249,115,22,.2), transparent 60%),
     radial-gradient(ellipse at 70% 50%, rgba(14,165,233,.18), transparent 60%);
-  filter: blur(40px);
+  filter: blur(24px);
   pointer-events: none;
 }
 .cta-card > * { position: relative; z-index: 1; }
@@ -2479,7 +2608,7 @@ section { padding: 5rem 0; }
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   outline: none;
-  transition: all var(--transition);
+  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
 }
 .form-group input:focus,
 .form-group textarea:focus,
@@ -2530,7 +2659,7 @@ section { padding: 5rem 0; }
   padding: 1rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  transition: all var(--transition);
+  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
 }
 .channel-item:hover {
   background: var(--bg-elev);
@@ -2617,6 +2746,15 @@ section { padding: 5rem 0; }
   color: var(--text);
   margin-bottom: 0.8rem;
 }
+.footer-brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+.footer-brand-icon {
+  width: 14px;
+  height: 14px;
+}
 .footer-desc {
   font-size: 0.88rem;
   color: var(--text-muted);
@@ -2673,6 +2811,13 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
 }
 
 /* ── Print ──────────────────────────────────────────────── */
+/* ── Print stylesheet ────────────────────────────────────────
+   ``!important`` is industry-standard for print resets: the cascade
+   has already applied dark-theme tokens, animation surfaces, and
+   chrome backdrops, all of which need to be force-overridden for
+   paper output. A scoped-reset alternative would require either
+   sweeping selector duplication or a body[data-printing] hook —
+   both worse for maintenance than the explicit !important here. */
 @media print {
   .navbar, .nav-hamburger, .theme-toggle, .lang-toggle,
   .hero-terminal, .copy-btn, footer { display: none !important; }
@@ -2835,7 +2980,7 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
   border-radius: var(--radius-sm);
   border-left: 2px solid transparent;
   margin-left: -2px;
-  transition: all 0.15s ease;
+  transition: background-color, border-color, color, transform, box-shadow, opacity 0.15s ease;
   line-height: 1.4;
 }
 .guide-nav-section a:hover {
@@ -3162,7 +3307,7 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-card);
-  transition: all var(--transition);
+  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
   text-decoration: none !important;
   min-height: 70px;
 }
@@ -3241,7 +3386,7 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
   color: var(--text-muted);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  transition: all var(--transition);
+  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
 }
 .guide-edit:hover {
   color: var(--ember-bright);
@@ -3317,7 +3462,7 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
   color: var(--text);
   text-decoration: none;
   border-left: 3px solid transparent;
-  transition: all 0.12s ease;
+  transition: background-color, border-color, color, transform, box-shadow, opacity 0.12s ease;
 }
 .guide-search-results a:hover,
 .guide-search-results a.focused {
