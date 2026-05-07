@@ -27,7 +27,12 @@ The hash chain advances after the line lands on disk (`flush` + `fsync`), so an 
 
 | Event                      | When emitted                                                              | Payload (in addition to envelope)                                                        | Article |
 |----------------------------|---------------------------------------------------------------------------|------------------------------------------------------------------------------------------|---------|
+| `pipeline.initialized`     | `ForgeTrainer.__init__` finished wiring config + audit logger; emitted before any model load. | `trainer_type`, `model_name`, `output_dir` | 12 |
 | `training.started`         | Trainer begins a fine-tuning run.                                         | `trainer_type`, `model`, `dataset`, `config_path`                                        | 12      |
+| `training.oom_recovery`    | OOM recovery path halved `per_device_train_batch_size` and retried (mid-training event). | `original_batch_size`, `new_batch_size`, `attempt_index` | 12 / 15 |
+| `benchmark.evaluation_completed` | `lm-eval-harness` finished evaluating the configured benchmark suite. | `tasks`, `min_score`, `passed`, `metrics`              | 15 |
+| `safety.evaluation_completed`    | Safety evaluation finished (Llama Guard / ShieldGemma run).            | `safety_score`, `safe_ratio`, `passed`, `category_distribution` | 15 |
+| `judge.evaluation_completed`     | LLM-as-judge scoring finished.                                          | `judge_model`, `mean_score`, `min_score`, `passed`     | 15 |
 | `pipeline.completed`       | End-to-end CLI run (training + evaluation + export) returned exit code 0. | `exit_code`, `duration_seconds`, `success`, `metrics_summary`                            | 12      |
 | `pipeline.failed`          | Pipeline aborted with an error before completion.                         | `error`                                                                                  | 12      |
 
@@ -94,7 +99,6 @@ The hash chain advances after the line lands on disk (`flush` + `fsync`), so an 
 | Event                          | When emitted                                                                                      | Payload                              | Article |
 |--------------------------------|---------------------------------------------------------------------------------------------------|--------------------------------------|---------|
 | `audit.classifier_load_failed` | _(See Article 15 row above.)_                                                                     | `classifier`, `reason`               | 15      |
-| `audit.cross_run_continuity`   | First write of a second-or-later AuditLogger instance pointing at an existing log directory.      | `previous_chain_head`                | 12      |
 
 ## Adding a new event
 

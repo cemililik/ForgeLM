@@ -73,6 +73,7 @@ Tables grouped by concern. Every cell is a real attribute on the live `forgelm` 
 | `forgelm.detect_secrets` | Stable | `detect_secrets(text: str) -> list[SecretFinding]` | Standalone credential / API-key detector (AWS / GitHub / Slack / OpenAI / Google / JWT / private-key / Azure storage). |
 | `forgelm.mask_secrets` | Stable | `mask_secrets(text: str) -> str` | Mask detected secrets in place. |
 | `forgelm.compute_simhash` | Experimental | `compute_simhash(text: str) -> int` | 64-bit SimHash signature. Surface may collapse into a unified `compute_signature(method=...)` in a future release. |
+| `forgelm.compute_minhash` | Experimental | `compute_minhash(text: str, *, num_perm: int = 128) -> List[int]` | MinHash LSH signature for the `--dedup-method=minhash` audit path. Requires the optional `forgelm[ingestion-scale]` extra (datasketch). Same Experimental tier as `compute_simhash`; both may collapse into a unified `compute_signature(method=...)` API. |
 
 ### Compliance + audit log
 

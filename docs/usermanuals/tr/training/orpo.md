@@ -27,6 +27,12 @@ model:
   name_or_path: "Qwen/Qwen2.5-7B-Instruct"
   max_length: 4096
 
+lora:
+  r: 16
+  alpha: 32
+  method: "lora"
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+
 data:
   dataset_name_or_path: "data/preferences.jsonl"
 

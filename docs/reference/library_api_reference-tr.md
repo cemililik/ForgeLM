@@ -73,6 +73,7 @@ Best-effort. Şekil, major artış olmadan minor sürümde değişebilir. Çağr
 | `forgelm.detect_secrets` | Stable | `detect_secrets(text: str) -> list[SecretFinding]` | Bağımsız credential / API-key detektörü (AWS / GitHub / Slack / OpenAI / Google / JWT / private-key / Azure storage). |
 | `forgelm.mask_secrets` | Stable | `mask_secrets(text: str) -> str` | Tespit edilen secret'ları yerinde maskele. |
 | `forgelm.compute_simhash` | Experimental | `compute_simhash(text: str) -> int` | 64-bit SimHash imzası. Yüzey, gelecekte birleşik bir `compute_signature(method=...)` halinde toplanabilir. |
+| `forgelm.compute_minhash` | Experimental | `compute_minhash(text: str, *, num_perm: int = 128) -> List[int]` | `--dedup-method=minhash` audit yolu için MinHash LSH imzası. Opsiyonel `forgelm[ingestion-scale]` extra'sını (datasketch) gerektirir. `compute_simhash` ile aynı Experimental katman; ikisi de birleşik bir `compute_signature(method=...)` API'sinde toplanabilir. |
 
 ### Compliance + audit log
 

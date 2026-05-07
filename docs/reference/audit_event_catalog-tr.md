@@ -27,7 +27,12 @@ Hash zinciri, satır diske düştükten (`flush` + `fsync`) sonra ilerler; kirli
 
 | Event                      | Ne zaman emit edilir                                                            | Payload (zarfa ek olarak)                                                          | Madde |
 |----------------------------|---------------------------------------------------------------------------------|-------------------------------------------------------------------------------------|-------|
+| `pipeline.initialized`     | `ForgeTrainer.__init__` config + audit logger bağlantısını bitirdi; herhangi bir model yüklemeden önce yayılır. | `trainer_type`, `model_name`, `output_dir` | 12 |
 | `training.started`         | Trainer fine-tuning koşusunu başlatır.                                          | `trainer_type`, `model`, `dataset`, `config_path`                                  | 12    |
+| `training.oom_recovery`    | OOM kurtarma yolu `per_device_train_batch_size`'i yarıya indirip yeniden denedi (eğitim-arası event). | `original_batch_size`, `new_batch_size`, `attempt_index` | 12 / 15 |
+| `benchmark.evaluation_completed` | `lm-eval-harness` yapılandırılmış benchmark suite'inin değerlendirmesini bitirdi. | `tasks`, `min_score`, `passed`, `metrics` | 15 |
+| `safety.evaluation_completed`    | Güvenlik değerlendirmesi bitti (Llama Guard / ShieldGemma koşusu).             | `safety_score`, `safe_ratio`, `passed`, `category_distribution` | 15 |
+| `judge.evaluation_completed`     | LLM-as-judge skorlaması bitti.                                                  | `judge_model`, `mean_score`, `min_score`, `passed` | 15 |
 | `pipeline.completed`       | Uçtan uca CLI koşusu (eğitim + değerlendirme + dışa aktarma) 0 koduyla biter.   | `exit_code`, `duration_seconds`, `success`, `metrics_summary`                      | 12    |
 | `pipeline.failed`          | Pipeline tamamlanmadan bir hata ile iptal olur.                                 | `error`                                                                            | 12    |
 
@@ -94,7 +99,6 @@ Hash zinciri, satır diske düştükten (`flush` + `fsync`) sonra ilerler; kirli
 | Event                          | Ne zaman emit edilir                                                                                      | Payload                              | Madde |
 |--------------------------------|------------------------------------------------------------------------------------------------------------|--------------------------------------|-------|
 | `audit.classifier_load_failed` | _(Yukarıdaki Madde 15 satırına bakın.)_                                                                    | `classifier`, `reason`               | 15    |
-| `audit.cross_run_continuity`   | Mevcut bir log dizinine işaret eden ikinci-veya-sonraki AuditLogger örneğinin ilk yazımı.                  | `previous_chain_head`                | 12    |
 
 ## Yeni bir event eklemek
 
