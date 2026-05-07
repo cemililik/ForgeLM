@@ -46,7 +46,7 @@ fg-abc123def456   3h    2026-04-30T11:33:10+00:00  present
 fg-def456abc789   1d    2026-04-29T14:12:55+00:00  present
 ```
 
-Örnek JSON zarfı (per-summary alanları `_approvals.py:240-249` tarafından inşa edilir):
+Örnek JSON zarfı (per-summary alanları `_summarise_pending` tarafından inşa edilir):
 
 ```json
 {
@@ -98,7 +98,7 @@ Staging contents (4 entries):
   - tokenizer_config.json
 ```
 
-Örnek JSON zarfı (üst-düzey anahtarlar `_approvals.py:440-444` tarafından inşa edilir):
+Örnek JSON zarfı (üst-düzey anahtarlar `_emit_show_json` tarafından inşa edilir):
 
 ```json
 {
@@ -141,8 +141,8 @@ Alan notları:
 Kod 3 (`EXIT_EVAL_FAILURE`) ve 4 (`EXIT_AWAITING_APPROVAL`) bu subcommand'ın yüzeyinin parçası değildir.
 
 > **Asimetrik missing-log davranışı.**
-> - Eksik `audit_log.jsonl`'a karşı `--pending` boş bir pending listesiyle **0** döner — yeni bootstrap edilmiş bir output dizininin meşru olarak ikisi de yoktur (`_approvals.py:319-327`).
-> - Eksik `audit_log.jsonl`'a karşı `--show` **1** döner — gösterilecek bir koşum yok ve operatörün isteği spesifikti (`_approvals.py:458-463`).
+> - Eksik `audit_log.jsonl`'a karşı `--pending` boş bir pending listesiyle **0** döner — yeni bootstrap edilmiş bir output dizininin meşru olarak ikisi de yoktur (`_run_approvals_list_pending`).
+> - Eksik `audit_log.jsonl`'a karşı `--show` **1** döner — gösterilecek bir koşum yok ve operatörün isteği spesifikti (`_run_approvals_show`).
 >
 > Permission-denied (yokluğa kıyasla) ikisinde de aynı şekilde ele alınır: boş bir sonuç sessizce sunmak yerine açık bir hatayla exit 1.
 

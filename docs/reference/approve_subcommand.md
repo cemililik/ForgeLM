@@ -96,7 +96,7 @@ Codes 3 (`EXIT_EVAL_FAILURE`) and 4 (`EXIT_AWAITING_APPROVAL`) are not part of t
 
 ## JSON output envelope
 
-`approve` (success) — emitted by `_approve.py:468-477`:
+`approve` (success) — emitted by `_run_approve_cmd`:
 
 ```json
 {
@@ -108,7 +108,7 @@ Codes 3 (`EXIT_EVAL_FAILURE`) and 4 (`EXIT_AWAITING_APPROVAL`) are not part of t
 }
 ```
 
-`reject` (success) — emitted by `_approve.py:542-551`:
+`reject` (success) — emitted by `_run_reject_cmd`:
 
 ```json
 {

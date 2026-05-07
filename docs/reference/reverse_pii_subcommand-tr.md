@@ -79,13 +79,13 @@ Chain satırı **hash'li** identifier'ı kaydeder; böylece zincirin kendisi sub
 |---|---|
 | 0 | `EXIT_SUCCESS` — scan tamamlandı (matches listesi boş olabilir — Madde 15 "eşleşme yok"u geçerli yanıt olarak açıkça kabul eder). |
 | 1 | `EXIT_CONFIG_ERROR` — boş `--query`, hatalı `custom` regex, boş çözülmüş glob, `FORGELM_AUDIT_SECRET` set olmadan `--salt-source env_var`. |
-| 2 | `EXIT_TRAINING_ERROR` — mid-scan I/O başarısızlığı, izin reddedildi, ReDoS SIGALRM timeout ya da **explicit `--audit-dir` yazılamaz** (explicit form Madde 15 forensic kaydı sessizce düşmesin diye gürültülü reddeder — `_reverse_pii.py:537,573`). |
+| 2 | `EXIT_TRAINING_ERROR` — mid-scan I/O başarısızlığı, izin reddedildi, ReDoS SIGALRM timeout ya da **explicit `--audit-dir` yazılamaz** (explicit form Madde 15 forensic kaydı sessizce düşmesin diye gürültülü reddeder — `_maybe_audit_logger`). |
 
 Kod 3 (`EXIT_EVAL_FAILURE`) ve 4 (`EXIT_AWAITING_APPROVAL`) bu subcommand'ın yüzeyinin parçası değildir.
 
 ## JSON çıktı zarfı
 
-`--output-format json` ile scan stdout'a tam olarak bir JSON nesnesi yazdırır — `_reverse_pii.py:769-777`'den yayılır:
+`--output-format json` ile scan stdout'a tam olarak bir JSON nesnesi yazdırır — `_run_reverse_pii_cmd`'den yayılır:
 
 ```json
 {
@@ -115,7 +115,7 @@ Alan notları:
 - `query_hash` cleartext sorgunun salted SHA-256'sıdır. Cleartext zarfta yansıtılmaz, audit chain'e de yazılmaz.
 - `salt_source` ∈ `{plaintext, per_dir, env_var}` — burada `plaintext` "hash-mask scan yok" demek (varsayılan); `per_dir` / `env_var` `--salt-source` modunu yansıtır.
 
-Başarısız scan standart hata zarfını yayar (`_reverse_pii.py:107`):
+Başarısız scan standart hata zarfını yayar (`_output_error_and_exit`):
 
 ```json
 {"success": false, "error": "Glob 'data/*.jsonl' resolved to zero files."}

@@ -32,9 +32,9 @@ forgelm verify-audit [--hmac-secret-env VAR] [--require-hmac]
 | `0` | `EXIT_SUCCESS` — the SHA-256 chain (and HMAC tags, when verified) is intact end-to-end. |
 | `1` | `EXIT_CONFIG_ERROR` — covers **both** option/usage errors (missing log file, `--require-hmac` set with the env var unset, JSON decode error on a malformed line) **and** integrity failures (chain break, HMAC mismatch, manifest mismatch, missing `_hmac` line under `--require-hmac`) during the v0.5.5 stabilisation cycle. |
 
-> **Future deprecation note.** A dedicated `EXIT_VALIDATION_ERROR` / `EXIT_INTEGRITY_FAILURE` constant is on the v0.6.x backlog. Until then, treat any non-zero exit from `verify-audit` as "do not promote this build" in CI gates — the dispatcher does not currently distinguish option errors from integrity failures by code. The `_verify_audit.py` docstring (`forgelm/cli/subcommands/_verify_audit.py:18-27`) holds the authoritative contract.
+> **Future deprecation note.** A dedicated `EXIT_VALIDATION_ERROR` / `EXIT_INTEGRITY_FAILURE` constant is on the v0.6.x backlog. Until then, treat any non-zero exit from `verify-audit` as "do not promote this build" in CI gates — the dispatcher does not currently distinguish option errors from integrity failures by code. The `_verify_audit.py` docstring (`_run_verify_audit_cmd` docstring) holds the authoritative contract.
 
-The codes are emitted by the dispatcher at `forgelm/cli/subcommands/_verify_audit.py:41,45,56,63`.
+The codes are emitted by the dispatcher at `_run_verify_audit_cmd` (`forgelm/cli/subcommands/_verify_audit.py`).
 
 ## Audit events emitted
 

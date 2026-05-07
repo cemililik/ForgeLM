@@ -79,13 +79,13 @@ The chain row records the **hashed** identifier so the chain itself does not lea
 |---|---|
 | 0 | `EXIT_SUCCESS` — scan completed (the matches list may be empty — Article 15 explicitly accepts "no matches" as a valid answer). |
 | 1 | `EXIT_CONFIG_ERROR` — empty `--query`, malformed `custom` regex, empty resolved glob, `--salt-source env_var` with `FORGELM_AUDIT_SECRET` unset. |
-| 2 | `EXIT_TRAINING_ERROR` — mid-scan I/O failure, permission denied, ReDoS SIGALRM timeout, or **explicit `--audit-dir` unwritable** (the explicit form refuses loudly so the Article 15 forensic record is never silently dropped — `_reverse_pii.py:537,573`). |
+| 2 | `EXIT_TRAINING_ERROR` — mid-scan I/O failure, permission denied, ReDoS SIGALRM timeout, or **explicit `--audit-dir` unwritable** (the explicit form refuses loudly so the Article 15 forensic record is never silently dropped — `_maybe_audit_logger`). |
 
 Codes 3 (`EXIT_EVAL_FAILURE`) and 4 (`EXIT_AWAITING_APPROVAL`) are not part of this subcommand's surface.
 
 ## JSON output envelope
 
-With `--output-format json` the scan prints exactly one JSON object on stdout — emitted by `_reverse_pii.py:769-777`:
+With `--output-format json` the scan prints exactly one JSON object on stdout — emitted by `_run_reverse_pii_cmd`:
 
 ```json
 {
@@ -115,7 +115,7 @@ Field notes:
 - `query_hash` is the salted SHA-256 of the cleartext query. The cleartext is never echoed in the envelope nor written to the audit chain.
 - `salt_source` ∈ `{plaintext, per_dir, env_var}` — `plaintext` here means "no hash-mask scan" (the default); `per_dir` / `env_var` reflect the `--salt-source` mode.
 
-A failed scan emits the standard error envelope (`_reverse_pii.py:107`):
+A failed scan emits the standard error envelope (`_output_error_and_exit`):
 
 ```json
 {"success": false, "error": "Glob 'data/*.jsonl' resolved to zero files."}

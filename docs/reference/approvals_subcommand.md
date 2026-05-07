@@ -46,7 +46,7 @@ fg-abc123def456   3h    2026-04-30T11:33:10+00:00  present
 fg-def456abc789   1d    2026-04-29T14:12:55+00:00  present
 ```
 
-Sample JSON envelope (per-summary fields built by `_approvals.py:240-249`):
+Sample JSON envelope (per-summary fields built by `_summarise_pending`):
 
 ```json
 {
@@ -98,7 +98,7 @@ Staging contents (4 entries):
   - tokenizer_config.json
 ```
 
-Sample JSON envelope (top-level keys built by `_approvals.py:440-444`):
+Sample JSON envelope (top-level keys built by `_emit_show_json`):
 
 ```json
 {
@@ -141,8 +141,8 @@ Field notes:
 Codes 3 (`EXIT_EVAL_FAILURE`) and 4 (`EXIT_AWAITING_APPROVAL`) are not part of this subcommand's surface.
 
 > **Asymmetric missing-log behaviour.**
-> - `--pending` against a missing `audit_log.jsonl` returns **0** with an empty pending list — a freshly-bootstrapped output directory legitimately has neither (`_approvals.py:319-327`).
-> - `--show` against a missing `audit_log.jsonl` returns **1** — there is no run to show, and the operator's request was specific (`_approvals.py:458-463`).
+> - `--pending` against a missing `audit_log.jsonl` returns **0** with an empty pending list — a freshly-bootstrapped output directory legitimately has neither (`_run_approvals_list_pending`).
+> - `--show` against a missing `audit_log.jsonl` returns **1** — there is no run to show, and the operator's request was specific (`_run_approvals_show`).
 >
 > Permission-denied (vs missing) is treated identically by both: exit 1 with an explicit error rather than silently presenting an empty result.
 

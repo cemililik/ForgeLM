@@ -100,7 +100,7 @@ Altı event de [`audit_event_catalog.md`](audit_event_catalog.md)'deki ortak zar
 
 `--output-format json` ile her çağrı stdout'a tam olarak bir JSON nesnesi yazdırır. Şekil moda göre değişir — toplam üç zarf.
 
-**Row modu (başarı)** — `_purge.py:609-617`'den yayılır:
+**Row modu (başarı)** — `_perform_row_erasure_and_audit`'den yayılır:
 
 ```json
 {
@@ -117,7 +117,7 @@ Altı event de [`audit_event_catalog.md`](audit_event_catalog.md)'deki ortak zar
 
 `--dry-run` çağrılarında aynı zarf `dry_run: true` ile ve `bytes_freed` olmadan görünür (rewrite hiç olmaz).
 
-**Run modu (başarı)** — `_purge.py:805-811`'den yayılır:
+**Run modu (başarı)** — `_run_purge_run_id`'den yayılır:
 
 ```json
 {
@@ -132,7 +132,7 @@ Altı event de [`audit_event_catalog.md`](audit_event_catalog.md)'deki ortak zar
 
 `deleted` gerçekten silinen mutlak yolların **listesidir** (ya da `--dry-run`'da `would_delete` anahtarı aynı şekli taşır ve `deleted` yoktur).
 
-**`--check-policy` modu** — `_purge.py:993`'ten yayılır:
+**`--check-policy` modu** — `_run_purge_check_policy`'ten yayılır:
 
 ```json
 {
@@ -152,7 +152,7 @@ Altı event de [`audit_event_catalog.md`](audit_event_catalog.md)'deki ortak zar
 
 `age_source` ∈ `{audit_genesis, mtime}` — `audit_genesis` kanonik yaş (koşumun ilk audit event timestamp'i); `mtime` operatörün farkındalığı için işaretlenmiş filesystem fallback'i.
 
-**Hata zarfı (her mod)** — `_purge.py:101`:
+**Hata zarfı (her mod)** — `_output_error_and_exit`:
 
 ```json
 {

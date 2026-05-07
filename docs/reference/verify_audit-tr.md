@@ -32,9 +32,9 @@ forgelm verify-audit [--hmac-secret-env VAR] [--require-hmac]
 | `0` | `EXIT_SUCCESS` — SHA-256 zinciri (ve doğrulandığında HMAC etiketleri) uçtan uca bütün. |
 | `1` | `EXIT_CONFIG_ERROR` — v0.5.5 stabilizasyon dönemi boyunca **hem** seçenek/kullanım hatalarını (eksik log dosyası, `--require-hmac` setken env var unset, hatalı satırda JSON decode hatası) **hem** de bütünlük arızalarını (zincir kopması, HMAC uyuşmazlığı, manifest uyuşmazlığı, `--require-hmac` altında eksik `_hmac` satırı) kapsar. |
 
-> **Gelecek deprecation notu.** Ayrı bir `EXIT_VALIDATION_ERROR` / `EXIT_INTEGRITY_FAILURE` sabiti v0.6.x backlog'unda. O zamana kadar CI kapılarında `verify-audit`'ten gelen herhangi bir non-zero exit'i "bu yapımı promote etme" olarak kabul edin — dispatcher şu an seçenek hatalarını bütünlük arızalarından kod ile ayırt etmiyor. Yetkili sözleşme `_verify_audit.py` docstring'inde (`forgelm/cli/subcommands/_verify_audit.py:18-27`).
+> **Gelecek deprecation notu.** Ayrı bir `EXIT_VALIDATION_ERROR` / `EXIT_INTEGRITY_FAILURE` sabiti v0.6.x backlog'unda. O zamana kadar CI kapılarında `verify-audit`'ten gelen herhangi bir non-zero exit'i "bu yapımı promote etme" olarak kabul edin — dispatcher şu an seçenek hatalarını bütünlük arızalarından kod ile ayırt etmiyor. Yetkili sözleşme `_verify_audit.py` docstring'inde (`_run_verify_audit_cmd` docstring).
 
-Kodlar dispatcher tarafından `forgelm/cli/subcommands/_verify_audit.py:41,45,56,63` satırlarından emit edilir.
+Kodlar dispatcher tarafından `_run_verify_audit_cmd` (`forgelm/cli/subcommands/_verify_audit.py`) satırlarından emit edilir.
 
 ## Emit edilen audit event'leri
 

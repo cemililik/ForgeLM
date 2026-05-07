@@ -100,7 +100,7 @@ All six events ride the common envelope from [`audit_event_catalog.md`](audit_ev
 
 With `--output-format json` every invocation prints exactly one JSON object on stdout. The shape varies by mode — three envelopes in total.
 
-**Row mode (success)** — emitted by `_purge.py:609-617`:
+**Row mode (success)** — emitted by `_perform_row_erasure_and_audit`:
 
 ```json
 {
@@ -117,7 +117,7 @@ With `--output-format json` every invocation prints exactly one JSON object on s
 
 For `--dry-run` invocations the same envelope appears with `dry_run: true` and without `bytes_freed` (the rewrite never happens).
 
-**Run mode (success)** — emitted by `_purge.py:805-811`:
+**Run mode (success)** — emitted by `_run_purge_run_id`:
 
 ```json
 {
@@ -132,7 +132,7 @@ For `--dry-run` invocations the same envelope appears with `dry_run: true` and w
 
 `deleted` is a **list** of absolute paths actually removed (or, on `--dry-run`, the `would_delete` key carries the same shape and `deleted` is absent).
 
-**`--check-policy` mode** — emitted by `_purge.py:993`:
+**`--check-policy` mode** — emitted by `_run_purge_check_policy`:
 
 ```json
 {
@@ -152,7 +152,7 @@ For `--dry-run` invocations the same envelope appears with `dry_run: true` and w
 
 `age_source` ∈ `{audit_genesis, mtime}` — `audit_genesis` is the canonical age (run's first audit event timestamp); `mtime` is the filesystem fallback flagged for the operator's awareness.
 
-**Failure envelope (any mode)** — `_purge.py:101`:
+**Failure envelope (any mode)** — `_output_error_and_exit`:
 
 ```json
 {
