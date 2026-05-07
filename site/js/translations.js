@@ -307,6 +307,7 @@
   /* ── Home page (index.html) ──────────────────────────────── */
   Object.assign(T.en, {
     "meta.title.home":           "ForgeLM — Config-driven LLM fine-tuning toolkit",
+    "home.page_title": "ForgeLM — Config-driven LLM fine-tuning toolkit",
     "meta.desc.home":            "YAML-driven LLM fine-tuning with safety eval, EU AI Act compliance, and CI/CD-integrated design — for teams shipping into regulated environments.",
     "home.hero.badge":           "Open source · Apache 2.0 · v0.5.5",
     "home.hero.title":           "YAML in.<br><span class=\"text-gradient\">Fine-tuned model</span> out.",
@@ -407,6 +408,7 @@
 
   Object.assign(T.tr, {
     "meta.title.home":           "ForgeLM — Konfigürasyon odaklı LLM fine-tuning araç seti",
+    "home.page_title": "ForgeLM — YAML temelli LLM fine-tuning araç seti",
     "meta.desc.home":            "YAML temelli LLM fine-tuning — güvenlik değerlendirmesi, EU AI Act uyumu ve CI/CD entegrasyonuyla regülasyonlu ortamlara üretim çıkışı için.",
     "home.hero.badge":           "Açık kaynak · Apache 2.0 · v0.5.5",
     "home.hero.title":           "YAML gir.<br><span class=\"text-gradient\">Fine-tuned model</span> al.",
@@ -507,6 +509,7 @@
 
   Object.assign(T.de, {
     "meta.title.home":           "ForgeLM — Konfigurationsgesteuertes LLM-Fine-Tuning-Toolkit",
+    "home.page_title": "ForgeLM — Konfigurations­gesteuertes LLM-Fine-Tuning-Toolkit",
     "meta.desc.home":            "YAML-gesteuertes LLM-Fine-Tuning — mit Safety-Evaluation, EU-AI-Act-Compliance und CI/CD-Integration für regulierte Umgebungen.",
     "home.hero.badge":           "Open Source · Apache 2.0 · v0.5.5",
     "home.hero.title":           "YAML rein.<br><span class=\"text-gradient\">Fine-Tuned Modell</span> raus.",
@@ -607,6 +610,7 @@
 
   Object.assign(T.fr, {
     "meta.title.home":           "ForgeLM — Boîte à outils de fine-tuning LLM pilotée par configuration",
+    "home.page_title": "ForgeLM — Boîte à outils de fine-tuning LLM piloté par YAML",
     "meta.desc.home":            "Fine-tuning LLM piloté par YAML — évaluation safety, conformité EU AI Act et intégration CI/CD pour environnements régulés.",
     "home.hero.badge":           "Open source · Apache 2.0 · v0.5.5",
     "home.hero.title":           "Du YAML.<br>Un <span class=\"text-gradient\">modèle fine-tuné</span>.",
@@ -707,6 +711,7 @@
 
   Object.assign(T.es, {
     "meta.title.home":           "ForgeLM — Toolkit de fine-tuning de LLM basado en configuración",
+    "home.page_title": "ForgeLM — Toolkit de fine-tuning de LLM dirigido por YAML",
     "meta.desc.home":            "Fine-tuning de LLM dirigido por YAML — con evaluación de safety, cumplimiento EU AI Act e integración CI/CD para entornos regulados.",
     "home.hero.badge":           "Código abierto · Apache 2.0 · v0.5.5",
     "home.hero.title":           "YAML entra.<br><span class=\"text-gradient\">Modelo fine-tuned</span> sale.",
@@ -807,6 +812,7 @@
 
   Object.assign(T.zh, {
     "meta.title.home":           "ForgeLM — 基于配置的 LLM 微调工具包",
+    "home.page_title": "ForgeLM — YAML 驱动的 LLM 微调工具包",
     "meta.desc.home":            "YAML 驱动的 LLM 微调 — 集成安全评估、EU AI Act 合规和 CI/CD,面向受监管环境部署。",
     "home.hero.badge":           "开源 · Apache 2.0 · v0.5.5",
     "home.hero.title":           "输入 YAML。<br>输出<span class=\"text-gradient\">微调模型</span>。",

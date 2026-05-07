@@ -22,10 +22,19 @@
   });
 
   /* ── Helpers ──────────────────────────────────────── */
-  // tr() + tableForLang live in js/_shared.js so all four consumers
-  // (main.js, wizard.js, i18n.js, guide.js) use the same lookup. We
-  // hold a local alias here so the rest of the file reads naturally.
-  var tr = (window.ForgeLMShared && window.ForgeLMShared.tr) || function (k) { return k; };
+  // tr() + tableForLang live in js/_shared.js. ``main.js`` ships at
+  // end of <body> without defer, so its IIFE runs BEFORE the head's
+  // deferred ``_shared.js`` has executed — capturing the shared
+  // helper at IIFE-init time would freeze the identity fallback,
+  // and copy-button labels / form messages would render the raw key
+  // instead of a translated string. Use a lazy resolver that looks
+  // up the shared helper on each call (after _shared.js has loaded).
+  function tr(key) {
+    if (window.ForgeLMShared && typeof window.ForgeLMShared.tr === 'function') {
+      return window.ForgeLMShared.tr(key);
+    }
+    return key;
+  }
 
   /* ── Nav (mobile hamburger) ──────────────────────── */
   function initNav() {
@@ -249,6 +258,7 @@
       slides.forEach(function (s) {
         s.classList.add('is-active');
         s.removeAttribute('hidden');
+        s.removeAttribute('aria-hidden');
       });
       return;
     }
@@ -261,10 +271,17 @@
       slides.forEach(function (s, i) {
         var active = i === index;
         s.classList.toggle('is-active', active);
+        // Use aria-hidden + the existing CSS visibility/opacity rules
+        // instead of the [hidden] attribute (which forces display:none
+        // and short-circuits the 320ms fade transition). The HTML
+        // attribute ``hidden`` is removed once on init so any prerender
+        // state — e.g. server-side <article hidden> markers — can't
+        // override the CSS-driven transition.
+        if (s.hasAttribute('hidden')) s.removeAttribute('hidden');
         if (active) {
-          s.removeAttribute('hidden');
+          s.removeAttribute('aria-hidden');
         } else {
-          s.setAttribute('hidden', '');
+          s.setAttribute('aria-hidden', 'true');
         }
       });
       dots.forEach(function (d, i) {
@@ -318,9 +335,15 @@
       }
     });
 
-    // Pause on hover + focus, resume on leave + blur
+    // Pause on hover + focus, resume on leave + blur. ``mouseleave``
+    // alone isn't sufficient — a keyboard user reading a slide may
+    // be focused inside while the cursor leaves the slider, and we
+    // shouldn't yank the slide out from under them. Gate the resume
+    // on focus actually being outside.
     slider.addEventListener('mouseenter', stop);
-    slider.addEventListener('mouseleave', start);
+    slider.addEventListener('mouseleave', function () {
+      if (!slider.contains(document.activeElement)) start();
+    });
     slider.addEventListener('focusin', stop);
     slider.addEventListener('focusout', function (e) {
       // Only resume if focus actually left the slider entirely.

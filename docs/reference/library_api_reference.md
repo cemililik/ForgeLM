@@ -16,7 +16,7 @@ Three tiers govern the semver weight of every public symbol. A consumer that pin
 
 ### Stable
 
-Semver-protected. A breaking change to any signature below requires a major version bump (`__api_version__` MAJOR.MINOR — see [Versioning and deprecation policy](#versioning-and-deprecation-policy)). New optional parameters with defaults are non-breaking; renamed required parameters or removed return-shape fields are breaking.
+Semver-protected. A breaking change to any signature below requires a major version bump (`__api_version__` MAJOR.MINOR.PATCH — see [Versioning and deprecation policy](#versioning-and-deprecation-policy)). New optional parameters with defaults are non-breaking; renamed required parameters or removed return-shape fields are breaking.
 
 Stable symbols are documented here, are 100% type-hinted, have at least one integration test under `tests/test_library_api.py`, and follow the deprecation cadence (deprecate in `N`, keep working in `N+1`, remove in `N+2`).
 
@@ -37,7 +37,7 @@ Tables grouped by concern. Every cell is a real attribute on the live `forgelm` 
 | Symbol | Tier | Type | Description |
 |---|---|---|---|
 | `forgelm.__version__` | Stable | `str` | PEP 396/8 release version, derived from `importlib.metadata` (single source of truth = `pyproject.toml`). |
-| `forgelm.__api_version__` | Stable | `str` | Two-segment library-API version (`"MAJOR.MINOR"`). Bumped only when a stable-tier signature changes. Use for feature detection in downstream code. |
+| `forgelm.__api_version__` | Stable | `str` | Three-segment semver library-API version (`"MAJOR.MINOR.PATCH"`, e.g. `"1.0.0"`). Bumped per the rules in `forgelm/_version.py`: MAJOR for removed/signature-changed stable symbols, MINOR for new stable symbols, PATCH for implementation-only changes. Use for feature detection in downstream code. |
 
 ### Configuration
 
@@ -274,7 +274,7 @@ Two independent version strings:
 | `forgelm.__version__` | Every release (CLI fix, library fix, doc-only release) | Downstream pinning, audit manifest stamp |
 | `forgelm.__api_version__` | A stable-tier signature changes | Downstream feature detection |
 
-`__api_version__` is a two-segment string (`"0.5"`); patch-level changes to the library are by definition non-breaking, so no consumer needs to detect them.
+`__api_version__` is a three-segment semver string (`"1.0.0"` at v0.5.5 — first publication of the formal Phase 19 contract). Bump rules live in `forgelm/_version.py`: MAJOR on removed / signature-changed stable symbols, MINOR on new stable symbols, PATCH on implementation-only changes that don't touch the public surface.
 
 **Deprecation cadence** (per `docs/standards/release.md`):
 

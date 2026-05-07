@@ -357,7 +357,7 @@ ForgeLM is a single-node CLI; availability is dominantly deployer-side.
 | P2.1 Choice and consent | `evaluation.require_human_approval` Article 14 gate |
 | P3.1 Collection | `data.governance.personal_data_included` boolean; `dpia_completed` flag |
 | P3.2 Quality of personal data | `data_audit_report.json` quality stats |
-| P4.1 Use, retention, and disposal | `evaluation.approval_retention_days` + `forgelm purge --check-policy` retention audit |
+| P4.1 Use, retention, and disposal | `retention.staging_ttl_days` (canonical; legacy alias `evaluation.staging_ttl_days` forwards transparently during the v0.5.5 → v0.6.x deprecation window) + `forgelm purge --check-policy` retention audit |
 | P5.1 Access | `forgelm reverse-pii` Article 15 scan; salted query-hash in audit |
 | P5.2 Inquiries and complaints | (Deployer-side workflow) |
 | P6.1 Disclosure to third parties | `safe_post` webhook discipline; HMAC payload signing |

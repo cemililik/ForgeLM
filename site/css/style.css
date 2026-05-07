@@ -411,7 +411,7 @@ section { padding: 5rem 0; }
   color: var(--text-secondary);
   font-size: 0.92rem;
   font-weight: 500;
-  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
 .nav-menu a:hover, .nav-menu a.active {
   color: var(--text);
@@ -443,7 +443,7 @@ section { padding: 5rem 0; }
   font: 600 0.78rem var(--font-sans);
   color: var(--text);
   cursor: pointer;
-  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
 .lang-toggle-btn:hover {
   border-color: var(--ember);
@@ -483,7 +483,7 @@ section { padding: 5rem 0; }
   font: 500 0.88rem var(--font-sans);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
 .lang-toggle-menu button:hover {
   background: var(--bg-elev);
@@ -504,7 +504,7 @@ section { padding: 5rem 0; }
   place-items: center;
   cursor: pointer;
   color: var(--text-secondary);
-  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
 .theme-toggle:hover {
   color: var(--ember-bright);
@@ -565,7 +565,7 @@ section { padding: 5rem 0; }
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
   white-space: nowrap;
   line-height: 1.2;
 }
@@ -1050,7 +1050,7 @@ section { padding: 5rem 0; }
   padding: 1.2rem 1rem;
   text-align: center;
   position: relative;
-  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
   cursor: default;
 }
 .pipeline-stage:hover {
@@ -1095,7 +1095,7 @@ section { padding: 5rem 0; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1.6rem;
-  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
   position: relative;
   overflow: hidden;
 }
@@ -1287,7 +1287,7 @@ section { padding: 5rem 0; }
   border-radius: 4px;
   cursor: pointer;
   font: 500 0.72rem var(--font-mono);
-  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
   min-height: 32px;
 }
 .copy-btn:hover { color: var(--ember-bright); border-color: var(--ember); }
@@ -1308,7 +1308,7 @@ section { padding: 5rem 0; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1.4rem;
-  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
   position: relative;
 }
 .article-card:hover {
@@ -2329,9 +2329,11 @@ section { padding: 5rem 0; }
   border-radius: 999px;
   color: inherit;
   padding: 0.25rem 0.7rem;
+  /* ``font: inherit`` would clobber the explicit font-size; pull the
+     family from the parent explicitly while keeping the size local. */
+  font-family: inherit;
   font-size: 0.78rem;
   cursor: pointer;
-  font: inherit;
 }
 
 /* Collapsible accordion section inside a step pane. Used to group
@@ -2608,7 +2610,7 @@ section { padding: 5rem 0; }
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   outline: none;
-  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
 .form-group input:focus,
 .form-group textarea:focus,
@@ -2659,7 +2661,7 @@ section { padding: 5rem 0; }
   padding: 1rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
 .channel-item:hover {
   background: var(--bg-elev);
@@ -2980,7 +2982,7 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
   border-radius: var(--radius-sm);
   border-left: 2px solid transparent;
   margin-left: -2px;
-  transition: background-color, border-color, color, transform, box-shadow, opacity 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
   line-height: 1.4;
 }
 .guide-nav-section a:hover {
@@ -3307,7 +3309,7 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-card);
-  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
   text-decoration: none !important;
   min-height: 70px;
 }
@@ -3386,7 +3388,7 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
   color: var(--text-muted);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  transition: background-color, border-color, color, transform, box-shadow, opacity var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
 .guide-edit:hover {
   color: var(--ember-bright);
@@ -3462,7 +3464,7 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
   color: var(--text);
   text-decoration: none;
   border-left: 3px solid transparent;
-  transition: background-color, border-color, color, transform, box-shadow, opacity 0.12s ease;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
 }
 .guide-search-results a:hover,
 .guide-search-results a.focused {

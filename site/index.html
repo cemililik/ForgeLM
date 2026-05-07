@@ -132,10 +132,15 @@
 </nav>
 
 
-  <main id="main-content">
+  <main id="main-content" tabindex="-1">
 <!-- ═══════ Hero ═══════ -->
 <section class="hero">
   <div class="container">
+    <!-- Stable page H1 outside the slider so the document outline carries
+         exactly one h1 regardless of which slide is active. The slider's
+         per-slide titles are <h2>; the slide a non-default user lands on
+         (via dot click or rotation) won't strand the page without an h1. -->
+    <h1 class="sr-only" data-i18n="home.page_title">ForgeLM — Config-driven LLM fine-tuning toolkit</h1>
     <div class="hero-personas" data-hero-slider tabindex="-1" aria-roledescription="carousel" aria-label="ForgeLM positioning">
       <span class="hero-badge">
         <span class="dot"></span>
@@ -144,8 +149,8 @@
 
       <div class="hero-slides">
         <!-- Slide 1: Engineer (technical, default) -->
-        <article class="hero-slide is-active" data-slide-index="0" id="hero-slide-engineer" role="group" aria-roledescription="slide" aria-labelledby="hero-slide-engineer-title">
-          <h1 id="hero-slide-engineer-title" data-i18n-html="home.hero.engineer.title">YAML in.<br><span class="text-gradient">Fine-tuned model</span> out.</h1>
+        <article class="hero-slide is-active" data-slide-index="0" id="hero-slide-engineer" role="tabpanel" aria-roledescription="slide" aria-labelledby="hero-slide-engineer-title">
+          <h2 id="hero-slide-engineer-title" data-i18n-html="home.hero.engineer.title">YAML in.<br><span class="text-gradient">Fine-tuned model</span> out.</h2>
           <p class="hero-lead" data-i18n="home.hero.engineer.lead">ForgeLM is the config-driven LLM fine-tuning toolkit for teams that ship into regulated environments.</p>
           <div class="hero-actions">
             <a href="quickstart.html" class="btn btn-primary">
@@ -160,7 +165,7 @@
         </article>
 
         <!-- Slide 2: Beginner (no-YAML, wizard-led) -->
-        <article class="hero-slide" data-slide-index="1" id="hero-slide-beginner" role="group" aria-roledescription="slide" aria-labelledby="hero-slide-beginner-title" hidden>
+        <article class="hero-slide" data-slide-index="1" id="hero-slide-beginner" role="tabpanel" aria-roledescription="slide" aria-labelledby="hero-slide-beginner-title" aria-hidden="true">
           <h2 id="hero-slide-beginner-title" data-i18n-html="home.hero.beginner.title">No YAML?<br><span class="text-gradient">No problem.</span></h2>
           <p class="hero-lead" data-i18n="home.hero.beginner.lead">A guided wizard walks you through every choice — trainer, model, dataset, safety gates — and writes the YAML for you. No notebooks, no boilerplate, no fine-tuning expertise required.</p>
           <div class="hero-actions">
@@ -175,7 +180,7 @@
         </article>
 
         <!-- Slide 3: Compliance (regulated industry) -->
-        <article class="hero-slide" data-slide-index="2" id="hero-slide-compliance" role="group" aria-roledescription="slide" aria-labelledby="hero-slide-compliance-title" hidden>
+        <article class="hero-slide" data-slide-index="2" id="hero-slide-compliance" role="tabpanel" aria-roledescription="slide" aria-labelledby="hero-slide-compliance-title" aria-hidden="true">
           <h2 id="hero-slide-compliance-title" data-i18n-html="home.hero.compliance.title"><span class="text-gradient">EU AI Act</span> ready<br>by default.</h2>
           <p class="hero-lead" data-i18n="home.hero.compliance.lead">Every run produces an Annex IV bundle, a tamper-evident audit log, a Llama Guard safety report, and a model card — automatically. Built for teams that ship into healthcare, finance, and public sector.</p>
           <div class="hero-actions">
