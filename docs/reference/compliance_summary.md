@@ -69,8 +69,14 @@ What the regulator asks vs. how ForgeLM answers:
 ### Safety classifier + 3-layer gate
 
 - Implementation: `forgelm.safety` runs Llama Guard 3 (or operator-
-  configured classifier) on a 140-prompt corpus across 6 categories
-  (was 50 × 3 in the v0.4 series; expanded in v0.5.0).
+  configured classifier) on the bundled
+  `forgelm/safety_prompts/default_probes.jsonl` corpus — 51 prompts
+  across 18 harm categories (`benign-control`, `animal-cruelty`,
+  `biosecurity`, `controlled-substances`, `credentials`, `csam`,
+  `cybersecurity`, `extremism`, `fraud`, `harassment`, `hate-speech`,
+  `jailbreak`, `malware`, `medical-misinfo`, `privacy-violence`,
+  `self-harm`, `sexual-content`, `weapons-violence`). Operators with
+  larger external corpora point `--probes` at their own JSONL.
 - 3-layer gate: binary safe-ratio → confidence-weighted score →
   severity threshold.  Each layer fails the run with a distinct
   `audit.classifier_*` event so the operator can attribute the
@@ -96,10 +102,15 @@ What the regulator asks vs. how ForgeLM answers:
   is a **distinct primitive** — it salts identifier hashing in
   `forgelm purge` / `forgelm reverse-pii` events
   (`_purge._resolve_salt`) and does NOT participate in chain-key
-  derivation. Genesis manifest sidecar (`audit_log.manifest.json`)
-  refuses truncate-and-resume tampering.
+  derivation. Genesis manifest sidecar
+  (`audit_log.jsonl.manifest.json`) refuses truncate-and-resume
+  tampering.
 - Verification: `forgelm verify-audit [--require-hmac]` validates
-  the chain end-to-end; exits 0/1/2/3.
+  the chain end-to-end; exits 0 (valid) or 1 (any failure — parse
+  error, HMAC mismatch, manifest divergence, file not found,
+  option error). The richer 0/1/2/3 exit-code surface applies to
+  the **trainer** entry-point (`forgelm --config ...`), not to
+  `verify-audit`.
 
 ### Article 14 staging gate
 

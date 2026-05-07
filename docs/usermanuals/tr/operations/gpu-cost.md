@@ -1,6 +1,6 @@
 ---
 title: GPU Maliyet Tahmini
-description: 18 GPU profilinde otomatik tespit ve saatlik tarifenize göre koşu başı maliyet izleme.
+description: 16 GPU profilinde otomatik tespit ve saatlik tarifenize göre koşu başı maliyet izleme.
 ---
 
 # GPU Maliyet Tahmini

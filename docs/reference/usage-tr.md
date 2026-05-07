@@ -265,7 +265,7 @@ RoPE ölçekleme, NEFTune gürültü enjeksiyonu, kayan pencere dikkat ve örnek
 
 ```yaml
 training:
-  rope_scaling: "linear"              # "linear" veya "dynamic"
+  rope_scaling: {type: "linear", factor: 2.0}  # dict formu: type ∈ {"linear","dynamic","yarn","longrope"}, factor ≥ 1.0
   neftune_noise_alpha: 5.0            # Daha iyi genelleme için NEFTune gürültüsü
   sliding_window_attention: 4096      # Kayan pencere boyutu (token)
   sample_packing: true                # Kısa örnekleri tam uzunluklu dizilere paketle

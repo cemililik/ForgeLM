@@ -59,7 +59,7 @@ fg-def456abc789   1d    2026-04-29T14:12:55+00:00  present
       "requested_at": "2026-04-30T11:33:10+00:00",
       "age_seconds": 11340,
       "metrics": {"safety_score": 0.97, "judge_score": 8.4},
-      "config_hash": "sha256:9f2c…",
+      "config_hash": null,
       "reason": "require_human_approval=true"
     }
   ],
@@ -70,7 +70,7 @@ fg-def456abc789   1d    2026-04-29T14:12:55+00:00  present
 Alan notları:
 - `age_seconds` integer (clock skew güvencesi — hiç negatif olmaz; text renderer bunu tabloda `3h` / `1d` olarak biçimlendirir).
 - `staging_exists`, text `STAGING present|missing` hücresinin boolean karşılığı.
-- `config_hash`, `human_approval.required` event payload'ından doğrudan okunur (Phase 19 öncesi event'ler için legacy `config_fingerprint` anahtarına fallback yapar).
+- `config_hash`, `human_approval.required` event payload'ından forward-compatibly okunur (legacy `config_fingerprint` anahtarına fallback ile). **Mevcut trainer emisyonu henüz iki alanı da doldurmuyor**, bu yüzden renderer `--json` çıktısında `null`, text tablosunda boş hücre gösterir; read path bağlı, ileride bir emitter doc değişikliği olmadan alanı aydınlatabilir.
 
 ## `--show RUN_ID` ne yapar
 

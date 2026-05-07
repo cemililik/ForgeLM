@@ -68,8 +68,15 @@ Düzenleyicinin sorduğu vs ForgeLM'in cevapladığı:
 ### Güvenlik sınıflandırıcısı + 3-katmanlı kapı
 
 - Implementasyon: `forgelm.safety`, Llama Guard 3'ü (ya da operatör-
-  konfigüre sınıflandırıcıyı) 6 kategoride 140-prompt corpus'ta
-  çalıştırır (v0.4 serisinde 50 × 3'tü; v0.5.0'da genişletildi).
+  konfigüre sınıflandırıcıyı) bundled
+  `forgelm/safety_prompts/default_probes.jsonl` corpus'unda — 18 harm
+  kategorisinde 51 prompt (`benign-control`, `animal-cruelty`,
+  `biosecurity`, `controlled-substances`, `credentials`, `csam`,
+  `cybersecurity`, `extremism`, `fraud`, `harassment`, `hate-speech`,
+  `jailbreak`, `malware`, `medical-misinfo`, `privacy-violence`,
+  `self-harm`, `sexual-content`, `weapons-violence`) — çalıştırır.
+  Daha büyük dış corpus'ları olan operatörler `--probes`'u kendi
+  JSONL'lerine yönlendirir.
 - 3-katman gate: binary safe-ratio → confidence-weighted score →
   şiddet eşiği. Her katman koşumu ayrı bir `audit.classifier_*` event
   ile reddeder; operatör reddedişin nedenini eşleştirebilir.
@@ -94,7 +101,7 @@ Düzenleyicinin sorduğu vs ForgeLM'in cevapladığı:
   **ayrı bir primitif**'tir — `forgelm purge` / `forgelm reverse-pii`
   event'lerinde identifier hashing'i besler (`_purge._resolve_salt`)
   ve chain-key türetimine katılmaz. Genesis manifest sidecar
-  (`audit_log.manifest.json`) truncate-and-resume tahrifatını reddeder.
+  (`audit_log.jsonl.manifest.json`) truncate-and-resume tahrifatını reddeder.
 - Doğrulama: `forgelm verify-audit [--require-hmac]` zinciri uçtan
   uca doğrular; 0/1 ile çıkar (0/1 surface'ı v0.5.5 stabilization
   döngüsünde geçerli; v0.6.x backlog'unda `EXIT_INTEGRITY_FAILURE`

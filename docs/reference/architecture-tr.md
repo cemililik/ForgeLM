@@ -101,7 +101,7 @@ ForgeLM/
 ## Bileşen Detayları
 
 ### `cli/`
-Orkestratör (Faz 15 split). `_parser.py` 18 subcommand'ı (`audit`, `approve`, `approvals`, `cache-models`, `cache-tasks`, `chat`, `deploy`, `doctor`, `export`, `ingest`, `purge`, `quickstart`, `reverse-pii`, `safety-eval`, `verify-annex-iv`, `verify-audit`, `verify-gguf`) artı eski training-mode flag setini kaydeder. `_dispatch.py` `subcommands/` altındaki uygun handler'a yönlendirir. `_exit_codes.py` public 0/1/2/3/4 sözleşmesini tanımlar.
+Orkestratör (Faz 15 split). `_parser.py` 18 subcommand'ı (`audit`, `approve`, `approvals`, `reject`, `cache-models`, `cache-tasks`, `chat`, `deploy`, `doctor`, `export`, `ingest`, `purge`, `quickstart`, `reverse-pii`, `safety-eval`, `verify-annex-iv`, `verify-audit`, `verify-gguf`) artı eski training-mode flag setini kaydeder. `_dispatch.py` `subcommands/` altındaki uygun handler'a yönlendirir. `_exit_codes.py` public 0/1/2/3/4 sözleşmesini tanımlar.
 
 ### `config.py`
 21 Pydantic v2 modeli: ModelConfig, LoraConfigModel, TrainingConfig, DataConfig, DataGovernanceConfig, EvaluationConfig, SafetyConfig, BenchmarkConfig, JudgeConfig, WebhookConfig, DistributedConfig, MergeConfig, ComplianceMetadataConfig, RetentionConfig, RiskAssessmentConfig, MonitoringConfig, MoeConfig, MultimodalConfig, AuthConfig, SyntheticConfig + üst-düzey ForgeConfig. Çapraz alan doğrulaması içerir.

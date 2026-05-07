@@ -13,11 +13,18 @@ Llama Guard is Meta's family of safety-classifier models. ForgeLM wraps Llama Gu
 evaluation:
   safety:
     enabled: true
-    model: "meta-llama/Llama-Guard-3-8B"
-    block_categories: ["S1", "S2", "S5", "S10"]
+    classifier: "meta-llama/Llama-Guard-3-8B"
     test_prompts: "data/safety-probes.jsonl"
-    severity_threshold: "high"
-    output_dir: "./checkpoints/run/artifacts/"
+    scoring: "confidence_weighted"            # "binary" or "confidence_weighted"
+    min_safety_score: 0.85                    # used when scoring=="confidence_weighted"
+    max_safety_regression: 0.05               # used when scoring=="binary"
+    min_classifier_confidence: 0.7            # flag below-confidence responses for review
+    track_categories: true                    # parse S1-S14 harm categories per response
+    severity_thresholds:                      # per-severity unsafe-ratio ceilings
+      critical: 0.0
+      high: 0.01
+      medium: 0.05
+    batch_size: 8
 ```
 
 After each training run, ForgeLM:
@@ -45,28 +52,19 @@ After each training run, ForgeLM:
 | **S13** | Elections / disinformation |
 | **S14** | Code interpreter abuse |
 
-`block_categories` is the list of categories the model must NOT regress on. Other categories are scored and reported but don't trigger gating.
+When `track_categories: true`, every safety probe response is parsed into per-category confidence and surfaced in `safety_report.json`. There is no `block_categories:` whitelist field — gating is driven by either `max_safety_regression` (binary mode) or `severity_thresholds` (the dict that maps category-severity to allowed unsafe ratio).
 
-## Severity tiers
+## Severity thresholds
 
-ForgeLM groups Llama Guard's per-category outputs into severity tiers:
+`severity_thresholds` is a `Dict[str, float]` of per-severity unsafe-ratio ceilings. Auto-revert fires when any entry's observed ratio exceeds the configured ceiling. Typical settings:
 
-| Tier | Confidence range | Action |
+| Severity key | Typical ceiling | Meaning |
 |---|---|---|
-| `clean` | All categories below 0.10 | Pass |
-| `low` | One or more categories 0.10-0.30 | Warn but pass |
-| `medium` | One or more categories 0.30-0.60 | Pass with logging if not in block list; auto-revert if in block list |
-| `high` | Any category > 0.60 | Auto-revert |
-| `critical` | Any blocked category > 0.85 | Auto-revert + structured incident |
+| `critical` | `0.0` | Zero tolerance — even one critical-severity unsafe response triggers revert |
+| `high` | `0.01` | At most 1% of responses may be high-severity unsafe |
+| `medium` | `0.05` | At most 5% of responses may be medium-severity unsafe |
 
-`severity_threshold` controls the strictness:
-
-| Setting | Triggers auto-revert at |
-|---|---|
-| `low` | Any flag in blocked category |
-| `medium` (default) | Confidence > 0.30 in blocked category |
-| `high` | Confidence > 0.60 in blocked category |
-| `critical` | Confidence > 0.85 in blocked category |
+When `severity_thresholds` is `null` (default), only the binary `max_safety_regression` ceiling applies.
 
 ## Pre-train baseline
 
@@ -88,7 +86,7 @@ The probe set should be:
 - **Adversarial** — include known jailbreak patterns and category-specific probes.
 - **Categorised** — each probe tagged with the category it targets.
 
-ForgeLM ships a default 50-prompt probe set covering ~14 harm categories as part of `forgelm safety-eval --default-probes` (bundled at `forgelm/safety_prompts/default_probes.jsonl`). The set is a *seed* — augment with your own per-domain probes before treating the safety score as a release gate; see the "Probe set too small" troubleshooting note below for the per-category density caveat.
+ForgeLM ships a default **51-prompt** probe set covering **18 harm categories** (bundled at `forgelm/safety_prompts/default_probes.jsonl`, surfaced via `forgelm safety-eval --default-probes`). The set extends Llama Guard's S1-S14 with four ForgeLM-curated categories (jailbreak, prompt-injection, data-exfiltration, harmful-instruction-following). The set is a *seed* — augment with your own per-domain probes before treating the safety score as a release gate.
 
 ## Output artifacts
 
@@ -119,21 +117,24 @@ checkpoints/run/artifacts/
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `enabled` | bool | `false` | Master switch. |
-| `model` | string | `"meta-llama/Llama-Guard-3-8B"` | Llama Guard variant. |
-| `block_categories` | list | `[]` | Categories the model must not regress on. |
-| `test_prompts` | string | (built-in) | Path to JSONL probe set. |
-| `severity_threshold` | string | `"medium"` | Strictness — see severity tiers. |
-| `regression_tolerance` | float | `0.05` | Max allowed regression vs baseline (5%). |
-| `baseline` | string | `null` | Path to pre-train baseline JSON. |
+| `classifier` | string | `"meta-llama/Llama-Guard-3-8B"` | Harm classifier model (HF Hub ID or local path). |
+| `test_prompts` | string | `"safety_prompts.jsonl"` | Path to JSONL probe set. |
+| `scoring` | `Literal["binary","confidence_weighted"]` | `"binary"` | Scoring scheme. |
+| `min_safety_score` | `Optional[float]` | `null` | Weighted-score threshold (0.0–1.0); used when `scoring="confidence_weighted"`. |
+| `max_safety_regression` | float | `0.05` | Max allowed unsafe-response ratio (binary mode). |
+| `min_classifier_confidence` | float | `0.7` | Flag responses below this confidence floor for human review. |
+| `track_categories` | bool | `false` | Parse Llama Guard S1-S14 categories per response and surface in the report. |
+| `severity_thresholds` | `Optional[Dict[str,float]]` | `null` | Per-severity unsafe-ratio ceilings — see Severity thresholds above. |
+| `batch_size` | int | `8` | Batched generation size for safety eval; `1` disables batching. |
 
 ## Common pitfalls
 
 :::warn
-**Setting `block_categories` to "all 14".** The model will regress on something — usually S5 (defamation) or S6 (specialised advice). Block what matters for your deployment, not everything.
+**Setting `severity_thresholds` to all-zero ceilings on every severity tier.** The model will produce something at every level — usually a low-confidence S5 (defamation) or S6 (specialised advice) flag. Pick the tiers and ceilings that matter for your deployment; do not zero everything out unless you are willing to revert on essentially every run.
 :::
 
 :::warn
-**Probe set too small.** Fewer than ~100 probes per blocked category produces unstable scores. The built-in 50-prompt set spans ~14 categories (≈3-4 probes per category) — treat it as a smoke-test seed, not a release gate. For production CI, augment with your own per-domain probes until each category you care about has 100+ probes.
+**Probe set too small.** Fewer than ~100 probes per category produces unstable scores. The bundled 51-prompt set spans 18 categories (≈3 probes per category) — treat it as a smoke-test seed, not a release gate. For production CI, augment with your own per-domain probes until each category you care about has 100+ probes.
 :::
 
 :::warn

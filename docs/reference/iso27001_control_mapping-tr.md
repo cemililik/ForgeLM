@@ -106,7 +106,7 @@ SoA'sının uçtan uca auditable olması için tamlık adına listelenmiştir.
 | A.8.6 Kapasite yönetimi | FL-helps | `forgelm doctor` resource report; `resource_usage` manifest block |
 | A.8.7 Kötü amaçlı yazılıma karşı koruma | OOS | — |
 | A.8.8 Teknik zafiyetlerin yönetimi | FL-helps | SBOM; `pip-audit` nightly; `bandit` CI |
-| A.8.9 Yapılandırma yönetimi | FL | YAML Pydantic ile valide; `forgelm --dry-run`; `config_hash` (per-run manifest sidecar field) |
+| A.8.9 Yapılandırma yönetimi | FL | YAML Pydantic ile valide (`extra="forbid"` her config bloğunda); `forgelm --dry-run` eğitim yapmadan resolve + valide eder; `pipeline.training_started` audit event'lerinde pinned model + adapter SHA'ları |
 | A.8.10 Bilgi silme | FL | `forgelm purge` Madde 17; salted-hash audit; `data.erasure_warning_memorisation` |
 | A.8.11 Veri maskeleme | FL | `forgelm audit` regex + Presidio ML-NER |
 | A.8.12 Veri sızıntısı önleme | FL | `forgelm reverse-pii` plaintext residual scan |
@@ -118,7 +118,7 @@ SoA'sının uçtan uca auditable olması için tamlık adına listelenmiştir.
 | A.8.18 Ayrıcalıklı yardımcı program kullanımı | OOS | — |
 | A.8.19 Operasyonel sistemlerde yazılım kurulumu | FL-helps | `forgelm doctor` paketler; `pyproject.toml` pin'ler |
 | A.8.20 Ağ güvenliği | FL-helps | `safe_post` HTTPS-only / SSRF guard / no-redirect |
-| A.8.21 Ağ hizmetlerinin güvenliği | FL-helps | TLS-only webhooks; `FORGELM_AUDIT_SECRET` HMAC |
+| A.8.21 Ağ hizmetlerinin güvenliği | FL-helps | TLS-only webhooks (HTTPS + SSRF guard); audit-log chain HMAC `FORGELM_AUDIT_SECRET` üzerinden (not: webhook **gövdeleri** HMAC ile imzalanmaz) |
 | A.8.22 Ağ ayrımı | OOS | — |
 | A.8.23 Web filtreleme | OOS | — |
 | A.8.24 Kriptografi kullanımı | FL | SHA-256 + HMAC chain (per-run imzalama anahtarı = `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)`, bkz. `forgelm/compliance.py:104-114`); ayrıca purge / reverse-pii için salted SHA-256 identifier hashing |
@@ -126,10 +126,10 @@ SoA'sının uçtan uca auditable olması için tamlık adına listelenmiştir.
 | A.8.26 Uygulama güvenliği gereksinimleri | FL-helps | F-compliance-110 strict gate; ReDoS guard |
 | A.8.27 Güvenli sistem mimarisi ve mühendislik prensipleri | FL-helps | Append-only audit log mimarisi |
 | A.8.28 Güvenli kodlama | FL-helps | `docs/standards/coding.md`; type hints; CommonMark escaping |
-| A.8.29 Geliştirme ve kabul aşamasında güvenlik testi | FL-helps | `pytest` 1370+ test; `bandit` static analysis |
+| A.8.29 Geliştirme ve kabul aşamasında güvenlik testi | FL-helps | `pytest` ~1493 test; `bandit` static analysis |
 | A.8.30 Dış kaynaklı geliştirme | OOS | — |
 | A.8.31 Geliştirme, test ve üretim ortamlarının ayrılması | FL-helps | `forgelm --dry-run`; staging dir |
-| A.8.32 Değişim yönetimi | FL | `human_approval.*` chain; `config_hash` (per-run manifest sidecar field); staging snapshot |
+| A.8.32 Değişim yönetimi | FL | `human_approval.required/granted/rejected` audit zinciri; promotion'a kadar staging snapshot saklanır; `pipeline.training_started` diff için run-pinned model ve adapter revision'larını kaydeder |
 | A.8.33 Test bilgisi | FL-helps | `forgelm audit` test setlerinde de PII / secrets'i flag eder |
 | A.8.34 Denetim testi sırasında bilgi sistemlerinin korunması | OOS | — |
 

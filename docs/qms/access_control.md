@@ -218,19 +218,30 @@ jq -rs '
 
 ## 7. Webhook secret separation
 
-Webhook URLs and HMAC-signing keys belong in env, never in YAML:
+Webhook URLs belong in env, never in YAML:
 
 ```yaml
 webhook:
-  url_env: SLACK_WEBHOOK_URL          # resolved from env
-  secret_env: FORGELM_WEBHOOK_SECRET  # HMAC body sign
+  url_env: SLACK_WEBHOOK_URL   # resolved from env
   timeout: 10
 ```
 
-The webhook lifecycle events (`notify_start`, `notify_success`,
-`notify_failure`, `notify_reverted`, `notify_awaiting_approval` —
-Phase 8 vocabulary) carry the `FORGELM_OPERATOR` identity into the
-webhook payload so the receiving system (Slack, Teams, custom
+ForgeLM does **not** HMAC-sign webhook bodies — there is no
+`webhook.secret_env` field on `WebhookConfig` (see
+`forgelm/config.py:641`). Destination-side attribution falls to (a)
+HTTPS + URL-secrecy via `webhook.url_env`, (b) the
+`FORGELM_OPERATOR` identity carried inside the curated payload, and
+(c) the receiving system's own bearer-token / signed-request
+controls (Slack signing secret, Teams connector token).
+
+The webhook wire-format event vocabulary (5 events) is
+`training.start`, `training.success`, `training.failure`,
+`training.reverted`, and `approval.required` — Phase 8. The
+in-process notifier method names use the `notify_*` prefix
+(`notify_start`, `notify_success`, `notify_failure`,
+`notify_reverted`, `notify_awaiting_approval`) and dispatch to those
+five wire events. Every payload carries the `FORGELM_OPERATOR`
+identity so the receiving system (Slack, Teams, custom
 incident-management) can attribute the notification.
 
 ## 8. Verification checklist
@@ -245,7 +256,7 @@ For a deployer auditor walking access-control evidence:
 - [ ] KMS audit log shows `FORGELM_AUDIT_SECRET` rotation paired
       with a fresh `<output_dir>` provisioning event — every KMS
       rotation event must have a corresponding new
-      `<output_dir>/audit_log.manifest.json` genesis pin within the
+      `<output_dir>/audit_log.jsonl.manifest.json` genesis pin within the
       same KMS-event timestamp window. Rotations with no matching
       genesis pin (i.e. mid-output-dir rotations) break
       `forgelm verify-audit --require-hmac` for the cross-secret

@@ -29,7 +29,7 @@ contribution → deployer-side action.
 |---|---|---|---|
 | A.5.1 Policies for information security | YES | EU AI Act Art. 17 mandates QMS; ForgeLM audit-event vocabulary documents what's logged | Adopt org-wide ISMS policy referencing ForgeLM audit log |
 | A.5.2 Information security roles and responsibilities | YES | `roles_responsibilities.md` QMS template defines AI Officer / ML Lead / Data Steward / DPO | Adopt role definitions |
-| A.5.3 Segregation of duties | YES | `human_approval.required/granted` enforces trainer ≠ approver attribution | Configure CI runner identity ≠ human reviewer identity |
+| A.5.3 Segregation of duties | YES | `human_approval.required/granted` **records** the approver identity (sourced from `FORGELM_OPERATOR`) so trainer ≠ approver is auditable; ForgeLM does not itself reject self-approval | Configure CI runner identity ≠ human reviewer identity at the IdP level so the recorded identities cannot collide |
 | A.5.4 Management responsibilities | YES | `forgelm doctor`, `compliance_report.json` provide management-review artefacts | Monthly review cadence |
 | A.5.5 Contact with authorities | YES | EU AI Act Art. 73 serious-incident reporting | Maintain regulator contact list |
 | A.5.6 Contact with special interest groups | YES | ML safety / red-team community | Subscribe to relevant threat intel |
@@ -126,7 +126,7 @@ ForgeLM-specific control inventory.
 | A.8.18 Use of privileged utility programs | YES | OS-level privilege management | Adopt |
 | A.8.19 Installation of software on operational systems | YES | `forgelm doctor` reports installed packages; `pyproject.toml` pins; `pip install forgelm==X.Y.Z` | Package allowlist |
 | A.8.20 Networks security | YES | `safe_post` HTTPS-only / SSRF guard / no-redirect; `model.trust_remote_code=False` | Egress firewall |
-| A.8.21 Security of network services | YES | TLS-only webhooks; `FORGELM_AUDIT_SECRET` HMAC | TLS 1.2+ enforcement |
+| A.8.21 Security of network services | YES | TLS-only webhooks (HTTPS-only with SSRF guard); audit-log chain HMAC via `FORGELM_AUDIT_SECRET` (note: webhook **bodies** are not HMAC-signed — destination-side authenticity is the receiving system's responsibility) | TLS 1.2+ enforcement |
 | A.8.22 Segregation of networks | YES | VPC / subnet design | Adopt |
 | A.8.23 Web filtering | YES | Egress proxy | Adopt |
 | A.8.24 Use of cryptography | YES | SHA-256 + HMAC-SHA-256 (audit chain key = `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)`, see `forgelm/compliance.py:104-114`); separately, salted SHA-256 identifier hashing for `forgelm purge` / `forgelm reverse-pii` (`_purge._resolve_salt`, distinct concern — does not participate in chain-key derivation) | KMS for `FORGELM_AUDIT_SECRET` |
@@ -134,7 +134,7 @@ ForgeLM-specific control inventory.
 | A.8.26 Application security requirements | YES | F-compliance-110 strict gate; Pydantic validation; ReDoS guard in `_reverse_pii` | App-level threat modelling |
 | A.8.27 Secure system architecture and engineering principles | YES | Append-only audit log architecture; HMAC chain; lazy import; SSRF guard | Defence-in-depth |
 | A.8.28 Secure coding | YES | `docs/standards/coding.md`; type hints; CommonMark escaping in `_sanitize_md_list` | Custom-extension review |
-| A.8.29 Security testing in development and acceptance | YES | `pytest` 1370+ tests; `bandit` static analysis; `forgelm safety-eval` standalone gate | E2E security tests |
+| A.8.29 Security testing in development and acceptance | YES | `pytest` ~1493 tests; `bandit` static analysis; `forgelm safety-eval` standalone gate | E2E security tests |
 | A.8.30 Outsourced development | YES | Third-party-developer security | Adopt |
 | A.8.31 Separation of development, test and production environments | YES | `forgelm --dry-run`; staging dir; `evaluation.require_human_approval` | Separate pipelines |
 | A.8.32 Change management | YES | `human_approval.required/granted/rejected`; `config_hash` (per-run manifest sidecar field); staging snapshot | CAB process |

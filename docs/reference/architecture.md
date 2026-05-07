@@ -100,7 +100,7 @@ ForgeLM/
 ## Component Details
 
 ### `cli/`
-The orchestrator (Phase 15 split). `_parser.py` registers 18 subcommands (`audit`, `approve`, `approvals`, `cache-models`, `cache-tasks`, `chat`, `deploy`, `doctor`, `export`, `ingest`, `purge`, `quickstart`, `reverse-pii`, `safety-eval`, `verify-annex-iv`, `verify-audit`, `verify-gguf`) plus the legacy training-mode flag set. `_dispatch.py` routes to the appropriate handler in `subcommands/`. `_exit_codes.py` defines the public 0/1/2/3/4 contract.
+The orchestrator (Phase 15 split). `_parser.py` registers 18 subcommands (`audit`, `approve`, `approvals`, `reject`, `cache-models`, `cache-tasks`, `chat`, `deploy`, `doctor`, `export`, `ingest`, `purge`, `quickstart`, `reverse-pii`, `safety-eval`, `verify-annex-iv`, `verify-audit`, `verify-gguf`) plus the legacy training-mode flag set. `_dispatch.py` routes to the appropriate handler in `subcommands/`. `_exit_codes.py` defines the public 0/1/2/3/4 contract.
 
 ### `config.py`
 21 Pydantic v2 models providing strict validation for all YAML configuration. Includes cross-field validation (e.g., high-risk classification enforces safety evaluation). Config models cover: model, LoRA, training, data, evaluation, safety, benchmark, judge, webhook, distributed, merge, compliance, retention, risk assessment, monitoring, MoE, multimodal, data governance, and synthetic-data generation.

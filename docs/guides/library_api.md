@@ -96,8 +96,9 @@ result = trainer.train()
 
 # 4. Verify the audit chain after the run finishes — independent of
 #    success/failure. A reverted run still leaves a valid chain.
+output_dir = config.training.output_dir          # canonical: `training.output_dir`
 verification = verify_audit_log(
-    f"{result.output_dir}/audit_log.jsonl",
+    f"{output_dir}/audit_log.jsonl",             # audit_log.jsonl is at output_dir root, not under compliance/
     require_hmac=bool(os.environ.get("FORGELM_AUDIT_SECRET")),
 )
 if not verification.valid:
@@ -105,7 +106,9 @@ if not verification.valid:
 
 # 5. Emit your own pipeline-orchestrator-specific event into the same
 #    audit chain so the auditor can correlate ForgeLM run → orchestrator run.
-logger = AuditLogger(output_dir=result.output_dir, run_id=result.run_id)
+#    `AuditLogger.run_id` is auto-generated when omitted; reuse the same
+#    output_dir and the new event appends to the existing chain.
+logger = AuditLogger(output_dir=output_dir)
 logger.log_event(
     "training.completed",
     orchestrator="airflow",
@@ -187,7 +190,7 @@ audit_task = PythonOperator(
 ```python
 from forgelm import verify_annex_iv_artifact, verify_audit_log, verify_gguf
 
-bundle_path = "outputs/v0.5.5/annex-iv-bundle.zip"
+bundle_path = "outputs/v0.5.5/compliance/annex_iv_metadata.json"   # JSON manifest, not a ZIP
 gguf_path = "outputs/v0.5.5/model.q4_K_M.gguf"
 log_path = "outputs/v0.5.5/audit_log.jsonl"
 

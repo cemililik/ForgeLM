@@ -59,7 +59,7 @@ Sample JSON envelope (per-summary fields built by `_summarise_pending`):
       "requested_at": "2026-04-30T11:33:10+00:00",
       "age_seconds": 11340,
       "metrics": {"safety_score": 0.97, "judge_score": 8.4},
-      "config_hash": "sha256:9f2c…",
+      "config_hash": null,
       "reason": "require_human_approval=true"
     }
   ],
@@ -70,7 +70,7 @@ Sample JSON envelope (per-summary fields built by `_summarise_pending`):
 Field notes:
 - `age_seconds` is an integer (clock skew defends — never negative; the text renderer formats it as `3h` / `1d` for the table).
 - `staging_exists` is the boolean equivalent of the text `STAGING present|missing` cell.
-- `config_hash` is read directly off the `human_approval.required` event payload (falls back to the legacy `config_fingerprint` key when the event predates Phase 19).
+- `config_hash` is read forward-compatibly off the `human_approval.required` event payload (with a `config_fingerprint` legacy-key fallback). **Current trainer emission does not yet populate either field**, so the renderer surfaces `null` in the `--json` output and an empty cell in the text table; the read path is wired so a future emitter can light it up without a doc change.
 
 ## What `--show RUN_ID` does
 

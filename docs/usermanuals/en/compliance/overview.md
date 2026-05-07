@@ -33,20 +33,21 @@ flowchart TD
 
 ## What gets produced
 
-Every run that has `compliance.annex_iv: true` produces an artifacts directory:
+Any run with a populated `compliance:` block (specifically `compliance.risk_classification` plus `compliance.provider_name` / `compliance.intended_purpose`) emits the Article 11 technical documentation alongside the standard top-level audit log:
 
 ```text
-checkpoints/run/artifacts/
-├── annex_iv_metadata.json                  ← Article 11 — technical documentation
-├── audit_log.jsonl                ← Article 12 — append-only event log
-├── data_audit_report.json         ← Article 10 — data governance evidence
-├── safety_report.json             ← Article 9 + 15 — risk + safety assessment
-├── benchmark_results.json         ← Article 15 — accuracy
-├── conformity_declaration.md      ← Article 16 — declaration scaffold
-└── manifest.json                  ← SHA-256 over every artifact above
+checkpoints/run/
+├── audit_log.jsonl                ← Article 12 — append-only event log (top-level)
+├── audit_log.jsonl.manifest.json  ← genesis-pin sidecar (truncate-evidence)
+└── compliance/
+    ├── annex_iv_metadata.json     ← Article 11 — technical documentation (paired with `forgelm verify-annex-iv`)
+    ├── data_audit_report.json     ← Article 10 — data governance evidence
+    ├── safety_report.json         ← Article 9 + 15 — risk + safety assessment (when `evaluation.safety.enabled`)
+    ├── benchmark_results.json     ← Article 15 — accuracy (when `evaluation.benchmark.enabled`)
+    └── README.md                  ← Article 13 — HuggingFace-compatible model card
 ```
 
-This bundle is the deliverable for compliance reviews. Every file is hashed in `manifest.json` for tamper-evidence.
+There is **no** `compliance.annex_iv: true` knob — Annex IV emission is driven by the presence of `compliance.risk_classification` and a populated `compliance.provider_*` / `compliance.intended_purpose`. Likewise, ForgeLM does **not** generate a `conformity_declaration.md` — Article 16 conformity is the deployer's signed deliverable, not a code artefact. (`forgelm verify-annex-iv <path>/annex_iv_metadata.json` cross-checks the Annex IV bundle against the audit log, but it does not author a conformity declaration.)
 
 ## Articles ForgeLM addresses
 
@@ -79,14 +80,19 @@ Set in your YAML:
 
 ```yaml
 compliance:
-  annex_iv: true
-  data_audit_artifact: "./audit/data_audit_report.json"
-  human_approval: true                # optional Article 14 gate
+  provider_name: "Acme Corp"
+  provider_contact: "compliance@acme.example"
+  system_name: "TR Telecom Support Assistant"
   intended_purpose: "Customer-support assistant for Turkish telecom"
-  risk_classification: "high-risk"    # or "minimal", "limited", etc.
-  deployment_geographies: ["TR", "EU"]
-  responsible_party: "Acme Corp <compliance@acme.example>"
+  known_limitations: "Not for medical, legal, or financial advice."
+  system_version: "v1.0.0"
+  risk_classification: "high-risk"    # one of: unknown | minimal-risk | limited-risk | high-risk | unacceptable
+
+evaluation:
+  require_human_approval: true        # optional Article 14 gate (NOT compliance.human_approval)
 ```
+
+There is no `compliance.annex_iv`, `compliance.data_audit_artifact`, `compliance.human_approval`, `compliance.deployment_geographies`, or `compliance.responsible_party` field — those are phantom keys earlier drafts of this page invented. The canonical schema is `ComplianceMetadataConfig` in `forgelm/config.py:566`. To pin data-audit evidence, run `forgelm audit <corpus>` against the same `--output-dir` as the trainer; ForgeLM picks up the `data_audit_report.json` automatically.
 
 Every field from `compliance:` flows into `annex_iv_metadata.json`. Required fields are validated at config load — a missing `intended_purpose` fails `--dry-run`.
 

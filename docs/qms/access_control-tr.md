@@ -220,21 +220,30 @@ jq -rs '
 
 ## 7. Webhook secret ayrılığı
 
-Webhook URL'leri ve HMAC-imzalama anahtarları env'e ait, asla
-YAML'a değil:
+Webhook URL'leri env'e ait, asla YAML'a değil:
 
 ```yaml
 webhook:
-  url_env: SLACK_WEBHOOK_URL          # env'den resolve
-  secret_env: FORGELM_WEBHOOK_SECRET  # HMAC body sign
+  url_env: SLACK_WEBHOOK_URL   # env'den resolve
   timeout: 10
 ```
 
-Webhook lifecycle olayları (`notify_start`, `notify_success`,
-`notify_failure`, `notify_reverted`, `notify_awaiting_approval` —
-Phase 8 vocabulary) `FORGELM_OPERATOR` kimliğini webhook payload'a
-taşır böylece alıcı sistem (Slack, Teams, custom incident-management)
-bildirimi attribute edebilir.
+ForgeLM webhook gövdelerini HMAC ile **imzalamaz** — `WebhookConfig`
+üzerinde `webhook.secret_env` alanı yoktur (bkz.
+`forgelm/config.py:641`). Hedef-tarafı atıf (a) HTTPS +
+`webhook.url_env` üzerinden URL-gizliliğine, (b) curated payload
+içinde taşınan `FORGELM_OPERATOR` kimliğine, ve (c) alıcı sistemin
+kendi bearer-token / imzalı-istek kontrollerine (Slack signing
+secret, Teams connector token) düşer.
+
+Webhook wire-format olay sözlüğü (5 olay): `training.start`,
+`training.success`, `training.failure`, `training.reverted`,
+`approval.required` — Phase 8. In-process notifier metot adları
+`notify_*` öneki kullanır (`notify_start`, `notify_success`,
+`notify_failure`, `notify_reverted`, `notify_awaiting_approval`)
+ve bu beş wire olayına dispatch eder. Her payload `FORGELM_OPERATOR`
+kimliğini taşır böylece alıcı sistem (Slack, Teams, custom
+incident-management) bildirimi attribute edebilir.
 
 ## 8. Doğrulama checklist'i
 
@@ -248,7 +257,7 @@ Erişim-kontrolü kanıtını yürüyen operatör denetçi için:
 - [ ] KMS audit log'u `FORGELM_AUDIT_SECRET` rotasyonunu taze
       `<output_dir>` provisioning event'ı ile eşli gösteriyor — her
       KMS rotasyon event'ının aynı KMS-event zaman penceresi içinde
-      karşılık gelen yeni bir `<output_dir>/audit_log.manifest.json`
+      karşılık gelen yeni bir `<output_dir>/audit_log.jsonl.manifest.json`
       genesis pin'i olmak zorunda. Eşleşen genesis pin'i olmayan
       rotasyonlar (yani output-dir-ortası rotasyonlar) cross-secret
       aralık için `forgelm verify-audit --require-hmac`'i kırar.
@@ -259,8 +268,10 @@ Erişim-kontrolü kanıtını yürüyen operatör denetçi için:
       `.forgelm_audit_salt` `0600`.
 - [ ] Chain'de `FORGELM_OPERATOR=root` / `=admin` / `=unknown`
       eventi yok.
-- [ ] Webhook URL'leri ve HMAC anahtarları env-resolved (`url_env`,
-      `secret_env`); committed YAML'da plaintext URL yok.
+- [ ] Webhook URL'leri env-resolved (`url_env`); committed YAML'da
+      plaintext URL yok. (ForgeLM webhook gövdelerini HMAC ile
+      imzalamaz; bu yüzden `secret_env` alanı yok — hedef-taraf
+      kontrollerini alıcı sistem yönetir.)
 
 ## 9. İnceleme
 

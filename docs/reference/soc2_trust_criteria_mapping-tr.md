@@ -36,7 +36,7 @@ kategoriler engagement-bazında scoplanır.
 | CC3.1 | Uygun hedefler belirler | `compliance.intended_purpose`; risk classification |
 | CC3.2 | Riskleri tanımlar ve analiz eder | `risk_assessment` Pydantic block; safety eval; `risk_treatment_plan.md` |
 | CC3.3 | Sahtekarlık risklerini değerlendirir | Audit log tamper-evidence; HMAC chain; manifest sidecar |
-| CC3.4 | Değişimleri tanımlar ve değerlendirir | `human_approval.required` gate; `config_hash` (per-run manifest sidecar field) |
+| CC3.4 | Değişimleri tanımlar ve değerlendirir | `human_approval.required` kapısı; `pipeline.training_started` audit event'i diff için run-pinned model + adapter SHA'larını kaydeder |
 | CC4.1 | Değerlendirmeleri seçer, geliştirir, gerçekleştirir | `forgelm verify-audit`; `forgelm safety-eval` |
 | CC4.2 | İç kontrol eksikliklerini iletir | `pipeline.failed`/`reverted`/`erasure_failed` olayları |
 | CC5.1 | Kontrol aktivitelerini seçer, geliştirir | F-compliance-110 strict gate; auto-revert; staging |
@@ -78,7 +78,7 @@ Güçlü ForgeLM katkısı.
 | PI1.1 Girdi kalitesi | `compute_dataset_fingerprint`; `data_governance_report` |
 | PI1.2 Sistem işleme | `forgelm verify-audit`; `data_audit_report.json` |
 | PI1.3 Çıktıların doğruluğu | `model_integrity.json` SHA-256 checksums; `model_card.md` |
-| PI1.4 Girdilerin izlenebilirliği | `_describe_adapter_method`; `pipeline.config_hash`; HF-revision pin |
+| PI1.4 Girdilerin izlenebilirliği | `_describe_adapter_method`; `pipeline.training_started` event payload (model SHA, adapter SHA, dataset fingerprint); HF-revision pin |
 | PI1.5 Çıktıların izlenebilirliği | Annex IV bundle manifest + report + audit + integrity'i co-locate eder |
 
 ## Confidentiality (C1.x)

@@ -24,7 +24,7 @@ Aşağıdaki ForgeLM-ürettiği asset sınıfları:
 |---|---|---|
 | Model ağırlıkları — final | `<output_dir>/final_model/` | Eğitim verisi memorisation; rekabetçi moat |
 | Model ağırlıkları — staging | `<output_dir>/staging_model.<run_id>/` | Final ile aynı, artı pre-approval state |
-| Audit log | `<output_dir>/audit_log.jsonl` + `.manifest.json` + `.sha256` sidecar | Operatör kimliği geçmişi; yapılandırma hashleri; uyumluluk için chain-of-custody |
+| Audit log | `<output_dir>/audit_log.jsonl` + `audit_log.jsonl.manifest.json` (genesis pin) | Operatör kimliği geçmişi; yapılandırma hashleri; uyumluluk için chain-of-custody — satır-seviyesi bütünlük per-line `_hmac` + `prev_hash` ile in-band'dir, ayrı bir `.sha256` sidecar yok |
 | Per-output-dir salt | `<output_dir>/.forgelm_audit_salt` | Düşük-entropi identifier'ların salt'sız SHA-256'sı brute-force edilebilir — salt audit hash'ine wordlist direnci veren secret'tir |
 | Eğitim corpusu | (operatör-tedarikli; tipik olarak `data/*.jsonl`) | PII; ticari sırlar; müşteri verisi |
 | Quickstart-rendered config | (operatör path'i) | HF token'ları, webhook URL'leri, secret env-var isimleri |

@@ -33,20 +33,21 @@ flowchart TD
 
 ## Üretilen şeyler
 
-`compliance.annex_iv: true` olan her koşu artifacts dizini üretir:
+`compliance:` bloğu doldurulmuş herhangi bir koşu (özellikle `compliance.risk_classification` artı `compliance.provider_name` / `compliance.intended_purpose`) standart top-level audit log'un yanında Madde 11 teknik dokümantasyonunu yayınlar:
 
 ```text
-checkpoints/run/artifacts/
-├── annex_iv_metadata.json                  ← Madde 11 — teknik dokümantasyon
-├── audit_log.jsonl                ← Madde 12 — append-only event log
-├── data_audit_report.json         ← Madde 10 — veri yönetimi kanıtı
-├── safety_report.json             ← Madde 9 + 15 — risk + güvenlik
-├── benchmark_results.json         ← Madde 15 — doğruluk
-├── conformity_declaration.md      ← Madde 16 — beyan iskeleti
-└── manifest.json                  ← Yukarıdaki her artifact üzerinde SHA-256
+checkpoints/run/
+├── audit_log.jsonl                ← Madde 12 — append-only event log (top-level)
+├── audit_log.jsonl.manifest.json  ← genesis-pin sidecar (truncate-evidence)
+└── compliance/
+    ├── annex_iv_metadata.json     ← Madde 11 — teknik dokümantasyon (`forgelm verify-annex-iv` ile eşli)
+    ├── data_audit_report.json     ← Madde 10 — veri yönetişim kanıtı
+    ├── safety_report.json         ← Madde 9 + 15 — risk + güvenlik (when `evaluation.safety.enabled`)
+    ├── benchmark_results.json     ← Madde 15 — doğruluk (when `evaluation.benchmark.enabled`)
+    └── README.md                  ← Madde 13 — HuggingFace-uyumlu model card
 ```
 
-Bu paket compliance incelemeleri için teslim edilebilir. İçindeki her dosya `manifest.json`'da tamper-evidence için hashlenmiştir.
+`compliance.annex_iv: true` knob'ı **yoktur** — Annex IV emisyonu `compliance.risk_classification` ve doldurulmuş `compliance.provider_*` / `compliance.intended_purpose` varlığıyla sürülür. Aynı şekilde, ForgeLM `conformity_declaration.md` **üretmez** — Madde 16 uygunluk beyanı kod artifact'ı değil, deployer'ın imzaladığı teslim edilebilirdir. (`forgelm verify-annex-iv <yol>/annex_iv_metadata.json` Annex IV bundle'ını audit log'a karşı çapraz kontrol eder, ancak uygunluk beyanı yazmaz.)
 
 ## ForgeLM'in karşıladığı maddeler
 
@@ -79,16 +80,21 @@ YAML'da:
 
 ```yaml
 compliance:
-  annex_iv: true
-  data_audit_artifact: "./audit/data_audit_report.json"
-  human_approval: true                # opsiyonel Madde 14 kapısı
+  provider_name: "Acme Corp"
+  provider_contact: "compliance@acme.example"
+  system_name: "TR Telekom Destek Asistanı"
   intended_purpose: "Türk telekom için müşteri-destek asistanı"
-  risk_classification: "high-risk"
-  deployment_geographies: ["TR", "EU"]
-  responsible_party: "Acme Corp <compliance@acme.example>"
+  known_limitations: "Tıbbi, hukuki veya finansal tavsiye için değildir."
+  system_version: "v1.0.0"
+  risk_classification: "high-risk"    # şunlardan biri: unknown | minimal-risk | limited-risk | high-risk | unacceptable
+
+evaluation:
+  require_human_approval: true        # opsiyonel Madde 14 kapısı (`compliance.human_approval` DEĞİL)
 ```
 
-`compliance:` bloğundan her alan `annex_iv_metadata.json`'a akar. Gerekli alanlar config yüklenirken doğrulanır — eksik bir `intended_purpose` `--dry-run`'ı fail eder.
+`compliance.annex_iv`, `compliance.data_audit_artifact`, `compliance.human_approval`, `compliance.deployment_geographies` veya `compliance.responsible_party` alanı yoktur — bunlar bu sayfanın daha önceki taslaklarının uydurduğu phantom anahtarlardır. Kanonik şema `forgelm/config.py:566`'da `ComplianceMetadataConfig`'tir. Veri-audit kanıtını pinlemek için trainer'la aynı `--output-dir`'a karşı `forgelm audit <corpus>` çalıştırın; ForgeLM `data_audit_report.json`'u otomatik yakalar.
+
+`compliance:` bloğundan her alan `annex_iv_metadata.json`'a akar.
 
 ## Annex IV neyi içerir
 

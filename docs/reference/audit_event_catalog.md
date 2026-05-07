@@ -27,13 +27,13 @@ The hash chain advances after the line lands on disk (`flush` + `fsync`), so an 
 
 | Event                      | When emitted                                                              | Payload (in addition to envelope)                                                        | Article |
 |----------------------------|---------------------------------------------------------------------------|------------------------------------------------------------------------------------------|---------|
-| `pipeline.initialized`     | `ForgeTrainer.__init__` finished wiring config + audit logger; emitted before any model load. | `trainer_type`, `model_name`, `output_dir` | 12 |
-| `training.started`         | Trainer begins a fine-tuning run.                                         | `trainer_type`, `model`, `dataset`, `config_path`                                        | 12      |
-| `training.oom_recovery`    | OOM recovery path halved `per_device_train_batch_size` and retried (mid-training event). | `original_batch_size`, `new_batch_size`, `attempt_index` | 12 / 15 |
-| `benchmark.evaluation_completed` | `lm-eval-harness` finished evaluating the configured benchmark suite. | `tasks`, `min_score`, `passed`, `metrics`              | 15 |
-| `safety.evaluation_completed`    | Safety evaluation finished (Llama Guard / ShieldGemma run).            | `safety_score`, `safe_ratio`, `passed`, `category_distribution` | 15 |
-| `judge.evaluation_completed`     | LLM-as-judge scoring finished.                                          | `judge_model`, `mean_score`, `min_score`, `passed`     | 15 |
-| `pipeline.completed`       | End-to-end CLI run (training + evaluation + export) returned exit code 0. | `exit_code`, `duration_seconds`, `success`, `metrics_summary`                            | 12      |
+| `pipeline.initialized`     | `ForgeTrainer.__init__` finished wiring config + audit logger; emitted before any model load. | `model`, `trainer_type` | 12 |
+| `training.started`         | Trainer begins a fine-tuning run.                                         | _(no payload — envelope only)_                                                           | 12      |
+| `training.oom_recovery`    | OOM recovery path halved `per_device_train_batch_size` and retried (mid-training event). | `old_batch_size`, `new_batch_size`, `new_grad_accum` | 12 / 15 |
+| `benchmark.evaluation_completed` | `lm-eval-harness` finished evaluating the configured benchmark suite. | `passed`, `average`, `scores`                       | 15 |
+| `safety.evaluation_completed`    | Safety evaluation finished (Llama Guard / ShieldGemma run).            | `passed`, `safe_ratio`, `safety_score`, `categories` | 15 |
+| `judge.evaluation_completed`     | LLM-as-judge scoring finished.                                          | `passed`, `average_score`                            | 15 |
+| `pipeline.completed`       | End-to-end CLI run (training + evaluation + export) returned exit code 0. | `success`, `metrics_summary`                                                              | 12      |
 | `pipeline.failed`          | Pipeline aborted with an error before completion.                         | `error`                                                                                  | 12      |
 
 ### Article 14 — Human Oversight
@@ -48,7 +48,7 @@ The hash chain advances after the line lands on disk (`flush` + `fsync`), so an 
 
 | Event                          | When emitted                                                                                              | Payload                                                       | Article |
 |--------------------------------|-----------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|---------|
-| `model.reverted`               | Auto-revert restored a previous checkpoint after a quality regression. _(Faz 8 — webhook-coupled.)_       | `from_checkpoint`, `to_checkpoint`, `reason`, `metrics_delta` | 15      |
+| `model.reverted`               | Auto-revert restored a previous checkpoint after a quality regression. _(Faz 8 — webhook-coupled.)_       | `reason` (the gate that fired: `benchmark` / `safety` / `judge` / etc.), `detail` (the human-readable failure reason from the gate) | 15      |
 | `model.integrity_verified`     | Final-model integrity manifest (`model_integrity.json`) was written and re-hashed successfully after training. | `artifacts` (count of files re-hashed)                         | 15      |
 | `audit.classifier_load_failed` | Safety classifier (e.g., Llama Guard) failed to load. The run still records `passed=False`.              | `classifier`, `reason`                                        | 15      |
 
@@ -57,7 +57,7 @@ The hash chain advances after the line lands on disk (`flush` + `fsync`), so an 
 | Event                            | When emitted                                                                | Payload                                          | Article    |
 |----------------------------------|-----------------------------------------------------------------------------|--------------------------------------------------|------------|
 | `compliance.governance_exported` | Article 10 data governance report written to disk.                          | `output_path`, `dataset_count`                   | 10         |
-| `compliance.governance_failed`   | Governance report generation aborted (e.g., schema mismatch).               | `failure_reason`                                 | 10         |
+| `compliance.governance_failed`   | Governance report generation aborted (e.g., schema mismatch).               | `reason`                                         | 10         |
 | `compliance.artifacts_exported`  | Annex IV technical documentation bundle (manifest, model card, audit zip). | `output_dir`, `files`                            | 11, Annex IV |
 
 ### Article 17 — GDPR Right-to-Erasure (Phase 21 — `forgelm purge`)
@@ -190,6 +190,6 @@ Slack-compatible block — other receivers may ignore it.
 
 Webhook payloads are **transient**. They are not the audit record.
 Receivers that need long-term history should snapshot the audit JSONL
-(`<output_dir>/compliance/audit_log.jsonl`) rather than archiving webhook
+(`<output_dir>/audit_log.jsonl`) rather than archiving webhook
 traffic, because the audit log is the append-only hash-chained record
 and the webhook stream is best-effort.

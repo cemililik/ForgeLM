@@ -84,11 +84,13 @@ mismatch, manifest sidecar truncation, HMAC signature mismatch).
 
 1. [ ] **Isolate** the affected `<output_dir>` — `chmod 0500` on the
        directory to prevent further writes.
-2. [ ] **Preserve evidence** — copy `audit_log.jsonl`,
-       `audit_log.manifest.json`, the `.sha256` sidecar (if
-       present), and `<output_dir>/.forgelm_audit_salt` to a
-       write-once forensic substrate (S3 Object Lock, Azure
-       Immutable Blob).
+2. [ ] **Preserve evidence** — copy `audit_log.jsonl`, the
+       genesis-manifest sidecar `audit_log.jsonl.manifest.json`,
+       and `<output_dir>/.forgelm_audit_salt` to a write-once
+       forensic substrate (S3 Object Lock, Azure Immutable Blob).
+       (ForgeLM emits no per-line `.sha256` sidecar; the chain
+       integrity proof lives inside each line's `_hmac` and
+       `prev_hash` fields plus the genesis manifest.)
 3. [ ] **Identify the last trusted entry** — run
        `forgelm verify-audit ./outputs/audit_log.jsonl --require-hmac 2>&1 | tee verify.log`;
        the verifier exits 1 on first failure and the offending line
@@ -126,7 +128,9 @@ external CVE / breach disclosure cites a token that was used.
        the ForgeLM `data.erasure_completed` event timestamp.
 5. [ ] **Re-train from scratch** for high-risk deployments.
 6. [ ] **Update the training-data-onboarding checklist** to require
-       `forgelm audit --secrets` pre-flight.
+       `forgelm audit <corpus>` pre-flight (the secrets scan is
+       always-on; surface `secrets_summary` from the report and
+       block the run on non-zero matches).
 
 ### 4.3 Supply-chain CVE flagged
 

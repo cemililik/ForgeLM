@@ -97,8 +97,9 @@ result = trainer.train()
 
 # 4. Run bittikten sonra audit zincirini doğrula — başarı/başarısızlıktan
 #    bağımsız olarak. Reverted bir run hâlâ geçerli bir zincir bırakır.
+output_dir = config.training.output_dir          # kanonik: `training.output_dir`
 verification = verify_audit_log(
-    f"{result.output_dir}/audit_log.jsonl",
+    f"{output_dir}/audit_log.jsonl",             # audit_log.jsonl output_dir kökünde, compliance/ altında değil
     require_hmac=bool(os.environ.get("FORGELM_AUDIT_SECRET")),
 )
 if not verification.valid:
@@ -106,7 +107,9 @@ if not verification.valid:
 
 # 5. Denetçinin ForgeLM run → orkestratör run korelasyonu kurabilmesi
 #    için kendi pipeline-orkestratör-spesifik olayınızı aynı audit zincirine yayın.
-logger = AuditLogger(output_dir=result.output_dir, run_id=result.run_id)
+#    `AuditLogger.run_id` parametre verilmediğinde otomatik üretilir; aynı
+#    output_dir'i tekrar kullanın ve yeni event mevcut zincire eklenir.
+logger = AuditLogger(output_dir=output_dir)
 logger.log_event(
     "training.completed",
     orchestrator="airflow",
@@ -188,7 +191,7 @@ audit_task = PythonOperator(
 ```python
 from forgelm import verify_annex_iv_artifact, verify_audit_log, verify_gguf
 
-bundle_path = "outputs/v0.5.5/annex-iv-bundle.zip"
+bundle_path = "outputs/v0.5.5/compliance/annex_iv_metadata.json"   # JSON manifest, ZIP değil
 gguf_path = "outputs/v0.5.5/model.q4_K_M.gguf"
 log_path = "outputs/v0.5.5/audit_log.jsonl"
 

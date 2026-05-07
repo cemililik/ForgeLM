@@ -67,7 +67,7 @@ section §4.
 |---|---|
 | Description | Operator commits a config with `HF_TOKEN: ghp_...` literal or a webhook URL with embedded credentials |
 | L × I (inherent) | Med × Med = MED |
-| Treatment | `safe_post` masks Authorization headers in error logs; `forgelm audit --secrets` regex scan flags credentials; `_sanitize_md_list` escapes operator-controlled strings in deployer instructions; `forgelm doctor` pre-flight HF-auth probe; webhook payload-format curation never carries config-derived secrets |
+| Treatment | `safe_post` masks Authorization headers in error logs; `forgelm audit` runs an always-on `_SECRET_PATTERNS` regex scan that flags credentials in the corpus (no opt-in flag — see `forgelm/data_audit/_secrets.py`); `_sanitize_md_list` escapes operator-controlled strings in deployer instructions; `forgelm doctor` pre-flight HF-auth probe; webhook payload-format curation never carries config-derived secrets |
 | Residual L × I | Low × Low = LOW |
 | Owner | ML Engineer |
 | Review cadence | Pre-merge config review |
@@ -137,7 +137,7 @@ section §4.
 |---|---|
 | Description | Operator's Slack / Teams workspace is compromised; attacker reads notify_start payloads and learns model-deployment cadence |
 | L × I (inherent) | Low × Low = LOW |
-| Treatment | Webhook payload curation never carries raw training data or unredacted PII; `FORGELM_AUDIT_SECRET`-signed payloads detect splicing; deployer rotates webhook secret on incident |
+| Treatment | Webhook payload curation never carries raw training data or unredacted PII; ForgeLM does **not** HMAC-sign webhook bodies (the `FORGELM_AUDIT_SECRET` HMAC is scoped to `audit_log.jsonl` chain integrity only — `forgelm/webhook.py` posts curated JSON without a signature header), so destination-side attribution falls to TLS + URL-secrecy via `webhook.url_env` + the `FORGELM_OPERATOR` identity inside the payload; deployer rotates the `webhook.url_env` secret on incident |
 | Residual L × I | Low × Low = LOW |
 | Owner | Security + ML Lead |
 | Review cadence | Per webhook-target incident |
@@ -174,7 +174,7 @@ section §4.
 |---|---|
 | Description | Operator skips human approval; high-risk model reaches production without ML Lead / AI Officer sign-off |
 | L × I (inherent) | Med × High = HIGH |
-| Treatment | `evaluation.require_human_approval: true` for `risk_classification` ∈ `{high-risk, unacceptable}`; staging directory holds the model until `forgelm approve`. (Note: F-compliance-110 strict gate enforces `evaluation.safety.enabled: true` for high-risk runs — not `require_human_approval` — see R-04 above; the human-approval gate is a deployer-side discipline pinned by this row.) `human_approval.required/granted/rejected` chain forensically records every decision |
+| Treatment | `evaluation.require_human_approval: true` for `risk_classification` ∈ `{high-risk, unacceptable}`; staging directory holds the model until `forgelm approve`. (Note: F-compliance-110 strict gate enforces `evaluation.safety.enabled: true` for high-risk runs — not `require_human_approval` — see R-06 above; the human-approval gate is a deployer-side discipline pinned by this row.) `human_approval.required/granted/rejected` chain forensically records every decision; **ForgeLM does not enforce trainer ≠ approver at the gate** — it records the approver identity from `FORGELM_OPERATOR`, and the deployer's CI / IdP must keep the runner-identity and reviewer-identity namespaces disjoint |
 | Residual L × I | Low × Med = LOW |
 | Owner | ML Lead + AI Officer |
 | Review cadence | Per training run for high-risk |

@@ -107,7 +107,7 @@ completeness so the deployer's SoA is auditable end-to-end.
 | A.8.6 Capacity management | FL-helps | `forgelm doctor` resource report; `resource_usage` manifest block |
 | A.8.7 Protection against malware | OOS | — |
 | A.8.8 Management of technical vulnerabilities | FL-helps | SBOM; `pip-audit` nightly; `bandit` CI |
-| A.8.9 Configuration management | FL | YAML validated via Pydantic; `forgelm --dry-run`; `config_hash` (per-run manifest sidecar field) |
+| A.8.9 Configuration management | FL | YAML validated via Pydantic (`extra="forbid"` on every config block); `forgelm --dry-run` resolves and validates without training; pinned model + adapter SHAs in `pipeline.training_started` audit events |
 | A.8.10 Information deletion | FL | `forgelm purge` Article 17; salted-hash audit; `data.erasure_warning_memorisation` |
 | A.8.11 Data masking | FL | `forgelm audit` regex + Presidio ML-NER |
 | A.8.12 Data leakage prevention | FL | `forgelm reverse-pii` plaintext residual scan |
@@ -119,7 +119,7 @@ completeness so the deployer's SoA is auditable end-to-end.
 | A.8.18 Use of privileged utility programs | OOS | — |
 | A.8.19 Installation of software on operational systems | FL-helps | `forgelm doctor` packages; `pyproject.toml` pins |
 | A.8.20 Networks security | FL-helps | `safe_post` HTTPS-only / SSRF guard / no-redirect |
-| A.8.21 Security of network services | FL-helps | TLS-only webhooks; `FORGELM_AUDIT_SECRET` HMAC |
+| A.8.21 Security of network services | FL-helps | TLS-only webhooks (HTTPS + SSRF guard); audit-log chain HMAC via `FORGELM_AUDIT_SECRET` (note: webhook **bodies** are not HMAC-signed) |
 | A.8.22 Segregation of networks | OOS | — |
 | A.8.23 Web filtering | OOS | — |
 | A.8.24 Use of cryptography | FL | SHA-256 + HMAC chain (per-run signing key = `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)`, see `forgelm/compliance.py:104-114`); separately, salted SHA-256 identifier hashing for purge / reverse-pii |
@@ -127,10 +127,10 @@ completeness so the deployer's SoA is auditable end-to-end.
 | A.8.26 Application security requirements | FL-helps | F-compliance-110 strict gate; ReDoS guard |
 | A.8.27 Secure system architecture and engineering principles | FL-helps | Append-only audit log architecture |
 | A.8.28 Secure coding | FL-helps | `docs/standards/coding.md`; type hints; CommonMark escaping |
-| A.8.29 Security testing in development and acceptance | FL-helps | `pytest` 1370+ tests; `bandit` static analysis |
+| A.8.29 Security testing in development and acceptance | FL-helps | `pytest` ~1493 tests; `bandit` static analysis |
 | A.8.30 Outsourced development | OOS | — |
 | A.8.31 Separation of development, test and production environments | FL-helps | `forgelm --dry-run`; staging dir |
-| A.8.32 Change management | FL | `human_approval.*` chain; `config_hash` (per-run manifest sidecar field); staging snapshot |
+| A.8.32 Change management | FL | `human_approval.required/granted/rejected` audit chain; staging snapshot retained until promotion; `pipeline.training_started` records the run-pinned model and adapter revisions for diff |
 | A.8.33 Test information | FL-helps | `forgelm audit` flags PII / secrets in test sets too |
 | A.8.34 Protection of information systems during audit testing | OOS | — |
 

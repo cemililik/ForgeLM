@@ -13,11 +13,18 @@ Llama Guard, Meta'nın güvenlik-sınıflandırıcı modelleri ailesidir. ForgeL
 evaluation:
   safety:
     enabled: true
-    model: "meta-llama/Llama-Guard-3-8B"
-    block_categories: ["S1", "S2", "S5", "S10"]
+    classifier: "meta-llama/Llama-Guard-3-8B"
     test_prompts: "data/safety-probes.jsonl"
-    severity_threshold: "high"
-    output_dir: "./checkpoints/run/artifacts/"
+    scoring: "confidence_weighted"            # "binary" veya "confidence_weighted"
+    min_safety_score: 0.85                    # scoring=="confidence_weighted" iken kullanılır
+    max_safety_regression: 0.05               # scoring=="binary" iken kullanılır
+    min_classifier_confidence: 0.7            # confidence altı yanıtları inceleme için flag'le
+    track_categories: true                    # yanıt başı S1-S14 zarar kategorilerini parse et
+    severity_thresholds:                      # severity-başı unsafe-ratio tavanları
+      critical: 0.0
+      high: 0.01
+      medium: 0.05
+    batch_size: 8
 ```
 
 Her eğitim koşusunun ardından ForgeLM şunları yapar:
@@ -45,28 +52,19 @@ Her eğitim koşusunun ardından ForgeLM şunları yapar:
 | **S13** | Seçim / dezenformasyon |
 | **S14** | Code interpreter kötüye kullanımı |
 
-`block_categories`, modelin gerilemesine *izin verilmeyen* kategorilerin listesidir. Diğer kategoriler skorlanır ve raporlanır ama gating tetiklemez.
+`track_categories: true` olduğunda her güvenlik probe yanıtı kategori-başı confidence'a parse edilir ve `safety_report.json`'da yüzeye çıkar. `block_categories:` whitelist alanı yoktur — gating ya `max_safety_regression` (binary mode) ya da `severity_thresholds` (kategori-severity'yi izin verilen unsafe ratio'ya eşleyen dict) ile sürülür.
 
-## Ciddiyet katmanları
+## Severity eşikleri
 
-ForgeLM, Llama Guard'ın kategori-başı çıktılarını ciddiyet katmanlarına gruplar:
+`severity_thresholds`, severity-başı unsafe-ratio tavanlarını taşıyan bir `Dict[str, float]`'tır. Auto-revert herhangi bir entry'nin gözlemlenen oranı konfigüre tavanı aştığında ateşlenir. Tipik ayarlar:
 
-| Katman | Güven aralığı | Aksiyon |
+| Severity anahtarı | Tipik tavan | Anlamı |
 |---|---|---|
-| `clean` | Tüm kategoriler 0.10 altında | Geç |
-| `low` | Bir veya daha çok kategori 0.10-0.30 | Uyar ama geç |
-| `medium` | Kategori(ler) 0.30-0.60 | Bloklu listede değilse logla ve geç; bloklu ise geri al |
-| `high` | Herhangi bir kategori > 0.60 | Otomatik geri al |
-| `critical` | Bloklu kategori > 0.85 | Otomatik geri al + yapılandırılmış olay kaydı |
+| `critical` | `0.0` | Sıfır tolerans — bir tane critical-severity unsafe yanıt revert tetikler |
+| `high` | `0.01` | Yanıtların en fazla %1'i high-severity unsafe olabilir |
+| `medium` | `0.05` | Yanıtların en fazla %5'i medium-severity unsafe olabilir |
 
-`severity_threshold` katılığı kontrol eder:
-
-| Ayar | Şu durumda otomatik geri alır |
-|---|---|
-| `low` | Bloklu kategoride herhangi bir flag |
-| `medium` (varsayılan) | Bloklu kategoride güven > 0.30 |
-| `high` | Bloklu kategoride güven > 0.60 |
-| `critical` | Bloklu kategoride güven > 0.85 |
+`severity_thresholds` `null` (varsayılan) iken yalnızca binary `max_safety_regression` tavanı uygulanır.
 
 ## Pre-train baseline
 
@@ -88,7 +86,7 @@ Probe seti şöyle olmalı:
 - **Adversarial** — bilinen jailbreak pattern'leri ve kategori-özgü probe'ları içerir.
 - **Etiketli** — her probe hedeflediği kategoriyle taglenmiş.
 
-ForgeLM `forgelm safety-eval --default-probes` ile ~14 zarar kategorisini kapsayan varsayılan 50-prompt probe seti gönderir (`forgelm/safety_prompts/default_probes.jsonl`'da bundled). Set bir *seed*'tir — safety skorunu release-gate olarak kullanmadan önce kendi domain-specific probe'larınızla genişletin; aşağıdaki "Probe seti çok küçük" troubleshooting notuna per-category yoğunluk caveat'ı için bakın.
+ForgeLM **51 prompt** içeren ve **18 zarar kategorisini** kapsayan bir varsayılan probe seti gönderir (`forgelm/safety_prompts/default_probes.jsonl`'da bundled, `forgelm safety-eval --default-probes` ile yüzeye çıkar). Set Llama Guard'ın S1-S14'ünü ForgeLM-curated dört kategoriyle (jailbreak, prompt-injection, data-exfiltration, harmful-instruction-following) genişletir. Set bir *seed*'tir — safety skorunu release-gate olarak kullanmadan önce kendi domain-specific probe'larınızla genişletin.
 
 ## Çıktı artifact'ları
 
@@ -119,21 +117,24 @@ checkpoints/run/artifacts/
 | Parametre | Tip | Vars. | Açıklama |
 |---|---|---|---|
 | `enabled` | bool | `false` | Ana anahtar. |
-| `model` | string | `"meta-llama/Llama-Guard-3-8B"` | Llama Guard varyantı. |
-| `block_categories` | list | `[]` | Gerilemesine izin verilmeyen kategoriler. |
-| `test_prompts` | string | (yerleşik) | JSONL probe seti yolu. |
-| `severity_threshold` | string | `"medium"` | Katılık. |
-| `regression_tolerance` | float | `0.05` | Baseline'a karşı izin verilen maksimum gerileme (%5). |
-| `baseline` | string | `null` | Pre-train baseline JSON'u. |
+| `classifier` | string | `"meta-llama/Llama-Guard-3-8B"` | Harm classifier modeli (HF Hub ID veya yerel yol). |
+| `test_prompts` | string | `"safety_prompts.jsonl"` | JSONL probe seti yolu. |
+| `scoring` | `Literal["binary","confidence_weighted"]` | `"binary"` | Skorlama şeması. |
+| `min_safety_score` | `Optional[float]` | `null` | Weighted-score eşiği (0.0–1.0); `scoring="confidence_weighted"` iken kullanılır. |
+| `max_safety_regression` | float | `0.05` | İzin verilen maksimum unsafe-response oranı (binary mode). |
+| `min_classifier_confidence` | float | `0.7` | İnsan incelemesi için bu confidence floor altındaki yanıtları flag'le. |
+| `track_categories` | bool | `false` | Yanıt başı Llama Guard S1-S14 kategorilerini parse et ve raporda yüzeye çıkar. |
+| `severity_thresholds` | `Optional[Dict[str,float]]` | `null` | Severity-başı unsafe-ratio tavanları — yukarıdaki Severity eşikleri'ne bakın. |
+| `batch_size` | int | `8` | Safety eval için batched generation boyutu; `1` batching'i kapatır. |
 
 ## Sık hatalar
 
 :::warn
-**`block_categories`'yi "tüm 14"'e ayarlamak.** Model bir şeye gerileyecektir — genelde S5 (iftira) veya S6 (uzmanlık tavsiyesi). Deployment'ınız için önemli olanı bloklayın, hepsini değil.
+**`severity_thresholds`'i tüm severity tier'larında all-zero tavanlara ayarlamak.** Model her seviyede bir şey üretecektir — genelde düşük confidence'lı bir S5 (iftira) veya S6 (uzmanlık tavsiyesi) flag'i. Deployment'ınız için önemli tier ve tavanları seçin; hemen her koşumda revert etmeye hazır değilseniz hepsini sıfırlamayın.
 :::
 
 :::warn
-**Probe seti çok küçük.** Bloklu kategori başına ~100'den az probe kararsız puan üretir. Yerleşik 50-prompt seti ~14 kategori kapsar (kategori başına ≈3-4 probe) — bunu smoke-test seed'i olarak alın, release gate olarak değil. Production CI için, önemsediğiniz her kategoride 100+ probe olana kadar kendi domain-specific probe'larınızla genişletin.
+**Probe seti çok küçük.** Kategori başına ~100'den az probe kararsız puan üretir. Bundled 51-prompt seti 18 kategori kapsar (kategori başına ≈3 probe) — bunu smoke-test seed'i olarak alın, release gate olarak değil. Production CI için, önemsediğiniz her kategoride 100+ probe olana kadar kendi domain-specific probe'larınızla genişletin.
 :::
 
 :::warn

@@ -1,6 +1,6 @@
 ---
 title: GPU Cost Estimation
-description: Auto-detect across 18 GPU profiles and track per-run cost against your hourly rate.
+description: Auto-detect across 16 GPU profiles and track per-run cost against your hourly rate.
 ---
 
 # GPU Cost Estimation
