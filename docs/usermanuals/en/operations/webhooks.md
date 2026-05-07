@@ -10,12 +10,17 @@ ForgeLM fires structured webhooks on training milestones. Wire them into Slack, 
 ## Quick example
 
 ```yaml
-output:
-  webhook:
-    url: "${SLACK_WEBHOOK}"
-    events: ["run_start", "auto_revert", "run_complete", "run_failed"]
-    template: "slack"                      # or teams, generic
+webhook:
+  url_env: "SLACK_WEBHOOK"           # reads URL from $SLACK_WEBHOOK at runtime
+  notify_on_start: true              # default true
+  notify_on_success: true            # default true
+  notify_on_failure: true            # default true (covers training.failure + training.reverted)
 ```
+
+The notifier emits a generic JSON payload — Slack and Teams ingest it directly via
+their incoming-webhook endpoints. Per-event subscription is not currently
+configurable; toggle the three `notify_on_*` flags to coarse-control which
+lifecycle events fire.
 
 ForgeLM picks up `${SLACK_WEBHOOK}` from environment variables. Common pattern:
 
@@ -24,40 +29,38 @@ $ export SLACK_WEBHOOK="https://hooks.slack.com/services/T.../B.../..."
 $ forgelm --config configs/run.yaml
 ```
 
-## Events you can subscribe to
+## Wire-format events
 
-| Event | When fired |
-|---|---|
-| `run_start` | Training kicks off. |
-| `data_audit_complete` | After `forgelm audit`. |
-| `training_epoch_complete` | After each epoch. (verbose; usually skipped) |
-| `benchmark_complete` | After eval suite. |
-| `safety_eval_complete` | After Llama Guard scoring. |
-| `auto_revert` | When auto-revert triggers. |
-| `human_approval_request` | When `compliance.human_approval` blocks. |
-| `human_approval_granted` | When approval is signed. |
-| `model_exported` | After `forgelm export`. |
-| `run_complete` | Successful exit. |
-| `run_failed` | Non-zero exit. |
+ForgeLM emits exactly **five** webhook events. The table below is the
+canonical surface mirrored in
+[`docs/reference/audit_event_catalog.md`](#/reference/audit-event-catalog):
 
-Subscribe selectively — too-frequent webhooks become spam.
+| Event | When fired | Gated by |
+|---|---|---|
+| `training.start` | `train()` enters, before model load. | `webhook.notify_on_start` |
+| `training.success` | All gates pass; no human-approval requirement. | `webhook.notify_on_success` |
+| `training.failure` | Training raised (OOM, dataset error, unhandled exception). | `webhook.notify_on_failure` |
+| `training.reverted` | A post-training gate (eval / safety / judge / benchmark) rejected the run and `_revert_model` rolled adapters back. | `webhook.notify_on_failure` |
+| `approval.required` | Run succeeded, `evaluation.require_human_approval=true` is set, model staged for review (EU AI Act Article 14). | `webhook.notify_on_success` |
 
 ## Payload shape
 
-Generic format (the `slack` and `teams` templates wrap this in their respective formats):
+Single generic JSON shape — Slack / Teams / Discord all accept it
+directly via incoming-webhook endpoints; ForgeLM does **not** wrap it in
+provider-specific templates:
 
 ```json
 {
-  "event": "auto_revert",
-  "ts": "2026-04-29T14:33:04Z",
-  "run_id": "abc123",
-  "config_path": "configs/customer-support.yaml",
-  "trigger": "safety_regression",
-  "regressed_categories": ["S5"],
-  "details": {...},
-  "artifacts_url": "https://compliance-store.example/abc123/"
+  "event": "training.reverted",
+  "run_name": "customer-support-v1.2.0",
+  "status": "reverted",
+  "reason": "safety regression: S5 hate-speech +0.18 over baseline"
 }
 ```
+
+Payload keys vary by event; the full per-event field list is in
+[`docs/reference/audit_event_catalog.md`](#/reference/audit-event-catalog)
+under the *Webhook lifecycle events* table.
 
 ## Slack template
 

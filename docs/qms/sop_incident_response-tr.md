@@ -158,7 +158,10 @@ olabilir.
 
 **Runbook:**
 
-1. [ ] **`webhook.secret_env`'i hemen rotate et**.
+1. [ ] **Webhook URL'sini ve destination-tarafı bearer token'ını
+       hemen rotate et** (URL'yi `webhook.url_env` ile resolve
+       ediyorsan, secret manager'da yeni değeri set'le; ForgeLM şu
+       an gövdeleri HMAC ile imzalamıyor).
 2. [ ] **Audit chain'i yürü** saldırganın olayları recipient'a splice
        etmediğini teyit için: `audit_log.jsonl`'ı event sınıfına göre
        filtrele (`jq 'select(.event | startswith("notify_"))'`) ve

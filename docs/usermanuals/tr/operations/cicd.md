@@ -75,6 +75,7 @@ Artifact upload'taki `if: always()` önemli — başarısızlıkta bile audit lo
 stages:
   - audit
   - train
+  - deploy
 
 audit:
   stage: audit

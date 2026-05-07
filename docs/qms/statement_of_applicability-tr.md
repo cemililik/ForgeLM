@@ -26,7 +26,7 @@ operatör-tarafı eylem.
 
 ### 2.1 A.5 Organisational controls (37)
 
-| Kontrol | Applicable? | Gerekçe / ForgeLM kanıtı | Implementation status |
+| Kontrol | Applicable? | Uygulanabilirlik gerekçesi (uygun olduğunda ForgeLM kanıtı; aksi halde operatör-tarafı kapsam) | Implementation status |
 |---|---|---|---|
 | A.5.1 Bilgi güvenliği için politikalar | YES | EU AI Act Md. 17 QMS gerektirir; ForgeLM audit-event vocabulary neyin loglandığını dokümante eder | ForgeLM audit log'u referans veren kurum-genelinde ISMS politikası benimse |
 | A.5.2 Bilgi güvenliği rolleri ve sorumlulukları | YES | `roles_responsibilities.md` QMS şablonu AI Officer / ML Lead / Data Steward / DPO tanımlar | Rol tanımlarını benimse |
@@ -54,9 +54,9 @@ operatör-tarafı eylem.
 | A.5.24 Bilgi güvenliği olay yönetimi planlaması ve hazırlığı | YES | `sop_incident_response.md`; audit chain durumu korur | IR ekibi kur |
 | A.5.25 Bilgi güvenliği olaylarının değerlendirilmesi ve karara bağlanması | YES | `data.erasure_failed`, `pipeline.failed`, `audit.classifier_load_failed` event'ler `error_class` + `error_message` ile | Triage runbook |
 | A.5.26 Bilgi güvenliği olaylarına yanıt | YES | Audit chain HMAC öncesi/sonrası korur | Runbook dokümante et |
-| A.5.27 Bilgi güvenliği olaylarından öğrenme | YES | `pipeline.reverted` event'leri post-mortem kanıtı biriktirir | Haftalık post-mortem cadence |
+| A.5.27 Bilgi güvenliği olaylarından öğrenme | YES | `model.reverted` event'leri post-mortem kanıtı biriktirir | Haftalık post-mortem cadence |
 | A.5.28 Kanıt toplama | YES | `audit_log.jsonl` forensic-grade; `forgelm verify-audit` doğrular | Write-once depolamaya gönder |
-| A.5.29 Aksaklık sırasında bilgi güvenliği | YES | `auto_revert` baseline-flip; `pipeline.reverted` event | Base-model retention dokümante et |
+| A.5.29 Aksaklık sırasında bilgi güvenliği | YES | `auto_revert` baseline-flip; `model.reverted` event | Base-model retention dokümante et |
 | A.5.30 İş sürekliliği için ICT hazırlığı | YES | DR planlama | Benimse |
 | A.5.31 Yasal, kanuni, düzenleyici ve sözleşmesel gerekliliklerin tanımlanması | YES | EU AI Act + GDPR mapping'ler; Annex IV bundle | Kural değişikliklerini izle |
 | A.5.32 Fikri mülkiyet hakları | YES | SBOM'da lisans çıkarımı; HF model-card metadata | Per-model lisans review |

@@ -117,8 +117,8 @@ auditable evidence. Cited symbols are real (verified against
 | Annex IV bundle verification        | `forgelm verify-annex-iv` (Phase 36)                       | manifest-hash check, missing-artefact detection         |
 | GGUF integrity                      | `forgelm verify-gguf` (Phase 36)                           | magic header + `.sha256` sidecar                        |
 | Risk classification gate            | `_warn_high_risk_compliance` (Faz 28 strict gate)          | `ConfigError` for high-risk + safety-disabled           |
-| Auto-revert                         | `evaluation.auto_revert` + safety-eval                     | `pipeline.reverted` audit event                         |
-| Webhook lifecycle                   | `notify_started/succeeded/failed/reverted/awaiting_approval` (Phase 8) | webhook event payload + audit trail              |
+| Auto-revert                         | `evaluation.auto_revert` + safety-eval                     | `model.reverted` audit event                         |
+| Webhook lifecycle                   | `notify_start/succeeded/failed/reverted/awaiting_approval` (Phase 8) | webhook event payload + audit trail              |
 | HTTP discipline                     | `safe_post` (Phase 7)                                      | SSRF guard, TLS-only, no-redirect, header masking       |
 | Data audit pipeline                 | `forgelm audit` (Phase 11)                                 | `data_audit_report.json` (PII / secrets / dedup)        |
 | Annex IV §8 governance              | `_data_governance_block` (compliance.py)                   | `data_governance_report.json` Article 10                |
@@ -175,9 +175,9 @@ Each row classifies coverage as one of:
 | A.5.24 Information security incident management planning and preparation | FL-helps | `sop_incident_response.md` QMS template; audit chain preserves incident state | Establish IR team, on-call rotation | Org structure deployer-side |
 | A.5.25 Assessment and decision on information security events | FL-helps | `data.erasure_failed`, `pipeline.failed`, `audit.classifier_load_failed` events with `error_class`+`error_message` | Triage runbook tied to event class | Triage process deployer-side |
 | A.5.26 Response to information security incidents | FL-helps | Audit chain preserves before/after state through HMAC chain | Document runbook actions per event class | Runbook deployer-side |
-| A.5.27 Learning from information security incidents | FL-helps | `pipeline.reverted` events accumulate post-mortem evidence | Weekly post-mortem cadence | Process deployer-side |
+| A.5.27 Learning from information security incidents | FL-helps | `model.reverted` events accumulate post-mortem evidence | Weekly post-mortem cadence | Process deployer-side |
 | A.5.28 Collection of evidence | FL | `audit_log.jsonl` is forensic-grade (HMAC + hash chain + manifest sidecar); `forgelm verify-audit` validates | Ship to write-once storage (S3 Object Lock, Azure Immutable Blob) | Storage substrate deployer-side |
-| A.5.29 Information security during disruption | FL-helps | `auto_revert` flips to baseline model on safety regression; `pipeline.reverted` event | Document base-model retention; multi-region replicas | DR infra deployer-side |
+| A.5.29 Information security during disruption | FL-helps | `auto_revert` flips to baseline model on safety regression; `model.reverted` event | Document base-model retention; multi-region replicas | DR infra deployer-side |
 | A.5.30 ICT readiness for business continuity | OOS | — | DR planning | Out of scope |
 | A.5.31 Identification of legal, statutory, regulatory and contractual requirements | FL-helps | EU AI Act mapping in `compliance.py`; GDPR Article 15/17 handling; Annex IV bundle | Track jurisdictional rule changes (e.g. UK Online Safety Act updates) | Legal monitoring deployer-side |
 | A.5.32 Intellectual property rights | FL-helps | License extraction in SBOM; HF Hub model-card metadata recorded in manifest | Track per-model license terms | Legal review deployer-side |
@@ -316,7 +316,7 @@ categories are scoped per-engagement.
 | CC7.1   | Detects vulnerabilities                | `pip-audit` nightly (Faz 23); CVE feed                           | Vuln-mgmt cadence |
 | CC7.2   | Monitors system components             | `forgelm verify-audit`; `forgelm verify-gguf`; `safety_trend.jsonl` | SIEM dashboards |
 | CC7.3   | Evaluates security events              | `data.erasure_failed`, `pipeline.failed` events with `error_class`+`error_message` | Triage runbook |
-| CC7.4   | Responds to security events            | `auto_revert`, `pipeline.reverted` event; `data.erasure_failed` event | IR runbook |
+| CC7.4   | Responds to security events            | `auto_revert`, `model.reverted` event; `data.erasure_failed` event | IR runbook |
 | CC7.5   | Identifies, develops corrective actions| `human_approval.rejected` event; `sop_change_management.md`     | CAPA cadence |
 | CC8.1   | Authorises changes                     | `forgelm approve` Article 14 gate; staging dir                  | Change Advisory Board |
 | CC9.1   | Identifies, manages risks              | `risk_assessment` config + safety eval; `risk_treatment_plan.md` (Faz 23) | Risk register |
@@ -602,8 +602,10 @@ produces harmful output, accuracy drop, formatting errors).
    severity. Runbook: pin to safe version, rebuild SBOM, regenerate
    dependent artefacts, notify deployer if model already shipped.
 4. **Webhook target compromised** — webhook recipient confirms breach.
-   Runbook: rotate `webhook.secret_env`; re-emit lifecycle events from
-   audit chain to confirm attacker did not splice events.
+   Runbook: rotate the webhook URL (read via `webhook.url_env`) and
+   the destination-side bearer token; re-emit lifecycle events from
+   the audit chain to confirm attacker did not splice events. (HMAC
+   body signing is not yet implemented in ForgeLM — Phase 28+ backlog.)
 5. **PII subject access request (Article 15)** — `forgelm reverse-pii`
    workflow + DSR response template.
 6. **PII erasure request (Article 17)** — `forgelm purge` workflow +

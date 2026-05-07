@@ -53,7 +53,7 @@ categories are scoped per-engagement.
 | CC7.1 | Detects vulnerabilities | `pip-audit` nightly; CVE feed |
 | CC7.2 | Monitors system components | `forgelm verify-audit`; `forgelm verify-gguf`; `safety_trend.jsonl` |
 | CC7.3 | Evaluates security events | `data.erasure_failed`, `pipeline.failed` events with `error_class` + `error_message` |
-| CC7.4 | Responds to security events | `auto_revert`; `pipeline.reverted` event |
+| CC7.4 | Responds to security events | `auto_revert`; `model.reverted` event |
 | CC7.5 | Identifies, develops corrective actions | `human_approval.rejected`; `sop_change_management.md` |
 | CC8.1 | Authorises changes | `forgelm approve` Article 14 gate; staging dir |
 | CC9.1 | Identifies, manages risks | `risk_assessment` config + safety eval; `risk_treatment_plan.md` |

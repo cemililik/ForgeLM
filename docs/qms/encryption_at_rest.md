@@ -197,8 +197,12 @@ ForgeLM does not implement encryption itself but DOES:
 1. **Detect what to encrypt.** `forgelm audit` flags PII, secrets,
    and credentials in training data so the operator can encrypt or
    mask before training.
-2. **Report what is encrypted.** `data_governance_report.json` records
-   `encryption_at_rest: true|false` per the operator's config block.
+2. **Report what is encrypted.** ForgeLM does not currently surface a
+   substrate-level `encryption_at_rest` flag in
+   `data_governance_report.json` — the operator records this fact
+   out-of-band (e.g. in the QMS evidence bundle alongside the cloud
+   provider's KMS attestation) until a config-level field is added
+   (Phase 28+ backlog).
 3. **Verify post-encryption integrity.** `forgelm verify-audit`
    confirms the chain-after-decryption matches the chain-as-emitted;
    any substrate-level corruption is detectable.

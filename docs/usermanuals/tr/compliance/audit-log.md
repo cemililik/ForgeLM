@@ -31,19 +31,23 @@ Her kayıtta:
 
 | Olay | Ne zaman |
 |---|---|
-| `run_start` | Her `forgelm` çağrısının başında. |
-| `config_validated` | `--dry-run` geçtikten sonra. |
-| `data_audit_complete` | `forgelm audit` koşturulduktan sonra. |
-| `training_epoch_complete` | Her eğitim epoch'undan sonra. |
-| `training_step_milestone` | Konfigüre adım aralıklarında (varsayılan 1000). |
-| `benchmark_complete` | Benchmark suite koşturulduktan sonra. |
-| `safety_eval_complete` | Llama Guard skorlamasından sonra. |
-| `auto_revert` | Otomatik geri alma tetiklendiğinde. |
-| `human_approval_request` | `compliance.human_approval` engellediğinde. |
-| `human_approval_granted` | Onay imzalandığında. |
-| `model_exported` | `forgelm export` deploy edilebilir artifact yazdığında. |
-| `run_complete` | Başarılı çıkışta. |
-| `run_failed` | Sıfır olmayan çıkışta. |
+| `training.started` | Trainer fine-tuning'e başladığında. |
+| `pipeline.completed` | Uçtan-uca CLI çalıştırması exit kod 0 ile bittiğinde. |
+| `pipeline.failed` | Pipeline bir hata ile abort olduğunda. |
+| `model.reverted` | Auto-revert kalite regresyonundan sonra önceki checkpoint'i geri yüklediğinde. |
+| `human_approval.required` | `evaluation.require_human_approval=true` koşumu operatör kararı için duraklattığında. |
+| `human_approval.granted` | Operatör `forgelm approve` ile duraklatılmış gate'i onayladığında. |
+| `human_approval.rejected` | Operatör `forgelm reject` ile duraklatılmış gate'i reddettiğinde. |
+| `audit.classifier_load_failed` | Safety classifier (örn. Llama Guard) yüklenemediğinde. |
+| `compliance.governance_exported` | EU AI Act Madde 10 yönetişim raporu yazıldığında. |
+| `compliance.artifacts_exported` | Annex IV bundle'ı (manifest + model card + audit zip) yazıldığında. |
+| `data.erasure_*` | `forgelm purge` yaşam döngüsünü kapsayan altı-event ailesi (Madde 17). |
+| `data.access_request_query` | `forgelm reverse-pii` çağrısı (GDPR Madde 15). |
+| `cli.legacy_flag_invoked` | Deprecated bir CLI flag'i kullanıldığında. |
+
+Tam event kataloğu (payload şeması ve emit yeri ile)
+[`docs/reference/audit_event_catalog.md`](#/reference/audit-event-catalog)
+altındadır.
 
 ## Tasarım gereği append-only
 

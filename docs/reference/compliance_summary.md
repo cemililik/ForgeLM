@@ -61,7 +61,7 @@ What the regulator asks vs. how ForgeLM answers:
 - Implementation: `forgelm.trainer` post-training evaluation chain;
   `auto_revert` flag triggers fall-back to baseline on regression.
 - Evidence: `safety_results.json` (per-prompt classification);
-  `pipeline.reverted` audit event with regression delta.
+  `model.reverted` audit event with regression delta.
 - Configuration: `evaluation.safety.enabled`,
   `evaluation.auto_revert`, `evaluation.safety.scoring`,
   `evaluation.safety.min_safety_score`.
@@ -187,7 +187,7 @@ name; this survives refactors that the prior `#L33` form did not.
   `forgelm.cli.subcommands._reject`,
   `forgelm.cli.subcommands._approvals`.
 - **Webhook lifecycle**: `forgelm.webhook` (search for
-  `notify_started`, `notify_succeeded`, `notify_failed`,
+  `notify_start`, `notify_success`, `notify_failure`,
   `notify_reverted`, `notify_awaiting_approval`).
 - **HTTP discipline**: `forgelm._http` (search for `safe_post`,
   `safe_get`).

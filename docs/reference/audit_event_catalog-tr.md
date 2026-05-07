@@ -44,6 +44,7 @@ Hash zinciri, satır diske düştükten (`flush` + `fsync`) sonra ilerler; kirli
 | Event                          | Ne zaman emit edilir                                                                                              | Payload                                                       | Madde |
 |--------------------------------|--------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|-------|
 | `model.reverted`               | Auto-revert kalite regresyonu sonrası önceki bir checkpoint'i geri yükledi. _(Faz 8 — webhook bağlantılı.)_       | `from_checkpoint`, `to_checkpoint`, `reason`, `metrics_delta` | 15    |
+| `model.integrity_verified`     | Eğitim sonrası nihai-model bütünlük manifesto'su (`model_integrity.json`) yazıldı ve başarıyla yeniden hash'lendi. | `artifacts` (yeniden-hash'lenen dosya sayısı)                  | 15    |
 | `audit.classifier_load_failed` | Güvenlik sınıflandırıcısı (örn. Llama Guard) yüklenemedi. Koşu yine `passed=False` kaydeder.                       | `classifier`, `reason`                                        | 15    |
 
 ### Madde 11 + Ek IV — Uyumluluk artefaktları

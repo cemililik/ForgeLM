@@ -112,9 +112,9 @@ ekler.
 
 | Alan | Değer |
 |---|---|
-| Açıklama | `evaluation.auto_revert: true` geçici bir eval regression'ında tetiklenir; sonuç `pipeline.reverted` downstream denetçiye safety failure gibi görünür |
+| Açıklama | `evaluation.auto_revert: true` geçici bir eval regression'ında tetiklenir; sonuç `model.reverted` downstream denetçiye safety failure gibi görünür |
 | L × I (inherent) | Med × Low = LOW |
-| Treatment | `pipeline.reverted` audit event regression delta + threshold taşır; `safety_trend.jsonl` cross-run context sağlar; operatör dashboard "gerçek" revert'leri threshold-tuning sorunlarından ayırır |
+| Treatment | `model.reverted` audit event regression delta + threshold taşır; `safety_trend.jsonl` cross-run context sağlar; operatör dashboard "gerçek" revert'leri threshold-tuning sorunlarından ayırır |
 | Residual L × I | Low × Low = LOW |
 | Sahip | ML Lead |
 | Review cadence | Haftalık trend review |
@@ -136,7 +136,7 @@ ekler.
 
 | Alan | Değer |
 |---|---|
-| Açıklama | Operatörün Slack / Teams workspace'i ele geçirilir; saldırgan notify_started payload'larını okur ve model-deployment cadence'ini öğrenir |
+| Açıklama | Operatörün Slack / Teams workspace'i ele geçirilir; saldırgan notify_start payload'larını okur ve model-deployment cadence'ini öğrenir |
 | L × I (inherent) | Low × Low = LOW |
 | Treatment | Webhook payload curation asla raw eğitim verisi veya unredacted PII taşımaz; `FORGELM_AUDIT_SECRET`-imzalı payload'lar splicing'i tespit eder; operatör olayda webhook secret'ı rotate eder |
 | Residual L × I | Low × Low = LOW |

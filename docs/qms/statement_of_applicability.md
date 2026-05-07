@@ -25,7 +25,7 @@ contribution → deployer-side action.
 
 ### 2.1 A.5 Organisational controls (37)
 
-| Control | Applicable? | Justification / ForgeLM evidence | Implementation status |
+| Control | Applicable? | Applicability rationale (ForgeLM evidence where applicable; otherwise operator-side scope) | Implementation status |
 |---|---|---|---|
 | A.5.1 Policies for information security | YES | EU AI Act Art. 17 mandates QMS; ForgeLM audit-event vocabulary documents what's logged | Adopt org-wide ISMS policy referencing ForgeLM audit log |
 | A.5.2 Information security roles and responsibilities | YES | `roles_responsibilities.md` QMS template defines AI Officer / ML Lead / Data Steward / DPO | Adopt role definitions |
@@ -53,9 +53,9 @@ contribution → deployer-side action.
 | A.5.24 Information security incident management planning and preparation | YES | `sop_incident_response.md`; audit chain preserves state | Establish IR team |
 | A.5.25 Assessment and decision on information security events | YES | `data.erasure_failed`, `pipeline.failed`, `audit.classifier_load_failed` events with `error_class` + `error_message` | Triage runbook |
 | A.5.26 Response to information security incidents | YES | Audit chain HMAC preserves before/after | Document runbook |
-| A.5.27 Learning from information security incidents | YES | `pipeline.reverted` events accumulate post-mortem evidence | Weekly post-mortem cadence |
+| A.5.27 Learning from information security incidents | YES | `model.reverted` events accumulate post-mortem evidence | Weekly post-mortem cadence |
 | A.5.28 Collection of evidence | YES | `audit_log.jsonl` forensic-grade; `forgelm verify-audit` validates | Ship to write-once storage |
-| A.5.29 Information security during disruption | YES | `auto_revert` baseline-flip; `pipeline.reverted` event | Document base-model retention |
+| A.5.29 Information security during disruption | YES | `auto_revert` baseline-flip; `model.reverted` event | Document base-model retention |
 | A.5.30 ICT readiness for business continuity | YES | DR planning | Adopt |
 | A.5.31 Identification of legal, statutory, regulatory and contractual requirements | YES | EU AI Act + GDPR mappings; Annex IV bundle | Track rule changes |
 | A.5.32 Intellectual property rights | YES | License extraction in SBOM; HF model-card metadata | Per-model license review |

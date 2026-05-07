@@ -44,6 +44,7 @@ The hash chain advances after the line lands on disk (`flush` + `fsync`), so an 
 | Event                          | When emitted                                                                                              | Payload                                                       | Article |
 |--------------------------------|-----------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|---------|
 | `model.reverted`               | Auto-revert restored a previous checkpoint after a quality regression. _(Faz 8 — webhook-coupled.)_       | `from_checkpoint`, `to_checkpoint`, `reason`, `metrics_delta` | 15      |
+| `model.integrity_verified`     | Final-model integrity manifest (`model_integrity.json`) was written and re-hashed successfully after training. | `artifacts` (count of files re-hashed)                         | 15      |
 | `audit.classifier_load_failed` | Safety classifier (e.g., Llama Guard) failed to load. The run still records `passed=False`.              | `classifier`, `reason`                                        | 15      |
 
 ### Article 11 + Annex IV — Compliance artefacts

@@ -206,9 +206,12 @@ ForgeLM kendisi şifreleme uygulamaz ama ŞUNLARI YAPAR:
 1. **Neyi şifreleyeceğini tespit et.** `forgelm audit` eğitim
    verisindeki PII, secrets ve credential'ları flag'ler ki operatör
    eğitim öncesi şifreleyebilir veya maskeleyebilir.
-2. **Neyin şifrelendiğini rapor et.** `data_governance_report.json`
-   operatörün config block'u başına `encryption_at_rest: true|false`
-   kaydeder.
+2. **Neyin şifrelendiğini rapor et.** ForgeLM şu anda
+   `data_governance_report.json`'da substrate-seviyesi bir
+   `encryption_at_rest` bayrağı yüzeylemiyor — operatör bu gerçeği
+   out-of-band kayda alır (örn. cloud provider'ın KMS attestation'ı
+   ile birlikte QMS evidence bundle'ında) ta ki config-seviyesi bir
+   field eklenene kadar (Phase 28+ backlog'u).
 3. **Şifreleme-sonrası bütünlüğü doğrula.** `forgelm verify-audit`
    chain-after-decryption'ın chain-as-emitted ile eşleştiğini teyit
    eder; substrate-seviyesi herhangi bir bozulma tespit edilebilirdir.

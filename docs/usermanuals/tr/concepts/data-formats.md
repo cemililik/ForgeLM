@@ -73,8 +73,16 @@ Audit (`forgelm audit`) `chosen == rejected` olan satırları flagler — prefer
 Tek yanıt + thumbs-up/down. Eşli tercihten daha kolay toplanır.
 
 ```json
-{"prompt": "Aboneliği nasıl iptal ederim?", "response": "Sadece ödemeyi durdur.", "label": false}
-{"prompt": "Aboneliği nasıl iptal ederim?", "response": "Ayarlar → Faturalandırma...", "label": true}
+{
+  "prompt": "Aboneliği nasıl iptal ederim?",
+  "response": "Sadece ödemeyi durdur.",
+  "label": false
+}
+{
+  "prompt": "Aboneliği nasıl iptal ederim?",
+  "response": "Ayarlar → Faturalandırma → Aboneliği iptal et…",
+  "label": true
+}
 ```
 
 Anlamlar:

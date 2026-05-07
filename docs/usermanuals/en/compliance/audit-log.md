@@ -32,18 +32,22 @@ Every entry has:
 | Event | When emitted |
 |---|---|
 | `run_start` | At the start of every `forgelm` invocation. |
-| `config_validated` | After `--dry-run` passes. |
-| `data_audit_complete` | After `forgelm audit` runs (whether ad hoc or as part of a training run). |
-| `training_epoch_complete` | After each training epoch. |
-| `training_step_milestone` | At configurable step intervals (default 1000). |
-| `benchmark_complete` | After the benchmark suite runs. |
-| `safety_eval_complete` | After Llama Guard scoring. |
-| `auto_revert` | When auto-revert triggers. |
-| `human_approval_request` | When `compliance.human_approval` blocks. |
-| `human_approval_granted` | When approval is signed. |
-| `model_exported` | After `forgelm export` writes a deployable artefact. |
-| `run_complete` | At successful exit. |
-| `run_failed` | At non-zero exit. |
+| `training.started` | Trainer enters fine-tuning. |
+| `pipeline.completed` | End-to-end CLI run returned exit code 0. |
+| `pipeline.failed` | Pipeline aborted with an error. |
+| `model.reverted` | Auto-revert restored a previous checkpoint after a quality regression. |
+| `human_approval.required` | `evaluation.require_human_approval=true` paused the run for an operator decision. |
+| `human_approval.granted` | Operator approved a paused gate via `forgelm approve`. |
+| `human_approval.rejected` | Operator rejected a paused gate via `forgelm reject`. |
+| `audit.classifier_load_failed` | Safety classifier (e.g. Llama Guard) failed to load. |
+| `compliance.governance_exported` | EU AI Act Article 10 governance report written. |
+| `compliance.artifacts_exported` | Annex IV bundle (manifest + model card + audit zip) written. |
+| `data.erasure_*` | Six-event family covering `forgelm purge` lifecycle (Article 17). |
+| `data.access_request_query` | `forgelm reverse-pii` invocation (GDPR Article 15). |
+| `cli.legacy_flag_invoked` | A deprecated CLI flag was used. |
+
+The full event catalog (with payload schema and emitting site) lives in
+[`docs/reference/audit_event_catalog.md`](#/reference/audit-event-catalog).
 
 ## Append-only by design
 

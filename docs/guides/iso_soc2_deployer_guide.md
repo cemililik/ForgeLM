@@ -195,8 +195,9 @@ substrate does. Reference:
 - `docs/qms/encryption_at_rest.md` — your in-house policy mapped to
   ForgeLM artefact classes.
 - KMS audit log — substrate-side evidence of encryption-in-use.
-- ForgeLM `data_governance_report.json` — your config block records
-  `encryption_at_rest: true|false` per the operator's declaration.
+- Operator-side encryption attestation — recorded out-of-band in your
+  QMS evidence bundle until ForgeLM exposes a config-level
+  `encryption_at_rest` field (Phase 28+ backlog).
 
 ### Q7: "Show me the incident response — what happens if the safety classifier crashes mid-run?"
 
@@ -251,10 +252,13 @@ Things deployers get wrong on their first audit:
    `FORGELM_OPERATOR=ci`" — the audit chain becomes uninterpretable
    because every entry attributes to the same string. Use namespaced
    identifiers per pipeline + per run.
-2. **Storing webhook secrets in YAML.** Use `webhook.secret_env` →
-   resolve from KMS at runtime. A YAML in version control with a
-   plaintext secret is a finding even if the secret has been rotated
-   (the auditor sees historical exposure in `git log`).
+2. **Storing webhook URLs in YAML.** Use `webhook.url_env: SLACK_WEBHOOK`
+   → resolve from your secret manager at runtime; never commit a
+   plaintext webhook URL to version control. The auditor sees
+   historical exposure in `git log` even after rotation. (Note: ForgeLM
+   does **not** sign webhook bodies today — gateway-level integrity
+   relies on mTLS or destination-side checks; HMAC body signing is on
+   the Phase 28+ backlog.)
 3. **Skipping `forgelm verify-audit` in CI.** "We trust the audit
    chain implicitly" is not a defensible position. Schedule the
    weekly cron + alert on non-zero exit; have the alert history to
@@ -271,7 +275,7 @@ Things deployers get wrong on their first audit:
 5. **No `auto_revert` on production training.** If you're betting
    on always-green training, you're a single safety-classifier
    degradation away from a regulator-reportable incident. Enable
-   `auto_revert: true` and let `pipeline.reverted` events accumulate
+   `auto_revert: true` and let `model.reverted` events accumulate
    as evidence of working safeguards.
 6. **Running ForgeLM with `FORGELM_ALLOW_ANONYMOUS_OPERATOR=1` in
    production.** That env var exists for short-lived test runs only.

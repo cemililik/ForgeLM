@@ -57,7 +57,7 @@ This bundle is the deliverable for compliance reviews. Every file is hashed in `
 | **11** | Technical documentation | `annex_iv_metadata.json` is a populated Annex IV. |
 | **12** | Record-keeping | Append-only `audit_log.jsonl` covering training start, eval gates, revert decisions. |
 | **13** | Transparency | Auto-generated model card listing capabilities, limitations, training summary. |
-| **14** | Human oversight | Optional `compliance.human_approval: true` blocks promotion until a human signs off. |
+| **14** | Human oversight | Optional `evaluation.require_human_approval: true` blocks promotion until a human signs off. |
 | **15** | Accuracy & robustness | Benchmark gates + safety eval + cybersecurity (PII / secrets at ingest). |
 | **16-17** | Conformity & QMS | Declaration scaffold + QMS SOPs in `docs/qms/`. |
 

@@ -53,7 +53,7 @@ kategoriler engagement-bazında scoplanır.
 | CC7.1 | Zafiyetleri tespit eder | `pip-audit` nightly; CVE feed |
 | CC7.2 | Sistem bileşenlerini izler | `forgelm verify-audit`; `forgelm verify-gguf`; `safety_trend.jsonl` |
 | CC7.3 | Güvenlik olaylarını değerlendirir | `data.erasure_failed`, `pipeline.failed` olayları `error_class` + `error_message` ile |
-| CC7.4 | Güvenlik olaylarına yanıt verir | `auto_revert`; `pipeline.reverted` olayı |
+| CC7.4 | Güvenlik olaylarına yanıt verir | `auto_revert`; `model.reverted` olayı |
 | CC7.5 | Düzeltici eylemleri tanımlar, geliştirir | `human_approval.rejected`; `sop_change_management.md` |
 | CC8.1 | Değişimleri yetkilendirir | `forgelm approve` Madde 14 gate; staging dir |
 | CC9.1 | Riskleri tanımlar, yönetir | `risk_assessment` config + safety eval; `risk_treatment_plan.md` |

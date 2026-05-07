@@ -10,12 +10,17 @@ ForgeLM eğitim dönüm noktalarında yapılandırılmış webhook fırlatır. B
 ## Hızlı örnek
 
 ```yaml
-output:
-  webhook:
-    url: "${SLACK_WEBHOOK}"
-    events: ["run_start", "auto_revert", "run_complete", "run_failed"]
-    template: "slack"                      # veya teams, generic
+webhook:
+  url_env: "SLACK_WEBHOOK"           # URL'yi $SLACK_WEBHOOK'tan runtime'da okur
+  notify_on_start: true              # default true
+  notify_on_success: true            # default true
+  notify_on_failure: true            # default true (training.failure + training.reverted'i kapsar)
 ```
+
+Notifier generic JSON payload yayar — Slack ve Teams bunu incoming-webhook
+uçlarından doğrudan kabul eder. Per-event abonelik şu an konfigüre
+edilemiyor; üç `notify_on_*` flag'iyle hangi yaşam-döngüsü olaylarının
+fırlatılacağı kaba ayarlanır.
 
 ForgeLM `${SLACK_WEBHOOK}`'u environment variable'dan okur. Yaygın pattern:
 
@@ -24,40 +29,38 @@ $ export SLACK_WEBHOOK="https://hooks.slack.com/services/T.../B.../..."
 $ forgelm --config configs/run.yaml
 ```
 
-## Abone olabileceğiniz olaylar
+## Wire-format event'ler
 
-| Olay | Ne zaman |
-|---|---|
-| `run_start` | Eğitim başlar. |
-| `data_audit_complete` | `forgelm audit` sonrası. |
-| `training_epoch_complete` | Her epoch sonrası. (gürültülü; genelde atlanır) |
-| `benchmark_complete` | Eval suite sonrası. |
-| `safety_eval_complete` | Llama Guard skorlama sonrası. |
-| `auto_revert` | Otomatik geri alma tetiklendiğinde. |
-| `human_approval_request` | `compliance.human_approval` engellediğinde. |
-| `human_approval_granted` | Onay imzalandığında. |
-| `model_exported` | `forgelm export` sonrası. |
-| `run_complete` | Başarılı çıkış. |
-| `run_failed` | Sıfır olmayan çıkış. |
+ForgeLM tam **beş** webhook event'i yayar. Aşağıdaki tablo
+[`docs/reference/audit_event_catalog.md`](#/reference/audit-event-catalog)
+ile aynalanan kanonik yüzeydir:
 
-Seçici abone olun — çok-sık webhook spam olur.
+| Event | Ne zaman fırlar | Gate |
+|---|---|---|
+| `training.start` | `train()` başlar, model yüklenmeden önce. | `webhook.notify_on_start` |
+| `training.success` | Tüm gate'ler geçer; insan-onay gereksinimi yok. | `webhook.notify_on_success` |
+| `training.failure` | Eğitim raise ediyor (OOM, dataset hatası, yakalanmamış istisna). | `webhook.notify_on_failure` |
+| `training.reverted` | Eğitim-sonrası bir gate (eval / safety / judge / benchmark) koşumu reddetti ve `_revert_model` adapter'ları geri aldı. | `webhook.notify_on_failure` |
+| `approval.required` | Koşum başarılı, `evaluation.require_human_approval=true` set, model review için staged (EU AI Act Madde 14). | `webhook.notify_on_success` |
 
 ## Payload yapısı
 
-Generic format (`slack` ve `teams` template'leri bunu kendi formatlarına sarar):
+Tek generic JSON şekil — Slack / Teams / Discord hepsi bunu incoming-webhook
+uçlarından doğrudan kabul eder; ForgeLM provider'a-özel template'lerle
+sarmalama **yapmaz**:
 
 ```json
 {
-  "event": "auto_revert",
-  "ts": "2026-04-29T14:33:04Z",
-  "run_id": "abc123",
-  "config_path": "configs/customer-support.yaml",
-  "trigger": "safety_regression",
-  "regressed_categories": ["S5"],
-  "details": {...},
-  "artifacts_url": "https://compliance-store.example/abc123/"
+  "event": "training.reverted",
+  "run_name": "customer-support-v1.2.0",
+  "status": "reverted",
+  "reason": "safety regression: S5 hate-speech +0.18 over baseline"
 }
 ```
+
+Payload anahtarları event'e göre değişir; tam per-event alan listesi
+[`docs/reference/audit_event_catalog.md`](#/reference/audit-event-catalog)
+*Webhook lifecycle events* tablosundadır.
 
 ## Slack template
 

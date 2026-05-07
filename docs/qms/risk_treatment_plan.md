@@ -111,9 +111,9 @@ section §4.
 
 | Field | Value |
 |---|---|
-| Description | `evaluation.auto_revert: true` triggers on a transient eval regression; the resulting `pipeline.reverted` looks like a safety failure to a downstream auditor |
+| Description | `evaluation.auto_revert: true` triggers on a transient eval regression; the resulting `model.reverted` looks like a safety failure to a downstream auditor |
 | L × I (inherent) | Med × Low = LOW |
-| Treatment | `pipeline.reverted` audit event carries the regression delta + threshold; `safety_trend.jsonl` provides cross-run context; deployer dashboard distinguishes "real" reverts from threshold-tuning issues |
+| Treatment | `model.reverted` audit event carries the regression delta + threshold; `safety_trend.jsonl` provides cross-run context; deployer dashboard distinguishes "real" reverts from threshold-tuning issues |
 | Residual L × I | Low × Low = LOW |
 | Owner | ML Lead |
 | Review cadence | Weekly trend review |
@@ -135,7 +135,7 @@ section §4.
 
 | Field | Value |
 |---|---|
-| Description | Operator's Slack / Teams workspace is compromised; attacker reads notify_started payloads and learns model-deployment cadence |
+| Description | Operator's Slack / Teams workspace is compromised; attacker reads notify_start payloads and learns model-deployment cadence |
 | L × I (inherent) | Low × Low = LOW |
 | Treatment | Webhook payload curation never carries raw training data or unredacted PII; `FORGELM_AUDIT_SECRET`-signed payloads detect splicing; deployer rotates webhook secret on incident |
 | Residual L × I | Low × Low = LOW |

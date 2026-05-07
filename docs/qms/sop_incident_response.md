@@ -160,7 +160,10 @@ that an attacker may have observed.
 
 **Runbook:**
 
-1. [ ] **Rotate `webhook.secret_env`** immediately.
+1. [ ] **Rotate the webhook URL and destination-side bearer token**
+       immediately (URL is resolved via `webhook.url_env` from your
+       secret manager; ForgeLM does not currently HMAC-sign webhook
+       bodies).
 2. [ ] **Walk the audit chain** to confirm the attacker did not splice
        events into the recipient: filter
        `audit_log.jsonl` by event class

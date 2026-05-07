@@ -41,7 +41,7 @@ Erases a single row identified by its `id` (or `row_id`) field from a JSONL trai
 
 **Atomic write contract.** The corpus is rewritten via a sibling temp file + `os.replace`, so an interrupted purge leaves either the full pre-erasure file or the full post-erasure file — never a partial state.
 
-**Line-number fallback is rejected** (design §4.2). Operators with id-less corpora must pre-populate ids via `forgelm audit --add-row-ids`.
+**Line-number fallback is rejected** (design §4.2). ForgeLM does not currently provide an id-population helper (`forgelm audit --add-row-ids` is on the Phase 28 backlog); operators with id-less corpora must pre-populate ids with an operator-side script before invoking `forgelm purge --row-id`.
 
 ### Run-scoped artefact erasure (`--run-id` + `--kind`)
 

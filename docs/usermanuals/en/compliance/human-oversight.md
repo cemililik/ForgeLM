@@ -5,7 +5,7 @@ description: Block model promotion until a human reviews and signs off — Artic
 
 # Human Oversight
 
-EU AI Act Article 14 requires high-risk AI systems to provide for human oversight. ForgeLM implements this as an optional config gate: when `compliance.human_approval: true`, model promotion blocks until a human signs an approval.
+EU AI Act Article 14 requires high-risk AI systems to provide for human oversight. ForgeLM implements this as an optional config gate: when `evaluation.require_human_approval: true`, model promotion blocks until a human signs an approval.
 
 ## How the gate works
 

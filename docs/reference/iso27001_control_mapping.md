@@ -48,9 +48,9 @@
 | A.5.24 Information security incident management planning and preparation | FL-helps | `sop_incident_response.md`; audit chain preserves state |
 | A.5.25 Assessment and decision on information security events | FL-helps | `data.erasure_failed`, `pipeline.failed`, `audit.classifier_load_failed` |
 | A.5.26 Response to information security incidents | FL-helps | Audit chain HMAC preserves before/after |
-| A.5.27 Learning from information security incidents | FL-helps | `pipeline.reverted` events accumulate post-mortem evidence |
+| A.5.27 Learning from information security incidents | FL-helps | `model.reverted` events accumulate post-mortem evidence |
 | A.5.28 Collection of evidence | FL | `audit_log.jsonl` forensic-grade; `forgelm verify-audit` validates |
-| A.5.29 Information security during disruption | FL-helps | `auto_revert` baseline-flip; `pipeline.reverted` event |
+| A.5.29 Information security during disruption | FL-helps | `auto_revert` baseline-flip; `model.reverted` event |
 | A.5.30 ICT readiness for business continuity | OOS | — |
 | A.5.31 Identification of legal, statutory, regulatory and contractual requirements | FL-helps | EU AI Act + GDPR mappings; Annex IV bundle |
 | A.5.32 Intellectual property rights | FL-helps | License extraction in SBOM; HF model-card metadata |

@@ -81,7 +81,7 @@ Push your branch and open a Pull Request against `main`.
 
 ForgeLM is a single-package layout: a mix of single-file modules and two
 focused sub-packages (`forgelm/cli/` post-Phase-15 split and
-`forgelm/data_audit/` post-Phase-14 split) under `forgelm/`, ~68 test files
+`forgelm/data_audit/` post-Phase-14 split) under `forgelm/`, ~70 test files
 under `tests/` (collected-test count grows over time — run
 `pytest --collect-only -q` for current), plus `configs/`, `docs/`, `tools/`
 (CI guards), and `notebooks/`. For the authoritative module-by-module map

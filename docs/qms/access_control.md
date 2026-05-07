@@ -227,8 +227,8 @@ webhook:
   timeout: 10
 ```
 
-The webhook lifecycle events (`notify_started`, `notify_succeeded`,
-`notify_failed`, `notify_reverted`, `notify_awaiting_approval` —
+The webhook lifecycle events (`notify_start`, `notify_success`,
+`notify_failure`, `notify_reverted`, `notify_awaiting_approval` —
 Phase 8 vocabulary) carry the `FORGELM_OPERATOR` identity into the
 webhook payload so the receiving system (Slack, Teams, custom
 incident-management) can attribute the notification.

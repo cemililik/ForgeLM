@@ -41,7 +41,7 @@ JSONL eğitim corpus'undan `id` (veya `row_id`) field'ı ile tanımlanan tek bir
 
 **Atomik yazma sözleşmesi.** Corpus, kardeş bir temp dosya + `os.replace` ile yeniden yazılır; kesilen bir purge ya tam silme-öncesi dosyayı ya da tam silme-sonrası dosyayı bırakır — asla kısmi state'i değil.
 
-**Satır-numarası fallback'i reddedilir** (design §4.2). Id'siz corpus'lara sahip operatörler önce `forgelm audit --add-row-ids` çalıştırarak id'leri pre-populate etmelidir.
+**Satır-numarası fallback'i reddedilir** (design §4.2). ForgeLM şu an bir id-doldurma yardımcısı sunmuyor (`forgelm audit --add-row-ids` Phase 28 backlog'unda); id'siz corpus'lara sahip operatörler `forgelm purge --row-id` çalıştırmadan önce id'leri operatör-tarafı bir script ile pre-populate etmelidir.
 
 ### Koşum-kapsamlı artefact silme (`--run-id` + `--kind`)
 

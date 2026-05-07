@@ -57,7 +57,7 @@ Bu paket compliance incelemeleri için teslim edilebilir. İçindeki her dosya `
 | **11** | Teknik dokümantasyon | `annex_iv_metadata.json` dolu Annex IV. |
 | **12** | Kayıt tutma | Eğitim başlangıcı, eval kapıları, geri alma kararlarını kapsayan append-only `audit_log.jsonl`. |
 | **13** | Şeffaflık | Otomatik üretilen model card; yetenekleri, sınırları, eğitim özetini listeler. |
-| **14** | İnsan gözetimi | Opsiyonel `compliance.human_approval: true` insan imzalayana kadar terfi engeller. |
+| **14** | İnsan gözetimi | Opsiyonel `evaluation.require_human_approval: true` insan imzalayana kadar terfi engeller. |
 | **15** | Doğruluk ve sağlamlık | Benchmark kapıları + güvenlik eval + cybersec (ingest'te PII / sırlar). |
 | **16-17** | Uygunluk ve QMS | Beyan iskeleti + `docs/qms/`'deki QMS SOP'ları. |
 

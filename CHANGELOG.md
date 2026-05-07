@@ -48,8 +48,8 @@ triplets (50 new doc files):**
 - `docs/usermanuals/_meta.yaml` registers the 8 new pages with
   full 6-language title sets (EN+TR mandatory; DE/FR/ES/ZH
   fallback to EN per Task L policy).
-- `tools/check_bilingual_parity.py::_PAIRS` grew from 23 to 39
-  pairs (16 new pairs across guides + reference).
+- `tools/check_bilingual_parity.py::_PAIRS` grew from 23 to 40
+  pairs (17 new pairs across guides + reference).
 
 **Faz 30 Task J — `tools/check_cli_help_consistency.py` (new
 guard):**

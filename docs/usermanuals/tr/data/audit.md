@@ -115,9 +115,17 @@ Train vs validation vs test satırları arasında kesin ve near-duplicate eşle�
   "secrets_summary": {"total": 0},
   "near_duplicate_pairs": 47,
   "cross_split_overlap": 0,
-  "quality_flags": {...},
+  "quality_flags": {
+    "short_response": 24,
+    "repeated_lines": 0,
+    "abnormal_word_length": 12
+  },
   "language_distribution": {"tr": 0.992, "en": 0.008},
-  "preference_specific": {"identical_chosen_rejected": 12, ...},
+  "preference_specific": {
+    "identical_chosen_rejected": 12,
+    "empty_chosen": 0,
+    "swapped_likely": 0
+  },
   "verdict": "warnings"
 }
 ```

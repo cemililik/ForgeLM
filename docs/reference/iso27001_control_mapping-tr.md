@@ -47,9 +47,9 @@
 | A.5.24 Bilgi güvenliği olay yönetimi planlaması ve hazırlığı | FL-helps | `sop_incident_response.md`; audit chain durumu korur |
 | A.5.25 Bilgi güvenliği olaylarının değerlendirilmesi ve karara bağlanması | FL-helps | `data.erasure_failed`, `pipeline.failed`, `audit.classifier_load_failed` |
 | A.5.26 Bilgi güvenliği olaylarına yanıt | FL-helps | Audit chain HMAC öncesi/sonrası durumu korur |
-| A.5.27 Bilgi güvenliği olaylarından öğrenme | FL-helps | `pipeline.reverted` olayları post-mortem kanıtı biriktirir |
+| A.5.27 Bilgi güvenliği olaylarından öğrenme | FL-helps | `model.reverted` olayları post-mortem kanıtı biriktirir |
 | A.5.28 Kanıt toplama | FL | `audit_log.jsonl` forensic-grade; `forgelm verify-audit` doğrular |
-| A.5.29 Aksaklık sırasında bilgi güvenliği | FL-helps | `auto_revert` baseline-flip; `pipeline.reverted` olayı |
+| A.5.29 Aksaklık sırasında bilgi güvenliği | FL-helps | `auto_revert` baseline-flip; `model.reverted` olayı |
 | A.5.30 İş sürekliliği için ICT hazırlığı | OOS | — |
 | A.5.31 Yasal, kanuni, düzenleyici ve sözleşmesel gerekliliklerin tanımlanması | FL-helps | EU AI Act + GDPR mappings; Annex IV bundle |
 | A.5.32 Fikri mülkiyet hakları | FL-helps | SBOM'da lisans çıkarımı; HF model-card metadata |
