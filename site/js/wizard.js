@@ -87,11 +87,40 @@
   /* ── State + persistence ──────────────────────────────── */
 
   var STORAGE_KEY = 'forgelm.wizard.state';
-  // Schema version 2 drops the data.format / prompt_field / response_field
-  // and the compliance audit_log / annex_iv_export toggles — those fields
-  // do not exist in forgelm/config.py (DataConfig + ComplianceMetadataConfig
-  // both use ``extra="forbid"``). Any v1 snapshot is discarded on load.
-  var STATE_VERSION = 2;
+  // Schema version 3 adds the explicit trainer-selection step + the
+  // trainer-specific hyperparameter knobs (dpo_beta, simpo_*, kto_beta,
+  // grpo_*) that the schema supports but the wizard previously hid.
+  // v2 → v3: new fields don't break old saves (loadState merges over
+  // defaults), but bumping the version reserves the right to drop
+  // incompatible state shapes if needed in the future.
+  var STATE_VERSION = 3;
+
+  // Trainer registry — single source of truth for the 6 trainer_type
+  // values the schema accepts (TrainingConfig.trainer_type Literal in
+  // forgelm/config.py). Keep ordered; ``isPreference`` controls which
+  // dataset shape rendering applies, ``hasParam`` lists which extra
+  // hyperparameters must surface in Step 5 + emitted to YAML.
+  var TRAINERS = [
+    { id: 'sft',   recommended: true,
+      isPreference: false, isKto: false, isGrpo: false,
+      params: [] },
+    { id: 'dpo',   isPreference: true,  isKto: false, isGrpo: false,
+      params: ['dpoBeta'] },
+    { id: 'orpo',  isPreference: true,  isKto: false, isGrpo: false,
+      params: ['orpoBeta'] },
+    { id: 'simpo', isPreference: true,  isKto: false, isGrpo: false,
+      params: ['simpoGamma', 'simpoBeta'] },
+    { id: 'kto',   isPreference: false, isKto: true,  isGrpo: false,
+      params: ['ktoBeta'] },
+    { id: 'grpo',  isPreference: false, isKto: false, isGrpo: true,
+      params: ['grpoNumGenerations', 'grpoMaxCompletionLength', 'grpoRewardModel'] }
+  ];
+  function trainerDef(id) {
+    for (var i = 0; i < TRAINERS.length; i++) {
+      if (TRAINERS[i].id === id) return TRAINERS[i];
+    }
+    return TRAINERS[0]; // fallback to SFT
+  }
 
   function defaultState() {
     return {
@@ -100,6 +129,10 @@
       experience: 'beginner',  // 'beginner' | 'expert'
       detailsVisible: true,    // toggle for inline tutorial paragraphs
       useCase: null,           // 'customer-support' | 'code-copilot' | 'domain-expert' | 'grpo-math' | 'medical-tr' | 'custom'
+      // Trainer selection. Use-case picks a sensible preset, but the
+      // operator can override on Step 3 (trainer step). All 6 schema
+      // values reachable: sft / dpo / orpo / simpo / kto / grpo.
+      trainerType: 'sft',
       model: 'meta-llama/Llama-3.1-8B-Instruct',
       modelPreset: 'llama3-8b',
       datasetKind: 'huggingface',  // 'huggingface' | 'local-jsonl' | 'local-pdf'
@@ -110,12 +143,38 @@
       // → instruction). Forcing them in the YAML would trigger
       // ``extra="forbid"`` on DataConfig.
       qlora: true,
+      // PEFT variant. 'lora' (default standard LoRA), 'dora' (weight-
+      // decomposed), 'pissa' (singular value initialised), 'rslora'
+      // (rank-stabilised). Mutually exclusive with GaLore (next field).
+      loraMethod: 'lora',
+      // GaLore: full-parameter training via gradient projection — no
+      // adapters. When true, lora.method emission becomes inert (the
+      // schema requires the lora block but GaLore bypasses it at
+      // runtime) and training.galore_enabled fires.
+      galoreEnabled: false,
+      // GaLore optimizer variant. Only consulted when galoreEnabled.
+      // _8bit halves optimiser-state VRAM; _layerwise cuts peak VRAM
+      // further by recomputing per-layer.
+      galoreOptim: 'galore_adamw_8bit',
       loraR: 8,
       loraAlpha: 16,
       epochs: 3,
       learningRate: '1e-4',
       batchSize: 2,
       gradientAccumulation: 2,
+      // Trainer-specific hyperparameters. Defaults mirror the schema
+      // defaults in forgelm/config.py (TrainingConfig fields), so a
+      // wizard-emitted YAML matches the runtime defaults when the
+      // operator doesn't deviate. Each value is conditionally
+      // surfaced + emitted based on state.trainerType.
+      dpoBeta: 0.1,                  // schema default
+      orpoBeta: 0.1,                 // schema default
+      simpoGamma: 0.5,               // schema default
+      simpoBeta: 2.0,                // schema default
+      ktoBeta: 0.1,                  // schema default
+      grpoNumGenerations: 4,         // schema default
+      grpoMaxCompletionLength: 512,  // schema default
+      grpoRewardModel: '',           // schema default is None; '' = omit from YAML
       // EU AI Act risk + evaluation toggles. Audit log + Annex IV export
       // are NOT YAML toggles — the audit log is always emitted, and the
       // Annex IV bundle is produced whenever ``compliance.*`` metadata is
@@ -131,7 +190,77 @@
       // tiers where the EU AI Act requires named provider info.
       providerName: '',
       systemName: '',
-      intendedPurpose: ''
+      intendedPurpose: '',
+      // Evaluation: benchmark (lm-evaluation-harness) + LLM Judge.
+      // Both are nested under evaluation.* and gated by their own
+      // ``enabled`` toggles. ``benchmarkTasks`` is newline-separated
+      // (e.g. arc_easy / hellaswag / mmlu) and emitted as a YAML list.
+      benchmarkEnabled: false,
+      benchmarkTasks: 'arc_easy\nhellaswag\nmmlu',
+      benchmarkMinScore: '',  // empty → schema default (None)
+      judgeEnabled: false,
+      judgeModel: 'gpt-4o',
+      judgeApiKeyEnv: 'OPENAI_API_KEY',
+      judgeMinScore: 5.0,
+      // Article 9 risk assessment fields. ``risk_category`` mirrors
+      // ``compliance.risk_classification`` so the two sibling tier
+      // fields stay in lockstep — see ForgeConfig._risk_tiers in
+      // forgelm/config.py for why both exist. ``foreseeableMisuse``
+      // and ``mitigationMeasures`` accept newline-separated lists in
+      // the textarea and are emitted as YAML arrays.
+      intendedUse: '',
+      foreseeableMisuse: '',
+      mitigationMeasures: '',
+      vulnerableGroupsConsidered: false,
+      // Article 10 data governance — surfaces inside the dataset
+      // step accordion. All fields are free-text apart from the two
+      // booleans (personal data + DPIA).
+      collectionMethod: '',
+      annotationProcess: '',
+      knownBiases: '',
+      personalDataIncluded: false,
+      dpiaCompleted: false,
+      // Webhook (Slack/Teams/Discord) notifications. ``webhookEnabled``
+      // gates the whole block — when off, the YAML omits the webhook
+      // section entirely. When on, ``webhookUrl`` is required (validated
+      // in validateStep). The URL accepts either a literal https value
+      // OR ``env:VAR_NAME`` to source from the environment — buildYaml
+      // branches on the prefix.
+      webhookEnabled: false,
+      webhookUrl: '',
+      webhookNotifyStart: false,
+      webhookNotifySuccess: true,
+      webhookNotifyFailure: true,
+      // Article 12+17 post-market monitoring. Auto-coerced to true
+      // for high-risk tiers.
+      monitoringEnabled: false,
+      monitoringEndpoint: '',
+      metricsExport: 'none',  // 'none' | 'prometheus' | 'datadog' | 'custom_webhook'
+      alertOnDrift: true,
+      // Synthetic data generation (teacher → student). Optional
+      // pre-training stage; ``syntheticTeacherModel`` is the API
+      // name or local path for the teacher.
+      syntheticEnabled: false,
+      syntheticTeacherModel: 'gpt-4o',
+      syntheticSeedFile: '',
+      syntheticApiKeyEnv: 'OPENAI_API_KEY',
+      // GDPR Article 5+17 retention horizons. Defaults below match
+      // forgelm/config.py RetentionConfig.
+      retentionAuditLog: 1825,        // 5 years
+      retentionStaging: 7,
+      retentionEphemeral: 90,
+      retentionRawDocuments: 90,
+      // Policy enforcement: 'log_only' (default; logs to audit only),
+      // 'warn_on_excess' (stderr warning), 'block_on_excess' (aborts
+      // trainer with EXIT_EVAL_FAILURE). Schema Literal — must use
+      // one of these three values.
+      retentionEnforce: 'log_only',
+      // Track which steps the operator tried to advance past while
+      // failing required-field validation. The renderer reads this to
+      // decide whether to paint inline error messages — so the FIRST
+      // visit to a step is clean (no errors shown), and only after
+      // hitting Next on an invalid step do the errors appear.
+      attemptedSteps: []
     };
   }
 
@@ -146,6 +275,11 @@
       Object.keys(parsed).forEach(function (k) {
         if (Object.hasOwn(merged, k)) merged[k] = parsed[k];
       });
+      // ``attemptedSteps`` is per-session — wiping it on every load
+      // ensures the operator opens the wizard to a clean form, no
+      // pre-painted validation errors from a prior session. The error
+      // surface only fires once they hit Next on an invalid step.
+      merged.attemptedSteps = [];
       return merged;
     } catch (e) {
       return null;
@@ -184,34 +318,160 @@
     }
   }
 
+  /* ── Required-field validation ────────────────────────── */
+  // Some steps require operator input that has no sensible default —
+  // e.g. a custom HuggingFace model ID, or a dataset path / Hub name.
+  // ``validateStep(state, stepId)`` returns an array of {field, key}
+  // entries, one per validation failure. Empty array = step is valid.
+  // The renderer for each step calls back into this function and, if
+  // ``state.attemptedSteps`` includes the current step ID, paints
+  // inline errors next to the offending input. ``goNext()`` blocks
+  // advancement when validateStep returns a non-empty array.
+  function validateStep(state, stepId) {
+    var errors = [];
+    var blank = function (v) { return !((v || '').trim()); };
+    var strict = isStrictRisk(state);
+
+    if (stepId === 'model') {
+      if (state.modelPreset === 'custom') {
+        var v = (state.model || '').trim();
+        if (!v) {
+          errors.push({ field: 'model', key: 'wizard.error.model.required' });
+        } else if (v.indexOf('/') < 0) {
+          // HF Hub IDs are <org>/<repo>; bare names won't resolve.
+          errors.push({ field: 'model', key: 'wizard.error.model.format' });
+        }
+      }
+    } else if (stepId === 'dataset') {
+      if (blank(state.datasetName)) {
+        errors.push({ field: 'datasetName', key: 'wizard.error.dataset.required' });
+      }
+      // Article 10 (data governance) is mandatory documentation for
+      // high-risk + unacceptable systems. The wizard treats the three
+      // free-text fields as required when the operator picked a
+      // strict tier on the compliance step.
+      if (strict) {
+        if (blank(state.collectionMethod)) {
+          errors.push({ field: 'collectionMethod', key: 'wizard.error.governance.collection_method.required' });
+        }
+        if (blank(state.annotationProcess)) {
+          errors.push({ field: 'annotationProcess', key: 'wizard.error.governance.annotation_process.required' });
+        }
+        if (blank(state.knownBiases)) {
+          errors.push({ field: 'knownBiases', key: 'wizard.error.governance.known_biases.required' });
+        }
+      }
+    } else if (stepId === 'compliance') {
+      // High-risk + unacceptable tiers carry mandatory Annex IV §1
+      // metadata + Article 9 risk-management evidence. Without these
+      // the runtime accepts empty strings (schema defaults), but the
+      // resulting compliance bundle would fail an external audit, so
+      // we enforce the obligation here.
+      if (strict) {
+        if (blank(state.providerName)) {
+          errors.push({ field: 'providerName', key: 'wizard.error.compliance.provider_name.required' });
+        }
+        if (blank(state.systemName)) {
+          errors.push({ field: 'systemName', key: 'wizard.error.compliance.system_name.required' });
+        }
+        if (blank(state.intendedPurpose)) {
+          errors.push({ field: 'intendedPurpose', key: 'wizard.error.compliance.intended_purpose.required' });
+        }
+        if (blank(state.intendedUse)) {
+          errors.push({ field: 'intendedUse', key: 'wizard.error.risk_assessment.intended_use.required' });
+        }
+        if (blank(state.foreseeableMisuse)) {
+          errors.push({ field: 'foreseeableMisuse', key: 'wizard.error.risk_assessment.foreseeable_misuse.required' });
+        }
+        if (blank(state.mitigationMeasures)) {
+          errors.push({ field: 'mitigationMeasures', key: 'wizard.error.risk_assessment.mitigation_measures.required' });
+        }
+      }
+      // Eval-gate accordion: each gate's primary input is required
+      // when the gate is enabled. ``benchmarkTasks`` is a newline list
+      // — empty after trim means "no tasks", which makes the gate a
+      // no-op. Same for the judge API key env var.
+      if (state.benchmarkEnabled && blank(state.benchmarkTasks)) {
+        errors.push({ field: 'benchmarkTasks', key: 'wizard.error.benchmark.tasks.required' });
+      }
+      if (state.judgeEnabled && blank(state.judgeApiKeyEnv)) {
+        errors.push({ field: 'judgeApiKeyEnv', key: 'wizard.error.judge.api_key_env.required' });
+      }
+    } else if (stepId === 'operations') {
+      // Each accordion that exposes a primary input gates that input
+      // as required ONLY when the accordion's own enable toggle is on.
+      // Off → skip; the operator opted out of the whole feature.
+      if (state.webhookEnabled && blank(state.webhookUrl)) {
+        errors.push({ field: 'webhookUrl', key: 'wizard.error.webhook.required' });
+      }
+      if (state.monitoringEnabled && blank(state.monitoringEndpoint)) {
+        errors.push({ field: 'monitoringEndpoint', key: 'wizard.error.monitoring.endpoint.required' });
+      }
+      if (state.syntheticEnabled) {
+        if (blank(state.syntheticTeacherModel)) {
+          errors.push({ field: 'syntheticTeacherModel', key: 'wizard.error.synthetic.teacher_model.required' });
+        }
+        if (blank(state.syntheticSeedFile)) {
+          errors.push({ field: 'syntheticSeedFile', key: 'wizard.error.synthetic.seed_file.required' });
+        }
+        if (blank(state.syntheticApiKeyEnv)) {
+          errors.push({ field: 'syntheticApiKeyEnv', key: 'wizard.error.synthetic.api_key_env.required' });
+        }
+      }
+    }
+    return errors;
+  }
+
+  function fieldHasError(state, stepId, fieldName) {
+    if (!state.attemptedSteps || state.attemptedSteps.indexOf(stepId) < 0) return null;
+    var errs = validateStep(state, stepId);
+    for (var i = 0; i < errs.length; i++) {
+      if (errs[i].field === fieldName) return errs[i].key;
+    }
+    return null;
+  }
+
   /* ── Use-case templates (Step 2 → preselect Step 3-5) ─── */
 
+  // Use-case → state preset. ``trainerType`` is included so the new
+  // trainer step (Step 3) lands on the right card by default; the
+  // operator can still override it. The mapping is aligned with the
+  // shipped templates under ``forgelm/templates/`` — every shipped
+  // template uses ``trainer_type: sft`` except ``grpo-math`` which
+  // uses ``grpo``. The wizard previously emitted DPO/ORPO for
+  // customer-support / code-copilot which contradicted the templates;
+  // this file now matches the runtime defaults.
   var USE_CASE_PRESETS = {
     'customer-support': {
+      trainerType: 'sft',
       model: 'meta-llama/Llama-3.1-8B-Instruct',
       modelPreset: 'llama3-8b',
       datasetKind: 'huggingface',
       datasetName: 'argilla/Capybara-Preferences'
     },
     'code-copilot': {
+      trainerType: 'sft',
       model: 'Qwen/Qwen2.5-Coder-7B-Instruct',
       modelPreset: 'custom',
       datasetKind: 'huggingface',
       datasetName: 'bigcode/the-stack-smol-xs'
     },
     'domain-expert': {
+      trainerType: 'sft',
       model: 'meta-llama/Llama-3.1-8B-Instruct',
       modelPreset: 'llama3-8b',
       datasetKind: 'local-pdf',
       datasetName: './policies/'
     },
     'grpo-math': {
+      trainerType: 'grpo',
       model: 'Qwen/Qwen2.5-7B-Instruct',
       modelPreset: 'qwen-7b',
       datasetKind: 'huggingface',
       datasetName: 'openai/gsm8k'
     },
     'medical-tr': {
+      trainerType: 'sft',
       model: 'meta-llama/Llama-3.1-8B-Instruct',
       modelPreset: 'llama3-8b',
       datasetKind: 'huggingface',
@@ -221,18 +481,6 @@
       /* leave the existing values intact — user wants explicit control */
     }
   };
-
-  // Map use-case → trainer (reflected in the YAML's ``training.trainer_type``).
-  function trainerForUseCase(useCase) {
-    switch (useCase) {
-      case 'customer-support': return 'dpo';
-      case 'code-copilot':     return 'orpo';
-      case 'domain-expert':    return 'sft';
-      case 'grpo-math':        return 'grpo';
-      case 'medical-tr':       return 'sft';
-      default:                  return 'sft';
-    }
-  }
 
   function applyUseCasePreset(state, useCase) {
     var preset = USE_CASE_PRESETS[useCase] || {};
@@ -294,6 +542,13 @@
     k(1, 'alpha', String(state.loraAlpha));
     k(1, 'dropout', '0.1');  // schema default
     k(1, 'bias', '"none"');
+    // ``method`` is emitted whenever the operator picked a non-default
+    // PEFT variant. GaLore mode also emits the lora block (schema
+    // requires it) but with the standard LoRA method as a no-op default
+    // — GaLore bypasses LoRA at runtime regardless of what's here.
+    if (!state.galoreEnabled && state.loraMethod && state.loraMethod !== 'lora') {
+      k(1, 'method', JSON.stringify(state.loraMethod));
+    }
     k(1, 'target_modules', '["q_proj", "v_proj"]');
     blank();
 
@@ -308,12 +563,38 @@
         : './data/train.jsonl';
       k(1, 'dataset_name_or_path', JSON.stringify(state.datasetName || defaultPath));
     }
-    comment(' DataConfig auto-detects row shape: { "messages": [...] } → chat;');
-    comment(' { "prompt": ..., "response": ... } → instruction-following.');
+    // Trainer-aware autodetect note — different alignment paradigms
+    // expect different row shapes. SFT auto-detects messages or
+    // prompt+response; preference trainers (DPO/ORPO/SimPO) need
+    // chosen+rejected pairs; KTO needs binary feedback; GRPO needs
+    // a prompt and (optionally) a gold answer.
+    var trDef = trainerDef(state.trainerType);
+    if (trDef.isPreference) {
+      comment(' ' + state.trainerType.toUpperCase() + ' expects preference rows: { "prompt": ..., "chosen": ..., "rejected": ... }');
+    } else if (trDef.isKto) {
+      comment(' KTO expects binary-feedback rows: { "prompt": ..., "completion": ..., "label": true|false }');
+    } else if (trDef.isGrpo) {
+      comment(' GRPO expects rollout prompts: { "prompt": ..., "gold_answer": "..." }');
+      comment(' (gold_answer is optional; required only when using the regex correctness reward.)');
+    } else {
+      comment(' DataConfig auto-detects SFT row shape: { "messages": [...] } → chat;');
+      comment(' { "prompt": ..., "response": ... } → instruction-following.');
+    }
+    // Article 10 data governance — emitted as a nested ``governance``
+    // block under data when the operator filled in any field.
+    var hasGovernance = state.collectionMethod || state.annotationProcess || state.knownBiases || state.personalDataIncluded || state.dpiaCompleted;
+    if (hasGovernance) {
+      header(1, 'governance');
+      if (state.collectionMethod) k(2, 'collection_method', JSON.stringify(state.collectionMethod));
+      if (state.annotationProcess) k(2, 'annotation_process', JSON.stringify(state.annotationProcess));
+      if (state.knownBiases) k(2, 'known_biases', JSON.stringify(state.knownBiases));
+      if (state.personalDataIncluded) k(2, 'personal_data_included', 'true');
+      if (state.dpiaCompleted) k(2, 'dpia_completed', 'true');
+    }
     blank();
 
     header(0, 'training');
-    k(1, 'trainer_type', JSON.stringify(trainerForUseCase(state.useCase)));
+    k(1, 'trainer_type', JSON.stringify(state.trainerType));
     k(1, 'output_dir', '"./checkpoints"');
     k(1, 'final_model_dir', '"final_model"');
     k(1, 'num_train_epochs', String(state.epochs));
@@ -321,6 +602,36 @@
     k(1, 'per_device_train_batch_size', String(state.batchSize));
     k(1, 'gradient_accumulation_steps', String(state.gradientAccumulation));
     k(1, 'merge_adapters', 'false');
+    // GaLore: full-parameter training via gradient projection,
+    // alternative to LoRA. When enabled the lora.* block above is
+    // ignored at runtime; we still emit it because the schema requires
+    // the block to be present.
+    if (state.galoreEnabled) {
+      k(1, 'galore_enabled', 'true');
+      k(1, 'galore_optim', JSON.stringify(state.galoreOptim));
+    }
+    // Trainer-specific hyperparameters — only emit fields whose state
+    // value differs from the schema default OR when the operator is
+    // explicitly tuning that trainer (so the YAML carries an audit
+    // trail of what the wizard chose). For GRPO, ``grpo_reward_model``
+    // stays out of the YAML when empty (schema default is None — TRL
+    // then wires the built-in format/length reward).
+    if (state.trainerType === 'dpo') {
+      k(1, 'dpo_beta', String(state.dpoBeta));
+    } else if (state.trainerType === 'orpo') {
+      k(1, 'orpo_beta', String(state.orpoBeta));
+    } else if (state.trainerType === 'simpo') {
+      k(1, 'simpo_gamma', String(state.simpoGamma));
+      k(1, 'simpo_beta', String(state.simpoBeta));
+    } else if (state.trainerType === 'kto') {
+      k(1, 'kto_beta', String(state.ktoBeta));
+    } else if (state.trainerType === 'grpo') {
+      k(1, 'grpo_num_generations', String(state.grpoNumGenerations));
+      k(1, 'grpo_max_completion_length', String(state.grpoMaxCompletionLength));
+      if (state.grpoRewardModel) {
+        k(1, 'grpo_reward_model', JSON.stringify(state.grpoRewardModel));
+      }
+    }
     blank();
 
     header(0, 'evaluation');
@@ -342,6 +653,37 @@
       k(2, 'min_classifier_confidence', '0.7');
       k(2, 'max_safety_regression', '0.05');
     }
+    // BenchmarkConfig (lm-evaluation-harness). Optional quality gate
+    // that scores the fine-tuned model on academic tasks. Tasks are
+    // emitted as a YAML list; min_score is omitted when blank so the
+    // schema default (None) applies.
+    if (state.benchmarkEnabled) {
+      header(1, 'benchmark');
+      k(2, 'enabled', 'true');
+      var benchTasks = (state.benchmarkTasks || '').split('\n')
+        .map(function (s) { return s.trim(); })
+        .filter(function (s) { return s.length > 0; });
+      if (benchTasks.length) {
+        lines.push('    tasks:');
+        benchTasks.forEach(function (t) { lines.push('      - ' + JSON.stringify(t)); });
+      }
+      var ms = parseFloat(state.benchmarkMinScore);
+      if (!isNaN(ms) && ms > 0) {
+        k(2, 'min_score', String(ms));
+      }
+    }
+    // JudgeConfig (LLM-as-Judge). Optional gate that scores outputs
+    // with a stronger model (e.g. GPT-4o) and blocks promotion if
+    // average score falls below min_score.
+    if (state.judgeEnabled) {
+      header(1, 'llm_judge');
+      k(2, 'enabled', 'true');
+      k(2, 'judge_model', JSON.stringify(state.judgeModel || 'gpt-4o'));
+      if (state.judgeApiKeyEnv) {
+        k(2, 'judge_api_key_env', JSON.stringify(state.judgeApiKeyEnv));
+      }
+      k(2, 'min_score', String(state.judgeMinScore));
+    }
     blank();
 
     // ComplianceMetadataConfig — Annex IV §1 provider + system info.
@@ -354,6 +696,113 @@
     if (state.systemName) k(1, 'system_name', JSON.stringify(state.systemName));
     if (state.intendedPurpose) k(1, 'intended_purpose', JSON.stringify(state.intendedPurpose));
     blank();
+
+    // Article 9 risk assessment block. Only emit when the operator
+    // filled in at least one field (or when the tier is strict, in
+    // which case Article 9 documentation is mandatory). The
+    // risk_category mirrors compliance.risk_classification so the
+    // two sibling fields don't drift.
+    function listFromTextarea(text) {
+      if (!text) return [];
+      return text.split('\n').map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; });
+    }
+    var raMisuse = listFromTextarea(state.foreseeableMisuse);
+    var raMitigation = listFromTextarea(state.mitigationMeasures);
+    var hasRiskAssessment = state.intendedUse || raMisuse.length || raMitigation.length || state.vulnerableGroupsConsidered || isStrictRisk(state);
+    if (hasRiskAssessment) {
+      header(0, 'risk_assessment');
+      k(1, 'risk_category', JSON.stringify(state.riskClassification));
+      if (state.intendedUse) k(1, 'intended_use', JSON.stringify(state.intendedUse));
+      if (raMisuse.length) {
+        lines.push('  foreseeable_misuse:');
+        raMisuse.forEach(function (m) { lines.push('    - ' + JSON.stringify(m)); });
+      }
+      if (raMitigation.length) {
+        lines.push('  mitigation_measures:');
+        raMitigation.forEach(function (m) { lines.push('    - ' + JSON.stringify(m)); });
+      }
+      if (state.vulnerableGroupsConsidered) k(1, 'vulnerable_groups_considered', 'true');
+      blank();
+    }
+
+    // Webhook (Slack/Teams/Discord notifications). The URL field
+    // accepts either a literal https URL or ``env:VAR_NAME`` to
+    // source from the environment — the latter is the production
+    // path because YAML files are version-controlled and the URL
+    // is a secret.
+    if (state.webhookEnabled && state.webhookUrl) {
+      header(0, 'webhook');
+      var raw = state.webhookUrl.trim();
+      if (raw.indexOf('env:') === 0) {
+        k(1, 'url_env', JSON.stringify(raw.slice(4)));
+      } else {
+        k(1, 'url', JSON.stringify(raw));
+      }
+      if (state.webhookNotifyStart)   k(1, 'notify_on_start', 'true');
+      if (!state.webhookNotifySuccess) k(1, 'notify_on_success', 'false');
+      if (!state.webhookNotifyFailure) k(1, 'notify_on_failure', 'false');
+      blank();
+    }
+
+    // Article 12+17 post-market monitoring. Auto-coerced enabled for
+    // strict tiers (operator can't disable it under high-risk).
+    var monitoringActive = state.monitoringEnabled || isStrictRisk(state);
+    if (monitoringActive || state.monitoringEndpoint) {
+      header(0, 'monitoring');
+      k(1, 'enabled', monitoringActive ? 'true' : 'false');
+      if (state.monitoringEndpoint) {
+        var rawM = state.monitoringEndpoint.trim();
+        if (rawM.indexOf('env:') === 0) {
+          k(1, 'endpoint_env', JSON.stringify(rawM.slice(4)));
+        } else {
+          k(1, 'endpoint', JSON.stringify(rawM));
+        }
+      }
+      if (state.metricsExport && state.metricsExport !== 'none') {
+        k(1, 'metrics_export', JSON.stringify(state.metricsExport));
+      }
+      if (!state.alertOnDrift) k(1, 'alert_on_drift', 'false');
+      blank();
+    }
+
+    // Synthetic data generation (teacher → student distillation).
+    // Only emitted when the operator opted in.
+    if (state.syntheticEnabled) {
+      header(0, 'synthetic');
+      k(1, 'enabled', 'true');
+      k(1, 'teacher_model', JSON.stringify(state.syntheticTeacherModel || 'gpt-4o'));
+      if (state.syntheticSeedFile) k(1, 'seed_file', JSON.stringify(state.syntheticSeedFile));
+      if (state.syntheticApiKeyEnv) k(1, 'api_key_env', JSON.stringify(state.syntheticApiKeyEnv));
+      blank();
+    }
+
+    // GDPR Article 5(1)(e) + 17 retention horizons. Only emit fields
+    // that deviate from schema defaults (1825 / 7 / 90 / 90) so the
+    // YAML stays terse for the typical case.
+    var retainDefaults = { audit: 1825, staging: 7, ephemeral: 90, raw: 90 };
+    var nonDefaultRetention =
+      state.retentionAuditLog !== retainDefaults.audit ||
+      state.retentionStaging !== retainDefaults.staging ||
+      state.retentionEphemeral !== retainDefaults.ephemeral ||
+      state.retentionRawDocuments !== retainDefaults.raw ||
+      (state.retentionEnforce && state.retentionEnforce !== 'log_only');
+    if (nonDefaultRetention) {
+      header(0, 'retention');
+      if (state.retentionAuditLog !== retainDefaults.audit)
+        k(1, 'audit_log_retention_days', String(state.retentionAuditLog));
+      if (state.retentionStaging !== retainDefaults.staging)
+        k(1, 'staging_ttl_days', String(state.retentionStaging));
+      if (state.retentionEphemeral !== retainDefaults.ephemeral)
+        k(1, 'ephemeral_artefact_retention_days', String(state.retentionEphemeral));
+      if (state.retentionRawDocuments !== retainDefaults.raw)
+        k(1, 'raw_documents_retention_days', String(state.retentionRawDocuments));
+      // Schema default for enforce is 'log_only'; only emit when the
+      // operator picked a stricter mode.
+      if (state.retentionEnforce && state.retentionEnforce !== 'log_only') {
+        k(1, 'enforce', JSON.stringify(state.retentionEnforce));
+      }
+      blank();
+    }
 
     // Friendly closing comment so an operator reading the YAML cold
     // knows the audit log + Annex IV bundle land on disk regardless
@@ -415,10 +864,12 @@
   var STEPS = [
     { id: 'welcome',    titleKey: 'wizard.step.welcome.title',     nameKey: 'wizard.step.welcome.name' },
     { id: 'use-case',   titleKey: 'wizard.step.usecase.title',     nameKey: 'wizard.step.usecase.name' },
+    { id: 'trainer',    titleKey: 'wizard.step.trainer.title',     nameKey: 'wizard.step.trainer.name' },
     { id: 'model',      titleKey: 'wizard.step.model.title',       nameKey: 'wizard.step.model.name' },
     { id: 'dataset',    titleKey: 'wizard.step.dataset.title',     nameKey: 'wizard.step.dataset.name' },
     { id: 'training',   titleKey: 'wizard.step.training.title',    nameKey: 'wizard.step.training.name' },
     { id: 'compliance', titleKey: 'wizard.step.compliance.title',  nameKey: 'wizard.step.compliance.name' },
+    { id: 'operations', titleKey: 'wizard.step.operations.title',  nameKey: 'wizard.step.operations.name' },
     { id: 'review',     titleKey: 'wizard.step.review.title',      nameKey: 'wizard.step.review.name' }
   ];
 
@@ -577,7 +1028,65 @@
       persist();
     }
 
+    // Map an invalid field name back to the accordion that hosts it.
+    // When the operator hits Next on an invalid step, we auto-open the
+    // accordion containing the first error so they don't have to hunt
+    // for it — particularly important for collapsed sections like
+    // governance / risk_assessment / eval_gates / webhook / monitoring.
+    var FIELD_TO_ACCORDION = {
+      collectionMethod:       'governance',
+      annotationProcess:      'governance',
+      knownBiases:            'governance',
+      intendedUse:            'risk_assessment',
+      foreseeableMisuse:      'risk_assessment',
+      mitigationMeasures:     'risk_assessment',
+      benchmarkTasks:         'eval_gates',
+      judgeApiKeyEnv:         'eval_gates',
+      webhookUrl:             'webhook',
+      monitoringEndpoint:     'monitoring',
+      syntheticTeacherModel:  'synthetic',
+      syntheticSeedFile:      'synthetic',
+      syntheticApiKeyEnv:     'synthetic'
+    };
+
     function goNext() {
+      // Validate the CURRENT step before advancing. On failure, mark
+      // the step as "attempted" so the renderer shows inline errors
+      // next to the offending fields, and rerender in place — the
+      // operator stays on the same step until they fix the input.
+      var currentStepId = STEPS[state.step].id;
+      var errors = validateStep(state, currentStepId);
+      if (errors.length > 0) {
+        if (!state.attemptedSteps) state.attemptedSteps = [];
+        if (state.attemptedSteps.indexOf(currentStepId) < 0) {
+          state.attemptedSteps.push(currentStepId);
+        }
+        // Auto-open every accordion that hosts an invalid field, so
+        // the offending input is actually visible after rerender.
+        if (!state.openAccordions) state.openAccordions = {};
+        for (var i = 0; i < errors.length; i++) {
+          var accId = FIELD_TO_ACCORDION[errors[i].field];
+          if (accId) state.openAccordions[accId] = true;
+        }
+        persist();
+        render();
+        // Move the keyboard focus + viewport to the FIRST invalid input.
+        // We focus the input itself rather than the .wizard-error sibling
+        // so screen readers announce the field label and the operator
+        // can start typing immediately. ``preventScroll: true`` on focus
+        // lets us drive the scroll separately with smooth behaviour.
+        var firstInvalid = pane.querySelector('.wizard-input.is-invalid');
+        if (firstInvalid) {
+          if (typeof firstInvalid.focus === 'function') {
+            try { firstInvalid.focus({ preventScroll: true }); }
+            catch (_) { firstInvalid.focus(); }
+          }
+          if (typeof firstInvalid.scrollIntoView === 'function') {
+            firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+        return;
+      }
       if (state.step < STEPS.length - 1) {
         state.step += 1;
         render();
@@ -674,6 +1183,106 @@
   // event handlers (no innerHTML interpolation of state values).
   var STEP_RENDERERS = {};
 
+  // Collapsible accordion section for grouping advanced / optional
+  // fields inside an existing step. Title is a button that toggles
+  // the open/closed state (persisted on the state object so closing +
+  // re-opening the wizard keeps the operator's preference). The body
+  // builder runs every render so the children stay current with state.
+  // SVG icon set used by wizard accordions. Each accordionId maps to
+  // a single Lucide-style line icon — the icon visually anchors the
+  // section's purpose so the operator can scan a stack of accordions
+  // and find the one they want without reading every label. Using
+  // ``currentColor`` lets the CSS theme-aware open/closed state flip
+  // tint without re-rendering the SVG.
+  var ACCORDION_ICONS = {
+    governance:      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>',
+    risk_assessment: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    eval_gates:      '<circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/>',
+    webhook:         '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+    monitoring:      '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+    synthetic:       '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
+    retention:       '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'
+  };
+
+  // Render an inline SVG with the icon paths for the given accordionId.
+  // Returns null when the id has no registered icon — the caller then
+  // omits the icon slot entirely so older accordions don't grow a
+  // broken-icon hole.
+  function accordionIconNode(accordionId) {
+    var paths = ACCORDION_ICONS[accordionId];
+    if (!paths) return null;
+    return el('span', {
+      class: 'wizard-accordion-icon',
+      'aria-hidden': 'true',
+      html: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + paths + '</svg>'
+    });
+  }
+
+  // Chevron rendered as SVG instead of the previous unicode arrow.
+  // Rotation is driven by the parent ``.is-open`` class via CSS, not
+  // an inline style attribute, so the transition keyframes match the
+  // body-expand animation timing.
+  function accordionChevronNode() {
+    return el('span', {
+      class: 'wizard-accordion-chevron',
+      'aria-hidden': 'true',
+      html: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>'
+    });
+  }
+
+  function makeAccordion(state, persist, accordionId, titleKey, hintKey, buildBody) {
+    if (!state.openAccordions) state.openAccordions = {};
+    var isOpen = !!state.openAccordions[accordionId];
+    var section = el('section', { class: 'wizard-accordion' + (isOpen ? ' is-open' : '') });
+
+    var header = el('button', {
+      type: 'button',
+      class: 'wizard-accordion-header',
+      'aria-expanded': isOpen ? 'true' : 'false',
+      on: {
+        click: function () {
+          state.openAccordions[accordionId] = !isOpen;
+          persist();
+          // Toggle in place; child build is already attached. Just
+          // flip the open/expanded class + aria attribute. CSS drives
+          // the chevron rotation + body grid-rows animation off the
+          // ``.is-open`` class — no inline style mutation needed.
+          var newOpen = !!state.openAccordions[accordionId];
+          isOpen = newOpen;
+          section.classList.toggle('is-open', newOpen);
+          header.setAttribute('aria-expanded', newOpen ? 'true' : 'false');
+        }
+      }
+    });
+
+    var iconNode = accordionIconNode(accordionId);
+    if (iconNode) header.appendChild(iconNode);
+
+    // Title + hint stack vertically in a single column so the row
+    // layout (icon | titles | chevron) stays consistent across short
+    // and long hints.
+    var titlesCol = el('div', { class: 'wizard-accordion-titles' });
+    titlesCol.appendChild(el('span', { class: 'wizard-accordion-title', text: tr(titleKey) }));
+    if (hintKey) {
+      titlesCol.appendChild(el('span', { class: 'wizard-accordion-hint', text: tr(hintKey) }));
+    }
+    header.appendChild(titlesCol);
+    header.appendChild(accordionChevronNode());
+    section.appendChild(header);
+
+    // Body wrapper enables the smooth grid-rows expand/collapse
+    // animation. ``.wizard-accordion-body-wrap`` is a 0fr/1fr grid
+    // controlled by CSS; ``.wizard-accordion-body`` is its only child
+    // and stays fully rendered so the buildBody callback's listeners
+    // survive open/close cycles.
+    var bodyWrap = el('div', { class: 'wizard-accordion-body-wrap' });
+    var body = el('div', { class: 'wizard-accordion-body' });
+    buildBody(body);
+    bodyWrap.appendChild(body);
+    section.appendChild(bodyWrap);
+    return section;
+  }
+
   function stepHeader(state, titleKey, descKey, tutorialKey) {
     var nodes = [];
     nodes.push(el('h2', { class: 'wizard-step-title', text: tr(titleKey) }));
@@ -752,7 +1361,57 @@
     pane.appendChild(grid);
   };
 
-  /* Step 3: Base model */
+  /* Step 3: Trainer (alignment paradigm). Surfaces all 6 schema-supported
+     trainer_type values as cards. The use-case step preselects a sensible
+     default but the operator can override here. Each card shows its data
+     shape requirement so the operator knows what JSONL rows the trainer
+     will accept (SFT: messages/prompt+response, preference trainers:
+     chosen+rejected, KTO: binary feedback, GRPO: prompt+gold_answer). */
+  STEP_RENDERERS['trainer'] = function (pane, state, rerender, persist) {
+    stepHeader(state, 'wizard.step.trainer.title', 'wizard.step.trainer.desc', 'wizard.step.trainer.tutorial')
+      .forEach(function (n) { pane.appendChild(n); });
+
+    var grid = el('div', { class: 'wizard-cards' });
+    TRAINERS.forEach(function (def) {
+      var titleNode = el('span', { class: 'wizard-card-title' }, [
+        tr('wizard.trainer.' + def.id + '.title')
+      ]);
+      titleNode.appendChild(el('span', {
+        class: 'badge',
+        text: tr('wizard.trainer.' + def.id + '.badge')
+      }));
+      if (def.recommended) {
+        titleNode.appendChild(el('span', {
+          class: 'badge',
+          text: tr('wizard.trainer.recommended'),
+          style: 'background: rgba(249,115,22,0.15); color: var(--ember-bright); border-color: var(--ember);'
+        }));
+      }
+      var card = el('button', {
+        type: 'button',
+        class: 'wizard-card' + (state.trainerType === def.id ? ' is-selected' : ''),
+        on: {
+          click: function () {
+            state.trainerType = def.id;
+            persist();
+            rerender();
+          }
+        }
+      }, [
+        titleNode,
+        el('span', { class: 'wizard-card-desc', text: tr('wizard.trainer.' + def.id + '.desc') }),
+        el('span', {
+          class: 'wizard-card-desc',
+          style: 'font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); margin-top: 0.4rem;',
+          text: tr('wizard.trainer.' + def.id + '.shape')
+        })
+      ]);
+      grid.appendChild(card);
+    });
+    pane.appendChild(grid);
+  };
+
+  /* Step 4: Base model */
   STEP_RENDERERS['model'] = function (pane, state, rerender, persist) {
     stepHeader(state, 'wizard.step.model.title', 'wizard.step.model.desc', 'wizard.step.model.tutorial')
       .forEach(function (n) { pane.appendChild(n); });
@@ -789,26 +1448,42 @@
     pane.appendChild(grid);
 
     if (state.modelPreset === 'custom') {
+      var modelErrKey = fieldHasError(state, 'model', 'model');
       var input = el('input', {
         type: 'text',
-        class: 'wizard-input',
+        class: 'wizard-input' + (modelErrKey ? ' is-invalid' : ''),
         placeholder: 'huggingface-org/your-model',
-        value: state.model || ''
+        value: state.model || '',
+        'aria-invalid': modelErrKey ? 'true' : 'false'
       });
       input.addEventListener('input', function () {
         state.model = input.value.trim();
         persist();
-        // Re-run YAML preview without re-rendering the pane (so the
-        // input keeps focus + caret position).
+        // If the operator was previously blocked on this field but
+        // their new value now validates, drop the error visual on
+        // next render (handled by re-running validation in render()).
+        var prevErr = fieldHasError(state, 'model', 'model');
+        var stillErr = validateStep(state, 'model').some(function (e) { return e.field === 'model'; });
+        if (prevErr && !stillErr) {
+          // Re-render to clear the error state cleanly. Cheap because
+          // the only thing that changes is the .is-invalid class.
+          rerender();
+          return;
+        }
+        // Otherwise just refresh the YAML preview — keeps focus +
+        // caret position on the input.
         var yamlOutput = document.querySelector('[data-wizard-yaml-output]');
         if (yamlOutput) yamlOutput.innerHTML = tintYaml(buildYaml(state));
       });
-      var row = el('div', { class: 'wizard-row' }, [
+      var rowChildren = [
         el('label', { class: 'wizard-row-label', text: tr('wizard.model.custom.label') }),
         input,
         el('span', { class: 'wizard-row-hint', text: tr('wizard.model.custom.hint') })
-      ]);
-      pane.appendChild(row);
+      ];
+      if (modelErrKey) {
+        rowChildren.push(el('div', { class: 'wizard-error', role: 'alert', text: tr(modelErrKey) }));
+      }
+      pane.appendChild(el('div', { class: 'wizard-row' }, rowChildren));
     }
   };
 
@@ -841,34 +1516,148 @@
     });
     pane.appendChild(grid);
 
+    var datasetErrKey = fieldHasError(state, 'dataset', 'datasetName');
     var nameInput = el('input', {
       type: 'text',
-      class: 'wizard-input',
+      class: 'wizard-input' + (datasetErrKey ? ' is-invalid' : ''),
       placeholder: state.datasetKind === 'huggingface'
         ? 'org/dataset-name'
         : (state.datasetKind === 'local-pdf' ? './documents/' : './data/train.jsonl'),
-      value: state.datasetName
+      value: state.datasetName,
+      'aria-invalid': datasetErrKey ? 'true' : 'false'
     });
     nameInput.addEventListener('input', function () {
       state.datasetName = nameInput.value.trim();
       persist();
+      var prevErr = fieldHasError(state, 'dataset', 'datasetName');
+      var stillErr = validateStep(state, 'dataset').some(function (e) { return e.field === 'datasetName'; });
+      if (prevErr && !stillErr) {
+        rerender();
+        return;
+      }
       var yamlOutput = document.querySelector('[data-wizard-yaml-output]');
       if (yamlOutput) yamlOutput.innerHTML = tintYaml(buildYaml(state));
     });
-    pane.appendChild(el('div', { class: 'wizard-row' }, [
+    var dsRowChildren = [
       el('label', { class: 'wizard-row-label', text: tr('wizard.dataset.name.label') }),
       nameInput,
       el('span', { class: 'wizard-row-hint', text: tr('wizard.dataset.name.hint') })
-    ]));
+    ];
+    if (datasetErrKey) {
+      dsRowChildren.push(el('div', { class: 'wizard-error', role: 'alert', text: tr(datasetErrKey) }));
+    }
+    pane.appendChild(el('div', { class: 'wizard-row' }, dsRowChildren));
 
-    // Format auto-detection note (replaces the prior format / prompt_field
-    // / response_field manual UI). DataConfig in forgelm/config.py infers
-    // the row shape from the JSONL fields, so no schema field is exposed
-    // for it — the wizard previously emitted these as YAML keys, which
-    // ``extra="forbid"`` rejected at dry-run.
+    // Trainer-aware shape guidance. SFT auto-detects messages or
+    // prompt+response, but preference / KTO / GRPO trainers expect
+    // specific row shapes that DataConfig does NOT auto-detect — the
+    // operator must format the JSONL accordingly. We surface that
+    // expectation here instead of leaving them to find it in the
+    // runtime error.
+    var dsTrDef = trainerDef(state.trainerType);
+    var shapeKey;
+    if (dsTrDef.isPreference) shapeKey = 'preference';
+    else if (dsTrDef.isKto)    shapeKey = 'kto';
+    else if (dsTrDef.isGrpo)   shapeKey = 'grpo';
+    else                        shapeKey = 'sft';
     pane.appendChild(el('div', {
       class: 'wizard-step-tutorial',
-      html: '<strong>' + tr('wizard.dataset.autodetect.title') + '</strong> ' + tr('wizard.dataset.autodetect.body')
+      html: '<strong>' + tr('wizard.dataset.shape.' + shapeKey + '.title') + '</strong> ' + tr('wizard.dataset.shape.' + shapeKey + '.body')
+    }));
+
+    function liveYaml() {
+      var yamlOutput = document.querySelector('[data-wizard-yaml-output]');
+      if (yamlOutput) yamlOutput.innerHTML = tintYaml(buildYaml(state));
+    }
+    function appendDetail(rowEl, detailKey) {
+      if (state.detailsVisible && detailKey) {
+        rowEl.appendChild(el('p', { class: 'wizard-row-detail', text: tr(detailKey) }));
+      }
+    }
+
+    // Data Governance accordion (EU AI Act Article 10).
+    pane.appendChild(makeAccordion(state, persist, 'governance',
+      'wizard.governance.title', 'wizard.governance.hint', function (body) {
+
+      // High-risk + unacceptable tiers carry mandatory Article 10
+      // documentation. We pass the error i18n key in only when those
+      // tiers are active; everywhere else the textarea stays optional.
+      var requireGov = isStrictRisk(state);
+      function makeTextarea(field, labelKey, hintKey, placeholderKey, detailKey, rows, errorKey) {
+        var errKey = errorKey ? fieldHasError(state, 'dataset', field) : null;
+        var ta = el('textarea', {
+          class: 'wizard-input' + (errKey ? ' is-invalid' : ''),
+          rows: String(rows || 2),
+          placeholder: tr(placeholderKey)
+        });
+        ta.value = state[field] || '';
+        var rowChildren = [
+          el('label', { class: 'wizard-row-label', text: tr(labelKey) }),
+          ta,
+          el('span', { class: 'wizard-row-hint', text: tr(hintKey) })
+        ];
+        if (errKey) {
+          rowChildren.push(el('div', { class: 'wizard-error', role: 'alert', text: tr(errKey) }));
+        }
+        var row = el('div', { class: 'wizard-row' }, rowChildren);
+        ta.addEventListener('input', function () {
+          state[field] = ta.value;
+          persist();
+          liveYaml();
+          if (errorKey) {
+            var stillErr = validateStep(state, 'dataset').some(function (e) { return e.field === field; });
+            if (!stillErr) {
+              ta.classList.remove('is-invalid');
+              var errEl = row.querySelector('.wizard-error');
+              if (errEl) errEl.remove();
+            }
+          }
+        });
+        appendDetail(row, detailKey);
+        return row;
+      }
+
+      body.appendChild(makeTextarea('collectionMethod',
+        'wizard.governance.collection_method.label',
+        'wizard.governance.collection_method.hint',
+        'wizard.governance.collection_method.placeholder',
+        'wizard.governance.collection_method.detail', 2,
+        requireGov ? 'wizard.error.governance.collection_method.required' : null));
+      body.appendChild(makeTextarea('annotationProcess',
+        'wizard.governance.annotation_process.label',
+        'wizard.governance.annotation_process.hint',
+        'wizard.governance.annotation_process.placeholder',
+        'wizard.governance.annotation_process.detail', 2,
+        requireGov ? 'wizard.error.governance.annotation_process.required' : null));
+      body.appendChild(makeTextarea('knownBiases',
+        'wizard.governance.known_biases.label',
+        'wizard.governance.known_biases.hint',
+        'wizard.governance.known_biases.placeholder',
+        'wizard.governance.known_biases.detail', 2,
+        requireGov ? 'wizard.error.governance.known_biases.required' : null));
+
+      function makeCheckbox(field, labelKey, hintKey) {
+        var cb = el('input', { type: 'checkbox' });
+        cb.checked = !!state[field];
+        cb.addEventListener('change', function () {
+          state[field] = cb.checked;
+          persist();
+          liveYaml();
+        });
+        return el('div', { class: 'wizard-row' }, [
+          el('label', { class: 'wizard-toggle' }, [
+            cb,
+            el('span', { class: 'wizard-toggle-label', text: tr(labelKey) })
+          ]),
+          el('span', { class: 'wizard-row-hint', text: tr(hintKey) })
+        ]);
+      }
+      body.appendChild(makeCheckbox('personalDataIncluded',
+        'wizard.governance.personal_data.label',
+        'wizard.governance.personal_data.hint'));
+      body.appendChild(makeCheckbox('dpiaCompleted',
+        'wizard.governance.dpia_completed.label',
+        'wizard.governance.dpia_completed.hint'));
     }));
   };
 
@@ -892,7 +1681,7 @@
       }
     }
 
-    // QLoRA toggle
+    // QLoRA toggle (4-bit base model quantization)
     var qloraInput = el('input', { type: 'checkbox' });
     qloraInput.checked = state.qlora;
     qloraInput.addEventListener('change', function () {
@@ -909,6 +1698,94 @@
     ]);
     appendDetail(qloraRow, 'wizard.training.qlora.detail');
     pane.appendChild(qloraRow);
+
+    // PEFT method radio (Standard LoRA / DoRA / PiSSA / RSLoRA).
+    // Hidden when GaLore is enabled — GaLore replaces LoRA so the
+    // method choice is irrelevant. Emits to lora.method in YAML.
+    if (!state.galoreEnabled) {
+      var methodRow = el('div', { class: 'wizard-row' });
+      methodRow.appendChild(el('span', { class: 'wizard-row-label', text: tr('wizard.training.lora_method.label') }));
+      var methods = [
+        { id: 'lora',    titleKey: 'wizard.training.lora_method.standard.title',    descKey: 'wizard.training.lora_method.standard.desc' },
+        { id: 'dora',    titleKey: 'wizard.training.lora_method.dora.title',        descKey: 'wizard.training.lora_method.dora.desc' },
+        { id: 'pissa',   titleKey: 'wizard.training.lora_method.pissa.title',       descKey: 'wizard.training.lora_method.pissa.desc' },
+        { id: 'rslora',  titleKey: 'wizard.training.lora_method.rslora.title',      descKey: 'wizard.training.lora_method.rslora.desc' }
+      ];
+      var methodGrid = el('div', { class: 'wizard-cards', style: 'grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.6rem;' });
+      methods.forEach(function (m) {
+        var card = el('button', {
+          type: 'button',
+          class: 'wizard-card' + (state.loraMethod === m.id ? ' is-selected' : ''),
+          on: {
+            click: function () {
+              state.loraMethod = m.id;
+              persist();
+              liveYaml();
+              // Re-render to update the selected-card visual state.
+              rerender();
+            }
+          }
+        }, [
+          el('span', { class: 'wizard-card-title', text: tr(m.titleKey) }),
+          el('span', { class: 'wizard-card-desc', text: tr(m.descKey) })
+        ]);
+        methodGrid.appendChild(card);
+      });
+      methodRow.appendChild(methodGrid);
+      methodRow.appendChild(el('span', { class: 'wizard-row-hint', text: tr('wizard.training.lora_method.hint') }));
+      appendDetail(methodRow, 'wizard.training.lora_method.detail');
+      pane.appendChild(methodRow);
+    }
+
+    // GaLore toggle (full-parameter training via gradient projection).
+    // Mutually exclusive with LoRA-style adapters at runtime.
+    var galoreInput = el('input', { type: 'checkbox' });
+    galoreInput.checked = state.galoreEnabled;
+    galoreInput.addEventListener('change', function () {
+      state.galoreEnabled = galoreInput.checked;
+      persist();
+      // Re-render so the LoRA method radio + GaLore variant select
+      // appear/disappear in line with the toggle.
+      rerender();
+    });
+    var galoreRow = el('div', { class: 'wizard-row' }, [
+      el('label', { class: 'wizard-toggle' }, [
+        galoreInput,
+        el('span', { class: 'wizard-toggle-label', text: tr('wizard.training.galore.label') })
+      ]),
+      el('span', { class: 'wizard-row-hint', text: tr('wizard.training.galore.hint') })
+    ]);
+    appendDetail(galoreRow, 'wizard.training.galore.detail');
+    pane.appendChild(galoreRow);
+
+    // GaLore variant select — only when GaLore is enabled.
+    if (state.galoreEnabled) {
+      var galoreSelect = el('select', { class: 'wizard-select' });
+      [
+        { id: 'galore_adamw',                 labelKey: 'wizard.training.galore_optim.adamw' },
+        { id: 'galore_adamw_8bit',            labelKey: 'wizard.training.galore_optim.adamw_8bit' },
+        { id: 'galore_adafactor',             labelKey: 'wizard.training.galore_optim.adafactor' },
+        { id: 'galore_adamw_layerwise',       labelKey: 'wizard.training.galore_optim.adamw_layerwise' },
+        { id: 'galore_adamw_8bit_layerwise',  labelKey: 'wizard.training.galore_optim.adamw_8bit_layerwise' },
+        { id: 'galore_adafactor_layerwise',   labelKey: 'wizard.training.galore_optim.adafactor_layerwise' }
+      ].forEach(function (opt) {
+        var option = el('option', { value: opt.id, text: tr(opt.labelKey) });
+        if (state.galoreOptim === opt.id) option.selected = true;
+        galoreSelect.appendChild(option);
+      });
+      galoreSelect.addEventListener('change', function () {
+        state.galoreOptim = galoreSelect.value;
+        persist();
+        liveYaml();
+      });
+      var galoreOptimRow = el('div', { class: 'wizard-row' }, [
+        el('label', { class: 'wizard-row-label', text: tr('wizard.training.galore_optim.label') }),
+        galoreSelect,
+        el('span', { class: 'wizard-row-hint', text: tr('wizard.training.galore_optim.hint') })
+      ]);
+      appendDetail(galoreOptimRow, 'wizard.training.galore_optim.detail');
+      pane.appendChild(galoreOptimRow);
+    }
 
     // LoRA r / alpha sliders
     function makeSlider(field, min, max, hintKey, labelKey, detailKey) {
@@ -935,8 +1812,14 @@
       appendDetail(row, detailKey);
       return row;
     }
-    pane.appendChild(makeSlider('loraR',     4,  64, 'wizard.training.lora_r.hint',     'wizard.training.lora_r.label',     'wizard.training.lora_r.detail'));
-    pane.appendChild(makeSlider('loraAlpha', 8, 128, 'wizard.training.lora_alpha.hint', 'wizard.training.lora_alpha.label', 'wizard.training.lora_alpha.detail'));
+    // LoRA rank / alpha — only meaningful when LoRA-style adapters
+    // are in use. Hidden when GaLore is enabled because GaLore
+    // bypasses LoRA entirely; the schema-required lora block still
+    // emits with default r=8 / alpha=16 in the YAML.
+    if (!state.galoreEnabled) {
+      pane.appendChild(makeSlider('loraR',     4,  64, 'wizard.training.lora_r.hint',     'wizard.training.lora_r.label',     'wizard.training.lora_r.detail'));
+      pane.appendChild(makeSlider('loraAlpha', 8, 128, 'wizard.training.lora_alpha.hint', 'wizard.training.lora_alpha.label', 'wizard.training.lora_alpha.detail'));
+    }
 
     // Epochs
     var epochsInput = el('input', {
@@ -1001,9 +1884,124 @@
     ]);
     appendDetail(batchRow, 'wizard.training.batch.detail');
     pane.appendChild(batchRow);
+
+    /* Trainer-specific hyperparameters. Conditionally rendered based
+       on state.trainerType. The schema in forgelm/config.py defines
+       these on TrainingConfig with sensible defaults; the wizard
+       lets the operator override them and emits the chosen value to
+       YAML so the run is reproducible. SFT has no trainer-specific
+       params, so the section is hidden entirely for SFT runs. */
+    var trDef2 = trainerDef(state.trainerType);
+    if (trDef2.params.length > 0) {
+      var sectionHeader = el('div', {
+        class: 'wizard-step-tutorial',
+        style: 'margin-top: 1.5rem;',
+        html: '<strong>' + tr('wizard.training.trainer_section.title').replace('{trainer}', state.trainerType.toUpperCase()) + '</strong> ' + tr('wizard.training.trainer_section.body')
+      });
+      pane.appendChild(sectionHeader);
+
+      // Helper for a numeric param row with a slider + live value
+      function makeParamSlider(field, min, max, step, labelKey, hintKey, detailKey) {
+        var slider = el('input', {
+          type: 'range',
+          class: 'wizard-slider',
+          min: String(min),
+          max: String(max),
+          step: String(step),
+          value: String(state[field])
+        });
+        var valueOut = el('span', {
+          class: 'wizard-slider-value',
+          text: String(state[field])
+        });
+        slider.addEventListener('input', function () {
+          var v = parseFloat(slider.value);
+          state[field] = v;
+          valueOut.textContent = String(v);
+          persist();
+          liveYaml();
+        });
+        var row = el('div', { class: 'wizard-row' }, [
+          el('label', { class: 'wizard-row-label', text: tr(labelKey) }),
+          el('div', { class: 'wizard-slider-row' }, [slider, valueOut]),
+          el('span', { class: 'wizard-row-hint', text: tr(hintKey) })
+        ]);
+        appendDetail(row, detailKey);
+        return row;
+      }
+
+      // Helper for an integer param input
+      function makeParamNumber(field, min, max, step, labelKey, hintKey, detailKey) {
+        var input = el('input', {
+          type: 'number',
+          class: 'wizard-input',
+          min: String(min),
+          max: String(max),
+          step: String(step),
+          value: String(state[field])
+        });
+        input.addEventListener('input', function () {
+          var v = parseInt(input.value, 10);
+          if (!isNaN(v) && v >= min && v <= max) {
+            state[field] = v;
+            persist();
+            liveYaml();
+          }
+        });
+        var row = el('div', { class: 'wizard-row' }, [
+          el('label', { class: 'wizard-row-label', text: tr(labelKey) }),
+          input,
+          el('span', { class: 'wizard-row-hint', text: tr(hintKey) })
+        ]);
+        appendDetail(row, detailKey);
+        return row;
+      }
+
+      if (state.trainerType === 'dpo') {
+        pane.appendChild(makeParamSlider('dpoBeta',     0.05, 0.5,  0.05,
+          'wizard.training.dpo_beta.label',     'wizard.training.dpo_beta.hint',     'wizard.training.dpo_beta.detail'));
+      } else if (state.trainerType === 'orpo') {
+        pane.appendChild(makeParamSlider('orpoBeta',    0.05, 0.5,  0.05,
+          'wizard.training.orpo_beta.label',    'wizard.training.orpo_beta.hint',    'wizard.training.orpo_beta.detail'));
+      } else if (state.trainerType === 'simpo') {
+        pane.appendChild(makeParamSlider('simpoGamma',  0.1,  2.0,  0.1,
+          'wizard.training.simpo_gamma.label',  'wizard.training.simpo_gamma.hint',  'wizard.training.simpo_gamma.detail'));
+        pane.appendChild(makeParamSlider('simpoBeta',   0.5,  4.0,  0.5,
+          'wizard.training.simpo_beta.label',   'wizard.training.simpo_beta.hint',   'wizard.training.simpo_beta.detail'));
+      } else if (state.trainerType === 'kto') {
+        pane.appendChild(makeParamSlider('ktoBeta',     0.05, 0.5,  0.05,
+          'wizard.training.kto_beta.label',     'wizard.training.kto_beta.hint',     'wizard.training.kto_beta.detail'));
+      } else if (state.trainerType === 'grpo') {
+        pane.appendChild(makeParamNumber('grpoNumGenerations',    1, 16, 1,
+          'wizard.training.grpo_num_generations.label',    'wizard.training.grpo_num_generations.hint',    'wizard.training.grpo_num_generations.detail'));
+        pane.appendChild(makeParamNumber('grpoMaxCompletionLength', 64, 2048, 32,
+          'wizard.training.grpo_max_completion_length.label', 'wizard.training.grpo_max_completion_length.hint', 'wizard.training.grpo_max_completion_length.detail'));
+        // GRPO reward model is optional; an empty value omits it from
+        // the YAML and TRL falls back to the built-in
+        // format/length-shaping reward.
+        var rewardInput = el('input', {
+          type: 'text',
+          class: 'wizard-input',
+          value: state.grpoRewardModel || '',
+          placeholder: tr('wizard.training.grpo_reward_model.placeholder')
+        });
+        rewardInput.addEventListener('input', function () {
+          state.grpoRewardModel = rewardInput.value.trim();
+          persist();
+          liveYaml();
+        });
+        var rewardRow = el('div', { class: 'wizard-row' }, [
+          el('label', { class: 'wizard-row-label', text: tr('wizard.training.grpo_reward_model.label') }),
+          rewardInput,
+          el('span', { class: 'wizard-row-hint', text: tr('wizard.training.grpo_reward_model.hint') })
+        ]);
+        appendDetail(rewardRow, 'wizard.training.grpo_reward_model.detail');
+        pane.appendChild(rewardRow);
+      }
+    }
   };
 
-  /* Step 6: Evaluation + EU AI Act compliance */
+  /* Step 7: Evaluation + EU AI Act compliance */
   STEP_RENDERERS['compliance'] = function (pane, state, rerender, persist) {
     stepHeader(state, 'wizard.step.compliance.title', 'wizard.step.compliance.desc', 'wizard.step.compliance.tutorial')
       .forEach(function (n) { pane.appendChild(n); });
@@ -1127,32 +2125,655 @@
     // high-risk" so the operator knows the obligation rises with the
     // tier. Empty values are valid; ComplianceMetadataConfig has
     // string defaults of "".
-    function makeMetaInput(field, labelKey, hintKey, placeholderKey) {
+    // ``errorKey`` is the i18n key for the inline validation message
+    // shown when the operator hits Next without filling this field.
+    // For high-risk tiers all three Annex IV §1 fields are mandatory;
+    // ``fieldHasError`` returns the key only after a failed Next so
+    // the first visit to the step stays uncluttered.
+    function makeMetaInput(field, labelKey, hintKey, placeholderKey, errorKey) {
+      var errKey = errorKey ? fieldHasError(state, 'compliance', field) : null;
       var input = el('input', {
         type: 'text',
-        class: 'wizard-input',
+        class: 'wizard-input' + (errKey ? ' is-invalid' : ''),
         value: state[field] || '',
         placeholder: tr(placeholderKey)
       });
-      input.addEventListener('input', function () {
-        state[field] = input.value;
-        persist();
-        liveYaml();
-      });
-      return el('div', { class: 'wizard-row' }, [
+      var rowChildren = [
         el('label', { class: 'wizard-row-label' }, [
           tr(labelKey),
           highRisk ? el('span', { class: 'badge', text: tr('wizard.locked.badge'), style: 'margin-left: 0.4rem;' }) : null
         ]),
         input,
         el('span', { class: 'wizard-row-hint', text: tr(hintKey) })
-      ]);
+      ];
+      if (errKey) {
+        rowChildren.push(el('div', { class: 'wizard-error', role: 'alert', text: tr(errKey) }));
+      }
+      var row = el('div', { class: 'wizard-row' }, rowChildren);
+      input.addEventListener('input', function () {
+        state[field] = input.value;
+        persist();
+        liveYaml();
+        if (errorKey) {
+          var stillErr = validateStep(state, 'compliance').some(function (e) { return e.field === field; });
+          if (!stillErr) {
+            input.classList.remove('is-invalid');
+            var errEl = row.querySelector('.wizard-error');
+            if (errEl) errEl.remove();
+          }
+        }
+      });
+      return row;
     }
     if (highRisk) {
-      pane.appendChild(makeMetaInput('providerName', 'wizard.compliance.provider_name.label', 'wizard.compliance.provider_name.hint', 'wizard.compliance.provider_name.placeholder'));
-      pane.appendChild(makeMetaInput('systemName', 'wizard.compliance.system_name.label', 'wizard.compliance.system_name.hint', 'wizard.compliance.system_name.placeholder'));
-      pane.appendChild(makeMetaInput('intendedPurpose', 'wizard.compliance.intended_purpose.label', 'wizard.compliance.intended_purpose.hint', 'wizard.compliance.intended_purpose.placeholder'));
+      pane.appendChild(makeMetaInput('providerName',     'wizard.compliance.provider_name.label',     'wizard.compliance.provider_name.hint',     'wizard.compliance.provider_name.placeholder',     'wizard.error.compliance.provider_name.required'));
+      pane.appendChild(makeMetaInput('systemName',       'wizard.compliance.system_name.label',       'wizard.compliance.system_name.hint',       'wizard.compliance.system_name.placeholder',       'wizard.error.compliance.system_name.required'));
+      pane.appendChild(makeMetaInput('intendedPurpose',  'wizard.compliance.intended_purpose.label',  'wizard.compliance.intended_purpose.hint',  'wizard.compliance.intended_purpose.placeholder',  'wizard.error.compliance.intended_purpose.required'));
     }
+
+    // Article 9 Risk Assessment accordion. Open by default for strict
+    // tiers (high-risk / unacceptable) where Article 9 documentation
+    // is mandatory; collapsed otherwise as a reminder it exists.
+    if (highRisk && state.openAccordions && state.openAccordions['risk_assessment'] === undefined) {
+      state.openAccordions = state.openAccordions || {};
+      state.openAccordions['risk_assessment'] = true;
+    }
+    pane.appendChild(makeAccordion(state, persist, 'risk_assessment',
+      'wizard.risk_assessment.title', 'wizard.risk_assessment.hint', function (body) {
+
+      // Shared factory for the three required textareas. Wires the
+      // inline validation pattern: errKey appears only after a failed
+      // Next; the error visual + alert message are removed live as
+      // soon as the operator types something non-blank.
+      function makeRequiredTextarea(field, rows, labelKey, hintKey, placeholderKey, detailKey, errorKey) {
+        var errKey = errorKey ? fieldHasError(state, 'compliance', field) : null;
+        var ta = el('textarea', {
+          class: 'wizard-input' + (errKey ? ' is-invalid' : ''),
+          rows: String(rows),
+          placeholder: tr(placeholderKey)
+        });
+        ta.value = state[field] || '';
+        var rowChildren = [
+          el('label', { class: 'wizard-row-label', text: tr(labelKey) }),
+          ta,
+          el('span', { class: 'wizard-row-hint', text: tr(hintKey) })
+        ];
+        if (errKey) {
+          rowChildren.push(el('div', { class: 'wizard-error', role: 'alert', text: tr(errKey) }));
+        }
+        var row = el('div', { class: 'wizard-row' }, rowChildren);
+        ta.addEventListener('input', function () {
+          state[field] = ta.value;
+          persist();
+          liveYaml();
+          if (errorKey) {
+            var stillErr = validateStep(state, 'compliance').some(function (e) { return e.field === field; });
+            if (!stillErr) {
+              ta.classList.remove('is-invalid');
+              var errEl = row.querySelector('.wizard-error');
+              if (errEl) errEl.remove();
+            }
+          }
+        });
+        appendDetail(row, detailKey);
+        return row;
+      }
+
+      // All three risk-assessment fields are required ONLY for strict
+      // tiers (high-risk + unacceptable). For everyone else they stay
+      // optional — the schema accepts empty strings.
+      var requireRA = isStrictRisk(state);
+      body.appendChild(makeRequiredTextarea('intendedUse', 2,
+        'wizard.risk_assessment.intended_use.label',
+        'wizard.risk_assessment.intended_use.hint',
+        'wizard.risk_assessment.intended_use.placeholder',
+        'wizard.risk_assessment.intended_use.detail',
+        requireRA ? 'wizard.error.risk_assessment.intended_use.required' : null));
+      body.appendChild(makeRequiredTextarea('foreseeableMisuse', 3,
+        'wizard.risk_assessment.foreseeable_misuse.label',
+        'wizard.risk_assessment.foreseeable_misuse.hint',
+        'wizard.risk_assessment.foreseeable_misuse.placeholder',
+        'wizard.risk_assessment.foreseeable_misuse.detail',
+        requireRA ? 'wizard.error.risk_assessment.foreseeable_misuse.required' : null));
+      body.appendChild(makeRequiredTextarea('mitigationMeasures', 3,
+        'wizard.risk_assessment.mitigation_measures.label',
+        'wizard.risk_assessment.mitigation_measures.hint',
+        'wizard.risk_assessment.mitigation_measures.placeholder',
+        'wizard.risk_assessment.mitigation_measures.detail',
+        requireRA ? 'wizard.error.risk_assessment.mitigation_measures.required' : null));
+
+      // vulnerable_groups_considered: checkbox
+      var vgInput = el('input', { type: 'checkbox' });
+      vgInput.checked = !!state.vulnerableGroupsConsidered;
+      vgInput.addEventListener('change', function () {
+        state.vulnerableGroupsConsidered = vgInput.checked;
+        persist();
+        liveYaml();
+      });
+      var vgRow = el('div', { class: 'wizard-row' }, [
+        el('label', { class: 'wizard-toggle' }, [
+          vgInput,
+          el('span', { class: 'wizard-toggle-label', text: tr('wizard.risk_assessment.vulnerable_groups.label') })
+        ]),
+        el('span', { class: 'wizard-row-hint', text: tr('wizard.risk_assessment.vulnerable_groups.hint') })
+      ]);
+      appendDetail(vgRow, 'wizard.risk_assessment.vulnerable_groups.detail');
+      body.appendChild(vgRow);
+    }));
+
+    // Evaluation gates accordion — Benchmark + LLM Judge. Both are
+    // optional quality gates layered on top of the Auto-revert / Loss
+    // / Safety triplet that the main step exposes. Surfacing them in
+    // an accordion keeps the main step uncluttered for first-time
+    // users while making the full schema reachable for power users.
+    pane.appendChild(makeAccordion(state, persist, 'eval_gates',
+      'wizard.eval_gates.title', 'wizard.eval_gates.hint', function (body) {
+
+      // ── Benchmark sub-section ──
+      var benchInput = el('input', { type: 'checkbox' });
+      benchInput.checked = !!state.benchmarkEnabled;
+      benchInput.addEventListener('change', function () {
+        state.benchmarkEnabled = benchInput.checked;
+        persist();
+        rerender();
+      });
+      var benchToggleRow = el('div', { class: 'wizard-row' }, [
+        el('label', { class: 'wizard-toggle' }, [
+          benchInput,
+          el('span', { class: 'wizard-toggle-label', text: tr('wizard.benchmark.enabled.label') })
+        ]),
+        el('span', { class: 'wizard-row-hint', text: tr('wizard.benchmark.enabled.hint') })
+      ]);
+      appendDetail(benchToggleRow, 'wizard.benchmark.enabled.detail');
+      body.appendChild(benchToggleRow);
+
+      if (state.benchmarkEnabled) {
+        // benchmarkTasks is required when the benchmark gate is on —
+        // an empty list makes the gate a no-op. Validation message
+        // explains this so the operator knows why they can't advance.
+        var benchTasksErrKey = fieldHasError(state, 'compliance', 'benchmarkTasks');
+        var tasksTextarea = el('textarea', {
+          class: 'wizard-input' + (benchTasksErrKey ? ' is-invalid' : ''),
+          rows: '3',
+          placeholder: 'arc_easy\nhellaswag\nmmlu'
+        });
+        tasksTextarea.value = state.benchmarkTasks || '';
+        var tasksRowChildren = [
+          el('label', { class: 'wizard-row-label', text: tr('wizard.benchmark.tasks.label') }),
+          tasksTextarea,
+          el('span', { class: 'wizard-row-hint', text: tr('wizard.benchmark.tasks.hint') })
+        ];
+        if (benchTasksErrKey) {
+          tasksRowChildren.push(el('div', { class: 'wizard-error', role: 'alert', text: tr(benchTasksErrKey) }));
+        }
+        var tasksRow = el('div', { class: 'wizard-row' }, tasksRowChildren);
+        tasksTextarea.addEventListener('input', function () {
+          state.benchmarkTasks = tasksTextarea.value;
+          persist();
+          liveYaml();
+          var stillErr = validateStep(state, 'compliance').some(function (e) { return e.field === 'benchmarkTasks'; });
+          if (!stillErr) {
+            tasksTextarea.classList.remove('is-invalid');
+            var errEl = tasksRow.querySelector('.wizard-error');
+            if (errEl) errEl.remove();
+          }
+        });
+        body.appendChild(tasksRow);
+
+        var minScoreInput = el('input', {
+          type: 'number',
+          class: 'wizard-input',
+          min: '0',
+          max: '1',
+          step: '0.01',
+          placeholder: tr('wizard.benchmark.min_score.placeholder'),
+          value: state.benchmarkMinScore || ''
+        });
+        minScoreInput.addEventListener('input', function () {
+          state.benchmarkMinScore = minScoreInput.value;
+          persist();
+          liveYaml();
+        });
+        body.appendChild(el('div', { class: 'wizard-row' }, [
+          el('label', { class: 'wizard-row-label', text: tr('wizard.benchmark.min_score.label') }),
+          minScoreInput,
+          el('span', { class: 'wizard-row-hint', text: tr('wizard.benchmark.min_score.hint') })
+        ]));
+      }
+
+      // ── LLM Judge sub-section ──
+      var judgeInput = el('input', { type: 'checkbox' });
+      judgeInput.checked = !!state.judgeEnabled;
+      judgeInput.addEventListener('change', function () {
+        state.judgeEnabled = judgeInput.checked;
+        persist();
+        rerender();
+      });
+      var judgeToggleRow = el('div', { class: 'wizard-row', style: 'margin-top: 1.4rem;' }, [
+        el('label', { class: 'wizard-toggle' }, [
+          judgeInput,
+          el('span', { class: 'wizard-toggle-label', text: tr('wizard.judge.enabled.label') })
+        ]),
+        el('span', { class: 'wizard-row-hint', text: tr('wizard.judge.enabled.hint') })
+      ]);
+      appendDetail(judgeToggleRow, 'wizard.judge.enabled.detail');
+      body.appendChild(judgeToggleRow);
+
+      if (state.judgeEnabled) {
+        var judgeModelInput = el('input', {
+          type: 'text',
+          class: 'wizard-input',
+          placeholder: 'gpt-4o',
+          value: state.judgeModel || ''
+        });
+        judgeModelInput.addEventListener('input', function () {
+          state.judgeModel = judgeModelInput.value.trim();
+          persist();
+          liveYaml();
+        });
+        body.appendChild(el('div', { class: 'wizard-row' }, [
+          el('label', { class: 'wizard-row-label', text: tr('wizard.judge.model.label') }),
+          judgeModelInput,
+          el('span', { class: 'wizard-row-hint', text: tr('wizard.judge.model.hint') })
+        ]));
+
+        // Judge API key env var is required when the judge gate is on —
+        // without it the runtime can't authenticate to the judge model.
+        var judgeApiErrKey = fieldHasError(state, 'compliance', 'judgeApiKeyEnv');
+        var judgeApiInput = el('input', {
+          type: 'text',
+          class: 'wizard-input' + (judgeApiErrKey ? ' is-invalid' : ''),
+          placeholder: 'OPENAI_API_KEY',
+          value: state.judgeApiKeyEnv || ''
+        });
+        var judgeApiRowChildren = [
+          el('label', { class: 'wizard-row-label', text: tr('wizard.judge.api_key_env.label') }),
+          judgeApiInput,
+          el('span', { class: 'wizard-row-hint', text: tr('wizard.judge.api_key_env.hint') })
+        ];
+        if (judgeApiErrKey) {
+          judgeApiRowChildren.push(el('div', { class: 'wizard-error', role: 'alert', text: tr(judgeApiErrKey) }));
+        }
+        var judgeApiRow = el('div', { class: 'wizard-row' }, judgeApiRowChildren);
+        judgeApiInput.addEventListener('input', function () {
+          state.judgeApiKeyEnv = judgeApiInput.value.trim();
+          persist();
+          liveYaml();
+          var stillErr = validateStep(state, 'compliance').some(function (e) { return e.field === 'judgeApiKeyEnv'; });
+          if (!stillErr) {
+            judgeApiInput.classList.remove('is-invalid');
+            var errEl = judgeApiRow.querySelector('.wizard-error');
+            if (errEl) errEl.remove();
+          }
+        });
+        body.appendChild(judgeApiRow);
+
+        var judgeScoreInput = el('input', {
+          type: 'number',
+          class: 'wizard-input',
+          min: '1',
+          max: '10',
+          step: '0.5',
+          value: String(state.judgeMinScore || 5.0)
+        });
+        judgeScoreInput.addEventListener('input', function () {
+          var v = parseFloat(judgeScoreInput.value);
+          if (!isNaN(v) && v >= 1 && v <= 10) {
+            state.judgeMinScore = v;
+            persist();
+            liveYaml();
+          }
+        });
+        body.appendChild(el('div', { class: 'wizard-row' }, [
+          el('label', { class: 'wizard-row-label', text: tr('wizard.judge.min_score.label') }),
+          judgeScoreInput,
+          el('span', { class: 'wizard-row-hint', text: tr('wizard.judge.min_score.hint') })
+        ]));
+      }
+    }));
+
+  };
+
+  /* Step 8: Advanced operational settings — notifications, post-market
+     monitoring, synthetic data generation, retention horizons. All
+     optional; the operator can simply Next through this step if none of
+     these features apply. Lifted out of the compliance step in v3 so
+     each block stays digestible (compliance was getting too tall to
+     scan in one viewport). */
+  STEP_RENDERERS['operations'] = function (pane, state, rerender, persist) {
+    stepHeader(state, 'wizard.step.operations.title', 'wizard.step.operations.desc', 'wizard.step.operations.tutorial')
+      .forEach(function (n) { pane.appendChild(n); });
+
+    function liveYaml() {
+      var yamlOutput = document.querySelector('[data-wizard-yaml-output]');
+      if (yamlOutput) yamlOutput.innerHTML = tintYaml(buildYaml(state));
+    }
+
+    // Same per-row tutorial-paragraph helper as the other steps.
+    // Adds a wizard-row-detail block beneath the row when the operator
+    // is in beginner mode (state.detailsVisible). The detail block
+    // gives 2-3 sentences of plain-language context the hint glosses.
+    function appendDetail(rowEl, detailKey) {
+      if (state.detailsVisible && detailKey) {
+        rowEl.appendChild(el('p', { class: 'wizard-row-detail', text: tr(detailKey) }));
+      }
+    }
+
+    // Webhook (Slack/Teams/Discord) accordion.
+    pane.appendChild(makeAccordion(state, persist, 'webhook',
+      'wizard.webhook.title', 'wizard.webhook.hint', function (body) {
+
+      // Enable toggle. When off, the rest of the accordion's inputs
+      // stay collapsed and the YAML omits the webhook block entirely.
+      // When on, the URL is required (validateStep paints an inline
+      // error if blank when the operator hits Next).
+      var enabledInput = el('input', { type: 'checkbox' });
+      enabledInput.checked = !!state.webhookEnabled;
+      enabledInput.addEventListener('change', function () {
+        state.webhookEnabled = enabledInput.checked;
+        persist();
+        rerender();
+      });
+      var enabledRow = el('div', { class: 'wizard-row' }, [
+        el('label', { class: 'wizard-toggle' }, [
+          enabledInput,
+          el('span', { class: 'wizard-toggle-label', text: tr('wizard.webhook.enabled.label') })
+        ]),
+        el('span', { class: 'wizard-row-hint', text: tr('wizard.webhook.enabled.hint') })
+      ]);
+      appendDetail(enabledRow, 'wizard.webhook.enabled.detail');
+      body.appendChild(enabledRow);
+
+      if (!state.webhookEnabled) return;
+
+      // URL field — required when webhookEnabled is true. Validation
+      // is wired through fieldHasError so the inline error appears
+      // only after the operator tried to advance past this step.
+      var webhookUrlErrKey = fieldHasError(state, 'operations', 'webhookUrl');
+      var urlInput = el('input', {
+        type: 'text',
+        class: 'wizard-input' + (webhookUrlErrKey ? ' is-invalid' : ''),
+        placeholder: tr('wizard.webhook.url.placeholder'),
+        value: state.webhookUrl || ''
+      });
+      urlInput.addEventListener('input', function () {
+        state.webhookUrl = urlInput.value.trim();
+        persist();
+        liveYaml();
+        // Drop the error visual once the field becomes non-empty.
+        var stillErr = validateStep(state, 'operations').some(function (e) { return e.field === 'webhookUrl'; });
+        if (!stillErr) {
+          urlInput.classList.remove('is-invalid');
+          var errEl = urlRow.querySelector('.wizard-error');
+          if (errEl) errEl.remove();
+        }
+      });
+      var urlRowChildren = [
+        el('label', { class: 'wizard-row-label', text: tr('wizard.webhook.url.label') }),
+        urlInput,
+        el('span', { class: 'wizard-row-hint', text: tr('wizard.webhook.url.hint') })
+      ];
+      if (webhookUrlErrKey) {
+        urlRowChildren.push(el('div', { class: 'wizard-error', role: 'alert', text: tr(webhookUrlErrKey) }));
+      }
+      var urlRow = el('div', { class: 'wizard-row' }, urlRowChildren);
+      appendDetail(urlRow, 'wizard.webhook.url.detail');
+      body.appendChild(urlRow);
+
+      function makeWebhookToggle(field, labelKey) {
+        var cb = el('input', { type: 'checkbox' });
+        cb.checked = !!state[field];
+        cb.addEventListener('change', function () {
+          state[field] = cb.checked;
+          persist();
+          liveYaml();
+        });
+        return el('div', { class: 'wizard-row' }, [
+          el('label', { class: 'wizard-toggle' }, [
+            cb,
+            el('span', { class: 'wizard-toggle-label', text: tr(labelKey) })
+          ])
+        ]);
+      }
+      body.appendChild(makeWebhookToggle('webhookNotifyStart',   'wizard.webhook.notify_start.label'));
+      body.appendChild(makeWebhookToggle('webhookNotifySuccess', 'wizard.webhook.notify_success.label'));
+      body.appendChild(makeWebhookToggle('webhookNotifyFailure', 'wizard.webhook.notify_failure.label'));
+    }));
+
+    // Post-market monitoring (Article 12+17) accordion.
+    pane.appendChild(makeAccordion(state, persist, 'monitoring',
+      'wizard.monitoring.title', 'wizard.monitoring.hint', function (body) {
+      var monLocked = isStrictRisk(state);
+      var monInput = el('input', { type: 'checkbox' });
+      monInput.checked = !!state.monitoringEnabled || monLocked;
+      if (monLocked) monInput.disabled = true;
+      monInput.addEventListener('change', function () {
+        state.monitoringEnabled = monInput.checked;
+        persist();
+        rerender();
+      });
+      var monLabelEl = el('span', { class: 'wizard-toggle-label', text: tr('wizard.monitoring.enabled.label') });
+      if (monLocked) {
+        monLabelEl.appendChild(el('span', {
+          class: 'badge',
+          text: tr('wizard.locked.badge'),
+          style: 'margin-left: 0.4rem;'
+        }));
+      }
+      var monRow = el('div', { class: 'wizard-row' }, [
+        el('label', { class: 'wizard-toggle' }, [monInput, monLabelEl]),
+        el('span', { class: 'wizard-row-hint', text: tr('wizard.monitoring.enabled.hint') })
+      ]);
+      appendDetail(monRow, 'wizard.monitoring.enabled.detail');
+      body.appendChild(monRow);
+
+      var endpointShown = !!state.monitoringEnabled || monLocked;
+      if (endpointShown) {
+        // Endpoint is required when monitoring is enabled — same
+        // pattern as webhook.url. fieldHasError gates the visual so
+        // the error appears only after a failed Next attempt.
+        var monEndpointErrKey = fieldHasError(state, 'operations', 'monitoringEndpoint');
+        var epInput = el('input', {
+          type: 'text',
+          class: 'wizard-input' + (monEndpointErrKey ? ' is-invalid' : ''),
+          placeholder: tr('wizard.monitoring.endpoint.placeholder'),
+          value: state.monitoringEndpoint || ''
+        });
+        var epRowChildren = [
+          el('label', { class: 'wizard-row-label', text: tr('wizard.monitoring.endpoint.label') }),
+          epInput,
+          el('span', { class: 'wizard-row-hint', text: tr('wizard.monitoring.endpoint.hint') })
+        ];
+        if (monEndpointErrKey) {
+          epRowChildren.push(el('div', { class: 'wizard-error', role: 'alert', text: tr(monEndpointErrKey) }));
+        }
+        var epRow = el('div', { class: 'wizard-row' }, epRowChildren);
+        epInput.addEventListener('input', function () {
+          state.monitoringEndpoint = epInput.value.trim();
+          persist();
+          liveYaml();
+          var stillErr = validateStep(state, 'operations').some(function (e) { return e.field === 'monitoringEndpoint'; });
+          if (!stillErr) {
+            epInput.classList.remove('is-invalid');
+            var errEl = epRow.querySelector('.wizard-error');
+            if (errEl) errEl.remove();
+          }
+        });
+        body.appendChild(epRow);
+
+        var meSelect = el('select', { class: 'wizard-select' });
+        [
+          { id: 'none',           labelKey: 'wizard.monitoring.metrics_export.none' },
+          { id: 'prometheus',     labelKey: 'wizard.monitoring.metrics_export.prometheus' },
+          { id: 'datadog',        labelKey: 'wizard.monitoring.metrics_export.datadog' },
+          { id: 'custom_webhook', labelKey: 'wizard.monitoring.metrics_export.custom' }
+        ].forEach(function (opt) {
+          var option = el('option', { value: opt.id, text: tr(opt.labelKey) });
+          if (state.metricsExport === opt.id) option.selected = true;
+          meSelect.appendChild(option);
+        });
+        meSelect.addEventListener('change', function () {
+          state.metricsExport = meSelect.value;
+          persist();
+          liveYaml();
+        });
+        body.appendChild(el('div', { class: 'wizard-row' }, [
+          el('label', { class: 'wizard-row-label', text: tr('wizard.monitoring.metrics_export.label') }),
+          meSelect
+        ]));
+
+        var driftCb = el('input', { type: 'checkbox' });
+        driftCb.checked = !!state.alertOnDrift;
+        driftCb.addEventListener('change', function () {
+          state.alertOnDrift = driftCb.checked;
+          persist();
+          liveYaml();
+        });
+        body.appendChild(el('div', { class: 'wizard-row' }, [
+          el('label', { class: 'wizard-toggle' }, [
+            driftCb,
+            el('span', { class: 'wizard-toggle-label', text: tr('wizard.monitoring.alert_on_drift.label') })
+          ]),
+          el('span', { class: 'wizard-row-hint', text: tr('wizard.monitoring.alert_on_drift.hint') })
+        ]));
+      }
+    }));
+
+    // Synthetic data generation accordion.
+    pane.appendChild(makeAccordion(state, persist, 'synthetic',
+      'wizard.synthetic.title', 'wizard.synthetic.hint', function (body) {
+      var synInput = el('input', { type: 'checkbox' });
+      synInput.checked = !!state.syntheticEnabled;
+      synInput.addEventListener('change', function () {
+        state.syntheticEnabled = synInput.checked;
+        persist();
+        rerender();
+      });
+      var synRow = el('div', { class: 'wizard-row' }, [
+        el('label', { class: 'wizard-toggle' }, [
+          synInput,
+          el('span', { class: 'wizard-toggle-label', text: tr('wizard.synthetic.enabled.label') })
+        ]),
+        el('span', { class: 'wizard-row-hint', text: tr('wizard.synthetic.enabled.hint') })
+      ]);
+      appendDetail(synRow, 'wizard.synthetic.enabled.detail');
+      body.appendChild(synRow);
+
+      if (state.syntheticEnabled) {
+        // Synthetic data generation has THREE required inputs once
+        // the feature is enabled: teacher model, seed prompts file,
+        // and the API key env var. None have a sensible default that
+        // ForgeLM can guess, so all three are validated here. The
+        // factory below mirrors the validateStep ↔ inline-error
+        // wiring used by webhook.url and monitoring.endpoint.
+        function makeRequiredText(field, labelKey, hintKey, placeholderKey, errorKey) {
+          var errKey = fieldHasError(state, 'operations', field);
+          var inp = el('input', {
+            type: 'text',
+            class: 'wizard-input' + (errKey ? ' is-invalid' : ''),
+            placeholder: placeholderKey ? tr(placeholderKey) : '',
+            value: state[field] || ''
+          });
+          var rowChildren = [
+            el('label', { class: 'wizard-row-label', text: tr(labelKey) }),
+            inp,
+            el('span', { class: 'wizard-row-hint', text: tr(hintKey) })
+          ];
+          if (errKey) {
+            rowChildren.push(el('div', { class: 'wizard-error', role: 'alert', text: tr(errKey) }));
+          }
+          var row = el('div', { class: 'wizard-row' }, rowChildren);
+          inp.addEventListener('input', function () {
+            state[field] = inp.value.trim();
+            persist();
+            liveYaml();
+            var stillErr = validateStep(state, 'operations').some(function (e) { return e.field === field; });
+            if (!stillErr) {
+              inp.classList.remove('is-invalid');
+              var errEl = row.querySelector('.wizard-error');
+              if (errEl) errEl.remove();
+            }
+          });
+          return row;
+        }
+        body.appendChild(makeRequiredText('syntheticTeacherModel',
+          'wizard.synthetic.teacher_model.label',
+          'wizard.synthetic.teacher_model.hint',
+          null,
+          'wizard.error.synthetic.teacher_model.required'));
+        body.appendChild(makeRequiredText('syntheticSeedFile',
+          'wizard.synthetic.seed_file.label',
+          'wizard.synthetic.seed_file.hint',
+          'wizard.synthetic.seed_file.placeholder',
+          'wizard.error.synthetic.seed_file.required'));
+        body.appendChild(makeRequiredText('syntheticApiKeyEnv',
+          'wizard.synthetic.api_key_env.label',
+          'wizard.synthetic.api_key_env.hint',
+          null,
+          'wizard.error.synthetic.api_key_env.required'));
+      }
+    }));
+
+    // Retention horizons (GDPR Art. 5+17) accordion.
+    pane.appendChild(makeAccordion(state, persist, 'retention',
+      'wizard.retention.title', 'wizard.retention.hint', function (body) {
+      function makeNumberRow(field, labelKey, hintKey) {
+        var inp = el('input', {
+          type: 'number',
+          class: 'wizard-input',
+          min: '0',
+          step: '1',
+          value: String(state[field])
+        });
+        inp.addEventListener('input', function () {
+          var v = parseInt(inp.value, 10);
+          if (!isNaN(v) && v >= 0) {
+            state[field] = v;
+            persist();
+            liveYaml();
+          }
+        });
+        return el('div', { class: 'wizard-row' }, [
+          el('label', { class: 'wizard-row-label', text: tr(labelKey) }),
+          inp,
+          el('span', { class: 'wizard-row-hint', text: tr(hintKey) })
+        ]);
+      }
+      body.appendChild(makeNumberRow('retentionAuditLog',
+        'wizard.retention.audit_log.label', 'wizard.retention.audit_log.hint'));
+      body.appendChild(makeNumberRow('retentionStaging',
+        'wizard.retention.staging.label', 'wizard.retention.staging.hint'));
+      body.appendChild(makeNumberRow('retentionEphemeral',
+        'wizard.retention.ephemeral.label', 'wizard.retention.ephemeral.hint'));
+      body.appendChild(makeNumberRow('retentionRawDocuments',
+        'wizard.retention.raw_documents.label', 'wizard.retention.raw_documents.hint'));
+
+      // ``enforce`` is a 3-way Literal (log_only | warn_on_excess |
+      // block_on_excess) — surfaced as a select. Default ``log_only``
+      // is the safe choice; ``block_on_excess`` is for regulated CI
+      // gates where silent extension of retention horizons is the
+      // bug we're trying to prevent.
+      var enforceSelect = el('select', { class: 'wizard-select' });
+      [
+        { id: 'log_only',        labelKey: 'wizard.retention.enforce.log_only' },
+        { id: 'warn_on_excess',  labelKey: 'wizard.retention.enforce.warn' },
+        { id: 'block_on_excess', labelKey: 'wizard.retention.enforce.block' }
+      ].forEach(function (opt) {
+        var option = el('option', { value: opt.id, text: tr(opt.labelKey) });
+        if (state.retentionEnforce === opt.id) option.selected = true;
+        enforceSelect.appendChild(option);
+      });
+      enforceSelect.addEventListener('change', function () {
+        state.retentionEnforce = enforceSelect.value;
+        persist();
+        liveYaml();
+      });
+      body.appendChild(el('div', { class: 'wizard-row' }, [
+        el('label', { class: 'wizard-row-label', text: tr('wizard.retention.enforce.label') }),
+        enforceSelect,
+        el('span', { class: 'wizard-row-hint', text: tr('wizard.retention.enforce.hint') })
+      ]));
+    }));
   };
 
   /* Step 7: Review + download */

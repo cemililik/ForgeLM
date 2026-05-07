@@ -2205,6 +2205,160 @@ section { padding: 5rem 0; }
   font: inherit;
 }
 
+/* Collapsible accordion section inside a step pane. Used to group
+   advanced / optional fields (risk assessment, data governance,
+   webhooks, monitoring) without bloating the step counter. The header
+   is a button so keyboard users can Tab into it; aria-expanded reflects
+   the open/closed state for assistive tech.
+
+   Layout: header is a 3-column grid (icon | titles | chevron). Title
+   + hint stack vertically inside the middle cell so a long hint wraps
+   cleanly without pushing the chevron off-axis. The body uses the
+   modern grid-template-rows 0fr→1fr trick so expand/collapse
+   animates smoothly without us manually measuring height. */
+.wizard-accordion {
+  /* Override the global ``section { padding: 5rem 0 }`` rule (line 193).
+     Without this, every accordion grew 80px of top + bottom padding,
+     leaving a tall empty frame around the header. The wizard's
+     accordions are layout primitives, not page sections — they need
+     to fit their content tightly. */
+  padding: 0;
+  margin: 0.9rem 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  overflow: hidden;
+  transition: border-color var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+.wizard-accordion:hover {
+  border-color: var(--border-strong);
+}
+.wizard-accordion.is-open {
+  border-color: rgba(249, 115, 22, 0.5);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(249, 115, 22, 0.08);
+}
+
+.wizard-accordion-header {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.85rem 1.05rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  transition: background var(--transition);
+}
+.wizard-accordion-header:hover {
+  background: var(--bg-elev);
+}
+.wizard-accordion-header:focus-visible {
+  outline: 2px solid var(--ember-bright);
+  outline-offset: -2px;
+}
+
+/* Leading icon — sits in a soft tinted square. Closed = neutral grey;
+   open = ember-tinted to mirror the active border. */
+.wizard-accordion-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: background var(--transition), color var(--transition);
+}
+.wizard-accordion-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.wizard-accordion.is-open .wizard-accordion-icon {
+  background: rgba(249, 115, 22, 0.12);
+  color: var(--ember-bright);
+}
+
+/* Title + hint stack — single column, tight gap so the two lines read
+   as one logical label. ``min-width: 0`` lets long hints truncate via
+   the wrapper rather than overflow the row. */
+.wizard-accordion-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 0;
+}
+.wizard-accordion-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1.3;
+  color: var(--text);
+}
+.wizard-accordion-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.wizard-accordion-chevron {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: transform 240ms cubic-bezier(.4, 0, .2, 1), color var(--transition);
+}
+.wizard-accordion-chevron svg {
+  width: 16px;
+  height: 16px;
+}
+.wizard-accordion.is-open .wizard-accordion-chevron {
+  color: var(--ember-bright);
+  transform: rotate(180deg);
+}
+
+/* Closed accordion = header only. ``display: none`` is the bluntest
+   tool but the most reliable: it removes the body-wrap from layout
+   entirely, so a closed accordion is exactly the height of its
+   header button. The two prior attempts (grid-template-rows: 0fr;
+   max-height: 0) both failed in real browsers — content kept
+   reporting min-content height despite overflow:hidden, leaving
+   closed accordions as tall empty frames. We forfeit the slide
+   animation in exchange for visual correctness. The chevron rotation
+   + open-state ember accent still telegraph state changes. */
+.wizard-accordion-body-wrap {
+  display: none;
+}
+.wizard-accordion.is-open .wizard-accordion-body-wrap {
+  display: block;
+}
+.wizard-accordion-body {
+  border-top: 1px solid var(--border);
+  padding: 1rem 1.05rem 0.9rem;
+}
+
+/* Reduced-motion users get instant chevron / hover transitions. */
+@media (prefers-reduced-motion: reduce) {
+  .wizard-accordion,
+  .wizard-accordion-icon,
+  .wizard-accordion-chevron {
+    transition: none !important;
+  }
+}
+.wizard-input[rows] { /* textareas styled the same as inputs */
+  font-family: var(--font-sans);
+  resize: vertical;
+  min-height: 60px;
+}
+
 /* Validation error pinned under an invalid input. */
 .wizard-error {
   margin-top: 0.4rem;
