@@ -5,7 +5,7 @@
 > tablo. Şu belgelere eşlik eder:
 > [`../guides/iso_soc2_deployer_guide-tr.md`](../guides/iso_soc2_deployer_guide-tr.md)
 > ve tasarım dökümanı
-> [`../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md).
+> [`../design/iso27001_soc2_alignment.md`](../design/iso27001_soc2_alignment.md).
 
 ## Kategoriler
 
@@ -96,7 +96,7 @@ Güçlü ForgeLM katkısı.
 | P2.1 Seçim ve onay | `evaluation.require_human_approval` Madde 14 gate |
 | P3.1 Toplama | `data.governance.personal_data_included`; `dpia_completed` |
 | P3.2 Kişisel veri kalitesi | `data_audit_report.json` quality stats |
-| P4.1 Kullanım, saklama ve imha | `evaluation.approval_retention_days`; `forgelm purge --check-policy` |
+| P4.1 Kullanım, saklama ve imha | `retention.staging_ttl_days` (kanonik; eski takma ad `evaluation.staging_ttl_days` v0.5.5 → v0.6.x deprecation penceresi boyunca şeffaf yönlendirir); `forgelm purge --check-policy` |
 | P5.1 Erişim | `forgelm reverse-pii` Madde 15 scan; salted query-hash |
 | P5.2 Sorular ve şikayetler | (Operatör-tarafı workflow) |
 | P6.1 Üçüncü taraflara açıklama | `safe_post` webhook discipline; HMAC payload signing |
@@ -123,7 +123,7 @@ Güçlü ForgeLM katkısı.
 ## Bkz.
 
 - [`../guides/iso_soc2_deployer_guide-tr.md`](../guides/iso_soc2_deployer_guide-tr.md) — operatör denetim cookbook'u.
-- [`../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md) — tam tasarım gerekçesi.
+- [`../design/iso27001_soc2_alignment.md`](../design/iso27001_soc2_alignment.md) — tam tasarım gerekçesi.
 - [`iso27001_control_mapping-tr.md`](iso27001_control_mapping-tr.md) — ISO 27001 mapping eşlikçisi.
 - [`supply_chain_security-tr.md`](supply_chain_security-tr.md) — SBOM + pip-audit + bandit.
 - [`audit_event_catalog-tr.md`](audit_event_catalog-tr.md) — audit-event vocabulary.

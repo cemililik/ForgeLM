@@ -186,4 +186,4 @@ glob); `2` = runtime hatası (mid-scan I/O failure).  JSON envelope
 
 - `docs/qms/sop_data_management.md` — retention + erasure prosedürleri dahil tam data-lifecycle SOP.
 - `docs/usermanuals/tr/compliance/safety_compliance.md` — buraya link veren operator-facing compliance overview.
-- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md` — bu implementation'ın gerçekleştirdiği Phase 20 design dokümanı.
+- [`docs/design/gdpr_erasure.md`](../design/gdpr_erasure.md) — bu implementation'ın gerçekleştirdiği Phase 20 design dokümanı.

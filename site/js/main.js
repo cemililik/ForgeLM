@@ -16,40 +16,23 @@
     initLangDropdown();
     initCopyButtons();
     initContactForm();
+    initHeroSlider();
     initHeroTyper();
     initSmoothAnchorOffset();
   });
 
   /* ── Helpers ──────────────────────────────────────── */
-  // Resolve the per-language sub-table without bracket access on a
-  // user-supplied key. Each branch returns a property by name so static
-  // analyzers see no dynamic key reaching the object.
-  function tableForLang(all, lang) {
-    if (!all) return undefined;
-    switch (lang) {
-      case 'en': return all.en;
-      case 'tr': return all.tr;
-      case 'de': return all.de;
-      case 'fr': return all.fr;
-      case 'es': return all.es;
-      case 'zh': return all.zh;
-      default:   return undefined;
-    }
-  }
-
-  // Pull a translation by key from the current language table, with EN
-  // fallback. Returns the key itself if no entry is found, so the UI
-  // doesn't show "undefined". Object.hasOwn (ES2022) replaces the older
-  // Object.prototype.hasOwnProperty.call pattern; the subsequent bracket
-  // read is gated to own properties only.
+  // tr() + tableForLang live in js/_shared.js. ``main.js`` ships at
+  // end of <body> without defer, so its IIFE runs BEFORE the head's
+  // deferred ``_shared.js`` has executed — capturing the shared
+  // helper at IIFE-init time would freeze the identity fallback,
+  // and copy-button labels / form messages would render the raw key
+  // instead of a translated string. Use a lazy resolver that looks
+  // up the shared helper on each call (after _shared.js has loaded).
   function tr(key) {
-    if (typeof key !== 'string') return key;
-    var lang = document.documentElement.lang || 'en';
-    var all = (window && window.ForgeLMTranslations) || {};
-    var table = tableForLang(all, lang) || (all && all.en) || {};
-    if (Object.hasOwn(table, key)) return table[key];
-    var en = (all && all.en) || {};
-    if (Object.hasOwn(en, key)) return en[key];
+    if (window.ForgeLMShared && typeof window.ForgeLMShared.tr === 'function') {
+      return window.ForgeLMShared.tr(key);
+    }
     return key;
   }
 
@@ -132,6 +115,10 @@
       } else {
         document.documentElement.removeAttribute('data-theme');
       }
+      // Keep the toggle's ARIA state in sync so screen readers
+      // announce the current mode. ``aria-pressed=true`` = light mode
+      // is engaged; ``false`` = default dark.
+      if (btn) btn.setAttribute('aria-pressed', theme === 'light' ? 'true' : 'false');
     }
 
     try { stored = localStorage.getItem(THEME_PREF_NAME); } catch (_) {}
@@ -239,6 +226,162 @@
     });
   }
 
+  /* ── Hero rotating slider (3 personas) ───────────── */
+  // Rotates the left-column hero pitch across three personas
+  // (engineer / beginner / compliance) on an 8-second timer with
+  // hover-pause, keyboard ←/→ navigation, swipe-on-touch, and a
+  // visibilitychange-aware pause when the tab is backgrounded. The
+  // CSS handles the cross-fade transition; this hook only flips the
+  // ``.is-active`` class + ARIA state on slides + pagination dots.
+  //
+  // Reduced-motion users land in a CSS-only branch (slides stack
+  // vertically, controls hidden) so this initialiser is a no-op for
+  // them after the early return.
+  function initHeroSlider() {
+    var slider = document.querySelector('[data-hero-slider]');
+    if (!slider) return;
+    var slides = Array.prototype.slice.call(slider.querySelectorAll('.hero-slide'));
+    var dots = Array.prototype.slice.call(slider.querySelectorAll('.hero-slider-dot'));
+    if (slides.length < 2 || dots.length !== slides.length) return;
+
+    var ROTATE_MS = 8000;
+    var SWIPE_PX = 50;
+    var current = 0;
+    var timer = null;
+    var reducedMotion =
+      window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (reducedMotion) {
+      // CSS already neutralises the layout; flag every slide visible
+      // so screen readers can iterate them in order.
+      slides.forEach(function (s) {
+        s.classList.add('is-active');
+        s.removeAttribute('hidden');
+        s.removeAttribute('aria-hidden');
+      });
+      return;
+    }
+
+    function show(index) {
+      var n = slides.length;
+      if (index < 0) index = n - 1;
+      if (index >= n) index = 0;
+      current = index;
+      slides.forEach(function (s, i) {
+        var active = i === index;
+        s.classList.toggle('is-active', active);
+        // Use aria-hidden + the existing CSS visibility/opacity rules
+        // instead of the [hidden] attribute (which forces display:none
+        // and short-circuits the 320ms fade transition). The HTML
+        // attribute ``hidden`` is removed once on init so any prerender
+        // state — e.g. server-side <article hidden> markers — can't
+        // override the CSS-driven transition.
+        if (s.hasAttribute('hidden')) s.removeAttribute('hidden');
+        if (active) {
+          s.removeAttribute('aria-hidden');
+        } else {
+          s.setAttribute('aria-hidden', 'true');
+        }
+      });
+      dots.forEach(function (d, i) {
+        var active = i === index;
+        d.classList.toggle('is-active', active);
+        d.setAttribute('aria-selected', active ? 'true' : 'false');
+        d.setAttribute('tabindex', active ? '0' : '-1');
+      });
+    }
+
+    function next() { show(current + 1); }
+    function prev() { show(current - 1); }
+
+    function start() {
+      if (timer || reducedMotion) return;
+      slider.dataset.paused = 'false';
+      timer = window.setInterval(next, ROTATE_MS);
+    }
+    function stop() {
+      if (timer) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+      slider.dataset.paused = 'true';
+    }
+    function restart() { stop(); start(); }
+
+    // Pagination dots (jump to specific slide)
+    dots.forEach(function (dot) {
+      dot.addEventListener('click', function () {
+        var idx = parseInt(dot.dataset.heroJump || '0', 10);
+        show(idx);
+        restart();
+      });
+    });
+
+    // Prev / next arrows
+    var prevBtn = slider.querySelector('[data-hero-prev]');
+    var nextBtn = slider.querySelector('[data-hero-next]');
+    if (prevBtn) prevBtn.addEventListener('click', function () { prev(); restart(); });
+    if (nextBtn) nextBtn.addEventListener('click', function () { next(); restart(); });
+
+    // Keyboard ←/→ when focus is anywhere inside the slider
+    slider.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowLeft') {
+        prev(); restart();
+        e.preventDefault();
+      } else if (e.key === 'ArrowRight') {
+        next(); restart();
+        e.preventDefault();
+      }
+    });
+
+    // Pause on hover + focus, resume on leave + blur. ``mouseleave``
+    // alone isn't sufficient — a keyboard user reading a slide may
+    // be focused inside while the cursor leaves the slider, and we
+    // shouldn't yank the slide out from under them. Gate the resume
+    // on focus actually being outside.
+    slider.addEventListener('mouseenter', stop);
+    slider.addEventListener('mouseleave', function () {
+      if (!slider.contains(document.activeElement)) start();
+    });
+    slider.addEventListener('focusin', stop);
+    slider.addEventListener('focusout', function (e) {
+      // Only resume if focus actually left the slider entirely.
+      if (!slider.contains(e.relatedTarget)) start();
+    });
+
+    // Tab visibility — don't burn CPU on background tabs
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) stop();
+      else start();
+    });
+
+    // Touch swipe (mobile). Threshold 50px so a vertical scroll
+    // doesn't accidentally trigger a slide change.
+    var touchStartX = null;
+    var touchStartY = null;
+    slider.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) return;
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+    slider.addEventListener('touchend', function (e) {
+      if (touchStartX === null) return;
+      var dx = e.changedTouches[0].clientX - touchStartX;
+      var dy = e.changedTouches[0].clientY - touchStartY;
+      // Horizontal-dominant gesture only — protects vertical scroll.
+      if (Math.abs(dx) > SWIPE_PX && Math.abs(dx) > Math.abs(dy) * 1.4) {
+        if (dx > 0) prev(); else next();
+        restart();
+      }
+      touchStartX = null;
+      touchStartY = null;
+    });
+
+    show(0);
+    start();
+  }
+
   /* ── Hero terminal typewriter (cosmetic) ─────────── */
   function initHeroTyper() {
     var typer = document.querySelector('[data-typer]');
@@ -278,7 +421,11 @@
         if (!target) return;
         e.preventDefault();
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        history.pushState(null, '', id);
+        // ``replaceState`` instead of ``pushState`` so multiple anchor
+        // clicks don't bloat the back-button stack with N intermediate
+        // hash entries — pressing Back returns to the page the user
+        // arrived from, not to each scroll position they passed through.
+        history.replaceState(null, '', id);
       });
     });
   }

@@ -634,13 +634,16 @@
 
   /* ──────────────────────────────────────────── helpers */
 
-  function escapeHtml(s) {
-    if (s == null) return '';
-    return String(s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
+  // Shared escape helper from js/_shared.js; fallback handles the
+  // ``s == null`` case the same way the original local version did.
+  var escapeHtml = (window.ForgeLMShared && window.ForgeLMShared.escapeHtml) ||
+    function (s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    };
 
   function stripTags(html) {
     // DOMParser yields an inert document — no scripts execute and no

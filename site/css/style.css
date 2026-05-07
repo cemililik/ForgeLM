@@ -2,9 +2,13 @@
    ForgeLM — Site Stylesheet
    Forge metaphor: ember orange + steel cyan
    Dark-first, vanilla CSS, no framework, no build step.
-   ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+   Note on fonts: Google Fonts CSS is loaded via a <link> tag in
+   each page's <head> (right after the preconnects). Loading via
+   HTML link is faster than CSS @import — the browser can fetch
+   the font CSS in parallel with style.css instead of waiting for
+   style.css to parse before discovering the @import.
+   ============================================================ */
 
 /* ── Tokens ──────────────────────────────────────────────── */
 :root {
@@ -73,7 +77,27 @@
   --glow-ember: 0 0 0 1px rgba(249,115,22,.35), 0 8px 32px rgba(249,115,22,.18);
   --glow-steel: 0 0 0 1px rgba(14,165,233,.35), 0 8px 32px rgba(14,165,233,.18);
   --transition: .22s cubic-bezier(.4,0,.2,1);
+  --transition-fast: .15s cubic-bezier(.4,0,.2,1);
   --transition-slow: .4s cubic-bezier(.4,0,.2,1);
+
+  /* Responsive breakpoints — canonical 4-tier scale.
+     Existing media queries in this file use a wider mix of breakpoint
+     values (480 / 560 / 600 / 720 / 880 / 900 / 980 / 1100 / 1180 /
+     1280) chosen for individual component layouts. We do NOT migrate
+     them en masse — that would risk subtle visual regressions. New
+     rules should reach for these tokens in CSS calc() / clamp()
+     contexts; @media queries still need literal values per CSS spec. */
+  --bp-sm: 480px;   /* small mobile */
+  --bp-md: 768px;   /* tablet portrait */
+  --bp-lg: 900px;   /* small desktop / wizard mobile cutoff */
+  --bp-xl: 1200px;  /* wide desktop */
+
+  /* Terminal/window-control dot colors — macOS-style red/yellow/green
+     used in the hero terminal mock + wizard YAML preview. Tokens only
+     so future surfaces can stay visually consistent. */
+  --dot-red:    #ff5f56;
+  --dot-yellow: #ffbd2e;
+  --dot-green:  #27c93f;
 }
 
 /* Light mode override */
@@ -101,6 +125,51 @@
   --pill-warn-bg:   #fef9c3;
   --pill-danger-fg: #7f1d1d;
   --pill-danger-bg: #fee2e2;
+}
+
+/* ── Wizard storage-unavailable banner ───────────────────────
+   Painted only when localStorage save fails (private-mode, quota,
+   blocked storage). Uses role="status" + aria-live="polite" so a
+   screen reader announces it without trapping focus. */
+.wizard-storage-warn {
+  position: absolute;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 110;
+  max-width: min(560px, calc(100% - 2rem));
+  padding: 0.7rem 1rem;
+  background: var(--pill-warn-bg, #fef9c3);
+  color: var(--pill-warn-fg, #713f12);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--warn, #d97706);
+  font-size: 0.85rem;
+  box-shadow: var(--shadow);
+}
+
+/* ── Skip to main content (a11y, WCAG 2.4.1 Bypass Blocks) ─── */
+/* Visually hidden until focused. First Tab on any page reveals
+   the link as a banner above the navbar so keyboard users can
+   jump past nav into the page's <main>. */
+.skip-link {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 200;
+  padding: 0.6rem 1rem;
+  background: var(--ember);
+  color: #fff;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  transform: translateY(-200%);
+  transition: transform var(--transition);
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 /* ── Reset ───────────────────────────────────────────────── */
@@ -197,6 +266,59 @@ section { padding: 5rem 0; }
 }
 
 .text-center { text-align: center; }
+.text-center-mt {
+  text-align: center;
+  margin-top: 2rem;
+}
+
+/* ── Section + container utilities — extracted from inline ``style=""``
+   attributes that previously lived in HTML. The class names describe
+   the design intent (alternate-band section, full-bleed container,
+   compact CTA card) so future authors don't reach for inline styles.
+*/
+.section-alt {
+  background: var(--bg-alt);
+}
+.container-flush {
+  padding-left: 0;
+  padding-right: 0;
+}
+.stack-narrow {
+  margin-top: 4rem;
+  padding: 0;
+}
+.cta-card-compact {
+  padding: 2rem;
+}
+
+/* Quickstart wizard CTA inside the manual 5-step page — compact h2 +
+   lead so it sits comfortably below the steps without dwarfing them. */
+.quickstart-wizard-h2 {
+  font-size: 1.4rem;
+  margin-bottom: 0.5rem;
+}
+.quickstart-wizard-p {
+  font-size: 0.95rem;
+  margin-bottom: 1.2rem;
+}
+
+/* Compliance page closing remark linking to the audit cookbook. */
+.compliance-cookbook {
+  margin-top: 2rem;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Contact page hero strip + form intro. */
+.contact-section { padding-top: 3rem; }
+.contact-form-intro {
+  font-size: 0.9rem;
+  margin-bottom: 1.4rem;
+}
+
+/* Compliance page article-grid wrapper that needs a small upper gap. */
+.legal-content-mt { margin-top: 1rem; }
 .text-gradient {
   background: linear-gradient(135deg, var(--ember) 0%, var(--steel) 100%);
   -webkit-background-clip: text;
@@ -289,7 +411,7 @@ section { padding: 5rem 0; }
   color: var(--text-secondary);
   font-size: 0.92rem;
   font-weight: 500;
-  transition: all var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
 .nav-menu a:hover, .nav-menu a.active {
   color: var(--text);
@@ -321,7 +443,7 @@ section { padding: 5rem 0; }
   font: 600 0.78rem var(--font-sans);
   color: var(--text);
   cursor: pointer;
-  transition: all var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
 .lang-toggle-btn:hover {
   border-color: var(--ember);
@@ -361,7 +483,7 @@ section { padding: 5rem 0; }
   font: 500 0.88rem var(--font-sans);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
 .lang-toggle-menu button:hover {
   background: var(--bg-elev);
@@ -382,7 +504,7 @@ section { padding: 5rem 0; }
   place-items: center;
   cursor: pointer;
   color: var(--text-secondary);
-  transition: all var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
 .theme-toggle:hover {
   color: var(--ember-bright);
@@ -443,7 +565,7 @@ section { padding: 5rem 0; }
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: all var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
   white-space: nowrap;
   line-height: 1.2;
 }
@@ -502,7 +624,7 @@ section { padding: 5rem 0; }
   background:
     radial-gradient(ellipse at 30% 40%, rgba(249,115,22,.18), transparent 55%),
     radial-gradient(ellipse at 70% 60%, rgba(14,165,233,.14), transparent 55%);
-  filter: blur(40px);
+  filter: blur(24px);
   pointer-events: none;
   z-index: 0;
 }
@@ -561,9 +683,16 @@ section { padding: 5rem 0; }
   50% { opacity: .35; }
 }
 
-.hero h1 {
+/* Hero-slide titles share the same visual treatment regardless of tag.
+   Slide 1 uses <h1> (the page's primary heading); slides 2 + 3 use <h2>
+   so each page has exactly one h1 — required for SEO + WCAG heading
+   hierarchy. The font-size scale collapses h1 + h2 to identical values
+   in this slot. */
+.hero h1,
+.hero h2 {
   margin-bottom: 1.2rem;
   letter-spacing: -0.03em;
+  font-size: clamp(2rem, 5vw, 3.25rem);
 }
 
 .hero-lead {
@@ -594,6 +723,192 @@ section { padding: 5rem 0; }
 }
 .hero-meta svg { width: 14px; height: 14px; color: var(--success); }
 
+/* Hero rotating slider (3 personas: engineer / beginner / compliance).
+   Mechanics: cross-fade transitions, auto-rotate (8s) with hover-pause,
+   keyboard ←/→, swipe on touch, and a reduced-motion fallback that
+   stacks all slides linearly. The badge + cross-cutting meta strip stay
+   visible across slides — only the title/lead/CTA pair rotates.
+
+   Layout note: ``.hero-personas`` becomes the grid item that replaces
+   the old left-column ``<div>``. The right-column ``.hero-terminal``
+   keeps its original placement; the grid template is unchanged. */
+.hero-personas {
+  position: relative;
+}
+
+.hero-slides {
+  position: relative;
+  /* min-height ensures the layout doesn't collapse during fade
+     transitions when the active slide is positioned absolutely; the
+     value is a comfortable cap for the longest pitch (compliance
+     slide currently around 4 lines of body copy at desktop width). */
+  min-height: 320px;
+}
+
+@media (max-width: 980px) {
+  .hero-slides { min-height: 360px; }
+}
+@media (max-width: 600px) {
+  .hero-slides { min-height: 380px; }
+}
+
+.hero-slide {
+  position: absolute;
+  inset: 0 0 auto 0;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(12px);
+  transition:
+    opacity 320ms ease-out,
+    transform 320ms ease-out,
+    visibility 0s linear 320ms;
+  pointer-events: none;
+}
+
+.hero-slide.is-active {
+  position: relative;
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  transition:
+    opacity 320ms ease-out,
+    transform 320ms ease-out,
+    visibility 0s linear 0s;
+  pointer-events: auto;
+}
+
+/* Slider pagination: 3 dots, the active dot expands and animates a
+   linear progress fill that mirrors the auto-rotate timer (8s). */
+.hero-slider-controls {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-top: 1.4rem;
+  margin-bottom: 1.4rem;
+}
+
+.hero-slider-dot {
+  position: relative;
+  width: 24px;
+  height: 4px;
+  padding: 0;
+  border: none;
+  background: var(--border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: background 200ms ease, width 280ms ease;
+}
+
+.hero-slider-dot:hover { background: var(--text-muted); }
+.hero-slider-dot:focus-visible {
+  outline: 2px solid var(--ember-bright);
+  outline-offset: 3px;
+}
+
+.hero-slider-dot.is-active {
+  width: 56px;
+  background: var(--border-strong);
+}
+
+.hero-slider-dot .dot-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--ember-bright), var(--steel-bright));
+  transform-origin: left center;
+  transform: scaleX(0);
+  border-radius: inherit;
+}
+
+.hero-slider-dot.is-active .dot-fill {
+  animation: hero-slider-fill 8s linear forwards;
+}
+
+.hero-personas[data-paused="true"] .hero-slider-dot.is-active .dot-fill {
+  animation-play-state: paused;
+}
+
+@keyframes hero-slider-fill {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+/* Prev / next chevrons. Ghost by default; reveal on hover or
+   keyboard focus inside the slider. Hidden on small screens — touch
+   users get the swipe gesture instead. */
+.hero-slider-arrow {
+  position: absolute;
+  top: 35%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Theme-aware: previously hardcoded a dark rgba background with
+     ``color: var(--text)``. In light mode that resolved to dark text
+     on dark bg, so the chevron disappeared. Mirror the theme by
+     using the same elevated-surface tokens the rest of the chrome
+     uses. */
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 200ms ease, background 200ms ease, border-color 200ms ease;
+  z-index: 2;
+}
+.hero-slider-arrow svg { width: 14px; height: 14px; }
+.hero-slider-arrow.prev { left: -52px; }
+.hero-slider-arrow.next { right: -52px; }
+
+.hero-personas:hover .hero-slider-arrow,
+.hero-personas:focus-within .hero-slider-arrow {
+  opacity: 0.9;
+}
+.hero-slider-arrow:hover {
+  opacity: 1;
+  background: var(--bg-elev);
+  border-color: var(--ember-bright);
+}
+.hero-slider-arrow:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--ember-bright);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1100px) {
+  .hero-slider-arrow.prev { left: -16px; }
+  .hero-slider-arrow.next { right: -16px; }
+}
+@media (max-width: 720px) {
+  .hero-slider-arrow { display: none; }
+}
+
+/* Reduced-motion: stack all slides, hide pagination + arrows,
+   neutralise the timer animation. Each slide becomes its own block
+   the user can read linearly. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-slide {
+    position: relative !important;
+    inset: auto !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    pointer-events: auto !important;
+    margin-bottom: 1.6rem;
+  }
+  .hero-slide:not(:first-child) {
+    border-top: 1px dashed var(--border);
+    padding-top: 1.4rem;
+  }
+  .hero-slider-controls,
+  .hero-slider-arrow { display: none !important; }
+  .hero-slides { min-height: 0; }
+  .hero-slider-dot.is-active .dot-fill { animation: none; }
+}
+
 /* Hero terminal */
 .hero-terminal {
   background: var(--code-bg);
@@ -623,7 +938,11 @@ section { padding: 5rem 0; }
   border-bottom: 1px solid var(--code-border);
   font-family: var(--font-mono);
   font-size: 0.78rem;
-  color: var(--text-muted);
+  /* Theme-locked: this bar is a dark code surface in BOTH themes,
+     so the title text uses --code-comment (theme-locked grey) — not
+     --text-muted, which flips to a dim grey-on-white in light mode
+     and disappears against the dark gradient. */
+  color: var(--code-comment);
 }
 .terminal-bar .dots {
   display: flex;
@@ -635,9 +954,9 @@ section { padding: 5rem 0; }
   height: 11px;
   border-radius: 50%;
 }
-.terminal-bar .dot.r { background: #ff5f56; }
-.terminal-bar .dot.y { background: #ffbd2e; }
-.terminal-bar .dot.g { background: #27c93f; }
+.terminal-bar .dot.r { background: var(--dot-red); }
+.terminal-bar .dot.y { background: var(--dot-yellow); }
+.terminal-bar .dot.g { background: var(--dot-green); }
 
 .terminal-body {
   padding: 1.2rem 1.3rem;
@@ -648,13 +967,19 @@ section { padding: 5rem 0; }
   overflow-x: auto;
 }
 .terminal-body .prompt { color: var(--ember-bright); }
-.terminal-body .cmd { color: var(--text); }
+/* The terminal background is theme-locked dark (--code-bg stays dark
+   in both themes), so token colors here MUST use theme-locked code-*
+   variables — never page text vars (--text / --text-secondary /
+   --text-muted) which flip to dark in light mode and become
+   invisible on the dark terminal. The ``forgelm`` command itself
+   was disappearing in light mode for exactly this reason. */
+.terminal-body .cmd { color: var(--code-text); }
 .terminal-body .flag { color: var(--steel-bright); }
 .terminal-body .arg { color: #6ee7b7; }
 .terminal-body .comment { color: var(--code-comment); font-style: italic; }
 .terminal-body .ok { color: var(--success); }
 .terminal-body .warn { color: var(--warn); }
-.terminal-body .out { color: var(--text-secondary); }
+.terminal-body .out { color: var(--code-text); opacity: 0.78; }
 .terminal-body .blink {
   display: inline-block;
   width: 8px; height: 1.05em;
@@ -725,7 +1050,7 @@ section { padding: 5rem 0; }
   padding: 1.2rem 1rem;
   text-align: center;
   position: relative;
-  transition: all var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
   cursor: default;
 }
 .pipeline-stage:hover {
@@ -770,7 +1095,7 @@ section { padding: 5rem 0; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1.6rem;
-  transition: all var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
   position: relative;
   overflow: hidden;
 }
@@ -918,7 +1243,11 @@ section { padding: 5rem 0; }
   background: rgba(255,255,255,.03);
   font-family: var(--font-mono);
   font-size: 0.78rem;
-  color: var(--text-muted);
+  /* Theme-locked: the parent .code-block uses --code-bg (always dark
+     in both themes), so the language tag must use a theme-locked grey
+     too — --text-muted resolves to dim grey on light theme and
+     disappears here. */
+  color: var(--code-comment);
 }
 .code-block-header .lang {
   display: inline-flex;
@@ -950,12 +1279,15 @@ section { padding: 5rem 0; }
 .copy-btn {
   background: none;
   border: 1px solid var(--code-border);
-  color: var(--text-muted);
+  /* Theme-locked: lives on the dark .code-block-header bar in both
+     themes. --code-comment is the in-code default grey — readable
+     against the dark gradient in both light and dark page themes. */
+  color: var(--code-comment);
   padding: 0.35rem 0.7rem;
   border-radius: 4px;
   cursor: pointer;
   font: 500 0.72rem var(--font-mono);
-  transition: all var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
   min-height: 32px;
 }
 .copy-btn:hover { color: var(--ember-bright); border-color: var(--ember); }
@@ -976,7 +1308,7 @@ section { padding: 5rem 0; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1.4rem;
-  transition: all var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
   position: relative;
 }
 .article-card:hover {
@@ -1093,7 +1425,7 @@ section { padding: 5rem 0; }
   background:
     radial-gradient(ellipse at 30% 50%, rgba(249,115,22,.2), transparent 60%),
     radial-gradient(ellipse at 70% 50%, rgba(14,165,233,.18), transparent 60%);
-  filter: blur(40px);
+  filter: blur(24px);
   pointer-events: none;
 }
 .cta-card > * { position: relative; z-index: 1; }
@@ -1133,6 +1465,1098 @@ section { padding: 5rem 0; }
 .page-header p {
   max-width: 620px;
   font-size: 1.08rem;
+}
+
+.page-header-aside {
+  margin-top: 1.4rem !important;
+  font-size: 0.95rem !important;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+/* Wizard spotlight — the prominent CTA banner that lands between the
+   quickstart page-header and the canonical 5-step content. Designed
+   to be impossible to miss without overshadowing the existing manual
+   reference flow underneath. Two-column layout on desktop: marketing
+   copy + primary CTA on the left, a small visual diagram on the right
+   that mimics the wizard's three-stage contract (form → YAML → run).
+   Mobile collapses to single column. */
+.wizard-spotlight {
+  position: relative;
+  margin: -1rem 0 3rem;
+  padding: 2rem 2.2rem;
+  background:
+    radial-gradient(ellipse at 0% 0%, rgba(249, 115, 22, .14), transparent 55%),
+    radial-gradient(ellipse at 100% 100%, rgba(14, 165, 233, .12), transparent 55%),
+    linear-gradient(180deg, var(--bg-elev), var(--bg-card));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 2.4rem;
+  align-items: center;
+  overflow: hidden;
+}
+.wizard-spotlight::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(249,115,22,.4), transparent 40%, rgba(14,165,233,.4));
+  opacity: 0.12;
+  pointer-events: none;
+}
+.wizard-spotlight > * {
+  position: relative;
+  z-index: 1;
+}
+.wizard-spotlight-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ember-bright);
+  margin-bottom: 0.7rem;
+}
+.wizard-spotlight-eyebrow::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ember);
+  box-shadow: 0 0 10px var(--ember);
+  animation: pulse 2s ease-in-out infinite;
+}
+.wizard-spotlight-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.6rem;
+  line-height: 1.25;
+}
+.wizard-spotlight-lead {
+  font-size: 1rem;
+  color: var(--text-secondary);
+  margin-bottom: 1.4rem;
+  max-width: 540px;
+}
+.wizard-spotlight-actions {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+.wizard-spotlight-meta {
+  display: flex;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.wizard-spotlight-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.wizard-spotlight-meta svg {
+  width: 14px;
+  height: 14px;
+  color: var(--success);
+}
+
+/* Visual: three-stage diagram. Each stage is a small card with an
+   icon + label + tiny snippet showing what the operator gives / gets
+   at that step. The arrows between cards reinforce the flow. Built
+   in pure SVG so the icons stay crisp at any zoom. */
+.wizard-spotlight-visual {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  align-items: stretch;
+}
+.wizard-spotlight-stage {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 0.8rem;
+  padding: 0.8rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  align-items: center;
+  font-size: 0.85rem;
+}
+.wizard-spotlight-stage-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--ember-bright);
+}
+.wizard-spotlight-stage-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.wizard-spotlight-stage-label {
+  font-weight: 600;
+  color: var(--text);
+  display: block;
+}
+.wizard-spotlight-stage-snippet {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+.wizard-spotlight-arrow {
+  margin: -0.4rem 0;
+  text-align: center;
+  color: var(--text-muted);
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wizard-spotlight-arrow svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Five-step section heading — small introducing label that sits
+   between the spotlight and the existing ``.steps`` block. Helps the
+   reader understand they have two equally-valid paths (wizard above
+   OR manual below). */
+.steps-intro {
+  margin-bottom: 1.6rem;
+  font-size: 0.86rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.steps-intro::before {
+  content: '';
+  display: block;
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  min-width: 30px;
+}
+.steps-intro::after {
+  content: '';
+  display: block;
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  min-width: 30px;
+}
+
+@media (max-width: 900px) {
+  .wizard-spotlight {
+    grid-template-columns: 1fr;
+    gap: 1.6rem;
+    padding: 1.6rem 1.4rem;
+  }
+  .wizard-spotlight-title {
+    font-size: 1.35rem;
+  }
+}
+
+/* Inline link-styled CTA used by the wizard trigger and similar
+   "secondary action" affordances inside copy-heavy paragraphs.
+   Renders like a link but keeps the button semantics so screen
+   readers announce it as actionable. */
+.link-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ember-bright);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(251, 146, 60, 0.4);
+  text-underline-offset: 3px;
+  transition: color var(--transition), text-decoration-color var(--transition);
+}
+.link-cta:hover,
+.link-cta:focus-visible {
+  color: var(--ember);
+  text-decoration-color: var(--ember);
+  outline: none;
+}
+.link-cta:focus-visible {
+  outline: 2px solid var(--ember-bright);
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+/* ── Wizard modal ────────────────────────────────────────── */
+/* Modal-as-app dialog used by the quickstart.html in-browser YAML
+   wizard. Opens via [data-wizard-open] triggers or via the
+   ?wizard=open URL parameter (used by the home-page Beginner-slide
+   CTA). The dialog stays in the DOM and is toggled visible — keeping
+   the rendered tree avoids re-mounting the YAML preview on every
+   open. ARIA: role=dialog + aria-modal=true on the inner container;
+   the outer wrapper carries [hidden] when closed so the modal is
+   removed from the accessibility tree entirely. */
+.wizard-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  animation: wizard-modal-in 220ms ease-out;
+}
+.wizard-modal[hidden] { display: none; }
+
+@keyframes wizard-modal-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.wizard-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 10, 16, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  cursor: pointer;
+}
+
+.wizard-dialog {
+  position: relative;
+  width: min(1080px, 100%);
+  /* Use a *definite* height (not max-height) so the inner flex/grid
+     children get a resolvable frame to overflow against. With only
+     ``max-height``, ``flex: 1`` on .wizard-body resolves its
+     ``flex-basis: 0%`` against an indefinite parent, the body sizes
+     to content, and the step pane's ``overflow-y: auto`` never fires.
+     This was the root cause of the "use-case / model / dataset
+     screens won't scroll" bug — those steps have just enough content
+     to overflow on smaller laptops, but the dialog was free to grow
+     so nothing clipped. Fixing the dialog at 720px (or 100vh − 4rem
+     on small screens) gives the body + pane a definite frame and
+     scroll fires reliably. */
+  height: min(720px, calc(100vh - 4rem));
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: wizard-dialog-in 240ms cubic-bezier(.4, 0, .2, 1);
+}
+
+@keyframes wizard-dialog-in {
+  from { opacity: 0; transform: translateY(12px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Header: progress + step counter + detail toggle + close */
+.wizard-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.4rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+
+.wizard-progress {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+.wizard-progress-track {
+  flex: 1;
+  height: 5px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+.wizard-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--ember-bright), var(--steel-bright));
+  border-radius: inherit;
+  transition: width 320ms cubic-bezier(.4, 0, .2, 1);
+}
+.wizard-progress-counter {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.wizard-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wizard-detail-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.8rem;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+.wizard-detail-toggle:hover,
+.wizard-detail-toggle.is-active {
+  background: var(--bg);
+  border-color: var(--ember-bright);
+  color: var(--ember-bright);
+}
+.wizard-detail-toggle[hidden] { display: none; }
+
+.wizard-close {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.wizard-close svg { width: 18px; height: 18px; }
+.wizard-close:hover {
+  background: var(--bg);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+/* Body: 60/40 split — step pane + YAML preview.
+
+   Three things that all have to be true for the step pane to scroll:
+
+   1. .wizard-dialog has a *definite* height (set above as
+      ``height: min(720px, calc(100vh - 4rem))``). Without that, the
+      flex chain has no frame to overflow against.
+
+   2. .wizard-body has ``min-height: 0`` so it can shrink under
+      ``flex: 1`` instead of pinning to its grid content's intrinsic
+      height.
+
+   3. .wizard-body declares ``grid-template-rows: minmax(0, 1fr)``.
+      THIS is the one that bit us repeatedly: a grid container with
+      no explicit row sizing creates an implicit ``auto`` row, which
+      grows to max-content. So the grid row was sizing to the step
+      pane's content, the step pane was filling its track, and the
+      pane's ``overflow-y: auto`` had nothing to overflow against —
+      it scrolled relative to its own (content-sized) height, i.e.
+      not at all. ``minmax(0, 1fr)`` pins the row to the body's
+      definite height, the step pane fills 1fr, and scroll fires
+      whenever content exceeds the available row height.
+*/
+.wizard-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.wizard-step-pane {
+  /* Padding is symmetric (2rem all around) so the LAST item in a
+     scrolled pane has the same breathing room as the FIRST.
+     Previously the bottom was 1.4rem and the final hint paragraph
+     hugged the bottom edge — readable but visually cramped, and on
+     touch devices the scrollbar overlapped the last word. */
+  padding: 2rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* ``min-height: 0`` plus the dialog's definite height (above)
+     makes ``overflow-y: auto`` fire on every step. */
+  min-height: 0;
+  /* ``scrollbar-gutter: stable`` reserves space for the scrollbar so
+     the layout doesn't reflow when content grows past the fold. */
+  scrollbar-gutter: stable;
+}
+
+.wizard-yaml-pane {
+  background: var(--code-bg);
+  border-left: 1px solid var(--code-border);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.wizard-yaml-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.8rem 1rem;
+  background: linear-gradient(180deg, #1a1f2c, #141823);
+  border-bottom: 1px solid var(--code-border);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  /* Theme-locked: dark gradient bar in BOTH themes — see .terminal-bar
+     above for the same constraint. --code-comment survives the light
+     toggle. */
+  color: var(--code-comment);
+}
+.wizard-yaml-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.wizard-yaml-toggle svg {
+  width: 14px;
+  height: 14px;
+  transition: transform var(--transition);
+}
+@media (min-width: 901px) {
+  /* On desktop the YAML pane is always visible; the toggle chevron
+     sits silently and is keyboard-only useful for collapsing the
+     pane when the step pane needs more horizontal room. */
+  .wizard-yaml-toggle svg { transform: rotate(-90deg); }
+}
+
+.wizard-yaml-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: transparent;
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius-sm);
+  /* Theme-locked: lives on the dark .wizard-yaml-header in both
+     themes. Hover stays on the dark surface so the button doesn't
+     flash light-on-light when the page is in light mode. */
+  color: var(--code-comment);
+  font: inherit;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+.wizard-yaml-copy:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--code-text);
+  color: var(--code-text);
+}
+.wizard-yaml-copy.is-copied {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.wizard-yaml-output {
+  flex: 1;
+  margin: 0;
+  padding: 1.2rem 1.3rem;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.65;
+  color: var(--code-text);
+  white-space: pre;
+}
+.wizard-yaml-output code {
+  font: inherit;
+  color: inherit;
+  background: none;
+}
+/* Inline syntax tinting for the YAML preview. */
+.wizard-yaml-output .yaml-key { color: var(--ember-bright); }
+.wizard-yaml-output .yaml-string { color: var(--code-string); }
+.wizard-yaml-output .yaml-number { color: var(--code-number); }
+.wizard-yaml-output .yaml-bool { color: var(--code-fn); }
+.wizard-yaml-output .yaml-comment { color: var(--code-comment); font-style: italic; }
+.wizard-yaml-output .yaml-null { color: var(--code-comment); font-style: italic; }
+
+/* Footer: prev / step name / next */
+.wizard-footer {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.4rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+.wizard-prev,
+.wizard-next {
+  flex-shrink: 0;
+}
+.wizard-step-name {
+  flex: 1;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.wizard-prev[disabled],
+.wizard-next[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Step content building blocks. wizard.js renders these via DOM
+   construction; the classes here describe their visual shape. */
+.wizard-step-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.5rem;
+}
+.wizard-step-desc {
+  color: var(--text-secondary);
+  margin-bottom: 1.2rem;
+  font-size: 0.96rem;
+  line-height: 1.55;
+}
+.wizard-step-tutorial {
+  margin: 0 0 1.5rem;
+  padding: 0.9rem 1rem;
+  background: var(--pill-note-bg);
+  border-radius: var(--radius-sm);
+  color: var(--pill-note-fg);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  border-left: 3px solid var(--steel-bright);
+}
+.wizard-step-tutorial[hidden] { display: none; }
+
+.wizard-step-tutorial::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 0.5rem;
+  vertical-align: -2px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='12' y1='16' x2='12' y2='12'/><line x1='12' y1='8' x2='12.01' y2='8'/></svg>") center/contain no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='12' y1='16' x2='12' y2='12'/><line x1='12' y1='8' x2='12.01' y2='8'/></svg>") center/contain no-repeat;
+  opacity: 0.85;
+}
+
+/* Card grid used by use-case + base-model selection steps. */
+.wizard-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+.wizard-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--transition), background var(--transition), transform var(--transition);
+}
+.wizard-card:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-elev);
+}
+.wizard-card.is-selected {
+  border-color: var(--ember-bright);
+  background: rgba(249, 115, 22, 0.06);
+  box-shadow: 0 0 0 1px var(--ember-bright);
+}
+.wizard-card-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.wizard-card-title .badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.1rem 0.5rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-muted);
+}
+.wizard-card-desc {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* Form rows for parameter controls (Steps 4, 5, 6). */
+.wizard-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+.wizard-row-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text);
+}
+.wizard-row-label small {
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.wizard-row-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.wizard-row-hint[hidden] { display: none; }
+
+/* Per-field beginner-mode detail paragraph. Sits beneath the hint and
+   gives 2-3 sentences of plain-language explanation about WHAT the
+   field means (not just what range to pick). Visually distinct from
+   the row hint so the operator can pattern-match: hint = quick value
+   guidance, detail = conceptual primer. */
+.wizard-row-detail {
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--bg);
+  border-left: 2px solid var(--steel-bright);
+  border-radius: 4px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.wizard-input,
+.wizard-select {
+  display: block;
+  width: 100%;
+  padding: 0.55rem 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.92rem;
+  transition: border-color var(--transition);
+}
+.wizard-input:focus,
+.wizard-select:focus {
+  outline: none;
+  border-color: var(--ember-bright);
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.15);
+}
+.wizard-input.is-invalid {
+  border-color: var(--danger);
+}
+
+/* Slider row (LoRA r / alpha, etc.). The numeric output sits to the
+   right of the slider so the user can see the value without polling
+   the preview pane. */
+.wizard-slider-row {
+  display: grid;
+  grid-template-columns: 1fr 56px;
+  gap: 0.7rem;
+  align-items: center;
+}
+.wizard-slider {
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--border-strong);
+  border-radius: 999px;
+  outline: none;
+}
+.wizard-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--ember-bright);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform var(--transition);
+}
+.wizard-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.wizard-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: var(--ember-bright);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+.wizard-slider-value {
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  color: var(--ember-bright);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.wizard-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+  user-select: none;
+}
+.wizard-toggle input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 36px;
+  height: 20px;
+  background: var(--border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  position: relative;
+  transition: background var(--transition);
+}
+.wizard-toggle input[type="checkbox"]::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: var(--text);
+  border-radius: 50%;
+  transition: transform var(--transition);
+}
+.wizard-toggle input[type="checkbox"]:checked {
+  background: var(--ember-bright);
+}
+.wizard-toggle input[type="checkbox"]:checked::after {
+  transform: translateX(16px);
+}
+.wizard-toggle input[type="checkbox"]:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.wizard-toggle-label {
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+/* High-risk callout banner shown on Step 6 when EU AI Act risk =
+   high-risk. Pinks the page so the user can't miss the obligation
+   shift. */
+.wizard-callout {
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  background: var(--pill-danger-bg);
+  color: var(--pill-danger-fg);
+  border-left: 3px solid var(--danger);
+}
+.wizard-callout strong { color: inherit; }
+
+/* Generated YAML actions on Step 7. */
+.wizard-actions {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+}
+.wizard-run-snippet {
+  margin-top: 1.4rem;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius-sm);
+  padding: 0.8rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--code-text);
+  overflow-x: auto;
+}
+.wizard-run-snippet .prompt { color: var(--ember-bright); }
+.wizard-run-snippet .flag { color: var(--steel-bright); }
+.wizard-run-snippet .arg { color: var(--code-string); }
+
+/* Resume banner — surfaces when wizard.js detects a previously-saved
+   session in localStorage and the user reopens the modal. */
+.wizard-resume-banner {
+  margin-bottom: 1.4rem;
+  padding: 0.8rem 1rem;
+  background: var(--pill-tip-bg);
+  color: var(--pill-tip-fg);
+  border-left: 3px solid var(--success);
+  border-radius: var(--radius-sm);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+.wizard-resume-banner button {
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: inherit;
+  padding: 0.25rem 0.7rem;
+  /* ``font: inherit`` would clobber the explicit font-size; pull the
+     family from the parent explicitly while keeping the size local. */
+  font-family: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+/* Collapsible accordion section inside a step pane. Used to group
+   advanced / optional fields (risk assessment, data governance,
+   webhooks, monitoring) without bloating the step counter. The header
+   is a button so keyboard users can Tab into it; aria-expanded reflects
+   the open/closed state for assistive tech.
+
+   Layout: header is a 3-column grid (icon | titles | chevron). Title
+   + hint stack vertically inside the middle cell so a long hint wraps
+   cleanly without pushing the chevron off-axis. The body uses the
+   modern grid-template-rows 0fr→1fr trick so expand/collapse
+   animates smoothly without us manually measuring height. */
+.wizard-accordion {
+  /* Override the global ``section { padding: 5rem 0 }`` rule (line 193).
+     Without this, every accordion grew 80px of top + bottom padding,
+     leaving a tall empty frame around the header. The wizard's
+     accordions are layout primitives, not page sections — they need
+     to fit their content tightly. */
+  padding: 0;
+  margin: 0.9rem 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  overflow: hidden;
+  transition: border-color var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+.wizard-accordion:hover {
+  border-color: var(--border-strong);
+}
+.wizard-accordion.is-open {
+  border-color: rgba(249, 115, 22, 0.5);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(249, 115, 22, 0.08);
+}
+
+.wizard-accordion-header {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.85rem 1.05rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  transition: background var(--transition);
+}
+.wizard-accordion-header:hover {
+  background: var(--bg-elev);
+}
+.wizard-accordion-header:focus-visible {
+  outline: 2px solid var(--ember-bright);
+  outline-offset: -2px;
+}
+
+/* Leading icon — sits in a soft tinted square. Closed = neutral grey;
+   open = ember-tinted to mirror the active border. */
+.wizard-accordion-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: background var(--transition), color var(--transition);
+}
+.wizard-accordion-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.wizard-accordion.is-open .wizard-accordion-icon {
+  background: rgba(249, 115, 22, 0.12);
+  color: var(--ember-bright);
+}
+
+/* Title + hint stack — single column, tight gap so the two lines read
+   as one logical label. ``min-width: 0`` lets long hints truncate via
+   the wrapper rather than overflow the row. */
+.wizard-accordion-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 0;
+}
+.wizard-accordion-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1.3;
+  color: var(--text);
+}
+.wizard-accordion-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.wizard-accordion-chevron {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: transform 240ms cubic-bezier(.4, 0, .2, 1), color var(--transition);
+}
+.wizard-accordion-chevron svg {
+  width: 16px;
+  height: 16px;
+}
+.wizard-accordion.is-open .wizard-accordion-chevron {
+  color: var(--ember-bright);
+  transform: rotate(180deg);
+}
+
+/* Closed accordion = header only. ``display: none`` is the bluntest
+   tool but the most reliable: it removes the body-wrap from layout
+   entirely, so a closed accordion is exactly the height of its
+   header button. The two prior attempts (grid-template-rows: 0fr;
+   max-height: 0) both failed in real browsers — content kept
+   reporting min-content height despite overflow:hidden, leaving
+   closed accordions as tall empty frames. We forfeit the slide
+   animation in exchange for visual correctness. The chevron rotation
+   + open-state ember accent still telegraph state changes. */
+.wizard-accordion-body-wrap {
+  display: none;
+}
+.wizard-accordion.is-open .wizard-accordion-body-wrap {
+  display: block;
+}
+.wizard-accordion-body {
+  border-top: 1px solid var(--border);
+  padding: 1rem 1.05rem 0.9rem;
+}
+
+/* Reduced-motion users get instant chevron / hover transitions. */
+@media (prefers-reduced-motion: reduce) {
+  .wizard-accordion,
+  .wizard-accordion-icon,
+  .wizard-accordion-chevron {
+    transition: none !important;
+  }
+}
+.wizard-input[rows] { /* textareas styled the same as inputs */
+  font-family: var(--font-sans);
+  resize: vertical;
+  min-height: 60px;
+}
+
+/* Validation error pinned under an invalid input. */
+.wizard-error {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--danger);
+}
+.wizard-error[hidden] { display: none; }
+
+/* ── Wizard responsive (mobile + reduced-motion) ─────────── */
+/* On narrow viewports the dialog goes fullscreen and the YAML
+   preview collapses into an accordion under the step pane so the
+   user has full vertical room for the controls. */
+@media (max-width: 900px) {
+  .wizard-modal { padding: 0; }
+  .wizard-dialog {
+    width: 100%;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+  }
+  .wizard-body {
+    grid-template-columns: 1fr;
+    /* ``minmax(0, 1fr)`` for the step-pane row — same reason as the
+       desktop rule above: without the ``min: 0`` floor a 1fr track
+       can refuse to shrink below its content. */
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .wizard-step-pane {
+    padding: 1.4rem;
+  }
+  .wizard-yaml-pane {
+    border-left: none;
+    border-top: 1px solid var(--code-border);
+    max-height: 45vh;
+  }
+  .wizard-yaml-pane:not(.is-expanded) .wizard-yaml-output {
+    display: none;
+  }
+  .wizard-yaml-pane:not(.is-expanded) {
+    max-height: 44px;
+  }
+  .wizard-yaml-pane.is-expanded .wizard-yaml-toggle svg {
+    transform: rotate(180deg);
+  }
+  .wizard-cards {
+    grid-template-columns: 1fr;
+  }
+  .wizard-footer {
+    padding: 0.8rem 1rem;
+  }
+  .wizard-step-name {
+    display: none;
+  }
+}
+
+/* The dialog reads as a flat block under reduced-motion: no enter
+   animation, no slide transitions on step changes, no progress
+   transition. The functionality still works, just without motion. */
+@media (prefers-reduced-motion: reduce) {
+  .wizard-modal,
+  .wizard-dialog {
+    animation: none !important;
+  }
+  .wizard-progress-fill {
+    transition: none !important;
+  }
 }
 
 /* ── Contact ─────────────────────────────────────────────── */
@@ -1186,7 +2610,7 @@ section { padding: 5rem 0; }
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   outline: none;
-  transition: all var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
 .form-group input:focus,
 .form-group textarea:focus,
@@ -1237,7 +2661,7 @@ section { padding: 5rem 0; }
   padding: 1rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  transition: all var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
 .channel-item:hover {
   background: var(--bg-elev);
@@ -1324,6 +2748,15 @@ section { padding: 5rem 0; }
   color: var(--text);
   margin-bottom: 0.8rem;
 }
+.footer-brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+.footer-brand-icon {
+  width: 14px;
+  height: 14px;
+}
 .footer-desc {
   font-size: 0.88rem;
   color: var(--text-muted);
@@ -1380,6 +2813,13 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
 }
 
 /* ── Print ──────────────────────────────────────────────── */
+/* ── Print stylesheet ────────────────────────────────────────
+   ``!important`` is industry-standard for print resets: the cascade
+   has already applied dark-theme tokens, animation surfaces, and
+   chrome backdrops, all of which need to be force-overridden for
+   paper output. A scoped-reset alternative would require either
+   sweeping selector duplication or a body[data-printing] hook —
+   both worse for maintenance than the explicit !important here. */
 @media print {
   .navbar, .nav-hamburger, .theme-toggle, .lang-toggle,
   .hero-terminal, .copy-btn, footer { display: none !important; }
@@ -1542,7 +2982,7 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
   border-radius: var(--radius-sm);
   border-left: 2px solid transparent;
   margin-left: -2px;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
   line-height: 1.4;
 }
 .guide-nav-section a:hover {
@@ -1869,7 +3309,7 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-card);
-  transition: all var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
   text-decoration: none !important;
   min-height: 70px;
 }
@@ -1948,7 +3388,7 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
   color: var(--text-muted);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  transition: all var(--transition);
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
 .guide-edit:hover {
   color: var(--ember-bright);
@@ -2024,7 +3464,7 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
   color: var(--text);
   text-decoration: none;
   border-left: 3px solid transparent;
-  transition: all 0.12s ease;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
 }
 .guide-search-results a:hover,
 .guide-search-results a.focused {
@@ -2130,3 +3570,25 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
 [data-theme="light"] .guide-content thead { background: #f7f8fb; }
 [data-theme="light"] .guide-content tbody tr:hover { background: #fafbfd; }
 [data-theme="light"] .guide-content .mermaid { background: #fafbfd; }
+
+/* WCAG 1.4.3 (AA) contrast fixes — accent tokens that pass on dark
+   backgrounds (--ember-bright #fb923c, --steel-bright #38bdf8) drop
+   below 4.5:1 on the elevated light backgrounds (#f7f8fb / #fff /
+   tinted pills). Swap them for the corresponding ``-deep`` tokens in
+   light mode so inline code, use-case tags, article numbers and
+   table-first-column code keep their semantic colour but pass AA. */
+[data-theme="light"] code:not(pre code),
+[data-theme="light"] .guide-content :not(pre) > code {
+  color: var(--ember-deep);
+}
+[data-theme="light"] .use-case-tag,
+[data-theme="light"] .article-num,
+[data-theme="light"] .guide-content td:first-child code {
+  color: var(--steel-deep);
+}
+
+/* Hide the wizard modal in print output too — without this, a left-
+   open wizard would print over the page content. */
+@media print {
+  .wizard-modal { display: none !important; }
+}

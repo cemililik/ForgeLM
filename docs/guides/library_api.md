@@ -4,7 +4,7 @@
 >
 > **Companion reference:** [`../reference/library_api_reference.md`](../reference/library_api_reference.md) — every public symbol, signature, and stability tier.
 >
-> **Design source:** [`../analysis/code_reviews/library-api-design-202605021414.md`](../analysis/code_reviews/library-api-design-202605021414.md) (Phase 18).
+> **Design source:** [`../design/library_api.md`](../design/library_api.md) (Phase 18).
 
 ForgeLM ships **two equally first-class entry points**: the `forgelm` console script (and `python -m forgelm.cli`) for shell pipelines, and the Python library API documented here for programmatic use. The CLI is the wrapper; the library is the engine. Anything the CLI does, the library can do — minus the exit-code mapping and the structured logging setup.
 
@@ -266,4 +266,4 @@ The library API and the CLI share the same wheel, the same audit log, and the sa
 - [`../reference/configuration.md`](../reference/configuration.md) — `ForgeConfig` field-by-field reference.
 - [`cicd_pipeline.md`](cicd_pipeline.md) — the CLI counterpart of this guide.
 - [`iso_soc2_deployer_guide.md`](iso_soc2_deployer_guide.md) — audit-floor cookbook (library callers see the same artefacts).
-- [`../analysis/code_reviews/library-api-design-202605021414.md`](../analysis/code_reviews/library-api-design-202605021414.md) — Phase 18 design.
+- [`../design/library_api.md`](../design/library_api.md) — Phase 18 design.

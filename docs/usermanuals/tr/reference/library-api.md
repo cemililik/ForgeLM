@@ -47,7 +47,7 @@ assert "torch" not in sys.modules     # tests/test_library_api.py ile pinlenir
 - Uçtan uca üç pipeline deseni ve yaygın tuzaklar dahil derin rehber:
   [`docs/guides/library_api-tr.md`](../../../guides/library_api-tr.md)
 - Faz 18 tasarım gerekçesi (kararlılık katmanları, tip kontratı, deprecation cadence):
-  [`docs/analysis/code_reviews/library-api-design-202605021414.md`](../../../analysis/code_reviews/library-api-design-202605021414.md)
+  [`docs/design/library_api.md`](../../../design/library_api.md)
 
 ## Ayrıca bakınız
 

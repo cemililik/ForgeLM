@@ -53,21 +53,10 @@
     return Object.hasOwn(table, key) ? table[key] : undefined;
   }
 
-  // Resolve the per-language sub-table without bracket access on a
-  // user-supplied key. Each branch returns a property by name so the
-  // analyzer can see no dynamic key reaches the object.
-  function tableForLang(all, lang) {
-    if (!all) return undefined;
-    switch (lang) {
-      case 'en': return all.en;
-      case 'tr': return all.tr;
-      case 'de': return all.de;
-      case 'fr': return all.fr;
-      case 'es': return all.es;
-      case 'zh': return all.zh;
-      default:   return undefined;
-    }
-  }
+  // tableForLang lives in js/_shared.js — single source of truth.
+  // Local alias keeps the rest of the file readable.
+  var tableForLang = (window.ForgeLMShared && window.ForgeLMShared.tableForLang) ||
+    function () { return undefined; };
 
   // Render a translation HTML fragment into a live element without using
   // innerHTML directly. The translation values come from

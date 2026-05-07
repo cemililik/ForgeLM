@@ -12,8 +12,7 @@ can pin against either independently:
   / signature changes are major).  Consumers that depend on the library
   API can pin against this without coupling to the CLI version.
 
-Per ``docs/analysis/code_reviews/library-api-design-202605021414.md``
-§4.3, the two versions track separately because the CLI surface and the
+Per ``docs/design/library_api.md`` §4.3, the two versions track separately because the CLI surface and the
 Python API have different stability windows — the CLI may grow new
 subcommands without affecting library consumers, and library additions
 do not necessarily ship a new CLI feature.

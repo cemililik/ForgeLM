@@ -1,7 +1,7 @@
 """``forgelm purge`` subcommand (Phase 21 — GDPR Article 17 erasure).
 
 Implements the operator-facing surface specified in
-``docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md``:
+``docs/design/gdpr_erasure.md``:
 
 - ``forgelm purge --row-id <id> --corpus <path>`` — atomic JSONL row
   erasure with hashed audit event (Article 17 right-to-erasure for
@@ -957,16 +957,20 @@ def _run_purge_check_policy(args, output_format: str) -> None:
     "no retention block" notice (which the operator would mistake
     for "no violations").
     """
+    import yaml as _yaml
+
     from forgelm.config import ConfigError
 
     try:
         config_loaded = _maybe_load_config(getattr(args, "config", None), strict=True)
-    except (ConfigError, OSError) as exc:
+    except (ConfigError, OSError, _yaml.YAMLError) as exc:
         # OSError covers FileNotFoundError + permission denied; ConfigError
-        # wraps every Pydantic ValidationError raised by ``load_config``.
-        # Any other class would be a contract violation in the loader and
-        # should propagate so we fix the root cause rather than mask it
-        # behind a generic message.
+        # wraps Pydantic ValidationError raised by ``load_config``;
+        # ``yaml.YAMLError`` mirrors the inner catch tuple in
+        # ``_maybe_load_config`` so a malformed YAML that bypasses the
+        # ConfigError wrap still surfaces a formatted operator-facing
+        # message instead of a stack trace. Any other class would be a
+        # contract violation and should propagate.
         _output_error_and_exit(
             output_format,
             f"--check-policy could not load --config: {exc}",

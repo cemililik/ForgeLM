@@ -1,12 +1,18 @@
-# ForgeLM GDPR Right-to-Erasure — Analysis & Design
+# ForgeLM GDPR Right-to-Erasure — Design
 
-**Document ID:** `gdpr-erasure-design-202605021414`
-**Status:** Draft (Phase 20 deliverable)
-**Author:** Closure Wave 2a
-**Companion:** [`closure-plan-202604300906.md §8 Phase 20`](./closure-plan-202604300906.md)
-**Implements (next phase):** Phase 21 — GDPR right-to-erasure implementation
-**Base commit:** `0ffdfd6` (post-Wave-1 merge into `development`); Round-1 + Round-2 review fixes absorbed in the same wave (PR #28 `closure/wave2a-integration`).
-**Regulatory anchor:** EU GDPR Article 17 ("right to erasure" / "right to be forgotten") + Article 5(1)(e) ("storage limitation")
+> **Scope:** Design specification for ForgeLM's GDPR Article 17
+> right-to-erasure tool surface — the `forgelm purge` subcommand
+> semantics, the `RetentionConfig` Pydantic schema, and the audit-chain
+> integration that records each erasure / refusal event. Living spec —
+> kept in sync with the implementation under
+> `forgelm/cli/subcommands/_purge.py` and `forgelm/config.py`
+> (`RetentionConfig`).
+
+**Regulatory anchor:** EU GDPR Article 17 ("right to erasure" / "right
+to be forgotten") + Article 5(1)(e) ("storage limitation").
+
+**Status:** Implemented in v0.5.5. See `CHANGELOG.md` and
+`docs/guides/gdpr_erasure.md` for the user-facing surface.
 
 ---
 
@@ -342,7 +348,7 @@ What ForgeLM does **not** do:
 - Pushing erasure notices to downstream processors (Article 17(2)) — that
   is your runtime layer's responsibility, not the training toolkit's.
 
-See [`docs/guides/gdpr_erasure.md`](../../guides/gdpr_erasure.md) for the operator how-to
+See [`docs/guides/gdpr_erasure.md`](../guides/gdpr_erasure.md) for the operator how-to
 and the audit-event reference (Phase 21 deliverable; the file is added by
 the same PR that ships `forgelm purge`).
 ```
@@ -405,7 +411,7 @@ The closure plan §15.5 lists three open items that intersect Phase 21:
 |---|---|
 | **GH-023** — `ingestion.retention.raw_documents.ttl_days` config key cited by GDPR docs but not in `ForgeConfig` | Phase 21 adds `RetentionConfig` *as a top-level `retention:` block*, not nested under `ingestion`.  The GDPR docs are updated to reference `retention.audit_log_retention_days` etc.  An `ingestion.retention.*` alias is **not** added — the docs were ahead of the implementation, and the cleaner shape is to put retention under its own root key (it covers more than just ingestion artefacts). |
 | **GH-013** — `forgelm purge` documented but not implemented | Phase 21 ships exactly the form documented in `docs/usermanuals/en/compliance/gdpr-erasure.md` (`--row-id`, `--corpus`, `--run-id`, `--kind`, `--check-policy`).  The user-manual page becomes accurate post-merge. |
-| **Concurrent-approve race (Wave 1 round-5 carry-over)** | Phase 21 introduces `acquire_run_lock(run_id)` context manager (filelock pattern) for the audit-log + purge + approve coordination.  Phase 22 ISO/SOC 2 scope already lists this; Phase 21 is the first place we actually need it (concurrent purge of the same row), so we ship the lock here and Phase 22 documents the broader policy. |
+| **Concurrent-approve race** | Phase 21 introduces `acquire_run_lock(run_id)` context manager (filelock pattern) for the audit-log + purge + approve coordination.  Phase 22 ISO/SOC 2 scope already lists this; Phase 21 is the first place we actually need it (concurrent purge of the same row), so we ship the lock here and Phase 22 documents the broader policy. |
 
 ---
 
@@ -448,21 +454,12 @@ The closure plan §15.5 lists three open items that intersect Phase 21:
 
 ---
 
-## 12. Sign-off checklist (Phase 20 acceptance)
+## 12. Implementation status
 
-- [x] Document is ≥400 lines.  (Concrete line count drifts as later review passes amend in place — recheck with `wc -l` rather than relying on a hard-coded count.  Sections added through Round-1 + Round-2 review: §3.1 prior-state, §3.3 mtime caveat, §5.4 audit-PII minimisation, §4.4 commit-ordering recovery paths, scope-limitation paragraph + 3 new warning events.)
-- [x] §1 maps every Article 17(1) trigger to ForgeLM scope.
-- [x] §2 enumerates every artefact kind and its erasure strategy.
-- [x] §3 specifies the `RetentionConfig` Pydantic schema (Phase 21 implements it verbatim).
-- [x] §4 specifies the `forgelm purge` flag surface, exit codes, and atomicity guarantees.
-- [x] §5 names the six new audit events (three core erasure events + three operator-warning events) + how chain integrity holds.
-- [x] §6 supplies the marketing-claim replacement text.
-- [x] §7 enumerates the 11 tests Phase 21 must ship (≥ closure-plan minimum 7).
-- [x] §8 file map covers every change Phase 21 will make.
-- [x] §9 absorbs the three relevant Wave 1 carry-overs (GH-023, GH-013, run-lock).
-- [x] §10 records and resolves the six open questions.
-- [x] §11 names what is deliberately out of scope.
+The design above shipped end-to-end in v0.5.5:
 
----
-
-*End of Phase 20 design — `gdpr-erasure-design-202605021414`.*
+- **`RetentionConfig`** (§3): pinned in `forgelm/config.py` as a top-level `retention:` block with five fields (`audit_log_retention_days`, `staging_ttl_days`, `ephemeral_artefact_retention_days`, `raw_documents_retention_days`, `enforce`). `EvaluationConfig.staging_ttl_days` deprecated with `DeprecationWarning` + alias-forwarding to `retention.staging_ttl_days`.
+- **`forgelm purge` subcommand** (§4): pinned in `forgelm/cli/subcommands/_purge.py` with `--row-id`, `--corpus`, `--run-id`, `--kind`, `--check-policy`, atomic-rewrite + recovery semantics.
+- **Audit events** (§5): six new events live in `audit_event_catalog.md` — `data.erasure_requested`, `data.erasure_completed`, `data.erasure_failed`, plus three operator-warning events.
+- **Tests** (§7): `tests/test_gdpr_erasure.py` ships the regression coverage (unknown row id, multi-match refusal, partial-commit recovery, retention horizon enforcement, audit-PII redaction, etc.).
+- **User-facing docs** (§6, §8): `docs/guides/gdpr_erasure{,-tr}.md` + `docs/usermanuals/{en,tr}/compliance/gdpr-erasure.md` reference the implemented surface.

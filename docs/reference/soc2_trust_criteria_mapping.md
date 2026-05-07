@@ -5,7 +5,7 @@
 > Companion to
 > [`../guides/iso_soc2_deployer_guide.md`](../guides/iso_soc2_deployer_guide.md)
 > and the design doc
-> [`../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md).
+> [`../design/iso27001_soc2_alignment.md`](../design/iso27001_soc2_alignment.md).
 
 ## Categories
 
@@ -97,7 +97,7 @@ Strong ForgeLM contribution.
 | P2.1 Choice and consent | `evaluation.require_human_approval` Article 14 gate |
 | P3.1 Collection | `data.governance.personal_data_included`; `dpia_completed` |
 | P3.2 Quality of personal data | `data_audit_report.json` quality stats |
-| P4.1 Use, retention, and disposal | `evaluation.approval_retention_days`; `forgelm purge --check-policy` |
+| P4.1 Use, retention, and disposal | `retention.staging_ttl_days` (canonical; legacy alias `evaluation.staging_ttl_days` forwards transparently during the v0.5.5 → v0.6.x deprecation window); `forgelm purge --check-policy` |
 | P5.1 Access | `forgelm reverse-pii` Article 15 scan; salted query-hash |
 | P5.2 Inquiries and complaints | (Deployer-side workflow) |
 | P6.1 Disclosure to third parties | `safe_post` webhook discipline; HMAC payload signing |
@@ -124,7 +124,7 @@ Strong ForgeLM contribution.
 ## See also
 
 - [`../guides/iso_soc2_deployer_guide.md`](../guides/iso_soc2_deployer_guide.md) — deployer audit cookbook.
-- [`../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md) — full design rationale.
+- [`../design/iso27001_soc2_alignment.md`](../design/iso27001_soc2_alignment.md) — full design rationale.
 - [`iso27001_control_mapping.md`](iso27001_control_mapping.md) — ISO 27001 mapping companion.
 - [`supply_chain_security.md`](supply_chain_security.md) — SBOM + pip-audit + bandit.
 - [`audit_event_catalog.md`](audit_event_catalog.md) — audit-event vocabulary.

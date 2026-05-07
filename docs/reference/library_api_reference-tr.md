@@ -6,7 +6,7 @@
 >
 > **Eşlik eden rehber:** [`../guides/library_api-tr.md`](../guides/library_api-tr.md) — uçtan uca üç işlenmiş örnek.
 >
-> **Tasarım kaynağı:** [`../analysis/code_reviews/library-api-design-202605021414.md`](../analysis/code_reviews/library-api-design-202605021414.md) (Faz 18).
+> **Tasarım kaynağı:** [`../design/library_api.md`](../design/library_api.md) (Faz 18).
 
 ForgeLM, `forgelm` console script'inin yanında bir Python kütüphane API'si de yayınlar. Kütüphane yüzeyi `forgelm/__init__.py` içinde `__all__` ile beyan edilir, PEP 562 `__getattr__` üzerinden lazy-resolve edilir ve downstream `mypy --strict` tüketicilerin gerçek imzaları görmesi için `TYPE_CHECKING` altında tip ipucu ile işaretlenir. `forgelm/py.typed` PEP 561 işaretçisi olarak wheel ile birlikte yayınlanır.
 
@@ -16,7 +16,7 @@ ForgeLM, `forgelm` console script'inin yanında bir Python kütüphane API'si de
 
 ### Stable
 
-Semver korumalıdır. Aşağıdaki imzalardan herhangi birinde kırıcı değişiklik major sürüm artışı gerektirir (`__api_version__` MAJOR.MINOR — bkz. [Sürümleme ve deprecation politikası](#sürümleme-ve-deprecation-politikası)). Varsayılan değerli yeni opsiyonel parametreler kırıcı değildir; yeniden adlandırılmış zorunlu parametreler veya kaldırılmış return-shape alanları kırıcıdır.
+Semver korumalıdır. Aşağıdaki imzalardan herhangi birinde kırıcı değişiklik major sürüm artışı gerektirir (`__api_version__` MAJOR.MINOR.PATCH — bkz. [Sürümleme ve deprecation politikası](#sürümleme-ve-deprecation-politikası)). Varsayılan değerli yeni opsiyonel parametreler kırıcı değildir; yeniden adlandırılmış zorunlu parametreler veya kaldırılmış return-shape alanları kırıcıdır.
 
 Stable semboller burada belgelenir, %100 tip ipuçludur, `tests/test_library_api.py` altında en az bir entegrasyon testi vardır ve deprecation cadence'ini izler (sürüm `N`'de deprecate, `N+1`'de çalışır halde tut, `N+2`'de kaldır).
 
@@ -37,7 +37,7 @@ Best-effort. Şekil, major artış olmadan minor sürümde değişebilir. Çağr
 | Sembol | Katman | Tip | Açıklama |
 |---|---|---|---|
 | `forgelm.__version__` | Stable | `str` | PEP 396/8 sürüm dizesi, `importlib.metadata`'dan türetilir (tek doğru kaynak = `pyproject.toml`). |
-| `forgelm.__api_version__` | Stable | `str` | İki segmentli kütüphane-API sürümü (`"MAJOR.MINOR"`). Yalnızca stable katman imzası değiştiğinde artar. Downstream kodda feature detection için kullanın. |
+| `forgelm.__api_version__` | Stable | `str` | Üç segmentli semver kütüphane-API sürümü (`"MAJOR.MINOR.PATCH"`, örn. `"1.0.0"`). Bump kuralları `forgelm/_version.py`'de: kaldırılan/imzası değişen stable sembol için MAJOR, yeni stable sembol için MINOR, public yüzeye dokunmayan implementasyon değişikliği için PATCH. Downstream kodda feature detection için kullanın. |
 
 ### Konfigürasyon
 
@@ -274,7 +274,7 @@ CLI kendi kurulumunu `forgelm.cli._setup_logging` içinde yapar; kütüphane kar
 | `forgelm.__version__` | Her sürüm (CLI fix, kütüphane fix, doc-only release) | Downstream pinning, audit manifest stamp |
 | `forgelm.__api_version__` | Bir stable katman imzası değiştiğinde | Downstream feature detection |
 
-`__api_version__` iki segmentli bir string (`"0.5"`); kütüphaneye yapılan patch seviyesindeki değişiklikler tanım gereği kırıcı değildir, dolayısıyla hiçbir tüketicinin bunu tespit etmeye ihtiyacı yoktur.
+`__api_version__` üç segmentli bir semver string'idir (`"1.0.0"` v0.5.5'te — formel Phase 19 kontratının ilk yayını). Bump kuralları `forgelm/_version.py`'de: kaldırılan / imzası değişen stable sembol için MAJOR, yeni stable sembol için MINOR, public yüzeye dokunmayan implementasyon değişikliği için PATCH.
 
 **Deprecation cadence** (`docs/standards/release.md` başına):
 
@@ -289,5 +289,5 @@ Cadence'i izlemeden stable bir imzaya kırıcı değişiklik yapmak release-proc
 - [`../guides/library_api-tr.md`](../guides/library_api-tr.md) — uçtan uca üç işlenmiş örnek.
 - [`audit_event_catalog-tr.md`](audit_event_catalog-tr.md) — `AuditLogger.log_event`'in kabul ettiği tam olay kelime dağarcığı.
 - [`configuration-tr.md`](configuration-tr.md) — `ForgeConfig` alan referansı.
-- [`../analysis/code_reviews/library-api-design-202605021414.md`](../analysis/code_reviews/library-api-design-202605021414.md) — Faz 18 tasarım + 16 satırlık Faz 19 görev planı.
+- [`../design/library_api.md`](../design/library_api.md) — Faz 18 tasarım + 16 satırlık Faz 19 görev planı.
 - [`../standards/release.md`](../standards/release.md) — deprecation cadence ve sürüm süreci.

@@ -47,7 +47,7 @@ assert "torch" not in sys.modules     # pinned by tests/test_library_api.py
 - The deep guide, with three end-to-end pipeline patterns and common pitfalls, is at:
   [`docs/guides/library_api.md`](../../../guides/library_api.md)
 - The Phase 18 design rationale (stability tiers, type contract, deprecation cadence) is at:
-  [`docs/analysis/code_reviews/library-api-design-202605021414.md`](../../../analysis/code_reviews/library-api-design-202605021414.md)
+  [`docs/design/library_api.md`](../../../design/library_api.md)
 
 ## See also
 

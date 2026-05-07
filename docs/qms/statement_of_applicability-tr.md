@@ -2,7 +2,7 @@
 
 > Kalite Yönetim Sistemi — [YOUR ORGANIZATION]
 > ISO 27001:2022 Annex A — clause 6.1.3 d) tarafından gerekli
-> Çapraz referans: [`../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`](../analysis/code_reviews/iso27001-soc2-alignment-202605052315.md)
+> Çapraz referans: [`../design/iso27001_soc2_alignment.md`](../design/iso27001_soc2_alignment.md)
 > tam mapping gerekçesi için.
 
 ## 1. Amaç
@@ -156,7 +156,7 @@ Yukarıdaki §2.1–§2.4 (SoA matrisi) row-by-row yeniden sayım. Tema
 başına tally — A.5: 3 / 24 / 10 OOS; A.6: 0 / 5 / 3 OOS; A.7: 0 /
 0 / 14 OOS; A.8: 8 / 19 / 7 OOS — toplam 11 `FL` + 48 `FL-helps`
 + 34 OOS = 93. Design doc'un §3 "Coverage tally" paragrafıyla
-(`docs/analysis/code_reviews/iso27001-soc2-alignment-202605052315.md`)
+(`docs/design/iso27001_soc2_alignment.md`)
 çapraz kontrol; ikisi eşleşmek zorunda.
 
 ## 4. İnceleme

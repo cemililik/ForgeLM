@@ -4,7 +4,7 @@
 >
 > **Eşlik eden referans:** [`../reference/library_api_reference-tr.md`](../reference/library_api_reference-tr.md) — her public sembol, imza ve kararlılık katmanı.
 >
-> **Tasarım kaynağı:** [`../analysis/code_reviews/library-api-design-202605021414.md`](../analysis/code_reviews/library-api-design-202605021414.md) (Faz 18).
+> **Tasarım kaynağı:** [`../design/library_api.md`](../design/library_api.md) (Faz 18).
 
 ForgeLM **eşit derecede first-class iki giriş noktası** yayınlar: shell pipeline'ları için `forgelm` console script'i (ve `python -m forgelm.cli`), programatik kullanım için burada belgelenen Python kütüphane API'si. CLI sarmalayıcıdır; kütüphane motordur. CLI'nin yaptığı her şeyi kütüphane yapabilir — exit-code eşlemesi ve yapılandırılmış logging kurulumu hariç.
 
@@ -267,4 +267,4 @@ Library API ve CLI aynı wheel'i, aynı audit log'u ve aynı lock semantik'ini p
 - [`../reference/configuration-tr.md`](../reference/configuration-tr.md) — `ForgeConfig` alan-by-alan referans.
 - [`cicd_pipeline.md`](cicd_pipeline.md) — bu rehberin CLI karşılığı.
 - [`iso_soc2_deployer_guide-tr.md`](iso_soc2_deployer_guide-tr.md) — audit katı cookbook'u (kütüphane çağıranları aynı artefaktları görür).
-- [`../analysis/code_reviews/library-api-design-202605021414.md`](../analysis/code_reviews/library-api-design-202605021414.md) — Faz 18 tasarım.
+- [`../design/library_api.md`](../design/library_api.md) — Faz 18 tasarım.

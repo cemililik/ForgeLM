@@ -185,4 +185,4 @@ for the JSON envelope schema.
 
 - `docs/qms/sop_data_management.md` — the full data-lifecycle SOP including the retention + erasure procedures.
 - `docs/usermanuals/en/compliance/safety_compliance.md` — the operator-facing compliance overview that links here.
-- `docs/analysis/code_reviews/gdpr-erasure-design-202605021414.md` — the Phase 20 design document that this implementation realises.
+- [`docs/design/gdpr_erasure.md`](../design/gdpr_erasure.md) — the Phase 20 design document that this implementation realises.
