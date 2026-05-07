@@ -41,9 +41,8 @@ import sys
 from pathlib import Path
 from typing import Set
 
-
 _DOC_ROW_RE = re.compile(
-    r'^\|\s*`forgelm\.(?P<name>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)`\s*\|',
+    r"^\|\s*`forgelm\.(?P<name>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)`\s*\|",
     re.MULTILINE,
 )
 
@@ -63,8 +62,7 @@ def doc_symbols(doc_path: Path) -> Set[str]:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Cross-check forgelm.__all__ against the symbol roster in "
-            "docs/reference/library_api_reference.md."
+            "Cross-check forgelm.__all__ against the symbol roster in docs/reference/library_api_reference.md."
         ),
     )
     parser.add_argument(

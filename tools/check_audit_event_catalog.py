@@ -35,7 +35,6 @@ import sys
 from pathlib import Path
 from typing import Set, Tuple
 
-
 # Match dotted-namespace event literals anywhere in Python source. The
 # regex catches three patterns:
 #
@@ -75,7 +74,7 @@ _EVENT_LITERAL_RE = re.compile(
 # Match catalog table rows. Catalog uses pipe-table format; the event
 # name lives in the first column wrapped in backticks.
 _CATALOG_ROW_RE = re.compile(
-    r'^\|\s*`(?P<name>(?:' + "|".join(_EVENT_NAMESPACES) + r')\.[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)*)`\s*\|',
+    r"^\|\s*`(?P<name>(?:" + "|".join(_EVENT_NAMESPACES) + r")\.[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)*)`\s*\|",
     re.MULTILINE,
 )
 
@@ -187,7 +186,7 @@ def main(argv=None) -> int:
     catalog_only = (catalogued - emitted_names) - _CATALOG_ONLY_ALLOWLIST
 
     if code_only or catalog_only:
-        print(f"FAIL: audit-event catalog drift detected.")
+        print("FAIL: audit-event catalog drift detected.")
         if code_only:
             print(f"\n  Emitted in code but missing from catalog ({len(code_only)}):")
             for name in sorted(code_only):

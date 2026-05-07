@@ -68,8 +68,8 @@ _FENCE_CLOSE_RE = re.compile(r"^```\s*$")
 class Block:
     """One fenced code block extracted from a markdown file."""
 
-    lang: str           # ``"yaml"``, ``"json"``, ``"shell"``, … or ``""``
-    line_start: int     # 1-based line number of the opening fence
+    lang: str  # ``"yaml"``, ``"json"``, ``"shell"``, … or ``""``
+    line_start: int  # 1-based line number of the opening fence
     body: str
 
 

@@ -57,8 +57,9 @@ except ImportError as exc:  # pragma: no cover — defensive for lint-only envs
     sys.exit(0)
 
 try:
-    from forgelm.config import ForgeConfig  # type: ignore
     from pydantic import ValidationError
+
+    from forgelm.config import ForgeConfig  # type: ignore
 except ImportError as exc:  # pragma: no cover — defensive
     print(
         f"check_yaml_snippets: forgelm.config not importable ({exc}); skipping.",

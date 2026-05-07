@@ -36,7 +36,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FORGELM = REPO_ROOT / "forgelm"
 DOCS = REPO_ROOT / "docs"
@@ -77,7 +76,7 @@ def canonical_trainer_types() -> int:
     src = (FORGELM / "config.py").read_text(encoding="utf-8")
     # Look for: trainer_type: Literal["sft", "orpo", "dpo", "simpo", "kto", "grpo"]
     match = re.search(
-        r'trainer_type:\s*Literal\[(?P<members>[^\]]+)\]',
+        r"trainer_type:\s*Literal\[(?P<members>[^\]]+)\]",
         src,
     )
     if not match:
@@ -105,8 +104,17 @@ def canonical_webhook_events() -> int:
 
 
 _NUM_WORDS_TO_INT = {
-    "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
-    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
 }
 
 
@@ -118,9 +126,7 @@ def _to_int(s: str) -> Optional[int]:
     return _NUM_WORDS_TO_INT.get(s)
 
 
-def search_doc_claims(
-    pattern: re.Pattern[str], canonical_value: int, label: str
-) -> List[Mismatch]:
+def search_doc_claims(pattern: re.Pattern[str], canonical_value: int, label: str) -> List[Mismatch]:
     """Scan all docs for a claim matching ``pattern``; report any whose
     captured number disagrees with ``canonical_value``.
     """
@@ -225,9 +231,7 @@ def main(argv=None) -> int:
         print(f"FAIL: {len(mismatches)} numerical claim(s) disagree with canonical source.")
         for m in mismatches:
             rel = m.file.relative_to(REPO_ROOT) if m.file.is_relative_to(REPO_ROOT) else m.file
-            print(
-                f"\n  {rel}:{m.line}  [{m.canonical_label}: canonical={m.canonical_value}, found={m.found_value}]"
-            )
+            print(f"\n  {rel}:{m.line}  [{m.canonical_label}: canonical={m.canonical_value}, found={m.found_value}]")
             print(f"    {m.snippet}")
         return 1
 
