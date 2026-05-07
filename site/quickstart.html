@@ -72,6 +72,13 @@
     <span class="eyebrow" data-i18n="quickstart.header.eyebrow">From zero to fine-tuned</span>
     <h1 data-i18n-html="quickstart.header.title">Five steps. <span class="text-gradient">No notebook.</span></h1>
     <p data-i18n="quickstart.header.lead">Install, pick a template, validate, train, deploy.</p>
+    <p class="page-header-aside">
+      <span data-i18n="quickstart.header.wizard_aside">Don't want to write YAML by hand?</span>
+      <button type="button" class="link-cta" data-wizard-open>
+        <span data-i18n="quickstart.header.wizard_cta">Open the wizard</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>
+      </button>
+    </p>
   </div>
 </header>
 
@@ -227,15 +234,83 @@
     <div class="container-narrow" style="margin-top: 4rem; padding: 0;">
       <div class="cta-card" style="padding: 2rem;">
         <h2 style="font-size: 1.4rem; margin-bottom:0.5rem;" data-i18n="quickstart.wizard.title">Prefer a guided wizard?</h2>
-        <p style="font-size: 0.95rem; margin-bottom:1.2rem;" data-i18n-html="quickstart.wizard.body"><code>forgelm --wizard</code> walks through trainer choice, model, dataset, LoRA rank, evaluation gates.</p>
+        <p style="font-size: 0.95rem; margin-bottom:1.2rem;" data-i18n-html="quickstart.wizard.body">Skip the YAML — the in-browser wizard walks through trainer choice, model, dataset, LoRA rank, and evaluation gates, then writes a working config you can run with one command.</p>
         <div class="cta-actions">
-          <a href="https://github.com/cemililik/ForgeLM#quick-start" target="_blank" rel="noopener" class="btn btn-secondary" data-i18n="quickstart.wizard.btn1">README quickstart</a>
-          <a href="features.html" class="btn btn-ghost" data-i18n="quickstart.wizard.btn2">Browse all features</a>
+          <button type="button" class="btn btn-primary" data-wizard-open data-i18n="quickstart.wizard.btn1">Launch the wizard</button>
+          <a href="https://github.com/cemililik/ForgeLM#quick-start" target="_blank" rel="noopener" class="btn btn-secondary" data-i18n="quickstart.wizard.btn2">CLI version (forgelm --wizard)</a>
+          <a href="features.html" class="btn btn-ghost" data-i18n="quickstart.wizard.btn3">Browse all features</a>
         </div>
       </div>
     </div>
   </div>
 </section>
+
+<!-- ═══════ Wizard modal ═══════ -->
+<!-- The dialog opens via [data-wizard-open] triggers OR via the
+     ?wizard=open URL parameter (used by the home-page Beginner-slide
+     CTA). When closed, the dialog is fully removed from the
+     accessibility tree (hidden + inert). State persists to
+     localStorage so a refresh resumes the same step. -->
+<div class="wizard-modal" data-wizard-modal hidden>
+  <div class="wizard-backdrop" data-wizard-close></div>
+  <div class="wizard-dialog" role="dialog" aria-modal="true" aria-labelledby="wizard-title" tabindex="-1">
+    <header class="wizard-header">
+      <div class="wizard-progress" role="presentation">
+        <div class="wizard-progress-track">
+          <div class="wizard-progress-fill" data-wizard-progress style="width: 0%"></div>
+        </div>
+        <span class="wizard-progress-counter" data-wizard-counter>
+          <span data-i18n="wizard.progress.step">Step</span>
+          <span data-wizard-counter-current>1</span>
+          <span data-i18n="wizard.progress.of">of</span>
+          <span data-wizard-counter-total>7</span>
+        </span>
+      </div>
+
+      <div class="wizard-header-actions">
+        <button type="button" class="wizard-detail-toggle" data-wizard-detail-toggle hidden>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <span data-i18n="wizard.detail.show">Show details</span>
+        </button>
+        <button type="button" class="wizard-close" data-wizard-close data-i18n-attr="aria-label:wizard.close.aria" aria-label="Close wizard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="wizard-body">
+      <main class="wizard-step-pane" data-wizard-pane aria-live="polite">
+        <!-- Step content rendered by wizard.js -->
+      </main>
+
+      <aside class="wizard-yaml-pane" data-wizard-yaml-pane>
+        <header class="wizard-yaml-header">
+          <button type="button" class="wizard-yaml-toggle" data-wizard-yaml-toggle aria-expanded="false">
+            <span data-i18n="wizard.yaml.preview">Live YAML preview</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <button type="button" class="wizard-yaml-copy" data-wizard-yaml-copy>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span data-i18n="common.copy.idle">copy</span>
+          </button>
+        </header>
+        <pre class="wizard-yaml-output"><code data-wizard-yaml-output></code></pre>
+      </aside>
+    </div>
+
+    <footer class="wizard-footer">
+      <button type="button" class="btn btn-ghost wizard-prev" data-wizard-prev>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+        <span data-i18n="wizard.nav.prev">Previous</span>
+      </button>
+      <span class="wizard-step-name" data-wizard-step-name></span>
+      <button type="button" class="btn btn-primary wizard-next" data-wizard-next>
+        <span data-i18n="wizard.nav.next">Next</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </footer>
+  </div>
+</div>
 
 <footer class="footer">
   <div class="container">
@@ -252,5 +327,6 @@
 </footer>
 
 <script src="js/main.js"></script>
+<script src="js/wizard.js" defer></script>
 </body>
 </html>

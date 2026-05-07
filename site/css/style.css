@@ -1316,6 +1316,678 @@ section { padding: 5rem 0; }
   font-size: 1.08rem;
 }
 
+.page-header-aside {
+  margin-top: 1.4rem !important;
+  font-size: 0.95rem !important;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+/* Inline link-styled CTA used by the wizard trigger and similar
+   "secondary action" affordances inside copy-heavy paragraphs.
+   Renders like a link but keeps the button semantics so screen
+   readers announce it as actionable. */
+.link-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ember-bright);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(251, 146, 60, 0.4);
+  text-underline-offset: 3px;
+  transition: color var(--transition), text-decoration-color var(--transition);
+}
+.link-cta:hover,
+.link-cta:focus-visible {
+  color: var(--ember);
+  text-decoration-color: var(--ember);
+  outline: none;
+}
+.link-cta:focus-visible {
+  outline: 2px solid var(--ember-bright);
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+/* ── Wizard modal ────────────────────────────────────────── */
+/* Modal-as-app dialog used by the quickstart.html in-browser YAML
+   wizard. Opens via [data-wizard-open] triggers or via the
+   ?wizard=open URL parameter (used by the home-page Beginner-slide
+   CTA). The dialog stays in the DOM and is toggled visible — keeping
+   the rendered tree avoids re-mounting the YAML preview on every
+   open. ARIA: role=dialog + aria-modal=true on the inner container;
+   the outer wrapper carries [hidden] when closed so the modal is
+   removed from the accessibility tree entirely. */
+.wizard-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  animation: wizard-modal-in 220ms ease-out;
+}
+.wizard-modal[hidden] { display: none; }
+
+@keyframes wizard-modal-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.wizard-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 10, 16, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  cursor: pointer;
+}
+
+.wizard-dialog {
+  position: relative;
+  width: min(1080px, 100%);
+  max-height: min(720px, calc(100vh - 4rem));
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: wizard-dialog-in 240ms cubic-bezier(.4, 0, .2, 1);
+}
+
+@keyframes wizard-dialog-in {
+  from { opacity: 0; transform: translateY(12px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Header: progress + step counter + detail toggle + close */
+.wizard-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.4rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+
+.wizard-progress {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+.wizard-progress-track {
+  flex: 1;
+  height: 5px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+.wizard-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--ember-bright), var(--steel-bright));
+  border-radius: inherit;
+  transition: width 320ms cubic-bezier(.4, 0, .2, 1);
+}
+.wizard-progress-counter {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.wizard-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wizard-detail-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.8rem;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+.wizard-detail-toggle:hover,
+.wizard-detail-toggle.is-active {
+  background: var(--bg);
+  border-color: var(--ember-bright);
+  color: var(--ember-bright);
+}
+.wizard-detail-toggle[hidden] { display: none; }
+
+.wizard-close {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.wizard-close svg { width: 18px; height: 18px; }
+.wizard-close:hover {
+  background: var(--bg);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+/* Body: 60/40 split — step pane + YAML preview */
+.wizard-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  gap: 0;
+  overflow: hidden;
+}
+
+.wizard-step-pane {
+  padding: 2rem 2rem 1.4rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Step content can grow tall on Step 6 (compliance fields); the
+     pane scrolls independently of the YAML preview. */
+}
+
+.wizard-yaml-pane {
+  background: var(--code-bg);
+  border-left: 1px solid var(--code-border);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.wizard-yaml-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.8rem 1rem;
+  background: linear-gradient(180deg, #1a1f2c, #141823);
+  border-bottom: 1px solid var(--code-border);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.wizard-yaml-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.wizard-yaml-toggle svg {
+  width: 14px;
+  height: 14px;
+  transition: transform var(--transition);
+}
+@media (min-width: 901px) {
+  /* On desktop the YAML pane is always visible; the toggle chevron
+     sits silently and is keyboard-only useful for collapsing the
+     pane when the step pane needs more horizontal room. */
+  .wizard-yaml-toggle svg { transform: rotate(-90deg); }
+}
+
+.wizard-yaml-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: transparent;
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font: inherit;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+.wizard-yaml-copy:hover {
+  background: var(--bg-elev);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.wizard-yaml-copy.is-copied {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.wizard-yaml-output {
+  flex: 1;
+  margin: 0;
+  padding: 1.2rem 1.3rem;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.65;
+  color: var(--code-text);
+  white-space: pre;
+}
+.wizard-yaml-output code {
+  font: inherit;
+  color: inherit;
+  background: none;
+}
+/* Inline syntax tinting for the YAML preview. */
+.wizard-yaml-output .yaml-key { color: var(--ember-bright); }
+.wizard-yaml-output .yaml-string { color: var(--code-string); }
+.wizard-yaml-output .yaml-number { color: var(--code-number); }
+.wizard-yaml-output .yaml-bool { color: var(--code-fn); }
+.wizard-yaml-output .yaml-comment { color: var(--code-comment); font-style: italic; }
+.wizard-yaml-output .yaml-null { color: var(--text-muted); font-style: italic; }
+
+/* Footer: prev / step name / next */
+.wizard-footer {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.4rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+.wizard-prev,
+.wizard-next {
+  flex-shrink: 0;
+}
+.wizard-step-name {
+  flex: 1;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.wizard-prev[disabled],
+.wizard-next[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Step content building blocks. wizard.js renders these via DOM
+   construction; the classes here describe their visual shape. */
+.wizard-step-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.5rem;
+}
+.wizard-step-desc {
+  color: var(--text-secondary);
+  margin-bottom: 1.2rem;
+  font-size: 0.96rem;
+  line-height: 1.55;
+}
+.wizard-step-tutorial {
+  margin: 0 0 1.5rem;
+  padding: 0.9rem 1rem;
+  background: var(--pill-note-bg);
+  border-radius: var(--radius-sm);
+  color: var(--pill-note-fg);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  border-left: 3px solid var(--steel-bright);
+}
+.wizard-step-tutorial[hidden] { display: none; }
+
+.wizard-step-tutorial::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 0.5rem;
+  vertical-align: -2px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='12' y1='16' x2='12' y2='12'/><line x1='12' y1='8' x2='12.01' y2='8'/></svg>") center/contain no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='12' y1='16' x2='12' y2='12'/><line x1='12' y1='8' x2='12.01' y2='8'/></svg>") center/contain no-repeat;
+  opacity: 0.85;
+}
+
+/* Card grid used by use-case + base-model selection steps. */
+.wizard-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+.wizard-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--transition), background var(--transition), transform var(--transition);
+}
+.wizard-card:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-elev);
+}
+.wizard-card.is-selected {
+  border-color: var(--ember-bright);
+  background: rgba(249, 115, 22, 0.06);
+  box-shadow: 0 0 0 1px var(--ember-bright);
+}
+.wizard-card-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.wizard-card-title .badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.1rem 0.5rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-muted);
+}
+.wizard-card-desc {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* Form rows for parameter controls (Steps 4, 5, 6). */
+.wizard-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+.wizard-row-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text);
+}
+.wizard-row-label small {
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.wizard-row-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.wizard-row-hint[hidden] { display: none; }
+
+.wizard-input,
+.wizard-select {
+  display: block;
+  width: 100%;
+  padding: 0.55rem 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.92rem;
+  transition: border-color var(--transition);
+}
+.wizard-input:focus,
+.wizard-select:focus {
+  outline: none;
+  border-color: var(--ember-bright);
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.15);
+}
+.wizard-input.is-invalid {
+  border-color: var(--danger);
+}
+
+/* Slider row (LoRA r / alpha, etc.). The numeric output sits to the
+   right of the slider so the user can see the value without polling
+   the preview pane. */
+.wizard-slider-row {
+  display: grid;
+  grid-template-columns: 1fr 56px;
+  gap: 0.7rem;
+  align-items: center;
+}
+.wizard-slider {
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--border-strong);
+  border-radius: 999px;
+  outline: none;
+}
+.wizard-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--ember-bright);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform var(--transition);
+}
+.wizard-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.wizard-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: var(--ember-bright);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+.wizard-slider-value {
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  color: var(--ember-bright);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.wizard-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+  user-select: none;
+}
+.wizard-toggle input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 36px;
+  height: 20px;
+  background: var(--border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  position: relative;
+  transition: background var(--transition);
+}
+.wizard-toggle input[type="checkbox"]::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: var(--text);
+  border-radius: 50%;
+  transition: transform var(--transition);
+}
+.wizard-toggle input[type="checkbox"]:checked {
+  background: var(--ember-bright);
+}
+.wizard-toggle input[type="checkbox"]:checked::after {
+  transform: translateX(16px);
+}
+.wizard-toggle input[type="checkbox"]:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.wizard-toggle-label {
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+/* High-risk callout banner shown on Step 6 when EU AI Act risk =
+   high-risk. Pinks the page so the user can't miss the obligation
+   shift. */
+.wizard-callout {
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  background: var(--pill-danger-bg);
+  color: var(--pill-danger-fg);
+  border-left: 3px solid var(--danger);
+}
+.wizard-callout strong { color: inherit; }
+
+/* Generated YAML actions on Step 7. */
+.wizard-actions {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+}
+.wizard-run-snippet {
+  margin-top: 1.4rem;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius-sm);
+  padding: 0.8rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--code-text);
+  overflow-x: auto;
+}
+.wizard-run-snippet .prompt { color: var(--ember-bright); }
+.wizard-run-snippet .flag { color: var(--steel-bright); }
+.wizard-run-snippet .arg { color: var(--code-string); }
+
+/* Resume banner — surfaces when wizard.js detects a previously-saved
+   session in localStorage and the user reopens the modal. */
+.wizard-resume-banner {
+  margin-bottom: 1.4rem;
+  padding: 0.8rem 1rem;
+  background: var(--pill-tip-bg);
+  color: var(--pill-tip-fg);
+  border-left: 3px solid var(--success);
+  border-radius: var(--radius-sm);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+.wizard-resume-banner button {
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: inherit;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+  font: inherit;
+}
+
+/* Validation error pinned under an invalid input. */
+.wizard-error {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--danger);
+}
+.wizard-error[hidden] { display: none; }
+
+/* ── Wizard responsive (mobile + reduced-motion) ─────────── */
+/* On narrow viewports the dialog goes fullscreen and the YAML
+   preview collapses into an accordion under the step pane so the
+   user has full vertical room for the controls. */
+@media (max-width: 900px) {
+  .wizard-modal { padding: 0; }
+  .wizard-dialog {
+    width: 100%;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+  }
+  .wizard-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+  .wizard-step-pane {
+    padding: 1.4rem;
+  }
+  .wizard-yaml-pane {
+    border-left: none;
+    border-top: 1px solid var(--code-border);
+    max-height: 45vh;
+  }
+  .wizard-yaml-pane:not(.is-expanded) .wizard-yaml-output {
+    display: none;
+  }
+  .wizard-yaml-pane:not(.is-expanded) {
+    max-height: 44px;
+  }
+  .wizard-yaml-pane.is-expanded .wizard-yaml-toggle svg {
+    transform: rotate(180deg);
+  }
+  .wizard-cards {
+    grid-template-columns: 1fr;
+  }
+  .wizard-footer {
+    padding: 0.8rem 1rem;
+  }
+  .wizard-step-name {
+    display: none;
+  }
+}
+
+/* The dialog reads as a flat block under reduced-motion: no enter
+   animation, no slide transitions on step changes, no progress
+   transition. The functionality still works, just without motion. */
+@media (prefers-reduced-motion: reduce) {
+  .wizard-modal,
+  .wizard-dialog {
+    animation: none !important;
+  }
+  .wizard-progress-fill {
+    transition: none !important;
+  }
+}
+
 /* ── Contact ─────────────────────────────────────────────── */
 .contact-grid {
   display: grid;
