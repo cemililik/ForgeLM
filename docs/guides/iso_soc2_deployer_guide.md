@@ -25,7 +25,7 @@ direct ForgeLM evidence:
    `forgelm verify-audit` validates the chain end-to-end.
 2. **Change control** — Article 14 staging gate (`forgelm approve` /
    `reject`) + `human_approval.required/granted/rejected` audit
-   events + `compliance.config_hash` stamped per run. Every
+   events + `config_hash` (per-run manifest sidecar field) stamped per run. Every
    model promotion is dual-controlled and forensically attributed.
 3. **Data lineage** — `data_provenance.json` (SHA-256 fingerprint +
    size + mtime + HF Hub revision pin); `data_governance_report.json`
@@ -108,7 +108,7 @@ Each `human_approval.granted` entry carries:
   trainer).
 - `run_id` — links back to the training run that produced the model.
 - `prev_hash` + `_hmac` — chain integrity.
-- `compliance.config_hash` — which config was used; an auditor can
+- `config_hash` (per-run manifest sidecar field) — which config was used; an auditor can
   diff against the YAML in `git log`.
 
 ### Q2: "Show me the change-control evidence — who approved this model?"

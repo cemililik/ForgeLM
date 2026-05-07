@@ -36,7 +36,7 @@ kategoriler engagement-bazında scoplanır.
 | CC3.1 | Uygun hedefler belirler | `compliance.intended_purpose`; risk classification |
 | CC3.2 | Riskleri tanımlar ve analiz eder | `risk_assessment` Pydantic block; safety eval; `risk_treatment_plan.md` |
 | CC3.3 | Sahtekarlık risklerini değerlendirir | Audit log tamper-evidence; HMAC chain; manifest sidecar |
-| CC3.4 | Değişimleri tanımlar ve değerlendirir | `human_approval.required` gate; `compliance.config_hash` |
+| CC3.4 | Değişimleri tanımlar ve değerlendirir | `human_approval.required` gate; `config_hash` (per-run manifest sidecar field) |
 | CC4.1 | Değerlendirmeleri seçer, geliştirir, gerçekleştirir | `forgelm verify-audit`; `forgelm safety-eval` |
 | CC4.2 | İç kontrol eksikliklerini iletir | `pipeline.failed`/`reverted`/`erasure_failed` olayları |
 | CC5.1 | Kontrol aktivitelerini seçer, geliştirir | F-compliance-110 strict gate; auto-revert; staging |

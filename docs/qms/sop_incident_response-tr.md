@@ -145,7 +145,7 @@ external CVE / breach disclosure kullanılan bir token'a atıf yapar.
        (`compliance_report.json` env'i listeler).
 5. [ ] **Tracking ticket aç** CVE id + SBOM diff + etkilenen
        koşumlar ile (etkilenenleri tanımlamak için audit log'un
-       `compliance.config_hash`'ini kullan).
+       `config_hash` (per-run manifest sidecar field)'ini kullan).
 
 ### 4.4 Webhook target ele geçirildi
 

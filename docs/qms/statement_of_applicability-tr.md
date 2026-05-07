@@ -115,7 +115,7 @@ ForgeLM-spesifik kontrol envanteriyle ilgilidir.
 | A.8.6 Kapasite yönetimi | YES | `forgelm doctor` resource report; `resource_usage` manifest block | Quota / autoscaling |
 | A.8.7 Kötü amaçlı yazılıma karşı koruma | YES | Eğitim host'larında antivirus | Benimse |
 | A.8.8 Teknik zafiyetlerin yönetimi | YES | SBOM; `pip-audit` nightly; `bandit` CI; Pydantic config validation | OS patch yönetimi |
-| A.8.9 Yapılandırma yönetimi | YES | YAML Pydantic ile valide; `forgelm --dry-run` gate; `compliance.config_hash` audit'te | Config'leri sürüm-kontrol |
+| A.8.9 Yapılandırma yönetimi | YES | YAML Pydantic ile valide; `forgelm --dry-run` gate; `config_hash` (per-run manifest sidecar field) audit'te | Config'leri sürüm-kontrol |
 | A.8.10 Bilgi silme | YES | `forgelm purge` Md. 17; salted hash audit; `data.erasure_warning_memorisation` flag | DSAR workflow |
 | A.8.11 Veri maskeleme | YES | `forgelm audit` regex + Presidio ML-NER; `_SECRET_PATTERNS` credentials scan | Maskeleme politikası |
 | A.8.12 Veri sızıntısı önleme | YES | `forgelm reverse-pii` plaintext residual scan; webhook asla raw rows taşımaz | Egress DLP |
@@ -138,7 +138,7 @@ ForgeLM-spesifik kontrol envanteriyle ilgilidir.
 | A.8.29 Geliştirme ve kabul aşamasında güvenlik testi | YES | `pytest` 1370+ test; `bandit` static analysis; `forgelm safety-eval` standalone gate | E2E güvenlik testleri |
 | A.8.30 Dış kaynaklı geliştirme | YES | Üçüncü-taraf-developer güvenliği | Benimse |
 | A.8.31 Geliştirme, test ve üretim ortamlarının ayrılması | YES | `forgelm --dry-run`; staging dir; `evaluation.require_human_approval` | Ayrı pipeline'lar |
-| A.8.32 Değişim yönetimi | YES | `human_approval.required/granted/rejected`; `compliance.config_hash`; staging snapshot | CAB süreci |
+| A.8.32 Değişim yönetimi | YES | `human_approval.required/granted/rejected`; `config_hash` (per-run manifest sidecar field); staging snapshot | CAB süreci |
 | A.8.33 Test bilgisi | YES | `forgelm audit` test setlerinde de PII / secrets'i flag eder | Test-data-handling politikası |
 | A.8.34 Denetim testi sırasında bilgi sistemlerinin korunması | YES | Read-only audit erişimi | Benimse |
 

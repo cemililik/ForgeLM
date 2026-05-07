@@ -107,7 +107,7 @@ completeness so the deployer's SoA is auditable end-to-end.
 | A.8.6 Capacity management | FL-helps | `forgelm doctor` resource report; `resource_usage` manifest block |
 | A.8.7 Protection against malware | OOS | — |
 | A.8.8 Management of technical vulnerabilities | FL-helps | SBOM; `pip-audit` nightly; `bandit` CI |
-| A.8.9 Configuration management | FL | YAML validated via Pydantic; `forgelm --dry-run`; `compliance.config_hash` |
+| A.8.9 Configuration management | FL | YAML validated via Pydantic; `forgelm --dry-run`; `config_hash` (per-run manifest sidecar field) |
 | A.8.10 Information deletion | FL | `forgelm purge` Article 17; salted-hash audit; `data.erasure_warning_memorisation` |
 | A.8.11 Data masking | FL | `forgelm audit` regex + Presidio ML-NER |
 | A.8.12 Data leakage prevention | FL | `forgelm reverse-pii` plaintext residual scan |
@@ -130,7 +130,7 @@ completeness so the deployer's SoA is auditable end-to-end.
 | A.8.29 Security testing in development and acceptance | FL-helps | `pytest` 1370+ tests; `bandit` static analysis |
 | A.8.30 Outsourced development | OOS | — |
 | A.8.31 Separation of development, test and production environments | FL-helps | `forgelm --dry-run`; staging dir |
-| A.8.32 Change management | FL | `human_approval.*` chain; `compliance.config_hash`; staging snapshot |
+| A.8.32 Change management | FL | `human_approval.*` chain; `config_hash` (per-run manifest sidecar field); staging snapshot |
 | A.8.33 Test information | FL-helps | `forgelm audit` flags PII / secrets in test sets too |
 | A.8.34 Protection of information systems during audit testing | OOS | — |
 

@@ -180,7 +180,7 @@ olarak ele al:
   sakla (Ansible Vault, Doppler, Vault).
 - Geçici CI kullanımı için, configi job başlangıcında secrets-manager
   değerlerinden render et; rendered dosyayı job teardown'da sil.
-- ForgeLM'in audit olaylarındaki `compliance.config_hash` herhangi bir
+- ForgeLM'in audit olaylarındaki `config_hash` (per-run manifest sidecar field) herhangi bir
   secret expansion'dan SONRA hesaplanır, yani sadece secret değerlerinde
   farklı olan iki config dosyası farklı hash'ler üretir — denetçiler
   koşum-ortası bir config swap'i tespit edebilir.

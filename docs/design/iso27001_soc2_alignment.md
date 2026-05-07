@@ -236,7 +236,7 @@ ForgeLM contributes nothing here.
 | A.8.6 Capacity management | FL-helps | `forgelm doctor` reports VRAM / CPU / RAM; `resource_usage` block in manifest | Quota / autoscaling |
 | A.8.7 Protection against malware | OOS | — | Antivirus on training hosts |
 | A.8.8 Management of technical vulnerabilities | FL-helps | SBOM (CycloneDX 1.5); `pip-audit` nightly (Faz 23); `bandit` CI (Faz 23); Pydantic config validation | OS patch management |
-| A.8.9 Configuration management | FL | YAML config validated via Pydantic; `forgelm --dry-run` gate; `compliance.config_hash` in audit events | Version-control configs |
+| A.8.9 Configuration management | FL | YAML config validated via Pydantic; `forgelm --dry-run` gate; `config_hash` (per-run manifest sidecar field) in audit events | Version-control configs |
 | A.8.10 Information deletion | FL | `forgelm purge` Article 17; salted-hash audit; `data.erasure_warning_memorisation` flags model-weight retention risk | DSAR workflow |
 | A.8.11 Data masking | FL | `forgelm audit` regex + Presidio ML-NER masking; `_SECRET_PATTERNS` credentials scan | Masking strategy decisions (replace vs delete) |
 | A.8.12 Data leakage prevention | FL | `forgelm reverse-pii` plaintext residual scan; webhook never carries raw training rows | DLP at egress / endpoint |
@@ -259,7 +259,7 @@ ForgeLM contributes nothing here.
 | A.8.29 Security testing in development and acceptance | FL-helps | `pytest` 1300+ tests (post-Wave 3); `bandit` static analysis (Faz 23); `forgelm safety-eval` standalone gate | E2E security tests |
 | A.8.30 Outsourced development | OOS | — | Third-party-developer security |
 | A.8.31 Separation of development, test and production environments | FL-helps | `forgelm --dry-run` flag; staging dir (Phase 9); `evaluation.require_human_approval` gate | Separate pipelines |
-| A.8.32 Change management | FL | `human_approval.required/granted/rejected` chain; `compliance.config_hash`; staging dir snapshot | Change Advisory Board process |
+| A.8.32 Change management | FL | `human_approval.required/granted/rejected` chain; `config_hash` (per-run manifest sidecar field); staging dir snapshot | Change Advisory Board process |
 | A.8.33 Test information | FL-helps | `forgelm audit` flags PII / secrets in test sets too | Test-data-handling policy |
 | A.8.34 Protection of information systems during audit testing | OOS | — | Read-only audit access |
 
@@ -653,7 +653,7 @@ A.6.8, A.8.15, A.8.16.
 4. **Walking the auditor through evidence:**
    - "Show me the audit trail" → `audit_log.jsonl` + `forgelm verify-audit`.
    - "Show me the change controls" → CI logs + `human_approval.granted`
-     events + `compliance.config_hash`.
+     events + `config_hash` (per-run manifest sidecar field).
    - "Show me the data lineage" → `data_provenance.json`,
      `compute_dataset_fingerprint`, HF Hub revision pin.
    - "Show me the supply chain" → SBOM artefacts on every release tag.

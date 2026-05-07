@@ -172,7 +172,7 @@ embed a host-internal hostname. Treat them as credential-bearing:
   Vault) NOT a flat file in the home directory.
 - For ephemeral CI use, render the config from secrets-manager values
   at job start; delete the rendered file in the job teardown.
-- ForgeLM's `compliance.config_hash` in audit events is computed AFTER
+- ForgeLM's `config_hash` (per-run manifest sidecar field) in audit events is computed AFTER
   any secret expansion, so two config files differing only in their
   secret values produce different hashes — auditors can detect a
   config swap mid-run.

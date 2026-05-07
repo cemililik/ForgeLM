@@ -36,7 +36,7 @@ categories are scoped per-engagement.
 | CC3.1 | Specifies suitable objectives | `compliance.intended_purpose`; risk classification |
 | CC3.2 | Identifies and analyses risks | `risk_assessment` Pydantic block; safety eval; `risk_treatment_plan.md` |
 | CC3.3 | Considers fraud risks | Audit log tamper-evidence; HMAC chain; manifest sidecar |
-| CC3.4 | Identifies and assesses changes | `human_approval.required` gate; `compliance.config_hash` |
+| CC3.4 | Identifies and assesses changes | `human_approval.required` gate; `config_hash` (per-run manifest sidecar field) |
 | CC4.1 | Selects, develops, performs evaluations | `forgelm verify-audit`; `forgelm safety-eval` |
 | CC4.2 | Communicates internal-control deficiencies | `pipeline.failed`/`reverted`/`erasure_failed` events |
 | CC5.1 | Selects, develops control activities | F-compliance-110 strict gate; auto-revert; staging |

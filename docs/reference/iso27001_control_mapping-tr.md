@@ -106,7 +106,7 @@ SoA'sının uçtan uca auditable olması için tamlık adına listelenmiştir.
 | A.8.6 Kapasite yönetimi | FL-helps | `forgelm doctor` resource report; `resource_usage` manifest block |
 | A.8.7 Kötü amaçlı yazılıma karşı koruma | OOS | — |
 | A.8.8 Teknik zafiyetlerin yönetimi | FL-helps | SBOM; `pip-audit` nightly; `bandit` CI |
-| A.8.9 Yapılandırma yönetimi | FL | YAML Pydantic ile valide; `forgelm --dry-run`; `compliance.config_hash` |
+| A.8.9 Yapılandırma yönetimi | FL | YAML Pydantic ile valide; `forgelm --dry-run`; `config_hash` (per-run manifest sidecar field) |
 | A.8.10 Bilgi silme | FL | `forgelm purge` Madde 17; salted-hash audit; `data.erasure_warning_memorisation` |
 | A.8.11 Veri maskeleme | FL | `forgelm audit` regex + Presidio ML-NER |
 | A.8.12 Veri sızıntısı önleme | FL | `forgelm reverse-pii` plaintext residual scan |
@@ -129,7 +129,7 @@ SoA'sının uçtan uca auditable olması için tamlık adına listelenmiştir.
 | A.8.29 Geliştirme ve kabul aşamasında güvenlik testi | FL-helps | `pytest` 1370+ test; `bandit` static analysis |
 | A.8.30 Dış kaynaklı geliştirme | OOS | — |
 | A.8.31 Geliştirme, test ve üretim ortamlarının ayrılması | FL-helps | `forgelm --dry-run`; staging dir |
-| A.8.32 Değişim yönetimi | FL | `human_approval.*` chain; `compliance.config_hash`; staging snapshot |
+| A.8.32 Değişim yönetimi | FL | `human_approval.*` chain; `config_hash` (per-run manifest sidecar field); staging snapshot |
 | A.8.33 Test bilgisi | FL-helps | `forgelm audit` test setlerinde de PII / secrets'i flag eder |
 | A.8.34 Denetim testi sırasında bilgi sistemlerinin korunması | OOS | — |
 

@@ -114,7 +114,7 @@ ForgeLM-specific control inventory.
 | A.8.6 Capacity management | YES | `forgelm doctor` resource report; `resource_usage` manifest block | Quota / autoscaling |
 | A.8.7 Protection against malware | YES | Antivirus on training hosts | Adopt |
 | A.8.8 Management of technical vulnerabilities | YES | SBOM; `pip-audit` nightly; `bandit` CI; Pydantic config validation | OS patch management |
-| A.8.9 Configuration management | YES | YAML validated via Pydantic; `forgelm --dry-run` gate; `compliance.config_hash` in audit | Version-control configs |
+| A.8.9 Configuration management | YES | YAML validated via Pydantic; `forgelm --dry-run` gate; `config_hash` (per-run manifest sidecar field) in audit | Version-control configs |
 | A.8.10 Information deletion | YES | `forgelm purge` Article 17; salted hash audit; `data.erasure_warning_memorisation` flag | DSAR workflow |
 | A.8.11 Data masking | YES | `forgelm audit` regex + Presidio ML-NER; `_SECRET_PATTERNS` credentials scan | Masking policy |
 | A.8.12 Data leakage prevention | YES | `forgelm reverse-pii` plaintext residual scan; webhook never carries raw rows | Egress DLP |
@@ -137,7 +137,7 @@ ForgeLM-specific control inventory.
 | A.8.29 Security testing in development and acceptance | YES | `pytest` 1370+ tests; `bandit` static analysis; `forgelm safety-eval` standalone gate | E2E security tests |
 | A.8.30 Outsourced development | YES | Third-party-developer security | Adopt |
 | A.8.31 Separation of development, test and production environments | YES | `forgelm --dry-run`; staging dir; `evaluation.require_human_approval` | Separate pipelines |
-| A.8.32 Change management | YES | `human_approval.required/granted/rejected`; `compliance.config_hash`; staging snapshot | CAB process |
+| A.8.32 Change management | YES | `human_approval.required/granted/rejected`; `config_hash` (per-run manifest sidecar field); staging snapshot | CAB process |
 | A.8.33 Test information | YES | `forgelm audit` flags PII / secrets in test sets too | Test-data-handling policy |
 | A.8.34 Protection of information systems during audit testing | YES | Read-only audit access | Adopt |
 

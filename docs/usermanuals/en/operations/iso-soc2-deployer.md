@@ -12,7 +12,7 @@ description: Audit-floor cookbook — eight common questions, the ForgeLM artefa
 Four pillars an ISO / SOC 2 auditor cares about most have direct ForgeLM evidence:
 
 1. **Audit trail** — `audit_log.jsonl` per training run, append-only with HMAC + SHA-256 hash chain + genesis manifest sidecar. `forgelm verify-audit` validates the chain end-to-end.
-2. **Change control** — Article 14 staging gate (`forgelm approve` / `reject`) + `human_approval.required/granted/rejected` audit events + `compliance.config_hash` stamped per run.
+2. **Change control** — Article 14 staging gate (`forgelm approve` / `reject`) + `human_approval.required/granted/rejected` audit events + `config_hash` (per-run manifest sidecar field) stamped per run.
 3. **Data lineage** — `data_provenance.json` + `data_governance_report.json` together pin corpus + governance posture deterministically.
 4. **Supply chain** — CycloneDX 1.5 SBOM emitted per release, `pip-audit` nightly, `bandit` CI for static + dynamic security scanning.
 

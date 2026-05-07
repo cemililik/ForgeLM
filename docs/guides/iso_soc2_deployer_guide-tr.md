@@ -25,7 +25,7 @@ ForgeLM kanıtına sahip:
    `forgelm verify-audit` zinciri uçtan uca doğrular.
 2. **Change control** — Madde 14 staging gate (`forgelm approve` /
    `reject`) + `human_approval.required/granted/rejected` audit
-   olayları + koşum başına damgalanan `compliance.config_hash`. Her
+   olayları + koşum başına damgalanan `config_hash` (per-run manifest sidecar field). Her
    model promotion çift kontrollü ve forensic olarak attribute
    edilmiştir.
 3. **Data lineage** — `data_provenance.json` (SHA-256 fingerprint +
@@ -108,7 +108,7 @@ Her `human_approval.granted` girişi şunları taşır:
 - `operator` — kim onayladı (eğiten DEĞİL **onaylayan** kimliği).
 - `run_id` — modeli üreten eğitim koşumuna geri bağlanır.
 - `prev_hash` + `_hmac` — zincir bütünlüğü.
-- `compliance.config_hash` — hangi config kullanıldı; denetçi
+- `config_hash` (per-run manifest sidecar field) — hangi config kullanıldı; denetçi
   `git log` içindeki YAML ile diff alabilir.
 
 ### S2: "Change-control kanıtı göster — bu modeli kim onayladı?"

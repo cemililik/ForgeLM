@@ -147,7 +147,7 @@ ForgeLM uses.
        affected dep in its training-time env (`compliance_report.json`
        lists the env).
 5. [ ] **File a tracking ticket** with the CVE id + the SBOM diff +
-       the affected runs (use the audit log's `compliance.config_hash`
+       the affected runs (use the audit log's `config_hash` (per-run manifest sidecar field)
        to identify them).
 
 ### 4.4 Webhook target compromised
