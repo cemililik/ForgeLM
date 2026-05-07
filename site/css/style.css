@@ -1326,6 +1326,201 @@ section { padding: 5rem 0; }
   flex-wrap: wrap;
 }
 
+/* Wizard spotlight — the prominent CTA banner that lands between the
+   quickstart page-header and the canonical 5-step content. Designed
+   to be impossible to miss without overshadowing the existing manual
+   reference flow underneath. Two-column layout on desktop: marketing
+   copy + primary CTA on the left, a small visual diagram on the right
+   that mimics the wizard's three-stage contract (form → YAML → run).
+   Mobile collapses to single column. */
+.wizard-spotlight {
+  position: relative;
+  margin: -1rem 0 3rem;
+  padding: 2rem 2.2rem;
+  background:
+    radial-gradient(ellipse at 0% 0%, rgba(249, 115, 22, .14), transparent 55%),
+    radial-gradient(ellipse at 100% 100%, rgba(14, 165, 233, .12), transparent 55%),
+    linear-gradient(180deg, var(--bg-elev), var(--bg-card));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 2.4rem;
+  align-items: center;
+  overflow: hidden;
+}
+.wizard-spotlight::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(249,115,22,.4), transparent 40%, rgba(14,165,233,.4));
+  opacity: 0.12;
+  pointer-events: none;
+}
+.wizard-spotlight > * {
+  position: relative;
+  z-index: 1;
+}
+.wizard-spotlight-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ember-bright);
+  margin-bottom: 0.7rem;
+}
+.wizard-spotlight-eyebrow::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ember);
+  box-shadow: 0 0 10px var(--ember);
+  animation: pulse 2s ease-in-out infinite;
+}
+.wizard-spotlight-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.6rem;
+  line-height: 1.25;
+}
+.wizard-spotlight-lead {
+  font-size: 1rem;
+  color: var(--text-secondary);
+  margin-bottom: 1.4rem;
+  max-width: 540px;
+}
+.wizard-spotlight-actions {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+.wizard-spotlight-meta {
+  display: flex;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.wizard-spotlight-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.wizard-spotlight-meta svg {
+  width: 14px;
+  height: 14px;
+  color: var(--success);
+}
+
+/* Visual: three-stage diagram. Each stage is a small card with an
+   icon + label + tiny snippet showing what the operator gives / gets
+   at that step. The arrows between cards reinforce the flow. Built
+   in pure SVG so the icons stay crisp at any zoom. */
+.wizard-spotlight-visual {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  align-items: stretch;
+}
+.wizard-spotlight-stage {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 0.8rem;
+  padding: 0.8rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  align-items: center;
+  font-size: 0.85rem;
+}
+.wizard-spotlight-stage-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--ember-bright);
+}
+.wizard-spotlight-stage-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.wizard-spotlight-stage-label {
+  font-weight: 600;
+  color: var(--text);
+  display: block;
+}
+.wizard-spotlight-stage-snippet {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+.wizard-spotlight-arrow {
+  margin: -0.4rem 0;
+  text-align: center;
+  color: var(--text-muted);
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wizard-spotlight-arrow svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Five-step section heading — small introducing label that sits
+   between the spotlight and the existing ``.steps`` block. Helps the
+   reader understand they have two equally-valid paths (wizard above
+   OR manual below). */
+.steps-intro {
+  margin-bottom: 1.6rem;
+  font-size: 0.86rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.steps-intro::before {
+  content: '';
+  display: block;
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  min-width: 30px;
+}
+.steps-intro::after {
+  content: '';
+  display: block;
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  min-width: 30px;
+}
+
+@media (max-width: 900px) {
+  .wizard-spotlight {
+    grid-template-columns: 1fr;
+    gap: 1.6rem;
+    padding: 1.6rem 1.4rem;
+  }
+  .wizard-spotlight-title {
+    font-size: 1.35rem;
+  }
+}
+
 /* Inline link-styled CTA used by the wizard trigger and similar
    "secondary action" affordances inside copy-heavy paragraphs.
    Renders like a link but keeps the button semantics so screen
@@ -1496,12 +1691,18 @@ section { padding: 5rem 0; }
   border-color: var(--border-strong);
 }
 
-/* Body: 60/40 split — step pane + YAML preview */
+/* Body: 60/40 split — step pane + YAML preview.
+   ``min-height: 0`` is mandatory on flex/grid children that contain a
+   scrollable region — without it the child takes its content's intrinsic
+   height and overflow:auto never fires. This was the root cause of the
+   "modal won't scroll" bug; both the wizard-body grid container and the
+   step-pane grid item need it. */
 .wizard-body {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
   gap: 0;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -1509,6 +1710,8 @@ section { padding: 5rem 0; }
   padding: 2rem 2rem 1.4rem;
   overflow-y: auto;
   overflow-x: hidden;
+  min-height: 0;
+  max-height: 100%;
   /* Step content can grow tall on Step 6 (compliance fields); the
      pane scrolls independently of the YAML preview. */
 }
@@ -1744,6 +1947,22 @@ section { padding: 5rem 0; }
   color: var(--text-muted);
 }
 .wizard-row-hint[hidden] { display: none; }
+
+/* Per-field beginner-mode detail paragraph. Sits beneath the hint and
+   gives 2-3 sentences of plain-language explanation about WHAT the
+   field means (not just what range to pick). Visually distinct from
+   the row hint so the operator can pattern-match: hint = quick value
+   guidance, detail = conceptual primer. */
+.wizard-row-detail {
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--bg);
+  border-left: 2px solid var(--steel-bright);
+  border-radius: 4px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
 
 .wizard-input,
 .wizard-select {

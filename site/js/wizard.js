@@ -87,7 +87,11 @@
   /* ── State + persistence ──────────────────────────────── */
 
   var STORAGE_KEY = 'forgelm.wizard.state';
-  var STATE_VERSION = 1;
+  // Schema version 2 drops the data.format / prompt_field / response_field
+  // and the compliance audit_log / annex_iv_export toggles — those fields
+  // do not exist in forgelm/config.py (DataConfig + ComplianceMetadataConfig
+  // both use ``extra="forbid"``). Any v1 snapshot is discarded on load.
+  var STATE_VERSION = 2;
 
   function defaultState() {
     return {
@@ -100,9 +104,11 @@
       modelPreset: 'llama3-8b',
       datasetKind: 'huggingface',  // 'huggingface' | 'local-jsonl' | 'local-pdf'
       datasetName: '',
-      promptField: 'prompt',
-      responseField: 'response',
-      datasetFormat: 'prompt-response',  // 'prompt-response' | 'messages'
+      // ``data.format`` / ``data.prompt_field`` / ``data.response_field`` are
+      // intentionally absent — DataConfig auto-detects the row shape from
+      // the JSONL fields (``messages`` array → chat; ``prompt`` + ``response``
+      // → instruction). Forcing them in the YAML would trigger
+      // ``extra="forbid"`` on DataConfig.
       qlora: true,
       loraR: 8,
       loraAlpha: 16,
@@ -110,13 +116,22 @@
       learningRate: '1e-4',
       batchSize: 2,
       gradientAccumulation: 2,
-      riskClassification: 'limited-risk',  // 'minimal-risk' | 'limited-risk' | 'high-risk' | 'unacceptable' | 'unknown'
+      // EU AI Act risk + evaluation toggles. Audit log + Annex IV export
+      // are NOT YAML toggles — the audit log is always emitted, and the
+      // Annex IV bundle is produced whenever ``compliance.*`` metadata is
+      // populated. The "human approval" gate maps to
+      // ``evaluation.require_human_approval`` (Article 14).
+      riskClassification: 'limited-risk',
       autoRevert: true,
       maxAcceptableLoss: 2.0,
       safetyEval: true,
       humanApproval: false,
-      auditLog: true,
-      annexIvExport: true
+      // Optional Annex IV provider metadata (ComplianceMetadataConfig).
+      // Empty defaults are valid; the wizard exposes them for high-risk
+      // tiers where the EU AI Act requires named provider info.
+      providerName: '',
+      systemName: '',
+      intendedPurpose: ''
     };
   }
 
@@ -150,21 +165,21 @@
   }
 
   /* ── High-risk auto-coercion (EU AI Act Art. 9-17 obligations) */
-  // When the operator picks ``high-risk`` on Step 6 we force-enable
-  // the audit log, human approval gate, and Annex IV export — those
-  // are not optional under the regulation. Selecting back to a lower
-  // tier leaves the toggles where the operator left them; we only
-  // override on the upward transition.
+  // When the operator picks ``high-risk`` or ``unacceptable`` on Step 6
+  // we force-enable the human approval gate + Llama Guard safety eval —
+  // those are not optional under Articles 9-17. The audit log is always
+  // emitted regardless of YAML (no toggle) and the Annex IV bundle is
+  // produced from the populated ``compliance.*`` metadata, so neither
+  // appears here. Selecting back to a lower tier leaves the toggles
+  // where the operator left them; we only override on the upward
+  // transition.
+  var STRICT_RISK_TIERS = ['high-risk', 'unacceptable'];
+  function isStrictRisk(state) {
+    return STRICT_RISK_TIERS.indexOf(state.riskClassification) !== -1;
+  }
   function coerceForRisk(state) {
-    if (state.riskClassification === 'high-risk') {
-      state.auditLog = true;
+    if (isStrictRisk(state)) {
       state.humanApproval = true;
-      state.annexIvExport = true;
-      state.safetyEval = true;
-    } else if (state.riskClassification === 'unacceptable') {
-      state.auditLog = true;
-      state.humanApproval = true;
-      state.annexIvExport = true;
       state.safetyEval = true;
     }
   }
@@ -176,36 +191,31 @@
       model: 'meta-llama/Llama-3.1-8B-Instruct',
       modelPreset: 'llama3-8b',
       datasetKind: 'huggingface',
-      datasetName: 'argilla/Capybara-Preferences',
-      datasetFormat: 'messages'
+      datasetName: 'argilla/Capybara-Preferences'
     },
     'code-copilot': {
       model: 'Qwen/Qwen2.5-Coder-7B-Instruct',
       modelPreset: 'custom',
       datasetKind: 'huggingface',
-      datasetName: 'bigcode/the-stack-smol-xs',
-      datasetFormat: 'prompt-response'
+      datasetName: 'bigcode/the-stack-smol-xs'
     },
     'domain-expert': {
       model: 'meta-llama/Llama-3.1-8B-Instruct',
       modelPreset: 'llama3-8b',
       datasetKind: 'local-pdf',
-      datasetName: './policies/',
-      datasetFormat: 'prompt-response'
+      datasetName: './policies/'
     },
     'grpo-math': {
       model: 'Qwen/Qwen2.5-7B-Instruct',
       modelPreset: 'qwen-7b',
       datasetKind: 'huggingface',
-      datasetName: 'openai/gsm8k',
-      datasetFormat: 'prompt-response'
+      datasetName: 'openai/gsm8k'
     },
     'medical-tr': {
       model: 'meta-llama/Llama-3.1-8B-Instruct',
       modelPreset: 'llama3-8b',
       datasetKind: 'huggingface',
-      datasetName: 'forgelm/medical-qa-tr',
-      datasetFormat: 'messages'
+      datasetName: 'forgelm/medical-qa-tr'
     },
     'custom': {
       /* leave the existing values intact — user wants explicit control */
@@ -235,8 +245,22 @@
   // Build a syntax-highlighted YAML string. We intentionally avoid a
   // YAML library — the schema we emit is small enough that a manual
   // line-builder is auditable + dependency-free. The output is
-  // structurally aligned with ``config_template.yaml`` so it passes
-  // ``forgelm --config <path> --dry-run`` cleanly.
+  // structurally aligned with ``forgelm/config.py`` (Pydantic models
+  // with ``extra="forbid"`` on every block), so it passes
+  // ``forgelm --config quickstart-generated.yaml --dry-run`` cleanly.
+  //
+  // Audit notes (deliberately NOT emitted, despite operator intuition):
+  //
+  // * ``data.format`` / ``data.prompt_field`` / ``data.response_field``
+  //   — DataConfig auto-detects the row shape from the JSONL fields
+  //   themselves; emitting these triggers ``extra="forbid"``.
+  // * ``compliance.audit_log`` / ``compliance.annex_iv_export`` —
+  //   ComplianceMetadataConfig has no such toggles. The audit log is
+  //   always written; the Annex IV bundle is produced whenever the
+  //   ``compliance.*`` metadata block is present.
+  // * Human-approval gate lives at ``evaluation.require_human_approval``
+  //   (Article 14), not under ``compliance``.
+  // * ``evaluation.safety.classifier`` (not ``classifier_path``).
   function buildYaml(state) {
     var lines = [];
     function comment(s) { lines.push('# ' + s); }
@@ -268,32 +292,24 @@
     header(0, 'lora');
     k(1, 'r', String(state.loraR));
     k(1, 'alpha', String(state.loraAlpha));
-    k(1, 'dropout', '0.05');
+    k(1, 'dropout', '0.1');  // schema default
     k(1, 'bias', '"none"');
     k(1, 'target_modules', '["q_proj", "v_proj"]');
     blank();
 
     header(0, 'data');
-    if (state.datasetKind === 'huggingface') {
-      k(1, 'dataset_name_or_path', JSON.stringify(state.datasetName || 'org/dataset-name'));
-      k(1, 'format', JSON.stringify(state.datasetFormat));
-      if (state.datasetFormat === 'prompt-response') {
-        k(1, 'prompt_field', JSON.stringify(state.promptField));
-        k(1, 'response_field', JSON.stringify(state.responseField));
-      }
-    } else if (state.datasetKind === 'local-jsonl') {
-      k(1, 'dataset_name_or_path', JSON.stringify(state.datasetName || './data/train.jsonl'));
-      k(1, 'format', JSON.stringify(state.datasetFormat));
-      if (state.datasetFormat === 'prompt-response') {
-        k(1, 'prompt_field', JSON.stringify(state.promptField));
-        k(1, 'response_field', JSON.stringify(state.responseField));
-      }
-    } else if (state.datasetKind === 'local-pdf') {
+    if (state.datasetKind === 'local-pdf') {
       comment(' PDFs need ingestion first — run before training:');
       comment('   forgelm ingest ' + (state.datasetName || './documents/') + ' --recursive --output data/corpus.jsonl');
       k(1, 'dataset_name_or_path', '"./data/corpus.jsonl"');
-      k(1, 'format', JSON.stringify(state.datasetFormat));
+    } else {
+      var defaultPath = state.datasetKind === 'huggingface'
+        ? 'org/dataset-name'
+        : './data/train.jsonl';
+      k(1, 'dataset_name_or_path', JSON.stringify(state.datasetName || defaultPath));
     }
+    comment(' DataConfig auto-detects row shape: { "messages": [...] } → chat;');
+    comment(' { "prompt": ..., "response": ... } → instruction-following.');
     blank();
 
     header(0, 'training');
@@ -312,25 +328,38 @@
     if (state.autoRevert) {
       k(1, 'max_acceptable_loss', String(state.maxAcceptableLoss));
     }
+    // Article 14: require_human_approval stages the model under
+    // ``final_model.staging.<run_id>/`` and exits 4. The CLI then
+    // expects ``forgelm approve <run_id>`` before promoting to
+    // ``final_model/``.
+    if (state.humanApproval) {
+      k(1, 'require_human_approval', 'true');
+    }
     if (state.safetyEval) {
       header(1, 'safety');
       k(2, 'enabled', 'true');
-      k(2, 'classifier_path', '"meta-llama/Llama-Guard-3-8B"');
-      k(2, 'min_safety_score', '0.85');
+      k(2, 'classifier', '"meta-llama/Llama-Guard-3-8B"');
       k(2, 'min_classifier_confidence', '0.7');
+      k(2, 'max_safety_regression', '0.05');
     }
     blank();
 
+    // ComplianceMetadataConfig — Annex IV §1 provider + system info.
+    // Always emit risk_classification; provider/system fields stay
+    // empty unless the operator filled them in (high-risk tiers
+    // surface the inputs in Step 6).
     header(0, 'compliance');
     k(1, 'risk_classification', JSON.stringify(state.riskClassification));
-    k(1, 'audit_log', state.auditLog ? 'true' : 'false');
-    k(1, 'annex_iv_export', state.annexIvExport ? 'true' : 'false');
-    if (state.humanApproval) {
-      header(1, 'human_approval');
-      k(2, 'enabled', 'true');
-      k(2, 'staging_dir', '"./checkpoints/staging"');
-    }
+    if (state.providerName) k(1, 'provider_name', JSON.stringify(state.providerName));
+    if (state.systemName) k(1, 'system_name', JSON.stringify(state.systemName));
+    if (state.intendedPurpose) k(1, 'intended_purpose', JSON.stringify(state.intendedPurpose));
     blank();
+
+    // Friendly closing comment so an operator reading the YAML cold
+    // knows the audit log + Annex IV bundle land on disk regardless
+    // of whether they show up as toggles here.
+    comment(' Audit log (audit_log.jsonl) is always emitted — no YAML toggle.');
+    comment(' Annex IV bundle is produced from the compliance.* metadata above.');
 
     return lines.join('\n');
   }
@@ -552,6 +581,7 @@
       if (state.step < STEPS.length - 1) {
         state.step += 1;
         render();
+        pane.scrollTop = 0;
       } else {
         // Final step: "Done" closes the modal but keeps state.
         closeModal();
@@ -561,6 +591,7 @@
       if (state.step > 0) {
         state.step -= 1;
         render();
+        pane.scrollTop = 0;
       }
     }
 
@@ -830,45 +861,15 @@
       el('span', { class: 'wizard-row-hint', text: tr('wizard.dataset.name.hint') })
     ]));
 
-    var formatSelect = el('select', { class: 'wizard-select' });
-    [
-      { id: 'prompt-response', labelKey: 'wizard.dataset.format.prompt' },
-      { id: 'messages',        labelKey: 'wizard.dataset.format.messages' }
-    ].forEach(function (opt) {
-      var option = el('option', { value: opt.id, text: tr(opt.labelKey) });
-      if (state.datasetFormat === opt.id) option.selected = true;
-      formatSelect.appendChild(option);
-    });
-    formatSelect.addEventListener('change', function () {
-      state.datasetFormat = formatSelect.value;
-      persist();
-      rerender();
-    });
-    pane.appendChild(el('div', { class: 'wizard-row' }, [
-      el('label', { class: 'wizard-row-label', text: tr('wizard.dataset.format.label') }),
-      formatSelect
-    ]));
-
-    if (state.datasetFormat === 'prompt-response') {
-      ['promptField', 'responseField'].forEach(function (field) {
-        var input = el('input', {
-          type: 'text',
-          class: 'wizard-input',
-          value: state[field]
-        });
-        input.addEventListener('input', function () {
-          state[field] = input.value.trim() || (field === 'promptField' ? 'prompt' : 'response');
-          persist();
-          var yamlOutput = document.querySelector('[data-wizard-yaml-output]');
-          if (yamlOutput) yamlOutput.innerHTML = tintYaml(buildYaml(state));
-        });
-        var labelKey = field === 'promptField' ? 'wizard.dataset.prompt_field' : 'wizard.dataset.response_field';
-        pane.appendChild(el('div', { class: 'wizard-row' }, [
-          el('label', { class: 'wizard-row-label', text: tr(labelKey) }),
-          input
-        ]));
-      });
-    }
+    // Format auto-detection note (replaces the prior format / prompt_field
+    // / response_field manual UI). DataConfig in forgelm/config.py infers
+    // the row shape from the JSONL fields, so no schema field is exposed
+    // for it — the wizard previously emitted these as YAML keys, which
+    // ``extra="forbid"`` rejected at dry-run.
+    pane.appendChild(el('div', {
+      class: 'wizard-step-tutorial',
+      html: '<strong>' + tr('wizard.dataset.autodetect.title') + '</strong> ' + tr('wizard.dataset.autodetect.body')
+    }));
   };
 
   /* Step 5: Training params */
@@ -881,6 +882,16 @@
       if (yamlOutput) yamlOutput.innerHTML = tintYaml(buildYaml(state));
     }
 
+    // Append a per-field detail paragraph beneath a row when the
+    // operator is in beginner mode (state.detailsVisible). The paragraph
+    // expands what the hint glosses — 2-3 sentences explaining what the
+    // value MEANS, not just what range to pick.
+    function appendDetail(rowEl, detailKey) {
+      if (state.detailsVisible && detailKey) {
+        rowEl.appendChild(el('p', { class: 'wizard-row-detail', text: tr(detailKey) }));
+      }
+    }
+
     // QLoRA toggle
     var qloraInput = el('input', { type: 'checkbox' });
     qloraInput.checked = state.qlora;
@@ -889,16 +900,18 @@
       persist();
       liveYaml();
     });
-    pane.appendChild(el('div', { class: 'wizard-row' }, [
+    var qloraRow = el('div', { class: 'wizard-row' }, [
       el('label', { class: 'wizard-toggle' }, [
         qloraInput,
         el('span', { class: 'wizard-toggle-label', text: tr('wizard.training.qlora.label') })
       ]),
       el('span', { class: 'wizard-row-hint', text: tr('wizard.training.qlora.hint') })
-    ]));
+    ]);
+    appendDetail(qloraRow, 'wizard.training.qlora.detail');
+    pane.appendChild(qloraRow);
 
-    // LoRA r slider
-    function makeSlider(field, min, max, hintKey, labelKey) {
+    // LoRA r / alpha sliders
+    function makeSlider(field, min, max, hintKey, labelKey, detailKey) {
       var slider = el('input', {
         type: 'range',
         class: 'wizard-slider',
@@ -914,14 +927,16 @@
         persist();
         liveYaml();
       });
-      return el('div', { class: 'wizard-row' }, [
+      var row = el('div', { class: 'wizard-row' }, [
         el('label', { class: 'wizard-row-label', text: tr(labelKey) }),
         el('div', { class: 'wizard-slider-row' }, [slider, valueOut]),
         el('span', { class: 'wizard-row-hint', text: tr(hintKey) })
       ]);
+      appendDetail(row, detailKey);
+      return row;
     }
-    pane.appendChild(makeSlider('loraR', 4, 64, 'wizard.training.lora_r.hint', 'wizard.training.lora_r.label'));
-    pane.appendChild(makeSlider('loraAlpha', 8, 128, 'wizard.training.lora_alpha.hint', 'wizard.training.lora_alpha.label'));
+    pane.appendChild(makeSlider('loraR',     4,  64, 'wizard.training.lora_r.hint',     'wizard.training.lora_r.label',     'wizard.training.lora_r.detail'));
+    pane.appendChild(makeSlider('loraAlpha', 8, 128, 'wizard.training.lora_alpha.hint', 'wizard.training.lora_alpha.label', 'wizard.training.lora_alpha.detail'));
 
     // Epochs
     var epochsInput = el('input', {
@@ -939,11 +954,13 @@
         liveYaml();
       }
     });
-    pane.appendChild(el('div', { class: 'wizard-row' }, [
+    var epochsRow = el('div', { class: 'wizard-row' }, [
       el('label', { class: 'wizard-row-label', text: tr('wizard.training.epochs.label') }),
       epochsInput,
       el('span', { class: 'wizard-row-hint', text: tr('wizard.training.epochs.hint') })
-    ]));
+    ]);
+    appendDetail(epochsRow, 'wizard.training.epochs.detail');
+    pane.appendChild(epochsRow);
 
     // Learning rate
     var lrSelect = el('select', { class: 'wizard-select' });
@@ -957,11 +974,13 @@
       persist();
       liveYaml();
     });
-    pane.appendChild(el('div', { class: 'wizard-row' }, [
+    var lrRow = el('div', { class: 'wizard-row' }, [
       el('label', { class: 'wizard-row-label', text: tr('wizard.training.lr.label') }),
       lrSelect,
       el('span', { class: 'wizard-row-hint', text: tr('wizard.training.lr.hint') })
-    ]));
+    ]);
+    appendDetail(lrRow, 'wizard.training.lr.detail');
+    pane.appendChild(lrRow);
 
     // Batch size
     var batchSelect = el('select', { class: 'wizard-select' });
@@ -975,11 +994,13 @@
       persist();
       liveYaml();
     });
-    pane.appendChild(el('div', { class: 'wizard-row' }, [
+    var batchRow = el('div', { class: 'wizard-row' }, [
       el('label', { class: 'wizard-row-label', text: tr('wizard.training.batch.label') }),
       batchSelect,
       el('span', { class: 'wizard-row-hint', text: tr('wizard.training.batch.hint') })
-    ]));
+    ]);
+    appendDetail(batchRow, 'wizard.training.batch.detail');
+    pane.appendChild(batchRow);
   };
 
   /* Step 6: Evaluation + EU AI Act compliance */
@@ -1030,8 +1051,10 @@
       }));
     }
 
-    // Toggles
-    function makeToggle(field, labelKey, hintKey, locked) {
+    // Toggles. ``locked`` disables the input and adds a "required for risk
+    // tier" badge — used for fields the EU AI Act forces under high-risk
+    // / unacceptable tiers (Articles 9-17).
+    function makeToggle(field, labelKey, hintKey, locked, detailKey) {
       var input = el('input', { type: 'checkbox' });
       input.checked = state[field];
       if (locked) input.disabled = true;
@@ -1048,13 +1071,17 @@
           style: 'margin-left: 0.4rem;'
         }));
       }
-      return el('div', { class: 'wizard-row' }, [
+      var children = [
         el('label', { class: 'wizard-toggle' }, [input, labelEl]),
         el('span', { class: 'wizard-row-hint', text: tr(hintKey) })
-      ]);
+      ];
+      if (detailKey && state.detailsVisible) {
+        children.push(el('p', { class: 'wizard-row-detail', text: tr(detailKey) }));
+      }
+      return el('div', { class: 'wizard-row' }, children);
     }
-    var highRisk = state.riskClassification === 'high-risk' || state.riskClassification === 'unacceptable';
-    pane.appendChild(makeToggle('autoRevert', 'wizard.eval.auto_revert.label', 'wizard.eval.auto_revert.hint', false));
+    var highRisk = isStrictRisk(state);
+    pane.appendChild(makeToggle('autoRevert', 'wizard.eval.auto_revert.label', 'wizard.eval.auto_revert.hint', false, 'wizard.eval.auto_revert.detail'));
 
     if (state.autoRevert) {
       var lossInput = el('input', {
@@ -1072,17 +1099,60 @@
           liveYaml();
         }
       });
-      pane.appendChild(el('div', { class: 'wizard-row' }, [
+      var lossRowChildren = [
         el('label', { class: 'wizard-row-label', text: tr('wizard.eval.max_loss.label') }),
         lossInput,
         el('span', { class: 'wizard-row-hint', text: tr('wizard.eval.max_loss.hint') })
-      ]));
+      ];
+      if (state.detailsVisible) {
+        lossRowChildren.push(el('p', { class: 'wizard-row-detail', text: tr('wizard.eval.max_loss.detail') }));
+      }
+      pane.appendChild(el('div', { class: 'wizard-row' }, lossRowChildren));
     }
 
-    pane.appendChild(makeToggle('safetyEval', 'wizard.eval.safety.label', 'wizard.eval.safety.hint', highRisk));
-    pane.appendChild(makeToggle('auditLog', 'wizard.compliance.audit.label', 'wizard.compliance.audit.hint', highRisk));
-    pane.appendChild(makeToggle('humanApproval', 'wizard.compliance.approval.label', 'wizard.compliance.approval.hint', highRisk));
-    pane.appendChild(makeToggle('annexIvExport', 'wizard.compliance.annex.label', 'wizard.compliance.annex.hint', highRisk));
+    pane.appendChild(makeToggle('safetyEval', 'wizard.eval.safety.label', 'wizard.eval.safety.hint', highRisk, 'wizard.eval.safety.detail'));
+    pane.appendChild(makeToggle('humanApproval', 'wizard.compliance.approval.label', 'wizard.compliance.approval.hint', highRisk, 'wizard.compliance.approval.detail'));
+
+    // Informational block: the audit log + Annex IV bundle are not YAML
+    // toggles — they are produced as side-effects of the run. Surface
+    // this fact instead of pretending the operator has a control they
+    // don't actually have.
+    pane.appendChild(el('div', {
+      class: 'wizard-step-tutorial',
+      html: '<strong>' + tr('wizard.compliance.always.title') + '</strong> ' + tr('wizard.compliance.always.body')
+    }));
+
+    // Annex IV §1 provider metadata. Surface ALWAYS (any tier benefits
+    // from named provider info) but tag the inputs as "required for
+    // high-risk" so the operator knows the obligation rises with the
+    // tier. Empty values are valid; ComplianceMetadataConfig has
+    // string defaults of "".
+    function makeMetaInput(field, labelKey, hintKey, placeholderKey) {
+      var input = el('input', {
+        type: 'text',
+        class: 'wizard-input',
+        value: state[field] || '',
+        placeholder: tr(placeholderKey)
+      });
+      input.addEventListener('input', function () {
+        state[field] = input.value;
+        persist();
+        liveYaml();
+      });
+      return el('div', { class: 'wizard-row' }, [
+        el('label', { class: 'wizard-row-label' }, [
+          tr(labelKey),
+          highRisk ? el('span', { class: 'badge', text: tr('wizard.locked.badge'), style: 'margin-left: 0.4rem;' }) : null
+        ]),
+        input,
+        el('span', { class: 'wizard-row-hint', text: tr(hintKey) })
+      ]);
+    }
+    if (highRisk) {
+      pane.appendChild(makeMetaInput('providerName', 'wizard.compliance.provider_name.label', 'wizard.compliance.provider_name.hint', 'wizard.compliance.provider_name.placeholder'));
+      pane.appendChild(makeMetaInput('systemName', 'wizard.compliance.system_name.label', 'wizard.compliance.system_name.hint', 'wizard.compliance.system_name.placeholder'));
+      pane.appendChild(makeMetaInput('intendedPurpose', 'wizard.compliance.intended_purpose.label', 'wizard.compliance.intended_purpose.hint', 'wizard.compliance.intended_purpose.placeholder'));
+    }
   };
 
   /* Step 7: Review + download */
