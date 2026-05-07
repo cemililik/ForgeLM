@@ -16,6 +16,7 @@
     initLangDropdown();
     initCopyButtons();
     initContactForm();
+    initHeroSlider();
     initHeroTyper();
     initSmoothAnchorOffset();
   });
@@ -237,6 +238,148 @@
         btn.disabled = false;
       });
     });
+  }
+
+  /* ── Hero rotating slider (3 personas) ───────────── */
+  // Rotates the left-column hero pitch across three personas
+  // (engineer / beginner / compliance) on an 8-second timer with
+  // hover-pause, keyboard ←/→ navigation, swipe-on-touch, and a
+  // visibilitychange-aware pause when the tab is backgrounded. The
+  // CSS handles the cross-fade transition; this hook only flips the
+  // ``.is-active`` class + ARIA state on slides + pagination dots.
+  //
+  // Reduced-motion users land in a CSS-only branch (slides stack
+  // vertically, controls hidden) so this initialiser is a no-op for
+  // them after the early return.
+  function initHeroSlider() {
+    var slider = document.querySelector('[data-hero-slider]');
+    if (!slider) return;
+    var slides = Array.prototype.slice.call(slider.querySelectorAll('.hero-slide'));
+    var dots = Array.prototype.slice.call(slider.querySelectorAll('.hero-slider-dot'));
+    if (slides.length < 2 || dots.length !== slides.length) return;
+
+    var ROTATE_MS = 8000;
+    var SWIPE_PX = 50;
+    var current = 0;
+    var timer = null;
+    var reducedMotion =
+      window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (reducedMotion) {
+      // CSS already neutralises the layout; flag every slide visible
+      // so screen readers can iterate them in order.
+      slides.forEach(function (s) {
+        s.classList.add('is-active');
+        s.removeAttribute('hidden');
+      });
+      return;
+    }
+
+    function show(index) {
+      var n = slides.length;
+      if (index < 0) index = n - 1;
+      if (index >= n) index = 0;
+      current = index;
+      slides.forEach(function (s, i) {
+        var active = i === index;
+        s.classList.toggle('is-active', active);
+        if (active) {
+          s.removeAttribute('hidden');
+        } else {
+          s.setAttribute('hidden', '');
+        }
+      });
+      dots.forEach(function (d, i) {
+        var active = i === index;
+        d.classList.toggle('is-active', active);
+        d.setAttribute('aria-selected', active ? 'true' : 'false');
+        d.setAttribute('tabindex', active ? '0' : '-1');
+      });
+    }
+
+    function next() { show(current + 1); }
+    function prev() { show(current - 1); }
+
+    function start() {
+      if (timer || reducedMotion) return;
+      slider.dataset.paused = 'false';
+      timer = window.setInterval(next, ROTATE_MS);
+    }
+    function stop() {
+      if (timer) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+      slider.dataset.paused = 'true';
+    }
+    function restart() { stop(); start(); }
+
+    // Pagination dots (jump to specific slide)
+    dots.forEach(function (dot) {
+      dot.addEventListener('click', function () {
+        var idx = parseInt(dot.dataset.heroJump || '0', 10);
+        show(idx);
+        restart();
+      });
+    });
+
+    // Prev / next arrows
+    var prevBtn = slider.querySelector('[data-hero-prev]');
+    var nextBtn = slider.querySelector('[data-hero-next]');
+    if (prevBtn) prevBtn.addEventListener('click', function () { prev(); restart(); });
+    if (nextBtn) nextBtn.addEventListener('click', function () { next(); restart(); });
+
+    // Keyboard ←/→ when focus is anywhere inside the slider
+    slider.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowLeft') {
+        prev(); restart();
+        e.preventDefault();
+      } else if (e.key === 'ArrowRight') {
+        next(); restart();
+        e.preventDefault();
+      }
+    });
+
+    // Pause on hover + focus, resume on leave + blur
+    slider.addEventListener('mouseenter', stop);
+    slider.addEventListener('mouseleave', start);
+    slider.addEventListener('focusin', stop);
+    slider.addEventListener('focusout', function (e) {
+      // Only resume if focus actually left the slider entirely.
+      if (!slider.contains(e.relatedTarget)) start();
+    });
+
+    // Tab visibility — don't burn CPU on background tabs
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) stop();
+      else start();
+    });
+
+    // Touch swipe (mobile). Threshold 50px so a vertical scroll
+    // doesn't accidentally trigger a slide change.
+    var touchStartX = null;
+    var touchStartY = null;
+    slider.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) return;
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+    slider.addEventListener('touchend', function (e) {
+      if (touchStartX === null) return;
+      var dx = e.changedTouches[0].clientX - touchStartX;
+      var dy = e.changedTouches[0].clientY - touchStartY;
+      // Horizontal-dominant gesture only — protects vertical scroll.
+      if (Math.abs(dx) > SWIPE_PX && Math.abs(dx) > Math.abs(dy) * 1.4) {
+        if (dx > 0) prev(); else next();
+        restart();
+      }
+      touchStartX = null;
+      touchStartY = null;
+    });
+
+    show(0);
+    start();
   }
 
   /* ── Hero terminal typewriter (cosmetic) ─────────── */

@@ -594,6 +594,187 @@ section { padding: 5rem 0; }
 }
 .hero-meta svg { width: 14px; height: 14px; color: var(--success); }
 
+/* Hero rotating slider (3 personas: engineer / beginner / compliance).
+   Mechanics: cross-fade transitions, auto-rotate (8s) with hover-pause,
+   keyboard ←/→, swipe on touch, and a reduced-motion fallback that
+   stacks all slides linearly. The badge + cross-cutting meta strip stay
+   visible across slides — only the title/lead/CTA pair rotates.
+
+   Layout note: ``.hero-personas`` becomes the grid item that replaces
+   the old left-column ``<div>``. The right-column ``.hero-terminal``
+   keeps its original placement; the grid template is unchanged. */
+.hero-personas {
+  position: relative;
+}
+
+.hero-slides {
+  position: relative;
+  /* min-height ensures the layout doesn't collapse during fade
+     transitions when the active slide is positioned absolutely; the
+     value is a comfortable cap for the longest pitch (compliance
+     slide currently around 4 lines of body copy at desktop width). */
+  min-height: 320px;
+}
+
+@media (max-width: 980px) {
+  .hero-slides { min-height: 360px; }
+}
+@media (max-width: 600px) {
+  .hero-slides { min-height: 380px; }
+}
+
+.hero-slide {
+  position: absolute;
+  inset: 0 0 auto 0;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(12px);
+  transition:
+    opacity 320ms ease-out,
+    transform 320ms ease-out,
+    visibility 0s linear 320ms;
+  pointer-events: none;
+}
+
+.hero-slide.is-active {
+  position: relative;
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  transition:
+    opacity 320ms ease-out,
+    transform 320ms ease-out,
+    visibility 0s linear 0s;
+  pointer-events: auto;
+}
+
+/* Slider pagination: 3 dots, the active dot expands and animates a
+   linear progress fill that mirrors the auto-rotate timer (8s). */
+.hero-slider-controls {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-top: 1.4rem;
+  margin-bottom: 1.4rem;
+}
+
+.hero-slider-dot {
+  position: relative;
+  width: 24px;
+  height: 4px;
+  padding: 0;
+  border: none;
+  background: var(--border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: background 200ms ease, width 280ms ease;
+}
+
+.hero-slider-dot:hover { background: var(--text-muted); }
+.hero-slider-dot:focus-visible {
+  outline: 2px solid var(--ember-bright);
+  outline-offset: 3px;
+}
+
+.hero-slider-dot.is-active {
+  width: 56px;
+  background: var(--border-strong);
+}
+
+.hero-slider-dot .dot-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--ember-bright), var(--steel-bright));
+  transform-origin: left center;
+  transform: scaleX(0);
+  border-radius: inherit;
+}
+
+.hero-slider-dot.is-active .dot-fill {
+  animation: hero-slider-fill 8s linear forwards;
+}
+
+.hero-personas[data-paused="true"] .hero-slider-dot.is-active .dot-fill {
+  animation-play-state: paused;
+}
+
+@keyframes hero-slider-fill {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+/* Prev / next chevrons. Ghost by default; reveal on hover or
+   keyboard focus inside the slider. Hidden on small screens — touch
+   users get the swipe gesture instead. */
+.hero-slider-arrow {
+  position: absolute;
+  top: 35%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 24, 35, 0.72);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 200ms ease, background 200ms ease, border-color 200ms ease;
+  z-index: 2;
+}
+.hero-slider-arrow svg { width: 14px; height: 14px; }
+.hero-slider-arrow.prev { left: -52px; }
+.hero-slider-arrow.next { right: -52px; }
+
+.hero-personas:hover .hero-slider-arrow,
+.hero-personas:focus-within .hero-slider-arrow {
+  opacity: 0.9;
+}
+.hero-slider-arrow:hover {
+  opacity: 1;
+  background: var(--bg-elev);
+  border-color: var(--ember-bright);
+}
+.hero-slider-arrow:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--ember-bright);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1100px) {
+  .hero-slider-arrow.prev { left: -16px; }
+  .hero-slider-arrow.next { right: -16px; }
+}
+@media (max-width: 720px) {
+  .hero-slider-arrow { display: none; }
+}
+
+/* Reduced-motion: stack all slides, hide pagination + arrows,
+   neutralise the timer animation. Each slide becomes its own block
+   the user can read linearly. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-slide {
+    position: relative !important;
+    inset: auto !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    pointer-events: auto !important;
+    margin-bottom: 1.6rem;
+  }
+  .hero-slide:not(:first-child) {
+    border-top: 1px dashed var(--border);
+    padding-top: 1.4rem;
+  }
+  .hero-slider-controls,
+  .hero-slider-arrow { display: none !important; }
+  .hero-slides { min-height: 0; }
+  .hero-slider-dot.is-active .dot-fill { animation: none; }
+}
+
 /* Hero terminal */
 .hero-terminal {
   background: var(--code-bg);
