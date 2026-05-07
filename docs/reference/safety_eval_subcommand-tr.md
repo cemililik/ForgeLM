@@ -22,7 +22,7 @@ Uygulama: [`forgelm/cli/subcommands/_safety_eval.py`](../../forgelm/cli/subcomma
 | `--model PATH` | string (zorunlu) | — | HuggingFace Hub ID, yerel checkpoint dizini veya `.gguf` yolu. "Desteklenen model formatları" bölümüne bakın. |
 | `--classifier PATH` | string | `meta-llama/Llama-Guard-3-8B` | Harm classifier — Hub ID veya yerel yol. |
 | `--probes JSONL` | path | — | JSONL probe dosyası (her satır `{"prompt": ..., "category": ...}`). `--default-probes` ile karşılıklı dışlayıcı. |
-| `--default-probes` | bool | `false` | Bundled probe seti'ni kullan (`forgelm/safety_prompts/default_probes.jsonl`) — ~14 harm kategorisini kapsayan 50 prompt. `--probes` ile karşılıklı dışlayıcı. |
+| `--default-probes` | bool | `false` | Bundled probe seti'ni kullan (`forgelm/safety_prompts/default_probes.jsonl`) — 18 harm kategorisini kapsayan 51 prompt (`benign-control`, `animal-cruelty`, `biosecurity`, `controlled-substances`, `credentials`, `csam`, `cybersecurity`, `extremism`, `fraud`, `harassment`, `hate-speech`, `jailbreak`, `malware`, `medical-misinfo`, `privacy-violence`, `self-harm`, `sexual-content`, `weapons-violence`). `--probes` ile karşılıklı dışlayıcı. |
 | `--output-dir DIR` | path | cwd | Prompt-başına sonuçların + audit log'un yazılacağı yer. |
 | `--max-new-tokens N` | int | `512` | Üretilen yanıt başına maksimum token sayısı. |
 | `--output-format` | `text` \| `json` | `text` | Render. |
@@ -46,7 +46,7 @@ Classifier aynı loader'ı izler; varsayılan `meta-llama/Llama-Guard-3-8B`, met
 | Kod | Anlamı |
 |---|---|
 | `0` | Değerlendirme tamamlandı; safety eşikleri geçti. |
-| `1` | Config hatası — eksik `--model`, `--probes`/`--default-probes`'tan ikisi/hiçbiri, eksik probes dosyası, GGUF model yolu, eksik `[eval]` extra'sı. |
+| `1` | Config hatası — eksik `--model`, `--probes`/`--default-probes`'tan ikisi/hiçbiri, eksik probes dosyası, GGUF model yolu. |
 | `2` | Runtime hatası — model yükleme hatası, classifier yükleme hatası, probes dosyası okunamaz, bozuk core bağımlılık import'u, generation sırasında OOM. |
 | `3` | Değerlendirme tamamlandı ama safety eşikleri **aşıldı** — gate hayır dedi. `EXIT_EVAL_FAILURE`'a eşlenir; böylece regülasyonlu CI pipeline'ı "gate reddetti" / "çalıştırma başlamadı" / "çalıştırma çöktü" arasında dallanabilir. |
 
@@ -87,12 +87,11 @@ Eğitim-zamanı pre-flight gate'i, trainer'ın kendi audit zinciri üzerinden da
 
 ```text
 <output-dir>/
-├── safety_report.json     ← kategori-başına confidence + verdict
-├── safety_examples.jsonl  ← incelenmek üzere en kötü işaretlenmiş yanıtlar
-└── safety_run.log         ← tam classifier çıktıları
+├── safety_results.json    ← per-run JSON (genel verdict + kategori-başına döküm + prompt-başına verdict)
+└── safety_trend.jsonl     ← append-only trend log'u (koşum başına bir kayıt; cross-run regresyon tespiti)
 ```
 
-Bunlar eğitim-zamanı safety gate'inin ürettiği artefakt adlarının aynısıdır — şema için [`docs/usermanuals/tr/evaluation/safety.md`](../usermanuals/tr/evaluation/safety.md)'a bakın.
+Eğitim-zamanı safety gate'i aynı artefakları aynı isimle, paylaşılan `forgelm.safety._save_safety_results` (`forgelm/safety.py:399`) + trend-append (`forgelm/safety.py:686-695`) üzerinden üretir. Şema için [`docs/usermanuals/tr/evaluation/safety.md`](../usermanuals/tr/evaluation/safety.md)'a bakın.
 
 ## Örnekler
 

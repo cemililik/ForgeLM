@@ -82,24 +82,20 @@ Probes Python version, torch / CUDA / GPU, optional extras, HF Hub reachability 
 ## Audit: `forgelm audit`
 
 ```shell
-$ forgelm audit DATAFILE_OR_DIR \
-    [--output ./audit/] \
-    [--strict] \
-    [--workers N] \
-    [--dedup-method {simhash,minhash}] \
+$ forgelm audit INPUT_PATH \
+    [--output DIR] \
+    [--verbose] \
     [--near-dup-threshold N] \
-    [--minhash-jaccard FLOAT] [--minhash-num-perm N] \
-    [--skip-pii] [--skip-secrets] [--skip-quality] [--skip-leakage] \
-    [--remove-duplicates] [--remove-cross-split-overlap=val|test] \
-    [--output-clean PATH] \
-    [--show-leakage] \
-    [--sample-rate FLOAT] \
-    [--pii-ml] [--pii-ml-language LANG] \
+    [--dedup-method {simhash,minhash}] \
+    [--jaccard-threshold X] \
+    [--quality-filter] \
     [--croissant] \
-    [--verbose]
+    [--pii-ml] [--pii-ml-language LANG] \
+    [--workers N] \
+    [--output-format {text,json}]
 ```
 
-`--workers N` parallelises split-level processing; the on-disk JSON is byte-identical across worker counts (modulo the `generated_at` timestamp). See [Dataset Audit](#/data/audit) for full semantics.
+`--workers N` parallelises split-level processing; the on-disk JSON is byte-identical across worker counts (modulo the `generated_at` timestamp). The full per-flag table — including the canonical authoritative list synced to `forgelm/cli/_parser.py::_add_audit_subcommand` — lives in [Dataset Audit](#/data/audit). Earlier drafts of this page documented `--strict`, `--skip-pii`, `--skip-secrets`, `--skip-quality`, `--skip-leakage`, `--remove-duplicates`, `--remove-cross-split-overlap`, `--output-clean`, `--show-leakage`, `--minhash-jaccard`, `--minhash-num-perm`, `--dedup-algo`, `--dedup-threshold`, `--sample-rate`, and `--add-row-ids` — none exist in the parser. Use the canonical names above.
 
 ## Ingest: `forgelm ingest`
 

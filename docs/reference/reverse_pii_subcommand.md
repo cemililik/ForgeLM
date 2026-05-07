@@ -77,21 +77,45 @@ The chain row records the **hashed** identifier so the chain itself does not lea
 
 | Code | Meaning |
 |---|---|
-| 0 | Scan completed (the matches list may be empty — Article 15 explicitly accepts "no matches" as a valid answer). |
-| 1 | Config error: empty `--query`, malformed `custom` regex, empty resolved glob, unwritable `--audit-dir`. |
-| 2 | Runtime error: mid-scan I/O failure, permission denied, ReDoS SIGALRM timeout. |
+| 0 | `EXIT_SUCCESS` — scan completed (the matches list may be empty — Article 15 explicitly accepts "no matches" as a valid answer). |
+| 1 | `EXIT_CONFIG_ERROR` — empty `--query`, malformed `custom` regex, empty resolved glob, `--salt-source env_var` with `FORGELM_AUDIT_SECRET` unset. |
+| 2 | `EXIT_TRAINING_ERROR` — mid-scan I/O failure, permission denied, ReDoS SIGALRM timeout, or **explicit `--audit-dir` unwritable** (the explicit form refuses loudly so the Article 15 forensic record is never silently dropped — `_reverse_pii.py:537,573`). |
 
 Codes 3 (`EXIT_EVAL_FAILURE`) and 4 (`EXIT_AWAITING_APPROVAL`) are not part of this subcommand's surface.
 
 ## JSON output envelope
 
-With `--output-format json` the scan prints exactly one JSON object on stdout. See [`../usermanuals/en/reference/json-output.md`](../usermanuals/en/reference/json-output.md) for the canonical envelope schema. Sketch:
+With `--output-format json` the scan prints exactly one JSON object on stdout — emitted by `_reverse_pii.py:769-777`:
 
 ```json
-{"success": true, "match_count": 2, "matches": [{"path": "data/train.jsonl", "line": 4119, "preview": "...alice@example.com..."}], "scan_mode": "plaintext", "files_scanned": 12}
+{
+  "success": true,
+  "query_hash": "9f2c8b…",
+  "identifier_type": "email",
+  "scan_mode": "plaintext",
+  "salt_source": "per_dir",
+  "matches": [
+    {
+      "file": "data/train.jsonl",
+      "line": 4119,
+      "snippet": "…alice@example.com is the canonical contact…"
+    }
+  ],
+  "files_scanned": [
+    {"path": "data/train.jsonl", "match_count": 1},
+    {"path": "data/validation.jsonl", "match_count": 0}
+  ],
+  "match_count": 1
+}
 ```
 
-A failed scan emits the standard error envelope:
+Field notes:
+- Each match is `{file, line, snippet}` (note: the keys are `file` not `path`, and `snippet` not `preview`).
+- `files_scanned` is a **list of `{path, match_count}` objects** — not an integer count. Use `len(envelope["files_scanned"])` for the file count and the per-entry `match_count` for the per-file hit distribution.
+- `query_hash` is the salted SHA-256 of the cleartext query. The cleartext is never echoed in the envelope nor written to the audit chain.
+- `salt_source` ∈ `{plaintext, per_dir, env_var}` — `plaintext` here means "no hash-mask scan" (the default); `per_dir` / `env_var` reflect the `--salt-source` mode.
+
+A failed scan emits the standard error envelope (`_reverse_pii.py:107`):
 
 ```json
 {"success": false, "error": "Glob 'data/*.jsonl' resolved to zero files."}

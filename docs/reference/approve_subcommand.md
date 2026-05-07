@@ -96,23 +96,40 @@ Codes 3 (`EXIT_EVAL_FAILURE`) and 4 (`EXIT_AWAITING_APPROVAL`) are not part of t
 
 ## JSON output envelope
 
-`approve` (success):
+`approve` (success) — emitted by `_approve.py:468-477`:
 
 ```json
-{"success": true, "run_id": "fg-abc123def456", "approver": "alice@acme.example", "promoted_to": "outputs/run42/final_model", "comment": "..."}
+{
+  "success": true,
+  "run_id": "fg-abc123def456",
+  "approver": "alice@acme.example",
+  "final_model_path": "outputs/run42/final_model",
+  "promote_strategy": "rename"
+}
 ```
 
-`reject` (success):
+`reject` (success) — emitted by `_approve.py:542-551`:
 
 ```json
-{"success": true, "run_id": "fg-abc123def456", "approver": "alice@acme.example", "staging_path": "outputs/run42/final_model.staging.fg-abc123def456", "comment": "..."}
+{
+  "success": true,
+  "run_id": "fg-abc123def456",
+  "approver": "alice@acme.example",
+  "staging_path": "outputs/run42/final_model.staging.fg-abc123def456",
+  "comment": "Threshold drift in S5; re-train with stricter regression tolerance."
+}
 ```
 
-Failure (both):
+Failure (both, emitted by `_output_error_and_exit`):
 
 ```json
-{"success": false, "error": "Run 'fg-abc123def456' already has a terminal decision ('human_approval.granted'). Refusing to record another decision — re-approve is not allowed."}
+{
+  "success": false,
+  "error": "Run 'fg-abc123def456' already has a terminal decision ('human_approval.granted'). Refusing to record another decision — re-approve is not allowed."
+}
 ```
+
+> **Field-level notes.** `approve` does **not** echo `comment` in the JSON envelope (the comment is recorded on the `human_approval.granted` audit event payload, not on stdout). `reject` echoes the empty string when `--comment` is omitted. `promote_strategy` is `"rename"` on a same-device promotion and `"move"` on a cross-device fallback (`shutil.move`); the audit event payload mirrors this value.
 
 ## See also
 

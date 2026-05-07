@@ -77,21 +77,45 @@ Chain satırı **hash'li** identifier'ı kaydeder; böylece zincirin kendisi sub
 
 | Kod | Anlamı |
 |---|---|
-| 0 | Scan tamamlandı (matches listesi boş olabilir — Madde 15 "eşleşme yok"u geçerli yanıt olarak açıkça kabul eder). |
-| 1 | Config hatası: boş `--query`, hatalı `custom` regex, boş çözülmüş glob, yazılamaz `--audit-dir`. |
-| 2 | Runtime hatası: mid-scan I/O başarısızlığı, izin reddedildi, ReDoS SIGALRM timeout. |
+| 0 | `EXIT_SUCCESS` — scan tamamlandı (matches listesi boş olabilir — Madde 15 "eşleşme yok"u geçerli yanıt olarak açıkça kabul eder). |
+| 1 | `EXIT_CONFIG_ERROR` — boş `--query`, hatalı `custom` regex, boş çözülmüş glob, `FORGELM_AUDIT_SECRET` set olmadan `--salt-source env_var`. |
+| 2 | `EXIT_TRAINING_ERROR` — mid-scan I/O başarısızlığı, izin reddedildi, ReDoS SIGALRM timeout ya da **explicit `--audit-dir` yazılamaz** (explicit form Madde 15 forensic kaydı sessizce düşmesin diye gürültülü reddeder — `_reverse_pii.py:537,573`). |
 
 Kod 3 (`EXIT_EVAL_FAILURE`) ve 4 (`EXIT_AWAITING_APPROVAL`) bu subcommand'ın yüzeyinin parçası değildir.
 
 ## JSON çıktı zarfı
 
-`--output-format json` ile scan stdout'a tam olarak bir JSON nesnesi yazdırır. Kanonik zarf şeması için bkz. [`../usermanuals/tr/reference/json-output.md`](../usermanuals/tr/reference/json-output.md). Skeçi:
+`--output-format json` ile scan stdout'a tam olarak bir JSON nesnesi yazdırır — `_reverse_pii.py:769-777`'den yayılır:
 
 ```json
-{"success": true, "match_count": 2, "matches": [{"path": "data/train.jsonl", "line": 4119, "preview": "...alice@example.com..."}], "scan_mode": "plaintext", "files_scanned": 12}
+{
+  "success": true,
+  "query_hash": "9f2c8b…",
+  "identifier_type": "email",
+  "scan_mode": "plaintext",
+  "salt_source": "per_dir",
+  "matches": [
+    {
+      "file": "data/train.jsonl",
+      "line": 4119,
+      "snippet": "…alice@example.com is the canonical contact…"
+    }
+  ],
+  "files_scanned": [
+    {"path": "data/train.jsonl", "match_count": 1},
+    {"path": "data/validation.jsonl", "match_count": 0}
+  ],
+  "match_count": 1
+}
 ```
 
-Başarısız scan standart hata zarfını yayar:
+Alan notları:
+- Her match `{file, line, snippet}` (anahtarlar `file` — `path` değil; `snippet` — `preview` değil).
+- `files_scanned` bir **`{path, match_count}` nesneleri listesidir** — integer sayı değil. Dosya sayısı için `len(envelope["files_scanned"])`, dosya-başına hit dağılımı için her girişin `match_count`'unu kullanın.
+- `query_hash` cleartext sorgunun salted SHA-256'sıdır. Cleartext zarfta yansıtılmaz, audit chain'e de yazılmaz.
+- `salt_source` ∈ `{plaintext, per_dir, env_var}` — burada `plaintext` "hash-mask scan yok" demek (varsayılan); `per_dir` / `env_var` `--salt-source` modunu yansıtır.
+
+Başarısız scan standart hata zarfını yayar (`_reverse_pii.py:107`):
 
 ```json
 {"success": false, "error": "Glob 'data/*.jsonl' resolved to zero files."}

@@ -90,17 +90,24 @@ For **binary** (KTO) datasets:
 
 ## CLI flags
 
+Authoritative source: `forgelm/cli/_parser.py::_add_audit_subcommand` (lines 335-468).
+
 | Flag | Description |
 |---|---|
-| `--output PATH` | Output directory for the audit report (default `./audit/`). |
-| `--strict` | Treat warnings as errors. Exit 2 instead of 0 on any flag. |
-| `--dedup-algo {simhash,minhash}` | Override default near-dup algorithm. |
-| `--dedup-threshold N` | Hamming distance threshold for simhash (default 3). |
-| `--skip-pii / --skip-secrets / ...` | Selectively disable individual checks. |
-| `--sample-rate FLOAT` | Audit a random subsample (e.g. `0.1` for 10%). For very large datasets. |
-| `--quality-filter` | Run heuristic quality checks (Gopher / C4 / RefinedWeb-style). Adds `quality_summary`. See [Quality Filter](#/data/quality-filter). |
-| `--pii-ml [--pii-ml-language LANG]` | Layer Presidio NER on top of the regex PII detector — adds `person` / `organization` / `location` categories into the same `pii_summary` block. Requires the `[ingestion-pii-ml]` extra **and** a spaCy NER model. See [ML-NER PII (Presidio)](#/data/pii-ml). |
-| `--croissant` | Emit a [Google Croissant 1.0](https://mlcommons.org/croissant/) dataset card under the report's `croissant` key — same JSON file doubles as both the audit and a Croissant-consumer card. See [Croissant 1.0 Dataset Card](#/data/croissant-card). |
+| `input_path` (positional) | JSONL file or directory of split JSONL files (`train.jsonl`, `validation.jsonl`, `test.jsonl`). |
+| `--output DIR` | Output directory for `data_audit_report.json` (default `./audit/`). |
+| `--verbose` | Show every split in the text summary, including zero-finding splits. JSON output is unaffected. |
+| `--near-dup-threshold N` | Hamming-distance cutoff for simhash near-duplicate detection (default 3 ≈ 95% similarity). Ignored under `--dedup-method=minhash`. |
+| `--dedup-method {simhash,minhash}` | Near-duplicate algorithm. `simhash` is the default (Phase 11.5 path); `minhash` opts into LSH-banded MinHash via the optional `forgelm[ingestion-scale]` extra (datasketch). |
+| `--jaccard-threshold X` | Jaccard threshold for `--dedup-method=minhash` (default 0.85). Ignored when `--dedup-method=simhash`. |
+| `--quality-filter` | Run heuristic quality checks (mean word length, alphabetic-character ratio, end-of-line punctuation ratio, repeated-line ratio, short-paragraph ratio). Adds `quality_summary` to the report. See [Quality Filter](#/data/quality-filter). |
+| `--croissant` | Emit a [Google Croissant 1.0](https://mlcommons.org/croissant/) dataset card under the report's `croissant` key. See [Croissant 1.0 Dataset Card](#/data/croissant-card). |
+| `--pii-ml` | Layer Presidio's ML-NER PII detection on top of the regex detector. Requires the optional `forgelm[ingestion-pii-ml]` extra **and** a spaCy NER model (e.g. `python -m spacy download en_core_web_lg`). See [ML-NER PII (Presidio)](#/data/pii-ml). |
+| `--pii-ml-language LANG` | spaCy NLP language code for `--pii-ml` (default `en`). Set to e.g. `tr` on a Turkish corpus AND make sure the matching spaCy model is installed. |
+| `--workers N` | Worker processes for the split-level pipeline (default 1, sequential). Set to 2-4 on multi-split corpora for near-linear speedup. The audit JSON is byte-identical across worker counts (determinism contract). |
+| `--output-format {text,json}` | Stdout renderer. The `json` mode prints a machine-readable summary; `text` is the default human-readable form. |
+
+> **Removed flags (never shipped).** Earlier drafts of this page documented `--strict`, `--dedup-algo`, `--dedup-threshold`, `--skip-pii`, `--skip-secrets`, `--skip-quality`, `--skip-leakage`, `--sample-rate`, `--remove-duplicates`, `--remove-cross-split-overlap`, `--output-clean`, `--show-leakage`, `--minhash-jaccard`, `--minhash-num-perm`, and `--add-row-ids`. None of these exist in the parser. Use the canonical names above; if you need an audit-as-gate behaviour ("warnings → exit non-zero"), wrap the `--output-format json` envelope with your own `jq`-based gate in CI.
 
 ## What's in the report
 

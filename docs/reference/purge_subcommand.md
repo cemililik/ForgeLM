@@ -98,23 +98,70 @@ All six events ride the common envelope from [`audit_event_catalog.md`](audit_ev
 
 ## JSON output envelope
 
-With `--output-format json` every invocation prints exactly one JSON object on stdout. The envelope mirrors the rest of the compliance subcommand family:
+With `--output-format json` every invocation prints exactly one JSON object on stdout. The shape varies by mode — three envelopes in total.
+
+**Row mode (success)** — emitted by `_purge.py:609-617`:
 
 ```json
-{"success": true, "deleted": "row", "files_modified": ["data/train.jsonl"], "bytes_freed": 482, "match_count": 1}
+{
+  "mode": "row",
+  "dry_run": false,
+  "salt_source": "per_dir",
+  "corpus_path": "/abs/path/data/train.jsonl",
+  "matches": 1,
+  "first_line": 142,
+  "bytes_freed": 482,
+  "warnings": []
+}
 ```
 
-Failure envelopes:
+For `--dry-run` invocations the same envelope appears with `dry_run: true` and without `bytes_freed` (the rewrite never happens).
+
+**Run mode (success)** — emitted by `_purge.py:805-811`:
 
 ```json
-{"success": false, "error": "Row id 'ali@example.com' not found in 'data/train.jsonl'."}
+{
+  "mode": "run",
+  "kind": "staging",
+  "dry_run": false,
+  "run_id": "fg-abc123def456",
+  "deleted": ["/abs/path/outputs/run42/final_model.staging.fg-abc123def456"],
+  "bytes_freed": 102400000
+}
 ```
 
-The structured shape is the same for `--check-policy`:
+`deleted` is a **list** of absolute paths actually removed (or, on `--dry-run`, the `would_delete` key carries the same shape and `deleted` is absent).
+
+**`--check-policy` mode** — emitted by `_purge.py:993`:
 
 ```json
-{"success": true, "violations": [{"path": "outputs/run42/", "kind": "ephemeral_artefact", "age_days": 121, "age_source": "audit_genesis", "horizon_days": 90}]}
+{
+  "success": true,
+  "violations": [
+    {
+      "artefact_kind": "ephemeral_artefact",
+      "path": "/abs/path/outputs/run42/compliance/data_audit_report.json",
+      "age_days": 121.4,
+      "horizon_days": 90,
+      "age_source": "audit_genesis"
+    }
+  ],
+  "count": 1
+}
 ```
+
+`age_source` ∈ `{audit_genesis, mtime}` — `audit_genesis` is the canonical age (run's first audit event timestamp); `mtime` is the filesystem fallback flagged for the operator's awareness.
+
+**Failure envelope (any mode)** — `_purge.py:101`:
+
+```json
+{
+  "success": false,
+  "error": "Row id 'ali@example.com' not found in 'data/train.jsonl'."
+}
+```
+
+Note the asymmetry: row/run success envelopes do **not** carry an explicit `success` field (the `mode` discriminator is the success signal); `--check-policy` and the failure envelope do. Operators wiring CI gates should branch on the `mode` key (success path) or `success: false` (failure path), not on the presence/absence of `success: true`.
 
 ## See also
 

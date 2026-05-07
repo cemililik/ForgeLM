@@ -22,7 +22,7 @@ Implementation: [`forgelm/cli/subcommands/_safety_eval.py`](../../forgelm/cli/su
 | `--model PATH` | string (required) | — | HuggingFace Hub ID, local checkpoint dir, or `.gguf` path. See "Supported model formats" below. |
 | `--classifier PATH` | string | `meta-llama/Llama-Guard-3-8B` | Harm classifier — Hub ID or local path. |
 | `--probes JSONL` | path | — | JSONL probe file (each line `{"prompt": ..., "category": ...}`). Mutually exclusive with `--default-probes`. |
-| `--default-probes` | bool | `false` | Use the bundled probe set (`forgelm/safety_prompts/default_probes.jsonl`) — 50 prompts spanning ~14 harm categories. Mutually exclusive with `--probes`. |
+| `--default-probes` | bool | `false` | Use the bundled probe set (`forgelm/safety_prompts/default_probes.jsonl`) — 51 prompts spanning 18 harm categories (`benign-control`, `animal-cruelty`, `biosecurity`, `controlled-substances`, `credentials`, `csam`, `cybersecurity`, `extremism`, `fraud`, `harassment`, `hate-speech`, `jailbreak`, `malware`, `medical-misinfo`, `privacy-violence`, `self-harm`, `sexual-content`, `weapons-violence`). Mutually exclusive with `--probes`. |
 | `--output-dir DIR` | path | cwd | Where per-prompt results + audit log are written. |
 | `--max-new-tokens N` | int | `512` | Maximum tokens per generated response. |
 | `--output-format` | `text` \| `json` | `text` | Renderer. |
@@ -46,8 +46,8 @@ The classifier follows the same loader; the default `meta-llama/Llama-Guard-3-8B
 | Code | Meaning |
 |---|---|
 | `0` | Evaluation completed; safety thresholds passed. |
-| `1` | Config error — missing `--model`, both/neither of `--probes`/`--default-probes`, missing probes file, GGUF model path, missing `[eval]` extra. |
-| `2` | Runtime error — model load failure, classifier load failure, probes file unreadable, broken core dependency import, OOM during generation. |
+| `1` | Config error — missing `--model`, both/neither of `--probes`/`--default-probes`, missing probes file, GGUF model path. |
+| `2` | Runtime error — model load failure, classifier load failure, probes file unreadable, broken core dependency import (`transformers`, `forgelm.safety`), OOM during generation. |
 | `3` | Evaluation completed but safety thresholds **exceeded** — the gate said no. Maps to `EXIT_EVAL_FAILURE` so a regulated CI pipeline can branch on "the gate refused" vs "the run never started" vs "the run crashed". |
 
 Defined in [`forgelm/cli/_exit_codes.py`](../../forgelm/cli/_exit_codes.py): `EXIT_SUCCESS=0`, `EXIT_CONFIG_ERROR=1`, `EXIT_TRAINING_ERROR=2`, `EXIT_EVAL_FAILURE=3`.
@@ -87,12 +87,11 @@ The training-time pre-flight gate emits richer events through the trainer's own 
 
 ```text
 <output-dir>/
-├── safety_report.json     ← per-category confidence + verdict
-├── safety_examples.jsonl  ← worst-flagged responses for review
-└── safety_run.log         ← full classifier outputs
+├── safety_results.json    ← per-run JSON (overall verdict + per-category breakdown + per-prompt verdicts)
+└── safety_trend.jsonl     ← append-only trend log (one entry per run; cross-run regression detection)
 ```
 
-These are the same artefact names the training-time safety gate produces — see [`docs/usermanuals/en/evaluation/safety.md`](../usermanuals/en/evaluation/safety.md) for the schema.
+The training-time safety gate produces the same artefacts at the same names through the shared `forgelm.safety._save_safety_results` (`forgelm/safety.py:399`) + trend-append (`forgelm/safety.py:686-695`). See [`docs/usermanuals/en/evaluation/safety.md`](../usermanuals/en/evaluation/safety.md) for the schema.
 
 ## Examples
 
