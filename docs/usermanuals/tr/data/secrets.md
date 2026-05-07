@@ -9,21 +9,21 @@ Kod repo'ları, destek ticket'ları ve operasyonel log'lar kimlik bilgileri sız
 
 ## Tespit edilenler
 
-| Kategori | Tespit edilen pattern |
-|---|---|
-| **AWS access key'leri** | `AKIA[0-9A-Z]{16}` + secret-key heuristikleri |
-| **GitHub PAT'leri** | `ghp_*`, `gho_*`, `ghu_*`, `ghs_*`, `ghr_*` |
-| **GitHub fine-grained token'lar** | `github_pat_*` |
-| **Slack token'lar** | `xox[bpars]-*` |
-| **OpenAI API key'leri** | `sk-*` (uzunluk ve entropi kontrolüyle) |
-| **Anthropic API key'leri** | `sk-ant-*` |
-| **Google API key'leri** | `AIza*` |
-| **JWT'ler** | Üç-segment base64url (header.payload.signature) |
-| **PEM özel anahtar blokları** | `BEGIN ... PRIVATE KEY...END` (RSA, EC, OpenSSH, PGP) |
-| **Azure storage string'leri** | `DefaultEndpointsProtocol=...` |
-| **Stripe / SendGrid / Twilio** | Servis-özgü pattern'ler |
+Bundled detector `_SECRET_PATTERNS` (`forgelm/data_audit/_secrets.py:35`) altında **9 secret ailesi** ship eder:
 
-Tüm eşleşmeler `[REDACTED-SECRET]` (veya `--secrets-tag-by-category` ile kategori başı etiketler) ile değiştirilir.
+| Pattern anahtarı | Anchor |
+|---|---|
+| `aws_access_key` | `AKIA` / `ASIA` + 16 büyük harf alphanum |
+| `github_token` | `ghp_*`, `gho_*`, `ghu_*`, `ghs_*`, `ghr_*`, `github_pat_*` (tek birleşik aile) |
+| `slack_token` | `xox[baprs]-*` |
+| `openai_api_key` | `sk-*` ve `sk-proj-*` |
+| `google_api_key` | `AIza` + 35 karakter |
+| `jwt` | Kanonik JWT header anahtarlarıyla üç-segment base64url (`eyJ.eyJ.X`-şekilli prose false-positive'lerine karşı savunma) |
+| `openssh_private_key` | `BEGIN OPENSSH/RSA/DSA/EC PRIVATE KEY` … `END …` (tam PEM zarfı) |
+| `pgp_private_key` | `BEGIN PGP PRIVATE KEY BLOCK` … `END …` |
+| `azure_storage_key` | `DefaultEndpointsProtocol=…AccountKey=…` |
+
+Tüm eşleşmeler `mask_secrets()` (`forgelm/data_audit/_secrets.py:106`) tarafından literal `[REDACTED-SECRET]` string'i ile değiştirilir. Detector bugün Anthropic, Stripe, SendGrid ya da Twilio için per-vendor pattern ship **etmez** — bu trafik tipleri olan operatörler regex setini out-of-tree genişletir (Phase 28+ backlog'u bunları opt-in extras olarak ship etmeyi takip ediyor).
 
 ## Hızlı örnek
 

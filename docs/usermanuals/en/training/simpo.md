@@ -26,21 +26,17 @@ model:
   name_or_path: "./checkpoints/sft-base"
   max_length: 4096
 
-datasets:
-  - path: "data/preferences.jsonl"
-    format: "preference"
+data:
+  dataset_name_or_path: "data/preferences.jsonl"
 
 training:
-  trainer: "simpo"
-  epochs: 1
+  trainer_type: "simpo"
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
   learning_rate: 8.0e-7      # ~10× smaller than DPO
-  simpo:
-    beta: 2.0                # higher than DPO's 0.1
-    gamma: 1.0               # margin term
-    loss_type: "sigmoid"
-
-output:
-  dir: "./checkpoints/simpo"
+  simpo_beta: 2.0            # higher than DPO's 0.1 — flat field
+  simpo_gamma: 1.0           # margin term — flat field
+  output_dir: "./checkpoints/simpo"
 ```
 
 ## Dataset format

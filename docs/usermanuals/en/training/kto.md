@@ -24,28 +24,25 @@ model:
   name_or_path: "./checkpoints/sft-base"
   max_length: 4096
 
-datasets:
-  - path: "data/feedback.jsonl"
-    format: "binary"
+data:
+  dataset_name_or_path: "data/feedback.jsonl"
 
 training:
-  trainer: "kto"
-  epochs: 1
+  trainer_type: "kto"
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
   learning_rate: 5.0e-7
-  kto:
-    beta: 0.1
-    desirable_weight: 1.0
-    undesirable_weight: 1.0
-
-output:
-  dir: "./checkpoints/kto"
+  kto_beta: 0.1                  # flat field — KTO's only required tuning knob
+  output_dir: "./checkpoints/kto"
 ```
+
+The `desirable_weight` / `undesirable_weight` knobs from TRL's KTOConfig are not surfaced as ForgeLM config fields today; the trainer uses TRL's defaults (1.0 / 1.0) and operators who need asymmetric weighting wire it via a TRL-side override script. (Phase 28+ backlog.)
 
 ## Dataset format
 
 ```json
-{"prompt": "How do I cancel?", "response": "Just stop paying lol.", "label": false}
-{"prompt": "How do I cancel?", "response": "From Settings → Billing…", "label": true}
+{"prompt": "How do I cancel?", "completion": "Just stop paying lol.", "label": false}
+{"prompt": "How do I cancel?", "completion": "From Settings → Billing…", "label": true}
 ```
 
 KTO needs both classes — at minimum 5-10% of your data should be the minority class. If your dataset is 99% thumbs-up and 1% thumbs-down (which is typical of production telemetry), KTO will struggle to find a useful signal in the rare class.

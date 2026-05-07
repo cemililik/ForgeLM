@@ -25,23 +25,18 @@ ORPO is the only alignment method that works well *directly* from a base model w
 ```yaml
 model:
   name_or_path: "Qwen/Qwen2.5-7B-Instruct"
-  load_in_4bit: true
   max_length: 4096
 
-datasets:
-  - path: "data/preferences.jsonl"
-    format: "preference"
+data:
+  dataset_name_or_path: "data/preferences.jsonl"
 
 training:
-  trainer: "orpo"
-  epochs: 1
-  batch_size: 2
+  trainer_type: "orpo"
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
   learning_rate: 5.0e-6
-  orpo:
-    beta: 0.1                # weight of the odds-ratio penalty
-
-output:
-  dir: "./checkpoints/orpo"
+  orpo_beta: 0.1                 # flat field — weight of the odds-ratio penalty
+  output_dir: "./checkpoints/orpo"
 ```
 
 ## Dataset format

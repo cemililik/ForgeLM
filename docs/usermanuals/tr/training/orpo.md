@@ -25,19 +25,18 @@ ORPO, base modelden *direkt* iyi çalışan tek hizalama yöntemidir — kendi S
 ```yaml
 model:
   name_or_path: "Qwen/Qwen2.5-7B-Instruct"
-  load_in_4bit: true
+  max_length: 4096
 
-datasets:
-  - path: "data/preferences.jsonl"
-    format: "preference"
+data:
+  dataset_name_or_path: "data/preferences.jsonl"
 
 training:
-  trainer: "orpo"
-  epochs: 1
-  batch_size: 2
+  trainer_type: "orpo"
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
   learning_rate: 5.0e-6
-  orpo:
-    beta: 0.1
+  orpo_beta: 0.1                 # düz field — odds-ratio cezasının ağırlığı
+  output_dir: "./checkpoints/orpo"
 ```
 
 ## Veri formatı

@@ -53,27 +53,34 @@ flowchart TD
 
 ```yaml
 model:
-  name_or_path: "./checkpoints/sft-base"
+  name_or_path: "./checkpoints/sft-base"   # SFT çıktısı ya da HF model
   max_length: 4096
 
 lora:
   r: 16
   alpha: 32
+  method: "lora"
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
-datasets:
-  - path: "data/preferences.jsonl"
-    format: "preference"
+data:
+  dataset_name_or_path: "data/preferences.jsonl"
 
 training:
-  trainer: "dpo"
-  epochs: 1
-  batch_size: 2
-  learning_rate: 5.0e-6                    # SFT'in ~10× küçük
-  dpo:
-    beta: 0.1
+  trainer_type: "dpo"
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4
+  learning_rate: 5.0e-6                    # SFT'in ~10× küçüğü
+  dpo_beta: 0.1                            # KL gücü (düz field — `dpo:` altında nested değil)
+  output_dir: "./checkpoints/dpo"
+```
 
-output:
-  dir: "./checkpoints/dpo"
+Çalıştır:
+
+```shell
+$ forgelm --config configs/dpo.yaml --dry-run
+$ forgelm --config configs/dpo.yaml --fit-check
+$ forgelm --config configs/dpo.yaml
 ```
 
 ## Veri formatı
@@ -158,20 +165,25 @@ sequenceDiagram
 
 ```yaml
 training:
-  trainer: "dpo"
-  dpo: { beta: 0.1 }
+  trainer_type: "dpo"
+  dpo_beta: 0.1
 
 evaluation:
+  require_human_approval: true                    # Madde 14 gözetim kapısı
+  auto_revert: true                               # regresyonda geri alır
   safety:
     enabled: true
-    model: "meta-llama/Llama-Guard-3-8B"
-    block_categories: ["S1", "S2", "S5", "S10"]
+    classifier: "meta-llama/Llama-Guard-3-8B"
+    track_categories: true                        # 14 Llama-Guard kategorisinin hepsini izler
+    severity_thresholds:
+      S1: 0.05
+      S2: 0.05
+      S5: 0.10
+      S10: 0.05
   benchmark:
-    tasks: ["truthfulqa", "hellaswag"]
-    floors: { truthfulqa: 0.45 }
-
-compliance:
-  human_approval: true                            # Article 14 kapısı
+    enabled: true
+    tasks: ["truthfulqa_mc1", "hellaswag"]
+    min_score: 0.45                               # ortalama görevler üzerinde tek taban
 ```
 
 Post-train Llama Guard puanları bloklu kategorilerde regresyon gösterirse ForgeLM otomatik olarak DPO öncesi checkpoint'e döner.

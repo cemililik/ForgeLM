@@ -36,24 +36,21 @@ model:
   name_or_path: "./checkpoints/sft-base"
   max_length: 4096
 
-datasets:
-  - path: "data/math-prompts.jsonl"
-    format: "reward"
+data:
+  dataset_name_or_path: "data/math-prompts.jsonl"
 
 training:
-  trainer: "grpo"
-  epochs: 1
-  batch_size: 1
+  trainer_type: "grpo"
+  num_train_epochs: 1
+  per_device_train_batch_size: 1
   learning_rate: 1.0e-6
-  grpo:
-    group_size: 8                  # samples per prompt
-    beta: 0.04                     # KL strength
-    reward_function: "my_reward.score"
-    format_reward: 0.2             # weight of built-in format shaping
-
-output:
-  dir: "./checkpoints/grpo"
+  grpo_num_generations: 8         # samples per prompt — flat field
+  grpo_max_completion_length: 512 # cap per generation
+  grpo_reward_model: "my_reward.score"  # importable callable; ForgeLM ships a built-in format/length fallback
+  output_dir: "./checkpoints/grpo"
 ```
+
+Built-in format/length reward shaping is always-on as a fallback (`forgelm/grpo_rewards.py`); set `grpo_reward_model` only when you have a domain-specific scorer. The TRL-side `beta` (KL strength) is governed by TRL's defaults — Phase 28+ backlog tracks surfacing it as a flat field.
 
 ```python
 # my_reward.py

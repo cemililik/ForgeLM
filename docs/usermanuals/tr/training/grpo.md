@@ -36,21 +36,21 @@ model:
   name_or_path: "./checkpoints/sft-base"
   max_length: 4096
 
-datasets:
-  - path: "data/math-prompts.jsonl"
-    format: "reward"
+data:
+  dataset_name_or_path: "data/math-prompts.jsonl"
 
 training:
-  trainer: "grpo"
-  epochs: 1
-  batch_size: 1
+  trainer_type: "grpo"
+  num_train_epochs: 1
+  per_device_train_batch_size: 1
   learning_rate: 1.0e-6
-  grpo:
-    group_size: 8
-    beta: 0.04
-    reward_function: "my_reward.score"
-    format_reward: 0.2
+  grpo_num_generations: 8         # prompt başına örnek — düz field
+  grpo_max_completion_length: 512 # üretim başına üst sınır
+  grpo_reward_model: "my_reward.score"  # import edilebilir callable; ForgeLM yerleşik format/length fallback'i ship eder
+  output_dir: "./checkpoints/grpo"
 ```
+
+Yerleşik format/length reward shaping fallback olarak her zaman aktiftir (`forgelm/grpo_rewards.py`); `grpo_reward_model`'i yalnızca domain-spesifik bir scorer'ınız varsa set edin. TRL-tarafı `beta` (KL gücü) TRL varsayılanlarına bağlı — Phase 28+ backlog'u bunu düz field olarak yüzeylemeyi takip ediyor.
 
 ```python
 # my_reward.py

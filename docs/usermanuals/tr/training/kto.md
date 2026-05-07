@@ -24,25 +24,25 @@ model:
   name_or_path: "./checkpoints/sft-base"
   max_length: 4096
 
-datasets:
-  - path: "data/feedback.jsonl"
-    format: "binary"
+data:
+  dataset_name_or_path: "data/feedback.jsonl"
 
 training:
-  trainer: "kto"
-  epochs: 1
+  trainer_type: "kto"
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
   learning_rate: 5.0e-7
-  kto:
-    beta: 0.1
-    desirable_weight: 1.0
-    undesirable_weight: 1.0
+  kto_beta: 0.1                  # düz field — KTO'nun tek zorunlu tuning ayarı
+  output_dir: "./checkpoints/kto"
 ```
+
+TRL'in `KTOConfig` `desirable_weight` / `undesirable_weight` ayarları ForgeLM config field'ı olarak yüzeylenmedi; trainer TRL varsayılanlarını (1.0 / 1.0) kullanır. Asimetrik ağırlıklandırmaya ihtiyacı olan operatörler bunu TRL-tarafı bir override script'i ile bağlar (Phase 28+ backlog'u).
 
 ## Veri formatı
 
 ```json
-{"prompt": "Aboneliği nasıl iptal ederim?", "response": "Sadece ödemeyi durdur.", "label": false}
-{"prompt": "Aboneliği nasıl iptal ederim?", "response": "Ayarlar → Faturalandırma…", "label": true}
+{"prompt": "Aboneliği nasıl iptal ederim?", "completion": "Sadece ödemeyi durdur.", "label": false}
+{"prompt": "Aboneliği nasıl iptal ederim?", "completion": "Ayarlar → Faturalandırma…", "label": true}
 ```
 
 KTO her iki sınıftan da örnek bekler — minimum %5-10 azınlık sınıfı. Üretim telemetry'si genelde %99 thumbs-up / %1 thumbs-down olduğundan KTO nadir sınıfta sinyal bulmakta zorlanır.

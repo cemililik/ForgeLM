@@ -61,13 +61,13 @@ evaluation:
     mode: "single-rubric"
     rubric:
       criteria:
-        - name: "yardımseverlik"
+        - name: "helpfulness"          # Identifier'lar İngilizce kalır (localization.md kuralı: CLI/code/config-key isimleri çevrilmez)
           description: "Yanıt kullanıcının problemini çözüyor mu?"
           scale: 5
-        - name: "ton"
+        - name: "tone"
           description: "Müşteri destek için ton uygun mu?"
           scale: 5
-        - name: "doğruluk"
+        - name: "factual_accuracy"
           description: "İddialar doğru mu?"
           scale: 5
 ```
@@ -77,10 +77,11 @@ evaluation:
 ```json
 {
   "rubric_means": {
-    "yardımseverlik": 4.2,
-    "ton": 4.7,
-    "doğruluk": 3.8
-  }
+    "helpfulness": 4.2,
+    "tone": 4.7,
+    "factual_accuracy": 3.8
+  },
+  "rubric_distributions": {...}
 }
 ```
 
