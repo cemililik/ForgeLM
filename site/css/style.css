@@ -1591,7 +1591,18 @@ section { padding: 5rem 0; }
 .wizard-dialog {
   position: relative;
   width: min(1080px, 100%);
-  max-height: min(720px, calc(100vh - 4rem));
+  /* Use a *definite* height (not max-height) so the inner flex/grid
+     children get a resolvable frame to overflow against. With only
+     ``max-height``, ``flex: 1`` on .wizard-body resolves its
+     ``flex-basis: 0%`` against an indefinite parent, the body sizes
+     to content, and the step pane's ``overflow-y: auto`` never fires.
+     This was the root cause of the "use-case / model / dataset
+     screens won't scroll" bug — those steps have just enough content
+     to overflow on smaller laptops, but the dialog was free to grow
+     so nothing clipped. Fixing the dialog at 720px (or 100vh − 4rem
+     on small screens) gives the body + pane a definite frame and
+     scroll fires reliably. */
+  height: min(720px, calc(100vh - 4rem));
   background: var(--bg-card);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
@@ -1707,13 +1718,20 @@ section { padding: 5rem 0; }
 }
 
 .wizard-step-pane {
-  padding: 2rem 2rem 1.4rem;
+  /* Padding is symmetric (2rem all around) so the LAST item in a
+     scrolled pane has the same breathing room as the FIRST.
+     Previously the bottom was 1.4rem and the final hint paragraph
+     hugged the bottom edge — readable but visually cramped, and on
+     touch devices the scrollbar overlapped the last word. */
+  padding: 2rem;
   overflow-y: auto;
   overflow-x: hidden;
+  /* ``min-height: 0`` plus the dialog's definite height (above)
+     makes ``overflow-y: auto`` fire on every step. */
   min-height: 0;
-  max-height: 100%;
-  /* Step content can grow tall on Step 6 (compliance fields); the
-     pane scrolls independently of the YAML preview. */
+  /* ``scrollbar-gutter: stable`` reserves space for the scrollbar so
+     the layout doesn't reflow when content grows past the fold. */
+  scrollbar-gutter: stable;
 }
 
 .wizard-yaml-pane {
