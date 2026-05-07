@@ -133,6 +133,10 @@
       } else {
         document.documentElement.removeAttribute('data-theme');
       }
+      // Keep the toggle's ARIA state in sync so screen readers
+      // announce the current mode. ``aria-pressed=true`` = light mode
+      // is engaged; ``false`` = default dark.
+      if (btn) btn.setAttribute('aria-pressed', theme === 'light' ? 'true' : 'false');
     }
 
     try { stored = localStorage.getItem(THEME_PREF_NAME); } catch (_) {}

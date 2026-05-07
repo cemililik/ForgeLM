@@ -716,7 +716,12 @@ section { padding: 5rem 0; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(20, 24, 35, 0.72);
+  /* Theme-aware: previously hardcoded a dark rgba background with
+     ``color: var(--text)``. In light mode that resolved to dark text
+     on dark bg, so the chevron disappeared. Mirror the theme by
+     using the same elevated-surface tokens the rest of the chrome
+     uses. */
+  background: var(--bg-elev);
   border: 1px solid var(--border-strong);
   border-radius: 50%;
   color: var(--text);
@@ -804,7 +809,11 @@ section { padding: 5rem 0; }
   border-bottom: 1px solid var(--code-border);
   font-family: var(--font-mono);
   font-size: 0.78rem;
-  color: var(--text-muted);
+  /* Theme-locked: this bar is a dark code surface in BOTH themes,
+     so the title text uses --code-comment (theme-locked grey) — not
+     --text-muted, which flips to a dim grey-on-white in light mode
+     and disappears against the dark gradient. */
+  color: var(--code-comment);
 }
 .terminal-bar .dots {
   display: flex;
@@ -829,13 +838,19 @@ section { padding: 5rem 0; }
   overflow-x: auto;
 }
 .terminal-body .prompt { color: var(--ember-bright); }
-.terminal-body .cmd { color: var(--text); }
+/* The terminal background is theme-locked dark (--code-bg stays dark
+   in both themes), so token colors here MUST use theme-locked code-*
+   variables — never page text vars (--text / --text-secondary /
+   --text-muted) which flip to dark in light mode and become
+   invisible on the dark terminal. The ``forgelm`` command itself
+   was disappearing in light mode for exactly this reason. */
+.terminal-body .cmd { color: var(--code-text); }
 .terminal-body .flag { color: var(--steel-bright); }
 .terminal-body .arg { color: #6ee7b7; }
 .terminal-body .comment { color: var(--code-comment); font-style: italic; }
 .terminal-body .ok { color: var(--success); }
 .terminal-body .warn { color: var(--warn); }
-.terminal-body .out { color: var(--text-secondary); }
+.terminal-body .out { color: var(--code-text); opacity: 0.78; }
 .terminal-body .blink {
   display: inline-block;
   width: 8px; height: 1.05em;
@@ -1099,7 +1114,11 @@ section { padding: 5rem 0; }
   background: rgba(255,255,255,.03);
   font-family: var(--font-mono);
   font-size: 0.78rem;
-  color: var(--text-muted);
+  /* Theme-locked: the parent .code-block uses --code-bg (always dark
+     in both themes), so the language tag must use a theme-locked grey
+     too — --text-muted resolves to dim grey on light theme and
+     disappears here. */
+  color: var(--code-comment);
 }
 .code-block-header .lang {
   display: inline-flex;
@@ -1131,7 +1150,10 @@ section { padding: 5rem 0; }
 .copy-btn {
   background: none;
   border: 1px solid var(--code-border);
-  color: var(--text-muted);
+  /* Theme-locked: lives on the dark .code-block-header bar in both
+     themes. --code-comment is the in-code default grey — readable
+     against the dark gradient in both light and dark page themes. */
+  color: var(--code-comment);
   padding: 0.35rem 0.7rem;
   border-radius: 4px;
   cursor: pointer;
@@ -1768,7 +1790,10 @@ section { padding: 5rem 0; }
   border-bottom: 1px solid var(--code-border);
   font-family: var(--font-mono);
   font-size: 0.78rem;
-  color: var(--text-muted);
+  /* Theme-locked: dark gradient bar in BOTH themes — see .terminal-bar
+     above for the same constraint. --code-comment survives the light
+     toggle. */
+  color: var(--code-comment);
 }
 .wizard-yaml-toggle {
   display: inline-flex;
@@ -1800,16 +1825,19 @@ section { padding: 5rem 0; }
   background: transparent;
   border: 1px solid var(--code-border);
   border-radius: var(--radius-sm);
-  color: var(--text-muted);
+  /* Theme-locked: lives on the dark .wizard-yaml-header in both
+     themes. Hover stays on the dark surface so the button doesn't
+     flash light-on-light when the page is in light mode. */
+  color: var(--code-comment);
   font: inherit;
   padding: 0.2rem 0.5rem;
   cursor: pointer;
   transition: background var(--transition), border-color var(--transition), color var(--transition);
 }
 .wizard-yaml-copy:hover {
-  background: var(--bg-elev);
-  border-color: var(--border-strong);
-  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--code-text);
+  color: var(--code-text);
 }
 .wizard-yaml-copy.is-copied {
   border-color: var(--success);
@@ -1838,7 +1866,7 @@ section { padding: 5rem 0; }
 .wizard-yaml-output .yaml-number { color: var(--code-number); }
 .wizard-yaml-output .yaml-bool { color: var(--code-fn); }
 .wizard-yaml-output .yaml-comment { color: var(--code-comment); font-style: italic; }
-.wizard-yaml-output .yaml-null { color: var(--text-muted); font-style: italic; }
+.wizard-yaml-output .yaml-null { color: var(--code-comment); font-style: italic; }
 
 /* Footer: prev / step name / next */
 .wizard-footer {
@@ -3241,3 +3269,25 @@ body:not(.i18n-ready) { animation: i18n-failsafe 0.8s linear forwards; }
 [data-theme="light"] .guide-content thead { background: #f7f8fb; }
 [data-theme="light"] .guide-content tbody tr:hover { background: #fafbfd; }
 [data-theme="light"] .guide-content .mermaid { background: #fafbfd; }
+
+/* WCAG 1.4.3 (AA) contrast fixes — accent tokens that pass on dark
+   backgrounds (--ember-bright #fb923c, --steel-bright #38bdf8) drop
+   below 4.5:1 on the elevated light backgrounds (#f7f8fb / #fff /
+   tinted pills). Swap them for the corresponding ``-deep`` tokens in
+   light mode so inline code, use-case tags, article numbers and
+   table-first-column code keep their semantic colour but pass AA. */
+[data-theme="light"] code:not(pre code),
+[data-theme="light"] .guide-content :not(pre) > code {
+  color: var(--ember-deep);
+}
+[data-theme="light"] .use-case-tag,
+[data-theme="light"] .article-num,
+[data-theme="light"] .guide-content td:first-child code {
+  color: var(--steel-deep);
+}
+
+/* Hide the wizard modal in print output too — without this, a left-
+   open wizard would print over the page content. */
+@media print {
+  .wizard-modal { display: none !important; }
+}
