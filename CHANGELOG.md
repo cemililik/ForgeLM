@@ -89,6 +89,69 @@ All notable changes to ForgeLM are documented here.
 
 ### Fixed
 
+- **Phase 22 wizard — PR #40 review-cycle 1 (2026-05-09).**
+  Closes the inline-comment + verified-finding sweep on
+  `feat/phase22-wizard-modernisation`:
+  - **Critical:** `torch.cuda.get_device_properties(0).total_mem` →
+    `total_memory` in `_io.py::_detect_hardware` (the previous
+    attribute does not exist; welcome step crashed on real CUDA
+    hosts).
+  - **Critical:** `WizardReset` in `_orchestrator.py::_drive_wizard_steps`
+    now re-loops with a fresh `_WizardState()` instead of returning;
+    returning made `_run_full_wizard` treat the reset as a completed
+    run and try to save an empty config.
+  - **Major:** `WizardBack` now restores `state.config` from a
+    `copy.deepcopy` snapshot taken before the step ran — partial
+    mutations made by a half-completed step would otherwise leak into
+    the previous step's prompts.
+  - **Major:** BYOD `_prompt_dataset_path_with_ingest_offer` now
+    validates the typed value as a directory of ingestible docs, a
+    JSONL/JSON file, or an HF Hub ID before accepting; bare typos
+    no longer silently become `data.dataset_name_or_path`.
+  - **Major:** Article 9 / Article 10 strict-tier collectors now
+    re-prompt until non-empty for the EU AI Act mandatory free-text
+    fields (`intended_use`, `foreseeable_misuse`, `mitigation_measures`,
+    `collection_method`, `annotation_process`, `known_biases`).
+    Previously empty values silently slipped through and surfaced as
+    Pydantic ConfigError at load time.
+  - **Major:** `webhook.notify_on_start` defaults to `False` in the
+    wizard to mirror `site/js/wizard.js` — start notifications are
+    noisy and most operators want only success / failure pings.
+  - **Major:** `_step_model` now preserves a use-case preset model
+    that isn't in `POPULAR_MODELS` (the operator's earlier choice
+    becomes the default for the custom slot).
+  - **Medium:** `_save_config_to_file` + `_print_wizard_summary`
+    use `yaml.safe_dump(allow_unicode=True)` instead of
+    `yaml.dump`, with explicit UTF-8 encoding on the file
+    handles. Prevents `!!python/object` tags from leaking into the
+    generated YAML when a collector accidentally returns a Path or
+    set, and stops mojibake on non-ASCII compliance fields.
+  - **Medium:** `wizard_state.yaml` is `chmod 0o600` after each write
+    — the snapshot can carry compliance metadata operators consider
+    sensitive.
+  - **Medium:** `_collect_compliance_metadata` collects
+    `risk_classification` first; downstream Article 9 / 10 collectors
+    branch on the chosen tier and the strict-tier hint surfaces up
+    front instead of after Annex IV §1.
+  - **Medium:** `_prompt_choice` guards against negative or
+    out-of-range numeric input by falling back to the default
+    instead of raising IndexError.
+  - **Minor:** BYOD shell hints (`forgelm ingest …`, `forgelm audit …`)
+    pass user-supplied paths through `shlex.quote` so paths with
+    spaces / metacharacters render copy-paste-safe.
+  - **Minor:** `_orchestrator._drive_wizard_steps` snapshots state
+    via `copy.deepcopy` instead of `json.loads(json.dumps(...))`
+    (the previous form silently lost tuples / sets).
+  - **Docs:** `docs/design/wizard_mode.md` ordered list switched
+    from two-space to single-space markers (MD030); `docs/reference/
+    architecture{,-tr}.md` heading `wizard.py` → `wizard/` to match
+    the Phase 22 sub-package layout.
+  - **Tests:** `tests/test_wizard_phase22.py` gains
+    `TestStepMachineDriver`, `TestMaybeResumeState`, `TestStepWelcome`
+    classes (5 + 3 + 2 cases) exercising the orchestrator end-to-end
+    + back / reset / persistence / resume — `_orchestrator.py`
+    coverage 14 % → 30 %.
+
 ### Removed
 
 ## [0.5.5] — 2026-05-06
