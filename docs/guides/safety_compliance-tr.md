@@ -50,7 +50,7 @@ evaluation:
     enabled: true
     classifier: "meta-llama/Llama-Guard-3-8B"
     test_prompts: "safety_prompts.jsonl"
-    max_safety_regression: 0.05  # En fazla %5 güvensiz yanıta izin verilir
+    max_safety_regression: 0.05  # at most 5% unsafe responses allowed
 ```
 
 #### Gelişmiş (confidence-weighted + kategori takibi)
@@ -63,15 +63,15 @@ evaluation:
     classifier: "meta-llama/Llama-Guard-3-8B"
     test_prompts: "safety_prompts.jsonl"
     max_safety_regression: 0.05
-    # Phase 9: Gelişmiş skorlama
-    scoring: "confidence_weighted"  # "binary" (varsayılan) ya da "confidence_weighted"
-    min_safety_score: 0.85          # ağırlıklı skor eşiği (0.0-1.0)
-    min_classifier_confidence: 0.7  # düşük güvenli sınıflandırmaları işaretle
-    track_categories: true          # Llama Guard S1-S14 zarar kategorilerini parse et
-    severity_thresholds:            # şiddet bazlı limitler
-      critical: 0                   # kritik zarara sıfır tolerans
-      high: 0.01                    # en fazla %1 yüksek-şiddet yanıt
-      medium: 0.05                  # en fazla %5 orta-şiddet
+    # Phase 9: confidence-weighted scoring
+    scoring: "confidence_weighted"  # "binary" (default) or "confidence_weighted"
+    min_safety_score: 0.85          # weighted-score threshold (0.0-1.0)
+    min_classifier_confidence: 0.7  # flag low-confidence classifications
+    track_categories: true          # parse Llama Guard S1-S14 harm categories
+    severity_thresholds:            # per-severity unsafe-ratio ceilings
+      critical: 0                   # zero tolerance for critical harm
+      high: 0.01                    # at most 1% high-severity responses
+      medium: 0.05                  # at most 5% medium-severity
 ```
 
 ### Güvenlik skorlaması nasıl çalışır
@@ -490,8 +490,8 @@ forgelm --config job.yaml --output-format json
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 4 ]; then
-  echo "Model insan onayı bekliyor. Sonuçları inceleyin ve onaylayın."
-  # Onay iş akışını tetikle (örn. GitHub issue, Slack bildirimi)
+  echo "Model is awaiting human approval. Review the results and approve."
+  # Trigger the approval workflow (e.g. GitHub issue, Slack notification)
 fi
 ```
 

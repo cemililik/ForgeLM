@@ -108,8 +108,15 @@ Each `human_approval.granted` entry carries:
   trainer).
 - `run_id` — links back to the training run that produced the model.
 - `prev_hash` + `_hmac` — chain integrity.
-- `config_hash` (per-run manifest sidecar field) — which config was used; an auditor can
-  diff against the YAML in `git log`.
+- The training-run identity (model SHA, adapter SHA, dataset
+  fingerprint) lives in the `pipeline.training_started` event payload,
+  not in the `human_approval.granted` entry itself; an auditor pivots
+  by `run_id` to the earlier event and diffs the YAML in `git log`.
+  (Note: `config_hash` is read forward-compatibly by `forgelm
+  approvals` — `forgelm/cli/subcommands/_approvals.py` falls back to a
+  legacy `config_fingerprint` key — but no producer in the current
+  codebase emits either field; the read path is wired for a future
+  emitter. See `docs/reference/approvals_subcommand.md`.)
 
 ### Q2: "Show me the change-control evidence — who approved this model?"
 

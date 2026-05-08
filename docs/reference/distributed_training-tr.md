@@ -129,8 +129,10 @@ PyTorch Fully Sharded Data Parallel (FSDP), DeepSpeed'e alternatif olarak PyTorc
 distributed:
   strategy: "fsdp"
   fsdp_strategy: "full_shard"
-  fsdp_auto_wrap: true
-  fsdp_offload: false
+  fsdp_auto_wrap: true                    # Auto-wrap transformer layers
+  fsdp_offload: false                     # Offload parameters AND gradients (between forward/backward) to CPU
+  fsdp_backward_prefetch: "backward_pre"  # Prefetch strategy
+  fsdp_state_dict_type: "FULL_STATE_DICT" # State dict handling
 ```
 
 ### FSDP'yi DeepSpeed yerine ne zaman seçmeli

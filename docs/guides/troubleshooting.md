@@ -385,7 +385,7 @@ docker run --gpus all --shm-size=16g ...
 | `1` | Config error | Fix your YAML |
 | `2` | Training error | Check GPU, memory, dependencies |
 | `3` | Evaluation failure | Model quality below threshold — adjust thresholds or improve data |
-| `4` | Awaiting approval | Human review required — review results in `checkpoints/compliance/` and redeploy when ready |
+| `4` | Awaiting approval | Human review required — run `forgelm approvals --show <run_id> --output-dir <dir>` to inspect the staging directory, then `forgelm approve <run_id> --output-dir <dir>` to promote or `forgelm reject <run_id> --output-dir <dir>` to discard. The staging path is `<output_dir>/final_model.staging.<run_id>/`. |
 
 ---
 

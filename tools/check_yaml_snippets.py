@@ -46,15 +46,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
-# Lazy: only need Pydantic + YAML when we actually validate. If forgelm
-# isn't importable (e.g. during a lint-only CI step that hasn't installed
-# the package), we degrade to a "skip with WARNING" path so the guard
-# never blocks unrelated checks.
+# Fail closed: a CI drift guard that silently passes on import failure
+# can hide a broken environment forever. PyYAML is a declared runtime
+# dependency (`pyproject.toml`); forgelm is the package being audited.
+# Both must be importable for the guard to be meaningful — exit
+# non-zero with an install hint instead of swallowing the failure.
 try:
     import yaml
-except ImportError as exc:  # pragma: no cover — defensive for lint-only envs
-    print(f"check_yaml_snippets: PyYAML not importable ({exc}); skipping.", file=sys.stderr)
-    sys.exit(0)
+except ImportError as exc:  # pragma: no cover — defensive
+    print(
+        f"check_yaml_snippets: PyYAML not importable ({exc}). "
+        "Install with `pip install pyyaml` (declared runtime dependency).",
+        file=sys.stderr,
+    )
+    sys.exit(2)
 
 try:
     from pydantic import ValidationError
@@ -62,10 +67,11 @@ try:
     from forgelm.config import ForgeConfig  # type: ignore
 except ImportError as exc:  # pragma: no cover — defensive
     print(
-        f"check_yaml_snippets: forgelm.config not importable ({exc}); skipping.",
+        f"check_yaml_snippets: forgelm.config not importable ({exc}). "
+        "Install ForgeLM (`pip install -e .`) before running this guard.",
         file=sys.stderr,
     )
-    sys.exit(0)
+    sys.exit(2)
 
 
 _FENCE_OPEN_RE = re.compile(r"^```yaml\s*$", re.MULTILINE)

@@ -175,7 +175,7 @@ def audit_corpus(**ctx):
         workers=4,
     )
     if report.near_duplicate_summary["pairs"] > 100:
-        raise ValueError(f"too many duplicates: {report.near_duplicate_summary["pairs"]}")
+        raise ValueError(f"too many duplicates: {report.near_duplicate_summary['pairs']}")
     return {"samples": report.total_samples, "duplicates": report.near_duplicate_summary["pairs"]}
 
 audit_task = PythonOperator(

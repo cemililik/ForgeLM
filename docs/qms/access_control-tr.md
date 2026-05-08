@@ -230,7 +230,7 @@ webhook:
 
 ForgeLM webhook gövdelerini HMAC ile **imzalamaz** — `WebhookConfig`
 üzerinde `webhook.secret_env` alanı yoktur (bkz.
-`forgelm/config.py:641`). Hedef-tarafı atıf (a) HTTPS +
+`forgelm/config.py::WebhookConfig`). Hedef-tarafı atıf (a) HTTPS +
 `webhook.url_env` üzerinden URL-gizliliğine, (b) curated payload
 içinde taşınan `FORGELM_OPERATOR` kimliğine, ve (c) alıcı sistemin
 kendi bearer-token / imzalı-istek kontrollerine (Slack signing

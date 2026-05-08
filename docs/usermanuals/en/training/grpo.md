@@ -76,37 +76,30 @@ ForgeLM ships with a default reward shaper that rewards:
 - **Length compliance** — outputs neither too short nor rambling.
 - **Reasoning structure** — chain-of-thought before the final answer.
 
-The shaper composes with your custom reward:
-
-```yaml
-training:
-  grpo:
-    reward_function: "my_reward.score"   # 80% weight
-    format_reward: 0.2                   # 20% weight on the shaper
-    answer_pattern: '\\boxed\\{(.*?)\\}' # regex for the "final answer"
-```
+The built-in shaper composes with `grpo_reward_model` automatically — when both are present, the user-supplied reward dominates and the format/length shaper provides a small always-on fallback signal. There are no `format_reward` weight or `answer_pattern` knobs to configure (those live inside `forgelm/grpo_rewards.py`). To extend the format-matching regex set, fork that module.
 
 ## Configuration parameters
 
+GRPO knobs are flat fields under `training:` (no nested `training.grpo:` block — see `forgelm/config.py` `TrainingConfig`):
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `group_size` | int | `8` | Responses sampled per prompt. Higher = more stable advantage estimates, more compute. |
-| `beta` | float | `0.04` | KL regularisation. GRPO's beta is much smaller than DPO's because the gradient signal is amplified. |
-| `reward_function` | string | `null` | Dotted path to your reward function. |
-| `format_reward` | float | `0.0` | Weight of the built-in format shaper. `0.2` is sensible. |
-| `answer_pattern` | string | `null` | Regex for extracting the "final answer". Used by the format shaper. |
-| `temperature` | float | `0.9` | Sampling temperature. Higher = more diverse responses. |
-| `max_completion_length` | int | `2048` | Cap on generated response length. |
+| `training.grpo_num_generations` | int | `4` | Responses sampled per prompt. Higher = more stable advantage estimates, more compute. |
+| `training.grpo_max_completion_length` | int | `512` | Cap on generated response length (legacy alias `grpo_max_new_tokens` accepted). |
+| `training.grpo_reward_model` | `Optional[str]` | `null` | Dotted-path callable OR HF Hub reward model ID. When `null`, the built-in `forgelm/grpo_rewards.py` format/length shaper is used as the sole reward signal. |
+| `training.trainer_type` | string | `"sft"` | Set to `"grpo"` to enable the GRPO training path. |
+
+ForgeLM does **not** expose `group_size` (it's `grpo_num_generations`), `beta`, `reward_function`, `format_reward`, `answer_pattern`, or `temperature` as configurable GRPO fields. KL `beta` and sampling `temperature` are governed by TRL's defaults; surfacing them is on the Phase 28+ backlog.
 
 ## Compute and memory
 
 GRPO is the heaviest trainer:
 
-- Generates `group_size` responses per prompt (default 8) — that's 8× the inference cost of DPO.
+- Generates `grpo_num_generations` responses per prompt (default 4) — that's 4× the inference cost of DPO.
 - Keeps a reference model in memory.
 - Reward computation may load additional models (judge LLM, reward model).
 
-| Model | LoRA | `group_size` | Approx VRAM (QLoRA) |
+| Model | LoRA | `grpo_num_generations` | Approx VRAM (QLoRA) |
 |---|---|---|---|
 | 7B | yes | 8 | 18 GB |
 | 13B | yes | 8 | 28 GB (needs 40 GB) |
@@ -119,7 +112,7 @@ GRPO is the heaviest trainer:
 :::
 
 :::warn
-**`group_size` too small.** With `group_size=2`, GRPO's group-relative advantage estimate has no statistical power. Use 4 minimum, 8+ for stability.
+**`grpo_num_generations` too small.** With `grpo_num_generations=2`, GRPO's group-relative advantage estimate has no statistical power. Use 4 minimum, 8+ for stability.
 :::
 
 :::warn

@@ -51,11 +51,14 @@ training:
 
 ## Parametreler
 
+ORPO knob'ları `training:` altında flat alanlardır (nested `training.orpo:` bloğu YOK — bkz. `forgelm/config.py` `TrainingConfig`):
+
 | Parametre | Tip | Vars. | Açıklama |
 |---|---|---|---|
-| `beta` | float | `0.1` | Odds-ratio ceza terimi gücü. Yüksek = çok tercih kayması. |
-| `loss_type` | string | `"sigmoid"` | Şu an sadece `sigmoid`. |
-| `sft_weight` | float | `1.0` | Birleşik loss'ta SFT teriminin ağırlığı. |
+| `training.orpo_beta` | float | `0.1` | Odds-ratio ceza terimi gücü. Yüksek = güçlü tercih kayması. |
+| `training.trainer_type` | string | `"sft"` | ORPO eğitim yolunu açmak için `"orpo"` olarak set edin. |
+
+ForgeLM `loss_type` veya `sft_weight`'i yapılandırılabilir alan olarak **sunmaz** — TRL'in `ORPOTrainer`'ı kütüphane varsayılanlarıyla çalışır (sigmoid loss, SFT ağırlığı = 1.0).
 
 ## Bellek
 

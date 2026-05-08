@@ -51,11 +51,14 @@ training:
 
 ## Configuration parameters
 
+ORPO knobs are flat fields under `training:` (no nested `training.orpo:` block — see `forgelm/config.py` `TrainingConfig`):
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `beta` | float | `0.1` | Strength of the odds-ratio penalty term. Higher = more preference shift. |
-| `loss_type` | string | `"sigmoid"` | Currently only `sigmoid` is supported. |
-| `sft_weight` | float | `1.0` | Weight of the SFT term in the combined loss. Lower for emphasis on preferences. |
+| `training.orpo_beta` | float | `0.1` | Odds-ratio penalty strength. Higher = stronger preference shift. |
+| `training.trainer_type` | string | `"sft"` | Set to `"orpo"` to enable the ORPO training path. |
+
+ForgeLM does **not** expose `loss_type` or `sft_weight` as configurable fields — TRL's `ORPOTrainer` runs with library defaults (sigmoid loss, SFT weight = 1.0).
 
 ## Compute and memory
 

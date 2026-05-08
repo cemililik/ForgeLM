@@ -159,7 +159,7 @@ if [ "$pending" -gt 0 ]; then
 fi
 ```
 
-Operators wiring a richer policy (e.g. "block deploy if any pending decision is older than N hours") parse the `age` field. Treat the text output as advisory only — the JSON envelope is the stable contract.
+Operators wiring a richer policy (e.g. "block deploy if any pending decision is older than N hours") parse the `age_seconds` field — e.g. `jq '[.pending[] | select(.age_seconds > 86400)] | length'` for "anything older than a day". Treat the text output as advisory only — the JSON envelope is the stable contract.
 
 ## See also
 

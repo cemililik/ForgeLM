@@ -407,7 +407,7 @@ docker run --gpus all --shm-size=16g ...
 | `1` | Config hatası | YAML'inizi düzeltin |
 | `2` | Eğitim hatası | GPU, bellek, bağımlılıkları kontrol edin |
 | `3` | Değerlendirme arızası | Model kalitesi eşiğin altında — eşikleri ayarlayın ya da veriyi iyileştirin |
-| `4` | Onay bekleniyor | İnsan incelemesi gerekli — `checkpoints/compliance/`'taki sonuçları inceleyin ve hazır olunca yeniden deploy edin |
+| `4` | Onay bekleniyor | İnsan incelemesi gerekli — staging dizinini incelemek için `forgelm approvals --show <run_id> --output-dir <dir>` çalıştırın, sonra promote için `forgelm approve <run_id> --output-dir <dir>` ya da kalıcı reject için `forgelm reject <run_id> --output-dir <dir>`. Staging yolu `<output_dir>/final_model.staging.<run_id>/`'dir. |
 
 ---
 

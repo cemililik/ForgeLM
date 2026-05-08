@@ -87,7 +87,7 @@ layer. ForgeLM does not natively support a `webhooks: [...]` array.
 
 ## Cross-cutting webhook fields
 
-Real `WebhookConfig` (see `forgelm/config.py:641`):
+Real `WebhookConfig` (see `forgelm/config.py::WebhookConfig`):
 
 | Field | Default | Notes |
 |---|---|---|
@@ -108,7 +108,7 @@ live outside ForgeLM.
 
 ## Security considerations
 
-- **TLS only.** ForgeLM rejects HTTP webhook URLs in production builds — `safe_post` enforces HTTPS.
+- **TLS strongly recommended.** ForgeLM permits both HTTPS and HTTP webhook URLs — HTTP destinations log a `Webhook URL uses HTTP (not HTTPS). Data will be sent unencrypted.` warning but are not rejected (see `forgelm/webhook.py` `_send`). Pin `https://` URLs in production.
 - **Curated payload.** ForgeLM never includes raw training data, full configs, or unredacted PII in webhook payloads. The notifier wraps a fixed-shape JSON; there is no `webhook.redact` toggle because there's nothing user-controllable to redact.
 - **Server-Side Request Forgery (SSRF) guard.** ForgeLM blocks webhook URLs pointing at internal IPs (RFC 1918, loopback, link-local, 169.254.x) unless you explicitly opt-in with `webhook.allow_private_destinations: true`. This prevents misconfigured runs from probing your internal network.
 - **No HMAC body signing.** ForgeLM does not sign webhook bodies — destination-side authenticity falls to TLS + URL secrecy via `url_env` plus the receiving system's bearer-token / signed-request controls (Slack signing secret, Teams connector token).
@@ -124,7 +124,7 @@ live outside ForgeLM.
 :::
 
 :::tip
-**Smoke-test webhooks before going live.** ForgeLM does not ship a `--webhook-test` flag. To verify the formatting, run a `--dry-run` against a tiny dataset and small `num_train_epochs` so the lifecycle fires end-to-end against a staging webhook URL; or POST a curated synthetic payload via `curl` to confirm the destination renders it correctly.
+**Smoke-test webhooks before going live.** ForgeLM does not ship a `--webhook-test` flag. `--dry-run` is config-validation only — it does **not** run the trainer lifecycle, so webhooks aren't exercised. The right options are (a) run a **real tiny training run** (small dataset + low `num_train_epochs`) so the lifecycle fires end-to-end against a staging webhook URL; or (b) POST a curated synthetic payload via `curl` to confirm the destination renders it correctly.
 :::
 
 ## See also

@@ -16,7 +16,7 @@ training:
   run_name: "customer-support-v1.2.0"    # optional; auto-generated when None
 ```
 
-ForgeLM streams loss, learning rate, evaluation metrics, and benchmark scores to the configured backend. **Per-backend nested config blocks (e.g. `wandb: { project: ... }`) are not part of the schema** — each backend is configured via its own well-known environment variables (the framework convention HF Transformers' Trainer follows).
+ForgeLM streams loss, learning rate, evaluation metrics, and benchmark scores to the configured backend. **Per-backend nested config blocks (e.g. `training.wandb: { project: ... }`) are not part of the schema** — each backend's connection / authentication / project / artifact behaviour is configured via its own well-known environment variables (the framework convention HF Transformers' `Trainer` follows). The only ForgeLM-side knobs are `training.report_to` (which backend to use) and `training.run_name`.
 
 ## Supported backends
 
@@ -78,27 +78,28 @@ The default. Log files land at `<training.output_dir>/runs/`. No external servic
 | `system/gpu_utilization` | Sampled every 30s |
 | `system/vram_used_gb` | Sampled every 30s |
 
-## Run naming and tags
+## Run naming
 
 ```yaml
 training:
-  run_name: "customer-support-{config_hash}"   # interpolation supported
-  tags: ["dpo", "qlora", "tr", "v1.2"]
-  notes: "Increased beta from 0.1 to 0.15 to chase truthfulqa floor"
+  run_name: "customer-support-v1-2"     # plain string; null = auto-generated
 ```
 
-The `notes` field is recorded in every backend that supports prose annotations.
+`training.run_name` is the only ForgeLM-side run-naming knob. There is no `training.tags:` list and no `training.notes:` field — set tags / notes / artifact-upload / artifact-type via the **backend's own environment variables** before invoking the trainer:
+
+```bash
+# W&B
+export WANDB_TAGS="dpo,qlora,tr,v1.2"
+export WANDB_NOTES="Increased dpo_beta from 0.1 to 0.15"
+export WANDB_LOG_MODEL="checkpoint"   # or "end" — controls artifact upload
+
+# MLflow
+export MLFLOW_TAGS='{"trainer":"dpo","quantization":"qlora"}'
+```
 
 ## Artifact management
 
-For W&B and MLflow, ForgeLM can upload the checkpoint and audit bundle as artifacts:
-
-```yaml
-training:
-  wandb:
-    log_artifacts: true                  # full checkpoint + bundle
-    artifact_type: "model"
-```
+ForgeLM does **not** expose a `training.wandb:` or `training.mlflow:` sub-block. Artifact upload is configured via backend environment variables (`WANDB_LOG_MODEL`, `MLFLOW_TRACKING_URI` + per-run logging APIs in your launch wrapper) — the same convention HF Transformers' `Trainer` follows.
 
 For very large checkpoints, prefer model registries (HuggingFace Hub) over W&B/MLflow artifact stores. Their free tiers cap at smallish sizes.
 

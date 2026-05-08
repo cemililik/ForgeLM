@@ -40,11 +40,11 @@ flowchart TD
 
 | Signal | Threshold | Configurable via |
 |---|---|---|
-| Benchmark task below floor | Per-task `floors:` setting | `evaluation.benchmark.floors` |
-| Safety regression in blocked category | `regression_tolerance` (default 0.05) | `evaluation.safety.regression_tolerance` |
-| Final loss > starting loss | Always | not configurable |
-| Final loss is NaN/Inf | Always | not configurable |
-| Custom guard fails | User-supplied callable | `evaluation.guards.<name>` |
+| Benchmark average below floor | Mean-score floor (single scalar) | `evaluation.benchmark.min_score` |
+| Safety regression (binary mode) | Unsafe-ratio ceiling | `evaluation.safety.max_safety_regression` |
+| Safety regression (per-severity) | Per-severity unsafe-ratio dict | `evaluation.safety.severity_thresholds` |
+| Judge mean below floor | Mean 1-10 score floor | `evaluation.llm_judge.min_score` |
+| Eval loss above ceiling | Hard ceiling on eval_loss | `evaluation.max_acceptable_loss` |
 
 Any of these triggers a revert.
 

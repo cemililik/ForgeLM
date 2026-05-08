@@ -31,19 +31,19 @@ sequenceDiagram
 ## Konfigürasyon
 
 ```yaml
-compliance:
-  human_approval: true
-  approval:
-    request_webhook: "${SLACK_WEBHOOK}"      # opsiyonel bildirim
-    signature_method: "cli"                   # cli | webhook | api
-    timeout_hours: 48                         # sonra otomatik fail
-    require_role: "ml-compliance-lead"        # kim onaylayabilir
-    quorum: 1                                 # gerekli onaylayıcı sayısı
+evaluation:
+  require_human_approval: true              # canonical activation key — Article 14 gate
+
+webhook:
+  url_env: SLACK_WEBHOOK_URL                # optional: notifier fires `approval.required`
+  notify_on_success: true                   # this gate is dispatched on the success channel
 ```
 
-## İmza yöntemleri
+`compliance.human_approval` alanı, `approval.*` bloğu, `signature_method`, `timeout_hours`, `require_role`, `quorum` veya `webhook_url` callback knob'u **yoktur** — bu adlar eski doc taslaklarında geçiyordu ama `forgelm/config.py`'da hiç ship olmadı. Kanonik aktivasyon anahtarı `evaluation.require_human_approval` (düz `bool`); reviewer kimliği `forgelm approve` / `forgelm reject` zamanında `FORGELM_OPERATOR`'dan kaydedilir; audit zinciri HMAC kullanır (ed25519 değil); ve yerleşik timeout yoktur — staged koşum bir operatör karar verene kadar süresiz bekler.
 
-### CLI (varsayılan)
+## Onay mekanizması
+
+### CLI (tek yol)
 
 Trainer eval'den sonra durur ve yazdırır:
 
@@ -56,23 +56,11 @@ Trainer eval'den sonra durur ve yazdırır:
   Reddetmek için: forgelm reject abc123 --output-dir checkpoints/run --comment "..."
 ```
 
-Reviewer artifacts dizinine erişimi olan herhangi bir makineden onay komutunu çalıştırır. ForgeLM SSH key signing veya env-set token üzerinden kimliği doğrular, audit log'u imzalar ve terfiyi sürdürür.
+Reviewer audit-log + staging dizinine erişimi olan herhangi bir makineden onay komutunu çalıştırır. ForgeLM kimliği `FORGELM_OPERATOR`'dan resolve eder, kararı HMAC ile zincirler ve (`approve`'da) staging dizinini kanonik `final_model/` yoluna rename eder.
 
-### Webhook callback
+### CLI subcommand çifti
 
-Dahili onay sistemleriyle entegrasyon için:
-
-```yaml
-approval:
-  signature_method: "webhook"
-  webhook_url: "https://internal.example/approvals/{run_id}/decide"
-```
-
-Trainer durur ve artifact paketini webhook'unuza POST'lar. Sisteminiz insan incelemesini halleder ve imzalı JWT ile ForgeLM'in resume endpoint'ine geri POST'lar.
-
-### CLI subcommand (canonical)
-
-v0.5.5'te desteklenen onay mekanizması CLI subcommand çifti `forgelm approve` / `forgelm reject`:
+Desteklenen onay mekanizması CLI subcommand çifti `forgelm approve` / `forgelm reject`'tir. Webhook-callback varyantı yoktur — ForgeLM bir approval-resume HTTP endpoint'i sunmaz ve JWT-tabanlı external-approver yolu yoktur.
 
 ```bash
 forgelm approvals --pending --output-dir <dir>            # onay bekleyen koşumları listele
@@ -98,38 +86,21 @@ Her onay (veya red) `audit_log.jsonl`'a eklenir:
   "seq": 87,
   "event": "human_approval.granted",
   "run_id": "abc123",
-  "reviewer": "Cemil Ilik <cemil@example>",
-  "role": "ml-compliance-lead",
-  "method": "cli",
-  "signature": "ed25519:...",
-  "comment": "Güvenlik raporunu inceledim; bu deployment için S5 max 0.04 kabul edilebilir.",
-  "artifact_hash": "sha256:..."
+  "approver": "ci-reviewer@example",
+  "comment": "Güvenlik raporunu inceledim; bu deployment için max_safety_regression 0.04 kabul edilebilir.",
+  "_hmac": "..."
 }
 ```
 
-`signature` artifact paketinin `manifest.json` hash'i üzerine — reviewer'ın *tam olarak* üretileni gördüğünü tasdik eder.
+`approver` alanı `forgelm approve` zamanında `FORGELM_OPERATOR`'dan gelir; `_hmac` per-line zincir HMAC'idir (her audit event için kullanılan aynı HMAC). Ayrı bir ed25519 artefact imzası yoktur.
 
-## Quorum (çoklu reviewer)
+## Çoklu reviewer
 
-Yüksek-riskli deployment'lar için birden çok onaylayıcı isteyin:
-
-```yaml
-approval:
-  quorum: 2
-  require_role: "ml-compliance-lead"
-```
-
-Her onaylayıcı CLI komutunu bağımsız çalıştırır. Quorum imzaladıktan (veya biri reddettikten) sonra terfi olur.
+ForgeLM yerleşik bir quorum gate'i **göndermez**. `approval.quorum` alanı yoktur. N-of-M sign-off zorlamak için bunu CI / IdP seviyesinde katmanlandırın — ör. GitHub branch-protection kuralı ile `forgelm approve`'u çağıran workflow çalışmadan önce N reviewer-team approval'ı gerektirin.
 
 ## Timeout
 
-`timeout_hours` sonrası imzasız koşu yapılandırılmış olayla exit 4 + auto-fail:
-
-```json
-{"event": "human_approval.timeout", "expired_at": "2026-04-30T14:33:10Z"}
-```
-
-Varsayılan 48 saat. "Timeout yok — sonsuza kadar bekle" için 0 (CI'da önerilmez).
+ForgeLM staged koşumları **timeout etmez**. `approval.timeout_hours`, `human_approval.timeout` event'i veya auto-fail saati yoktur. Staged koşum süresiz bekler; deployer eski staging dizinlerinin sona ermesini istiyorsa bunun yerine `retention.staging_ttl_days`'i konfigüre edin — bu GDPR Madde 17 retention pipeline'ına bağlanır (yapılandırılan horizon'dan sonra dizini fiziksel olarak prune eder, approval gate'e değil).
 
 ## Bekleyen koşuları inceleme
 

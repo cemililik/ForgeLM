@@ -20,14 +20,14 @@ Standart benchmark'lar dar yetenekleri ölçer; "bu yanıt gerçekten iyi mi?" s
 
 ```yaml
 evaluation:
-  llm_judge:                            # blok adı `llm_judge`, `judge` değil
+  llm_judge:                            # block name is `llm_judge`, not `judge`
     enabled: true
-    judge_model: "gpt-4o-mini"          # veya yerel yol, ör. "./judges/Qwen2.5-72B-Instruct"
-    judge_api_key_env: OPENAI_API_KEY   # null = yerel model (API çağrısı yok)
-    judge_api_base: null                # Azure OpenAI / vLLM-uyumlu gateway için override
+    judge_model: "gpt-4o-mini"          # or local path, e.g. "./judges/Qwen2.5-72B-Instruct"
+    judge_api_key_env: OPENAI_API_KEY   # null = local model (no API call)
+    judge_api_base: null                # override for Azure OpenAI / vLLM-compatible gateway
     eval_dataset: "data/eval-prompts.jsonl"
-    min_score: 6.5                      # ortalama puan alt sınırı (1-10 skala); altına düşerse revert
-    batch_size: 8                       # round başı skorlanan (prompt, completion) çifti; 1 batching'i kapatır
+    min_score: 6.5                      # mean score floor (1-10 scale); revert below this
+    batch_size: 8                       # (prompt, completion) pairs scored per round; 1 disables batching
 ```
 
 ## Eval-dataset formatı

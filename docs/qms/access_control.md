@@ -228,7 +228,7 @@ webhook:
 
 ForgeLM does **not** HMAC-sign webhook bodies — there is no
 `webhook.secret_env` field on `WebhookConfig` (see
-`forgelm/config.py:641`). Destination-side attribution falls to (a)
+`forgelm/config.py::WebhookConfig`). Destination-side attribution falls to (a)
 HTTPS + URL-secrecy via `webhook.url_env`, (b) the
 `FORGELM_OPERATOR` identity carried inside the curated payload, and
 (c) the receiving system's own bearer-token / signed-request

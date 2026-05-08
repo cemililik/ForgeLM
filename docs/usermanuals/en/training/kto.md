@@ -55,15 +55,17 @@ KTO needs both classes — at minimum 5-10% of your data should be the minority 
 
 ## Configuration parameters
 
+KTO's only configurable knob in ForgeLM is `training.kto_beta` (flat field, no nested `training.kto:` block):
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `beta` | float | `0.1` | KL strength, same role as DPO. |
-| `desirable_weight` | float | `1.0` | Up-weight thumbs-up rows in the loss. |
-| `undesirable_weight` | float | `1.0` | Up-weight thumbs-down rows. |
-| `loss_type` | string | `"sigmoid"` | `sigmoid` or `kto-pair` (paired-loss variant). |
+| `training.kto_beta` | float | `0.1` | KL strength, same role as DPO's `dpo_beta`. |
+| `training.trainer_type` | string | `"sft"` | Set to `"kto"` to enable the KTO training path. |
+
+`desirable_weight`, `undesirable_weight`, and `loss_type` are NOT exposed as ForgeLM config fields. TRL's `KTOTrainer` runs with library defaults (1.0 / 1.0 weights, sigmoid loss). For imbalanced data, oversample the minority class in the JSONL or use a TRL-side override script — the loss-weight knob is on the Phase 28+ backlog.
 
 :::tip
-**Imbalanced data?** Set `undesirable_weight: 5.0` (or whatever ratio matches your imbalance) to amplify the rare-class signal. Don't oversample the JSONL itself — let the loss weights do it.
+**Imbalanced data?** Until per-class weighting is exposed, oversample the minority class in your JSONL (e.g. duplicate thumbs-down rows so they reach 30-40% of the dataset). Don't expect a `undesirable_weight` knob to exist.
 :::
 
 ## Compute and memory

@@ -142,12 +142,14 @@ Authoritative source: `forgelm/cli/_parser.py::_add_audit_subcommand` (lines 335
 }
 ```
 
-CI integrations parse `verdict` and individual counts to gate merges:
+CI integrations parse `verdict` and individual counts to gate merges. There is no `--strict` flag (see "Removed flags" above) — wrap the JSON envelope with `jq`:
 
 ```yaml
 # .github/workflows/data.yml
 - name: Audit data
-  run: forgelm audit data/train.jsonl --strict
+  run: |
+    forgelm audit data/train.jsonl --output-format json > audit.json
+    jq -e '.verdict != "errors" and .pii_summary.severity != "high"' audit.json
 ```
 
 ## Common pitfalls
@@ -157,7 +159,7 @@ CI integrations parse `verdict` and individual counts to gate merges:
 :::
 
 :::warn
-**Using `--sample-rate` on a small dataset.** Sampling makes sense for million-row corpora; for <10K rows, audit the whole thing — it takes seconds anyway.
+**Trying to use `--sample-rate`.** This flag never shipped (see "Removed flags" above). The audit always runs over the entire corpus; for million-row corpora, parallelise with `--workers N` instead. For <10K rows, the full audit takes seconds — no sampling needed.
 :::
 
 :::tip

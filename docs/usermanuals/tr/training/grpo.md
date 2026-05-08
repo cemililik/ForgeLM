@@ -74,34 +74,29 @@ ForgeLM şunları ödüllendiren varsayılan reward shaper ile gelir:
 - **Uzunluk uyumu** — ne çok kısa ne dağılarak uzun.
 - **Akıl yürütme yapısı** — son cevaptan önce chain-of-thought.
 
-```yaml
-training:
-  grpo:
-    reward_function: "my_reward.score"   # %80 ağırlık
-    format_reward: 0.2                   # %20 shaper
-    answer_pattern: '\\boxed\\{(.*?)\\}' # "son cevap" regex'i
-```
+Yerleşik shaper `grpo_reward_model` ile otomatik kompoze olur — ikisi birden mevcut olduğunda kullanıcı-tedarikli reward baskındır ve format/length shaper küçük her-zaman-açık fallback sinyali sağlar. Yapılandırılabilir `format_reward` ağırlığı veya `answer_pattern` knob'u yoktur (bunlar `forgelm/grpo_rewards.py` içinde yaşar). Format-eşleştirme regex setini genişletmek için o modülü fork edin.
 
 ## Parametreler
 
+GRPO knob'ları `training:` altında flat alanlardır (nested `training.grpo:` bloğu YOK — bkz. `forgelm/config.py` `TrainingConfig`):
+
 | Parametre | Tip | Vars. | Açıklama |
 |---|---|---|---|
-| `group_size` | int | `8` | Prompt başına örneklenen yanıt. Yüksek = kararlı advantage, çok compute. |
-| `beta` | float | `0.04` | KL düzenlemesi. GRPO'nunki DPO'dan çok küçük çünkü gradient sinyali güçlü. |
-| `reward_function` | string | `null` | Reward fonksiyonunuza dotted path. |
-| `format_reward` | float | `0.0` | Yerleşik format shaper ağırlığı. `0.2` mantıklı. |
-| `answer_pattern` | string | `null` | "Son cevap"ı çıkarmak için regex. |
-| `temperature` | float | `0.9` | Sampling sıcaklığı. Yüksek = çeşitli yanıtlar. |
-| `max_completion_length` | int | `2048` | Üretilen yanıt uzunluğu sınırı. |
+| `training.grpo_num_generations` | int | `4` | Prompt başına örneklenen yanıt. Yüksek = daha kararlı advantage tahmini, daha fazla compute. |
+| `training.grpo_max_completion_length` | int | `512` | Üretilen yanıt uzunluğu sınırı (legacy alias `grpo_max_new_tokens` kabul edilir). |
+| `training.grpo_reward_model` | `Optional[str]` | `null` | Dotted-path callable VEYA HF Hub reward model ID. `null` iken yerleşik `forgelm/grpo_rewards.py` format/length shaper tek reward sinyali olarak kullanılır. |
+| `training.trainer_type` | string | `"sft"` | GRPO eğitim yolunu açmak için `"grpo"` olarak set edin. |
+
+ForgeLM `group_size` (gerçeği `grpo_num_generations`), `beta`, `reward_function`, `format_reward`, `answer_pattern` veya `temperature`'ı yapılandırılabilir GRPO field'ı olarak **sunmaz**. KL `beta` ve sampling `temperature` TRL varsayılanlarıyla yönetilir; bunları yüzeylemek Phase 28+ backlog'unda.
 
 ## Bellek
 
 GRPO en ağır trainer:
-- Prompt başına `group_size` yanıt üretir (varsayılan 8) — DPO'nun 8× inference maliyeti.
+- Prompt başına `grpo_num_generations` yanıt üretir (varsayılan 4) — DPO'nun 4× inference maliyeti.
 - Bellekte referans model tutar.
 - Reward computation ek model yükleyebilir.
 
-| Model | LoRA | `group_size` | VRAM (QLoRA) |
+| Model | LoRA | `grpo_num_generations` | VRAM (QLoRA) |
 |---|---|---|---|
 | 7B | evet | 8 | 18 GB |
 | 13B | evet | 8 | 28 GB (40 GB gerekir) |
@@ -114,7 +109,7 @@ GRPO en ağır trainer:
 :::
 
 :::warn
-**Çok küçük `group_size`.** `group_size=2` ile GRPO'nun group-relative advantage tahmininin istatistiksel gücü yok. En az 4, kararlılık için 8+.
+**Çok küçük `grpo_num_generations`.** `grpo_num_generations=2` ile GRPO'nun group-relative advantage tahmininin istatistiksel gücü yok. En az 4, kararlılık için 8+.
 :::
 
 :::warn

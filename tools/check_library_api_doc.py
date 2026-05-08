@@ -82,11 +82,16 @@ def main(argv=None) -> int:
     try:
         import forgelm  # type: ignore
     except ImportError as exc:
+        # Fail closed: a CI drift guard that silently passes on import
+        # failure can hide a broken environment forever. Surface the
+        # import error and exit non-zero so the caller has to either
+        # install the package or pass an explicit allowlist flag.
         print(
-            f"check_library_api_doc: cannot import forgelm ({exc}); skipping.",
+            f"check_library_api_doc: cannot import forgelm ({exc}). "
+            "Install ForgeLM (`pip install -e .`) before running this guard.",
             file=sys.stderr,
         )
-        return 0
+        return 2
 
     runtime_all: Set[str] = set(forgelm.__all__)
     doc_names: Set[str] = doc_symbols(args.doc)

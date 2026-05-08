@@ -120,7 +120,7 @@ What the regulator asks vs. how ForgeLM answers:
   `forgelm approve <run_id> --output-dir <output_dir>` from a
   non-trainer operator (positional `run_id`; `--run-id` is not a
   flag).
-- Listing: `forgelm approvals --pending` (Phase 37).
+- Listing: `forgelm approvals --pending --output-dir <dir>` (Phase 37 — `--output-dir` is required).
 - Audit: `human_approval.required/granted/rejected` events.
 
 ### GDPR Article 15 + 17 (Wave 2b + Wave 3)

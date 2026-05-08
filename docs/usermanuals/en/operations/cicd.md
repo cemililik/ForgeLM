@@ -44,7 +44,7 @@ jobs:
         with: { python-version: "3.11" }
       - run: pip install 'forgelm[ingestion]'
       - name: Audit data
-        run: forgelm audit data/train.jsonl --strict
+        run: forgelm audit data/train.jsonl --output-format json | jq -e '.verdict != "errors" and .pii_summary.severity != "high"'
 
   train:
     needs: audit
@@ -63,7 +63,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: training-artifacts
-          path: checkpoints/run/artifacts/
+          path: checkpoints/run/
 ```
 
 Note the `if: always()` on artifact upload — even on failure, the audit log and partial artifacts are useful.
@@ -82,7 +82,7 @@ audit:
   image: python:3.11
   script:
     - pip install 'forgelm[ingestion]'
-    - forgelm audit data/train.jsonl --strict
+    - forgelm audit data/train.jsonl --output-format json | jq -e '.verdict != "errors" and .pii_summary.severity != "high"'
 
 train:
   stage: train
@@ -94,8 +94,21 @@ train:
     - forgelm --config configs/run.yaml
   artifacts:
     paths:
-      - checkpoints/run/artifacts/
+      - checkpoints/run/
     when: always
+
+deploy:
+  stage: deploy
+  tags: [gpu]
+  needs: [train]
+  script:
+    # Verify the audit chain before promoting (catches truncate / HMAC tamper).
+    - forgelm verify-audit checkpoints/run/audit_log.jsonl --require-hmac
+    # If `evaluation.require_human_approval` is on, the trainer exits 4 — promote here:
+    #   forgelm approve <run_id> --output-dir checkpoints/run --comment "approved-by-CI"
+    # Otherwise, ship `final_model/` with your existing deployment tooling.
+    - ./scripts/promote-to-prod.sh checkpoints/run/final_model
+  when: manual                          # gate manual promotion to prod
 ```
 
 ## Jenkins
@@ -106,7 +119,7 @@ pipeline {
   stages {
     stage('Audit') {
       steps {
-        sh 'forgelm audit data/train.jsonl --strict'
+        sh 'forgelm audit data/train.jsonl --output-format json | jq -e '.verdict != "errors" and .pii_summary.severity != "high"''
       }
     }
     stage('Train') {
@@ -118,7 +131,7 @@ pipeline {
       }
       post {
         always {
-          archiveArtifacts artifacts: 'checkpoints/run/artifacts/**'
+          archiveArtifacts artifacts: 'checkpoints/run/**'
         }
       }
     }

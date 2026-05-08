@@ -25,12 +25,12 @@ SFT, post-training'in iş atıdır. Modele doğru çıktıların örneklerini ve
 model:
   name_or_path: "Qwen/Qwen2.5-7B-Instruct"
   max_length: 4096
-  backend: "transformers"            # ya da "unsloth" — eski `use_unsloth: true` flag'inin yerini alır
+  backend: "transformers"            # or "unsloth" — replaces the legacy `use_unsloth: true` flag
 
 lora:
   r: 16
   alpha: 32
-  method: "lora"                     # ya da "dora" / "pissa" / "rslora"
+  method: "lora"                     # or "dora" / "pissa" / "rslora"
   target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
 data:
@@ -44,7 +44,7 @@ training:
   learning_rate: 2.0e-4
   warmup_ratio: 0.03
   output_dir: "./checkpoints/sft"
-  packing: false                     # kısa örnekleri bin-pack için true
+  packing: false                     # set to true to bin-pack short samples
 ```
 
 ```shell

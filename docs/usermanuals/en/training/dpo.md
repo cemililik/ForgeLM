@@ -104,17 +104,14 @@ ForgeLM's data audit (`forgelm audit`) catches preference rows where `chosen` an
 
 ## Configuration parameters
 
-The `training.dpo` block holds DPO-specific knobs.
+DPO-specific knobs live as flat fields under `training:` (not a nested `training.dpo:` block — see `forgelm/config.py` `TrainingConfig`):
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `beta` | float | `0.1` | KL divergence regularisation strength. Lower = closer to reference model, higher = more aggressive preference shift. |
-| `loss_type` | string | `"sigmoid"` | One of `sigmoid` (original DPO), `hinge` (RLHF-style margin), `ipo` (IPO regularisation), `kto` (KTO-style binary loss). |
-| `label_smoothing` | float | `0.0` | Smoothing on preference labels; helps when annotations are noisy. |
-| `reference_free` | bool | `false` | Skip the reference model entirely (closer to SimPO). Saves memory but trains less stably. |
-| `reference_model` | string | (auto) | Path to an explicit reference model. Defaults to the model being trained, frozen. |
-| `loss_dpop_lambda` | float | `null` | Enable DPO-Positive (DPOP) regularisation. `0.5` is a sensible starting point. |
-| `pref_chosen_weight` | float | `1.0` | Up-weight chosen responses during loss computation; useful when chosen responses are rarer. |
+| `training.dpo_beta` | float | `0.1` | DPO temperature / KL divergence regularisation strength. Lower = closer to the reference model, higher = more aggressive preference shift. |
+| `training.trainer_type` | string | `"sft"` | Set to `"dpo"` to enable the DPO training path. |
+
+ForgeLM does **not** expose `loss_type` / `label_smoothing` / `reference_free` / `reference_model` / `loss_dpop_lambda` / `pref_chosen_weight` as configurable fields — TRL's `DPOTrainer` runs with its library defaults (sigmoid loss, no label smoothing, automatic frozen reference model). If you need those knobs, fork the trainer.
 
 The full set of training-block parameters (epochs, learning rate, scheduler, etc.) applies to DPO too — see [Configuration Reference](#/reference/configuration) for the complete list.
 

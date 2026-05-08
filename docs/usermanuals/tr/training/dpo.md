@@ -95,14 +95,14 @@ ForgeLM audit `chosen == rejected` satırları flagler — preference toplamada 
 
 ## Konfigürasyon parametreleri
 
+DPO'ya özel knob'lar `training:` altında flat alanlardır (nested `training.dpo:` bloğu DEĞİL — bkz. `forgelm/config.py` `TrainingConfig`):
+
 | Parametre | Tip | Vars. | Açıklama |
 |---|---|---|---|
-| `beta` | float | `0.1` | KL düzenlemesi. Düşük = referansa yakın, yüksek = agresif tercih kayması. |
-| `loss_type` | string | `"sigmoid"` | `sigmoid` (orijinal), `hinge`, `ipo`, `kto`. |
-| `label_smoothing` | float | `0.0` | Gürültülü annotasyonlarda yumuşatma. |
-| `reference_free` | bool | `false` | Referans modeli atla (SimPO'ya yakın). |
-| `reference_model` | string | (auto) | Açık referans modeli yolu. |
-| `loss_dpop_lambda` | float | `null` | DPO-Positive (DPOP) regülarizasyonu. `0.5` iyi başlangıç. |
+| `training.dpo_beta` | float | `0.1` | DPO sıcaklığı / KL düzenlemesi. Düşük = referans modele yakın, yüksek = agresif tercih kayması. |
+| `training.trainer_type` | string | `"sft"` | DPO eğitim yolunu açmak için `"dpo"` olarak set edin. |
+
+ForgeLM `loss_type` / `label_smoothing` / `reference_free` / `reference_model` / `loss_dpop_lambda` / `pref_chosen_weight`'ı yapılandırılabilir alan olarak **sunmaz** — TRL'in `DPOTrainer`'ı kütüphane varsayılanlarıyla çalışır (sigmoid loss, label smoothing yok, otomatik dondurulmuş referans model). Bu knob'lara ihtiyacınız varsa trainer'ı fork edin.
 
 ## Bellek ve compute
 

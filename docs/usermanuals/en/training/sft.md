@@ -110,7 +110,7 @@ FITS  est. peak 7.8 GB / 12 GB available
 :::
 
 :::warn
-**Loss going up instead of down.** Likely a tokeniser mismatch — your data was formatted for a different chat template than the one in the model's tokeniser. Re-run `forgelm audit` and check the rendered samples in the audit report.
+**Loss going up instead of down.** Likely a tokenizer mismatch — your data was formatted for a different chat template than the one in the model's tokenizer. Re-run `forgelm audit` and check the rendered samples in the audit report.
 :::
 
 :::warn

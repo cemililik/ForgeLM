@@ -159,7 +159,7 @@ if [ "$pending" -gt 0 ]; then
 fi
 ```
 
-Daha zengin bir policy kuran operatörler (örn. "herhangi bir bekleyen karar N saatten eskiyse deploy'u blokla") `age` field'ını parse eder. Text çıktısını yalnızca tavsiye olarak ele alın — JSON zarfı stabil sözleşmedir.
+Daha zengin bir policy kuran operatörler (örn. "herhangi bir bekleyen karar N saatten eskiyse deploy'u blokla") `age_seconds` field'ını parse eder — ör. "bir günden eski olan her şey" için `jq '[.pending[] | select(.age_seconds > 86400)] | length'`. Text çıktısını yalnızca tavsiye olarak ele alın — JSON zarfı stabil sözleşmedir.
 
 ## Bkz.
 

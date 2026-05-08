@@ -114,7 +114,7 @@ Düzenleyicinin sorduğu vs ForgeLM'in cevapladığı:
   ve trainer-olmayan bir operatörden `forgelm approve <run_id>
   --output-dir <output_dir>` bekler (pozisyonel `run_id`; `--run-id`
   bayrağı yoktur).
-- Listeleme: `forgelm approvals --pending` (Phase 37).
+- Listeleme: `forgelm approvals --pending --output-dir <dir>` (Phase 37 — `--output-dir` zorunludur).
 - Audit: `human_approval.required/granted/rejected` event'leri.
 
 ### GDPR Madde 15 + 17 (Wave 2b + Wave 3)

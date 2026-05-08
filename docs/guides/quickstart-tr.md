@@ -16,7 +16,7 @@ git clone https://github.com/cemililik/ForgeLM.git
 cd ForgeLM
 pip install -e .
 
-# Önerilen: 4-bit quantization'ı aç (Linux)
+# Recommended: enable 4-bit quantization (Linux)
 pip install -e ".[qlora]"
 ```
 
@@ -158,9 +158,9 @@ sığmadığını tahmin edin:
 
 ```bash
 forgelm --config my_config.yaml --fit-check
-# GPU: RTX 3060 12GB — Tahmini peak: 10.8 GB — Verdict: FITS
-# Veya: Verdict: TIGHT — Gradient checkpointing'i aç ve batch'i küçült
-# Veya: Verdict: UNKNOWN — GPU tespit edilmedi (varsayımsal tahmin)
+# GPU: RTX 3060 12GB — Estimated peak: 10.8 GB — Verdict: FITS
+# Or: Verdict: TIGHT — Enable gradient checkpointing and reduce batch size
+# Or: Verdict: UNKNOWN — No GPU detected (hypothetical estimate)
 ```
 
 Çıktı bir döküm (taban ağırlıklar, LoRA adapter, optimizer state,

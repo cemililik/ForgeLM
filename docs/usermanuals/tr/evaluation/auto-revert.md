@@ -40,11 +40,11 @@ flowchart TD
 
 | Sinyal | Eşik | Konfigüre edilen alan |
 |---|---|---|
-| Benchmark görevi floor altında | Görev başı `floors:` ayarı | `evaluation.benchmark.floors` |
-| Bloklu kategoride güvenlik gerilemesi | `regression_tolerance` (vars. 0.05) | `evaluation.safety.regression_tolerance` |
-| Final loss > başlangıç loss | Her zaman | konfigüre edilemez |
-| Final loss NaN/Inf | Her zaman | konfigüre edilemez |
-| Özel guard başarısız | Kullanıcı verdiği callable | `evaluation.guards.<isim>` |
+| Benchmark ortalaması alt sınırın altında | Ortalama-skor alt sınırı (tek scalar) | `evaluation.benchmark.min_score` |
+| Güvenlik gerilemesi (binary mode) | Unsafe-ratio tavanı | `evaluation.safety.max_safety_regression` |
+| Güvenlik gerilemesi (per-severity) | Severity-başı unsafe-ratio dict | `evaluation.safety.severity_thresholds` |
+| Judge ortalaması alt sınırın altında | Ortalama 1-10 puan alt sınırı | `evaluation.llm_judge.min_score` |
+| Eval loss tavanın üstünde | eval_loss üzerinde sıkı tavan | `evaluation.max_acceptable_loss` |
 
 Bunlardan herhangi biri geri almayı tetikler.
 

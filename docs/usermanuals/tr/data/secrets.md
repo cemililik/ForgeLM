@@ -9,7 +9,7 @@ Kod repo'ları, destek ticket'ları ve operasyonel log'lar kimlik bilgileri sız
 
 ## Tespit edilenler
 
-Bundled detector `_SECRET_PATTERNS` (`forgelm/data_audit/_secrets.py:35`) altında **9 secret ailesi** ship eder:
+Bundled detector `_SECRET_PATTERNS` (`forgelm/data_audit/_secrets.py::_SECRET_PATTERNS`) altında **9 secret ailesi** ship eder:
 
 | Pattern anahtarı | Anchor |
 |---|---|
@@ -23,7 +23,7 @@ Bundled detector `_SECRET_PATTERNS` (`forgelm/data_audit/_secrets.py:35`) altın
 | `pgp_private_key` | `BEGIN PGP PRIVATE KEY BLOCK` … `END …` |
 | `azure_storage_key` | `DefaultEndpointsProtocol=…AccountKey=…` |
 
-Tüm eşleşmeler `mask_secrets()` (`forgelm/data_audit/_secrets.py:106`) tarafından literal `[REDACTED-SECRET]` string'i ile değiştirilir. Detector bugün Anthropic, Stripe, SendGrid ya da Twilio için per-vendor pattern ship **etmez** — bu trafik tipleri olan operatörler regex setini out-of-tree genişletir (Phase 28+ backlog'u bunları opt-in extras olarak ship etmeyi takip ediyor).
+Tüm eşleşmeler `mask_secrets()` (`forgelm/data_audit/_secrets.py::mask_secrets`) tarafından literal `[REDACTED-SECRET]` string'i ile değiştirilir. Detector bugün Anthropic, Stripe, SendGrid ya da Twilio için per-vendor pattern ship **etmez** — bu trafik tipleri olan operatörler regex setini out-of-tree genişletir (Phase 28+ backlog'u bunları opt-in extras olarak ship etmeyi takip ediyor).
 
 ## Hızlı örnek
 
@@ -33,11 +33,11 @@ $ forgelm ingest ./support-tickets/ \
     --secrets-mask \
     --output data/tickets.jsonl
 ✓ 47 sır maskelendi:
-    aws_access_key: 12
-    github_pat:     8
-    jwt:            18
-    pem_block:      2
-    openai_key:     7
+    aws_access_key:       12
+    github_token:          8
+    jwt:                  18
+    openssh_private_key:   2
+    openai_api_key:        7
 ```
 
 ## "PEM block" ne demek
@@ -51,7 +51,7 @@ MIIEpAIBAAKCAQEA1+...
 -----END RSA PRIVATE KEY-----
 ```
 
-ForgeLM'in PEM detector'ı tüm bloğu (BEGIN'den END'e) eşleştirir, sadece marker satırını değil. Tüm blok `[REDACTED-PEM-BLOCK]` ile değiştirilir. Bu, BEGIN satırını tespit edip key body'sini JSONL'da bırakan yaygın bug'ı önler.
+ForgeLM'in PEM detector'ı (`openssh_private_key` ailesi — RSA / DSA / EC envelope'larını da kapsar) tüm bloğu (BEGIN'den END'e) eşleştirir, sadece marker satırını değil. Diğer her aile gibi, tüm blok `[REDACTED-SECRET]` ile değiştirilir — per-family token yoktur (`mask_secrets()` tek bir `replacement="[REDACTED-SECRET]"` sabiti ship eder; `forgelm/data_audit/_secrets.py::mask_secrets`). Bu, BEGIN satırını tespit edip key body'sini JSONL'da bırakan yaygın bug'ı önler.
 
 ## Sadece-audit modu
 
@@ -102,11 +102,11 @@ ingestion:
     enabled: true
     tag_by_category: true              # [REDACTED-SECRET] yerine kategori-özgü etiket
     strict: false                      # false-positive guard'ları kapat
-    categories:                        # seçici etkinleştir
+    categories:                        # seçici etkinleştir (kanonik aile adları)
       - aws_access_key
-      - github_pat
+      - github_token
       - jwt
-      - pem_block
+      - openssh_private_key
       # eklemediğiniz kategori kapalı
 ```
 

@@ -92,7 +92,7 @@ evaluation:
   require_human_approval: true        # optional Article 14 gate (NOT compliance.human_approval)
 ```
 
-There is no `compliance.annex_iv`, `compliance.data_audit_artifact`, `compliance.human_approval`, `compliance.deployment_geographies`, or `compliance.responsible_party` field — those are phantom keys earlier drafts of this page invented. The canonical schema is `ComplianceMetadataConfig` in `forgelm/config.py:566`. To pin data-audit evidence, run `forgelm audit <corpus>` against the same `--output-dir` as the trainer; ForgeLM picks up the `data_audit_report.json` automatically.
+There is no `compliance.annex_iv`, `compliance.data_audit_artifact`, `compliance.human_approval`, `compliance.deployment_geographies`, or `compliance.responsible_party` field — those are phantom keys earlier drafts of this page invented. The canonical schema is `ComplianceMetadataConfig` in `forgelm/config.py`. To pin data-audit evidence, run `forgelm audit <corpus>` against the same `--output-dir` as the trainer; ForgeLM picks up the `data_audit_report.json` automatically.
 
 Every field from `compliance:` flows into `annex_iv_metadata.json`. Required fields are validated at config load — a missing `intended_purpose` fails `--dry-run`.
 

@@ -9,7 +9,7 @@ Code repositories, support tickets, and operational logs leak credentials. Once 
 
 ## What gets detected
 
-The bundled detector ships **9 secret families** under `_SECRET_PATTERNS` (`forgelm/data_audit/_secrets.py:35`):
+The bundled detector ships **9 secret families** under `_SECRET_PATTERNS` (`forgelm/data_audit/_secrets.py::_SECRET_PATTERNS`):
 
 | Pattern key | Anchor |
 |---|---|
@@ -23,7 +23,7 @@ The bundled detector ships **9 secret families** under `_SECRET_PATTERNS` (`forg
 | `pgp_private_key` | `BEGIN PGP PRIVATE KEY BLOCK` … `END …` |
 | `azure_storage_key` | `DefaultEndpointsProtocol=…AccountKey=…` |
 
-All matches are replaced with the literal string `[REDACTED-SECRET]` by `mask_secrets()` (`forgelm/data_audit/_secrets.py:106`). The detector does **not** ship per-vendor patterns for Anthropic, Stripe, SendGrid, or Twilio today — operators with those traffic types extend the regex set out-of-tree (Phase 28+ backlog tracks shipping them as opt-in extras).
+All matches are replaced with the literal string `[REDACTED-SECRET]` by `mask_secrets()` (`forgelm/data_audit/_secrets.py::mask_secrets`). The detector does **not** ship per-vendor patterns for Anthropic, Stripe, SendGrid, or Twilio today — operators with those traffic types extend the regex set out-of-tree (Phase 28+ backlog tracks shipping them as opt-in extras).
 
 ## Quick example
 
@@ -33,11 +33,11 @@ $ forgelm ingest ./support-tickets/ \
     --secrets-mask \
     --output data/tickets.jsonl
 ✓ masked 47 secrets:
-    aws_access_key: 12
-    github_pat:     8
-    jwt:            18
-    pem_block:      2
-    openai_key:     7
+    aws_access_key:       12
+    github_token:          8
+    jwt:                  18
+    openssh_private_key:   2
+    openai_api_key:        7
 ```
 
 ## What "PEM block" means
@@ -51,7 +51,7 @@ MIIEpAIBAAKCAQEA1+...
 -----END RSA PRIVATE KEY-----
 ```
 
-ForgeLM's PEM detector matches the entire block (BEGIN to END), not just the marker line. The whole block is replaced with `[REDACTED-PEM-BLOCK]`. This avoids the common bug of detecting the BEGIN line but leaving the key body in the JSONL.
+ForgeLM's PEM detector (`openssh_private_key` family — also covers RSA / DSA / EC envelopes) matches the entire block (BEGIN to END), not just the marker line. Like every other family, the whole block is replaced with `[REDACTED-SECRET]` — there is no per-family token (`mask_secrets()` ships a single `replacement="[REDACTED-SECRET]"` constant; `forgelm/data_audit/_secrets.py::mask_secrets`). This avoids the common bug of detecting the BEGIN line but leaving the key body in the JSONL.
 
 ## Audit-only mode
 
@@ -102,11 +102,11 @@ ingestion:
     enabled: true
     tag_by_category: true              # use category-specific tags instead of [REDACTED-SECRET]
     strict: false                      # set true to disable false-positive guards
-    categories:                        # selectively enable
+    categories:                        # selectively enable (canonical family names)
       - aws_access_key
-      - github_pat
+      - github_token
       - jwt
-      - pem_block
+      - openssh_private_key
       # omit any to disable
 ```
 

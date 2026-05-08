@@ -92,7 +92,7 @@ evaluation:
   require_human_approval: true        # opsiyonel Madde 14 kapısı (`compliance.human_approval` DEĞİL)
 ```
 
-`compliance.annex_iv`, `compliance.data_audit_artifact`, `compliance.human_approval`, `compliance.deployment_geographies` veya `compliance.responsible_party` alanı yoktur — bunlar bu sayfanın daha önceki taslaklarının uydurduğu phantom anahtarlardır. Kanonik şema `forgelm/config.py:566`'da `ComplianceMetadataConfig`'tir. Veri-audit kanıtını pinlemek için trainer'la aynı `--output-dir`'a karşı `forgelm audit <corpus>` çalıştırın; ForgeLM `data_audit_report.json`'u otomatik yakalar.
+`compliance.annex_iv`, `compliance.data_audit_artifact`, `compliance.human_approval`, `compliance.deployment_geographies` veya `compliance.responsible_party` alanı yoktur — bunlar bu sayfanın daha önceki taslaklarının uydurduğu phantom anahtarlardır. Kanonik şema `forgelm/config.py` içindeki `ComplianceMetadataConfig`'tir. Veri-audit kanıtını pinlemek için trainer'la aynı `--output-dir`'a karşı `forgelm audit <corpus>` çalıştırın; ForgeLM `data_audit_report.json`'u otomatik yakalar.
 
 `compliance:` bloğundan her alan `annex_iv_metadata.json`'a akar.
 

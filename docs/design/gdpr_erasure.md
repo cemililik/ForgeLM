@@ -206,10 +206,10 @@ Standard ForgeLM 0/1/2/3/4 contract — all codes from `forgelm.cli._exit_codes`
 | Code | Constant | Meaning |
 |---|---|---|
 | 0 | `EXIT_SUCCESS` | Erasure completed (or `--dry-run` reported successfully). |
-| 1 | `EXIT_CONFIG_ERROR` | Config-level error: missing flag, flag combination, unknown row-id (corpus mode), unknown run-id (run mode), `--row-id` directory mode without `--row-matches=all`, multi-row match without `--row-matches=all`, missing `--yes` on a non-TTY. |
+| 1 | `EXIT_CONFIG_ERROR` | Config-level error: missing flag, flag combination, unknown row-id (corpus mode), unknown run-id (run mode), `--row-id` directory mode without `--row-matches=all`, multi-row match without `--row-matches=all`. (`--yes` is not implemented — see §3.5 for the consent model; the shipped `forgelm purge` is non-interactive on every invocation, so there is no "missing `--yes` on a non-TTY" failure mode.) |
 | 2 | `EXIT_TRAINING_ERROR` | Runtime / I/O failure: corpus unreadable, audit-log write failure, atomic-rename failure, partial commit recovery. |
 | 3 | `EXIT_EVAL_FAILURE` | Reserved for the trainer pre-flight gate when `enforce: block_on_excess` is configured (see §3.4 in the spirit of the master `error-handling.md` exit-code contract).  **Not** used by `forgelm purge --check-policy` — that path is a report, not a gate; see §10 Q5 + the paragraph below. |
-| 4 | `EXIT_AWAITING_APPROVAL` | Reserved for its trainer-pipeline meaning per `docs/standards/error-handling.md:24` ("Training + evals passed, but `require_human_approval: true` — staged, awaiting human sign-off").  **Not** reused by `forgelm purge`; an interactive `--yes`-less TTY operator who declines the prompt exits **`EXIT_CONFIG_ERROR` (1)** — the operator deliberately did not provide consent (analogous to a missing required flag), which is exactly "user must adjust input and re-run". |
+| 4 | `EXIT_AWAITING_APPROVAL` | Reserved for its trainer-pipeline meaning per `docs/standards/error-handling.md` ("Training + evals passed, but `require_human_approval: true` — staged, awaiting human sign-off").  **Not** reused by `forgelm purge`. Since the shipped `forgelm purge` is non-interactive (no prompt, no `--yes` flag), there is no "operator declined the prompt" path; consent is recorded in the operator-supplied `--justification` and the audit chain. |
 
 **`--check-policy` always exits 0** (per §10 Q5 — the resolved decision: report-not-gate semantic).  Operators who want a CI gate use `--output-format json` and pipe to `jq '.violations | length'` themselves; CI then branches on that count rather than on the exit code.  This keeps the public contract `docs/standards/error-handling.md` 0/1/2/3/4 consistent across every ForgeLM subcommand: a code-3 from `forgelm purge` always means "trainer pre-flight gate failed", never "report found something".
 
@@ -440,7 +440,7 @@ The closure plan §15.5 lists three open items that intersect Phase 21:
 
 ### Q4. Should erasure be loud (interactive confirmation) by default?
 
-**Decision:** no for `--dry-run`, yes for the actual delete.  The dispatcher prompts `Confirm erasure of row 42 in train.jsonl? [y/N]` unless `--yes` is passed (CI / scripted use).  Misuse risk is too high to default-yes.  An operator who needs unattended erasure passes `--yes` explicitly and the audit log records that flag.
+**Decision (revised — shipped behaviour as of v0.5.5):** non-interactive, with consent carried by `--justification`. The original design called for an interactive `[y/N]` prompt gated by `--yes`, but the shipped `forgelm purge` is **non-interactive on every invocation** — it never prompts, and the `--yes` flag was not wired (see §3.5). Misuse defence is now provided by (a) the mandatory `--justification` text (which lands in the `data.erasure_*` audit event as the consent record), (b) `--dry-run` as the operator's preview path, and (c) `--row-matches=all` as the explicit opt-in for multi-row deletes. The `--yes` flag is preserved on the Phase 28+ backlog if a future review-prompt mode is added.
 
 ### Q5. Should `--check-policy` return non-zero when violations are found?
 

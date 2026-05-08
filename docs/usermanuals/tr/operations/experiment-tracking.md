@@ -16,7 +16,7 @@ training:
   run_name: "customer-support-v1.2.0"    # opsiyonel; None ise otomatik üretilir
 ```
 
-ForgeLM, konfigüre edilen backend'e loss, learning rate, eval metrikleri ve benchmark puanları akıtır. **Per-backend nested config blokları (örn. `wandb: { project: ... }`) şemanın parçası değildir** — her backend kendi well-known environment variable'ları üzerinden konfigüre edilir (HF Transformers Trainer'ının izlediği framework yöntemi).
+ForgeLM, konfigüre edilen backend'e loss, learning rate, eval metrikleri ve benchmark puanları akıtır. **Per-backend nested config blokları (örn. `training.wandb: { project: ... }`) şemanın parçası değildir** — her backend'in connection / authentication / project / artifact davranışı kendi well-known environment variable'ları üzerinden konfigüre edilir (HF Transformers `Trainer`'ının izlediği framework yöntemi). ForgeLM tarafındaki tek knob'lar `training.report_to` (hangi backend) ve `training.run_name`'dir.
 
 ## Desteklenen backend'ler
 
@@ -78,27 +78,28 @@ Varsayılan. Log dosyaları `<training.output_dir>/runs/`'e iner. Dış servis y
 | `system/gpu_utilization` | Her 30s'de örneklenir |
 | `system/vram_used_gb` | Her 30s'de örneklenir |
 
-## Koşu adlandırma ve etiketler
+## Koşu adlandırma
 
 ```yaml
 training:
-  run_name: "customer-support-{config_hash}"   # interpolasyon destekli
-  tags: ["dpo", "qlora", "tr", "v1.2"]
-  notes: "truthfulqa floor'unu yakalamak için beta 0.1'den 0.15'e çıkarıldı"
+  run_name: "customer-support-v1-2"     # plain string; null = otomatik üretilir
 ```
 
-`notes` alanı, prose annotasyonu destekleyen her backend'de kaydedilir.
+`training.run_name` ForgeLM tarafındaki tek koşu-adlandırma knob'udur. `training.tags:` listesi ve `training.notes:` alanı **yoktur** — tag / note / artifact-upload / artifact-type ayarlarını trainer'ı çağırmadan önce **backend'in kendi environment variable'ları** üzerinden set edin:
+
+```bash
+# W&B
+export WANDB_TAGS="dpo,qlora,tr,v1.2"
+export WANDB_NOTES="dpo_beta 0.1'den 0.15'e çıkarıldı"
+export WANDB_LOG_MODEL="checkpoint"   # or "end" — controls artifact upload
+
+# MLflow
+export MLFLOW_TAGS='{"trainer":"dpo","quantization":"qlora"}'
+```
 
 ## Artifact yönetimi
 
-W&B ve MLflow için ForgeLM checkpoint'i ve audit paketini artifact olarak yükleyebilir:
-
-```yaml
-training:
-  wandb:
-    log_artifacts: true                  # tam checkpoint + paket
-    artifact_type: "model"
-```
+ForgeLM `training.wandb:` veya `training.mlflow:` sub-bloğu **sunmaz**. Artifact yükleme backend environment variable'ları üzerinden konfigüre edilir (`WANDB_LOG_MODEL`, `MLFLOW_TRACKING_URI` + launch wrapper'ınızda per-run logging API'leri) — HF Transformers `Trainer`'ının izlediği aynı yöntem.
 
 Çok büyük checkpoint'ler için W&B/MLflow artifact store'larından çok model registry (HuggingFace Hub) tercih edin. Free tier'lar küçük boyutlarda sınırlanır.
 
