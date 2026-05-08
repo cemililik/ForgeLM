@@ -72,9 +72,7 @@ Bundled seed dataset'lerin lisansları için bkz. [LICENSES.md](https://github.c
 forgelm --wizard
 ```
 
-Sihirbaz model seçiminden, LoRA stratejisine, dataset'e ve
-hiperparametrelere kadar yürütür. Kullanıma-hazır bir YAML config
-üretir.
+Sihirbaz önce curated quickstart-template kısayolu önerir; reddedilirse 9 adımlı etkileşimli akış açılır (welcome / use-case / model / strategy / trainer / dataset / training-params / compliance / operations) ve her `ForgeConfig` bloğunu kapsar — model, LoRA / DoRA / PiSSA / rsLoRA / GaLore stratejisi, trainer-spesifik hyperparam'lar (`dpo_beta` / `simpo_*` / `kto_beta` / `orpo_beta` / `grpo_*`), EU AI Act Madde 9 / 10 / 11 / 12+17 uyumluluk metadata, retention, monitoring, evaluation kapıları, webhook, sentetik veri — ve kullanıma-hazır bir YAML yazar. Geri dönmek için `back` / `b`, sıfırlamak için `reset` / `r`; state `~/.cache/forgelm/wizard_state.yaml`'da persistent, Ctrl-C / yeni oturum kaldığı yerden devam edebilir.
 
 ### Seçenek B: Şablon Kopyala
 

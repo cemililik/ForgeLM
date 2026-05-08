@@ -2,12 +2,12 @@
  * ForgeLM site — in-browser YAML wizard.
  *
  * Mirrors the CLI ``forgelm --wizard`` flow but lives entirely in the
- * browser: walks the operator through 7 steps (welcome / use-case /
- * model / dataset / training / eval+compliance / review) and emits a
- * working ``quickstart-generated.yaml`` they can copy, download, or
- * paste into a shell command. Every transition + every input change
- * is persisted to ``localStorage`` so a refresh resumes the same
- * step. Behaviour summary:
+ * browser: walks the operator through 9 steps (welcome / use-case /
+ * trainer / model / dataset / training / compliance / operations /
+ * review) and emits a working ``quickstart-generated.yaml`` they can
+ * copy, download, or paste into a shell command. Every transition +
+ * every input change is persisted to ``localStorage`` so a refresh
+ * resumes the same step. Behaviour summary:
  *
  * - Triggers: ``[data-wizard-open]`` clicks + the ``?wizard=open``
  *   URL parameter (set by the home-page Beginner-slide CTA).
@@ -106,7 +106,7 @@
       step: 0,
       experience: 'beginner',  // 'beginner' | 'expert'
       detailsVisible: true,    // toggle for inline tutorial paragraphs
-      useCase: null,           // 'customer-support' | 'code-copilot' | 'domain-expert' | 'grpo-math' | 'medical-tr' | 'custom'
+      useCase: null,           // 'customer-support' | 'code-assistant' | 'domain-expert' | 'grpo-math' | 'medical-qa-tr' | 'custom'
       // Trainer selection. Use-case picks a sensible preset, but the
       // operator can override on Step 3 (trainer step). All 6 schema
       // values reachable: sft / dpo / orpo / simpo / kto / grpo.
@@ -441,8 +441,12 @@
   // shipped templates under ``forgelm/templates/`` — every shipped
   // template uses ``trainer_type: sft`` except ``grpo-math`` which
   // uses ``grpo``. The wizard previously emitted DPO/ORPO for
-  // customer-support / code-copilot which contradicted the templates;
-  // this file now matches the runtime defaults.
+  // customer-support / code-assistant which contradicted the templates;
+  // this file now matches the runtime defaults.  Use-case keys
+  // (``code-assistant``, ``medical-qa-tr``, …) are kept in lockstep
+  // with ``forgelm/quickstart.py::TEMPLATES`` — the CLI quickstart
+  // catalogue is the single source of truth so an operator who
+  // crosses surfaces never sees a renamed key.
   var USE_CASE_PRESETS = {
     'customer-support': {
       trainerType: 'sft',
@@ -451,7 +455,7 @@
       datasetKind: 'huggingface',
       datasetName: 'argilla/Capybara-Preferences'
     },
-    'code-copilot': {
+    'code-assistant': {
       trainerType: 'sft',
       model: 'Qwen/Qwen2.5-Coder-7B-Instruct',
       modelPreset: 'custom',
@@ -472,7 +476,7 @@
       datasetKind: 'huggingface',
       datasetName: 'openai/gsm8k'
     },
-    'medical-tr': {
+    'medical-qa-tr': {
       trainerType: 'sft',
       model: 'meta-llama/Llama-3.1-8B-Instruct',
       modelPreset: 'llama3-8b',
@@ -1339,10 +1343,10 @@
     var grid = el('div', { class: 'wizard-cards' });
     [
       { id: 'customer-support', titleKey: 'wizard.usecase.support.title', badgeKey: 'wizard.usecase.support.badge', descKey: 'wizard.usecase.support.desc' },
-      { id: 'code-copilot',     titleKey: 'wizard.usecase.code.title',    badgeKey: 'wizard.usecase.code.badge',    descKey: 'wizard.usecase.code.desc' },
+      { id: 'code-assistant',     titleKey: 'wizard.usecase.code.title',    badgeKey: 'wizard.usecase.code.badge',    descKey: 'wizard.usecase.code.desc' },
       { id: 'domain-expert',    titleKey: 'wizard.usecase.domain.title',  badgeKey: 'wizard.usecase.domain.badge',  descKey: 'wizard.usecase.domain.desc' },
       { id: 'grpo-math',        titleKey: 'wizard.usecase.math.title',    badgeKey: 'wizard.usecase.math.badge',    descKey: 'wizard.usecase.math.desc' },
-      { id: 'medical-tr',       titleKey: 'wizard.usecase.medical.title', badgeKey: 'wizard.usecase.medical.badge', descKey: 'wizard.usecase.medical.desc' },
+      { id: 'medical-qa-tr',       titleKey: 'wizard.usecase.medical.title', badgeKey: 'wizard.usecase.medical.badge', descKey: 'wizard.usecase.medical.desc' },
       { id: 'custom',           titleKey: 'wizard.usecase.custom.title',  badgeKey: '',                              descKey: 'wizard.usecase.custom.desc' }
     ].forEach(function (opt) {
       var titleNode = el('span', { class: 'wizard-card-title' }, [tr(opt.titleKey)]);

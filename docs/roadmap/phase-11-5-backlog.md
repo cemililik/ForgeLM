@@ -10,7 +10,7 @@
 > [`forgelm/data_audit/`](../../forgelm/data_audit/),
 > [`forgelm/ingestion.py`](../../forgelm/ingestion.py),
 > [`forgelm/cli/`](../../forgelm/cli/),
-> [`forgelm/wizard.py`](../../forgelm/wizard.py); CLI:
+> [`forgelm/wizard/`](../../forgelm/wizard/); CLI:
 > `forgelm audit <path>` (new subcommand, with `--data-audit` preserved
 > as deprecation alias) + token-aware `forgelm ingest` flags; tests:
 > [`tests/test_data_audit.py`](../../tests/test_data_audit.py),
@@ -36,7 +36,7 @@ for large corpora and a cleaner CLI shape.
 | **8** | PII severity tiers | `PII_SEVERITY`, `_build_pii_severity` in [`data_audit.py`](../../forgelm/data_audit/) | Audit JSON now carries `pii_severity` with `worst_tier`, `by_tier`, and `by_type`. Notes line lead with the worst tier (e.g. `WORST tier: CRITICAL`). |
 | **9** | `summarize_report` truncation policy | [`data_audit.py`](../../forgelm/data_audit/) | Default `verbose=False` folds zero-finding splits into a single tail line. CLI exposes `--verbose` on the new `audit` subcommand for full output. |
 | **10** | Structured ingestion notes | `IngestionResult.notes_structured` in [`ingestion.py`](../../forgelm/ingestion.py) | Free-text `extra_notes` stays for humans; new `notes_structured` carries machine-readable `{key: value}` for CI/CD consumers. JSON output already exposes both. |
-| **11** | Wizard "ingest first" entry point | `_offer_ingest_for_directory` + `_prompt_dataset_path_with_ingest_offer` in [`wizard.py`](../../forgelm/wizard.py) | Both BYOD quickstart and the full 8-step wizard now offer to run `ingest` inline when the typed path is a directory of raw documents. |
+| **11** | Wizard "ingest first" entry point | `_offer_ingest_for_directory` + `_prompt_dataset_path_with_ingest_offer` in [`forgelm/wizard/_byod.py`](../../forgelm/wizard/_byod.py) | Both BYOD quickstart and the full 9-step wizard now offer to run `ingest` inline when the typed path is a directory of raw documents. |
 | **12** | Atomic audit-report write | `_atomic_write_json` in [`data_audit.py`](../../forgelm/data_audit/) | Writes via `tempfile.NamedTemporaryFile` + `os.replace` so a crashed audit can never leave a half-written `data_audit_report.json` on disk. |
 
 ## Measured speedups (xxhash + lru_cache hot path)

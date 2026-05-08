@@ -6,6 +6,83 @@ All notable changes to ForgeLM are documented here.
 
 ### Added
 
+- **CLI wizard parity-with-web modernisation (Phase 22 / 2026-05-08).**
+  `forgelm --wizard` now closes the parity gap with the in-browser
+  `site/js/wizard.js` documented in
+  `docs/analysis/code_reviews/2026-05-07_cli_wizard_ux_analysis.md` +
+  `-2.md`.
+  - **Step machine:** 9-step flow (welcome / use-case / model /
+    strategy / trainer / dataset / training-params / compliance /
+    operations) with `back` / `b` to navigate backwards and `reset` /
+    `r` to clear in-memory state.  `compliance.risk_classification`
+    is now collected **before** `evaluation.safety` so high-risk
+    auto-coercion (Article 9 / F-compliance-110) can fire reliably.
+  - **Trainer-specific hyperparameters (G1):** `dpo_beta`,
+    `simpo_beta` / `simpo_gamma`, `kto_beta`, `orpo_beta`,
+    `grpo_num_generations`, `grpo_max_completion_length`,
+    `grpo_reward_model` are now surfaced per `trainer_type`.  SFT
+    short-circuits.
+  - **PEFT method breadth (G2):** the strategy step now offers all
+    four schema-supported `lora.method` values (`lora`, `dora`,
+    `pissa`, `rslora`) plus GaLore as a separate axis (6 cards
+    total).
+  - **GaLore optimiser variants (G9):** all six `galore_optim` Literal
+    values surfaced, including the three `_layerwise` siblings that
+    drop peak VRAM further.
+  - **RoPE scaling types (G10):** `longrope` joined `linear` /
+    `dynamic` / `yarn` for the full 4-of-4 schema coverage.
+  - **LoRA `r` schema parity (G11):** `DEFAULT_LORA_R` lowered from
+    `16` → `8` to match `LoraConfigModel.r`.
+  - **Compliance depth (G5):** `compliance` (Article 11 + Annex IV §1)
+    plus optional `risk_assessment` (Article 9), `data.governance`
+    (Article 10), `retention` (GDPR Article 5(1)(e) + 17),
+    `monitoring` (Article 12+17), `evaluation.benchmark`,
+    `evaluation.llm_judge`, `synthetic` blocks now configurable.
+  - **High-risk auto-coercion (G8):** `risk_classification ∈
+    {high-risk, unacceptable}` automatically enables
+    `evaluation.safety` + `evaluation.require_human_approval` with a
+    visible operator notice — front-stops the schema-side
+    `F-compliance-110` `ConfigError`.
+  - **Webhook URL parsing (G15):** single prompt accepts a literal
+    URL or `env:VAR_NAME` reference; the URL form is `urlparse`-
+    validated and HTTPS is recommended (HTTP accepted with a
+    warning, matching `forgelm/webhook.py` runtime behaviour).
+  - **Safety probe path (G16):** the bundled probe set is now
+    resolved through `importlib.resources.files("forgelm.safety_prompts")`,
+    fixing the `pip install forgelm` regression where
+    `configs/safety_prompts/general_safety.jsonl` was the wizard
+    default but never shipped in the wheel.
+  - **Configuration summary (G17):** `_print_wizard_summary` now
+    dumps the full YAML alongside the labelled headline.  Operator
+    sees every block — webhook / evaluation / compliance / risk /
+    retention / monitoring — without `cat`-ing the file.
+  - **Persistence (G6):** state snapshot at
+    `$XDG_CACHE_HOME/forgelm/wizard_state.yaml` (or
+    `~/.cache/forgelm/wizard_state.yaml`) saved after every
+    completed step.  Schema versioned (`v: 1`); version mismatches
+    or parse errors silently fall back to defaults.  Snapshot is
+    cleared on successful completion.
+  - **Step-diff preview (G7):** each completed step prints `+ key.path:
+    value` / `~ key.path: before → after` so the operator sees
+    exactly what changed mid-flow.
+  - **Beginner / expert toggle (G13):** beginner mode prefixes each
+    step with a 2-3-line tutorial paragraph; expert mode is silent.
+  - **Use-case integration (G12):** the curated quickstart-template
+    list is also offered as Step 2 of the full flow (in addition to
+    the existing prelude shortcut), seeding sensible defaults for
+    later steps without locking anything down.
+  - **Use-case key alignment with web (I4):**
+    `site/js/wizard.js::USE_CASE_PRESETS` keys renamed to match
+    `forgelm/quickstart.py::TEMPLATES` (`code-copilot` →
+    `code-assistant`, `medical-tr` → `medical-qa-tr`).  `quickstart.py`
+    is now the single source of truth.
+  - **`POPULAR_MODELS` alignment with web (G14):** the CLI list now
+    matches `site/js/wizard.js`'s preset cards.
+  - **Step-machine docstring + design doc refresh (I2 + I5):**
+    `site/js/wizard.js` header comment updated from "7 steps" to "9
+    steps" + correct step list; `docs/design/wizard_mode.md`
+    rewritten to describe the actual 9-step flow.
+
 ### Changed
 
 - Minimum required `torch` version bumped from 2.1.0 to 2.3.0; `torch.distributed.fsdp.FSDPModule` (introduced in torch 2.3) is referenced by `tests/test_grpo_reward.py` and runtime GRPO paths. (#F-PR29-A4-07)

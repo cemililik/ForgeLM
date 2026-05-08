@@ -67,7 +67,7 @@ See [LICENSES.md](https://github.com/cemililik/ForgeLM/blob/main/forgelm/templat
 forgelm --wizard
 ```
 
-The wizard walks you through model selection, LoRA strategy, dataset, and hyperparameters. It generates a ready-to-use YAML config.
+The wizard offers a curated quickstart-template shortcut first; declining opens a 9-step interactive flow (welcome / use-case / model / strategy / trainer / dataset / training-params / compliance / operations) that covers every `ForgeConfig` block — model, LoRA / DoRA / PiSSA / rsLoRA / GaLore strategy, per-trainer hyperparameters (`dpo_beta` / `simpo_*` / `kto_beta` / `orpo_beta` / `grpo_*`), EU AI Act Article 9 / 10 / 11 / 12+17 compliance metadata, retention, monitoring, evaluation gates, webhooks, synthetic data — and writes a ready-to-use YAML. Type `back` / `b` to navigate backwards, `reset` / `r` to start over; state is persisted to `~/.cache/forgelm/wizard_state.yaml` so a Ctrl-C / fresh session can resume.
 
 ### Option B: Copy Template
 

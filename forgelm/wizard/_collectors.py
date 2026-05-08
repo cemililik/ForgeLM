@@ -1,0 +1,688 @@
+"""Section-collector helpers — webhook / safety / trainer / compliance / etc.
+
+Every public ``ForgeConfig`` block the operator can populate via the
+wizard has a ``_collect_*`` helper here.  The orchestrator
+(``forgelm.wizard._orchestrator``) calls them in order; each returns
+either a populated dict (which the orchestrator drops into the
+running config) or ``None`` (which the orchestrator interprets as
+"the operator declined this block; omit it from the YAML").
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
+from urllib.parse import urlparse
+
+from ._io import (
+    _print,
+    _prompt,
+    _prompt_choice,
+    _prompt_float,
+    _prompt_int,
+    _prompt_optional_list,
+    _prompt_yes_no,
+)
+
+# ---------------------------------------------------------------------------
+# Risk-tier surface (mirrors ``forgelm.config._STRICT_RISK_TIERS`` /
+# ``forgelm.config.RiskTier``).
+# ---------------------------------------------------------------------------
+
+
+# Strict-tier risk classifications that trigger ``F-compliance-110``
+# auto-coercion (mandatory safety eval + Article 14 staging gate).
+_STRICT_RISK_TIERS: Tuple[str, ...] = ("high-risk", "unacceptable")
+
+# Full ``RiskTier`` Literal, in the order the wizard offers them
+# (default = ``minimal-risk`` matches the Pydantic field default).
+_RISK_TIERS: Tuple[str, ...] = (
+    "unknown",
+    "minimal-risk",
+    "limited-risk",
+    "high-risk",
+    "unacceptable",
+)
+
+
+# ---------------------------------------------------------------------------
+# Safety probe path resolution — Phase 22 / G16.  Bundled probe set
+# lives in the package data at
+# ``forgelm.safety_prompts/default_probes.jsonl``; the v0.5.5 wizard
+# emitted ``configs/safety_prompts/general_safety.jsonl`` which is
+# repo-relative and not shipped in the wheel — broken on
+# ``pip install``.
+# ---------------------------------------------------------------------------
+
+
+def _default_safety_probes_path() -> str:
+    """Return the absolute filesystem path of the bundled default probe set.
+
+    Uses :mod:`importlib.resources` so the path is correct under both
+    editable installs and built wheels.  Falls back to the import-time
+    package directory when ``files()`` raises (e.g. the safety_prompts
+    package isn't installed — which can happen in slim test
+    environments).
+    """
+    try:
+        from importlib.resources import files
+
+        probe = files("forgelm.safety_prompts").joinpath("default_probes.jsonl")
+        return str(probe)
+    except (ModuleNotFoundError, FileNotFoundError, ImportError):
+        # Fallback: best-effort guess at the package directory.
+        return str(Path(__file__).resolve().parent.parent / "safety_prompts" / "default_probes.jsonl")
+
+
+# ---------------------------------------------------------------------------
+# Webhook URL parsing — Phase 22 / G15.  Single-prompt syntax mirrors
+# the web wizard's ``env:VAR_NAME`` prefix sugar.
+# ---------------------------------------------------------------------------
+
+
+def _parse_webhook_value(raw: str) -> Optional[Dict[str, str]]:
+    """Parse a webhook URL or ``env:VAR_NAME`` reference.
+
+    Returns:
+        - ``None`` when *raw* is empty (caller drops the webhook block).
+        - ``{"url_env": "VAR"}`` when *raw* starts with ``env:``.
+        - ``{"url": "<raw>"}`` otherwise.
+
+    Validates that bare URLs use ``https`` scheme; ``http`` URLs print
+    a warning but are still accepted (matches ``forgelm/webhook.py``'s
+    runtime behaviour — ``allow_insecure_http=True`` only logs a
+    warning, doesn't reject).  Empty / malformed URLs surface a clear
+    re-prompt request via ``ValueError``.
+    """
+    raw = raw.strip()
+    if not raw:
+        return None
+    if raw.lower().startswith("env:"):
+        var_name = raw[4:].strip()
+        if not var_name:
+            raise ValueError("`env:` prefix needs a non-empty variable name (e.g. `env:SLACK_WEBHOOK_URL`).")
+        if not re.match(r"^[A-Z][A-Z0-9_]*$", var_name):
+            raise ValueError(
+                f"`env:{var_name}` is not a POSIX environment-variable name "
+                "(uppercase letters / digits / underscores, must start with a letter)."
+            )
+        return {"url_env": var_name}
+    parsed = urlparse(raw)
+    if not parsed.scheme or not parsed.netloc:
+        raise ValueError(f"`{raw}` is not a valid URL or env-var reference (use `https://…` or `env:VAR_NAME`).")
+    if parsed.scheme not in ("https", "http"):
+        raise ValueError(
+            f"Webhook URL must use `https://` (or `http://` with explicit operator opt-in), got `{parsed.scheme}://`."
+        )
+    if parsed.scheme == "http":
+        _print(
+            "  Warning: webhook URL uses HTTP, not HTTPS.  Data will travel unencrypted.  "
+            "Use `env:VAR_NAME` to source the URL from a secret manager."
+        )
+    return {"url": raw}
+
+
+# ---------------------------------------------------------------------------
+# Webhook collector
+# ---------------------------------------------------------------------------
+
+
+def _collect_webhook_config() -> Optional[Dict[str, Any]]:
+    """Prompt for webhook configuration; returns the webhook section or None."""
+    if not _prompt_yes_no("Configure webhook notifications?", default=False):
+        return None
+    while True:
+        raw = _prompt(
+            "Webhook URL (or `env:VAR_NAME` to source from environment)",
+            "env:FORGELM_WEBHOOK_URL",
+        )
+        if not raw:
+            _print("  A webhook URL or `env:` reference is required to enable webhooks.")
+            continue
+        try:
+            section = _parse_webhook_value(raw)
+        except ValueError as exc:
+            _print(f"  {exc}")
+            continue
+        if section is None:
+            return None
+        section.setdefault("notify_on_start", True)
+        section.setdefault("notify_on_success", True)
+        section.setdefault("notify_on_failure", True)
+        return section
+
+
+# ---------------------------------------------------------------------------
+# Safety-eval collector — Phase 22 / G16
+# ---------------------------------------------------------------------------
+
+
+def _collect_safety_config(*, default_enabled: bool = False) -> Optional[Dict[str, Any]]:
+    """Prompt for safety eval; returns the safety section or None.
+
+    *default_enabled* is set to ``True`` by ``_apply_strict_tier_coercion``
+    so high-risk operators see "Y/n" instead of "y/N" — the hint is
+    the nudge.
+    """
+    if not _prompt_yes_no("Enable safety evaluation (Llama Guard)?", default=default_enabled):
+        return None
+    scoring_choice = _prompt_choice(
+        "Safety scoring mode:",
+        [
+            "binary (simple safe/unsafe ratio)",
+            "confidence_weighted (uses classifier confidence)",
+        ],
+        default=1,
+    )
+    scoring_mode = "confidence_weighted" if "confidence" in scoring_choice else "binary"
+    safety: Dict[str, Any] = {
+        "enabled": True,
+        "test_prompts": _default_safety_probes_path(),
+        "scoring": scoring_mode,
+    }
+    if scoring_mode == "confidence_weighted":
+        safety["min_safety_score"] = 0.85
+    if _prompt_yes_no("Track harm categories (S1-S14 + ForgeLM-curated)?", default=False):
+        safety["track_categories"] = True
+        safety["severity_thresholds"] = {"critical": 0, "high": 0.01, "medium": 0.05}
+    return safety
+
+
+# ---------------------------------------------------------------------------
+# Trainer-specific hyperparameters — Phase 22 / G1
+# ---------------------------------------------------------------------------
+
+
+def _collect_trainer_hyperparameters(trainer_type: str) -> Dict[str, Any]:
+    """Return trainer-specific hyperparameters as a flat dict.
+
+    SFT has no per-trainer knobs (the schema's generic
+    ``num_train_epochs`` / ``learning_rate`` already covers it), so
+    the helper short-circuits with an empty dict.  Other trainers
+    prompt for the fields ``forgelm.config.TrainingConfig`` exposes;
+    defaults mirror the schema so an operator who accepts every
+    prompt produces a YAML byte-equivalent to ``ForgeConfig()``.
+    """
+    if trainer_type == "sft":
+        return {}
+    _print("\n  Trainer-specific hyperparameters")
+    if trainer_type == "dpo":
+        return {
+            "dpo_beta": _prompt_float(
+                "dpo_beta — temperature / KL strength (lower → closer to reference model)",
+                0.1,
+                min_val=1e-5,
+                max_val=10.0,
+            ),
+        }
+    if trainer_type == "orpo":
+        return {
+            "orpo_beta": _prompt_float(
+                "orpo_beta — odds-ratio penalty strength",
+                0.1,
+                min_val=1e-5,
+                max_val=10.0,
+            ),
+        }
+    if trainer_type == "kto":
+        return {
+            "kto_beta": _prompt_float(
+                "kto_beta — same KL role as dpo_beta for binary feedback",
+                0.1,
+                min_val=1e-5,
+                max_val=10.0,
+            ),
+        }
+    if trainer_type == "simpo":
+        return {
+            "simpo_beta": _prompt_float(
+                "simpo_beta — length-normalised reward scale (NOT same scale as dpo_beta)",
+                2.0,
+                min_val=1e-5,
+                max_val=10.0,
+            ),
+            "simpo_gamma": _prompt_float(
+                "simpo_gamma — margin between chosen / rejected log-likelihoods",
+                0.5,
+                min_val=0.0,
+                max_val=10.0,
+            ),
+        }
+    if trainer_type == "grpo":
+        result: Dict[str, Any] = {
+            "grpo_num_generations": _prompt_int(
+                "grpo_num_generations — responses sampled per prompt (higher = more stable, more compute)",
+                4,
+                min_val=2,
+                max_val=64,
+            ),
+            "grpo_max_completion_length": _prompt_int(
+                "grpo_max_completion_length — cap on generated response length",
+                512,
+                min_val=32,
+                max_val=8192,
+            ),
+        }
+        reward = _prompt(
+            "grpo_reward_model — dotted-path callable, HF Hub reward model, or empty for the built-in shaper",
+            "",
+        )
+        if reward.strip():
+            result["grpo_reward_model"] = reward.strip()
+        return result
+    return {}
+
+
+# ---------------------------------------------------------------------------
+# Long-context modifiers — RoPE + NEFTune
+# ---------------------------------------------------------------------------
+
+
+def _collect_rope_scaling(max_length: int) -> Optional[Dict[str, Any]]:
+    """Prompt for RoPE scaling parameters when context is long; otherwise None."""
+    if max_length <= 4096:
+        return None
+    _print(f"\n  Long context detected ({max_length} tokens).")
+    if not _prompt_yes_no("Enable RoPE scaling for extended context?", default=True):
+        return None
+    rope_type = _prompt_choice(
+        "RoPE scaling type:",
+        [
+            "linear (simple, proven)",
+            "dynamic (adaptive)",
+            "yarn (best quality, newer)",
+            "longrope (newest — 32K+ context, requires LongRoPE-aware model)",
+        ],
+        default=1,
+    )
+    base_context = 4096
+    rope_factor = max_length / base_context
+    _print(
+        f"  Note: RoPE factor {rope_factor:.1f}x computed assuming base context of "
+        f"{base_context} tokens.  Adjust manually if your model has a different "
+        f"original context length (e.g., Llama 3.1 = 131072, Mistral v0.3 = 32768)."
+    )
+    return {"type": rope_type.split(" ")[0], "factor": rope_factor}
+
+
+def _collect_neftune_alpha() -> Optional[float]:
+    """Prompt for NEFTune noise injection; returns alpha or None."""
+    if not _prompt_yes_no("Enable NEFTune noise injection (improves training quality)?", default=False):
+        return None
+    return _prompt_float("NEFTune noise alpha", 5.0, min_val=0.0, max_val=100.0)
+
+
+# ---------------------------------------------------------------------------
+# GaLore — Phase 22 / G9 surfaces all six schema-allowed optimizer
+# variants, including the three ``_layerwise`` siblings that drop peak
+# VRAM further.
+# ---------------------------------------------------------------------------
+
+
+_GALORE_OPTIMIZERS: Tuple[str, ...] = (
+    "galore_adamw",
+    "galore_adamw_8bit",
+    "galore_adafactor",
+    "galore_adamw_layerwise",
+    "galore_adamw_8bit_layerwise",
+    "galore_adafactor_layerwise",
+)
+
+
+def _collect_galore_config(use_galore: bool) -> Dict[str, Any]:
+    """Prompt for GaLore-specific knobs when GaLore was selected."""
+    if not use_galore:
+        return {}
+    _print("\n[Advanced] GaLore Configuration")
+    galore_rank = _prompt_int("GaLore rank (lower = less memory)", 128, min_val=1, max_val=4096)
+    galore_optim = _prompt_choice(
+        "GaLore optimizer (variants ending in _8bit halve optimiser VRAM; "
+        "_layerwise variants further reduce peak VRAM via per-layer recompute):",
+        [f"{name} (recommended)" if name == "galore_adamw" else name for name in _GALORE_OPTIMIZERS],
+        default=1,
+    )
+    return {
+        "galore_enabled": True,
+        "galore_optim": galore_optim.split(" ")[0],
+        "galore_rank": galore_rank,
+        "galore_update_proj_gap": 200,
+        "galore_scale": 0.25,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Compliance + Article 9 / 10 / Retention / Monitoring / Eval-gates /
+# Synthetic — Phase 22 / G5.
+# ---------------------------------------------------------------------------
+
+
+def _collect_compliance_metadata() -> Dict[str, Any]:
+    """Article 11 + Annex IV §1: provider + system metadata."""
+    return {
+        "provider_name": _prompt("Organization (legal-entity) name", ""),
+        "provider_contact": _prompt("Provider regulatory contact (email or phone)", ""),
+        "system_name": _prompt("Human-readable system name", ""),
+        "intended_purpose": _prompt("Intended purpose of the system", ""),
+        "known_limitations": _prompt("Known limitations operator wants documented (free-text)", ""),
+        "system_version": _prompt("System version string", "v0.1.0"),
+        "risk_classification": _prompt_choice(
+            "Risk classification (mirrored at risk_assessment.risk_category):",
+            list(_RISK_TIERS),
+            default=2,  # ``minimal-risk`` — same default as the Pydantic field.
+        ),
+    }
+
+
+def _collect_risk_assessment(risk_classification: str) -> Optional[Dict[str, Any]]:
+    """Article 9: risk-management evidence.  Mandatory for strict tiers."""
+    is_strict = risk_classification in _STRICT_RISK_TIERS
+    if not is_strict and not _prompt_yes_no("Configure Article 9 risk_assessment metadata?", default=False):
+        return None
+    if is_strict:
+        _print(
+            "  Risk classification is high-risk / unacceptable — Article 9 "
+            "risk_assessment evidence is mandatory.  All four fields below "
+            "should be populated."
+        )
+    intended_use = (
+        _prompt("Article 9(2)(a): intended_use", "")
+        if is_strict
+        else _prompt("intended_use (Article 9(2)(a)) — optional", "")
+    )
+    foreseeable = _prompt_optional_list("Article 9(2)(b): foreseeable_misuse — list at least one realistic misuse")
+    mitigation = _prompt_optional_list("Article 9(2)(c): mitigation_measures the deployer applies")
+    vulnerable = _prompt_yes_no(
+        "Article 9(2)(b): vulnerable_groups_considered (children / minorities / etc.)?",
+        default=is_strict,
+    )
+    return {
+        "intended_use": intended_use,
+        "foreseeable_misuse": foreseeable,
+        "mitigation_measures": mitigation,
+        "vulnerable_groups_considered": vulnerable,
+        # Mirror the compliance.risk_classification across into
+        # risk_assessment.risk_category so ``ForgeConfig._risk_tiers``
+        # sees a consistent pair.
+        "risk_category": risk_classification,
+    }
+
+
+def _collect_data_governance(*, mandatory: bool) -> Optional[Dict[str, Any]]:
+    """Article 10: data governance metadata.  Mandatory under strict tiers."""
+    if not mandatory and not _prompt_yes_no("Configure Article 10 data.governance metadata?", default=False):
+        return None
+    if mandatory:
+        _print("  Risk classification is high-risk / unacceptable — Article 10 data.governance evidence is mandatory.")
+    return {
+        "collection_method": _prompt("Article 10(2)(b): how was data collected?", ""),
+        "annotation_process": _prompt("Article 10(2)(b): annotation methodology", ""),
+        "known_biases": _prompt("Article 10(2)(f): known_biases", ""),
+        "personal_data_included": _prompt_yes_no("Article 10(5): personal_data_included?", default=False),
+        "dpia_completed": _prompt_yes_no("Article 35 GDPR: dpia_completed?", default=False),
+    }
+
+
+def _collect_retention() -> Optional[Dict[str, Any]]:
+    """GDPR Article 5(1)(e) + 17: retention horizons."""
+    if not _prompt_yes_no(
+        "Customise retention horizons (audit log / staging / ephemeral / raw documents)?",
+        default=False,
+    ):
+        return None
+    audit = _prompt_int(
+        "audit_log_retention_days (0 = retain indefinitely)",
+        1825,
+        min_val=0,
+        max_val=18250,
+    )
+    staging = _prompt_int("staging_ttl_days (0 = retain indefinitely)", 7, min_val=0, max_val=365)
+    ephemeral = _prompt_int(
+        "ephemeral_artefact_retention_days (0 = retain indefinitely)",
+        90,
+        min_val=0,
+        max_val=3650,
+    )
+    raw_docs = _prompt_int("raw_documents_retention_days (0 = retain indefinitely)", 90, min_val=0, max_val=3650)
+    enforce = _prompt_choice(
+        "enforcement mode:",
+        [
+            "log_only (record violations only)",
+            "warn_on_excess (stderr warning, run continues)",
+            "block_on_excess (abort trainer with EXIT_EVAL_FAILURE)",
+        ],
+        default=1,
+    )
+    return {
+        "audit_log_retention_days": audit,
+        "staging_ttl_days": staging,
+        "ephemeral_artefact_retention_days": ephemeral,
+        "raw_documents_retention_days": raw_docs,
+        "enforce": enforce.split(" ")[0],
+    }
+
+
+def _collect_monitoring() -> Optional[Dict[str, Any]]:
+    """Article 12+17: post-market monitoring hooks."""
+    if not _prompt_yes_no("Configure post-market monitoring?", default=False):
+        return None
+    endpoint = _prompt("Monitoring endpoint URL (Prometheus push gateway / Datadog / custom)", "")
+    metrics_export = _prompt_choice(
+        "metrics_export:",
+        ["none", "prometheus", "datadog", "custom_webhook"],
+        default=1,
+    )
+    return {
+        "enabled": True,
+        "endpoint": endpoint,
+        "metrics_export": metrics_export,
+        "alert_on_drift": _prompt_yes_no("alert_on_drift?", default=True),
+        "check_interval_hours": _prompt_int("check_interval_hours", 24, min_val=1, max_val=720),
+    }
+
+
+def _collect_benchmark() -> Optional[Dict[str, Any]]:
+    """``evaluation.benchmark`` lm-evaluation-harness gate."""
+    if not _prompt_yes_no(
+        "Enable benchmark evaluation (lm-evaluation-harness — needs `forgelm[eval]` extra)?",
+        default=False,
+    ):
+        return None
+    tasks = _prompt_optional_list(
+        "Benchmark tasks (e.g. arc_easy, hellaswag, mmlu)",
+        default_csv="arc_easy, hellaswag",
+    )
+    if not tasks:
+        _print("  No tasks specified; benchmark gate disabled.")
+        return None
+    min_score_raw = _prompt("min_score (auto-revert below this) — leave empty for `null`", "")
+    benchmark: Dict[str, Any] = {"enabled": True, "tasks": tasks}
+    if min_score_raw.strip():
+        try:
+            benchmark["min_score"] = float(min_score_raw)
+        except ValueError:
+            _print(f"  '{min_score_raw}' is not a number; min_score left unset.")
+    return benchmark
+
+
+def _collect_judge() -> Optional[Dict[str, Any]]:
+    """``evaluation.llm_judge`` LLM-as-Judge gate."""
+    if not _prompt_yes_no("Enable LLM-as-Judge scoring?", default=False):
+        return None
+    judge_model = _prompt("judge_model (API name or local path)", "gpt-4o-mini")
+    judge_api_key_env = _prompt(
+        "judge_api_key_env (env-var name carrying API key; leave empty for a local judge)",
+        "OPENAI_API_KEY",
+    )
+    judge: Dict[str, Any] = {
+        "enabled": True,
+        "judge_model": judge_model,
+        "min_score": _prompt_float("min_score (mean 1-10 floor; auto-revert below)", 6.5, min_val=1.0, max_val=10.0),
+    }
+    if judge_api_key_env.strip():
+        judge["judge_api_key_env"] = judge_api_key_env.strip()
+    return judge
+
+
+def _collect_synthetic() -> Optional[Dict[str, Any]]:
+    """``synthetic`` teacher → student distillation block."""
+    if not _prompt_yes_no("Configure synthetic-data generation (teacher → student)?", default=False):
+        return None
+    backend = _prompt_choice(
+        "teacher_backend:",
+        [
+            "api (OpenAI/Anthropic-compatible)",
+            "local (HF model loaded in-process)",
+            "file (read pre-generated JSONL)",
+        ],
+        default=1,
+    )
+    backend_token = backend.split(" ")[0]
+    section: Dict[str, Any] = {
+        "enabled": True,
+        "teacher_backend": backend_token,
+        "teacher_model": _prompt("teacher_model (HF Hub ID or API model name)", "gpt-4o"),
+    }
+    if backend_token == "api":
+        api_base = _prompt(
+            "api_base (OpenAI-compatible endpoint URL)",
+            "https://api.openai.com/v1",
+        )
+        api_key_env = _prompt("api_key_env", "OPENAI_API_KEY")
+        section["api_base"] = api_base
+        section["api_key_env"] = api_key_env
+    seed_file = _prompt("seed_file (path to seed prompts JSONL or text)", "")
+    if seed_file.strip():
+        section["seed_file"] = seed_file
+    section["output_file"] = _prompt("output_file", "data/synthetic.jsonl")
+    return section
+
+
+# ---------------------------------------------------------------------------
+# Strategy → flag derivation.  Phase 22 / G2 expands the menu to cover
+# the full ``LoraConfigModel.method`` Literal (lora / dora / pissa /
+# rslora) with GaLore as a separate axis.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _StrategyChoice:
+    """Decoded form of a strategy menu pick."""
+
+    label: str
+    load_in_4bit: bool
+    method: str  # lora / dora / pissa / rslora
+    use_galore: bool
+
+
+_STRATEGY_CHOICES: Tuple[_StrategyChoice, ...] = (
+    _StrategyChoice(
+        label="QLoRA (4-bit quantization, standard LoRA — recommended for most operators)",
+        load_in_4bit=True,
+        method="lora",
+        use_galore=False,
+    ),
+    _StrategyChoice(
+        label="LoRA (full-precision adapters, more memory, slightly better quality)",
+        load_in_4bit=False,
+        method="lora",
+        use_galore=False,
+    ),
+    _StrategyChoice(
+        label="DoRA (Weight-Decomposed LoRA — best adapter quality, slightly more compute)",
+        load_in_4bit=True,
+        method="dora",
+        use_galore=False,
+    ),
+    _StrategyChoice(
+        label="PiSSA (singular-value initialised LoRA — better stability, paper-recommended for large r)",
+        load_in_4bit=True,
+        method="pissa",
+        use_galore=False,
+    ),
+    _StrategyChoice(
+        label="rsLoRA (rank-stabilised LoRA — recommended when r > 64)",
+        load_in_4bit=True,
+        method="rslora",
+        use_galore=False,
+    ),
+    _StrategyChoice(
+        label="GaLore (full-parameter via gradient projection — no adapters, lowest peak VRAM)",
+        load_in_4bit=False,
+        method="lora",  # dummy, ignored when use_galore=True
+        use_galore=True,
+    ),
+)
+
+
+def _select_strategy() -> _StrategyChoice:
+    """Prompt for the fine-tuning strategy."""
+    label = _prompt_choice(
+        "Choose your fine-tuning strategy:",
+        [choice.label for choice in _STRATEGY_CHOICES],
+        default=1,
+    )
+    return next(c for c in _STRATEGY_CHOICES if c.label == label)
+
+
+# ---------------------------------------------------------------------------
+# Use-case preset registry — Phase 22 / G12 + G14 + I4.  Anchored on
+# the CLI quickstart TEMPLATES so the web wizard adopting the same
+# keys closes the use-case key drift documented in the analysis
+# report.
+# ---------------------------------------------------------------------------
+
+
+# Wizard-only "manual" path that doesn't preselect anything.  Mirrored
+# in ``_state._MANUAL_USE_CASE`` so callers from either submodule see
+# the same value.
+_MANUAL_USE_CASE = "custom"
+
+
+def _wizard_use_case_presets() -> Dict[str, Dict[str, Any]]:
+    """Build the use-case → preset map from ``forgelm.quickstart.TEMPLATES``."""
+    from ..quickstart import TEMPLATES
+
+    presets: Dict[str, Dict[str, Any]] = {}
+    for name, tpl in TEMPLATES.items():
+        presets[name] = {
+            "title": tpl.title,
+            "trainer_type": tpl.trainer_type,
+            "model": tpl.primary_model,
+            "bundled_dataset": tpl.bundled_dataset,
+            "estimated_minutes": tpl.estimated_minutes,
+        }
+    presets[_MANUAL_USE_CASE] = {
+        "title": "Custom (build from scratch — no preselect)",
+        "trainer_type": None,
+        "model": None,
+        "bundled_dataset": False,
+        "estimated_minutes": 0,
+    }
+    return presets
+
+
+def _select_use_case() -> Tuple[str, Dict[str, Any]]:
+    """Prompt for a use-case and return (key, preset_dict)."""
+    presets = _wizard_use_case_presets()
+    keys = list(presets.keys())
+    options = [
+        f"{key} — {presets[key]['title']} (~{presets[key]['estimated_minutes']}min)"
+        if presets[key]["estimated_minutes"]
+        else f"{key} — {presets[key]['title']}"
+        for key in keys
+    ]
+    chosen = _prompt_choice(
+        "Use-case (each preselects sensible defaults; you can override every later step):",
+        options,
+        default=1,
+    )
+    chosen_key = chosen.split(" — ")[0]
+    return chosen_key, presets.get(chosen_key, presets[_MANUAL_USE_CASE])
+
+
+# Re-export ``_PREFERENCE_COLUMNS_HINT`` from ``_state`` for the
+# orchestrator's trainer-selection step — keeps the data-format hints
+# next to where they're surfaced.
+_PREFERENCE_COLUMNS_HINT = "Columns: prompt, chosen, rejected"

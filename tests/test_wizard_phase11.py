@@ -244,19 +244,27 @@ class TestValidationHelpersOutput:
         assert "Long context detected" not in captured
 
     def test_print_wizard_summary_includes_strategy_and_dataset(self, capsys):
+        # Phase 22 rewrite: ``_print_wizard_summary`` takes the resolved
+        # config dict instead of ~12 keyword arguments.  The summary
+        # body now also includes the full YAML preview (G17), so we
+        # only assert on the labelled summary lines that the rest of
+        # the wizard depends on.
         wizard._print_wizard_summary(
-            model_name="meta-llama/Llama-3.1-8B-Instruct",
-            suggested_backend="transformers",
-            use_galore=False,
-            load_in_4bit=True,
-            use_dora=False,
-            trainer_type="sft",
-            lora_r=16,
-            lora_alpha=32,
-            dataset_path="tatsu-lab/alpaca",
-            epochs=3,
-            batch_size=4,
-            output_dir="./checkpoints",
+            {
+                "model": {
+                    "name_or_path": "meta-llama/Llama-3.1-8B-Instruct",
+                    "backend": "transformers",
+                    "load_in_4bit": True,
+                },
+                "lora": {"r": 16, "alpha": 32, "method": "lora"},
+                "training": {
+                    "trainer_type": "sft",
+                    "num_train_epochs": 3,
+                    "per_device_train_batch_size": 4,
+                    "output_dir": "./checkpoints",
+                },
+                "data": {"dataset_name_or_path": "tatsu-lab/alpaca"},
+            }
         )
         out = capsys.readouterr().out
         assert "Configuration Summary" in out
@@ -271,38 +279,37 @@ class TestValidationHelpersOutput:
         # branch so a reordering of the if/elif ladder can't silently
         # swallow the GaLore label in summaries.
         wizard._print_wizard_summary(
-            model_name="m",
-            suggested_backend="transformers",
-            use_galore=True,
-            load_in_4bit=False,
-            use_dora=False,
-            trainer_type="sft",
-            lora_r=8,
-            lora_alpha=16,
-            dataset_path="d",
-            epochs=1,
-            batch_size=1,
-            output_dir="./out",
+            {
+                "model": {"name_or_path": "m", "backend": "transformers", "load_in_4bit": False},
+                "lora": {"r": 8, "alpha": 16, "method": "lora"},
+                "training": {
+                    "trainer_type": "sft",
+                    "galore_enabled": True,
+                    "num_train_epochs": 1,
+                    "per_device_train_batch_size": 1,
+                    "output_dir": "./out",
+                },
+                "data": {"dataset_name_or_path": "d"},
+            }
         )
         assert "Strategy: GaLore" in capsys.readouterr().out
 
     def test_print_wizard_summary_dora_suffix(self, capsys):
         wizard._print_wizard_summary(
-            model_name="m",
-            suggested_backend="transformers",
-            use_galore=False,
-            load_in_4bit=True,
-            use_dora=True,
-            trainer_type="dpo",
-            lora_r=8,
-            lora_alpha=16,
-            dataset_path="d",
-            epochs=1,
-            batch_size=1,
-            output_dir="./out",
+            {
+                "model": {"name_or_path": "m", "backend": "transformers", "load_in_4bit": True},
+                "lora": {"r": 8, "alpha": 16, "method": "dora"},
+                "training": {
+                    "trainer_type": "dpo",
+                    "num_train_epochs": 1,
+                    "per_device_train_batch_size": 1,
+                    "output_dir": "./out",
+                },
+                "data": {"dataset_name_or_path": "d"},
+            }
         )
         out = capsys.readouterr().out
-        assert "Strategy: QLoRA + DoRA" in out
+        assert "Strategy: QLoRA + DORA" in out
         assert "Trainer:  DPO" in out
 
 
