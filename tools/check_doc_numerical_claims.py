@@ -54,6 +54,24 @@ class Mismatch:
     snippet: str
 
 
+def _secret_patterns_dict_node(node: ast.AST) -> Optional[ast.Dict]:
+    """Return the ``ast.Dict`` literal assigned to ``_SECRET_PATTERNS``, else None.
+
+    Handles both annotated (``_SECRET_PATTERNS: Dict[str, ...] = {...}``)
+    and plain (``_SECRET_PATTERNS = {...}``) assignment shapes.
+    """
+    if isinstance(node, ast.AnnAssign):
+        target = node.target
+        if isinstance(target, ast.Name) and target.id == "_SECRET_PATTERNS" and isinstance(node.value, ast.Dict):
+            return node.value
+        return None
+    if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict):
+        for t in node.targets:
+            if isinstance(t, ast.Name) and t.id == "_SECRET_PATTERNS":
+                return node.value
+    return None
+
+
 def canonical_secret_families() -> int:
     """Read ``_SECRET_PATTERNS`` from forgelm/data_audit/_secrets.py and
     return the number of families it ships with.
@@ -61,13 +79,9 @@ def canonical_secret_families() -> int:
     src = (FORGELM / "data_audit" / "_secrets.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     for node in ast.walk(tree):
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            if node.target.id == "_SECRET_PATTERNS" and isinstance(node.value, ast.Dict):
-                return len(node.value.keys)
-        if isinstance(node, ast.Assign):
-            for t in node.targets:
-                if isinstance(t, ast.Name) and t.id == "_SECRET_PATTERNS" and isinstance(node.value, ast.Dict):
-                    return len(node.value.keys)
+        dict_node = _secret_patterns_dict_node(node)
+        if dict_node is not None:
+            return len(dict_node.keys)
     raise RuntimeError("Could not find _SECRET_PATTERNS in _secrets.py.")
 
 
@@ -126,35 +140,53 @@ def _to_int(s: str) -> Optional[int]:
     return _NUM_WORDS_TO_INT.get(s)
 
 
+def _is_indexable_doc(path: Path) -> bool:
+    """Skip research / marketing artefacts; only enforce on user-facing docs."""
+    s = str(path)
+    return "/analysis/" not in s and "/marketing/" not in s
+
+
+def _scan_line_for_mismatches(
+    pattern: re.Pattern[str],
+    canonical_value: int,
+    label: str,
+    path: Path,
+    line_idx: int,
+    line: str,
+) -> List[Mismatch]:
+    """Return every mismatch that ``pattern`` finds on a single line."""
+    found: List[Mismatch] = []
+    for match in pattern.finditer(line):
+        claimed = _to_int(match.group("count"))
+        if claimed is None or claimed == canonical_value:
+            continue
+        found.append(
+            Mismatch(
+                canonical_label=label,
+                canonical_value=canonical_value,
+                found_value=claimed,
+                file=path,
+                line=line_idx,
+                snippet=line.strip()[:120],
+            )
+        )
+    return found
+
+
 def search_doc_claims(pattern: re.Pattern[str], canonical_value: int, label: str) -> List[Mismatch]:
     """Scan all docs for a claim matching ``pattern``; report any whose
     captured number disagrees with ``canonical_value``.
     """
     out: List[Mismatch] = []
     for path in sorted(DOCS.rglob("*.md")):
-        # Skip research / marketing artefacts.
-        if "/analysis/" in str(path) or "/marketing/" in str(path):
+        if not _is_indexable_doc(path):
             continue
         try:
             text = path.read_text(encoding="utf-8")
         except OSError:
             continue
         for line_idx, line in enumerate(text.splitlines(), 1):
-            for match in pattern.finditer(line):
-                claimed = _to_int(match.group("count"))
-                if claimed is None:
-                    continue
-                if claimed != canonical_value:
-                    out.append(
-                        Mismatch(
-                            canonical_label=label,
-                            canonical_value=canonical_value,
-                            found_value=claimed,
-                            file=path,
-                            line=line_idx,
-                            snippet=line.strip()[:120],
-                        )
-                    )
+            out.extend(_scan_line_for_mismatches(pattern, canonical_value, label, path, line_idx, line))
     return out
 
 

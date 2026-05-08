@@ -147,7 +147,7 @@ def catalogued_events(catalog_path: Path) -> Set[str]:
     return {match.group("name") for match in _CATALOG_ROW_RE.finditer(text)}
 
 
-def main(argv=None) -> int:
+def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Cross-check the audit-event vocabulary: emitted events in "
@@ -169,7 +169,31 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--strict", action="store_true", help="Alias of default; exits 1 on drift.")
     parser.add_argument("--quiet", action="store_true", help="Suppress success summary.")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def _print_code_only(code_only: Set[str], emitted: Set[Tuple[str, Path]]) -> None:
+    """Print events emitted in code but missing from the catalog, with source pointers."""
+    if not code_only:
+        return
+    print(f"\n  Emitted in code but missing from catalog ({len(code_only)}):")
+    for name in sorted(code_only):
+        src = next((p for n, p in emitted if n == name), None)
+        where = f"  ← {src}" if src else ""
+        print(f"    - {name}{where}")
+
+
+def _print_catalog_only(catalog_only: Set[str]) -> None:
+    """Print events in the catalog that no code path emits."""
+    if not catalog_only:
+        return
+    print(f"\n  In catalog but never emitted in code ({len(catalog_only)}):")
+    for name in sorted(catalog_only):
+        print(f"    - {name}")
+
+
+def main(argv=None) -> int:
+    args = _build_arg_parser().parse_args(argv)
 
     if not args.forgelm_root.exists():
         print(f"check_audit_event_catalog: --forgelm-root {args.forgelm_root!r} does not exist.", file=sys.stderr)
@@ -187,16 +211,8 @@ def main(argv=None) -> int:
 
     if code_only or catalog_only:
         print("FAIL: audit-event catalog drift detected.")
-        if code_only:
-            print(f"\n  Emitted in code but missing from catalog ({len(code_only)}):")
-            for name in sorted(code_only):
-                src = next((p for n, p in emitted if n == name), None)
-                where = f"  ← {src}" if src else ""
-                print(f"    - {name}{where}")
-        if catalog_only:
-            print(f"\n  In catalog but never emitted in code ({len(catalog_only)}):")
-            for name in sorted(catalog_only):
-                print(f"    - {name}")
+        _print_code_only(code_only, emitted)
+        _print_catalog_only(catalog_only)
         return 1
 
     if not args.quiet:

@@ -203,7 +203,7 @@ def walk_docs(root: Path) -> List[Path]:
     return out
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Validate every fenced yaml block in docs/ against the live "
@@ -227,7 +227,34 @@ def main(argv: Optional[List[str]] = None) -> int:
         action="store_true",
         help="Suppress the success summary line; failures still print.",
     )
-    args = parser.parse_args(argv)
+    return parser
+
+
+def _is_validated_forgelm_snippet(snippet) -> bool:
+    """Return True when ``snippet`` parses as a dict and looks_like_forgelm_config().
+
+    Used to count "ForgeConfig-shaped snippets that passed validation"
+    in the success summary, distinguishing them from skipped non-ForgeLM
+    YAML (Docker compose, GitHub Actions, etc.).
+    """
+    try:
+        parsed = yaml.safe_load(snippet.body)
+    except yaml.YAMLError:
+        return False
+    return isinstance(parsed, dict) and looks_like_forgelm_config(parsed)
+
+
+def _print_failures(failures: List[ValidationFailure]) -> None:
+    """Print the FAIL header + one indented block per failed snippet."""
+    print(f"FAIL: {len(failures)} ForgeConfig-shaped YAML snippet(s) failed validation.")
+    for f in failures:
+        print(f"\n  {f.snippet.path}:{f.snippet.line_start}")
+        for line in f.reason.splitlines()[:6]:
+            print(f"    {line}")
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = _build_arg_parser().parse_args(argv)
 
     if not args.root.exists():
         print(f"check_yaml_snippets: --root {args.root!r} does not exist.", file=sys.stderr)
@@ -240,26 +267,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         for snippet in extract_yaml_snippets(path):
             snippet_count += 1
             failure = validate_snippet(snippet)
-            if failure is None:
-                # Distinguish "skipped (not a config snippet)" from
-                # "validated cleanly". The former is the common case
-                # for non-ForgeLM YAML examples (Docker compose,
-                # GitHub Actions, etc.).
-                try:
-                    parsed = yaml.safe_load(snippet.body)
-                except yaml.YAMLError:
-                    parsed = None
-                if isinstance(parsed, dict) and looks_like_forgelm_config(parsed):
-                    validated_count += 1
-            else:
+            if failure is not None:
                 failures.append(failure)
+                continue
+            if _is_validated_forgelm_snippet(snippet):
+                validated_count += 1
 
     if failures:
-        print(f"FAIL: {len(failures)} ForgeConfig-shaped YAML snippet(s) failed validation.")
-        for f in failures:
-            print(f"\n  {f.snippet.path}:{f.snippet.line_start}")
-            for line in f.reason.splitlines()[:6]:
-                print(f"    {line}")
+        _print_failures(failures)
         return 1
 
     if not args.quiet:

@@ -110,43 +110,58 @@ def yaml_top_level_keys(body: str) -> Optional[Set[str]]:
     return set(parsed.keys())
 
 
+def _yaml_key_diff_line(idx: int, en_blk, tr_blk) -> Optional[str]:
+    """Return a diff line for one YAML block pair, or None when keys match.
+
+    Returns None when either side fails to parse as a mapping (parity
+    isn't meaningful) or when the top-level key sets are equal.
+    """
+    en_keys = yaml_top_level_keys(en_blk.body)
+    tr_keys = yaml_top_level_keys(tr_blk.body)
+    if en_keys is None or tr_keys is None:
+        return None
+    if en_keys == tr_keys:
+        return None
+    only_en = sorted(en_keys - tr_keys)
+    only_tr = sorted(tr_keys - en_keys)
+    pieces: List[str] = []
+    if only_en:
+        pieces.append(f"EN-only={only_en}")
+    if only_tr:
+        pieces.append(f"TR-only={only_tr}")
+    return (
+        f"  block #{idx + 1} (yaml): top-level keys diverge ({', '.join(pieces)}) "
+        f"at EN:{en_blk.line_start} / TR:{tr_blk.line_start}"
+    )
+
+
+def _block_pair_diff(idx: int, en_blk, tr_blk) -> Optional[str]:
+    """Return a diff line for one fenced-block pair, or None when aligned."""
+    if en_blk.lang != tr_blk.lang:
+        return (
+            f"  block #{idx + 1}: lang differs (EN={en_blk.lang or '(unset)'}, "
+            f"TR={tr_blk.lang or '(unset)'}) at EN:{en_blk.line_start} / TR:{tr_blk.line_start}"
+        )
+    if en_blk.lang.lower() in ("yaml", "yml"):
+        return _yaml_key_diff_line(idx, en_blk, tr_blk)
+    return None
+
+
 def _pair_diff(en_path: Path, tr_path: Path) -> List[str]:
     """Return a list of human-readable diff lines for one pair."""
-    diff: List[str] = []
     en_blocks = extract_blocks(en_path)
     tr_blocks = extract_blocks(tr_path)
     if len(en_blocks) != len(tr_blocks):
-        diff.append(
+        return [
             f"  fenced-block count: EN={len(en_blocks)}, TR={len(tr_blocks)} "
             f"(EN {en_path.name} has {len(en_blocks)} ``` blocks, "
             f"TR mirror has {len(tr_blocks)})"
-        )
-        return diff  # block alignment is meaningless past this point
+        ]
+    diff: List[str] = []
     for idx, (en_blk, tr_blk) in enumerate(zip(en_blocks, tr_blocks)):
-        # Lang tag mismatch: ```yaml in EN, ```yml in TR (or unspecified).
-        if en_blk.lang != tr_blk.lang:
-            diff.append(
-                f"  block #{idx + 1}: lang differs (EN={en_blk.lang or '(unset)'}, "
-                f"TR={tr_blk.lang or '(unset)'}) at EN:{en_blk.line_start} / TR:{tr_blk.line_start}"
-            )
-            continue
-        if en_blk.lang.lower() in ("yaml", "yml"):
-            en_keys = yaml_top_level_keys(en_blk.body)
-            tr_keys = yaml_top_level_keys(tr_blk.body)
-            if en_keys is None or tr_keys is None:
-                continue  # one side isn't a mapping — skip
-            if en_keys != tr_keys:
-                only_en = sorted(en_keys - tr_keys)
-                only_tr = sorted(tr_keys - en_keys)
-                pieces = []
-                if only_en:
-                    pieces.append(f"EN-only={only_en}")
-                if only_tr:
-                    pieces.append(f"TR-only={only_tr}")
-                diff.append(
-                    f"  block #{idx + 1} (yaml): top-level keys diverge ({', '.join(pieces)}) "
-                    f"at EN:{en_blk.line_start} / TR:{tr_blk.line_start}"
-                )
+        line = _block_pair_diff(idx, en_blk, tr_blk)
+        if line is not None:
+            diff.append(line)
     return diff
 
 
