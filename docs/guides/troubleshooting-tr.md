@@ -235,7 +235,7 @@ forgelm --config my_config.yaml --dry-run
 ForgeLM doğrulama için Pydantic v2 kullanır. Hata mesajları tam
 field'ı gösterir:
 
-```
+```text
 Configuration validation failed: 1 validation error for ForgeConfig
 training -> learning_rate
   Input should be a valid number [type=float_parsing, input_value='not_a_number']
@@ -249,7 +249,7 @@ ForgeLM artık YAML config'lerinde **bilinmeyen alanları reddediyor** —
 tüm sub-model'ler katı doğrulamayı (`extra="forbid"`) zorunlu kılıyor.
 Typo'lar ya da desteklenmeyen alanlar net bir hata atar:
 
-```
+```text
 ConfigError: Configuration validation failed: 1 validation error for ForgeConfig
 training.lerning_rate
   Extra inputs are not permitted [type=extra_forbidden, input_value=2e-5]
@@ -283,7 +283,7 @@ lora:
 
 ### `mix_ratio` doğrulama hatası
 
-```
+```text
 ConfigError: mix_ratio values must be non-negative
 ConfigError: mix_ratio values cannot all be zero
 ```
@@ -354,7 +354,7 @@ nvidia-smi
 
 ### DeepSpeed Config bulunamadı
 
-```
+```text
 FileNotFoundError: DeepSpeed preset 'zero2' not found
 ```
 

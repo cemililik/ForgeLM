@@ -276,8 +276,8 @@ ForgeLM's audit log (`audit_log.jsonl`) uses a SHA-256 hash chain for tamper evi
 - **Cross-run continuity (v0.3.1rc1+):** The chain continues across process restarts — a second training run continues from where the first left off, providing a continuous tamper-evident record across all runs in a directory
 
 ```json
-{"event": "pipeline.started", "timestamp": "...", "prev_hash": "genesis", "hash": "a1b2c3..."}
-{"event": "training.completed", "timestamp": "...", "prev_hash": "a1b2c3...", "hash": "d4e5f6..."}
+{"event": "training.started", "timestamp": "...", "prev_hash": "genesis", "hash": "a1b2c3..."}
+{"event": "pipeline.completed", "timestamp": "...", "prev_hash": "a1b2c3...", "hash": "d4e5f6..."}
 ```
 
 Verify integrity by checking that each entry's hash matches the SHA-256 of the previous line.

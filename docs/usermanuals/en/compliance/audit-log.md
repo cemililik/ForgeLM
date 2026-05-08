@@ -59,7 +59,7 @@ ForgeLM never rewrites prior log entries. New events go at the end. The chained 
 ## Verifying integrity
 
 ```shell
-$ forgelm verify-audit checkpoints/run/artifacts/audit_log.jsonl
+$ forgelm verify-audit <output_dir>/audit_log.jsonl
 ✓ 87 entries, all timestamps monotonic
 ✓ all prev_hash chains valid
 ✓ no gaps in seq numbers

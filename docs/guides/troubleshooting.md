@@ -224,7 +224,7 @@ forgelm --config my_config.yaml --dry-run
 
 ForgeLM uses Pydantic v2 for validation. Error messages show the exact field:
 
-```
+```text
 Configuration validation failed: 1 validation error for ForgeConfig
 training -> learning_rate
   Input should be a valid number [type=float_parsing, input_value='not_a_number']
@@ -236,7 +236,7 @@ Fix the YAML value to match the expected type.
 
 ForgeLM now **rejects unknown fields** in YAML configs — all sub-models enforce strict validation (`extra="forbid"`). Typos or unsupported fields raise a clear error:
 
-```
+```text
 ConfigError: Configuration validation failed: 1 validation error for ForgeConfig
 training.lerning_rate
   Extra inputs are not permitted [type=extra_forbidden, input_value=2e-5]
@@ -265,7 +265,7 @@ lora:
 
 ### `mix_ratio` Validation Error
 
-```
+```text
 ConfigError: mix_ratio values must be non-negative
 ConfigError: mix_ratio values cannot all be zero
 ```
@@ -334,7 +334,7 @@ nvidia-smi
 
 ### DeepSpeed Config Not Found
 
-```
+```text
 FileNotFoundError: DeepSpeed preset 'zero2' not found
 ```
 

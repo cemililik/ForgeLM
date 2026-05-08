@@ -314,8 +314,8 @@ SHA-256 hash zinciri kullanır:
   tamper-evident kayıt sağlar
 
 ```json
-{"event": "pipeline.started", "timestamp": "...", "prev_hash": "genesis", "hash": "a1b2c3..."}
-{"event": "training.completed", "timestamp": "...", "prev_hash": "a1b2c3...", "hash": "d4e5f6..."}
+{"event": "training.started", "timestamp": "...", "prev_hash": "genesis", "hash": "a1b2c3..."}
+{"event": "pipeline.completed", "timestamp": "...", "prev_hash": "a1b2c3...", "hash": "d4e5f6..."}
 ```
 
 Her girişin hash'inin önceki satırın SHA-256'sıyla eşleştiğini kontrol

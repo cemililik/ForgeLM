@@ -142,7 +142,7 @@ Hepsi bu kadar. ForgeLM şunları halleder:
 
 Eğitim sonrası adapter'ınız şuraya kaydedilir:
 
-```
+```text
 ./checkpoints/final_model/
 ├── adapter_config.json
 ├── adapter_model.safetensors
@@ -297,8 +297,9 @@ synthetic:
 ```
 
 Sentetik satır sayısı seed-file boyutu ile kontrol edilir (seed başına
-bir teacher çağrısı); tam `SyntheticConfig` alan seti için bkz.
-[`forgelm/config.py:589-635`](https://github.com/cemililik/ForgeLM/blob/main/forgelm/config.py#L589).
+bir teacher çağrısı); tam alan seti için `forgelm/config.py` içindeki
+`SyntheticConfig` Pydantic modeline bakın
+([repo-arama](https://github.com/cemililik/ForgeLM/search?q=class+SyntheticConfig)).
 
 ---
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wave 6 / Faz 31 — `forgelm.__all__` ↔ library_api_reference.md cross-check.
+"""Wave 6 / Phase 31 — `forgelm.__all__` ↔ library_api_reference.md cross-check.
 
 Inventories every ``forgelm.X`` row in
 ``docs/reference/library_api_reference.md`` and diffs against the
@@ -36,10 +36,11 @@ Plan reference: 2026-05-07 docs audit §10 (CI gate proposals) gate #4.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
-from typing import Set
+from typing import Optional, Set
 
 _DOC_ROW_RE = re.compile(
     r"^\|\s*`forgelm\.(?P<name>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)`\s*\|",
@@ -57,6 +58,22 @@ def doc_symbols(doc_path: Path) -> Set[str]:
     """
     text = doc_path.read_text(encoding="utf-8")
     return {match.group("name") for match in _DOC_ROW_RE.finditer(text)}
+
+
+def _validate_doc_arg(doc_path: Path) -> Optional[str]:
+    """Return an error message if ``--doc`` can't be opened for reading; else None.
+
+    Catches: missing file, directory passed in place of a file, and
+    permission-denied (``os.access``). Callers map a non-None return to
+    exit code 1 with the message printed on stderr.
+    """
+    if not doc_path.exists():
+        return f"check_library_api_doc: --doc {doc_path!r} does not exist."
+    if not doc_path.is_file():
+        return f"check_library_api_doc: --doc {doc_path!r} is not a regular file."
+    if not os.access(doc_path, os.R_OK):
+        return f"check_library_api_doc: --doc {doc_path!r} is not readable (permission denied)."
+    return None
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -106,8 +123,9 @@ def _print_drift_section(title: str, names: Set[str]) -> None:
 def main(argv=None) -> int:
     args = _build_arg_parser().parse_args(argv)
 
-    if not args.doc.exists():
-        print(f"check_library_api_doc: --doc {args.doc!r} does not exist.", file=sys.stderr)
+    err = _validate_doc_arg(args.doc)
+    if err is not None:
+        print(err, file=sys.stderr)
         return 1
 
     forgelm = _import_forgelm_or_explain()
@@ -115,7 +133,13 @@ def main(argv=None) -> int:
         return 2
 
     runtime_all: Set[str] = set(forgelm.__all__)
-    doc_names: Set[str] = doc_symbols(args.doc)
+    try:
+        doc_names: Set[str] = doc_symbols(args.doc)
+    except OSError as exc:
+        # _validate_doc_arg covers the predictable cases; this catches
+        # racier failures (file deleted between the check and the read).
+        print(f"check_library_api_doc: failed to read --doc {args.doc!r} ({exc}).", file=sys.stderr)
+        return 1
 
     # Method-style names under documented classes count toward
     # 'doc has it'. Top-level names go in __all__ directly; dotted

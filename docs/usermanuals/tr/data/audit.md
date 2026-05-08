@@ -122,17 +122,19 @@ Yetkili kaynak: `forgelm/cli/_parser.py::_add_audit_subcommand`.
   "secrets_summary": {"total": 0},
   "near_duplicate_pairs": 47,
   "cross_split_overlap": 0,
-  "quality_flags": {
-    "short_response": 24,
-    "repeated_lines": 0,
-    "abnormal_word_length": 12
+  "quality_summary": {
+    "samples_flagged": 36,
+    "samples_evaluated": 12400,
+    "by_check": {
+      "low_alpha_ratio": 4,
+      "low_punct_endings": 8,
+      "abnormal_mean_word_length": 12,
+      "short_paragraphs": 5,
+      "repeated_lines": 7
+    },
+    "overall_quality_score": 0.997
   },
   "language_distribution": {"tr": 0.992, "en": 0.008},
-  "preference_specific": {
-    "identical_chosen_rejected": 12,
-    "empty_chosen": 0,
-    "swapped_likely": 0
-  },
   "verdict": "warnings"
 }
 ```

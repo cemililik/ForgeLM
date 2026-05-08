@@ -20,9 +20,9 @@ sequenceDiagram
     Train->>Eval: Training complete, run eval
     Eval->>Eval: Benchmarks + safety pass
     Eval->>Audit: Append "human_approval.required"
-    Eval->>Approver: Webhook + structured request
-    Approver-->>Eval: Sign approval (CLI / webhook callback)
-    Eval->>Audit: Append "human_approval.granted" with signature
+    Eval->>Approver: Webhook notification (Slack/Teams) — informational only
+    Approver-->>Eval: CLI only (forgelm approve / forgelm reject)
+    Eval->>Audit: Append "human_approval.granted" with HMAC chain
     Eval->>Output: Promote checkpoint
 ```
 

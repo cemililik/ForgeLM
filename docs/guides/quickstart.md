@@ -130,7 +130,8 @@ That's it. ForgeLM handles:
 ## 5. Find Your Model
 
 After training, your adapter is saved to:
-```
+
+```text
 ./checkpoints/final_model/
 ├── adapter_config.json
 ├── adapter_model.safetensors
@@ -277,7 +278,7 @@ synthetic:
   output_format: "messages"
 ```
 
-The number of synthetic rows is controlled by the seed-file size (one teacher call per seed); see [`forgelm/config.py:589-635`](https://github.com/cemililik/ForgeLM/blob/main/forgelm/config.py#L589) for the full `SyntheticConfig` field set.
+The number of synthetic rows is controlled by the seed-file size (one teacher call per seed); see the `SyntheticConfig` Pydantic model in `forgelm/config.py` for the full field set ([repo search](https://github.com/cemililik/ForgeLM/search?q=class+SyntheticConfig)).
 
 ---
 

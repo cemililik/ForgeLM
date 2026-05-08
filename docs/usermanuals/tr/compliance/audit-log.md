@@ -60,7 +60,7 @@ ForgeLM önceki log kayıtlarını asla yeniden yazmaz. Yeni olaylar sona ekleni
 ## Bütünlük doğrulama
 
 ```shell
-$ forgelm verify-audit checkpoints/run/artifacts/audit_log.jsonl
+$ forgelm verify-audit <output_dir>/audit_log.jsonl
 ✓ 87 kayıt, tüm zaman damgaları monotonik
 ✓ tüm prev_hash zincirleri geçerli
 ✓ seq numaralarında boşluk yok
@@ -68,11 +68,9 @@ $ forgelm verify-audit checkpoints/run/artifacts/audit_log.jsonl
 
 `verify-audit` zincir kırığı raporlarsa, log üretimden sonra değiştirilmiş demektir. Kanıt olarak işlem görmeden önce araştırın.
 
-## Koşu başı vs proje başı
+## Koşu başına
 
-Her eğitim koşusu kendi `audit_log.jsonl`'ını o koşunun `artifacts/` dizininde üretir. Proje başı geçmiş için ForgeLM proje kökünde `.forgelm/global-audit-log.jsonl`'ı da tutar (varsayılan gitignore'da — commit'e karar siz verin).
-
-Koşular-arası global bir log yoktur — her koşu kendi `<output_dir>/audit_log.jsonl`'ini yazar. Koşular-arası izlenebilirlik için, her koşunun output dizinini aynı upstream depoya (S3 prefix, ledger DB) gönderin ve `run_id` üzerinden korelasyon yapın.
+Her eğitim koşusu kendi `<output_dir>/audit_log.jsonl`'ini (top-level — `compliance/` altında değil) ve genesis-pin sidecar `<output_dir>/audit_log.jsonl.manifest.json`'ı yazar. Proje-başı global bir log dosyası **yoktur**. Koşular-arası izlenebilirlik için her koşunun output dizinini aynı upstream depoya (S3 prefix, ledger DB) gönderin ve `run_id` üzerinden korelasyon yapın.
 
 ## Konfigürasyon
 

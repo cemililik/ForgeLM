@@ -58,11 +58,11 @@ training:
   report_to: "tensorboard"
 ```
 
-Varsayılan. Log dosyaları `<training.output_dir>/runs/`'e iner. Dış servis ya da extra gerekmez (`tensorboardX` `transformers` ile birlikte gelir).
+Varsayılan. Log dosyaları `<training.output_dir>/runs/`'e iner. Dış servis gerekmez ama TensorBoard entegrasyonu için `tensorboard` (PyTorch ≥ 1.4 ile) veya `tensorboardX` ayrıca kurulmalıdır — HF Transformers ikisinden birini import-time'da arar (`transformers.integrations.is_tensorboard_available`) ve hiçbiri yoksa `TensorBoardCallback` requires tensorboard to be installed yüksek sesle başarısız olur.
 
 ### Birden çok backend'e akıtma
 
-`training.report_to` tek-Literal değerdir, list değil. Aynı koşumda birden çok backend'e akıtmak için HF Transformers konvansiyonuyla `--report-to` CLI override'ını kullanın ya da ortamda `TRAINER_REPORT_TO=wandb,tensorboard` set edin — ikisi de altta yatan `transformers.TrainingArguments.report_to` mekanizmasıyla yüzeylenir. Tek-Literal config alanı bir kanonik backend'i pin'leyen güvenli varsayılandır.
+`training.report_to` tek-Literal değerdir, list değil. Aynı koşumda birden çok backend'e akıtmak için ForgeLM'in `--report-to` CLI override'ını kullanın; `transformers.TrainingArguments.report_to`'nun list-değer kabul eden constructor argümanına denk gelir. (`TRAINER_REPORT_TO` env var'ı HF Transformers konvansiyonu **değildir** ve ForgeLM tarafından da tanınmaz — yalnızca constructor / CLI override yolları desteklenir.) Tek-Literal config alanı bir kanonik backend'i pin'leyen güvenli varsayılandır.
 
 ## Loglanan şeyler
 
@@ -75,8 +75,8 @@ Varsayılan. Log dosyaları `<training.output_dir>/runs/`'e iner. Dış servis y
 | `benchmark/<görev>` | Koşu başına bir kez (eval sonrası) |
 | `safety/<kategori>/max` | Koşu başına bir kez (güvenlik eval sonrası) |
 | `safety/<kategori>/mean` | Koşu başına bir kez |
-| `system/gpu_utilization` | Her 30s'de örneklenir |
-| `system/vram_used_gb` | Her 30s'de örneklenir |
+| `system/gpu_utilization` | Her 30 s'de örneklenir |
+| `system/vram_used_gb` | Her 30 s'de örneklenir |
 
 ## Koşu adlandırma
 

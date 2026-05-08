@@ -58,11 +58,11 @@ training:
   report_to: "tensorboard"
 ```
 
-The default. Log files land at `<training.output_dir>/runs/`. No external service or extra needed (`tensorboardX` ships with `transformers`).
+The default. Log files land at `<training.output_dir>/runs/`. No external service is needed, but TensorBoard integration requires installing either `tensorboard` (bundled with PyTorch ≥ 1.4) or `tensorboardX` separately — HF Transformers probes for either at import time (`transformers.integrations.is_tensorboard_available`) and `TensorBoardCallback` raises loudly if neither is present.
 
 ### Streaming to multiple backends
 
-`training.report_to` is a single Literal value, not a list. To stream to multiple backends in the same run, use the `--report-to` CLI override per HF Transformers convention, or set `TRAINER_REPORT_TO=wandb,tensorboard` in the environment — both are surfaced through the underlying `transformers.TrainingArguments.report_to` plumbing. The single-Literal config field is the safe default that pins one canonical backend.
+`training.report_to` is a single Literal value, not a list. To stream to multiple backends in the same run, use ForgeLM's `--report-to` CLI override; it maps to the list-accepting constructor argument on `transformers.TrainingArguments.report_to`. (`TRAINER_REPORT_TO` is **not** an HF Transformers convention and is not honoured by ForgeLM either — only the constructor / CLI-override paths are supported.) The single-Literal config field is the safe default that pins one canonical backend.
 
 ## What gets logged
 

@@ -20,9 +20,9 @@ sequenceDiagram
     Train->>Eval: Eğitim tamam, eval koştur
     Eval->>Eval: Benchmark + güvenlik geçti
     Eval->>Audit: "human_approval.required" ekle
-    Eval->>Approver: Webhook + yapılandırılmış istek
-    Approver-->>Eval: Onayı imzala (CLI / webhook callback)
-    Eval->>Audit: İmzalı "human_approval.granted" ekle
+    Eval->>Approver: Webhook bildirimi (Slack/Teams) — yalnızca bilgi amaçlı
+    Approver-->>Eval: Yalnızca CLI (forgelm approve / forgelm reject)
+    Eval->>Audit: HMAC zinciriyle "human_approval.granted" ekle
     Eval->>Output: Checkpoint'i terfi ettir
 ```
 

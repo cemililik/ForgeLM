@@ -96,19 +96,7 @@ Yüksek-stake audit (ör. yasal açıklama taraması) için test-dışlama liste
 
 ## Konfigürasyon
 
-```yaml
-ingestion:
-  secrets_mask:
-    enabled: true
-    tag_by_category: true              # [REDACTED-SECRET] yerine kategori-özgü etiket
-    strict: false                      # false-positive guard'ları kapat
-    categories:                        # seçici etkinleştir (kanonik aile adları)
-      - aws_access_key
-      - github_token
-      - jwt
-      - openssh_private_key
-      # eklemediğiniz kategori kapalı
-```
+Secrets scanner **`forgelm audit` içinde her zaman açıktır** — enable/disable knob'u ve per-family allow/deny listesi yoktur. Mask-on-emit `audit_dataset()` üzerindeki `secrets_mask: bool` argümanıyla (ve `forgelm ingest` üzerindeki `--secrets-mask` flag'iyle) kontrol edilir; replacement string'i `mask_secrets()` içindeki tek sabit `[REDACTED-SECRET]` constant'ıdır. `ingestion.secrets_mask:` YAML bloğu, `enabled` / `tag_by_category` / `strict` / `categories` alt-alanları **yoktur** — bu adlar eski doc taslaklarında geçiyordu ama hiç ship olmadı. Family setini genişletmek/kısıtlamak için `forgelm/data_audit/_secrets.py::_SECRET_PATTERNS`'i fork edin.
 
 ## Sık hatalar
 

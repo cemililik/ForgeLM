@@ -96,19 +96,7 @@ For a high-stakes audit (e.g. legal disclosure scan), the test-exclusion list is
 
 ## Configuration
 
-```yaml
-ingestion:
-  secrets_mask:
-    enabled: true
-    tag_by_category: true              # use category-specific tags instead of [REDACTED-SECRET]
-    strict: false                      # set true to disable false-positive guards
-    categories:                        # selectively enable (canonical family names)
-      - aws_access_key
-      - github_token
-      - jwt
-      - openssh_private_key
-      # omit any to disable
-```
+The secrets scanner is **always-on inside `forgelm audit`** — it has no enable/disable knob and no per-family allow/deny list. Mask-on-emit is controlled by the `secrets_mask: bool` argument on `audit_dataset()` (and the `--secrets-mask` flag on `forgelm ingest`); the replacement string is the single fixed `[REDACTED-SECRET]` constant inside `mask_secrets()`. There is no `ingestion.secrets_mask:` YAML block, no `enabled` / `tag_by_category` / `strict` / `categories` sub-fields — those names appeared in earlier doc drafts but never shipped. To extend or restrict the family set, fork `forgelm/data_audit/_secrets.py::_SECRET_PATTERNS`.
 
 ## Common pitfalls
 

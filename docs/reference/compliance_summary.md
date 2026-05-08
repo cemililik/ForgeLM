@@ -143,9 +143,11 @@ What the regulator asks vs. how ForgeLM answers:
 
 ## Gaps + residual operator-side considerations
 
-ForgeLM ships ~61 of the 93 ISO 27001 Annex A controls' technical
-evidence; the remaining ~32 are deployer-side (physical security,
-HR processes, network segregation, etc.).  For the deployer's
+ForgeLM ships technical evidence for ~59 of the 93 ISO 27001 Annex A
+controls (11 marked `FL` "full" + 48 `FL-helps` "partial" in
+`docs/reference/iso27001_control_mapping.md`); the remaining ~34 are
+`OOS` deployer-side (physical security, HR processes, network
+segregation, etc.).  For the deployer's
 ISMS posture:
 
 - **Encryption at rest** — ForgeLM is encryption-substrate-agnostic;

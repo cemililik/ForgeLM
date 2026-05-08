@@ -119,7 +119,7 @@ pipeline {
   stages {
     stage('Audit') {
       steps {
-        sh 'forgelm audit data/train.jsonl --output-format json | jq -e '.verdict != "errors" and .pii_summary.severity != "high"''
+        sh '''forgelm audit data/train.jsonl --output-format json | jq -e '.verdict != "errors" and .pii_summary.severity != "high"' '''
       }
     }
     stage('Train') {
