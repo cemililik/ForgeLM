@@ -90,7 +90,7 @@ For **binary** (KTO) datasets:
 
 ## CLI flags
 
-Authoritative source: `forgelm/cli/_parser.py::_add_audit_subcommand` (lines 335-468).
+Authoritative source: `forgelm/cli/_parser.py::_add_audit_subcommand`.
 
 | Flag | Description |
 |---|---|

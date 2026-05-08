@@ -5,7 +5,7 @@ description: W&B, MLflow, and TensorBoard integration via the report_to setting.
 
 # Experiment Tracking
 
-ForgeLM doesn't reinvent experiment tracking — it integrates with whatever your team already uses via the `training.report_to` field. W&B, MLflow, TensorBoard, and Comet ML are first-class.
+ForgeLM doesn't reinvent experiment tracking — it integrates with whatever your team already uses via the `training.report_to` field. The supported backends are `tensorboard`, `wandb`, `mlflow`, and `none` (the four `Literal` values on `TrainingConfig.report_to` in `forgelm/config.py`).
 
 ## Quick example
 

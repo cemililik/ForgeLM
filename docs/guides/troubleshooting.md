@@ -188,7 +188,7 @@ synthetic:
 at one prompt per API call. Phase 28+ backlog tracks adding explicit
 retry-count and batched-call parameters.
 
-For local teacher models, ensure sufficient GPU memory is available. Consider using a smaller teacher model or reducing `max_tokens`.
+For local teacher models, ensure sufficient GPU memory is available. Consider using a smaller teacher model or reducing `synthetic.max_new_tokens`.
 
 ### `ValueError: Unknown trainer_type`
 

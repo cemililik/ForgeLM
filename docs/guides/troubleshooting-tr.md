@@ -197,8 +197,8 @@ başına bir prompt'a sabittir. Phase 28+ backlog'u açık retry-count ve
 batched-call parametreleri eklemeyi takip ediyor.
 
 Yerel teacher modelleri için yeterli GPU belleği olduğundan emin olun.
-Daha küçük bir teacher modeli kullanmayı ya da `max_tokens`'ı azaltmayı
-düşünün.
+Daha küçük bir teacher modeli kullanmayı ya da `synthetic.max_new_tokens`'ı
+azaltmayı düşünün.
 
 ### `ValueError: Unknown trainer_type`
 

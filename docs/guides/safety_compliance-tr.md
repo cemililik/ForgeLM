@@ -1,8 +1,8 @@
 # Güvenlik & Uyumluluk Kılavuzu
 
 ForgeLM, eğitim hattına entegre güvenlik değerlendirmesi ve EU AI Act
-uyumluluk artefakt üretimi sunan tek açık-kaynak fine-tuning aracıdır. Bu
-kılavuz her ikisini de kapsar.
+uyumluluk artefakt üretimini birlikte sunan açık-kaynak fine-tuning
+araçlarından biridir. Bu kılavuz her ikisini de kapsar.
 
 ---
 
@@ -350,7 +350,7 @@ require_hmac=False)`, bir `VerifyResult` dataclass'ı (`valid`,
 
 ```json
 {
-  "forgelm_version": "0.1.0",
+  "forgelm_version": "0.5.5",
   "generated_at": "2026-03-23T14:30:00+00:00",
   "model_lineage": {
     "base_model": "meta-llama/Llama-3.1-8B-Instruct",

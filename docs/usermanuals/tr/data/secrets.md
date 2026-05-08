@@ -88,7 +88,7 @@ ForgeLM tipik "git-secrets" tarzı araçlardan daha sıkı false-positive guard'
 2. Çoğu sadece-regex pattern `EXAMPLEKEY` veya test fixture'ları flagler; audit raporlarını kullanışsız kılar.
 
 Spesifik guard'lar:
-- OpenAI / Anthropic key'leri için **entropi eşiği** (insan-okunur değil, rastgele görünüm).
+- OpenAI key'leri için **entropi eşiği** (insan-okunur değil, rastgele görünüm). ForgeLM Anthropic / Stripe / SendGrid / Twilio pattern'larını **göndermez** (bkz. Line 26); bu trafik profiline sahip operatörler `_SECRET_PATTERNS`'i out-of-tree genişletir.
 - **Bağlam pencere kontrolü** — `AKIA*` sadece secret-key-şeklinde komşu veya 100 karakter içinde "aws" bağlamı varsa tetiklenir.
 - **Test/örnek dışlama listesi** — yaygın dummy değerler (`AKIAIOSFODNN7EXAMPLE`, `xxx`, `your_key_here`) tespiti atlar.
 

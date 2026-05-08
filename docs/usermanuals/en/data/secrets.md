@@ -88,7 +88,7 @@ ForgeLM ships secrets detection with stricter false-positive guards than typical
 2. Many regex-only patterns flag `EXAMPLEKEY` or test fixtures, which makes audit reports useless.
 
 Specific guards:
-- **Entropy threshold** for OpenAI / Anthropic keys (random-looking, not human-readable).
+- **Entropy threshold** for OpenAI keys (random-looking, not human-readable). ForgeLM does **not** ship Anthropic / Stripe / SendGrid / Twilio patterns by default (see line 26); operators with that traffic profile extend `_SECRET_PATTERNS` out-of-tree.
 - **Context window check** — `AKIA*` only fires if accompanied by a secret-key-shaped neighbour or "aws" context within 100 characters.
 - **Test/example exclusion list** — common dummy values (`AKIAIOSFODNN7EXAMPLE`, `xxx`, `your_key_here`) bypass detection.
 

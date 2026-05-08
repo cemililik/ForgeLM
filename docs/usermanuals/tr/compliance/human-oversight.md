@@ -48,12 +48,12 @@ webhook:
 Trainer eval'den sonra durur ve yazdırır:
 
 ```text
-[2026-04-29 14:33:10] İnsan onayı gerekli.
+[2026-04-29 14:33:10] Human approval required.
   Run ID: abc123
   Bundle: checkpoints/run/artifacts/
 
-  Onaylamak için: forgelm approve abc123 --output-dir checkpoints/run --comment "..."
-  Reddetmek için: forgelm reject abc123 --output-dir checkpoints/run --comment "..."
+  To approve: forgelm approve abc123 --output-dir checkpoints/run --comment "..."
+  To reject:  forgelm reject  abc123 --output-dir checkpoints/run --comment "..."
 ```
 
 Reviewer audit-log + staging dizinine erişimi olan herhangi bir makineden onay komutunu çalıştırır. ForgeLM kimliği `FORGELM_OPERATOR`'dan resolve eder, kararı HMAC ile zincirler ve (`approve`'da) staging dizinini kanonik `final_model/` yoluna rename eder.

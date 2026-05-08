@@ -5,7 +5,7 @@ description: report_to ayarı üzerinden W&B, MLflow ve TensorBoard entegrasyonu
 
 # Deney Takibi
 
-ForgeLM deney takibini yeniden icat etmez — ekibinizin zaten kullandığı şeye `training.report_to` alanı üzerinden entegre olur. W&B, MLflow, TensorBoard ve Comet ML birinci-sınıf desteklenir.
+ForgeLM deney takibini yeniden icat etmez — ekibinizin zaten kullandığı şeye `training.report_to` alanı üzerinden entegre olur. Desteklenen backend'ler: `tensorboard`, `wandb`, `mlflow` ve `none` (`forgelm/config.py` içindeki `TrainingConfig.report_to` üzerindeki dört `Literal` değeri).
 
 ## Hızlı örnek
 

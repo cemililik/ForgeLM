@@ -1,6 +1,6 @@
 # Safety & Compliance Guide
 
-ForgeLM is the only open-source fine-tuning tool with integrated safety evaluation and EU AI Act compliance artifact generation. This guide covers both.
+ForgeLM is one of the open-source fine-tuning tools that ships integrated safety evaluation and EU AI Act compliance artifact generation in the same pipeline. This guide covers both.
 
 ---
 
@@ -305,7 +305,7 @@ The library function `forgelm.compliance.verify_audit_log(path, *, hmac_secret=N
 
 ```json
 {
-  "forgelm_version": "0.1.0",
+  "forgelm_version": "0.5.5",
   "generated_at": "2026-03-23T14:30:00+00:00",
   "model_lineage": {
     "base_model": "meta-llama/Llama-3.1-8B-Instruct",
