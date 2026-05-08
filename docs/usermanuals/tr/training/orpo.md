@@ -25,19 +25,24 @@ ORPO, base modelden *direkt* iyi çalışan tek hizalama yöntemidir — kendi S
 ```yaml
 model:
   name_or_path: "Qwen/Qwen2.5-7B-Instruct"
-  load_in_4bit: true
+  max_length: 4096
 
-datasets:
-  - path: "data/preferences.jsonl"
-    format: "preference"
+lora:
+  r: 16
+  alpha: 32
+  method: "lora"
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+
+data:
+  dataset_name_or_path: "data/preferences.jsonl"
 
 training:
-  trainer: "orpo"
-  epochs: 1
-  batch_size: 2
+  trainer_type: "orpo"
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
   learning_rate: 5.0e-6
-  orpo:
-    beta: 0.1
+  orpo_beta: 0.1                 # düz field — odds-ratio cezasının ağırlığı
+  output_dir: "./checkpoints/orpo"
 ```
 
 ## Veri formatı
@@ -46,11 +51,14 @@ training:
 
 ## Parametreler
 
+ORPO knob'ları `training:` altında flat alanlardır (nested `training.orpo:` bloğu YOK — bkz. `forgelm/config.py` `TrainingConfig`):
+
 | Parametre | Tip | Vars. | Açıklama |
 |---|---|---|---|
-| `beta` | float | `0.1` | Odds-ratio ceza terimi gücü. Yüksek = çok tercih kayması. |
-| `loss_type` | string | `"sigmoid"` | Şu an sadece `sigmoid`. |
-| `sft_weight` | float | `1.0` | Birleşik loss'ta SFT teriminin ağırlığı. |
+| `training.orpo_beta` | float | `0.1` | Odds-ratio ceza terimi gücü. Yüksek = güçlü tercih kayması. |
+| `training.trainer_type` | string | `"sft"` | ORPO eğitim yolunu açmak için `"orpo"` olarak set edin. |
+
+ForgeLM `loss_type` veya `sft_weight`'i yapılandırılabilir alan olarak **sunmaz** — TRL'in `ORPOTrainer`'ı kütüphane varsayılanlarıyla çalışır (sigmoid loss, SFT ağırlığı = 1.0).
 
 ## Bellek
 

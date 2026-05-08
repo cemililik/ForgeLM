@@ -53,27 +53,34 @@ flowchart TD
 
 ```yaml
 model:
-  name_or_path: "./checkpoints/sft-base"
+  name_or_path: "./checkpoints/sft-base"   # SFT çıktısı ya da HF model
   max_length: 4096
 
 lora:
   r: 16
   alpha: 32
+  method: "lora"
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
-datasets:
-  - path: "data/preferences.jsonl"
-    format: "preference"
+data:
+  dataset_name_or_path: "data/preferences.jsonl"
 
 training:
-  trainer: "dpo"
-  epochs: 1
-  batch_size: 2
-  learning_rate: 5.0e-6                    # SFT'in ~10× küçük
-  dpo:
-    beta: 0.1
+  trainer_type: "dpo"
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4
+  learning_rate: 5.0e-6                    # SFT'in ~10× küçüğü
+  dpo_beta: 0.1                            # KL gücü (düz field — `dpo:` altında nested değil)
+  output_dir: "./checkpoints/dpo"
+```
 
-output:
-  dir: "./checkpoints/dpo"
+Çalıştır:
+
+```shell
+$ forgelm --config configs/dpo.yaml --dry-run
+$ forgelm --config configs/dpo.yaml --fit-check
+$ forgelm --config configs/dpo.yaml
 ```
 
 ## Veri formatı
@@ -88,14 +95,14 @@ ForgeLM audit `chosen == rejected` satırları flagler — preference toplamada 
 
 ## Konfigürasyon parametreleri
 
+DPO'ya özel knob'lar `training:` altında flat alanlardır (nested `training.dpo:` bloğu DEĞİL — bkz. `forgelm/config.py` `TrainingConfig`):
+
 | Parametre | Tip | Vars. | Açıklama |
 |---|---|---|---|
-| `beta` | float | `0.1` | KL düzenlemesi. Düşük = referansa yakın, yüksek = agresif tercih kayması. |
-| `loss_type` | string | `"sigmoid"` | `sigmoid` (orijinal), `hinge`, `ipo`, `kto`. |
-| `label_smoothing` | float | `0.0` | Gürültülü annotasyonlarda yumuşatma. |
-| `reference_free` | bool | `false` | Referans modeli atla (SimPO'ya yakın). |
-| `reference_model` | string | (auto) | Açık referans modeli yolu. |
-| `loss_dpop_lambda` | float | `null` | DPO-Positive (DPOP) regülarizasyonu. `0.5` iyi başlangıç. |
+| `training.dpo_beta` | float | `0.1` | DPO sıcaklığı / KL düzenlemesi. Düşük = referans modele yakın, yüksek = agresif tercih kayması. |
+| `training.trainer_type` | string | `"sft"` | DPO eğitim yolunu açmak için `"dpo"` olarak set edin. |
+
+ForgeLM `loss_type` / `label_smoothing` / `reference_free` / `reference_model` / `loss_dpop_lambda` / `pref_chosen_weight`'ı yapılandırılabilir alan olarak **sunmaz** — TRL'in `DPOTrainer`'ı kütüphane varsayılanlarıyla çalışır (sigmoid loss, label smoothing yok, otomatik dondurulmuş referans model). Bu knob'lara ihtiyacınız varsa trainer'ı fork edin.
 
 ## Bellek ve compute
 
@@ -158,20 +165,25 @@ sequenceDiagram
 
 ```yaml
 training:
-  trainer: "dpo"
-  dpo: { beta: 0.1 }
+  trainer_type: "dpo"
+  dpo_beta: 0.1
 
 evaluation:
+  require_human_approval: true                    # Madde 14 gözetim kapısı
+  auto_revert: true                               # regresyonda geri alır
   safety:
     enabled: true
-    model: "meta-llama/Llama-Guard-3-8B"
-    block_categories: ["S1", "S2", "S5", "S10"]
+    classifier: "meta-llama/Llama-Guard-3-8B"
+    track_categories: true                        # 14 Llama-Guard kategorisinin hepsini izler
+    severity_thresholds:
+      S1: 0.05
+      S2: 0.05
+      S5: 0.10
+      S10: 0.05
   benchmark:
-    tasks: ["truthfulqa", "hellaswag"]
-    floors: { truthfulqa: 0.45 }
-
-compliance:
-  human_approval: true                            # Article 14 kapısı
+    enabled: true
+    tasks: ["truthfulqa_mc1", "hellaswag"]
+    min_score: 0.45                               # ortalama görevler üzerinde tek taban
 ```
 
 Post-train Llama Guard puanları bloklu kategorilerde regresyon gösterirse ForgeLM otomatik olarak DPO öncesi checkpoint'e döner.

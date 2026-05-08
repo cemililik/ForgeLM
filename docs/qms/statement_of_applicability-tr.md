@@ -26,11 +26,11 @@ operatör-tarafı eylem.
 
 ### 2.1 A.5 Organisational controls (37)
 
-| Kontrol | Applicable? | Gerekçe / ForgeLM kanıtı | Implementation status |
+| Kontrol | Applicable? | Uygulanabilirlik gerekçesi (uygun olduğunda ForgeLM kanıtı; aksi halde operatör-tarafı kapsam) | Implementation status |
 |---|---|---|---|
 | A.5.1 Bilgi güvenliği için politikalar | YES | EU AI Act Md. 17 QMS gerektirir; ForgeLM audit-event vocabulary neyin loglandığını dokümante eder | ForgeLM audit log'u referans veren kurum-genelinde ISMS politikası benimse |
 | A.5.2 Bilgi güvenliği rolleri ve sorumlulukları | YES | `roles_responsibilities.md` QMS şablonu AI Officer / ML Lead / Data Steward / DPO tanımlar | Rol tanımlarını benimse |
-| A.5.3 Görev ayrılığı | YES | `human_approval.required/granted` trainer ≠ approver attribution'ı zorlar | CI runner identity ≠ insan reviewer identity'yi yapılandır |
+| A.5.3 Görev ayrılığı | YES | `human_approval.required/granted` onaylayıcı kimliğini (`FORGELM_OPERATOR`'dan) **kaydeder** böylece eğitici ≠ onaylayıcı denetlenebilir; ForgeLM kendisi self-approval'ı reddetmez | CI runner kimliği ≠ insan reviewer kimliğini IdP seviyesinde yapılandır ki kayıtlı kimlikler çakışamasın |
 | A.5.4 Yönetim sorumlulukları | YES | `forgelm doctor`, `compliance_report.json` yönetim-review artefaktları sağlar | Aylık review cadence |
 | A.5.5 Yetkililerle iletişim | YES | EU AI Act Md. 73 ciddi-olay raporlama | Düzenleyici contact listesi tut |
 | A.5.6 Özel ilgi gruplarıyla iletişim | YES | ML safety / red-team topluluğu | İlgili threat intel'e abone ol |
@@ -54,9 +54,9 @@ operatör-tarafı eylem.
 | A.5.24 Bilgi güvenliği olay yönetimi planlaması ve hazırlığı | YES | `sop_incident_response.md`; audit chain durumu korur | IR ekibi kur |
 | A.5.25 Bilgi güvenliği olaylarının değerlendirilmesi ve karara bağlanması | YES | `data.erasure_failed`, `pipeline.failed`, `audit.classifier_load_failed` event'ler `error_class` + `error_message` ile | Triage runbook |
 | A.5.26 Bilgi güvenliği olaylarına yanıt | YES | Audit chain HMAC öncesi/sonrası korur | Runbook dokümante et |
-| A.5.27 Bilgi güvenliği olaylarından öğrenme | YES | `pipeline.reverted` event'leri post-mortem kanıtı biriktirir | Haftalık post-mortem cadence |
+| A.5.27 Bilgi güvenliği olaylarından öğrenme | YES | `model.reverted` event'leri post-mortem kanıtı biriktirir | Haftalık post-mortem cadence |
 | A.5.28 Kanıt toplama | YES | `audit_log.jsonl` forensic-grade; `forgelm verify-audit` doğrular | Write-once depolamaya gönder |
-| A.5.29 Aksaklık sırasında bilgi güvenliği | YES | `auto_revert` baseline-flip; `pipeline.reverted` event | Base-model retention dokümante et |
+| A.5.29 Aksaklık sırasında bilgi güvenliği | YES | `auto_revert` baseline-flip; `model.reverted` event | Base-model retention dokümante et |
 | A.5.30 İş sürekliliği için ICT hazırlığı | YES | DR planlama | Benimse |
 | A.5.31 Yasal, kanuni, düzenleyici ve sözleşmesel gerekliliklerin tanımlanması | YES | EU AI Act + GDPR mapping'ler; Annex IV bundle | Kural değişikliklerini izle |
 | A.5.32 Fikri mülkiyet hakları | YES | SBOM'da lisans çıkarımı; HF model-card metadata | Per-model lisans review |
@@ -115,7 +115,7 @@ ForgeLM-spesifik kontrol envanteriyle ilgilidir.
 | A.8.6 Kapasite yönetimi | YES | `forgelm doctor` resource report; `resource_usage` manifest block | Quota / autoscaling |
 | A.8.7 Kötü amaçlı yazılıma karşı koruma | YES | Eğitim host'larında antivirus | Benimse |
 | A.8.8 Teknik zafiyetlerin yönetimi | YES | SBOM; `pip-audit` nightly; `bandit` CI; Pydantic config validation | OS patch yönetimi |
-| A.8.9 Yapılandırma yönetimi | YES | YAML Pydantic ile valide; `forgelm --dry-run` gate; `compliance.config_hash` audit'te | Config'leri sürüm-kontrol |
+| A.8.9 Yapılandırma yönetimi | YES | YAML Pydantic ile valide; `forgelm --dry-run` gate; `config_hash` (per-run manifest sidecar field) audit'te | Config'leri sürüm-kontrol |
 | A.8.10 Bilgi silme | YES | `forgelm purge` Md. 17; salted hash audit; `data.erasure_warning_memorisation` flag | DSAR workflow |
 | A.8.11 Veri maskeleme | YES | `forgelm audit` regex + Presidio ML-NER; `_SECRET_PATTERNS` credentials scan | Maskeleme politikası |
 | A.8.12 Veri sızıntısı önleme | YES | `forgelm reverse-pii` plaintext residual scan; webhook asla raw rows taşımaz | Egress DLP |
@@ -127,7 +127,7 @@ ForgeLM-spesifik kontrol envanteriyle ilgilidir.
 | A.8.18 Ayrıcalıklı yardımcı program kullanımı | YES | OS-seviyesi privilege management | Benimse |
 | A.8.19 Operasyonel sistemlerde yazılım kurulumu | YES | `forgelm doctor` paketleri rapor eder; `pyproject.toml` pin'ler; `pip install forgelm==X.Y.Z` | Package allowlist |
 | A.8.20 Ağ güvenliği | YES | `safe_post` HTTPS-only / SSRF guard / no-redirect; `model.trust_remote_code=False` | Egress firewall |
-| A.8.21 Ağ hizmetlerinin güvenliği | YES | TLS-only webhooks; `FORGELM_AUDIT_SECRET` HMAC | TLS 1.2+ enforcement |
+| A.8.21 Ağ hizmetlerinin güvenliği | YES | TLS-only webhooks (HTTPS-only + SSRF guard); audit-log chain HMAC `FORGELM_AUDIT_SECRET` üzerinden (not: webhook **gövdeleri** HMAC ile imzalanmaz — hedef-tarafı authenticity alıcı sistemin sorumluluğundadır) | TLS 1.2+ enforcement |
 | A.8.22 Ağ ayrımı | YES | VPC / subnet design | Benimse |
 | A.8.23 Web filtreleme | YES | Egress proxy | Benimse |
 | A.8.24 Kriptografi kullanımı | YES | SHA-256 + HMAC-SHA-256 (audit chain key = `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)`, bkz. `forgelm/compliance.py:104-114`); ayrıca `forgelm purge` / `forgelm reverse-pii` için salted SHA-256 identifier hashing (`_purge._resolve_salt`, ayrı bir konu — chain-key türetimine katılmaz) | `FORGELM_AUDIT_SECRET` için KMS |
@@ -135,10 +135,10 @@ ForgeLM-spesifik kontrol envanteriyle ilgilidir.
 | A.8.26 Uygulama güvenliği gereksinimleri | YES | F-compliance-110 strict gate; Pydantic validation; `_reverse_pii`'da ReDoS guard | App-seviyesi tehdit modelleme |
 | A.8.27 Güvenli sistem mimarisi ve mühendislik prensipleri | YES | Append-only audit log mimarisi; HMAC chain; lazy import; SSRF guard | Defence-in-depth |
 | A.8.28 Güvenli kodlama | YES | `docs/standards/coding.md`; type hints; `_sanitize_md_list`'te CommonMark escaping | Custom-extension review |
-| A.8.29 Geliştirme ve kabul aşamasında güvenlik testi | YES | `pytest` 1370+ test; `bandit` static analysis; `forgelm safety-eval` standalone gate | E2E güvenlik testleri |
+| A.8.29 Geliştirme ve kabul aşamasında güvenlik testi | YES | `pytest` ~1493 test; `bandit` static analysis; `forgelm safety-eval` standalone gate | E2E güvenlik testleri |
 | A.8.30 Dış kaynaklı geliştirme | YES | Üçüncü-taraf-developer güvenliği | Benimse |
 | A.8.31 Geliştirme, test ve üretim ortamlarının ayrılması | YES | `forgelm --dry-run`; staging dir; `evaluation.require_human_approval` | Ayrı pipeline'lar |
-| A.8.32 Değişim yönetimi | YES | `human_approval.required/granted/rejected`; `compliance.config_hash`; staging snapshot | CAB süreci |
+| A.8.32 Değişim yönetimi | YES | `human_approval.required/granted/rejected`; `config_hash` (per-run manifest sidecar field); staging snapshot | CAB süreci |
 | A.8.33 Test bilgisi | YES | `forgelm audit` test setlerinde de PII / secrets'i flag eder | Test-data-handling politikası |
 | A.8.34 Denetim testi sırasında bilgi sistemlerinin korunması | YES | Read-only audit erişimi | Benimse |
 

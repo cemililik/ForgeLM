@@ -29,7 +29,7 @@ EU AI Act Madde 13 şeffaflığı zorunlu kılar: deploy edilen AI sistemleri ne
 ```markdown
 # Acme Customer Support v1.2.0
 
-ForgeLM 0.5.2 kullanılarak Qwen2.5-7B-Instruct'tan fine-tune edilmiş
+ForgeLM 0.5.5 kullanılarak Qwen2.5-7B-Instruct'tan fine-tune edilmiş
 müşteri-destek asistanı.
 
 ## Model detayları
@@ -113,7 +113,7 @@ Bu modeli kullanırsanız lütfen şöyle atıf yapın:
   title  = {Acme Customer Support v1.2.0},
   author = {Acme Corp},
   year   = {2026},
-  note   = {ForgeLM 0.5.2 ile fine-tune edildi}
+  note   = {ForgeLM 0.5.5 ile fine-tune edildi}
 }
 ```
 ```

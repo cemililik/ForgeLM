@@ -29,7 +29,7 @@ The output is a Markdown file at `checkpoints/run/README.md` ready to upload to 
 ```markdown
 # Acme Customer Support v1.2.0
 
-Customer-support assistant fine-tuned from Qwen2.5-7B-Instruct using ForgeLM 0.5.2.
+Customer-support assistant fine-tuned from Qwen2.5-7B-Instruct using ForgeLM 0.5.5.
 
 ## Model details
 
@@ -112,7 +112,7 @@ If you use this model, please cite:
   title  = {Acme Customer Support v1.2.0},
   author = {Acme Corp},
   year   = {2026},
-  note   = {Fine-tuned with ForgeLM 0.5.2}
+  note   = {Fine-tuned with ForgeLM 0.5.5}
 }
 ```
 ```

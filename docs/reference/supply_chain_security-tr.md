@@ -60,8 +60,9 @@ işaret eder.
 ### SBOM'u tüketme
 
 ```bash
-# Bir release için tüm SBOM'ları indir.
-gh release download v0.5.5 --pattern 'sbom-*'
+# Bir release için tüm SBOM'ları indir. v<X.Y.Z>'yi CI'da pinlediğiniz
+# tag ile değiştirin; SBOM artefakt formatı release'ler arasında stabildir.
+gh release download v<X.Y.Z> --pattern 'sbom-*'
 
 # İnsan inceleme için pretty-print.
 jq . sbom-ubuntu-latest-py3.11.json | less

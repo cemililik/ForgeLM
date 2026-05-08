@@ -40,11 +40,11 @@ flowchart TD
 
 | Signal | Threshold | Configurable via |
 |---|---|---|
-| Benchmark task below floor | Per-task `floors:` setting | `evaluation.benchmark.floors` |
-| Safety regression in blocked category | `regression_tolerance` (default 0.05) | `evaluation.safety.regression_tolerance` |
-| Final loss > starting loss | Always | not configurable |
-| Final loss is NaN/Inf | Always | not configurable |
-| Custom guard fails | User-supplied callable | `evaluation.guards.<name>` |
+| Benchmark average below floor | Mean-score floor (single scalar) | `evaluation.benchmark.min_score` |
+| Safety regression (binary mode) | Unsafe-ratio ceiling | `evaluation.safety.max_safety_regression` |
+| Safety regression (per-severity) | Per-severity unsafe-ratio dict | `evaluation.safety.severity_thresholds` |
+| Judge mean below floor | Mean 1-10 score floor | `evaluation.llm_judge.min_score` |
+| Eval loss above ceiling | Hard ceiling on eval_loss | `evaluation.max_acceptable_loss` |
 
 Any of these triggers a revert.
 
@@ -74,38 +74,39 @@ Any of these triggers a revert.
 
 ```yaml
 evaluation:
-  auto_revert:
+  auto_revert: true                     # boolean — enable / disable the revert pipeline
+  max_acceptable_loss: 1.5              # eval-loss ceiling (revert if exceeded)
+  baseline_loss: null                   # null = compute automatically from pre-training loss
+  benchmark:
     enabled: true
-    last_good_checkpoint: "./checkpoints/sft-base"
-    notify_on_revert: true              # fire webhook
-    keep_failed_checkpoint: true        # also keep the bad one for inspection
-    failed_checkpoint_dir: "./checkpoints/failed/"
+    tasks: [arc_easy, hellaswag]
+    min_score: 0.45                     # average task accuracy floor
+  safety:
+    enabled: true
+    classifier: "meta-llama/Llama-Guard-3-8B"
+    max_safety_regression: 0.05         # binary-mode unsafe-ratio ceiling
+  llm_judge:
+    enabled: true
+    judge_model: "gpt-4o"
+    judge_api_key_env: OPENAI_API_KEY
+    min_score: 6.5
 ```
 
-If `last_good_checkpoint` is omitted, ForgeLM uses the model loaded at run start (the input model).
+`evaluation.auto_revert` is a **boolean** (real schema:
+`forgelm/config.py` `EvaluationConfig.auto_revert: bool`). The
+"last-good checkpoint" is whatever `final_model.staging.<run_id>/`
+the trainer most recently promoted; ForgeLM does not accept a
+hand-pinned `last_good_checkpoint` path. The revert pipeline is
+fired by any of the four guard families failing — eval-loss
+ceiling, benchmark floor, safety regression, or judge minimum —
+not by a separate `notify_on_revert` toggle (the existing
+`webhook.notify_on_failure` covers the notification fan-out).
 
-## Custom guards
-
-You can register additional guards beyond the built-ins:
-
-```yaml
-evaluation:
-  guards:
-    custom_metric:
-      function: "my_module.check_brand_voice"
-      threshold: 0.7                    # function must return ≥ this
-      severity: "critical"
-```
-
-```python
-# my_module.py
-def check_brand_voice(checkpoint_path: str) -> float:
-    """Return a brand-voice score in [0, 1]."""
-    # Run your custom eval...
-    return 0.82
-```
-
-Custom guards integrate into the same revert flow.
+There is no `evaluation.guards.<name>:` plug-in registry — custom
+guard functions are not in the schema. To enforce a brand-voice
+or domain-specific check, run it as a separate pre-merge step in
+your CI workflow that consumes `train_result.metrics` from the
+trainer's output directory and exits non-zero on failure.
 
 ## CI/CD integration
 
@@ -127,7 +128,7 @@ CI failures from exit 3 are *expected* — they mean the gate caught a regressio
 :::
 
 :::warn
-**`last_good_checkpoint` pointing at a deleted path.** Auto-revert fails noisily if it can't find the restore target. Pin the last-good checkpoint at a stable path before kicking off training.
+**Manually deleting the staging directory.** Auto-revert restores from `final_model.staging.<run_id>/`. If CI prunes that directory between runs, the revert can't find the restore target and fails loudly. Leave cleanup to CI or manage it via `retention.staging_ttl_days`.
 :::
 
 :::tip

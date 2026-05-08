@@ -47,7 +47,7 @@ PARAMETER temperature 0.7
 PARAMETER top_p 0.9
 PARAMETER stop "<|im_end|>"
 
-# customer-support v1.2.0 checkpoint'inden ForgeLM 0.5.2 ile üretildi
+# customer-support v1.2.0 checkpoint'inden ForgeLM 0.5.5 ile üretildi
 ```
 
 ForgeLM modelin tokenizer'ına dayanarak doğru `PARAMETER` satırlarını seçer (chat template, stop token) — manuel konfigürasyon gerekmez.

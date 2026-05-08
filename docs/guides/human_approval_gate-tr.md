@@ -54,8 +54,8 @@ Reddetme için aynı şekil: `forgelm reject` `human_approval.rejected`'ı kayde
 ## 1. Kapıyı etkinleştir
 
 ```yaml
-compliance:
-  human_approval: true
+evaluation:
+  require_human_approval: true
 ```
 
 O tek flag, bu config'i tüketen her koşum için kapıyı açmaya yeter. Kapı eval başarılı olduktan sonra ateşlenir (yani başarısız bir eval yine 3 / `EXIT_EVAL_FAILURE` ile çıkar ve onay aşamasına asla ulaşmaz).

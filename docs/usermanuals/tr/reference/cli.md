@@ -82,24 +82,20 @@ Python sürümünü, torch / CUDA / GPU'yu, opsiyonel extra'ları, HF Hub erişi
 ## Audit: `forgelm audit`
 
 ```shell
-$ forgelm audit DATAFILE_OR_DIR \
-    [--output ./audit/] \
-    [--strict] \
-    [--workers N] \
-    [--dedup-method {simhash,minhash}] \
+$ forgelm audit INPUT_PATH \
+    [--output DIR] \
+    [--verbose] \
     [--near-dup-threshold N] \
-    [--minhash-jaccard FLOAT] [--minhash-num-perm N] \
-    [--skip-pii] [--skip-secrets] [--skip-quality] [--skip-leakage] \
-    [--remove-duplicates] [--remove-cross-split-overlap=val|test] \
-    [--output-clean PATH] \
-    [--show-leakage] \
-    [--sample-rate FLOAT] \
-    [--pii-ml] [--pii-ml-language LANG] \
+    [--dedup-method {simhash,minhash}] \
+    [--jaccard-threshold X] \
+    [--quality-filter] \
     [--croissant] \
-    [--verbose]
+    [--pii-ml] [--pii-ml-language LANG] \
+    [--workers N] \
+    [--output-format {text,json}]
 ```
 
-`--workers N` split düzeyinde paralellik sağlar; on-disk JSON worker sayısından bağımsız olarak byte-identical (sadece `generated_at` zamanı değişir). Tam semantik için bkz. [Veri Denetimi](#/data/audit).
+`--workers N` split düzeyinde paralellik sağlar; on-disk JSON worker sayısından bağımsız olarak byte-identical (sadece `generated_at` zamanı değişir). Tam per-flag tablosu — `forgelm/cli/_parser.py::_add_audit_subcommand`'a senkron yetkili kanonik liste — [Veri Denetimi](#/data/audit) sayfasındadır. Bu sayfanın eski sürümleri `--strict`, `--skip-pii`, `--skip-secrets`, `--skip-quality`, `--skip-leakage`, `--remove-duplicates`, `--remove-cross-split-overlap`, `--output-clean`, `--show-leakage`, `--minhash-jaccard`, `--minhash-num-perm`, `--dedup-algo`, `--dedup-threshold`, `--sample-rate` ve `--add-row-ids` flag'larını belgeliyordu — hiçbiri parser'da yok. Yukarıdaki kanonik adları kullanın.
 
 ## Ingest: `forgelm ingest`
 

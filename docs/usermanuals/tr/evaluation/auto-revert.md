@@ -40,11 +40,11 @@ flowchart TD
 
 | Sinyal | Eşik | Konfigüre edilen alan |
 |---|---|---|
-| Benchmark görevi floor altında | Görev başı `floors:` ayarı | `evaluation.benchmark.floors` |
-| Bloklu kategoride güvenlik gerilemesi | `regression_tolerance` (vars. 0.05) | `evaluation.safety.regression_tolerance` |
-| Final loss > başlangıç loss | Her zaman | konfigüre edilemez |
-| Final loss NaN/Inf | Her zaman | konfigüre edilemez |
-| Özel guard başarısız | Kullanıcı verdiği callable | `evaluation.guards.<isim>` |
+| Benchmark ortalaması alt sınırın altında | Ortalama-skor alt sınırı (tek scalar) | `evaluation.benchmark.min_score` |
+| Güvenlik gerilemesi (binary mode) | Unsafe-ratio tavanı | `evaluation.safety.max_safety_regression` |
+| Güvenlik gerilemesi (per-severity) | Severity-başı unsafe-ratio dict | `evaluation.safety.severity_thresholds` |
+| Judge ortalaması alt sınırın altında | Ortalama 1-10 puan alt sınırı | `evaluation.llm_judge.min_score` |
+| Eval loss tavanın üstünde | eval_loss üzerinde sıkı tavan | `evaluation.max_acceptable_loss` |
 
 Bunlardan herhangi biri geri almayı tetikler.
 
@@ -74,38 +74,40 @@ Bunlardan herhangi biri geri almayı tetikler.
 
 ```yaml
 evaluation:
-  auto_revert:
+  auto_revert: true                     # boolean — revert pipeline'ını aç/kapat
+  max_acceptable_loss: 1.5              # eval-loss tavanı (aşılırsa revert)
+  baseline_loss: null                   # null = pre-training loss'tan otomatik hesapla
+  benchmark:
     enabled: true
-    last_good_checkpoint: "./checkpoints/sft-base"
-    notify_on_revert: true              # webhook fırlat
-    keep_failed_checkpoint: true        # inceleme için kötü olanı da sakla
-    failed_checkpoint_dir: "./checkpoints/failed/"
+    tasks: [arc_easy, hellaswag]
+    min_score: 0.45                     # ortalama task accuracy alt sınırı
+  safety:
+    enabled: true
+    classifier: "meta-llama/Llama-Guard-3-8B"
+    max_safety_regression: 0.05         # binary-mode unsafe-ratio tavanı
+  llm_judge:
+    enabled: true
+    judge_model: "gpt-4o"
+    judge_api_key_env: OPENAI_API_KEY
+    min_score: 6.5
 ```
 
-`last_good_checkpoint` belirtilmezse ForgeLM koşu başında yüklü olan modeli (girdi modeli) kullanır.
+`evaluation.auto_revert` bir **boolean**'dır (gerçek şema:
+`forgelm/config.py` `EvaluationConfig.auto_revert: bool`).
+"Last-good checkpoint", trainer'ın en son promote ettiği
+`final_model.staging.<run_id>/`'dir; ForgeLM elle pin'lenmiş
+bir `last_good_checkpoint` yolu kabul etmez. Revert pipeline'ı
+dört guard ailesinden herhangi birinin başarısız olmasıyla
+tetiklenir — eval-loss tavanı, benchmark alt sınırı, safety
+regression veya judge minimum — ayrı bir `notify_on_revert`
+toggle'ı yoktur (mevcut `webhook.notify_on_failure` bildirim
+fan-out'unu karşılar).
 
-## Özel guard'lar
-
-Yerleşik kontrollerin ötesinde ek guard'lar kaydedebilirsiniz:
-
-```yaml
-evaluation:
-  guards:
-    custom_metric:
-      function: "my_module.check_brand_voice"
-      threshold: 0.7                    # fonksiyon ≥ bunu döndürmeli
-      severity: "critical"
-```
-
-```python
-# my_module.py
-def check_brand_voice(checkpoint_path: str) -> float:
-    """Marka sesi puanını [0, 1] aralığında döndür."""
-    # Kendi eval'inizi koşturun...
-    return 0.82
-```
-
-Özel guard'lar aynı geri alma akışına entegre olur.
+`evaluation.guards.<name>:` plug-in registry'si yoktur — özel
+guard fonksiyonları şemada değil. Marka-sesi veya domain-özel
+bir kontrol uygulamak için, CI workflow'unuzda trainer'ın çıktı
+dizininden `train_result.metrics`'i tüketen ve başarısızlıkta
+non-zero exit veren ayrı bir pre-merge adım çalıştırın.
 
 ## CI/CD entegrasyonu
 
@@ -127,7 +129,11 @@ Exit 3'ten gelen CI başarısızlıkları *beklenen* — kapı bir gerilemeyi ya
 :::
 
 :::warn
-**`last_good_checkpoint` silinmiş yola işaret etmek.** Restore hedefini bulamayan otomatik geri alma yüksek sesle başarısız olur. Eğitime başlamadan önce son-iyi checkpoint'i kararlı bir yola pinleyin.
+**Staging dizinini elle silmek.** Trainer revert sırasında
+`final_model.staging.<run_id>/`'i orijinal model olarak kullanır.
+Eğitim arasında staging'i silerseniz, revert restore hedefini
+bulamadığında yüksek sesle başarısız olur. Cleanup'ı CI'ye
+bırakın veya `retention.staging_ttl_days` ile yönetin.
 :::
 
 :::tip

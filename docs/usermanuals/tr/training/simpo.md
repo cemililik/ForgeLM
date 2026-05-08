@@ -26,21 +26,23 @@ model:
   name_or_path: "./checkpoints/sft-base"
   max_length: 4096
 
-datasets:
-  - path: "data/preferences.jsonl"
-    format: "preference"
+lora:
+  r: 16
+  alpha: 32
+  method: "lora"
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+
+data:
+  dataset_name_or_path: "data/preferences.jsonl"
 
 training:
-  trainer: "simpo"
-  epochs: 1
+  trainer_type: "simpo"
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
   learning_rate: 8.0e-7
-  simpo:
-    beta: 2.0                # DPO'nun 0.1'inden farklı
-    gamma: 1.0               # margin terimi
-    loss_type: "sigmoid"
-
-output:
-  dir: "./checkpoints/simpo"
+  simpo_beta: 2.0            # different scale than DPO's 0.1 — flat field
+  simpo_gamma: 0.5           # margin term — flat field
+  output_dir: "./checkpoints/simpo"
 ```
 
 ## Veri formatı
@@ -50,13 +52,15 @@ Bkz. [Veri Formatları](#/concepts/data-formats).
 
 ## Parametreler
 
+SimPO knob'ları `training:` altında flat alanlardır (nested `training.simpo:` bloğu yok):
+
 | Parametre | Tip | Vars. | Açıklama |
 |---|---|---|---|
-| `beta` | float | `2.0` | Uzunluk-normalize ödül ölçeği. Yüksek = güçlü tercih kayması. **DPO beta ile aynı ölçek değil.** |
-| `gamma` | float | `1.0` | Margin — chosen ve rejected log-likelihood arasında SimPO'nun korumaya çalıştığı boşluk. |
-| `loss_type` | string | `"sigmoid"` | `sigmoid` veya `hinge`. |
-| `length_normalize` | bool | `true` | Log-prob'ları dizi uzunluğuna normalize et. SimPO'nun imza özelliği. |
-| `label_smoothing` | float | `0.0` | Gürültülü veride yumuşatma. |
+| `training.simpo_beta` | float | `2.0` | Uzunluk-normalize ödül ölçeği. Yüksek = güçlü tercih kayması. **DPO beta ile aynı ölçek değil.** |
+| `training.simpo_gamma` | float | `0.5` | Margin — chosen ve rejected log-likelihood arasında SimPO'nun korumaya çalıştığı boşluk. |
+| `training.trainer_type` | string | `"sft"` | SimPO eğitim yolunu açmak için `"simpo"` olarak set edin. |
+
+ForgeLM `loss_type`, `length_normalize` veya `label_smoothing`'i yapılandırılabilir alan olarak **sunmaz** — TRL'in CPO/SimPO trainer'ı kütüphane varsayılanlarıyla çalışır (sigmoid loss, length normalisation her zaman açık, label smoothing yok).
 
 ## Bellek
 
@@ -67,16 +71,16 @@ Bkz. [Veri Formatları](#/concepts/data-formats).
 | 7B | 16 | 4096 | 9 GB |
 | 13B | 16 | 4096 | 16 GB |
 
-## `beta` ve `gamma`
+## `simpo_beta` ve `simpo_gamma`
 
 | Kombinasyon | Davranış |
 |---|---|
-| `beta=2.0`, `gamma=1.0` | Varsayılan. Dengeli. |
-| `beta=2.5`, `gamma=1.4` | Daha agresif tercih kayması. |
-| `beta=1.5`, `gamma=0.5` | Daha yumuşak, orijinal SFT çıktılarına yakın. |
+| `simpo_beta=2.0`, `simpo_gamma=0.5` | Varsayılan. Dengeli. |
+| `simpo_beta=2.5`, `simpo_gamma=1.0` | Daha agresif tercih kayması. |
+| `simpo_beta=1.5`, `simpo_gamma=0.3` | Daha yumuşak, orijinal SFT çıktılarına yakın. |
 
 :::warn
-SimPO'nun `beta`'sı DPO'nun `beta`'sından farklı ölçekte. DPO hyperparam'larını kopyalamayın — SimPO varsayılanlarından başlayın.
+SimPO'nun `simpo_beta`'sı DPO'nun `dpo_beta`'sından farklı ölçekte. DPO hyperparam'larını kopyalamayın — SimPO varsayılanlarından başlayın.
 :::
 
 ## Sık hatalar

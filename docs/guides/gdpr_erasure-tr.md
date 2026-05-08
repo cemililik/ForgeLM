@@ -40,7 +40,7 @@ Tool şunları yapar:
 
 1. Per-output-dir salt'ı `<output_dir>/.forgelm_audit_salt`'ta çözer (ilk kullanımda oluşturur; mode `0600`; `FORGELM_AUDIT_SECRET[:16]` set'liyse XOR'lar). **Not:** bu XOR yalnızca **identifier hashing**'i besler — audit-chain HMAC anahtarı bağımsız olarak `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)` şeklinde türetilir (bkz. [`docs/qms/access_control.md`](../qms/access_control.md) §3.4 / `forgelm/compliance.py:104-114`). İki primitif kasıtlı olarak ayrıdır.
 2. Audit log'a `data.erasure_requested` yazar — **hash'lenmiş** target_id (`SHA-256(salt + value)`) ve operatör-sağlanan justification ile.
-3. Eşleşen JSONL satırını `id` (veya `row_id`) field'ı ile bulur — re-order edilmiş bir dosyada sessiz yanlış-satır silmesini engellemek için satır-numarası fallback'i **reddedilir**. Id'siz corpus'lara sahip operatörler önce `forgelm audit --add-row-ids <path>` (Phase 28 follow-up) çalıştırmalı.
+3. Eşleşen JSONL satırını `id` (veya `row_id`) field'ı ile bulur — re-order edilmiş bir dosyada sessiz yanlış-satır silmesini engellemek için satır-numarası fallback'i **reddedilir**. ForgeLM şu an bir id-doldurma yardımcısı sunmuyor (Phase 28 backlog'unda `forgelm audit --add-row-ids` flag'i bekliyor); id'siz corpus'lara sahip operatörler purge'den önce id'leri operatör-tarafı bir script ile (örn. `jq -c 'to_entries | with_entries(...)'` ya da tek-seferlik bir Python döngüsü) pre-populate etmeli.
 4. Corpus'u atomic olarak yeniden yazar (kardeş bir temp dosyaya yazar + `os.replace`); operatörler ya tam silme-öncesi dosyayı ya da tam silme-sonrası dosyayı görür, asla kısmi state'i değil.
 5. Uyarı koşullarını tespit eder ve eşleşen event'leri yayar (memorization, synthetic-data varlığı, dış kopyalar).
 6. Disk operasyonu raise ederse `data.erasure_failed`, başarılıysa `data.erasure_completed` yazar; zincir nihai state'i yansıtır.
@@ -104,8 +104,8 @@ Deprecate edilen field **v0.7.0**'da kaldırılır.
 | `data.erasure_requested` | Herhangi bir `forgelm purge --row-id` / `--run-id` çağrısının ilk adımı, herhangi bir silmeden önce (`--check-policy` salt-okunur; audit event yaymaz) | `target_kind` ∈ `{row, staging, artefacts}`, `target_id` (row mode'da hash'lenmiş), `salt_source` (row mode), `corpus_path` (row), `output_dir` (run), `justification`, `dry_run` |
 | `data.erasure_completed` | Başarılı silme bittiğinde | Tüm `requested` field'ları + `bytes_freed`, `files_modified`, `pre_erasure_line_number` (row mode), `match_count` (row mode) |
 | `data.erasure_failed` | Disk operasyonu raise etti VEYA eşleşen satır/koşum bulunamadı VEYA çoklu-satır policy belirsizliği reddetti | Tüm `requested` field'ları + `error_class`, `error_message` |
-| `data.erasure_warning_memorisation` | Row erasure × `final_model/` mevcut | Tüm `completed` field'ları + `affected_run_ids` |
-| `data.erasure_warning_synthetic_data_present` | Row erasure × `synthetic_data*.jsonl` mevcut | Tüm `completed` field'ları + `synthetic_files` |
+| `data.erasure_warning_memorisation` | **Yalnız row modunda.** Row erasure × corpus'u tüketen herhangi bir koşum için `final_model/` mevcut. (Run modu memorisation uyarısı emit etmez — run-scoped `staging` / `artefacts` türleri tanım gereği promote-öncesi.) | Tüm `completed` field'ları + `affected_run_ids` |
+| `data.erasure_warning_synthetic_data_present` | **Yalnız row modunda.** Row erasure × `output_dir`'de `synthetic_data*.jsonl` mevcut. (Run modu bu uyarıyı yüzeylemez — synthetic veri corpus-scoped'dur, run-scoped değil.) | Tüm `completed` field'ları + `synthetic_files` |
 | `data.erasure_warning_external_copies` | Yüklü config webhook block'u içeriyor | Tüm `completed` field'ları + `webhook_targets` |
 
 ## Silme sonrası zincir doğrulama

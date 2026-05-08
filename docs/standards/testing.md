@@ -5,7 +5,7 @@
 
 ## Layout
 
-Current structure (post Wave 5 / Phase 12.6 closure cycle: **~68 test
+Current structure (post Wave 5 / Phase 12.6 closure cycle: **~70 test
 modules**, one per feature area; the collected-test count grows over time —
 run `pytest --collect-only -q` for current). The tree below is a
 **representative subset** — see `git ls-files tests/` for the full

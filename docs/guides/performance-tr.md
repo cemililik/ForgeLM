@@ -111,11 +111,14 @@ Judge modeli safety classifier ile aynı aile ise, genellikle aynı `batch_size`
 
 ForgeLM ingestion (`forgelm/ingestion.py`) dört chunking stratejisi destekler. `paragraph` stratejisi, çoğu operatörün `sliding`'i çalıştırıp chunk'ların ortada bölündüğünü fark ettikten sonra başvurduğudur.
 
-```yaml
-ingestion:
-  strategy: "paragraph"           # sliding | paragraph | markdown | semantic
-  chunk_size: 1024                # paragraph için yumuşak cap; sliding için sert cap
-  overlap: 128                    # yalnızca sliding; paragraph yok sayar
+Ingestion YAML bloğu ile değil, CLI bayrakları ile yapılandırılır — `ForgeConfig`'te üst-düzey `ingestion:` anahtarı yoktur. Chunker seçimi `forgelm ingest` çağrısında yapılır:
+
+```shell
+$ forgelm ingest INPUT_PATH \
+    --output data/policies.jsonl \
+    --strategy paragraph        # sliding | paragraph | markdown | semantic
+    --chunk-size 1024           # paragraph için yumuşak cap; sliding için sert cap
+    --overlap 128               # yalnızca sliding; paragraph yok sayar
 ```
 
 ### Performans karakteristikleri

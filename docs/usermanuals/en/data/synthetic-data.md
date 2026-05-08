@@ -21,66 +21,70 @@ When real data is scarce or expensive, you can synthesise additional training ex
 ```yaml
 synthetic:
   enabled: true
-  teacher:
-    provider: "openai"                  # or "anthropic", "local"
-    model: "gpt-4o"
-    api_key: "${OPENAI_API_KEY}"
-  seed_prompts: "data/seeds.jsonl"      # initial prompts
-  output: "data/synthetic.jsonl"
-  num_samples: 5000
+  teacher_model: "gpt-4o"               # API model name OR HF Hub ID OR local path
+  teacher_backend: "api"                # "api" | "local" | "file"
+  api_base: "https://api.openai.com/v1" # OpenAI-compatible endpoint
+  api_key_env: OPENAI_API_KEY           # env var carrying the key (preferred)
+  api_delay: 0.5                        # seconds between calls (rate-limit friendliness)
+  api_timeout: 60                       # per-call timeout in seconds
+  seed_file: "data/seeds.jsonl"         # OR seed_prompts: ["...", "..."] inline
+  system_prompt: ""                     # optional — prepended on every call
+  max_new_tokens: 1024                  # cap response length
   temperature: 0.7
-  prompt_template: "default"            # or path to custom template
-  budget_usd: 50.0                      # cost ceiling
+  output_file: "data/synthetic.jsonl"
+  output_format: "messages"             # "messages" | "instruction" | "chatml" | "prompt_response"
 
+# Combine seeds + synthetic via the trainer's data block:
+data:
+  dataset_name_or_path: "data/seeds.jsonl"
+  extra_datasets: ["data/synthetic.jsonl"]
+  mix_ratio: [0.6, 0.4]
 training:
-  trainer: "sft"
-datasets:
-  - path: "data/seeds.jsonl"
-  - path: "data/synthetic.jsonl"        # combine seeds + synthetic
+  trainer_type: "sft"
 ```
 
 ```shell
 $ forgelm --config configs/distill.yaml --generate-data
 [2026-04-29 14:01:32] generating from gpt-4o
-[2026-04-29 14:01:35] 100/5000 (cost so far: $1.20)
-[2026-04-29 14:18:55] 5000/5000 (total cost: $42.30)
-✓ wrote 5000 rows to data/synthetic.jsonl
+[2026-04-29 14:01:35] 100/<seeds>
+[2026-04-29 14:18:55] <seeds>/<seeds>
+✓ wrote <n> rows to data/synthetic.jsonl
 $ forgelm --config configs/distill.yaml          # train normally
 ```
 
 ## Provider support
 
-| Provider | Models | Auth env var |
+The `teacher_backend` literal controls how ForgeLM reaches the teacher. There is no provider whitelist — the API path uses any OpenAI-compatible endpoint pinned via `api_base`.
+
+| `teacher_backend` | What's expected | Auth |
 |---|---|---|
-| `openai` | gpt-4o, gpt-4o-mini, o1, o3-mini | `OPENAI_API_KEY` |
-| `anthropic` | claude-opus-4, claude-sonnet-4, claude-haiku-4 | `ANTHROPIC_API_KEY` |
-| `local` | Any HuggingFace causal LM | none — local inference |
-| `vllm` | Any model served via vLLM | `VLLM_BASE_URL` |
+| `"api"` | Any OpenAI-compatible chat-completions endpoint (OpenAI, Azure OpenAI, Anthropic via OpenAI-compat shim, Together, Groq, self-hosted vLLM with `--api-key`, etc.) | `api_key_env` resolved at runtime |
+| `"local"` | Any HuggingFace causal LM loaded in-process | None — local inference |
+| `"file"` | A pre-generated JSONL of teacher responses (replay mode for reproducibility) | None |
 
 For local generation:
 
 ```yaml
 synthetic:
-  teacher:
-    provider: "local"
-    model: "Qwen/Qwen2.5-72B-Instruct"
-    load_in_4bit: true
+  enabled: true
+  teacher_backend: "local"
+  teacher_model: "Qwen/Qwen2.5-72B-Instruct"
+  seed_file: "data/seeds.jsonl"
+  output_file: "data/synthetic.jsonl"
 ```
+
+The student-trainer's `model.load_in_4bit` knob is **separate** from the synthetic teacher — there is no `synthetic.teacher.load_in_4bit`; if you need the teacher quantised, pin a pre-quantised HF Hub variant in `teacher_model`.
 
 ## Cost controls
 
-API-based generation can run up costs quickly. ForgeLM ships hard limits:
+ForgeLM does not enforce a runtime USD budget. There is no `synthetic.budget_usd` and no `synthetic.rate_limit` block. Manage cost with:
 
-```yaml
-synthetic:
-  budget_usd: 50.0                      # hard ceiling — generation halts here
-  max_tokens_per_response: 1024         # cap response length
-  rate_limit:
-    requests_per_minute: 100            # respect provider rate limits
-    burst: 10
-```
+- **`api_delay`** — minimum seconds between calls; doubles as rate-limit friendliness.
+- **`max_new_tokens`** — cap response length so a single prompt cannot drift to a 10k-token completion.
+- **Seed-set size** — every seed prompt becomes one teacher call. Keep `seed_file` size proportional to your budget.
+- **Provider-side caps** — set throughput / spend caps in your OpenAI / Anthropic / Together dashboard rather than expecting `forgelm` to enforce them.
 
-When the budget is reached, ForgeLM stops with the partial dataset. The audit log records exactly how much was spent.
+The trainer's audit log records every teacher call, including the model name and timestamp; use `audit_log.jsonl` post-run to reconstruct cost.
 
 ## Quality controls
 

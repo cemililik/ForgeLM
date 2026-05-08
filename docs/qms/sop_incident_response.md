@@ -84,11 +84,13 @@ mismatch, manifest sidecar truncation, HMAC signature mismatch).
 
 1. [ ] **Isolate** the affected `<output_dir>` — `chmod 0500` on the
        directory to prevent further writes.
-2. [ ] **Preserve evidence** — copy `audit_log.jsonl`,
-       `audit_log.manifest.json`, the `.sha256` sidecar (if
-       present), and `<output_dir>/.forgelm_audit_salt` to a
-       write-once forensic substrate (S3 Object Lock, Azure
-       Immutable Blob).
+2. [ ] **Preserve evidence** — copy `audit_log.jsonl`, the
+       genesis-manifest sidecar `audit_log.jsonl.manifest.json`,
+       and `<output_dir>/.forgelm_audit_salt` to a write-once
+       forensic substrate (S3 Object Lock, Azure Immutable Blob).
+       (ForgeLM emits no per-line `.sha256` sidecar; the chain
+       integrity proof lives inside each line's `_hmac` and
+       `prev_hash` fields plus the genesis manifest.)
 3. [ ] **Identify the last trusted entry** — run
        `forgelm verify-audit ./outputs/audit_log.jsonl --require-hmac 2>&1 | tee verify.log`;
        the verifier exits 1 on first failure and the offending line
@@ -126,7 +128,9 @@ external CVE / breach disclosure cites a token that was used.
        the ForgeLM `data.erasure_completed` event timestamp.
 5. [ ] **Re-train from scratch** for high-risk deployments.
 6. [ ] **Update the training-data-onboarding checklist** to require
-       `forgelm audit --secrets` pre-flight.
+       `forgelm audit <corpus>` pre-flight (the secrets scan is
+       always-on; surface `secrets_summary` from the report and
+       block the run on non-zero matches).
 
 ### 4.3 Supply-chain CVE flagged
 
@@ -147,7 +151,7 @@ ForgeLM uses.
        affected dep in its training-time env (`compliance_report.json`
        lists the env).
 5. [ ] **File a tracking ticket** with the CVE id + the SBOM diff +
-       the affected runs (use the audit log's `compliance.config_hash`
+       the affected runs (use the audit log's `config_hash` (per-run manifest sidecar field)
        to identify them).
 
 ### 4.4 Webhook target compromised
@@ -160,7 +164,10 @@ that an attacker may have observed.
 
 **Runbook:**
 
-1. [ ] **Rotate `webhook.secret_env`** immediately.
+1. [ ] **Rotate the webhook URL and destination-side bearer token**
+       immediately (URL is resolved via `webhook.url_env` from your
+       secret manager; ForgeLM does not currently HMAC-sign webhook
+       bodies).
 2. [ ] **Walk the audit chain** to confirm the attacker did not splice
        events into the recipient: filter
        `audit_log.jsonl` by event class

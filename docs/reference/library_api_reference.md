@@ -52,14 +52,14 @@ Tables grouped by concern. Every cell is a real attribute on the live `forgelm` 
 | Symbol | Tier | Signature | Description |
 |---|---|---|---|
 | `forgelm.ForgeTrainer` | Stable | `ForgeTrainer(config: ForgeConfig)` | Primary training entry point. Wraps TRL `SFTTrainer` / `DPOTrainer` / `KTOTrainer` / `ORPOTrainer` / `GRPOTrainer` selection. |
-| `forgelm.ForgeTrainer.train` | Stable | `train() -> TrainResult` | Run the configured fine-tune. Returns `TrainResult.success` / `metrics` / `output_dir`. Heavy deps (`torch`, `transformers`, `trl`) load only when this method is called. |
-| `forgelm.TrainResult` | Stable | `dataclass` | Result of `ForgeTrainer.train()`. Fields: `success: bool`, `metrics: dict[str, float]`, `output_dir: str`, `final_model_path: str \| None`, `revert_reason: str \| None`. |
+| `forgelm.ForgeTrainer.train` | Stable | `train() -> TrainResult` | Run the configured fine-tune. Returns `TrainResult.success` / `metrics` / `final_model_path`. Heavy deps (`torch`, `transformers`, `trl`) load only when this method is called. |
+| `forgelm.TrainResult` | Stable | `dataclass` | Result of `ForgeTrainer.train()`. Canonical fields (per `forgelm/results.py`): `success: bool`, `metrics: Dict[str, float]`, `final_model_path: Optional[str]`, `reverted: bool`, `error: Optional[str]`, `benchmark_scores`, `benchmark_average`, `benchmark_passed`, `safety_passed`, `safety_score`, `safety_categories`, `safety_severity`, `safety_low_confidence`, `judge_score`, `judge_details`, `estimated_cost_usd`, `staging_path`, `resource_usage`. |
 
 ### Data preparation
 
 | Symbol | Tier | Signature | Description |
 |---|---|---|---|
-| `forgelm.prepare_dataset` | Experimental | `prepare_dataset(config: ForgeConfig) -> datasets.Dataset` | Loads + format-detects + tokenises the configured dataset. Returns a `datasets.Dataset`. The `datasets` minor surface drifts periodically, hence Experimental. |
+| `forgelm.prepare_dataset` | Experimental | `prepare_dataset(config: ForgeConfig, tokenizer: PreTrainedTokenizer) -> Dict[str, Any]` | Loads + format-detects + tokenises the configured dataset. Returns a splits dict (e.g. `{"train": ..., "validation": ...}`). The `datasets` minor surface drifts periodically, hence Experimental. |
 | `forgelm.get_model_and_tokenizer` | Experimental | `get_model_and_tokenizer(config: ForgeConfig) -> tuple[PreTrainedModel, PreTrainedTokenizerBase]` | Loads HF model + tokenizer with the configured PEFT / quantization setup. |
 
 ### Data audit + PII / secrets / dedup
@@ -67,12 +67,13 @@ Tables grouped by concern. Every cell is a real attribute on the live `forgelm` 
 | Symbol | Tier | Signature | Description |
 |---|---|---|---|
 | `forgelm.audit_dataset` | Stable | `audit_dataset(source: str, *, output_dir: str \| None = None, near_dup_threshold: int = 3, dedup_method: str = "simhash", minhash_jaccard: float = 0.85, minhash_num_perm: int = 128, enable_quality_filter: bool = False, enable_pii_ml: bool = False, pii_ml_language: str = "en", emit_croissant: bool = False, workers: int = 1) -> AuditReport` | One-call data-audit entry point. Suitable for notebooks and CI gates. |
-| `forgelm.AuditReport` | Stable | `dataclass` | Result of `audit_dataset`. Fields include `total_samples`, `duplicate_count`, `pii_findings`, `secrets_findings`, `cross_split_overlap` (a `dict[str, Any]`, accessed by key not attribute), `croissant` (when `emit_croissant=True`). |
-| `forgelm.detect_pii` | Stable | `detect_pii(text: str, *, language: str = "en") -> list[PiiFinding]` | Standalone PII detector. No surrounding pipeline needed. |
-| `forgelm.mask_pii` | Stable | `mask_pii(text: str, *, language: str = "en") -> str` | Mask detected PII spans in place. |
-| `forgelm.detect_secrets` | Stable | `detect_secrets(text: str) -> list[SecretFinding]` | Standalone credential / API-key detector (AWS / GitHub / Slack / OpenAI / Google / JWT / private-key / Azure storage). |
+| `forgelm.AuditReport` | Stable | `dataclass` | Result of `audit_dataset`. Canonical fields (per `forgelm/data_audit/_types.py`): `generated_at`, `source_path`, `source_input`, `total_samples`, `splits`, `cross_split_overlap` (a dict-shaped row-level field, accessed by key), `pii_summary` (`Dict[str, int]`), `pii_severity`, `near_duplicate_summary` (key `pairs_per_split`, not `pairs`), `secrets_summary` (`Dict[str, int]`), `quality_summary`, `croissant`, `notes`. |
+| `forgelm.detect_pii` | Stable | `detect_pii(text: str) -> Dict[str, int]` | Standalone PII detector. Returns a category → count dict (`{"email": 3, "phone": 1, ...}`). No `language` kwarg; the regex set is language-agnostic. |
+| `forgelm.mask_pii` | Stable | `mask_pii(text: str, replacement: str = "[REDACTED]", *, return_counts: bool = False) -> str \| Tuple[str, Dict[str, int]]` | Mask detected PII spans in place. With `return_counts=True`, returns `(masked_text, counts_dict)`. |
+| `forgelm.detect_secrets` | Stable | `detect_secrets(text: str) -> Dict[str, int]` | Standalone credential / API-key detector (AWS / GitHub / Slack / OpenAI / Google / JWT / private-key / Azure storage). Returns a family → count dict. |
 | `forgelm.mask_secrets` | Stable | `mask_secrets(text: str) -> str` | Mask detected secrets in place. |
 | `forgelm.compute_simhash` | Experimental | `compute_simhash(text: str) -> int` | 64-bit SimHash signature. Surface may collapse into a unified `compute_signature(method=...)` in a future release. |
+| `forgelm.compute_minhash` | Experimental | `compute_minhash(text: str, *, num_perm: int = 128) -> Optional[Any]` | MinHash LSH signature object (returns `None` when the optional `datasketch` library is missing). Used internally by the `--dedup-method=minhash` audit path; the returned object is library-private — operators consume it via `audit_dataset(...)` rather than directly. Same Experimental tier as `compute_simhash`; both may collapse into a unified `compute_signature(method=...)` API. |
 
 ### Compliance + audit log
 
@@ -81,23 +82,23 @@ Tables grouped by concern. Every cell is a real attribute on the live `forgelm` 
 | `forgelm.AuditLogger` | Stable | `AuditLogger(output_dir: str, run_id: str \| None = None)` | Append-only Article 12 audit logger. POSIX uses `fcntl.flock`; Windows uses `msvcrt.locking`. Each forked child must construct its own instance. |
 | `forgelm.AuditLogger.log_event` | Stable | `log_event(event: str, **fields) -> None` | Append a structured event. The event vocabulary is documented in [`audit_event_catalog.md`](audit_event_catalog.md). |
 | `forgelm.verify_audit_log` | Stable | `verify_audit_log(path: str, *, hmac_secret: str \| None = None, require_hmac: bool = False) -> VerifyResult` | Walk the SHA-256 hash chain. Returns `VerifyResult(valid=False, reason=...)` for chain failures (not an exception); raises `OSError` only for unreadable files. |
-| `forgelm.VerifyResult` | Stable | `dataclass` | Fields: `valid: bool`, `reason: str \| None`, `entries_checked: int`, `chain_head: str \| None`. |
+| `forgelm.VerifyResult` | Stable | `dataclass` | Canonical fields (per `forgelm/compliance.py:VerifyResult`): `valid: bool`, `entries_count: int`, `first_invalid_index: Optional[int]`, `reason: Optional[str]`. |
 
 ### Verification toolbelt (Phase 36)
 
 | Symbol | Tier | Signature | Description |
 |---|---|---|---|
 | `forgelm.verify_annex_iv_artifact` | Stable | `verify_annex_iv_artifact(path: str) -> VerifyAnnexIVResult` | Validate an Annex IV technical-documentation bundle (manifest + model card + audit log + governance report). |
-| `forgelm.VerifyAnnexIVResult` | Stable | `dataclass` | Fields: `valid: bool`, `reason: str \| None`, `bundle_files: list[str]`. |
+| `forgelm.VerifyAnnexIVResult` | Stable | `dataclass-like` | Canonical attributes: `valid: bool`, `reason: Optional[str]`, `missing_fields: List[str]`, `manifest_hash_actual: Optional[str]`, `manifest_hash_expected: Optional[str]`. (Note: `verify_annex_iv_artifact(path)` accepts a JSON manifest path, not a ZIP — the function calls `json.load` on `path`.) |
 | `forgelm.verify_gguf` | Stable | `verify_gguf(path: str) -> VerifyGgufResult` | Validate a GGUF export (header + tensor catalogue + tokenizer block). |
-| `forgelm.VerifyGgufResult` | Stable | `dataclass` | Fields: `valid: bool`, `reason: str \| None`, `architecture: str \| None`, `tensor_count: int`. |
+| `forgelm.VerifyGgufResult` | Stable | `dataclass-like` | Canonical attributes: `valid: bool`, `reason: Optional[str]`, `checks: Dict[str, Any]` (everything else — header / tensor catalogue / tokenizer block — lives inside `checks`). |
 
 ### Benchmark + synthetic data
 
 | Symbol | Tier | Signature | Description |
 |---|---|---|---|
-| `forgelm.run_benchmark` | Experimental | `run_benchmark(config: ForgeConfig) -> BenchmarkResult` | Wraps `lm-eval-harness`. Requires the `[eval]` extra. |
-| `forgelm.BenchmarkResult` | Experimental | `dataclass` | Fields: `tasks: dict[str, dict[str, float]]`, `output_path: str`. |
+| `forgelm.run_benchmark` | Experimental | `run_benchmark(model, tokenizer, tasks: List[str], num_fewshot: Optional[int] = None, batch_size: str = "auto", limit: Optional[int] = None, output_dir: Optional[str] = None, min_score: Optional[float] = None) -> BenchmarkResult` | Wraps `lm-eval-harness`. Requires the `[eval]` extra. |
+| `forgelm.BenchmarkResult` | Experimental | `dataclass-like` | Canonical fields: `scores: Dict[str, float]`, `average_score: float`, `passed: bool`, `failure_reason: Optional[str]`, `raw_results: Dict[str, Any]`. |
 | `forgelm.SyntheticDataGenerator` | Experimental | `SyntheticDataGenerator(config: ForgeConfig)` | Teacher-distillation generator. The `teacher_backend in {"api", "local", "file"}` switch will likely grow new modes. |
 
 ### Auxiliary
@@ -105,8 +106,8 @@ Tables grouped by concern. Every cell is a real attribute on the live `forgelm` 
 | Symbol | Tier | Signature | Description |
 |---|---|---|---|
 | `forgelm.WebhookNotifier` | Experimental | `WebhookNotifier(config: ForgeConfig)` | Slack / Teams / generic-HTTP lifecycle notifications. Constructor schema may grow ISO/SOC 2 fields in a future release. |
-| `forgelm.setup_authentication` | Experimental | `setup_authentication(config: ForgeConfig) -> None` | Wrapper around `huggingface_hub.login`. Will likely move to a `ForgeAuthContext` class. |
-| `forgelm.manage_checkpoints` | Experimental | `manage_checkpoints(config: ForgeConfig) -> None` | Apply the configured checkpoint-retention policy. |
+| `forgelm.setup_authentication` | Experimental | `setup_authentication(token: Optional[str] = None) -> None` | Wrapper around `huggingface_hub.login`. Reads `HUGGINGFACE_TOKEN` env var when `token` is `None`. |
+| `forgelm.manage_checkpoints` | Experimental | `manage_checkpoints(checkpoint_dir: str, action: str = "keep") -> None` | Apply checkpoint-retention behaviour against an output directory. `action` controls retain/prune semantics. |
 
 ## Idiomatic usage examples
 
@@ -155,9 +156,15 @@ print(f"verified {result.entries_checked} entries; head={result.chain_head}")
 from forgelm import ForgeConfig, ForgeTrainer
 
 config = ForgeConfig(
-    model={"name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0"},
-    dataset={"path": "data/train.jsonl", "format": "alpaca"},
-    training={"trainer_type": "sft", "num_epochs": 1, "batch_size": 1},
+    model={"name_or_path": "TinyLlama/TinyLlama-1.1B-Chat-v1.0"},
+    lora={"r": 8, "alpha": 16, "target_modules": ["q_proj", "v_proj"]},
+    data={"dataset_name_or_path": "data/train.jsonl"},
+    training={
+        "trainer_type": "sft",
+        "num_train_epochs": 1,
+        "per_device_train_batch_size": 1,
+        "output_dir": "./checkpoints/quick",
+    },
 )
 
 trainer = ForgeTrainer(config)
@@ -167,6 +174,8 @@ print(f"success={result.success}  output={result.output_dir}")
 if not result.success and result.revert_reason:
     print(f"reverted: {result.revert_reason}")
 ```
+
+The keys above are the **only** required ones; everything else falls back to `forgelm/config.py` defaults. `model.name_or_path`, the `lora:` block, `data.dataset_name_or_path`, and `training.{trainer_type, output_dir}` are required by the Pydantic schema; `num_epochs` / `batch_size` are not the canonical names and would raise `ValidationError`.
 
 ### 4. Emit Article 12 audit events from your own pipeline
 

@@ -41,7 +41,7 @@ Erases a single row identified by its `id` (or `row_id`) field from a JSONL trai
 
 **Atomic write contract.** The corpus is rewritten via a sibling temp file + `os.replace`, so an interrupted purge leaves either the full pre-erasure file or the full post-erasure file — never a partial state.
 
-**Line-number fallback is rejected** (design §4.2). Operators with id-less corpora must pre-populate ids via `forgelm audit --add-row-ids`.
+**Line-number fallback is rejected** (design §4.2). ForgeLM does not currently provide an id-population helper (`forgelm audit --add-row-ids` is on the Phase 28 backlog); operators with id-less corpora must pre-populate ids with an operator-side script before invoking `forgelm purge --row-id`.
 
 ### Run-scoped artefact erasure (`--run-id` + `--kind`)
 
@@ -98,23 +98,70 @@ All six events ride the common envelope from [`audit_event_catalog.md`](audit_ev
 
 ## JSON output envelope
 
-With `--output-format json` every invocation prints exactly one JSON object on stdout. The envelope mirrors the rest of the compliance subcommand family:
+With `--output-format json` every invocation prints exactly one JSON object on stdout. The shape varies by mode — three envelopes in total.
+
+**Row mode (success)** — emitted by `_perform_row_erasure_and_audit`:
 
 ```json
-{"success": true, "deleted": "row", "files_modified": ["data/train.jsonl"], "bytes_freed": 482, "match_count": 1}
+{
+  "mode": "row",
+  "dry_run": false,
+  "salt_source": "per_dir",
+  "corpus_path": "/abs/path/data/train.jsonl",
+  "matches": 1,
+  "first_line": 142,
+  "bytes_freed": 482,
+  "warnings": []
+}
 ```
 
-Failure envelopes:
+For `--dry-run` invocations the same envelope appears with `dry_run: true` and without `bytes_freed` (the rewrite never happens).
+
+**Run mode (success)** — emitted by `_run_purge_run_id`:
 
 ```json
-{"success": false, "error": "Row id 'ali@example.com' not found in 'data/train.jsonl'."}
+{
+  "mode": "run",
+  "kind": "staging",
+  "dry_run": false,
+  "run_id": "fg-abc123def456",
+  "deleted": ["/abs/path/outputs/run42/final_model.staging.fg-abc123def456"],
+  "bytes_freed": 102400000
+}
 ```
 
-The structured shape is the same for `--check-policy`:
+`deleted` is a **list** of absolute paths actually removed (or, on `--dry-run`, the `would_delete` key carries the same shape and `deleted` is absent).
+
+**`--check-policy` mode** — emitted by `_run_purge_check_policy`:
 
 ```json
-{"success": true, "violations": [{"path": "outputs/run42/", "kind": "ephemeral_artefact", "age_days": 121, "age_source": "audit_genesis", "horizon_days": 90}]}
+{
+  "success": true,
+  "violations": [
+    {
+      "artefact_kind": "ephemeral_artefact",
+      "path": "/abs/path/outputs/run42/compliance/data_audit_report.json",
+      "age_days": 121.4,
+      "horizon_days": 90,
+      "age_source": "audit_genesis"
+    }
+  ],
+  "count": 1
+}
 ```
+
+`age_source` ∈ `{audit_genesis, mtime}` — `audit_genesis` is the canonical age (run's first audit event timestamp); `mtime` is the filesystem fallback flagged for the operator's awareness.
+
+**Failure envelope (any mode)** — `_output_error_and_exit`:
+
+```json
+{
+  "success": false,
+  "error": "Row id 'ali@example.com' not found in 'data/train.jsonl'."
+}
+```
+
+Note the asymmetry: row/run success envelopes do **not** carry an explicit `success` field (the `mode` discriminator is the success signal); `--check-policy` and the failure envelope do. Operators wiring CI gates should branch on the `mode` key (success path) or `success: false` (failure path), not on the presence/absence of `success: true`.
 
 ## See also
 

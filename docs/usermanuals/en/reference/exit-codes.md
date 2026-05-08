@@ -13,9 +13,9 @@ ForgeLM's exit codes are a public contract. CI/CD pipelines, schedulers, and das
 |---|---|---|---|
 | **0** | `EXIT_SUCCESS` | Run completed; all gates passed; checkpoint promoted. | Continue pipeline |
 | **1** | `EXIT_CONFIG_ERROR` | YAML invalid, file missing, env var unset, or argument malformed. | Fail fast |
-| **2** | `EXIT_TRAINING_ERROR` | Training-time runtime error (any unhandled exception that isn't a config or eval-gate failure: data load, OOM, NaN loss, audit `--strict` failure, I/O). | Investigate; surface logs |
+| **2** | `EXIT_TRAINING_ERROR` | Training-time runtime error (any unhandled exception that isn't a config or eval-gate failure: data load, OOM, NaN loss, I/O failure, mid-stream audit-iteration OSError). | Investigate; surface logs |
 | **3** | `EXIT_EVAL_FAILURE` | Benchmark or safety gate failed; auto-reverted if configured. | Investigate; do NOT promote |
-| **4** | `EXIT_AWAITING_APPROVAL` | `compliance.human_approval: true` blocking. | Hold pipeline; trigger reviewer |
+| **4** | `EXIT_AWAITING_APPROVAL` | `evaluation.require_human_approval: true` blocking. | Hold pipeline; trigger reviewer |
 
 These five integers are the entire public contract — see [`forgelm/cli/_exit_codes.py`](https://github.com/cemililik/ForgeLM/blob/main/forgelm/cli/_exit_codes.py) for the canonical definition. Any other non-zero value (including signal-derived 128+N codes) is clamped to `EXIT_TRAINING_ERROR` (2) before the process exits.
 
@@ -80,11 +80,11 @@ stage('Train') {
 | YAML has typo (e.g. `learnng_rate`) | 1 |
 | `${HF_TOKEN}` set in YAML but env var missing | 1 |
 | `--config` points to non-existent file | 1 |
-| Audit with `--strict` reported a violation | 2 |
 | Final loss is NaN / OOM / I/O failure mid-training | 2 |
+| `forgelm verify-audit` chain break or HMAC mismatch | 1 (during the v0.5.5 cycle EXIT_CONFIG_ERROR covers both option errors and integrity failures; see [`verify-audit` reference](../../../reference/verify_audit.md) for the v0.6.x deprecation note) |
 | DPO run, Llama Guard S5 regressed beyond tolerance | 3 |
 | Benchmark hellaswag dropped below floor | 3 |
-| `compliance.human_approval: true` and no approval signed | 4 |
+| `evaluation.require_human_approval: true` and no approval signed | 4 |
 | User Ctrl+C (signal-derived 128+N) | 2 (clamped) |
 
 ## Programmatic determination
@@ -103,7 +103,7 @@ A run that exits 0 has:
 - Written the Annex IV bundle (if configured).
 - Written manifest.json with SHA-256 over all artifacts.
 - Optionally: written GGUF, deployment config.
-- Closed the audit log with `run_complete`.
+- Closed the audit log with `pipeline.completed` (canonical event name).
 
 If any of these failed, the exit code is non-zero. There is no "partial success" exit code by design.
 

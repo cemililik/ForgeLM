@@ -10,12 +10,17 @@ ForgeLM fires structured webhooks on training milestones. Wire them into Slack, 
 ## Quick example
 
 ```yaml
-output:
-  webhook:
-    url: "${SLACK_WEBHOOK}"
-    events: ["run_start", "auto_revert", "run_complete", "run_failed"]
-    template: "slack"                      # or teams, generic
+webhook:
+  url_env: "SLACK_WEBHOOK"           # reads URL from $SLACK_WEBHOOK at runtime
+  notify_on_start: true              # default true
+  notify_on_success: true            # default true
+  notify_on_failure: true            # default true (covers training.failure + training.reverted)
 ```
+
+The notifier emits a generic JSON payload — Slack and Teams ingest it directly via
+their incoming-webhook endpoints. Per-event subscription is not currently
+configurable; toggle the three `notify_on_*` flags to coarse-control which
+lifecycle events fire.
 
 ForgeLM picks up `${SLACK_WEBHOOK}` from environment variables. Common pattern:
 
@@ -24,119 +29,89 @@ $ export SLACK_WEBHOOK="https://hooks.slack.com/services/T.../B.../..."
 $ forgelm --config configs/run.yaml
 ```
 
-## Events you can subscribe to
+## Wire-format events
 
-| Event | When fired |
-|---|---|
-| `run_start` | Training kicks off. |
-| `data_audit_complete` | After `forgelm audit`. |
-| `training_epoch_complete` | After each epoch. (verbose; usually skipped) |
-| `benchmark_complete` | After eval suite. |
-| `safety_eval_complete` | After Llama Guard scoring. |
-| `auto_revert` | When auto-revert triggers. |
-| `human_approval_request` | When `compliance.human_approval` blocks. |
-| `human_approval_granted` | When approval is signed. |
-| `model_exported` | After `forgelm export`. |
-| `run_complete` | Successful exit. |
-| `run_failed` | Non-zero exit. |
+ForgeLM emits exactly **five** webhook events. The table below is the
+canonical surface mirrored in
+[`docs/reference/audit_event_catalog.md`](#/reference/audit-event-catalog):
 
-Subscribe selectively — too-frequent webhooks become spam.
+| Event | When fired | Gated by |
+|---|---|---|
+| `training.start` | `train()` enters, before model load. | `webhook.notify_on_start` |
+| `training.success` | All gates pass; no human-approval requirement. | `webhook.notify_on_success` |
+| `training.failure` | Training raised (OOM, dataset error, unhandled exception). | `webhook.notify_on_failure` |
+| `training.reverted` | A post-training gate (eval / safety / judge / benchmark) rejected the run and `_revert_model` rolled adapters back. | `webhook.notify_on_failure` |
+| `approval.required` | Run succeeded, `evaluation.require_human_approval=true` is set, model staged for review (EU AI Act Article 14). | `webhook.notify_on_success` |
 
 ## Payload shape
 
-Generic format (the `slack` and `teams` templates wrap this in their respective formats):
+Single generic JSON shape — Slack / Teams / Discord all accept it
+directly via incoming-webhook endpoints; ForgeLM does **not** wrap it in
+provider-specific templates:
 
 ```json
 {
-  "event": "auto_revert",
-  "ts": "2026-04-29T14:33:04Z",
-  "run_id": "abc123",
-  "config_path": "configs/customer-support.yaml",
-  "trigger": "safety_regression",
-  "regressed_categories": ["S5"],
-  "details": {...},
-  "artifacts_url": "https://compliance-store.example/abc123/"
+  "event": "training.reverted",
+  "run_name": "customer-support-v1.2.0",
+  "status": "reverted",
+  "reason": "safety regression: S5 hate-speech +0.18 over baseline"
 }
 ```
 
-## Slack template
+Payload keys vary by event; the full per-event field list is in
+[`docs/reference/audit_event_catalog.md`](#/reference/audit-event-catalog)
+under the *Webhook lifecycle events* table.
 
-```yaml
-output:
-  webhook:
-    url: "${SLACK_WEBHOOK}"
-    template: "slack"
-    events: ["run_complete", "run_failed", "auto_revert"]
-    channel: "#ml-training"                 # optional override
-    mention_on_failure: "@ml-oncall"
-```
+## Slack / Teams / Discord ingestion
 
-Produces:
+The single generic JSON payload shown above is what Slack, Teams, and Discord
+all expect on their incoming-webhook endpoints. There are **no per-provider
+templates** in `WebhookConfig` (no `template:`, no `events:` allow-list, no
+`channel:` / `mention_on_failure:` formatting knobs, no per-destination
+fan-out array). Routing and formatting happen on the receiving side:
 
-```text
-🔥 ForgeLM auto-revert triggered
+- **Slack** — paste the payload into a Slack workflow or incoming-webhook
+  app; Slack renders the JSON's top-level fields. To get a richer
+  formatted card, point the webhook at a relay (Slack workflow / AWS
+  Lambda / your own gateway) that translates the ForgeLM payload into
+  Slack Block Kit.
+- **Microsoft Teams** — similar pattern. Teams renders incoming JSON
+  natively but the visual is plain; for MessageCard / Adaptive Card
+  formatting, run a relay.
+- **Discord** — accepts the JSON directly via the bot/webhook URL.
 
-Run: customer-support v1.2.0 (abc123)
-Trigger: safety_regression in S5
-Restored from: checkpoints/sft-base
-Audit log: artifacts/audit_log.jsonl
+For multiple destinations, run multiple separate ForgeLM training
+configs (each pinned to its own `webhook.url_env`) or fan out from a
+single ForgeLM webhook to multiple downstream tools at the relay
+layer. ForgeLM does not natively support a `webhooks: [...]` array.
 
-@ml-oncall please investigate.
-```
+## Cross-cutting webhook fields
 
-## Microsoft Teams template
+Real `WebhookConfig` (see `forgelm/config.py::WebhookConfig`):
 
-```yaml
-output:
-  webhook:
-    url: "${TEAMS_WEBHOOK}"
-    template: "teams"
-    events: ["auto_revert", "human_approval_request"]
-```
+| Field | Default | Notes |
+|---|---|---|
+| `url` | `null` | Inline URL — prefer `url_env` for secret hygiene. |
+| `url_env` | `null` | Env-var name carrying the URL. Overrides `url` when set. |
+| `notify_on_start` | `true` | Gates the `training.start` event. |
+| `notify_on_success` | `true` | Gates `training.success` AND `approval.required`. |
+| `notify_on_failure` | `true` | Gates `training.failure` AND `training.reverted`. |
+| `timeout` | `10` | HTTP timeout in seconds; clamped to ≥ 1s. |
+| `allow_private_destinations` | `false` | Opt-in for RFC 1918 / loopback / link-local destinations (in-cluster Slack proxy, on-prem Teams gateway). Defaults reject — SSRF guard. |
+| `tls_ca_bundle` | `null` | Path to a custom CA bundle (corporate MITM CA). When unset, `certifi`'s bundled store is used. |
 
-Produces a Teams MessageCard with the same data formatted as a card with action buttons.
-
-## Generic template (custom integrations)
-
-For your own dashboard, incident system, or pipeline:
-
-```yaml
-output:
-  webhook:
-    url: "https://internal.example/forgelm-events"
-    template: "generic"
-    events: ["run_start", "run_complete", "run_failed", "auto_revert"]
-    headers:
-      Authorization: "Bearer ${INCIDENT_API_TOKEN}"
-    timeout_seconds: 5
-    retries: 3
-```
-
-The endpoint receives the raw structured payload above. ForgeLM POSTs JSON, expects 2xx, retries on transient failures.
-
-## Multiple destinations
-
-To send different events to different places:
-
-```yaml
-output:
-  webhooks:
-    - url: "${SLACK_WEBHOOK}"
-      template: "slack"
-      events: ["run_complete", "run_failed"]
-    - url: "${PAGERDUTY_WEBHOOK}"
-      template: "generic"
-      events: ["auto_revert"]                # critical only
-    - url: "${INTERNAL_DASHBOARD_URL}"
-      template: "generic"
-      events: ["*"]                          # everything for the dashboard
-```
+There is no `template:`, `events: [...]`, `headers: {...}`,
+`retries:`, `redact:`, `allow_private:`, `channel:`, or
+`mention_on_failure:` field. Header injection, retry strategy,
+redaction (the curated payload is already curated), and routing all
+live outside ForgeLM.
 
 ## Security considerations
 
-- **TLS only.** ForgeLM rejects HTTP webhook URLs in production builds.
-- **Sensitive data redaction.** API keys, full configs, and PII in payloads are redacted by default. Override with `webhook.redact: false` only if you control both endpoints.
-- **Server-Side Request Forgery (SSRF) guard.** ForgeLM blocks webhook URLs pointing at internal IPs (RFC 1918, link-local) unless you explicitly allow them with `webhook.allow_private: true`. This prevents misconfigured runs from probing your internal network.
+- **TLS strongly recommended.** ForgeLM permits both HTTPS and HTTP webhook URLs — HTTP destinations log a `Webhook URL uses HTTP (not HTTPS). Data will be sent unencrypted.` warning but are not rejected (see `forgelm/webhook.py` `_send`). Pin `https://` URLs in production.
+- **Curated payload.** ForgeLM never includes raw training data, full configs, or unredacted PII in webhook payloads. The notifier wraps a fixed-shape JSON; there is no `webhook.redact` toggle because there's nothing user-controllable to redact.
+- **Server-Side Request Forgery (SSRF) guard.** ForgeLM blocks webhook URLs pointing at internal IPs (RFC 1918, loopback, link-local, 169.254.x) unless you explicitly opt-in with `webhook.allow_private_destinations: true`. This prevents misconfigured runs from probing your internal network.
+- **No HMAC body signing.** ForgeLM does not sign webhook bodies — destination-side authenticity falls to TLS + URL secrecy via `url_env` plus the receiving system's bearer-token / signed-request controls (Slack signing secret, Teams connector token).
 
 ## Common pitfalls
 
@@ -145,11 +120,11 @@ output:
 :::
 
 :::warn
-**Subscribing to `training_epoch_complete`.** For a 50-epoch training run, that's 50 messages — Slack will rate-limit you. Use `run_start` and `run_complete` for the bookends.
+**Expecting per-epoch webhooks.** ForgeLM does not emit a per-epoch event — only the five lifecycle events listed above. If you need per-epoch progress, scrape it from the trainer's stdout / `audit_log.jsonl` rather than expecting a webhook fan-out.
 :::
 
 :::tip
-**Test webhooks with `--webhook-test`.** Before going live, run `forgelm --config X.yaml --webhook-test` — it fires a synthetic payload to your webhook so you can verify the formatting. No actual training happens.
+**Smoke-test webhooks before going live.** ForgeLM does not ship a `--webhook-test` flag. `--dry-run` is config-validation only — it does **not** run the trainer lifecycle, so webhooks aren't exercised. The right options are (a) run a **real tiny training run** (small dataset + low `num_train_epochs`) so the lifecycle fires end-to-end against a staging webhook URL; or (b) POST a curated synthetic payload via `curl` to confirm the destination renders it correctly.
 :::
 
 ## See also

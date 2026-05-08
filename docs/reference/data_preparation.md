@@ -1,5 +1,19 @@
 # Data Preparation Guide
 
+> **Scope.** This page covers the SFT-row schema. For the modern data
+> pipeline (DPO/SimPO/KTO/GRPO row formats, audit, ingestion from raw
+> docs, PII / secrets masking, multi-dataset mixing), see:
+>
+> - [Document Ingestion Guide](../guides/ingestion.md) — `forgelm ingest`
+>   raw → JSONL.
+> - [Dataset Audit Guide](../guides/data_audit.md) — `forgelm audit`
+>   pre-flight gate (PII, secrets, near-duplicate, leakage, quality).
+> - [Dataset Formats](../usermanuals/en/concepts/data-formats.md) —
+>   per-trainer format reference (SFT messages, DPO `chosen` /
+>   `rejected`, KTO `completion` + `label`, GRPO `prompt` only).
+> - [`forgelm.data.prepare_dataset`](library_api_reference.md#data-preparation)
+>   — Python API.
+
 ForgeLM uses the Hugging Face `datasets` library under the hood. While it can connect to thousands of datasets on the HF Hub, your dataset must adhere to specific structural patterns to be formatted perfectly for supervised fine-tuning.
 
 ## Supported Formats

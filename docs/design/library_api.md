@@ -143,7 +143,7 @@ ForgeLM ships `forgelm/py.typed` (zero-byte marker) so installers / `mypy` / IDE
 
 ### 3.2 Enforcement
 
-A new CI step runs `mypy --strict --follow-imports=silent forgelm/__init__.py forgelm/api.py` (note: only the public re-exports, not the entire codebase — `--strict` on `forgelm/trainer.py` would require typing the entire `transformers` / `trl` surface, which is not our project to fix).
+A new CI step runs `mypy --strict --follow-imports=silent forgelm/__init__.py forgelm/_version.py` (note: only the public re-exports, not the entire codebase — `--strict` on `forgelm/trainer.py` would require typing the entire `transformers` / `trl` surface, which is not our project to fix).
 
 Failures block the PR.  This is a tighter gate than the existing `ruff check` because type-hint regressions are silent at runtime but break IDE completion.
 
@@ -310,7 +310,7 @@ ForgeLM today has a single `__version__` derived from `importlib.metadata`.  Pha
 | Variable | Source | Bumps when... | Read by... |
 |---|---|---|---|
 | `forgelm.__version__` | `importlib.metadata` (single source of truth = `pyproject.toml`) | every release | downstream pinning, audit manifest stamp |
-| `forgelm.api.__api_version__` | hand-maintained string in `forgelm/api.py` | a stable-tier symbol's signature changes | downstream feature-detection |
+| `forgelm._version.__api_version__` | hand-maintained string in `forgelm/_version.py` | a stable-tier symbol's signature changes | downstream feature-detection |
 
 `__api_version__` exists because the CLI surface and the library surface evolve at different speeds.  A patch release that fixes a CLI typo doesn't change the Python-importable contract; both bump `__version__` but only the latter bumps `__api_version__`.  Consumers that pin against the library API can look at `__api_version__` and know whether a `forgelm` upgrade is safe.
 
@@ -330,7 +330,7 @@ Phase 19 ships a `tools/check_api_compat.py` script that compares the **stable**
 2. `python -c "import forgelm; print(json.dumps({n: inspect.signature(getattr(forgelm, n)).__str__() for n in <STABLE>}))"`.
 3. Diff against the same dump from the working tree.
 
-CI trigger: **`pull_request` job that runs whenever the PR targets `main` AND modifies `forgelm/__init__.py` or `forgelm/api.py`**, plus a manual `workflow_dispatch` step the `cut-release` skill invokes before tagging.  We do **not** use `release-*` branches as the trigger: `docs/standards/release.md:259` explicitly forbids release branches ("**No release branches** — if a hotfix is needed for an old version that has diverged, create a branch at that tag and cherry-pick — rare").  A `release-*` trigger would ship a CI step that never fires because no `release-*` branch ever exists.  No-op for the v0.5.5 release itself: there is no prior `__api_version__`-bearing release to diff against, so the script's first useful run is at v0.5.6 cut time.  Phase 19 ships the script + the `pull_request` + `workflow_dispatch` workflow steps; Phase 33 (v0.5.5 release) treats the script as a documented future contract rather than an immediate gate.
+CI trigger: **`pull_request` job that runs whenever the PR targets `main` AND modifies `forgelm/__init__.py` or `forgelm/_version.py`**, plus a manual `workflow_dispatch` step the `cut-release` skill invokes before tagging.  We do **not** use `release-*` branches as the trigger: `docs/standards/release.md:259` explicitly forbids release branches ("**No release branches** — if a hotfix is needed for an old version that has diverged, create a branch at that tag and cherry-pick — rare").  A `release-*` trigger would ship a CI step that never fires because no `release-*` branch ever exists.  No-op for the v0.5.5 release itself: there is no prior `__api_version__`-bearing release to diff against, so the script's first useful run is at v0.5.6 cut time.  Phase 19 ships the script + the `pull_request` + `workflow_dispatch` workflow steps; Phase 33 (v0.5.5 release) treats the script as a documented future contract rather than an immediate gate.
 
 This is not a blocking gate; it is a notification.  A genuinely-needed signature change still merges, but the release notes get an automatic "BREAKING:" line.
 
@@ -453,14 +453,14 @@ This section is the implementation spec for the next phase.  It is intentionally
 | # | Task | Files | Acceptance |
 |---|---|---|---|
 | 1 | Add `forgelm/py.typed` (zero-byte marker) | `forgelm/py.typed` (new) | From a fresh venv, `pip install dist/forgelm-*.whl && mypy --strict <test_file_importing_forgelm.py>` does NOT report `missing library stubs or py.typed marker`. |
-| 2 | Create the `__api_version__` home and re-export from `forgelm/__init__.py`.  *(As implemented: lives in `forgelm/_version.py` with 3-segment semver `"1.0.0"` per `docs/standards/release.md` lines 27-39 — see §5.1 Status callout.  The original draft of this row called for `forgelm/api.py` with `"0.5"`, both superseded.)* | `forgelm/_version.py`, `forgelm/__init__.py` | Both `from forgelm._version import __api_version__` and `from forgelm import __api_version__` work. |
+| 2 | Create the `__api_version__` home and re-export from `forgelm/__init__.py`.  *(As implemented: lives in `forgelm/_version.py` with 3-segment semver `"1.0.0"` per `docs/standards/release.md` lines 27-39 — see §5.1 Status callout.  The original draft of this row called for `forgelm/_version.py` with `"0.5"`, both superseded.)* | `forgelm/_version.py`, `forgelm/__init__.py` | Both `from forgelm._version import __api_version__` and `from forgelm import __api_version__` work. |
 | 3 | Extend `forgelm/__init__.py` `__getattr__` with the §4.2 entries (`audit_dataset`, `verify_audit_log`, `AuditLogger`, `VerifyResult`, `AuditReport`, `WebhookNotifier`, `detect_pii`, `mask_pii`, `detect_secrets`, `mask_secrets`, `compute_simhash`) | `forgelm/__init__.py` | Each name is reachable; `import forgelm` does not import torch (see §4.1 regression test). |
 | 4 | Add `__all__` entries for every name introduced in §2.1 + §2.2 | `forgelm/__init__.py` | `dir(forgelm)` lists them. |
 | 5 | Add `__dir__()` returning the union of `globals()` keys and `_LAZY_SYMBOLS` keys (per §4.2 sketch — superset of `__all__` so a name in the lazy table that the developer forgot to add to `__all__` still surfaces in IDE auto-complete) | `forgelm/__init__.py` | `dir(forgelm)` is a superset of `forgelm.__all__` and a superset of `_LAZY_SYMBOLS.keys()`. |
 | 6 | Port `forgelm/cli/__init__.py` to the lazy `__getattr__` + `_SYMBOL_TO_MODULE` pattern (§4.3) | `forgelm/cli/__init__.py` | `tests/test_cli_lazy_imports.py` passes. |
 | 7 | Add `tests/test_library_api.py` with the §6.1 cases | `tests/test_library_api.py` (new) | All 10 tests green (9 user-journey + `test_config_from_dict`). |
 | 8 | Add `tests/test_cli_lazy_imports.py` for the §4.3 invariant | `tests/test_cli_lazy_imports.py` (new) | `import forgelm.cli` does not trigger any `forgelm.cli.subcommands.*` import; lazy access does. |
-| 9 | Run `mypy --strict --follow-imports=silent forgelm/__init__.py forgelm/api.py` and fix every error | (any module touched by §3) | `mypy` clean on the public surface. |
+| 9 | Run `mypy --strict --follow-imports=silent forgelm/__init__.py forgelm/_version.py` and fix every error | (any module touched by §3) | `mypy` clean on the public surface. |
 | 10 | Add the CI step from §3.2 | `.github/workflows/ci.yml` | Step appears, fails on a deliberate type regression in a sandbox commit. |
 | 11 | Write `docs/reference/library_api.md` covering every §2.1 + §2.2 symbol | `docs/reference/library_api.md` (new) | Each name has a signature + 1-paragraph blurb. |
 | 12 | Write `docs/guides/library_api.md` with three end-to-end examples (audit, verify-audit, train-and-chat) | `docs/guides/library_api.md` (new) | Tutorial runnable in a notebook. |
@@ -473,7 +473,7 @@ This section is the implementation spec for the next phase.  It is intentionally
 - All 16 tasks above land in a single PR.
 - `pytest tests/test_library_api.py tests/test_cli_lazy_imports.py` green on fresh checkout.
 - `pytest tests/` overall passes (existing 1010+ tests not regressed).
-- `mypy --strict --follow-imports=silent forgelm/__init__.py forgelm/api.py` clean.
+- `mypy --strict --follow-imports=silent forgelm/__init__.py forgelm/_version.py` clean.
 - `ruff format . && ruff check .` clean.
 - README + CHANGELOG + guides up-to-date.
 
@@ -485,7 +485,7 @@ These are the places where reasonable people would disagree.  Resolved before Ph
 
 ### Q1. Should `forgelm.api` exist at all, or just live in `forgelm/__init__.py`?
 
-**Decision:** create `forgelm/api.py`.  Two reasons: (a) it gives `__api_version__` a clean home so `__init__.py` doesn't have to grow a constants block; (b) downstream consumers can `from forgelm.api import __api_version__` without triggering any heavy imports.  `forgelm/__init__.py` itself stays the canonical entry point — `from forgelm import ForgeTrainer` keeps working — but the version gets its own module.
+**Decision:** create `forgelm/_version.py`.  Two reasons: (a) it gives `__api_version__` a clean home so `__init__.py` doesn't have to grow a constants block; (b) downstream consumers can `from forgelm._version import __api_version__` without triggering any heavy imports.  `forgelm/__init__.py` itself stays the canonical entry point — `from forgelm import ForgeTrainer` keeps working — but the version gets its own module.
 
 ### Q2. Why not auto-generate `library_api.md` from docstrings?
 

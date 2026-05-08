@@ -27,8 +27,13 @@ Hash zinciri, satır diske düştükten (`flush` + `fsync`) sonra ilerler; kirli
 
 | Event                      | Ne zaman emit edilir                                                            | Payload (zarfa ek olarak)                                                          | Madde |
 |----------------------------|---------------------------------------------------------------------------------|-------------------------------------------------------------------------------------|-------|
-| `training.started`         | Trainer fine-tuning koşusunu başlatır.                                          | `trainer_type`, `model`, `dataset`, `config_path`                                  | 12    |
-| `pipeline.completed`       | Uçtan uca CLI koşusu (eğitim + değerlendirme + dışa aktarma) 0 koduyla biter.   | `exit_code`, `duration_seconds`, `success`, `metrics_summary`                      | 12    |
+| `pipeline.initialized`     | `ForgeTrainer.__init__` config + audit logger bağlantısını bitirdi; herhangi bir model yüklemeden önce yayılır. | `model`, `trainer_type` | 12 |
+| `training.started`         | Trainer fine-tuning koşusunu başlatır.                                          | _(payload yok — yalnız zarf)_                                                      | 12    |
+| `training.oom_recovery`    | OOM kurtarma yolu `per_device_train_batch_size`'i yarıya indirip yeniden denedi (eğitim-arası event). | `old_batch_size`, `new_batch_size`, `new_grad_accum` | 12 / 15 |
+| `benchmark.evaluation_completed` | `lm-eval-harness` yapılandırılmış benchmark suite'inin değerlendirmesini bitirdi. | `passed`, `average`, `scores`                  | 15 |
+| `safety.evaluation_completed`    | Güvenlik değerlendirmesi bitti (Llama Guard / ShieldGemma koşusu).             | `passed`, `safe_ratio`, `safety_score`, `categories` | 15 |
+| `judge.evaluation_completed`     | LLM-as-judge skorlaması bitti.                                                  | `passed`, `average_score`                       | 15 |
+| `pipeline.completed`       | Uçtan uca CLI koşusu (eğitim + değerlendirme + dışa aktarma) 0 koduyla biter.   | `success`, `metrics_summary`                                                       | 12    |
 | `pipeline.failed`          | Pipeline tamamlanmadan bir hata ile iptal olur.                                 | `error`                                                                            | 12    |
 
 ### Madde 14 — İnsan Gözetimi
@@ -43,7 +48,8 @@ Hash zinciri, satır diske düştükten (`flush` + `fsync`) sonra ilerler; kirli
 
 | Event                          | Ne zaman emit edilir                                                                                              | Payload                                                       | Madde |
 |--------------------------------|--------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|-------|
-| `model.reverted`               | Auto-revert kalite regresyonu sonrası önceki bir checkpoint'i geri yükledi. _(Faz 8 — webhook bağlantılı.)_       | `from_checkpoint`, `to_checkpoint`, `reason`, `metrics_delta` | 15    |
+| `model.reverted`               | Auto-revert kalite regresyonu sonrası önceki bir checkpoint'i geri yükledi. _(Faz 8 — webhook bağlantılı.)_       | `reason` (tetikleyen kapı: `benchmark` / `safety` / `judge` / vs.), `detail` (kapıdan gelen insan-okunabilir hata sebebi) | 15    |
+| `model.integrity_verified`     | Eğitim sonrası nihai-model bütünlük manifesto'su (`model_integrity.json`) yazıldı ve başarıyla yeniden hash'lendi. | `artifacts` (yeniden-hash'lenen dosya sayısı)                  | 15    |
 | `audit.classifier_load_failed` | Güvenlik sınıflandırıcısı (örn. Llama Guard) yüklenemedi. Koşu yine `passed=False` kaydeder.                       | `classifier`, `reason`                                        | 15    |
 
 ### Madde 11 + Ek IV — Uyumluluk artefaktları
@@ -51,7 +57,7 @@ Hash zinciri, satır diske düştükten (`flush` + `fsync`) sonra ilerler; kirli
 | Event                            | Ne zaman emit edilir                                                          | Payload                                          | Madde         |
 |----------------------------------|-------------------------------------------------------------------------------|--------------------------------------------------|---------------|
 | `compliance.governance_exported` | Madde 10 veri yönetişim raporu diske yazıldı.                                 | `output_path`, `dataset_count`                   | 10            |
-| `compliance.governance_failed`   | Yönetişim raporu üretimi iptal edildi (örn. şema uyumsuzluğu).                | `failure_reason`                                 | 10            |
+| `compliance.governance_failed`   | Yönetişim raporu üretimi iptal edildi (örn. şema uyumsuzluğu).                | `reason`                                          | 10            |
 | `compliance.artifacts_exported`  | Ek IV teknik dokümantasyon paketi (manifest, model card, audit zip) yazıldı.  | `output_dir`, `files`                            | 11, Ek IV     |
 
 ### Madde 17 — GDPR Silinme Hakkı (Phase 21 — `forgelm purge`)
@@ -93,7 +99,6 @@ Hash zinciri, satır diske düştükten (`flush` + `fsync`) sonra ilerler; kirli
 | Event                          | Ne zaman emit edilir                                                                                      | Payload                              | Madde |
 |--------------------------------|------------------------------------------------------------------------------------------------------------|--------------------------------------|-------|
 | `audit.classifier_load_failed` | _(Yukarıdaki Madde 15 satırına bakın.)_                                                                    | `classifier`, `reason`               | 15    |
-| `audit.cross_run_continuity`   | Mevcut bir log dizinine işaret eden ikinci-veya-sonraki AuditLogger örneğinin ilk yazımı.                  | `previous_chain_head`                | 12    |
 
 ## Yeni bir event eklemek
 
@@ -188,6 +193,6 @@ ihtiyaç duyan olaylarda doldurulur. `attachments`, Slack uyumlu blok'tur
 
 Webhook payload'ları **geçicidir**. Denetim kaydı değildir. Uzun süreli
 geçmişe ihtiyaç duyan alıcılar, webhook trafiğini arşivlemek yerine
-denetim JSONL dosyasının (`<output_dir>/compliance/audit_log.jsonl`) anlık
+denetim JSONL dosyasının (`<output_dir>/audit_log.jsonl`) anlık
 görüntüsünü almalıdır; çünkü denetim günlüğü yalnız-eklenir
 hash-zincirli kayıttır ve webhook akışı en-iyi-çabadır (best-effort).

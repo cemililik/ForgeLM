@@ -14,7 +14,7 @@ Every ForgeLM trainer expects a specific JSONL format. ForgeLM auto-detects the 
 | `instructions` | SFT | `prompt`, `completion` |
 | `messages` | SFT (multi-turn) | `messages: [{role, content}, …]` |
 | `preference` | DPO, SimPO, ORPO | `prompt`, `chosen`, `rejected` |
-| `binary` | KTO | `prompt`, `response`, `label` |
+| `binary` | KTO | `prompt`, `completion`, `label` |
 | `reward` | GRPO | `prompt` (response generated at training time) |
 
 ## Instructions (single-turn SFT)
@@ -75,17 +75,18 @@ Single response with a thumbs-up/down label. Simpler to collect than paired pref
 ```json
 {
   "prompt": "How do I cancel my subscription?",
-  "response": "Just stop paying lol.",
+  "completion": "Just stop paying lol.",
   "label": false
 }
 {
   "prompt": "How do I cancel my subscription?",
-  "response": "From Settings → Billing → Cancel subscription…",
+  "completion": "From Settings → Billing → Cancel subscription…",
   "label": true
 }
 ```
 
 Field meanings:
+- `completion` → the model's response (the field name TRL's KTOTrainer expects; ForgeLM's `_detect_dataset_format` keys off `completion + label` to auto-route to KTO).
 - `label: true` → desirable response (thumbs-up)
 - `label: false` → undesirable response (thumbs-down)
 
@@ -147,7 +148,7 @@ If you don't specify `format:`, ForgeLM inspects the first non-empty row:
 |---|---|
 | `messages` array | `messages` |
 | `chosen` and `rejected` | `preference` |
-| `response` and `label` (bool) | `binary` |
+| `completion` and `label` (bool) | `binary` |
 | `prompt` and `completion` | `instructions` |
 | `prompt` only | `reward` |
 

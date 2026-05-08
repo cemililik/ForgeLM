@@ -1,5 +1,15 @@
 # Design: Nvidia Blackwell (GB10) Optimizations
 
+> **Status: Not yet implemented (Phase 28+ backlog).** This document
+> captures the *proposed* Blackwell support surface; nothing in
+> `forgelm/` ships any of the items below today. `expandable_segments`
+> wiring, the `scripts/setup_for_blackwell.sh` setup script, the
+> auto-detect path in `forgelm/model.py`, and the bf16 + sequence-packing
+> auto-enable flow are all pending. Operators on Blackwell hardware
+> currently configure `expandable_segments` via the upstream
+> `PYTORCH_ALLOC_CONF` env var directly and set `training.bf16: true` /
+> `training.sample_packing: true` by hand.
+
 ## Overview
 Specific optimizations for the latest Nvidia Blackwell architecture (notably GB10 with 128GB unified RAM) to maximize throughput and stability.
 

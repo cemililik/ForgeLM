@@ -1,163 +1,106 @@
 ---
 title: LLM-as-Judge
-description: OpenAI veya yerel judge modeliyle kalite skorlama — pairwise, single-rubric veya ELO.
+description: Daha güçlü bir judge modeli kullanarak held-out prompt seti üzerinde kalite skorlama — yapılandırılabilir minimum'lu single-rubric ortalama puan.
 ---
 
 # LLM-as-Judge
 
-Standart benchmark'lar dar yetenekleri ölçer; "bu yanıt gerçekten iyi mi?" sorusunu yakalamaz. LLM-as-judge bu boşluğu, daha güçlü bir modeli sizinkini değerlendirmek için kullanarak doldurur. ForgeLM üç mod destekler: pairwise karşılaştırma, single-rubric skorlama ve ELO sıralaması.
+Standart benchmark'lar dar yetenekleri ölçer; "bu yanıt gerçekten iyi mi?" sorusunu yakalamaz. LLM-as-judge bu boşluğu doldurur: daha güçlü bir model (veya yerel bir instruction-tuned LLM) eğitilmiş modelin held-out prompt seti üzerindeki çıktısını skorlar. ForgeLM'in judge'ı tek-rubric ortalama-skor kapısıdır — judge her (prompt, completion) çiftine 1-10 skor atar ve ortalama puan yapılandırılan alt sınırın altına düşerse koşum başarısız olur.
 
-## Ne zaman kullan
+## Ne zaman kullanılır
 
-| LLM-as-judge: | Benchmark: |
+| LLM-as-judge kullanın... | Benchmark kullanın... |
 |---|---|
-| Çıktı kalitesi öznel (yardımsever, kibar, marka-uyumlu). | Görevin doğrulanabilir cevabı var. |
+| Çıktı kalitesi öznel (yardımcı, kibar, marka uyumlu). | Görevin doğrulanabilir cevabı var. |
 | Ground truth yok. | Ground truth var. |
-| İki modelin nitel çıktısını karşılaştırıyorsunuz. | Mutlak performansı zaman içinde izliyorsunuz. |
-| Maliyet kabul edilebilir (GPT-4o-mini ile ~$1-5 / 1K judgement). | Ücretsiz, yerel eval gerek. |
+| Koşumlar arası nitel gerilemeleri izliyorsunuz. | Mutlak yetenek izliyorsunuz. |
+| Maliyet kabul edilebilir (GPT-4o ile ~$1-5 / 1K judgement). | Ücretsiz, yerel eval gerekiyor. |
 
 ## Hızlı örnek
 
 ```yaml
 evaluation:
-  judge:
+  llm_judge:                            # block name is `llm_judge`, not `judge`
     enabled: true
-    mode: "pairwise"                    # veya single-rubric, elo
-    judge_model:
-      provider: "openai"
-      model: "gpt-4o-mini"               # gpt-4o'dan ucuz, judging için neredeyse aynı kalitede
-      api_key: "${OPENAI_API_KEY}"
-    baseline_model: "./checkpoints/sft-base"
-    test_prompts: "data/eval-prompts.jsonl"
-    num_samples: 200
-    rubric: "default"                   # veya özel rubric yolu
+    judge_model: "gpt-4o-mini"          # or local path, e.g. "./judges/Qwen2.5-72B-Instruct"
+    judge_api_key_env: OPENAI_API_KEY   # null = local model (no API call)
+    judge_api_base: null                # override for Azure OpenAI / vLLM-compatible gateway
+    eval_dataset: "data/eval-prompts.jsonl"
+    min_score: 6.5                      # mean score floor (1-10 scale); revert below this
+    batch_size: 8                       # (prompt, completion) pairs scored per round; 1 disables batching
 ```
 
-## Pairwise mod
+## Eval-dataset formatı
 
-Judge'a sorar: "Yanıt A mı yanıt B mi — hangisi daha iyi, neden?" Win-rate'leri toplar.
+`eval_dataset` bir JSONL dosyasıdır. Her satır, judge'ın eğitilmiş modelin yanıtına karşı skorladığı tek bir prompt'tur:
+
+```jsonl
+{"prompt": "10 yaşında bir çocuğa mitozu açıkla."}
+{"prompt": "Bu Python list comprehension'ı for-döngüsüne dönüştür: [x*2 for x in nums]"}
+```
+
+ForgeLM her prompt için eğitilmiş modelin completion'ını üretir ve judge'a sorar: "Bu yanıtı yardımcılık ve doğruluk için 1-10 skalasında skorla." Veri seti üzerindeki ortalama, koşumun `judge_score`'udur.
+
+## Çıktı
+
+`<output_dir>/judge_report.json`:
 
 ```json
 {
-  "pairwise_results": {
-    "wins": 124,
-    "losses": 56,
-    "ties": 20,
-    "win_rate": 0.62,
-    "judge_explanations_sample": [...]
-  }
+  "judge_model": "gpt-4o-mini",
+  "eval_dataset": "data/eval-prompts.jsonl",
+  "n_prompts": 200,
+  "mean_score": 7.4,
+  "min_score_threshold": 6.5,
+  "passed": true,
+  "per_prompt": [
+    {"prompt_id": 0, "score": 8, "explanation": "..."},
+    {"prompt_id": 1, "score": 6, "explanation": "..."}
+  ]
 }
 ```
 
-200+ örnekle 0.55 üstü win rate istatistiksel olarak anlamlıdır. Altında daha çok örnek koşturun veya farkın gürültü olduğunu kabul edin.
-
-## Single-rubric mod
-
-Judge'dan her yanıtı bir rubric üzerinde puanlamasını ister (kriter başına 1-5 yıldız).
-
-```yaml
-evaluation:
-  judge:
-    mode: "single-rubric"
-    rubric:
-      criteria:
-        - name: "yardımseverlik"
-          description: "Yanıt kullanıcının problemini çözüyor mu?"
-          scale: 5
-        - name: "ton"
-          description: "Müşteri destek için ton uygun mu?"
-          scale: 5
-        - name: "doğruluk"
-          description: "İddialar doğru mu?"
-          scale: 5
-```
-
-Çıktı:
-
-```json
-{
-  "rubric_means": {
-    "yardımseverlik": 4.2,
-    "ton": 4.7,
-    "doğruluk": 3.8
-  }
-}
-```
-
-## ELO mod
-
-Birden çok model sürümü arasında round-robin pairwise karşılaştırmalar koşturur, ELO puanları hesaplar.
-
-```yaml
-evaluation:
-  judge:
-    mode: "elo"
-    candidates:
-      - { name: "v1", path: "./checkpoints/v1" }
-      - { name: "v2", path: "./checkpoints/v2" }
-      - { name: "v3-current", path: "./checkpoints/v3" }
-    rounds: 50
-```
-
-Çıktı: aday başına ELO puanları. Çok koşu arası karşılaştırma için faydalı (ör. hyperparameter sweep).
+`mean_score < min_score` olduğunda trainer bunu evaluation gerilemesi olarak ele alır: `auto_revert: true` ise model revert edilir; aksi halde trainer audit log'a kaydedilen failure ile non-zero çıkar.
 
 ## Judge model seçimi
 
 | Judge | Maliyet / 1K judgement | Kalite |
 |---|---|---|
-| `openai:gpt-4o` | ~$5 | En yüksek. Üretim için varsayılan. |
-| `openai:gpt-4o-mini` | ~$1 | gpt-4o'nun %90 kalitesi. **Önerilir.** |
-| `anthropic:claude-haiku-4` | ~$1.50 | gpt-4o-mini ile karşılaştırılabilir. |
-| `local:Qwen2.5-72B-Instruct` | $0 (kendi GPU zamanınız) | Makul; ince yargı çağrılarında daha zayıf. |
-| `local:Llama-3.1-70B-Instruct` | $0 | Judging için Qwen 72B'den biraz kötü. |
+| `gpt-4o` (`judge_api_key_env: OPENAI_API_KEY` set edilir) | ~$5 | En yüksek. Production varsayılanı. |
+| `gpt-4o-mini` | ~$1 | gpt-4o kalitesinin %90'ı. Önerilen maliyet-dengeli varsayılan. |
+| `claude-haiku-4` (`judge_api_base: https://api.anthropic.com/v1` + uygun env var) | ~$1.50 | gpt-4o-mini ile karşılaştırılabilir. |
+| Yerel yol (ör. `./judges/Qwen2.5-72B-Instruct`, `judge_api_key_env: null`) | $0 (kendi GPU saatiniz) | Makul; ince yargı çağrılarında daha zayıf. |
 
-## Varyansı azaltma
+Judge tek bir yapılandırılabilir modeldir — yerleşik pairwise / ELO / multi-criteria rubric pipeline yoktur. İki eğitilmiş model arasında pairwise A/B karşılaştırması yapmak için aynı eval dataset'e karşı iki ayrı trainer invocation çalıştırın ve sonuçtaki `mean_score` değerlerini karşılaştırın; ForgeLM pairwise çağrıyı dahili olarak orkestre etmez.
 
-Tek judge koşuları gürültülü. ForgeLM standart varyans-azaltma yayınlar:
+## Maliyet kontrolü
 
-- **Self-consistency** — `--num-judgements 3` her karşılaştırmayı üç kez koşturur, çoğunluk alır.
-- **Pozisyon swap** — pozisyon önyargısını tespit etmek için A/B'yi değiştirir.
-- **Çoklu rubric** — kriterler arası ortalama alır.
+ForgeLM runtime USD bütçesi uygulamaz. Maliyeti dışarıdan yönetin:
 
-```yaml
-evaluation:
-  judge:
-    self_consistency: 3                 # karşılaştırma başına 3 oy
-    swap_positions: true                # pozisyon önyargısı tespit
-```
-
-## Maliyet kontrolleri
-
-```yaml
-evaluation:
-  judge:
-    budget_usd: 20.0                    # $20'da dur
-    rate_limit:
-      requests_per_minute: 60
-```
-
-Bütçe dolduğunda judge kısmi sonuçlarla durur.
+- **`eval_dataset` boyutunu sınırlayın.** Her prompt = bir judge API çağrısı. 200 prompt × $0.005 (gpt-4o-mini) ≈ koşum başına $1.
+- **İterasyon için yerel judge.** Nightly koşumlar için 70B-sınıfı instruction-tuned bir modeli kendi GPU'nuza pinleyin; API judge'larını release-gate koşumuna saklayın.
+- **Sağlayıcı-tarafı rate limiting.** Throughput cap'leri OpenAI/Anthropic dashboard'unuzda set edin, `forgelm` config'inde değil.
 
 ## Sık hatalar
 
 :::warn
-**Aynı modeli judge ve student olarak kullanmak.** 7B modelin başka 7B çıktılarını yargılaması ince kalite sorunlarını yakalamaz. Daha güçlü judge kullanın.
+**Aynı modeli judge ve student olarak kullanmak.** 7B bir model başka 7B'nin çıktılarını skorlarken ince kalite sorunlarını yakalamaz. Daha güçlü bir judge kullanın — 7B eğitilmiş model için, instruction-tuned 70B+ veya API-sınıfı judge.
 :::
 
 :::warn
-**Pozisyon önyargısı.** Judge'lar genelde ilk yanıtı biraz tercih eder. Pairwise karşılaştırmalarda her zaman `swap_positions: true`.
+**Çok küçük `eval_dataset`.** 20 prompt skorlamak istatistiksel gürültüdür. Anlamlı ortalama puan için 200+; release gate için 1000+ daha iyidir.
 :::
 
 :::warn
-**Çok küçük örneklem.** İki modeli 20 prompt'la karşılaştırmak istatistiksel gürültüdür. Anlamlı win-rate için 200+ kullanın.
+**`judge_api_key_env`'i unutmak.** `judge_model` API model adıyken (ör. `gpt-4o-mini`) ve `judge_api_key_env` set edilmemişken, ForgeLM yerel-model yüklemeye fallback yapar ve `gpt-4o-mini`'yi HF Hub'dan indirmeye çalışır, yüksek sesle başarısız olur. Judge bir API ise env-var adını açıkça set edin.
 :::
 
 :::tip
-**Judge'ı benchmark'la birleştirin.** Judge'da kazanıp benchmark'larda gerileyen model, judge'ın tercih ettiği şeyi over-fit ediyor demektir. Her iki sinyal de önemli.
+**Judge'ı benchmark'larla eşleştirin.** Judge'ta kazanan ama benchmark'larda gerileyen bir model, judge'ın tercih ettiği şeye overfit oluyor demektir. Her iki sinyal de önemli.
 :::
 
 ## Bkz.
 
-- [Benchmark Entegrasyonu](#/evaluation/benchmarks) — nicel eval eşi.
-- [Sentetik Veri](#/data/synthetic-data) — aynı sağlayıcı soyutlaması.
-- [Otomatik Geri Alma](#/evaluation/auto-revert) — judge gating sinyali olabilir.
+- [Benchmark Entegrasyonu](#/evaluation/benchmarks) — niceliksel eval refakatçisi.
+- [Sentetik Veri](#/data/synthetic-data) — teacher model için benzer `api_base` / `api_key_env` zarfını kullanır.
+- [Otomatik Geri Alma](#/evaluation/auto-revert) — judge mean-score, dört guard ailesinden biri.

@@ -54,8 +54,8 @@ The same shape for rejection: `forgelm reject` records `human_approval.rejected`
 ## 1. Enable the gate
 
 ```yaml
-compliance:
-  human_approval: true
+evaluation:
+  require_human_approval: true
 ```
 
 That single flag is enough to switch the gate on for every run that consumes this config. The gate fires after evaluation succeeds (so a failing eval still exits 3 / `EXIT_EVAL_FAILURE` and never reaches the approval stage).

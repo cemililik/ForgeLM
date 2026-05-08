@@ -12,13 +12,13 @@ EU AI Act Article 12 requires high-risk AI systems to maintain logs of operation
 One JSON object per line:
 
 ```jsonl
-{"ts":"2026-04-29T14:01:32Z","seq":1,"event":"run_start","run_id":"abc123","config_hash":"sha256:dead..."}
-{"ts":"2026-04-29T14:01:35Z","seq":2,"event":"data_audit_complete","verdict":"clean","..."}
-{"ts":"2026-04-29T14:18:55Z","seq":3,"event":"training_epoch_complete","epoch":1,"loss":1.42}
-{"ts":"2026-04-29T14:33:04Z","seq":4,"event":"benchmark_complete","verdict":"pass"}
-{"ts":"2026-04-29T14:33:08Z","seq":5,"event":"safety_eval_complete","verdict":"pass"}
-{"ts":"2026-04-29T14:33:10Z","seq":6,"event":"run_complete","exit_code":0,"prev_hash":"sha256:beef..."}
+{"ts":"2026-04-29T14:01:32Z","seq":1,"event":"training.started","run_id":"abc123","operator":"ci-runner@ml","_hmac":"..."}
+{"ts":"2026-04-29T14:33:08Z","seq":2,"event":"audit.classifier_load_failed","classifier":"meta-llama/Llama-Guard-3-8B","reason":"...","_hmac":"..."}
+{"ts":"2026-04-29T14:33:10Z","seq":3,"event":"model.reverted","reason":"safety.regression","metrics":{...},"_hmac":"..."}
+{"ts":"2026-04-29T14:33:11Z","seq":4,"event":"pipeline.completed","exit_code":0,"prev_hash":"sha256:beef...","_hmac":"..."}
 ```
+
+(See the "Event types" table below and `docs/reference/audit_event_catalog.md` for the full canonical list. Earlier drafts referenced `run_start` / `run_complete` / `data_audit_complete` / `training_epoch_complete` / `benchmark_complete` / `safety_eval_complete` / `auto_revert` — none of those names ship; no call site in `forgelm/` emits them.)
 
 Every entry has:
 - **`ts`** — ISO-8601 UTC timestamp.
@@ -31,19 +31,22 @@ Every entry has:
 
 | Event | When emitted |
 |---|---|
-| `run_start` | At the start of every `forgelm` invocation. |
-| `config_validated` | After `--dry-run` passes. |
-| `data_audit_complete` | After `forgelm audit` runs (whether ad hoc or as part of a training run). |
-| `training_epoch_complete` | After each training epoch. |
-| `training_step_milestone` | At configurable step intervals (default 1000). |
-| `benchmark_complete` | After the benchmark suite runs. |
-| `safety_eval_complete` | After Llama Guard scoring. |
-| `auto_revert` | When auto-revert triggers. |
-| `human_approval_request` | When `compliance.human_approval` blocks. |
-| `human_approval_granted` | When approval is signed. |
-| `model_exported` | After `forgelm export` writes a deployable artefact. |
-| `run_complete` | At successful exit. |
-| `run_failed` | At non-zero exit. |
+| `training.started` | Trainer enters fine-tuning. |
+| `pipeline.completed` | End-to-end CLI run returned exit code 0. |
+| `pipeline.failed` | Pipeline aborted with an error. |
+| `model.reverted` | Auto-revert restored a previous checkpoint after a quality regression. |
+| `human_approval.required` | `evaluation.require_human_approval=true` paused the run for an operator decision. |
+| `human_approval.granted` | Operator approved a paused gate via `forgelm approve`. |
+| `human_approval.rejected` | Operator rejected a paused gate via `forgelm reject`. |
+| `audit.classifier_load_failed` | Safety classifier (e.g. Llama Guard) failed to load. |
+| `compliance.governance_exported` | EU AI Act Article 10 governance report written. |
+| `compliance.artifacts_exported` | Annex IV bundle (manifest + model card + audit zip) written. |
+| `data.erasure_*` | Six-event family covering `forgelm purge` lifecycle (Article 17). |
+| `data.access_request_query` | `forgelm reverse-pii` invocation (GDPR Article 15). |
+| `cli.legacy_flag_invoked` | A deprecated CLI flag was used. |
+
+The full event catalog (with payload schema and emitting site) lives in
+[`docs/reference/audit_event_catalog.md`](#/reference/audit-event-catalog).
 
 ## Append-only by design
 
@@ -56,7 +59,7 @@ ForgeLM never rewrites prior log entries. New events go at the end. The chained 
 ## Verifying integrity
 
 ```shell
-$ forgelm verify-audit checkpoints/run/artifacts/audit_log.jsonl
+$ forgelm verify-audit <output_dir>/audit_log.jsonl
 ✓ 87 entries, all timestamps monotonic
 ✓ all prev_hash chains valid
 ✓ no gaps in seq numbers
@@ -64,59 +67,41 @@ $ forgelm verify-audit checkpoints/run/artifacts/audit_log.jsonl
 
 If `verify-audit` reports a chain break, the log was modified after generation. Investigate before treating it as evidence.
 
-## Per-run vs per-project
+## Per-run
 
-Each training run produces its own `audit_log.jsonl` in that run's `artifacts/` directory. For per-project history, ForgeLM also maintains `.forgelm/global-audit-log.jsonl` at the project root (gitignored by default — opt in to commit).
-
-The global log records *cross-run* events:
-
-- `run_start` and `run_complete` for every run in the project.
-- Manual model promotions and rollbacks.
-- Configuration changes (when `forgelm` detects new YAML versions).
+Each training run writes its own `<output_dir>/audit_log.jsonl` (top-level — not under `compliance/`) plus a genesis-pin sidecar `<output_dir>/audit_log.jsonl.manifest.json`. There is no project-wide global log file. For cross-run history, ship every run's output directory to the same upstream store (S3 prefix, ledger DB) and correlate by `run_id`.
 
 ## Configuration
 
-```yaml
-compliance:
-  audit_log:
-    enabled: true
-    path: "${output.dir}/artifacts/audit_log.jsonl"
-    step_milestone_interval: 1000             # log step events every N steps
-    include_config_dump: true                  # emit full config in run_start event
-    redact_secrets: true                       # mask api keys in dumped config
-```
+There is **no** `compliance.audit_log:` block. The audit log is not a knob to enable/disable — every ForgeLM run automatically writes `<output_dir>/audit_log.jsonl`. To enable HMAC chaining, set `FORGELM_AUDIT_SECRET` in the env before invoking the trainer; there is no additional YAML knob.
 
 ## Forwarding to external stores
 
-For tamper-evidence in production, forward log entries to a separate write-once or append-only store:
+ForgeLM does **not** ship a built-in log-forwarding layer. There is no `compliance.audit_log.forward_to:` block. Forward the log operationally:
 
-```yaml
-compliance:
-  audit_log:
-    forward_to:
-      - type: "s3"
-        bucket: "compliance-audit-logs"
-        prefix: "forgelm/{run_id}/"
-        object_lock: true
-      - type: "syslog"
-        host: "audit.internal:514"
-        protocol: "tcp"
+```bash
+# Use Filebeat / Fluent Bit / Vector to tail the JSONL and ship to S3 Object Lock / Splunk / Datadog.
+filebeat -c filebeat.yml -e
 ```
 
-ForgeLM mirrors every emitted event to the configured destinations. If the external store is unreachable, the run fails (don't silently drop audit events).
+Or upload post-run:
+
+```bash
+aws s3 cp <output_dir>/audit_log.jsonl s3://compliance-audit-logs/forgelm/<run_id>/ --no-progress
+```
+
+`forgelm verify-audit <output_dir>/audit_log.jsonl --require-hmac` afterwards confirms the chain still verifies after upload to S3.
 
 ## Reading the log
 
 For human review:
 
 ```shell
-$ jq -r '.event + "\t" + .ts' checkpoints/run/artifacts/audit_log.jsonl
-run_start                  2026-04-29T14:01:32Z
-config_validated           2026-04-29T14:01:33Z
-data_audit_complete        2026-04-29T14:01:35Z
-training_epoch_complete    2026-04-29T14:18:55Z
-...
-run_complete               2026-04-29T14:33:10Z
+$ jq -r '.event + "\t" + .ts' checkpoints/run/audit_log.jsonl
+training.started               2026-04-29T14:01:32Z
+audit.classifier_load_failed   2026-04-29T14:33:08Z
+model.reverted                 2026-04-29T14:33:10Z
+pipeline.completed             2026-04-29T14:33:11Z
 ```
 
 For dashboards, the JSONL flows naturally into Loki, OpenSearch, or any log-aggregation tool.
@@ -138,5 +123,5 @@ For dashboards, the JSONL flows naturally into Loki, OpenSearch, or any log-aggr
 ## See also
 
 - [Annex IV](#/compliance/annex-iv) — the technical doc that points at the audit log.
-- [Auto-Revert](#/evaluation/auto-revert) — produces the `auto_revert` events.
+- [Auto-Revert](#/evaluation/auto-revert) — produces the `model.reverted` events.
 - [Human Oversight](#/compliance/human-oversight) — produces the approval events.

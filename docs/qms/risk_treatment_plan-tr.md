@@ -68,7 +68,7 @@ ekler.
 |---|---|
 | Açıklama | Operatör `HF_TOKEN: ghp_...` literal'ıyla bir config commit eder veya gömülü credential'lı bir webhook URL'i |
 | L × I (inherent) | Med × Med = MED |
-| Treatment | `safe_post` error log'larında Authorization header'ları masklar; `forgelm audit --secrets` regex scan credential'ları flag'ler; `_sanitize_md_list` deployer instructions'ta operatör-kontrollü string'leri escape eder; `forgelm doctor` pre-flight HF-auth probe; webhook payload-format curation asla config-derived secret taşımaz |
+| Treatment | `safe_post` error log'larında Authorization header'ları masklar; `forgelm audit` her zaman açık olan bir `_SECRET_PATTERNS` regex taraması çalıştırır ve corpus'taki credential'ları flag'ler (opt-in flag yok — bkz. `forgelm/data_audit/_secrets.py`); `_sanitize_md_list` deployer instructions'ta operatör-kontrollü string'leri escape eder; `forgelm doctor` pre-flight HF-auth probe; webhook payload-format curation asla config-derived secret taşımaz |
 | Residual L × I | Low × Low = LOW |
 | Sahip | ML Engineer |
 | Review cadence | Pre-merge config review |
@@ -112,9 +112,9 @@ ekler.
 
 | Alan | Değer |
 |---|---|
-| Açıklama | `evaluation.auto_revert: true` geçici bir eval regression'ında tetiklenir; sonuç `pipeline.reverted` downstream denetçiye safety failure gibi görünür |
+| Açıklama | `evaluation.auto_revert: true` geçici bir eval regression'ında tetiklenir; sonuç `model.reverted` downstream denetçiye safety failure gibi görünür |
 | L × I (inherent) | Med × Low = LOW |
-| Treatment | `pipeline.reverted` audit event regression delta + threshold taşır; `safety_trend.jsonl` cross-run context sağlar; operatör dashboard "gerçek" revert'leri threshold-tuning sorunlarından ayırır |
+| Treatment | `model.reverted` audit event regression delta + threshold taşır; `safety_trend.jsonl` cross-run context sağlar; operatör dashboard "gerçek" revert'leri threshold-tuning sorunlarından ayırır |
 | Residual L × I | Low × Low = LOW |
 | Sahip | ML Lead |
 | Review cadence | Haftalık trend review |
@@ -136,9 +136,9 @@ ekler.
 
 | Alan | Değer |
 |---|---|
-| Açıklama | Operatörün Slack / Teams workspace'i ele geçirilir; saldırgan notify_started payload'larını okur ve model-deployment cadence'ini öğrenir |
+| Açıklama | Operatörün Slack / Teams workspace'i ele geçirilir; saldırgan notify_start payload'larını okur ve model-deployment cadence'ini öğrenir |
 | L × I (inherent) | Low × Low = LOW |
-| Treatment | Webhook payload curation asla raw eğitim verisi veya unredacted PII taşımaz; `FORGELM_AUDIT_SECRET`-imzalı payload'lar splicing'i tespit eder; operatör olayda webhook secret'ı rotate eder |
+| Treatment | Webhook payload curation asla raw eğitim verisi veya unredacted PII taşımaz; ForgeLM webhook gövdelerini HMAC ile **imzalamaz** (`FORGELM_AUDIT_SECRET` HMAC'i yalnızca `audit_log.jsonl` chain bütünlüğüne özeldir — `forgelm/webhook.py` curated JSON'u signature header'ı olmadan POST eder), bu yüzden hedef-tarafı atıf TLS + `webhook.url_env` üzerinden URL-gizliliği + payload içindeki `FORGELM_OPERATOR` kimliğine düşer; operatör olayda `webhook.url_env` secret'ı rotate eder |
 | Residual L × I | Low × Low = LOW |
 | Sahip | Güvenlik + ML Lead |
 | Review cadence | Webhook-target olayı başına |
@@ -175,7 +175,7 @@ ekler.
 |---|---|
 | Açıklama | Operatör human approval'ı atlar; high-risk model ML Lead / AI Officer sign-off olmadan üretime ulaşır |
 | L × I (inherent) | Med × High = HIGH |
-| Treatment | `risk_classification` ∈ `{high-risk, unacceptable}` için `evaluation.require_human_approval: true`; staging dizini `forgelm approve` olana kadar modeli tutar; F-compliance-110 yapılandırılmamışsa ConfigError raise eder; `human_approval.required/granted/rejected` chain her kararı forensic olarak kaydeder |
+| Treatment | `risk_classification` ∈ `{high-risk, unacceptable}` için `evaluation.require_human_approval: true`; staging dizini `forgelm approve` olana kadar modeli tutar. (Not: F-compliance-110 strict gate yüksek-risk koşumlar için `evaluation.safety.enabled: true`'yi zorunlu kılar — `require_human_approval`'i değil — yukarıdaki R-06 satırına bakın; insan-onay kapısı bu satırın pinlediği deployer-tarafı bir disiplindir.) `human_approval.required/granted/rejected` chain her kararı forensic olarak kaydeder; **ForgeLM kapıda eğitici ≠ onaylayıcı kuralını zorlamaz** — onaylayıcı kimliğini `FORGELM_OPERATOR`'dan kaydeder, deployer'ın CI / IdP'si runner-kimliği ile reviewer-kimliği namespace'lerini ayrık tutmalıdır |
 | Residual L × I | Low × Med = LOW |
 | Sahip | ML Lead + AI Officer |
 | Review cadence | High-risk için eğitim koşumu başına |

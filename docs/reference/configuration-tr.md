@@ -83,18 +83,18 @@ training:
 | Alan | Tip | Varsayılan | Açıklama |
 |------|-----|-----------|----------|
 | `galore_enabled` | bool | `false` | GaLore gradient düşük rank projeksiyonunu etkinleştir |
-| `galore_optim` | string | `"galore_adamw_8bit"` | GaLore optimizer: `"galore_adamw"`, `"galore_adamw_8bit"`, `"galore_adafactor"` |
+| `galore_optim` | string | `"galore_adamw"` | GaLore optimizer varyantı. Şunlardan biri: `"galore_adamw"`, `"galore_adamw_8bit"`, `"galore_adafactor"`, `"galore_adamw_layerwise"`, `"galore_adamw_8bit_layerwise"`, `"galore_adafactor_layerwise"`. `_8bit` optimizer-state VRAM'ini yarıya indirir; `_layerwise` per-layer recompute ile peak VRAM'i düşürür. |
 | `galore_rank` | int | `128` | Gradient projeksiyonu için rank |
 | `galore_update_proj_gap` | int | `200` | Projeksiyon güncellemeleri arası adım sayısı |
 | `galore_scale` | float | `0.25` | GaLore ölçekleme faktörü |
 | `galore_proj_type` | string | `"std"` | Projeksiyon tipi: `"std"`, `"reverse_std"`, `"right"`, `"left"`, `"full"` |
-| `galore_target_modules` | list | `["q_proj", "k_proj", "v_proj", "o_proj"]` | GaLore uygulanacak modüller |
+| `galore_target_modules` | `Optional[List[str]]` | `null` | GaLore uygulanacak modül-adı regex pattern'leri. `null` `[r".*.attn.*", r".*.mlp.*"]`'ye düşer (attention + MLP katmanları). |
 
 #### Uzun Bağlam Eğitimi
 
 | Alan | Tip | Varsayılan | Açıklama |
 |------|-----|-----------|----------|
-| `rope_scaling` | string | `null` | RoPE ölçekleme yöntemi: `"linear"`, `"dynamic"` |
+| `rope_scaling` | `Optional[Dict[str, Any]]` | `null` | RoPE ölçekleme yöntemi sözlüğü (`{"type": "linear", "factor": 2.0}` vs.). Desteklenen tipler: `"linear"`, `"dynamic"`, `"yarn"`, `"longrope"`. |
 | `neftune_noise_alpha` | float | `null` | NEFTune gürültü enjeksiyonu alpha değeri (ör. `5.0`) |
 | `sliding_window_attention` | int | `null` | Kayan pencere dikkat boyutu (token) |
 | `sample_packing` | bool | `false` | Kısa örnekleri tam uzunluklu dizilere paketle |
@@ -255,22 +255,21 @@ uzatmasını engeller.
 
 | Alan | Tip | Varsayılan | Açıklama |
 |------|-----|-----------|----------|
-| `enabled` | bool | `false` | Sentetik veri üretimini etkinleştir |
-| `teacher_model` | string | `null` | Distillasyon için öğretmen model (HF ID veya yerel yol) |
-| `teacher_backend` | string | `"api"` | Öğretmen backend: `"api"` (OpenAI uyumlu) veya `"local"` |
-| `teacher_api_key_env` | string | `null` | Öğretmen API anahtarı için ortam değişkeni |
-| `teacher_api_base` | string | `null` | Öğretmen için özel API base URL |
-| `seed_file` | string | `null` | Tohum prompt dosyası yolu (JSONL) |
-| `output_file` | string | `"synthetic_data.jsonl"` | Üretilen veriler için çıktı dosyası |
-| `num_samples` | int | `100` | Üretilecek örnek sayısı |
-| `max_tokens` | int | `512` | Üretilen yanıt başına maksimum token |
-| `temperature` | float | `0.7` | Üretim için örnekleme sıcaklığı |
-| `top_p` | float | `0.9` | Top-p (nucleus) örnekleme |
-| `system_prompt` | string | `null` | Öğretmen model için sistem promptu |
-| `output_format` | string | `"sft"` | Çıktı formatı: `"sft"`, `"dpo"`, `"conversation"` |
-| `batch_size` | int | `10` | API çağrıları için batch boyutu |
-| `retry_attempts` | int | `3` | API hatası durumunda yeniden deneme sayısı |
-| `timeout` | int | `60` | API istek zaman aşımı (saniye) |
+| `enabled` | bool | `false` | Öğretmen → öğrenci sentetik veri üretimini etkinleştir. |
+| `teacher_model` | string | `""` | HF Hub ID veya API model adı (ör. `gpt-4o`, `meta-llama/Llama-3-70B`). |
+| `teacher_backend` | string | `"api"` | Şunlardan biri: `"api"` (OpenAI/Anthropic-uyumlu), `"local"` (HF in-process), `"file"` (önceden üretilmiş JSONL'i oku). |
+| `api_base` | string | `""` | API endpoint, ör. `https://api.openai.com/v1` veya self-hosted vLLM gateway. |
+| `api_key` | `Optional[str]` | `null` | Inline API anahtarı. Secret'ları commit'lememek için `api_key_env`'i tercih edin — inline set edildiğinde, serialize edilmiş config'te değer `***REDACTED***` olur. |
+| `api_key_env` | `Optional[str]` | `null` | API anahtarını taşıyan env var adı (ör. `OPENAI_API_KEY`). |
+| `api_delay` | float | `0.5` | Öğretmen çağrıları arası saniye (rate limiting). |
+| `api_timeout` | int | `60` | Çağrı başına API timeout (saniye). |
+| `seed_file` | string | `""` | Tohum prompt dosyası yolu (JSONL veya plain text, satır başı bir prompt). |
+| `seed_prompts` | `List[str]` | `[]` | Inline tohum prompt'lar (`seed_file` alternatifi). |
+| `system_prompt` | string | `""` | Her öğretmen çağrısının başına eklenen system prompt. |
+| `max_new_tokens` | int | `1024` | Öğretmen yanıtı başına maksimum token. |
+| `temperature` | float | `0.7` | Öğretmene geçirilen örnekleme sıcaklığı. |
+| `output_file` | string | `"synthetic_data.jsonl"` | Çıktı JSONL dosya yolu. |
+| `output_format` | string | `"messages"` | Şunlardan biri: `"messages"` (chat-style array), `"instruction"` (Alpaca-style), `"chatml"`, `"prompt_response"`. |
 
 ---
 
@@ -283,7 +282,7 @@ uzatmasını engeller.
 | `notify_on_start` | bool | `true` | Eğitim başlangıcında bildir |
 | `notify_on_success` | bool | `true` | Başarıda bildir |
 | `notify_on_failure` | bool | `true` | Hata durumunda bildir |
-| `timeout` | int | `5` | HTTP istek zaman aşımı (saniye) |
+| `timeout` | int | `10` | HTTP istek zaman aşımı (saniye). Notifier ≥ 1s'ye clamp'ler. v0.5.5'te varsayılan 10s'ye çıkarıldı (önceden 5s'di) — Slack/Teams gateway gecikme atışları production'da düzenli olarak 5s'yi aşıyor ve bir webhook zaman aşımı audit chain'i sessizce zayıflatıyor (webhook arızası best-effort). |
 | `allow_private_destinations` | bool | `false` | RFC1918 / loopback / link-local hedeflere webhook gönderimine izin verir (cluster içi Slack proxy, on-prem Teams gateway gibi). Varsayılan yalnızca genel internet — SSRF koruması |
 | `tls_ca_bundle` | string | `null` | `requests`'e `verify=` olarak iletilen özel CA bundle yolu (örn. kurumsal MITM CA). Boşsa `certifi` paketinin gömülü deposu kullanılır |
 

@@ -52,14 +52,14 @@ Best-effort. Şekil, major artış olmadan minor sürümde değişebilir. Çağr
 | Sembol | Katman | İmza | Açıklama |
 |---|---|---|---|
 | `forgelm.ForgeTrainer` | Stable | `ForgeTrainer(config: ForgeConfig)` | Birincil eğitim giriş noktası. TRL `SFTTrainer` / `DPOTrainer` / `KTOTrainer` / `ORPOTrainer` / `GRPOTrainer` seçimini sarmalar. |
-| `forgelm.ForgeTrainer.train` | Stable | `train() -> TrainResult` | Yapılandırılmış fine-tune'u çalıştırır. `TrainResult.success` / `metrics` / `output_dir` döndürür. Ağır bağımlılıklar (`torch`, `transformers`, `trl`) yalnızca bu metot çağrılırken yüklenir. |
-| `forgelm.TrainResult` | Stable | `dataclass` | `ForgeTrainer.train()` sonucu. Alanlar: `success: bool`, `metrics: dict[str, float]`, `output_dir: str`, `final_model_path: str \| None`, `revert_reason: str \| None`. |
+| `forgelm.ForgeTrainer.train` | Stable | `train() -> TrainResult` | Yapılandırılmış fine-tune'u çalıştırır. `TrainResult.success` / `metrics` / `final_model_path` döndürür. Ağır bağımlılıklar (`torch`, `transformers`, `trl`) yalnızca bu metot çağrılırken yüklenir. |
+| `forgelm.TrainResult` | Stable | `dataclass` | `ForgeTrainer.train()` sonucu. Kanonik alanlar (`forgelm/results.py`): `success: bool`, `metrics: Dict[str, float]`, `final_model_path: Optional[str]`, `reverted: bool`, `error: Optional[str]`, `benchmark_scores`, `benchmark_average`, `benchmark_passed`, `safety_passed`, `safety_score`, `safety_categories`, `safety_severity`, `safety_low_confidence`, `judge_score`, `judge_details`, `estimated_cost_usd`, `staging_path`, `resource_usage`. |
 
 ### Veri hazırlama
 
 | Sembol | Katman | İmza | Açıklama |
 |---|---|---|---|
-| `forgelm.prepare_dataset` | Experimental | `prepare_dataset(config: ForgeConfig) -> datasets.Dataset` | Yapılandırılmış veri kümesini yükler + format-detect eder + tokenize eder. Bir `datasets.Dataset` döndürür. `datasets` minor yüzeyi periyodik olarak değişir, dolayısıyla Experimental. |
+| `forgelm.prepare_dataset` | Experimental | `prepare_dataset(config: ForgeConfig, tokenizer: PreTrainedTokenizer) -> Dict[str, Any]` | Yapılandırılmış veri kümesini yükler + format-detect eder + tokenize eder. Bir splits dict'i döndürür (örn. `{"train": ..., "validation": ...}`). `datasets` minor yüzeyi periyodik olarak değişir, dolayısıyla Experimental. |
 | `forgelm.get_model_and_tokenizer` | Experimental | `get_model_and_tokenizer(config: ForgeConfig) -> tuple[PreTrainedModel, PreTrainedTokenizerBase]` | Yapılandırılmış PEFT / quantization kurulumu ile HF model + tokenizer yükler. |
 
 ### Veri denetimi + PII / secret / dedup
@@ -67,12 +67,13 @@ Best-effort. Şekil, major artış olmadan minor sürümde değişebilir. Çağr
 | Sembol | Katman | İmza | Açıklama |
 |---|---|---|---|
 | `forgelm.audit_dataset` | Stable | `audit_dataset(source: str, *, output_dir: str \| None = None, near_dup_threshold: int = 3, dedup_method: str = "simhash", minhash_jaccard: float = 0.85, minhash_num_perm: int = 128, enable_quality_filter: bool = False, enable_pii_ml: bool = False, pii_ml_language: str = "en", emit_croissant: bool = False, workers: int = 1) -> AuditReport` | Tek-çağrı veri-denetim giriş noktası. Notebook'lar ve CI gate'leri için uygundur. |
-| `forgelm.AuditReport` | Stable | `dataclass` | `audit_dataset` sonucu. Alanlar: `total_samples`, `duplicate_count`, `pii_findings`, `secrets_findings`, `cross_split_overlap` (anahtar üzerinden erişilen `dict[str, Any]`, attribute değil), `croissant` (`emit_croissant=True` olduğunda). |
-| `forgelm.detect_pii` | Stable | `detect_pii(text: str, *, language: str = "en") -> list[PiiFinding]` | Bağımsız PII detektörü. Çevreleyen pipeline gerekmez. |
-| `forgelm.mask_pii` | Stable | `mask_pii(text: str, *, language: str = "en") -> str` | Tespit edilen PII span'larını yerinde maskele. |
-| `forgelm.detect_secrets` | Stable | `detect_secrets(text: str) -> list[SecretFinding]` | Bağımsız credential / API-key detektörü (AWS / GitHub / Slack / OpenAI / Google / JWT / private-key / Azure storage). |
+| `forgelm.AuditReport` | Stable | `dataclass` | `audit_dataset` sonucu. Kanonik alanlar (`forgelm/data_audit/_types.py`): `generated_at`, `source_path`, `source_input`, `total_samples`, `splits`, `cross_split_overlap` (anahtar üzerinden erişilen dict-şekilli row-düzeyi alan), `pii_summary` (`Dict[str, int]`), `pii_severity`, `near_duplicate_summary` (anahtar `pairs_per_split`, `pairs` değil), `secrets_summary` (`Dict[str, int]`), `quality_summary`, `croissant`, `notes`. |
+| `forgelm.detect_pii` | Stable | `detect_pii(text: str) -> Dict[str, int]` | Bağımsız PII detektörü. Kategori → sayım sözlüğü döner (`{"email": 3, "phone": 1, ...}`). `language` kwarg'ı yok; regex set dilden bağımsız. |
+| `forgelm.mask_pii` | Stable | `mask_pii(text: str, replacement: str = "[REDACTED]", *, return_counts: bool = False) -> str \| Tuple[str, Dict[str, int]]` | Tespit edilen PII span'larını yerinde maskele. `return_counts=True` ile `(masked_text, counts_dict)` döner. |
+| `forgelm.detect_secrets` | Stable | `detect_secrets(text: str) -> Dict[str, int]` | Bağımsız credential / API-key detektörü (AWS / GitHub / Slack / OpenAI / Google / JWT / private-key / Azure storage). Aile → sayım sözlüğü döner. |
 | `forgelm.mask_secrets` | Stable | `mask_secrets(text: str) -> str` | Tespit edilen secret'ları yerinde maskele. |
 | `forgelm.compute_simhash` | Experimental | `compute_simhash(text: str) -> int` | 64-bit SimHash imzası. Yüzey, gelecekte birleşik bir `compute_signature(method=...)` halinde toplanabilir. |
+| `forgelm.compute_minhash` | Experimental | `compute_minhash(text: str, *, num_perm: int = 128) -> Optional[Any]` | MinHash LSH imza nesnesi (opsiyonel `datasketch` kütüphanesi yoksa `None` döner). `--dedup-method=minhash` audit yolunda dahili olarak kullanılır; dönen nesne kütüphane-iç bir tiptir — operatörler bunu doğrudan değil `audit_dataset(...)` üzerinden tüketir. `compute_simhash` ile aynı Experimental katman; ikisi de birleşik bir `compute_signature(method=...)` API'sinde toplanabilir. |
 
 ### Compliance + audit log
 
@@ -81,23 +82,23 @@ Best-effort. Şekil, major artış olmadan minor sürümde değişebilir. Çağr
 | `forgelm.AuditLogger` | Stable | `AuditLogger(output_dir: str, run_id: str \| None = None)` | Append-only Article 12 audit logger. POSIX `fcntl.flock` kullanır; Windows `msvcrt.locking` kullanır. Her fork edilmiş alt süreç kendi instance'ını kurmalıdır. |
 | `forgelm.AuditLogger.log_event` | Stable | `log_event(event: str, **fields) -> None` | Yapılandırılmış bir olay ekle. Olay kelime dağarcığı [`audit_event_catalog-tr.md`](audit_event_catalog-tr.md)'da belgelenir. |
 | `forgelm.verify_audit_log` | Stable | `verify_audit_log(path: str, *, hmac_secret: str \| None = None, require_hmac: bool = False) -> VerifyResult` | SHA-256 hash zincirini yürür. Zincir hatalarında `VerifyResult(valid=False, reason=...)` döndürür (exception değil); yalnızca okunamaz dosyalar için `OSError` fırlatır. |
-| `forgelm.VerifyResult` | Stable | `dataclass` | Alanlar: `valid: bool`, `reason: str \| None`, `entries_checked: int`, `chain_head: str \| None`. |
+| `forgelm.VerifyResult` | Stable | `dataclass` | Kanonik alanlar (`forgelm/compliance.py:VerifyResult`): `valid: bool`, `entries_count: int`, `first_invalid_index: Optional[int]`, `reason: Optional[str]`. |
 
 ### Doğrulama toolbelt'i (Faz 36)
 
 | Sembol | Katman | İmza | Açıklama |
 |---|---|---|---|
 | `forgelm.verify_annex_iv_artifact` | Stable | `verify_annex_iv_artifact(path: str) -> VerifyAnnexIVResult` | Bir Annex IV technical-documentation bundle'ını (manifest + model card + audit log + governance report) doğrular. |
-| `forgelm.VerifyAnnexIVResult` | Stable | `dataclass` | Alanlar: `valid: bool`, `reason: str \| None`, `bundle_files: list[str]`. |
+| `forgelm.VerifyAnnexIVResult` | Stable | `dataclass-benzeri` | Kanonik attribute'lar: `valid: bool`, `reason: Optional[str]`, `missing_fields: List[str]`, `manifest_hash_actual: Optional[str]`, `manifest_hash_expected: Optional[str]`. (Not: `verify_annex_iv_artifact(path)` JSON manifest path'i kabul eder, ZIP değil — fonksiyon `path` üzerinde `json.load` çağırır.) |
 | `forgelm.verify_gguf` | Stable | `verify_gguf(path: str) -> VerifyGgufResult` | Bir GGUF dışa aktarmasını (header + tensor catalogue + tokenizer block) doğrular. |
-| `forgelm.VerifyGgufResult` | Stable | `dataclass` | Alanlar: `valid: bool`, `reason: str \| None`, `architecture: str \| None`, `tensor_count: int`. |
+| `forgelm.VerifyGgufResult` | Stable | `dataclass-benzeri` | Kanonik attribute'lar: `valid: bool`, `reason: Optional[str]`, `checks: Dict[str, Any]` (her şey diğer — header / tensor catalogue / tokenizer block — `checks` içinde yaşar). |
 
 ### Benchmark + sentetik veri
 
 | Sembol | Katman | İmza | Açıklama |
 |---|---|---|---|
-| `forgelm.run_benchmark` | Experimental | `run_benchmark(config: ForgeConfig) -> BenchmarkResult` | `lm-eval-harness`'ı sarmalar. `[eval]` extra'sını gerektirir. |
-| `forgelm.BenchmarkResult` | Experimental | `dataclass` | Alanlar: `tasks: dict[str, dict[str, float]]`, `output_path: str`. |
+| `forgelm.run_benchmark` | Experimental | `run_benchmark(model, tokenizer, tasks: List[str], num_fewshot: Optional[int] = None, batch_size: str = "auto", limit: Optional[int] = None, output_dir: Optional[str] = None, min_score: Optional[float] = None) -> BenchmarkResult` | `lm-eval-harness`'ı sarmalar. `[eval]` extra'sını gerektirir. |
+| `forgelm.BenchmarkResult` | Experimental | `dataclass-benzeri` | Kanonik alanlar: `scores: Dict[str, float]`, `average_score: float`, `passed: bool`, `failure_reason: Optional[str]`, `raw_results: Dict[str, Any]`. |
 | `forgelm.SyntheticDataGenerator` | Experimental | `SyntheticDataGenerator(config: ForgeConfig)` | Teacher-distillation jeneratörü. `teacher_backend in {"api", "local", "file"}` switch'i muhtemelen yeni modlar büyütecek. |
 
 ### Yardımcı
@@ -105,8 +106,8 @@ Best-effort. Şekil, major artış olmadan minor sürümde değişebilir. Çağr
 | Sembol | Katman | İmza | Açıklama |
 |---|---|---|---|
 | `forgelm.WebhookNotifier` | Experimental | `WebhookNotifier(config: ForgeConfig)` | Slack / Teams / generic-HTTP yaşam-döngüsü bildirimleri. Constructor şeması gelecek bir sürümde ISO/SOC 2 alanları büyütebilir. |
-| `forgelm.setup_authentication` | Experimental | `setup_authentication(config: ForgeConfig) -> None` | `huggingface_hub.login` etrafında sarmalayıcı. Muhtemelen bir `ForgeAuthContext` sınıfına taşınacak. |
-| `forgelm.manage_checkpoints` | Experimental | `manage_checkpoints(config: ForgeConfig) -> None` | Yapılandırılmış checkpoint-retention politikasını uygula. |
+| `forgelm.setup_authentication` | Experimental | `setup_authentication(token: Optional[str] = None) -> None` | `huggingface_hub.login` etrafında sarmalayıcı. `token` `None` olduğunda `HUGGINGFACE_TOKEN` env var'ını okur. |
+| `forgelm.manage_checkpoints` | Experimental | `manage_checkpoints(checkpoint_dir: str, action: str = "keep") -> None` | Bir output dizinine karşı checkpoint-retention davranışını uygular. `action` retain/prune semantiklerini kontrol eder. |
 
 ## Idiomatic kullanım örnekleri
 
@@ -155,9 +156,15 @@ print(f"verified {result.entries_checked} entries; head={result.chain_head}")
 from forgelm import ForgeConfig, ForgeTrainer
 
 config = ForgeConfig(
-    model={"name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0"},
-    dataset={"path": "data/train.jsonl", "format": "alpaca"},
-    training={"trainer_type": "sft", "num_epochs": 1, "batch_size": 1},
+    model={"name_or_path": "TinyLlama/TinyLlama-1.1B-Chat-v1.0"},
+    lora={"r": 8, "alpha": 16, "target_modules": ["q_proj", "v_proj"]},
+    data={"dataset_name_or_path": "data/train.jsonl"},
+    training={
+        "trainer_type": "sft",
+        "num_train_epochs": 1,
+        "per_device_train_batch_size": 1,
+        "output_dir": "./checkpoints/quick",
+    },
 )
 
 trainer = ForgeTrainer(config)
@@ -167,6 +174,8 @@ print(f"success={result.success}  output={result.output_dir}")
 if not result.success and result.revert_reason:
     print(f"reverted: {result.revert_reason}")
 ```
+
+Yukarıdaki anahtarlar tek **gerekli** olanlardır; geri kalan her şey `forgelm/config.py` varsayılanlarına düşer. `model.name_or_path`, `lora:` bloğu, `data.dataset_name_or_path` ve `training.{trainer_type, output_dir}` Pydantic şeması tarafından zorunlu kılınır; `num_epochs` / `batch_size` kanonik adlar değildir ve `ValidationError` atar.
 
 ### 4. Kendi pipeline'ınızdan Article 12 audit olayları yaymak
 

@@ -12,7 +12,7 @@ description: Denetim katı cookbook'u — sekiz yaygın soru, bunları yanıtlay
 ISO / SOC 2 denetçisinin en çok önem verdiği dört sütun, doğrudan ForgeLM kanıtına sahiptir:
 
 1. **Denetim izi** — eğitim çalışması başına `audit_log.jsonl`, HMAC + SHA-256 hash chain + genesis manifest sidecar ile append-only. `forgelm verify-audit` zinciri uçtan uca doğrular.
-2. **Değişiklik kontrolü** — Article 14 staging gate'i (`forgelm approve` / `reject`) + `human_approval.required/granted/rejected` audit olayları + run başına damgalanmış `compliance.config_hash`.
+2. **Değişiklik kontrolü** — Article 14 staging gate'i (`forgelm approve` / `reject`) + `human_approval.required/granted/rejected` audit olayları + run başına damgalanmış `config_hash` (per-run manifest sidecar field).
 3. **Veri lineage** — `data_provenance.json` + `data_governance_report.json` birlikte corpus + yönetişim duruşunu deterministik olarak pinler.
 4. **Tedarik zinciri** — sürüm başına yayınlanan CycloneDX 1.5 SBOM, gecelik `pip-audit`, statik + dinamik güvenlik tarama için CI'da `bandit`.
 

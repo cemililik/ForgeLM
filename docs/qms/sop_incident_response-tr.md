@@ -83,10 +83,13 @@ mismatch, manifest sidecar truncation, HMAC signature mismatch).
 
 1. [ ] **İzole et** etkilenen `<output_dir>` — daha fazla yazımı
        önlemek için dizin üzerinde `chmod 0500`.
-2. [ ] **Kanıtı koru** — `audit_log.jsonl`,
-       `audit_log.manifest.json`, `.sha256` sidecar'ı (varsa) ve
+2. [ ] **Kanıtı koru** — `audit_log.jsonl`, genesis-manifest
+       sidecar `audit_log.jsonl.manifest.json`, ve
        `<output_dir>/.forgelm_audit_salt`'ı write-once forensic
        substrate'e (S3 Object Lock, Azure Immutable Blob) kopyala.
+       (ForgeLM per-line `.sha256` sidecar üretmez; chain bütünlük
+       kanıtı her satırın `_hmac` ve `prev_hash` alanlarında ve
+       genesis manifest'te tutulur.)
 3. [ ] **Son güvenilen girişi tanımla** —
        `forgelm verify-audit ./outputs/audit_log.jsonl --require-hmac 2>&1 | tee verify.log`
        çalıştır; verifier ilk başarısızlıkta exit 1 yapar ve hatalı
@@ -123,7 +126,9 @@ external CVE / breach disclosure kullanılan bir token'a atıf yapar.
        `data.erasure_completed` olayı timestamp'ine geri bağla.
 5. [ ] **Sıfırdan yeniden eğit** yüksek-riskli dağıtımlar için.
 6. [ ] **Eğitim-veri-onboarding checklist'ini güncelle** `forgelm
-       audit --secrets` pre-flight gerektirmek için.
+       audit <corpus>` pre-flight gerektirmek için (secrets taraması
+       her zaman açık; rapordan `secrets_summary`'yi yüzeye çıkarın
+       ve sıfır olmayan eşleşmelerde koşumu engelleyin).
 
 ### 4.3 Supply-chain CVE flag'lendi
 
@@ -145,7 +150,7 @@ external CVE / breach disclosure kullanılan bir token'a atıf yapar.
        (`compliance_report.json` env'i listeler).
 5. [ ] **Tracking ticket aç** CVE id + SBOM diff + etkilenen
        koşumlar ile (etkilenenleri tanımlamak için audit log'un
-       `compliance.config_hash`'ini kullan).
+       `config_hash` (per-run manifest sidecar field)'ini kullan).
 
 ### 4.4 Webhook target ele geçirildi
 
@@ -158,7 +163,10 @@ olabilir.
 
 **Runbook:**
 
-1. [ ] **`webhook.secret_env`'i hemen rotate et**.
+1. [ ] **Webhook URL'sini ve destination-tarafı bearer token'ını
+       hemen rotate et** (URL'yi `webhook.url_env` ile resolve
+       ediyorsan, secret manager'da yeni değeri set'le; ForgeLM şu
+       an gövdeleri HMAC ile imzalamıyor).
 2. [ ] **Audit chain'i yürü** saldırganın olayları recipient'a splice
        etmediğini teyit için: `audit_log.jsonl`'ı event sınıfına göre
        filtrele (`jq 'select(.event | startswith("notify_"))'`) ve

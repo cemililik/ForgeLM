@@ -24,7 +24,7 @@ Aşağıdaki ForgeLM-ürettiği asset sınıfları:
 |---|---|---|
 | Model ağırlıkları — final | `<output_dir>/final_model/` | Eğitim verisi memorisation; rekabetçi moat |
 | Model ağırlıkları — staging | `<output_dir>/staging_model.<run_id>/` | Final ile aynı, artı pre-approval state |
-| Audit log | `<output_dir>/audit_log.jsonl` + `.manifest.json` + `.sha256` sidecar | Operatör kimliği geçmişi; yapılandırma hashleri; uyumluluk için chain-of-custody |
+| Audit log | `<output_dir>/audit_log.jsonl` + `audit_log.jsonl.manifest.json` (genesis pin) | Operatör kimliği geçmişi; yapılandırma hashleri; uyumluluk için chain-of-custody — satır-seviyesi bütünlük per-line `_hmac` + `prev_hash` ile in-band'dir, ayrı bir `.sha256` sidecar yok |
 | Per-output-dir salt | `<output_dir>/.forgelm_audit_salt` | Düşük-entropi identifier'ların salt'sız SHA-256'sı brute-force edilebilir — salt audit hash'ine wordlist direnci veren secret'tir |
 | Eğitim corpusu | (operatör-tedarikli; tipik olarak `data/*.jsonl`) | PII; ticari sırlar; müşteri verisi |
 | Quickstart-rendered config | (operatör path'i) | HF token'ları, webhook URL'leri, secret env-var isimleri |
@@ -180,7 +180,7 @@ olarak ele al:
   sakla (Ansible Vault, Doppler, Vault).
 - Geçici CI kullanımı için, configi job başlangıcında secrets-manager
   değerlerinden render et; rendered dosyayı job teardown'da sil.
-- ForgeLM'in audit olaylarındaki `compliance.config_hash` herhangi bir
+- ForgeLM'in audit olaylarındaki `config_hash` (per-run manifest sidecar field) herhangi bir
   secret expansion'dan SONRA hesaplanır, yani sadece secret değerlerinde
   farklı olan iki config dosyası farklı hash'ler üretir — denetçiler
   koşum-ortası bir config swap'i tespit edebilir.
@@ -206,9 +206,12 @@ ForgeLM kendisi şifreleme uygulamaz ama ŞUNLARI YAPAR:
 1. **Neyi şifreleyeceğini tespit et.** `forgelm audit` eğitim
    verisindeki PII, secrets ve credential'ları flag'ler ki operatör
    eğitim öncesi şifreleyebilir veya maskeleyebilir.
-2. **Neyin şifrelendiğini rapor et.** `data_governance_report.json`
-   operatörün config block'u başına `encryption_at_rest: true|false`
-   kaydeder.
+2. **Neyin şifrelendiğini rapor et.** ForgeLM şu anda
+   `data_governance_report.json`'da substrate-seviyesi bir
+   `encryption_at_rest` bayrağı yüzeylemiyor — operatör bu gerçeği
+   out-of-band kayda alır (örn. cloud provider'ın KMS attestation'ı
+   ile birlikte QMS evidence bundle'ında) ta ki config-seviyesi bir
+   field eklenene kadar (Phase 28+ backlog'u).
 3. **Şifreleme-sonrası bütünlüğü doğrula.** `forgelm verify-audit`
    chain-after-decryption'ın chain-as-emitted ile eşleştiğini teyit
    eder; substrate-seviyesi herhangi bir bozulma tespit edilebilirdir.

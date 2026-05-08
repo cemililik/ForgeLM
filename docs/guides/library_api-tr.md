@@ -83,11 +83,11 @@ config = load_config("configs/run.yaml")
 # 2. Eğitim öncesi corpus'u denetle. CLI'nin `forgelm audit`
 #    subcommand'inin yürüdüğü aynı gate.
 report = audit_dataset(
-    config.dataset.path,
-    output_dir=config.output_dir,
+    config.data.dataset_name_or_path,
+    output_dir=config.training.output_dir,
     enable_pii_ml=True,
 )
-if report.duplicate_count > 50 or report.pii_findings:
+if report.near_duplicate_summary["pairs"] > 50 or report.pii_summary:
     raise SystemExit("data quality gate failed; fix before training")
 
 # 3. Eğit. Ağır bağımlılıklar (torch, trl, transformers) yalnızca
@@ -97,8 +97,9 @@ result = trainer.train()
 
 # 4. Run bittikten sonra audit zincirini doğrula — başarı/başarısızlıktan
 #    bağımsız olarak. Reverted bir run hâlâ geçerli bir zincir bırakır.
+output_dir = config.training.output_dir          # kanonik: `training.output_dir`
 verification = verify_audit_log(
-    f"{result.output_dir}/audit_log.jsonl",
+    f"{output_dir}/audit_log.jsonl",             # audit_log.jsonl output_dir kökünde, compliance/ altında değil
     require_hmac=bool(os.environ.get("FORGELM_AUDIT_SECRET")),
 )
 if not verification.valid:
@@ -106,7 +107,9 @@ if not verification.valid:
 
 # 5. Denetçinin ForgeLM run → orkestratör run korelasyonu kurabilmesi
 #    için kendi pipeline-orkestratör-spesifik olayınızı aynı audit zincirine yayın.
-logger = AuditLogger(output_dir=result.output_dir, run_id=result.run_id)
+#    `AuditLogger.run_id` parametre verilmediğinde otomatik üretilir; aynı
+#    output_dir'i tekrar kullanın ve yeni event mevcut zincire eklenir.
+logger = AuditLogger(output_dir=output_dir)
 logger.log_event(
     "training.completed",
     orchestrator="airflow",
@@ -172,9 +175,9 @@ def audit_corpus(**ctx):
         emit_croissant=True,
         workers=4,
     )
-    if report.duplicate_count > 100:
-        raise ValueError(f"too many duplicates: {report.duplicate_count}")
-    return {"samples": report.total_samples, "duplicates": report.duplicate_count}
+    if report.near_duplicate_summary["pairs"] > 100:
+        raise ValueError(f"too many duplicates: {report.near_duplicate_summary['pairs']}")
+    return {"samples": report.total_samples, "duplicates": report.near_duplicate_summary["pairs"]}
 
 audit_task = PythonOperator(
     task_id="audit_corpus",
@@ -188,7 +191,7 @@ audit_task = PythonOperator(
 ```python
 from forgelm import verify_annex_iv_artifact, verify_audit_log, verify_gguf
 
-bundle_path = "outputs/v0.5.5/annex-iv-bundle.zip"
+bundle_path = "outputs/v0.5.5/compliance/annex_iv_metadata.json"   # JSON manifest, ZIP değil
 gguf_path = "outputs/v0.5.5/model.q4_K_M.gguf"
 log_path = "outputs/v0.5.5/audit_log.jsonl"
 
@@ -212,7 +215,7 @@ from forgelm import WebhookNotifier, load_config
 
 config = load_config("configs/notification-only.yaml")
 notifier = WebhookNotifier(config)
-notifier.notify_training_start(run_name="manual-smoke-2026-05-06")
+notifier.notify_start(run_name="manual-smoke-2026-05-06")
 ```
 
 ## Yaygın tuzaklar

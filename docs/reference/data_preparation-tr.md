@@ -1,5 +1,20 @@
 # Veri Hazırlama Rehberi
 
+> **Kapsam.** Bu sayfa SFT-row şemasını kapsar. Modern veri pipeline'ı
+> (DPO/SimPO/KTO/GRPO satır formatları, audit, ham doc'lardan ingest,
+> PII / secrets maskeleme, multi-dataset karıştırma) için bkz:
+>
+> - [Doküman Ingestion Rehberi](../guides/ingestion-tr.md) — `forgelm
+>   ingest` ham → JSONL.
+> - [Veri Seti Audit Rehberi](../guides/data_audit-tr.md) — `forgelm
+>   audit` ön-uçuş kapısı (PII, secrets, near-duplicate, leakage,
+>   quality).
+> - [Veri Setleri Formatları](../usermanuals/tr/concepts/data-formats.md)
+>   — per-trainer format referansı (SFT messages, DPO `chosen` /
+>   `rejected`, KTO `completion` + `label`, GRPO yalnız `prompt`).
+> - [`forgelm.data.prepare_dataset`](library_api_reference-tr.md#veri-hazırlama)
+>   — Python API.
+
 ForgeLM, perde arkasında Hugging Face `datasets` (veri setleri) kütüphanesini kullanır. HF (Hugging Face) platformundaki yüz binlerce veri setine anında bağlanabildiği gibi, gözetimli ince ayar (supervised fine-tuning - SFT) yaparken sizin kendi veri setinizin doğru şekilde işlenmesi için de onu belirli yapısal ilkelere göre formatlamanız gerekir.
 
 ## Desteklenen Formatlar

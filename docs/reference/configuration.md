@@ -103,18 +103,18 @@ across retries. Each retry attempt is logged to the audit trail.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `galore_enabled` | bool | `false` | Enable GaLore gradient low-rank projection |
-| `galore_optim` | string | `"galore_adamw_8bit"` | GaLore optimizer: `"galore_adamw"`, `"galore_adamw_8bit"`, `"galore_adafactor"` |
+| `galore_optim` | string | `"galore_adamw"` | GaLore optimizer variant. One of: `"galore_adamw"`, `"galore_adamw_8bit"`, `"galore_adafactor"`, `"galore_adamw_layerwise"`, `"galore_adamw_8bit_layerwise"`, `"galore_adafactor_layerwise"`. `_8bit` halves optimizer-state VRAM; `_layerwise` cuts peak VRAM by recomputing per-layer. |
 | `galore_rank` | int | `128` | Rank for gradient projection |
 | `galore_update_proj_gap` | int | `200` | Steps between projection updates |
 | `galore_scale` | float | `0.25` | GaLore scaling factor |
 | `galore_proj_type` | string | `"std"` | Projection type: `"std"`, `"reverse_std"`, `"right"`, `"left"`, `"full"` |
-| `galore_target_modules` | list | `["q_proj", "k_proj", "v_proj", "o_proj"]` | Modules to apply GaLore |
+| `galore_target_modules` | `Optional[List[str]]` | `null` | Module-name regex patterns GaLore is applied to. `null` falls back to `[r".*.attn.*", r".*.mlp.*"]` (attention + MLP layers). |
 
 #### Long-Context Training
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `rope_scaling` | string | `null` | RoPE scaling method: `"linear"`, `"dynamic"` |
+| `rope_scaling` | `Optional[Dict[str, Any]]` | `null` | RoPE scaling method dict (`{"type": "linear", "factor": 2.0}` etc.). Supported types: `"linear"`, `"dynamic"`, `"yarn"`, `"longrope"`. |
 | `neftune_noise_alpha` | float | `null` | NEFTune noise injection alpha (e.g., `5.0`) |
 | `sliding_window_attention` | int | `null` | Sliding window attention size in tokens |
 | `sample_packing` | bool | `false` | Pack multiple short samples into full-length sequences |
@@ -251,7 +251,7 @@ silently extend the retention horizon by re-using a stale workspace.
 | `notify_on_start` | bool | `true` | Notify on training start |
 | `notify_on_success` | bool | `true` | Notify on success |
 | `notify_on_failure` | bool | `true` | Notify on failure |
-| `timeout` | int | `5` | HTTP request timeout (seconds) |
+| `timeout` | int | `10` | HTTP request timeout (seconds). Clamped to ≥ 1s by the notifier. Default raised to 10s in v0.5.5 (was 5s) — Slack/Teams gateway latency spikes regularly cross 5s in production, and a webhook timeout silently degrades the audit chain (webhook failure is best-effort). |
 | `allow_private_destinations` | bool | `false` | Opt in to webhooks pointing at RFC1918 / loopback / link-local hosts (in-cluster Slack proxy, on-prem Teams gateway). Defaults to public-internet only — SSRF guard |
 | `tls_ca_bundle` | string | `null` | Path to a custom CA bundle forwarded to `requests` as `verify=` (e.g. corporate MITM CA). When unset, `certifi`'s bundled store is used |
 
@@ -325,22 +325,21 @@ silently extend the retention horizon by re-using a stale workspace.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable synthetic data generation |
-| `teacher_model` | string | `null` | Teacher model for distillation (HF ID or local path) |
-| `teacher_backend` | string | `"api"` | Teacher backend: `"api"` (OpenAI-compatible) or `"local"` |
-| `teacher_api_key_env` | string | `null` | Env var name for teacher API key |
-| `teacher_api_base` | string | `null` | Custom API base URL for teacher |
-| `seed_file` | string | `null` | Path to seed prompts file (JSONL) |
-| `output_file` | string | `"synthetic_data.jsonl"` | Output file for generated data |
-| `num_samples` | int | `100` | Number of samples to generate |
-| `max_tokens` | int | `512` | Max tokens per generated response |
-| `temperature` | float | `0.7` | Sampling temperature for generation |
-| `top_p` | float | `0.9` | Top-p (nucleus) sampling |
-| `system_prompt` | string | `null` | System prompt for the teacher model |
-| `output_format` | string | `"sft"` | Output format: `"sft"`, `"dpo"`, `"conversation"` |
-| `batch_size` | int | `10` | Batch size for API calls |
-| `retry_attempts` | int | `3` | Number of retries on API failure |
-| `timeout` | int | `60` | API request timeout (seconds) |
+| `enabled` | bool | `false` | Enable teacher → student synthetic-data generation. |
+| `teacher_model` | string | `""` | HF Hub ID or API model name (e.g. `gpt-4o`, `meta-llama/Llama-3-70B`). |
+| `teacher_backend` | string | `"api"` | One of `"api"` (OpenAI/Anthropic-compatible), `"local"` (HF in-process), `"file"` (read pre-generated JSONL). |
+| `api_base` | string | `""` | API endpoint, e.g. `https://api.openai.com/v1` or self-hosted vLLM gateway. |
+| `api_key` | `Optional[str]` | `null` | Inline API key. Prefer `api_key_env` to avoid committing secrets — when set inline, the value is `***REDACTED***` in serialized config. |
+| `api_key_env` | `Optional[str]` | `null` | Env var name carrying the API key (e.g. `OPENAI_API_KEY`). |
+| `api_delay` | float | `0.5` | Seconds between teacher calls (rate limiting). |
+| `api_timeout` | int | `60` | Per-call API timeout in seconds. |
+| `seed_file` | string | `""` | Path to seed prompts file (JSONL or plain text, one prompt per line). |
+| `seed_prompts` | `List[str]` | `[]` | Inline seed prompts (alternative to `seed_file`). |
+| `system_prompt` | string | `""` | System prompt prepended on every teacher call. |
+| `max_new_tokens` | int | `1024` | Max tokens per teacher response. |
+| `temperature` | float | `0.7` | Sampling temperature passed to the teacher. |
+| `output_file` | string | `"synthetic_data.jsonl"` | Output JSONL file path. |
+| `output_format` | string | `"messages"` | One of `"messages"` (chat-style array), `"instruction"` (Alpaca-style), `"chatml"`, `"prompt_response"`. |
 
 ---
 

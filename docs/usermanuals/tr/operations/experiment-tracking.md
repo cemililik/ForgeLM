@@ -5,19 +5,18 @@ description: report_to ayarı üzerinden W&B, MLflow ve TensorBoard entegrasyonu
 
 # Deney Takibi
 
-ForgeLM deney takibini yeniden icat etmez — ekibinizin zaten kullandığı şeye `training.report_to` alanı üzerinden entegre olur. W&B, MLflow, TensorBoard ve Comet ML birinci-sınıf desteklenir.
+ForgeLM deney takibini yeniden icat etmez — ekibinizin zaten kullandığı şeye `training.report_to` alanı üzerinden entegre olur. Desteklenen backend'ler: `tensorboard`, `wandb`, `mlflow` ve `none` (`forgelm/config.py` içindeki `TrainingConfig.report_to` üzerindeki dört `Literal` değeri).
 
 ## Hızlı örnek
 
 ```yaml
 training:
-  trainer: "sft"
-  report_to: ["wandb", "tensorboard"]    # aynı anda ikisi
-  run_name: "customer-support-v1.2.0"
-  tags: ["dpo", "qlora", "tr"]
+  trainer_type: "sft"
+  report_to: "wandb"                     # tek değer: tensorboard | wandb | mlflow | none
+  run_name: "customer-support-v1.2.0"    # opsiyonel; None ise otomatik üretilir
 ```
 
-ForgeLM her konfigüre backend'e loss, learning rate, eval metrikleri ve benchmark puanları akıtır.
+ForgeLM, konfigüre edilen backend'e loss, learning rate, eval metrikleri ve benchmark puanları akıtır. **Per-backend nested config blokları (örn. `training.wandb: { project: ... }`) şemanın parçası değildir** — her backend'in connection / authentication / project / artifact davranışı kendi well-known environment variable'ları üzerinden konfigüre edilir (HF Transformers `Trainer`'ının izlediği framework yöntemi). ForgeLM tarafındaki tek knob'lar `training.report_to` (hangi backend) ve `training.run_name`'dir.
 
 ## Desteklenen backend'ler
 
@@ -25,50 +24,45 @@ ForgeLM her konfigüre backend'e loss, learning rate, eval metrikleri ve benchma
 
 ```yaml
 training:
-  report_to: ["wandb"]
-  wandb:
-    project: "forgelm-customer-support"
-    entity: "acme-ml"
-    api_key: "${WANDB_API_KEY}"
-    log_artifacts: true                  # W&B'a checkpoint yükle
+  report_to: "wandb"
 ```
 
-Auth: `WANDB_API_KEY` environment variable'ını ayarlayın veya eğitim host'unda bir kez `wandb login` çalıştırın.
+Konfigürasyon environment variable'ları üzerinden (nested YAML bloğu yok):
+
+- `WANDB_API_KEY` — auth token'ı (ya da eğitim host'unda bir kez `wandb login` çalıştırın).
+- `WANDB_PROJECT` — proje adı.
+- `WANDB_ENTITY` — takım / org slug'ı.
+- `WANDB_LOG_MODEL` — checkpoint'leri W&B artefakt olarak yüklemek için `true`.
+
+W&B `[tracking]` extra'sını gerektirir: `pip install 'forgelm[tracking]'`.
 
 ### MLflow
 
 ```yaml
 training:
-  report_to: ["mlflow"]
-  mlflow:
-    tracking_uri: "http://mlflow.internal:5000"
-    experiment_name: "customer-support"
-    registry_uri: "http://mlflow.internal:5000"
-    log_model: true                      # MLflow Model Registry'e terfi
+  report_to: "mlflow"
 ```
 
-Auth: standart MLflow env var'ları (`MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_PASSWORD` veya token).
+Konfigürasyon environment variable'ları üzerinden:
+
+- `MLFLOW_TRACKING_URI` — sunucu URL'si (örn. `http://mlflow.internal:5000`).
+- `MLFLOW_EXPERIMENT_NAME` — deney adı.
+- `MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD` (ya da `MLFLOW_TRACKING_TOKEN`).
+
+MLflow `[tracking]` extra'sını gerektirir.
 
 ### TensorBoard
 
 ```yaml
 training:
-  report_to: ["tensorboard"]
-  tensorboard:
-    log_dir: "${output.dir}/tensorboard"
+  report_to: "tensorboard"
 ```
 
-Dış servis gerekmez — log dosyaları yereldir.
+Varsayılan. Log dosyaları `<training.output_dir>/runs/`'e iner. Dış servis gerekmez ama TensorBoard entegrasyonu için `tensorboard` (PyTorch ≥ 1.4 ile) veya `tensorboardX` ayrıca kurulmalıdır — HF Transformers ikisinden birini import-time'da arar (`transformers.integrations.is_tensorboard_available`) ve hiçbiri yoksa `TensorBoardCallback` requires tensorboard to be installed yüksek sesle başarısız olur.
 
-### Comet ML
+### Birden çok backend'e akıtma
 
-```yaml
-training:
-  report_to: ["comet_ml"]
-  comet_ml:
-    api_key: "${COMET_API_KEY}"
-    project_name: "forgelm-customer-support"
-```
+`training.report_to` tek-Literal değerdir, list değil. Aynı koşumda birden çok backend'e akıtmak için ForgeLM'in `--report-to` CLI override'ını kullanın; `transformers.TrainingArguments.report_to`'nun list-değer kabul eden constructor argümanına denk gelir. (`TRAINER_REPORT_TO` env var'ı HF Transformers konvansiyonu **değildir** ve ForgeLM tarafından da tanınmaz — yalnızca constructor / CLI override yolları desteklenir.) Tek-Literal config alanı bir kanonik backend'i pin'leyen güvenli varsayılandır.
 
 ## Loglanan şeyler
 
@@ -76,35 +70,36 @@ training:
 |---|---|
 | `train/loss` | Her adım |
 | `train/lr` | Her adım |
-| `train/grad_norm` | Her adım (`log_grad_norm: true` ise) |
+| `train/grad_norm` | Her adım (HF Trainer her zaman loglar) |
 | `eval/loss` | Her eval aralığı |
 | `benchmark/<görev>` | Koşu başına bir kez (eval sonrası) |
 | `safety/<kategori>/max` | Koşu başına bir kez (güvenlik eval sonrası) |
 | `safety/<kategori>/mean` | Koşu başına bir kez |
-| `system/gpu_utilization` | Her 30s'de örneklenir |
-| `system/vram_used_gb` | Her 30s'de örneklenir |
+| `system/gpu_utilization` | Her 30 s'de örneklenir |
+| `system/vram_used_gb` | Her 30 s'de örneklenir |
 
-## Koşu adlandırma ve etiketler
+## Koşu adlandırma
 
 ```yaml
 training:
-  run_name: "customer-support-{config_hash}"   # interpolasyon destekli
-  tags: ["dpo", "qlora", "tr", "v1.2"]
-  notes: "truthfulqa floor'unu yakalamak için beta 0.1'den 0.15'e çıkarıldı"
+  run_name: "customer-support-v1-2"     # plain string; null = otomatik üretilir
 ```
 
-`notes` alanı, prose annotasyonu destekleyen her backend'de kaydedilir.
+`training.run_name` ForgeLM tarafındaki tek koşu-adlandırma knob'udur. `training.tags:` listesi ve `training.notes:` alanı **yoktur** — tag / note / artifact-upload / artifact-type ayarlarını trainer'ı çağırmadan önce **backend'in kendi environment variable'ları** üzerinden set edin:
+
+```bash
+# W&B
+export WANDB_TAGS="dpo,qlora,tr,v1.2"
+export WANDB_NOTES="dpo_beta 0.1'den 0.15'e çıkarıldı"
+export WANDB_LOG_MODEL="checkpoint"   # or "end" — controls artifact upload
+
+# MLflow
+export MLFLOW_TAGS='{"trainer":"dpo","quantization":"qlora"}'
+```
 
 ## Artifact yönetimi
 
-W&B ve MLflow için ForgeLM checkpoint'i ve audit paketini artifact olarak yükleyebilir:
-
-```yaml
-training:
-  wandb:
-    log_artifacts: true                  # tam checkpoint + paket
-    artifact_type: "model"
-```
+ForgeLM `training.wandb:` veya `training.mlflow:` sub-bloğu **sunmaz**. Artifact yükleme backend environment variable'ları üzerinden konfigüre edilir (`WANDB_LOG_MODEL`, `MLFLOW_TRACKING_URI` + launch wrapper'ınızda per-run logging API'leri) — HF Transformers `Trainer`'ının izlediği aynı yöntem.
 
 Çok büyük checkpoint'ler için W&B/MLflow artifact store'larından çok model registry (HuggingFace Hub) tercih edin. Free tier'lar küçük boyutlarda sınırlanır.
 

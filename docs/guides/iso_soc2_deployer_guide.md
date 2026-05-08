@@ -25,7 +25,7 @@ direct ForgeLM evidence:
    `forgelm verify-audit` validates the chain end-to-end.
 2. **Change control** — Article 14 staging gate (`forgelm approve` /
    `reject`) + `human_approval.required/granted/rejected` audit
-   events + `compliance.config_hash` stamped per run. Every
+   events + `config_hash` (per-run manifest sidecar field) stamped per run. Every
    model promotion is dual-controlled and forensically attributed.
 3. **Data lineage** — `data_provenance.json` (SHA-256 fingerprint +
    size + mtime + HF Hub revision pin); `data_governance_report.json`
@@ -108,8 +108,15 @@ Each `human_approval.granted` entry carries:
   trainer).
 - `run_id` — links back to the training run that produced the model.
 - `prev_hash` + `_hmac` — chain integrity.
-- `compliance.config_hash` — which config was used; an auditor can
-  diff against the YAML in `git log`.
+- The training-run identity (model SHA, adapter SHA, dataset
+  fingerprint) lives in the `pipeline.training_started` event payload,
+  not in the `human_approval.granted` entry itself; an auditor pivots
+  by `run_id` to the earlier event and diffs the YAML in `git log`.
+  (Note: `config_hash` is read forward-compatibly by `forgelm
+  approvals` — `forgelm/cli/subcommands/_approvals.py` falls back to a
+  legacy `config_fingerprint` key — but no producer in the current
+  codebase emits either field; the read path is wired for a future
+  emitter. See `docs/reference/approvals_subcommand.md`.)
 
 ### Q2: "Show me the change-control evidence — who approved this model?"
 
@@ -195,8 +202,9 @@ substrate does. Reference:
 - `docs/qms/encryption_at_rest.md` — your in-house policy mapped to
   ForgeLM artefact classes.
 - KMS audit log — substrate-side evidence of encryption-in-use.
-- ForgeLM `data_governance_report.json` — your config block records
-  `encryption_at_rest: true|false` per the operator's declaration.
+- Operator-side encryption attestation — recorded out-of-band in your
+  QMS evidence bundle until ForgeLM exposes a config-level
+  `encryption_at_rest` field (Phase 28+ backlog).
 
 ### Q7: "Show me the incident response — what happens if the safety classifier crashes mid-run?"
 
@@ -251,10 +259,13 @@ Things deployers get wrong on their first audit:
    `FORGELM_OPERATOR=ci`" — the audit chain becomes uninterpretable
    because every entry attributes to the same string. Use namespaced
    identifiers per pipeline + per run.
-2. **Storing webhook secrets in YAML.** Use `webhook.secret_env` →
-   resolve from KMS at runtime. A YAML in version control with a
-   plaintext secret is a finding even if the secret has been rotated
-   (the auditor sees historical exposure in `git log`).
+2. **Storing webhook URLs in YAML.** Use `webhook.url_env: SLACK_WEBHOOK`
+   → resolve from your secret manager at runtime; never commit a
+   plaintext webhook URL to version control. The auditor sees
+   historical exposure in `git log` even after rotation. (Note: ForgeLM
+   does **not** sign webhook bodies today — gateway-level integrity
+   relies on mTLS or destination-side checks; HMAC body signing is on
+   the Phase 28+ backlog.)
 3. **Skipping `forgelm verify-audit` in CI.** "We trust the audit
    chain implicitly" is not a defensible position. Schedule the
    weekly cron + alert on non-zero exit; have the alert history to
@@ -271,7 +282,7 @@ Things deployers get wrong on their first audit:
 5. **No `auto_revert` on production training.** If you're betting
    on always-green training, you're a single safety-classifier
    degradation away from a regulator-reportable incident. Enable
-   `auto_revert: true` and let `pipeline.reverted` events accumulate
+   `auto_revert: true` and let `model.reverted` events accumulate
    as evidence of working safeguards.
 6. **Running ForgeLM with `FORGELM_ALLOW_ANONYMOUS_OPERATOR=1` in
    production.** That env var exists for short-lived test runs only.

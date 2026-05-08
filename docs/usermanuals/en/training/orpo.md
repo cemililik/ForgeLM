@@ -25,23 +25,24 @@ ORPO is the only alignment method that works well *directly* from a base model w
 ```yaml
 model:
   name_or_path: "Qwen/Qwen2.5-7B-Instruct"
-  load_in_4bit: true
   max_length: 4096
 
-datasets:
-  - path: "data/preferences.jsonl"
-    format: "preference"
+lora:
+  r: 16
+  alpha: 32
+  method: "lora"
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+
+data:
+  dataset_name_or_path: "data/preferences.jsonl"
 
 training:
-  trainer: "orpo"
-  epochs: 1
-  batch_size: 2
+  trainer_type: "orpo"
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
   learning_rate: 5.0e-6
-  orpo:
-    beta: 0.1                # weight of the odds-ratio penalty
-
-output:
-  dir: "./checkpoints/orpo"
+  orpo_beta: 0.1                 # flat field — weight of the odds-ratio penalty
+  output_dir: "./checkpoints/orpo"
 ```
 
 ## Dataset format
@@ -50,11 +51,14 @@ output:
 
 ## Configuration parameters
 
+ORPO knobs are flat fields under `training:` (no nested `training.orpo:` block — see `forgelm/config.py` `TrainingConfig`):
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `beta` | float | `0.1` | Strength of the odds-ratio penalty term. Higher = more preference shift. |
-| `loss_type` | string | `"sigmoid"` | Currently only `sigmoid` is supported. |
-| `sft_weight` | float | `1.0` | Weight of the SFT term in the combined loss. Lower for emphasis on preferences. |
+| `training.orpo_beta` | float | `0.1` | Odds-ratio penalty strength. Higher = stronger preference shift. |
+| `training.trainer_type` | string | `"sft"` | Set to `"orpo"` to enable the ORPO training path. |
+
+ForgeLM does **not** expose `loss_type` or `sft_weight` as configurable fields — TRL's `ORPOTrainer` runs with library defaults (sigmoid loss, SFT weight = 1.0).
 
 ## Compute and memory
 

@@ -124,6 +124,15 @@ class RetentionConfig(BaseModel):
     # `lang_sample` fields.
     ephemeral_artefact_retention_days: int = Field(default=90, ge=0)
 
+    # Raw-document retention (typically `data/raw_documents/<run_id>/`).
+    # Phase 21 implementation note: this field was added to the shipped
+    # RetentionConfig after the original design draft — the `forgelm
+    # purge --check-policy` scan ages each `raw_documents/<run_id>/`
+    # directory against its owning run's audit-genesis timestamp.
+    # Default 90 days; matches the typical ingestion-window cadence in
+    # most deployer QMS templates.
+    raw_documents_retention_days: int = Field(default=90, ge=0)
+
     # Enforcement mode: how strict is the policy?
     # - "log_only": writes a notice to the audit log; never refuses a run.
     # - "warn_on_excess": logger.warning + audit notice; run continues.
@@ -177,7 +186,7 @@ A single invocation does exactly one of the three.  Combining flags is a `Config
 
 | Flag | Required when | Type | Purpose |
 |---|---|---|---|
-| `--row-id <id>` | corpus mode | str | Row to delete.  **Required:** the JSONL must carry a stable id field (e.g. `"id"` or `"row_id"` key) on every row.  Line-number fallback is **rejected** — operators with id-less corpora must run `forgelm audit --add-row-ids <path>` (Phase 28 follow-up) first, otherwise a re-ordered file would silently delete the wrong row. |
+| `--row-id <id>` | corpus mode | str | Row to delete.  **Required:** the JSONL must carry a stable id field (e.g. `"id"` or `"row_id"` key) on every row.  Line-number fallback is **rejected** — operators with id-less corpora must pre-populate ids via an operator-side script (a `forgelm audit --add-row-ids` helper is on the Phase 28 backlog) first, otherwise a re-ordered file would silently delete the wrong row. |
 | `--corpus <path>` | corpus mode | str | Path to **a single JSONL file**.  Directory mode is **rejected** in `--row-id` mode — multi-file purges are an operator script (loop over files), not a `forgelm purge` flag, because GDPR Article 17 expects an erasure decision *per row* with its own audit event.  An invocation that matches the same id in two files is a "DELETE without WHERE" hazard. |
 | `--row-matches` | corpus mode optional | enum | `one` (default; refuses if 0 or ≥2 matches in the file) / `all` (deletes every match, requires explicit opt-in for the ambiguity).  Without this flag, multi-row matches in a single file abort with `EXIT_CONFIG_ERROR` so the operator confirms intent before bulk delete. |
 | `--run-id <id>` | run mode | str | Run id matching `<output_dir>/audit_log.jsonl`'s top-level `run_id`. |
@@ -187,7 +196,7 @@ A single invocation does exactly one of the three.  Combining flags is a `Config
 | `--config <path>` | policy mode (optional) | str | Config to load for the retention block; defaults to `./forgelm.yaml` then walks up. |
 | `--justification <text>` | always optional | str | Free-text reason recorded in the audit event.  Strongly recommended for compliance review. |
 | `--dry-run` | always optional (corpus / run mode only) | bool | Print what would be deleted; do not modify.  **Mutually exclusive with `--check-policy`** (which is itself a dry-run report); combining the two is a `ConfigError`. |
-| `--yes` | always optional | bool | Skip the interactive "confirm erasure of row X?" prompt.  Required for unattended / scripted use; an interactive `forgelm purge` without `--yes` always prompts on a TTY and aborts (`EXIT_CONFIG_ERROR`) on a non-TTY. |
+| `--yes` *(not yet implemented; Phase 28+ backlog)* | always optional | bool | The original design called for a `--yes` flag to skip an interactive "confirm erasure of row X?" prompt. The shipped `forgelm purge` is **non-interactive by default** — it never prompts, so `--yes` was not wired in v0.5.5. CI invocations get the same behaviour as TTY invocations: the operator-supplied `--justification` carries the consent record into the audit chain. The flag is preserved on the Phase 28+ backlog if a future interactive review-prompt mode lands. |
 | `--output-format {text,json}` | always optional | enum | Output format.  Default `text`. |
 
 ### 4.3 Exit codes
@@ -197,10 +206,10 @@ Standard ForgeLM 0/1/2/3/4 contract — all codes from `forgelm.cli._exit_codes`
 | Code | Constant | Meaning |
 |---|---|---|
 | 0 | `EXIT_SUCCESS` | Erasure completed (or `--dry-run` reported successfully). |
-| 1 | `EXIT_CONFIG_ERROR` | Config-level error: missing flag, flag combination, unknown row-id (corpus mode), unknown run-id (run mode), `--row-id` directory mode without `--row-matches=all`, multi-row match without `--row-matches=all`, missing `--yes` on a non-TTY. |
+| 1 | `EXIT_CONFIG_ERROR` | Config-level error: missing flag, flag combination, unknown row-id (corpus mode), unknown run-id (run mode), `--row-id` directory mode without `--row-matches=all`, multi-row match without `--row-matches=all`. (`--yes` is not implemented — see §3.5 for the consent model; the shipped `forgelm purge` is non-interactive on every invocation, so there is no "missing `--yes` on a non-TTY" failure mode.) |
 | 2 | `EXIT_TRAINING_ERROR` | Runtime / I/O failure: corpus unreadable, audit-log write failure, atomic-rename failure, partial commit recovery. |
 | 3 | `EXIT_EVAL_FAILURE` | Reserved for the trainer pre-flight gate when `enforce: block_on_excess` is configured (see §3.4 in the spirit of the master `error-handling.md` exit-code contract).  **Not** used by `forgelm purge --check-policy` — that path is a report, not a gate; see §10 Q5 + the paragraph below. |
-| 4 | `EXIT_AWAITING_APPROVAL` | Reserved for its trainer-pipeline meaning per `docs/standards/error-handling.md:24` ("Training + evals passed, but `require_human_approval: true` — staged, awaiting human sign-off").  **Not** reused by `forgelm purge`; an interactive `--yes`-less TTY operator who declines the prompt exits **`EXIT_CONFIG_ERROR` (1)** — the operator deliberately did not provide consent (analogous to a missing required flag), which is exactly "user must adjust input and re-run". |
+| 4 | `EXIT_AWAITING_APPROVAL` | Reserved for its trainer-pipeline meaning per `docs/standards/error-handling.md` ("Training + evals passed, but `require_human_approval: true` — staged, awaiting human sign-off").  **Not** reused by `forgelm purge`. Since the shipped `forgelm purge` is non-interactive (no prompt, no `--yes` flag), there is no "operator declined the prompt" path; consent is recorded in the operator-supplied `--justification` and the audit chain. |
 
 **`--check-policy` always exits 0** (per §10 Q5 — the resolved decision: report-not-gate semantic).  Operators who want a CI gate use `--output-format json` and pipe to `jq '.violations | length'` themselves; CI then branches on that count rather than on the exit code.  This keeps the public contract `docs/standards/error-handling.md` 0/1/2/3/4 consistent across every ForgeLM subcommand: a code-3 from `forgelm purge` always means "trainer pre-flight gate failed", never "report found something".
 
@@ -276,7 +285,7 @@ Article 17(3)(b) preserves the audit log itself, but Article 5(1)(c) (data minim
 | Event field | Source / shape | Personal-data category | Phase 21 policy |
 |---|---|---|---|
 | `target_kind` | enum: `row` / `staging` / `artefacts` / `policy_check` | None | clear |
-| `target_id` (row mode) | Row id from the JSONL `id` (or `row_id`) field — canonical and only source.  Line-number fallback is **rejected** at the CLI per §4.2; operators with id-less corpora must run `forgelm audit --add-row-ids <path>` (Phase 28 follow-up) before invoking `forgelm purge --row-id`. | **Possibly personal** (operator-supplied row IDs may be email / username / ticket numbers) | **SHA-256(salt + value)** when emitted.  Salt = first 16 bytes of `FORGELM_AUDIT_SECRET` if set, else a per-output-dir salt persisted at `<output_dir>/.forgelm_audit_salt` (16 random bytes, mode 0600, written on first emission). |
+| `target_id` (row mode) | Row id from the JSONL `id` (or `row_id`) field — canonical and only source.  Line-number fallback is **rejected** at the CLI per §4.2; operators with id-less corpora must pre-populate ids via an operator-side script (a `forgelm audit --add-row-ids` helper is on the Phase 28 backlog) before invoking `forgelm purge --row-id`. | **Possibly personal** (operator-supplied row IDs may be email / username / ticket numbers) | **SHA-256(salt + value)** when emitted.  Salt = first 16 bytes of `FORGELM_AUDIT_SECRET` if set, else a per-output-dir salt persisted at `<output_dir>/.forgelm_audit_salt` (16 random bytes, mode 0600, written on first emission). |
 | `salt_source` (row mode, all erasure events) | Resolved salt source for the row's `target_id` hash | None (operational metadata) | One of `"env_var"` / `"per_dir"`.  Persisted on every `data.erasure_requested` / `data.erasure_completed` / `data.erasure_failed` event in row mode so a compliance reviewer reconciling two erasure events for the same subject can detect a salt-source change.  Salt-source mismatch across events for the same operator-supplied row id IS a hash discontinuity (different salt → different hash); the field exists so the discontinuity is visible in the chain instead of silently producing a "different subject" misreading. |
 | `target_id` (run mode) | `fg-<hex>` from AuditLogger | None (operational) | clear |
 | `corpus_path` | filesystem path | **Possibly personal** when path includes a subject name (rare but real) | clear by default; operator guide flags the risk + recommends symlinking through a stable name |
@@ -431,7 +440,7 @@ The closure plan §15.5 lists three open items that intersect Phase 21:
 
 ### Q4. Should erasure be loud (interactive confirmation) by default?
 
-**Decision:** no for `--dry-run`, yes for the actual delete.  The dispatcher prompts `Confirm erasure of row 42 in train.jsonl? [y/N]` unless `--yes` is passed (CI / scripted use).  Misuse risk is too high to default-yes.  An operator who needs unattended erasure passes `--yes` explicitly and the audit log records that flag.
+**Decision (revised — shipped behaviour as of v0.5.5):** non-interactive, with consent carried by `--justification`. The original design called for an interactive `[y/N]` prompt gated by `--yes`, but the shipped `forgelm purge` is **non-interactive on every invocation** — it never prompts, and the `--yes` flag was not wired (see §3.5). Misuse defence is now provided by (a) the mandatory `--justification` text (which lands in the `data.erasure_*` audit event as the consent record), (b) `--dry-run` as the operator's preview path, and (c) `--row-matches=all` as the explicit opt-in for multi-row deletes. The `--yes` flag is preserved on the Phase 28+ backlog if a future review-prompt mode is added.
 
 ### Q5. Should `--check-policy` return non-zero when violations are found?
 

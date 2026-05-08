@@ -26,21 +26,23 @@ model:
   name_or_path: "./checkpoints/sft-base"
   max_length: 4096
 
-datasets:
-  - path: "data/preferences.jsonl"
-    format: "preference"
+lora:
+  r: 16
+  alpha: 32
+  method: "lora"
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+
+data:
+  dataset_name_or_path: "data/preferences.jsonl"
 
 training:
-  trainer: "simpo"
-  epochs: 1
+  trainer_type: "simpo"
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
   learning_rate: 8.0e-7      # ~10× smaller than DPO
-  simpo:
-    beta: 2.0                # higher than DPO's 0.1
-    gamma: 1.0               # margin term
-    loss_type: "sigmoid"
-
-output:
-  dir: "./checkpoints/simpo"
+  simpo_beta: 2.0            # higher than DPO's 0.1 — flat field
+  simpo_gamma: 1.0           # margin term — flat field
+  output_dir: "./checkpoints/simpo"
 ```
 
 ## Dataset format
@@ -49,13 +51,15 @@ Same as DPO — `preference` format with `prompt`, `chosen`, `rejected`. See [Da
 
 ## Configuration parameters
 
+SimPO knobs are flat fields under `training:` (no nested `training.simpo:` block):
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `beta` | float | `2.0` | Length-normalised reward scale. Higher = stronger preference shift. SimPO's beta is *not* the same scale as DPO's. |
-| `gamma` | float | `1.0` | Margin term — the gap SimPO tries to maintain between chosen and rejected log-likelihoods. |
-| `loss_type` | string | `"sigmoid"` | `sigmoid` or `hinge`. |
-| `length_normalize` | bool | `true` | Normalise log-probs by sequence length. SimPO's signature feature. |
-| `label_smoothing` | float | `0.0` | Smoothing on preference labels for noisy data. |
+| `training.simpo_beta` | float | `2.0` | Length-normalised reward scale. Higher = stronger preference shift. SimPO's beta is *not* the same scale as DPO's. |
+| `training.simpo_gamma` | float | `0.5` | Margin term — the gap SimPO tries to maintain between chosen and rejected log-likelihoods. |
+| `training.trainer_type` | string | `"sft"` | Set to `"simpo"` to enable the SimPO training path. |
+
+ForgeLM does **not** expose `loss_type`, `length_normalize`, or `label_smoothing` as configurable fields — TRL's CPO/SimPO trainer runs with library defaults (sigmoid loss, length normalisation always on, no label smoothing).
 
 ## Compute and memory
 
@@ -67,16 +71,16 @@ Same as DPO — `preference` format with `prompt`, `chosen`, `rejected`. See [Da
 
 About 1.2× SFT memory — much lighter than DPO's 2×.
 
-## Choosing `beta` and `gamma`
+## Choosing `simpo_beta` and `simpo_gamma`
 
 | Combination | Behaviour |
 |---|---|
-| `beta=2.0`, `gamma=1.0` | Default. Balanced. |
-| `beta=2.5`, `gamma=1.4` | More aggressive preference shift. |
-| `beta=1.5`, `gamma=0.5` | Gentler, closer to original SFT outputs. |
+| `simpo_beta=2.0`, `simpo_gamma=0.5` | Default. Balanced. |
+| `simpo_beta=2.5`, `simpo_gamma=1.0` | More aggressive preference shift. |
+| `simpo_beta=1.5`, `simpo_gamma=0.3` | Gentler, closer to original SFT outputs. |
 
 :::warn
-SimPO's `beta` is on a different scale than DPO's `beta`. Don't copy DPO hyperparameters as-is — start from SimPO defaults.
+SimPO's `simpo_beta` is on a different scale than DPO's `dpo_beta`. Don't copy DPO hyperparameters as-is — start from SimPO defaults.
 :::
 
 ## Common pitfalls

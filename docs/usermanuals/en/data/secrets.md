@@ -9,21 +9,21 @@ Code repositories, support tickets, and operational logs leak credentials. Once 
 
 ## What gets detected
 
-| Category | Pattern detected |
-|---|---|
-| **AWS access keys** | `AKIA[0-9A-Z]{16}` + secret-key heuristics |
-| **GitHub PATs** | `ghp_*`, `gho_*`, `ghu_*`, `ghs_*`, `ghr_*` |
-| **GitHub fine-grained tokens** | `github_pat_*` |
-| **Slack tokens** | `xox[bpars]-*` |
-| **OpenAI API keys** | `sk-*` (with length and entropy checks) |
-| **Anthropic API keys** | `sk-ant-*` |
-| **Google API keys** | `AIza*` |
-| **JWTs** | Three-segment base64url (header.payload.signature) |
-| **PEM private-key blocks** | `BEGIN ... PRIVATE KEY...END` (RSA, EC, OpenSSH, PGP) |
-| **Azure storage strings** | `DefaultEndpointsProtocol=...` |
-| **Stripe / SendGrid / Twilio** | Service-specific patterns |
+The bundled detector ships **9 secret families** under `_SECRET_PATTERNS` (`forgelm/data_audit/_secrets.py::_SECRET_PATTERNS`):
 
-All matches are replaced with `[REDACTED-SECRET]` (or per-category tags via `--secrets-tag-by-category`).
+| Pattern key | Anchor |
+|---|---|
+| `aws_access_key` | `AKIA` / `ASIA` + 16 uppercase alphanum |
+| `github_token` | `ghp_*`, `gho_*`, `ghu_*`, `ghs_*`, `ghr_*`, `github_pat_*` (single combined family) |
+| `slack_token` | `xox[baprs]-*` |
+| `openai_api_key` | `sk-*` and `sk-proj-*` |
+| `google_api_key` | `AIza` + 35 chars |
+| `jwt` | Three-segment base64url with canonical JWT header keys (defends against `eyJ.eyJ.X`-shaped prose false positives) |
+| `openssh_private_key` | `BEGIN OPENSSH/RSA/DSA/EC PRIVATE KEY` … `END …` (full PEM envelope) |
+| `pgp_private_key` | `BEGIN PGP PRIVATE KEY BLOCK` … `END …` |
+| `azure_storage_key` | `DefaultEndpointsProtocol=…AccountKey=…` |
+
+All matches are replaced with the literal string `[REDACTED-SECRET]` by `mask_secrets()` (`forgelm/data_audit/_secrets.py::mask_secrets`). The detector does **not** ship per-vendor patterns for Anthropic, Stripe, SendGrid, or Twilio today — operators with those traffic types extend the regex set out-of-tree (Phase 28+ backlog tracks shipping them as opt-in extras).
 
 ## Quick example
 
@@ -33,11 +33,11 @@ $ forgelm ingest ./support-tickets/ \
     --secrets-mask \
     --output data/tickets.jsonl
 ✓ masked 47 secrets:
-    aws_access_key: 12
-    github_pat:     8
-    jwt:            18
-    pem_block:      2
-    openai_key:     7
+    aws_access_key:       12
+    github_token:          8
+    jwt:                  18
+    openssh_private_key:   2
+    openai_api_key:        7
 ```
 
 ## What "PEM block" means
@@ -51,7 +51,7 @@ MIIEpAIBAAKCAQEA1+...
 -----END RSA PRIVATE KEY-----
 ```
 
-ForgeLM's PEM detector matches the entire block (BEGIN to END), not just the marker line. The whole block is replaced with `[REDACTED-PEM-BLOCK]`. This avoids the common bug of detecting the BEGIN line but leaving the key body in the JSONL.
+ForgeLM's PEM detector (`openssh_private_key` family — also covers RSA / DSA / EC envelopes) matches the entire block (BEGIN to END), not just the marker line. Like every other family, the whole block is replaced with `[REDACTED-SECRET]` — there is no per-family token (`mask_secrets()` ships a single `replacement="[REDACTED-SECRET]"` constant; `forgelm/data_audit/_secrets.py::mask_secrets`). This avoids the common bug of detecting the BEGIN line but leaving the key body in the JSONL.
 
 ## Audit-only mode
 
@@ -88,7 +88,7 @@ ForgeLM ships secrets detection with stricter false-positive guards than typical
 2. Many regex-only patterns flag `EXAMPLEKEY` or test fixtures, which makes audit reports useless.
 
 Specific guards:
-- **Entropy threshold** for OpenAI / Anthropic keys (random-looking, not human-readable).
+- **Entropy threshold** for OpenAI keys (random-looking, not human-readable). ForgeLM does **not** ship Anthropic / Stripe / SendGrid / Twilio patterns by default (see line 26); operators with that traffic profile extend `_SECRET_PATTERNS` out-of-tree.
 - **Context window check** — `AKIA*` only fires if accompanied by a secret-key-shaped neighbour or "aws" context within 100 characters.
 - **Test/example exclusion list** — common dummy values (`AKIAIOSFODNN7EXAMPLE`, `xxx`, `your_key_here`) bypass detection.
 
@@ -96,19 +96,7 @@ For a high-stakes audit (e.g. legal disclosure scan), the test-exclusion list is
 
 ## Configuration
 
-```yaml
-ingestion:
-  secrets_mask:
-    enabled: true
-    tag_by_category: true              # use category-specific tags instead of [REDACTED-SECRET]
-    strict: false                      # set true to disable false-positive guards
-    categories:                        # selectively enable
-      - aws_access_key
-      - github_pat
-      - jwt
-      - pem_block
-      # omit any to disable
-```
+The secrets scanner is **always-on inside `forgelm audit`** — it has no enable/disable knob and no per-family allow/deny list. Mask-on-emit is controlled by the `secrets_mask: bool` argument on `audit_dataset()` (and the `--secrets-mask` flag on `forgelm ingest`); the replacement string is the single fixed `[REDACTED-SECRET]` constant inside `mask_secrets()`. There is no `ingestion.secrets_mask:` YAML block, no `enabled` / `tag_by_category` / `strict` / `categories` sub-fields — those names appeared in earlier doc drafts but never shipped. To extend or restrict the family set, fork `forgelm/data_audit/_secrets.py::_SECRET_PATTERNS`.
 
 ## Common pitfalls
 

@@ -57,7 +57,7 @@ ForgeLM, üç yerleşik DeepSpeed ön ayarı sunar. `deepspeed_config` parametre
 |---------|-------------|---------|----------|
 | `zero2` | 2 | Hayır | 2-4 GPU'da 7B-13B modeller |
 | `zero3` | 3 | Hayır | 13B-30B modeller, parametrelerin GPU'lar arasında bölünmesi |
-| `zero3_offload` | 3 | CPU | 30B-70B modeller, sınırlı VRAM, yeterli CPU RAM |
+| `zero3_offload` | 3 | optimizer state + parametreler → CPU | 30B-70B modeller, sınırlı VRAM, yeterli CPU RAM |
 
 ### Kullanım
 
@@ -129,8 +129,10 @@ PyTorch Fully Sharded Data Parallel (FSDP), DeepSpeed'e alternatif olarak PyTorc
 distributed:
   strategy: "fsdp"
   fsdp_strategy: "full_shard"
-  fsdp_auto_wrap: true
-  fsdp_offload: false
+  fsdp_auto_wrap: true                    # Auto-wrap transformer layers
+  fsdp_offload: false                     # Offload parameters AND gradients (between forward/backward) to CPU
+  fsdp_backward_prefetch: "backward_pre"  # Prefetch strategy
+  fsdp_state_dict_type: "FULL_STATE_DICT" # State dict handling
 ```
 
 ### FSDP'yi DeepSpeed yerine ne zaman seçmeli

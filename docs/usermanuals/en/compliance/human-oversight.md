@@ -5,7 +5,7 @@ description: Block model promotion until a human reviews and signs off — Artic
 
 # Human Oversight
 
-EU AI Act Article 14 requires high-risk AI systems to provide for human oversight. ForgeLM implements this as an optional config gate: when `compliance.human_approval: true`, model promotion blocks until a human signs an approval.
+EU AI Act Article 14 requires high-risk AI systems to provide for human oversight. ForgeLM implements this as an optional config gate: when `evaluation.require_human_approval: true`, model promotion blocks until a human signs an approval.
 
 ## How the gate works
 
@@ -20,9 +20,9 @@ sequenceDiagram
     Train->>Eval: Training complete, run eval
     Eval->>Eval: Benchmarks + safety pass
     Eval->>Audit: Append "human_approval.required"
-    Eval->>Approver: Webhook + structured request
-    Approver-->>Eval: Sign approval (CLI / webhook callback)
-    Eval->>Audit: Append "human_approval.granted" with signature
+    Eval->>Approver: Webhook notification (Slack/Teams) — informational only
+    Approver-->>Eval: CLI only (forgelm approve / forgelm reject)
+    Eval->>Audit: Append "human_approval.granted" with HMAC chain
     Eval->>Output: Promote checkpoint
 ```
 
@@ -31,19 +31,19 @@ Without the human signature, the checkpoint stays in a "pending" state and the r
 ## Configuration
 
 ```yaml
-compliance:
-  human_approval: true
-  approval:
-    request_webhook: "${SLACK_WEBHOOK}"      # optional notification
-    signature_method: "cli"                   # cli | webhook | api
-    timeout_hours: 48                         # auto-fail after this
-    require_role: "ml-compliance-lead"        # who can approve
-    quorum: 1                                 # required approvers
+evaluation:
+  require_human_approval: true              # canonical activation key — Article 14 gate
+
+webhook:
+  url_env: SLACK_WEBHOOK_URL                # optional: notifier fires `approval.required`
+  notify_on_success: true                   # this gate is dispatched on the success channel
 ```
 
-## Signature methods
+There is **no** `compliance.human_approval` field, no `approval.*` block, no `signature_method`, no `timeout_hours`, no `require_role`, no `quorum`, and no `webhook_url` callback knob — those names appeared in earlier doc drafts but never shipped in `forgelm/config.py`. The canonical activation key is `evaluation.require_human_approval` (a plain `bool`); reviewer identity is recorded from `FORGELM_OPERATOR` at `forgelm approve` / `forgelm reject` time; the audit chain uses HMAC (not ed25519); and there is no built-in timeout — a staged run waits indefinitely until an operator decides.
 
-### CLI (default)
+## Approval mechanism
+
+### CLI (only path)
 
 The trainer halts after eval and prints:
 
@@ -56,23 +56,11 @@ The trainer halts after eval and prints:
   To reject:  forgelm reject  abc123 --output-dir checkpoints/run --comment "..."
 ```
 
-The reviewer runs the approval command from any machine with access to the artifacts directory. ForgeLM verifies their identity via SSH key signing or env-set token, signs the audit log, and resumes promotion.
+The reviewer runs the approval command from any machine with access to the audit-log + staging directory. ForgeLM resolves their identity from `FORGELM_OPERATOR`, HMAC-chains the decision event, and (on `approve`) renames the staging directory to the canonical `final_model/` path.
 
-### Webhook callback
+### CLI subcommand pair
 
-For integration with internal approval systems:
-
-```yaml
-approval:
-  signature_method: "webhook"
-  webhook_url: "https://internal.example/approvals/{run_id}/decide"
-```
-
-The trainer halts and posts the artifact bundle to your webhook. Your system handles the human review and POSTs back to ForgeLM's resume endpoint with a signed JWT.
-
-### CLI subcommand (canonical)
-
-The supported approval mechanism in v0.5.5 is the CLI subcommand pair `forgelm approve` / `forgelm reject`:
+The supported approval mechanism is the CLI subcommand pair `forgelm approve` / `forgelm reject`. There is no webhook-callback variant — ForgeLM does not expose an approval-resume HTTP endpoint, and there is no JWT-based external-approver path.
 
 ```bash
 forgelm approvals --pending --output-dir <dir>            # list runs awaiting approval
@@ -98,38 +86,21 @@ Every approval (or rejection) appends to `audit_log.jsonl`:
   "seq": 87,
   "event": "human_approval.granted",
   "run_id": "abc123",
-  "reviewer": "Cemil Ilik <cemil@example>",
-  "role": "ml-compliance-lead",
-  "method": "cli",
-  "signature": "ed25519:...",
-  "comment": "Reviewed safety report; S5 max 0.04 acceptable for this deployment.",
-  "artifact_hash": "sha256:..."
+  "approver": "ci-reviewer@example",
+  "comment": "Reviewed safety report; max_safety_regression 0.04 acceptable for this deployment.",
+  "_hmac": "..."
 }
 ```
 
-The `signature` is over the artifact bundle's `manifest.json` hash — it certifies the reviewer saw *exactly* what was produced.
+The `approver` field comes from `FORGELM_OPERATOR` at `forgelm approve` time; the `_hmac` is the per-line chain HMAC (the same HMAC used for every audit event). There is no separate ed25519 artefact signature.
 
-## Quorum (multi-reviewer)
+## Multi-reviewer
 
-For high-risk deployments, require multiple approvers:
-
-```yaml
-approval:
-  quorum: 2
-  require_role: "ml-compliance-lead"
-```
-
-Each approver runs the CLI command independently. Promotion happens after the quorum signs (or one of them rejects).
+ForgeLM does **not** ship a built-in quorum gate. There is no `approval.quorum` field. To enforce N-of-M sign-off, layer it at the CI / IdP level — e.g. a GitHub branch-protection rule that requires N reviewer-team approvals before the workflow that calls `forgelm approve` is allowed to run.
 
 ## Timeouts
 
-After `timeout_hours`, an unsigned run auto-fails with exit code 4 + a structured event:
-
-```json
-{"event": "human_approval.timeout", "expired_at": "2026-04-30T14:33:10Z"}
-```
-
-Default is 48 hours. Set to 0 for "no timeout — wait forever" (not recommended in CI).
+ForgeLM does **not** time out staged runs. There is no `approval.timeout_hours`, no `human_approval.timeout` event, and no auto-fail clock. A staged run waits indefinitely; if the deployer wants to expire stale staging directories, configure `retention.staging_ttl_days` instead — that wires into the GDPR Article 17 retention pipeline (which physically prunes the directory after the configured horizon, not into the approval gate).
 
 ## Inspecting pending runs
 

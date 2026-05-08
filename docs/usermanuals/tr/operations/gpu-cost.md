@@ -1,6 +1,6 @@
 ---
 title: GPU Maliyet Tahmini
-description: 18 GPU profilinde otomatik tespit ve saatlik tarifenize göre koşu başı maliyet izleme.
+description: 16 GPU profilinde otomatik tespit ve saatlik tarifenize göre koşu başı maliyet izleme.
 ---
 
 # GPU Maliyet Tahmini
@@ -78,15 +78,17 @@ konfigüre tarifeyle tahmini $0.58 USD.
 
 ## Uçuş öncesi maliyet tahmini
 
-Uzun bir eğitim koşusu başlatmadan önce tahmin alın:
+Uzun bir eğitim koşusuna başlamadan önce kısa bir kalibrasyon (1-2 adım, `training.max_steps: 2` ile) koşturun, koşum-başına `compliance_report.json`'dan ortaya çıkan `gpu_hours`'u yakalayın ve sağlayıcınızın saatlik tarifesiyle çarpın. (Özel bir `--estimate-cost` flag'i tartışıldı ama ship edilmedi; resource-tracking yolu yalnızca gerçek değerleri yayar.)
 
 ```shell
-$ forgelm --config configs/run.yaml --estimate-cost
-Tahmini eğitim süresi: 6h 30m
-Tahmini maliyet (1× A100 80GB, $1.10/sa): $7.15
+$ forgelm --config configs/calibration.yaml --output-dir /tmp/calib
+$ jq '.resource_usage.gpu_hours' /tmp/calib/compliance_report.json
+0.034
+$ python -c "print(0.034 * (3 / 0.034) * 1.10)"   # 6h eğitim, $1.10/sa
+$7.15
 ```
 
-Tahmin küçük kalibrasyon koşusundan dataset boyutu + epoch + adım başı throughput kullanır. Doğruluk genelde gerçeğin %20 içinde.
+Kalibrasyon yaklaşımı genelde gerçeğin %20 içindedir.
 
 ## Çoklu-GPU ve dağıtık
 

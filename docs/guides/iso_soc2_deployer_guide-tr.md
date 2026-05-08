@@ -25,9 +25,10 @@ ForgeLM kanıtına sahip:
    `forgelm verify-audit` zinciri uçtan uca doğrular.
 2. **Change control** — Madde 14 staging gate (`forgelm approve` /
    `reject`) + `human_approval.required/granted/rejected` audit
-   olayları + koşum başına damgalanan `compliance.config_hash`. Her
-   model promotion çift kontrollü ve forensic olarak attribute
-   edilmiştir.
+   olayları + `pipeline.training_started` event payload'unda
+   damgalanan koşum kimliği (model SHA, adapter SHA, dataset
+   fingerprint). Her model promotion çift kontrollü ve forensic olarak
+   attribute edilmiştir.
 3. **Data lineage** — `data_provenance.json` (SHA-256 fingerprint +
    size + mtime + HF Hub revision pin); `data_governance_report.json`
    (collection_method, annotation_process, known_biases,
@@ -108,8 +109,16 @@ Her `human_approval.granted` girişi şunları taşır:
 - `operator` — kim onayladı (eğiten DEĞİL **onaylayan** kimliği).
 - `run_id` — modeli üreten eğitim koşumuna geri bağlanır.
 - `prev_hash` + `_hmac` — zincir bütünlüğü.
-- `compliance.config_hash` — hangi config kullanıldı; denetçi
-  `git log` içindeki YAML ile diff alabilir.
+- Eğitim-koşumu kimliği (model SHA, adapter SHA, dataset fingerprint)
+  `human_approval.granted` girişinin kendisinde değil,
+  `pipeline.training_started` event payload'unda yaşar; denetçi
+  `run_id` üzerinden önceki event'e pivot eder ve `git log` içindeki
+  YAML ile diff alır. (Not: `forgelm approvals` `config_hash`'i
+  forward-compatible olarak okur —
+  `forgelm/cli/subcommands/_approvals.py` legacy `config_fingerprint`
+  anahtarına fallback yapar — ancak mevcut codebase'de hiçbir producer
+  iki alanı da emit etmez; read path bağlı, gelecekteki bir emitter
+  için. Bkz. `docs/reference/approvals_subcommand.md`.)
 
 ### S2: "Change-control kanıtı göster — bu modeli kim onayladı?"
 
@@ -196,8 +205,9 @@ substrate şifreler. Referans:
 - `docs/qms/encryption_at_rest.md` — kurum içi politikanız ForgeLM
   artefakt sınıflarına eşlenmiş.
 - KMS audit log — encryption-in-use'un substrate-side kanıtı.
-- ForgeLM `data_governance_report.json` — config block'unuz operatör
-  beyanı başına `encryption_at_rest: true|false` kaydeder.
+- Operatör-tarafı şifreleme tanıklığı — ForgeLM config-seviyesi bir
+  `encryption_at_rest` field'ı yüzeyleyene kadar (Phase 28+ backlog'u)
+  QMS evidence bundle'ınızda out-of-band olarak kaydedilir.
 
 ### S7: "Incident response göster — koşum ortasında safety classifier crash ederse ne olur?"
 
@@ -250,10 +260,13 @@ Operatörlerin ilk denetimlerinde yanlış yaptığı şeyler:
    `FORGELM_OPERATOR=ci` yaptık" — audit chain yorumlanamaz hale
    gelir çünkü her giriş aynı string'e attribute olur. Pipeline
    başına + koşum başına namespaced identifier kullanın.
-2. **Webhook secret'larını YAML'de saklamak.**
-   `webhook.secret_env` → KMS'den runtime'da resolve. Bir secret
-   rotate edilse bile version control'deki plaintext-secret YAML
-   bir bulgudur (denetçi `git log`'da tarihsel exposure görür).
+2. **Webhook URL'lerini YAML'de saklamak.** `webhook.url_env:
+   SLACK_WEBHOOK` → secret manager'dan runtime'da resolve; plaintext
+   webhook URL'sini asla version control'e commit'leme. Rotate edilse
+   bile denetçi `git log`'da tarihsel exposure görür. (Not: ForgeLM şu
+   an webhook gövdelerini **imzalamıyor** — gateway-düzeyi bütünlük
+   mTLS ya da hedef-tarafı kontrollerine bağlı; HMAC body imzası Phase
+   28+ backlog'unda.)
 3. **CI'da `forgelm verify-audit` atlamak.** "Audit chain'e zımnen
    güveniyoruz" savunulabilir bir pozisyon değildir. Haftalık cron
    + sıfır-olmayan exit'e alarm zamanlayın; alarm geçmişini
@@ -270,7 +283,7 @@ Operatörlerin ilk denetimlerinde yanlış yaptığı şeyler:
 5. **Üretim eğitiminde `auto_revert` yok.** Her zaman yeşil
    eğitime bahis koyuyorsanız, regulator-reportable incident'a
    bir safety-classifier degradation'ı uzaktasınız. `auto_revert:
-   true` etkinleştirin ve `pipeline.reverted` event'lerinin
+   true` etkinleştirin ve `model.reverted` event'lerinin
    çalışan safeguard kanıtı olarak birikmesine izin verin.
 6. **Üretimde `FORGELM_ALLOW_ANONYMOUS_OPERATOR=1` ile ForgeLM
    çalıştırmak.** O env var yalnız kısa-ömürlü test koşumları

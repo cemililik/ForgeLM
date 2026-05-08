@@ -10,12 +10,17 @@ ForgeLM eğitim dönüm noktalarında yapılandırılmış webhook fırlatır. B
 ## Hızlı örnek
 
 ```yaml
-output:
-  webhook:
-    url: "${SLACK_WEBHOOK}"
-    events: ["run_start", "auto_revert", "run_complete", "run_failed"]
-    template: "slack"                      # veya teams, generic
+webhook:
+  url_env: "SLACK_WEBHOOK"           # URL'yi $SLACK_WEBHOOK'tan runtime'da okur
+  notify_on_start: true              # default true
+  notify_on_success: true            # default true
+  notify_on_failure: true            # default true (training.failure + training.reverted'i kapsar)
 ```
+
+Notifier generic JSON payload yayar — Slack ve Teams bunu incoming-webhook
+uçlarından doğrudan kabul eder. Per-event abonelik şu an konfigüre
+edilemiyor; üç `notify_on_*` flag'iyle hangi yaşam-döngüsü olaylarının
+fırlatılacağı kaba ayarlanır.
 
 ForgeLM `${SLACK_WEBHOOK}`'u environment variable'dan okur. Yaygın pattern:
 
@@ -24,119 +29,90 @@ $ export SLACK_WEBHOOK="https://hooks.slack.com/services/T.../B.../..."
 $ forgelm --config configs/run.yaml
 ```
 
-## Abone olabileceğiniz olaylar
+## Wire-format event'ler
 
-| Olay | Ne zaman |
-|---|---|
-| `run_start` | Eğitim başlar. |
-| `data_audit_complete` | `forgelm audit` sonrası. |
-| `training_epoch_complete` | Her epoch sonrası. (gürültülü; genelde atlanır) |
-| `benchmark_complete` | Eval suite sonrası. |
-| `safety_eval_complete` | Llama Guard skorlama sonrası. |
-| `auto_revert` | Otomatik geri alma tetiklendiğinde. |
-| `human_approval_request` | `compliance.human_approval` engellediğinde. |
-| `human_approval_granted` | Onay imzalandığında. |
-| `model_exported` | `forgelm export` sonrası. |
-| `run_complete` | Başarılı çıkış. |
-| `run_failed` | Sıfır olmayan çıkış. |
+ForgeLM tam **beş** webhook event'i yayar. Aşağıdaki tablo
+[`docs/reference/audit_event_catalog.md`](#/reference/audit-event-catalog)
+ile aynalanan kanonik yüzeydir:
 
-Seçici abone olun — çok-sık webhook spam olur.
+| Event | Ne zaman fırlar | Gate |
+|---|---|---|
+| `training.start` | `train()` başlar, model yüklenmeden önce. | `webhook.notify_on_start` |
+| `training.success` | Tüm gate'ler geçer; insan-onay gereksinimi yok. | `webhook.notify_on_success` |
+| `training.failure` | Eğitim raise ediyor (OOM, dataset hatası, yakalanmamış istisna). | `webhook.notify_on_failure` |
+| `training.reverted` | Eğitim-sonrası bir gate (eval / safety / judge / benchmark) koşumu reddetti ve `_revert_model` adapter'ları geri aldı. | `webhook.notify_on_failure` |
+| `approval.required` | Koşum başarılı, `evaluation.require_human_approval=true` set, model review için staged (EU AI Act Madde 14). | `webhook.notify_on_success` |
 
 ## Payload yapısı
 
-Generic format (`slack` ve `teams` template'leri bunu kendi formatlarına sarar):
+Tek generic JSON şekil — Slack / Teams / Discord hepsi bunu incoming-webhook
+uçlarından doğrudan kabul eder; ForgeLM provider'a-özel template'lerle
+sarmalama **yapmaz**:
 
 ```json
 {
-  "event": "auto_revert",
-  "ts": "2026-04-29T14:33:04Z",
-  "run_id": "abc123",
-  "config_path": "configs/customer-support.yaml",
-  "trigger": "safety_regression",
-  "regressed_categories": ["S5"],
-  "details": {...},
-  "artifacts_url": "https://compliance-store.example/abc123/"
+  "event": "training.reverted",
+  "run_name": "customer-support-v1.2.0",
+  "status": "reverted",
+  "reason": "safety regression: S5 hate-speech +0.18 over baseline"
 }
 ```
 
-## Slack template
+Payload anahtarları event'e göre değişir; tam per-event alan listesi
+[`docs/reference/audit_event_catalog.md`](#/reference/audit-event-catalog)
+*Webhook lifecycle events* tablosundadır.
 
-```yaml
-output:
-  webhook:
-    url: "${SLACK_WEBHOOK}"
-    template: "slack"
-    events: ["run_complete", "run_failed", "auto_revert"]
-    channel: "#ml-training"                 # opsiyonel override
-    mention_on_failure: "@ml-oncall"
-```
+## Slack / Teams / Discord ingest
 
-Üretir:
+Yukarıdaki tek generic JSON payload, Slack, Teams ve Discord'un
+incoming-webhook endpoint'lerinde beklediği şeydir. `WebhookConfig`'te
+**provider başına template yoktur** (no `template:`, no `events:`
+allow-list, no `channel:` / `mention_on_failure:` formatlama knob'ları,
+no per-destination fan-out array). Routing ve formatlama alıcı
+tarafta yapılır:
 
-```text
-🔥 ForgeLM otomatik geri alma tetiklendi
+- **Slack** — payload'u Slack workflow veya incoming-webhook
+  uygulamasına yapıştırın; Slack JSON'un top-level alanlarını render
+  eder. Daha zengin formatlanmış bir kart için, webhook'u ForgeLM
+  payload'unu Slack Block Kit'e çeviren bir relay'e (Slack
+  workflow / AWS Lambda / kendi gateway'iniz) yönlendirin.
+- **Microsoft Teams** — benzer pattern. Teams gelen JSON'u natively
+  render eder ama görsel düz; MessageCard / Adaptive Card
+  formatlama için bir relay çalıştırın.
+- **Discord** — JSON'u doğrudan bot/webhook URL üzerinden kabul eder.
 
-Koşu: customer-support v1.2.0 (abc123)
-Tetikleyici: S5'te safety_regression
-Restore: checkpoints/sft-base'den
-Audit log: artifacts/audit_log.jsonl
+Birden çok hedef için, her biri kendi `webhook.url_env`'ine
+pinlenmiş birden çok ayrı ForgeLM training config'i çalıştırın
+veya tek bir ForgeLM webhook'undan relay katmanında birden çok
+downstream araca fan-out yapın. ForgeLM natively bir
+`webhooks: [...]` array'ini desteklemez.
 
-@ml-oncall lütfen incele.
-```
+## Cross-cutting webhook alanları
 
-## Microsoft Teams template
+Gerçek `WebhookConfig` (bkz. `forgelm/config.py::WebhookConfig`):
 
-```yaml
-output:
-  webhook:
-    url: "${TEAMS_WEBHOOK}"
-    template: "teams"
-    events: ["auto_revert", "human_approval_request"]
-```
+| Alan | Vars. | Notlar |
+|---|---|---|
+| `url` | `null` | Inline URL — secret hijyeni için `url_env`'i tercih edin. |
+| `url_env` | `null` | URL'i taşıyan env var adı. Set edildiğinde `url`'i override eder. |
+| `notify_on_start` | `true` | `training.start` olayını gate'ler. |
+| `notify_on_success` | `true` | `training.success` VE `approval.required`'ı gate'ler. |
+| `notify_on_failure` | `true` | `training.failure` VE `training.reverted`'ı gate'ler. |
+| `timeout` | `10` | HTTP timeout saniye; ≥ 1s'e clamp'lenir. |
+| `allow_private_destinations` | `false` | RFC 1918 / loopback / link-local hedefler için opt-in (in-cluster Slack proxy, on-prem Teams gateway). Varsayılan reddeder — SSRF guard. |
+| `tls_ca_bundle` | `null` | Özel CA bundle yolu (kurumsal MITM CA). Set edilmediğinde `certifi`'nin bundled store'u kullanılır. |
 
-Aynı veriyi action button'lı Teams MessageCard olarak üretir.
-
-## Generic template (özel entegrasyonlar)
-
-Kendi dashboard'unuz, incident sisteminiz veya pipeline'ınız için:
-
-```yaml
-output:
-  webhook:
-    url: "https://internal.example/forgelm-events"
-    template: "generic"
-    events: ["run_start", "run_complete", "run_failed", "auto_revert"]
-    headers:
-      Authorization: "Bearer ${INCIDENT_API_TOKEN}"
-    timeout_seconds: 5
-    retries: 3
-```
-
-Endpoint yukarıdaki ham yapılandırılmış payload'u alır. ForgeLM JSON POST'lar, 2xx bekler, geçici hatalarda yeniden dener.
-
-## Birden çok hedef
-
-Farklı olayları farklı yerlere göndermek için:
-
-```yaml
-output:
-  webhooks:
-    - url: "${SLACK_WEBHOOK}"
-      template: "slack"
-      events: ["run_complete", "run_failed"]
-    - url: "${PAGERDUTY_WEBHOOK}"
-      template: "generic"
-      events: ["auto_revert"]                # sadece kritik
-    - url: "${INTERNAL_DASHBOARD_URL}"
-      template: "generic"
-      events: ["*"]                          # dashboard için her şey
-```
+`template:`, `events: [...]`, `headers: {...}`, `retries:`,
+`redact:`, `allow_private:`, `channel:` veya `mention_on_failure:`
+alanı yoktur. Header injection, retry strategy, redaction (curated
+payload zaten curated), ve routing hepsi ForgeLM'in dışında yaşar.
 
 ## Güvenlik
 
-- **Sadece TLS.** ForgeLM üretim build'lerinde HTTP webhook URL'lerini reddeder.
-- **Hassas veri redaksiyonu.** API key'ler, tam config'ler ve PII payload'larda varsayılan olarak redakte edilir. `webhook.redact: false` sadece her iki uçta da kontrol sahibi olduğunuzda override edin.
-- **SSRF guard.** ForgeLM iç IP'lere (RFC 1918, link-local) işaret eden webhook URL'lerini engeller; `webhook.allow_private: true` ile açıkça izin vermediğiniz sürece. Yanlış konfigüre koşuların iç ağınızı sondalamasını önler.
+- **TLS şiddetle önerilir.** ForgeLM hem HTTPS hem HTTP webhook URL'lerine izin verir — HTTP hedefleri `Webhook URL uses HTTP (not HTTPS). Data will be sent unencrypted.` uyarısı loglar ama reddedilmez (bkz. `forgelm/webhook.py` `_send`). Üretimde `https://` URL'leri pinleyin.
+- **Curated payload.** ForgeLM webhook payload'larına asla raw eğitim verisi, tam config'ler veya unredacted PII koymaz. Notifier sabit-şekilli bir JSON sarar; `webhook.redact` toggle'ı yoktur çünkü kullanıcı-kontrollü redakte edilecek bir şey yok.
+- **SSRF guard.** ForgeLM iç IP'lere (RFC 1918, loopback, link-local, 169.254.x) işaret eden webhook URL'lerini engeller; `webhook.allow_private_destinations: true` ile açıkça opt-in olmadıkça. Yanlış konfigüre koşuların iç ağınızı sondalamasını önler.
+- **HMAC body imzalama yok.** ForgeLM webhook gövdelerini imzalamaz — hedef-tarafı authenticity TLS + `url_env` üzerinden URL gizliliği artı alıcı sistemin bearer-token / signed-request kontrollerine (Slack signing secret, Teams connector token) düşer.
 
 ## Sık hatalar
 
@@ -145,11 +121,11 @@ output:
 :::
 
 :::warn
-**`training_epoch_complete`'a abone olmak.** 50-epoch eğitimde 50 mesaj demek — Slack rate-limit'ler. Uçlar için `run_start` ve `run_complete` kullanın.
+**Per-epoch webhook beklemek.** ForgeLM per-epoch event yayınlamaz — yukarıda listelenen yalnızca beş lifecycle event'i. Per-epoch progress gerekiyorsa, webhook fan-out beklemek yerine trainer'ın stdout'undan / `audit_log.jsonl`'den scrape edin.
 :::
 
 :::tip
-**Webhook'ları `--webhook-test` ile test edin.** Canlıya geçmeden önce `forgelm --config X.yaml --webhook-test` çalıştırın — webhook'unuza sentetik payload fırlatır, formatlamayı doğrularsınız. Gerçek eğitim olmaz.
+**Canlıya geçmeden önce webhook'ları smoke-test edin.** ForgeLM `--webhook-test` flag'i göndermez. `--dry-run` *yalnızca* config validate eder ve trainer lifecycle'ını çalıştırmaz, dolayısıyla webhook'ları end-to-end test etmez. Doğru smoke-test seçenekleri: (a) küçük bir veri seti ve düşük `num_train_epochs` ile **gerçek bir küçük training koşumu** çalıştırın (lifecycle event'leri ateş eder); veya (b) hedefin doğru render ettiğini teyit etmek için curated bir sentetik payload'ı `curl` ile POST'layın.
 :::
 
 ## Bkz.

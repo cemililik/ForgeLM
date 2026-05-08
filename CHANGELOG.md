@@ -45,11 +45,11 @@ triplets (50 new doc files):**
   human-approval-gate}`, `deployment/verify-gguf`,
   `operations/{iso-soc2-deployer, supply-chain}`,
   `reference/{library-api, performance}`.
-- `docs/usermanuals/_meta.yaml` registers the 8 new pages with
+- `docs/usermanuals/_meta.yaml` registers the 9 new pages with
   full 6-language title sets (EN+TR mandatory; DE/FR/ES/ZH
   fallback to EN per Task L policy).
-- `tools/check_bilingual_parity.py::_PAIRS` grew from 23 to 39
-  pairs (16 new pairs across guides + reference).
+- `tools/check_bilingual_parity.py::_PAIRS` grew from 23 to 40
+  pairs (17 new pairs across guides + reference).
 
 **Faz 30 Task J — `tools/check_cli_help_consistency.py` (new
 guard):**
@@ -165,7 +165,7 @@ flip:**
   `tools/check_cli_help_consistency.py --strict` (Wave 5 / Faz
   30 Task J new tool). Both fail-the-build on drift; baselines
   are at zero before the strict flip lands.
-- **8 new usermanual pages + 16 new bilingual doc pairs.** No
+- **9 new usermanual pages + 17 new bilingual doc pairs.** No
   user-facing behaviour change; the navigation surface grows
   but the underlying capabilities all shipped in Wave 1-4.
 

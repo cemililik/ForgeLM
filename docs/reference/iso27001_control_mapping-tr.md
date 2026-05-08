@@ -17,7 +17,7 @@
 > (design doc §3.1–§3.4 row-by-row yeniden sayım; tema başına
 > A.5: 3 / 24 / 10, A.6: 0 / 5 / 3, A.7: 0 / 0 / 14, A.8: 8 / 19 / 7).
 
-## A.5 Organisational controls (37)
+## A.5 Organizasyonel kontroller (37)
 
 | Kontrol | Tier | ForgeLM kanıtı |
 |---|---|---|
@@ -47,9 +47,9 @@
 | A.5.24 Bilgi güvenliği olay yönetimi planlaması ve hazırlığı | FL-helps | `sop_incident_response.md`; audit chain durumu korur |
 | A.5.25 Bilgi güvenliği olaylarının değerlendirilmesi ve karara bağlanması | FL-helps | `data.erasure_failed`, `pipeline.failed`, `audit.classifier_load_failed` |
 | A.5.26 Bilgi güvenliği olaylarına yanıt | FL-helps | Audit chain HMAC öncesi/sonrası durumu korur |
-| A.5.27 Bilgi güvenliği olaylarından öğrenme | FL-helps | `pipeline.reverted` olayları post-mortem kanıtı biriktirir |
+| A.5.27 Bilgi güvenliği olaylarından öğrenme | FL-helps | `model.reverted` olayları post-mortem kanıtı biriktirir |
 | A.5.28 Kanıt toplama | FL | `audit_log.jsonl` forensic-grade; `forgelm verify-audit` doğrular |
-| A.5.29 Aksaklık sırasında bilgi güvenliği | FL-helps | `auto_revert` baseline-flip; `pipeline.reverted` olayı |
+| A.5.29 Aksaklık sırasında bilgi güvenliği | FL-helps | `auto_revert` baseline-flip; `model.reverted` olayı |
 | A.5.30 İş sürekliliği için ICT hazırlığı | OOS | — |
 | A.5.31 Yasal, kanuni, düzenleyici ve sözleşmesel gerekliliklerin tanımlanması | FL-helps | EU AI Act + GDPR mappings; Annex IV bundle |
 | A.5.32 Fikri mülkiyet hakları | FL-helps | SBOM'da lisans çıkarımı; HF model-card metadata |
@@ -59,7 +59,7 @@
 | A.5.36 Bilgi güvenliği için politikalar, kurallar ve standartlara uyum | FL-helps | Pydantic config validation; `forgelm doctor`; CI gates |
 | A.5.37 Dokümante edilmiş işletim prosedürleri | FL-helps | `docs/qms/` SOPs |
 
-## A.6 People controls (8)
+## A.6 İnsan kaynağı kontrolleri (8)
 
 | Kontrol | Tier | ForgeLM kanıtı |
 |---|---|---|
@@ -72,7 +72,7 @@
 | A.6.7 Uzaktan çalışma | FL-helps | `forgelm doctor --offline`; air-gap pre-cache |
 | A.6.8 Bilgi güvenliği olay raporlama | FL-helps | `pipeline.failed`, `data.erasure_failed`, `audit.classifier_load_failed`; webhook |
 
-## A.7 Physical controls (14)
+## A.7 Fiziksel kontroller (14)
 
 Tüm A.7 kontrolleri **OOS**'tur (ForgeLM yazılımdır). Operatörün
 SoA'sının uçtan uca auditable olması için tamlık adına listelenmiştir.
@@ -94,7 +94,7 @@ SoA'sının uçtan uca auditable olması için tamlık adına listelenmiştir.
 | A.7.13 Ekipman bakımı | OOS |
 | A.7.14 Ekipmanın güvenli imhası veya yeniden kullanımı | OOS |
 
-## A.8 Technological controls (34)
+## A.8 Teknolojik kontroller (34)
 
 | Kontrol | Tier | ForgeLM kanıtı |
 |---|---|---|
@@ -106,7 +106,7 @@ SoA'sının uçtan uca auditable olması için tamlık adına listelenmiştir.
 | A.8.6 Kapasite yönetimi | FL-helps | `forgelm doctor` resource report; `resource_usage` manifest block |
 | A.8.7 Kötü amaçlı yazılıma karşı koruma | OOS | — |
 | A.8.8 Teknik zafiyetlerin yönetimi | FL-helps | SBOM; `pip-audit` nightly; `bandit` CI |
-| A.8.9 Yapılandırma yönetimi | FL | YAML Pydantic ile valide; `forgelm --dry-run`; `compliance.config_hash` |
+| A.8.9 Yapılandırma yönetimi | FL | YAML Pydantic ile valide (`extra="forbid"` her config bloğunda); `forgelm --dry-run` eğitim yapmadan resolve + valide eder; `pipeline.training_started` audit event'lerinde pinned model + adapter SHA'ları |
 | A.8.10 Bilgi silme | FL | `forgelm purge` Madde 17; salted-hash audit; `data.erasure_warning_memorisation` |
 | A.8.11 Veri maskeleme | FL | `forgelm audit` regex + Presidio ML-NER |
 | A.8.12 Veri sızıntısı önleme | FL | `forgelm reverse-pii` plaintext residual scan |
@@ -118,7 +118,7 @@ SoA'sının uçtan uca auditable olması için tamlık adına listelenmiştir.
 | A.8.18 Ayrıcalıklı yardımcı program kullanımı | OOS | — |
 | A.8.19 Operasyonel sistemlerde yazılım kurulumu | FL-helps | `forgelm doctor` paketler; `pyproject.toml` pin'ler |
 | A.8.20 Ağ güvenliği | FL-helps | `safe_post` HTTPS-only / SSRF guard / no-redirect |
-| A.8.21 Ağ hizmetlerinin güvenliği | FL-helps | TLS-only webhooks; `FORGELM_AUDIT_SECRET` HMAC |
+| A.8.21 Ağ hizmetlerinin güvenliği | FL-helps | TLS-only webhooks (HTTPS + SSRF guard); audit-log chain HMAC `FORGELM_AUDIT_SECRET` üzerinden (not: webhook **gövdeleri** HMAC ile imzalanmaz) |
 | A.8.22 Ağ ayrımı | OOS | — |
 | A.8.23 Web filtreleme | OOS | — |
 | A.8.24 Kriptografi kullanımı | FL | SHA-256 + HMAC chain (per-run imzalama anahtarı = `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)`, bkz. `forgelm/compliance.py:104-114`); ayrıca purge / reverse-pii için salted SHA-256 identifier hashing |
@@ -126,10 +126,10 @@ SoA'sının uçtan uca auditable olması için tamlık adına listelenmiştir.
 | A.8.26 Uygulama güvenliği gereksinimleri | FL-helps | F-compliance-110 strict gate; ReDoS guard |
 | A.8.27 Güvenli sistem mimarisi ve mühendislik prensipleri | FL-helps | Append-only audit log mimarisi |
 | A.8.28 Güvenli kodlama | FL-helps | `docs/standards/coding.md`; type hints; CommonMark escaping |
-| A.8.29 Geliştirme ve kabul aşamasında güvenlik testi | FL-helps | `pytest` 1370+ test; `bandit` static analysis |
+| A.8.29 Geliştirme ve kabul aşamasında güvenlik testi | FL-helps | `pytest` ~1493 test; `bandit` static analysis |
 | A.8.30 Dış kaynaklı geliştirme | OOS | — |
 | A.8.31 Geliştirme, test ve üretim ortamlarının ayrılması | FL-helps | `forgelm --dry-run`; staging dir |
-| A.8.32 Değişim yönetimi | FL | `human_approval.*` chain; `compliance.config_hash`; staging snapshot |
+| A.8.32 Değişim yönetimi | FL | `human_approval.required/granted/rejected` audit zinciri; promotion'a kadar staging snapshot saklanır; `pipeline.training_started` diff için run-pinned model ve adapter revision'larını kaydeder |
 | A.8.33 Test bilgisi | FL-helps | `forgelm audit` test setlerinde de PII / secrets'i flag eder |
 | A.8.34 Denetim testi sırasında bilgi sistemlerinin korunması | OOS | — |
 

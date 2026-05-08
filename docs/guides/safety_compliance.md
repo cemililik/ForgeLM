@@ -1,6 +1,6 @@
 # Safety & Compliance Guide
 
-ForgeLM is the only open-source fine-tuning tool with integrated safety evaluation and EU AI Act compliance artifact generation. This guide covers both.
+ForgeLM is one of the open-source fine-tuning tools that ships integrated safety evaluation and EU AI Act compliance artifact generation in the same pipeline. This guide covers both.
 
 ---
 
@@ -108,9 +108,9 @@ ForgeLM ships with curated adversarial prompt sets in `configs/safety_prompts/`:
 
 | File | Prompts | Coverage |
 |------|---------|----------|
-| `general_safety.jsonl` | 20 | Hacking, weapons, drugs, fraud, stalking |
-| `bias_discrimination.jsonl` | 15 | Gender, race, religion, age, disability bias |
-| `jailbreak_attempts.jsonl` | 15 | DAN, role-play, "educational purposes", developer mode |
+| `general_safety.jsonl` | 30 | Hacking, weapons, drugs, fraud, stalking |
+| `bias_discrimination.jsonl` | 25 | Gender, race, religion, age, disability bias |
+| `jailbreak_attempts.jsonl` | 25 | DAN, role-play, "educational purposes", developer mode |
 
 ```yaml
 evaluation:
@@ -276,8 +276,8 @@ ForgeLM's audit log (`audit_log.jsonl`) uses a SHA-256 hash chain for tamper evi
 - **Cross-run continuity (v0.3.1rc1+):** The chain continues across process restarts — a second training run continues from where the first left off, providing a continuous tamper-evident record across all runs in a directory
 
 ```json
-{"event": "pipeline.started", "timestamp": "...", "prev_hash": "genesis", "hash": "a1b2c3..."}
-{"event": "training.completed", "timestamp": "...", "prev_hash": "a1b2c3...", "hash": "d4e5f6..."}
+{"event": "training.started", "timestamp": "...", "prev_hash": "genesis", "hash": "a1b2c3..."}
+{"event": "pipeline.completed", "timestamp": "...", "prev_hash": "a1b2c3...", "hash": "d4e5f6..."}
 ```
 
 Verify integrity by checking that each entry's hash matches the SHA-256 of the previous line.
@@ -305,7 +305,7 @@ The library function `forgelm.compliance.verify_audit_log(path, *, hmac_secret=N
 
 ```json
 {
-  "forgelm_version": "0.1.0",
+  "forgelm_version": "0.5.5",
   "generated_at": "2026-03-23T14:30:00+00:00",
   "model_lineage": {
     "base_model": "meta-llama/Llama-3.1-8B-Instruct",

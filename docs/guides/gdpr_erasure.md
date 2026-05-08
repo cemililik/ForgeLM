@@ -40,7 +40,7 @@ The tool:
 
 1. Resolves the per-output-dir salt at `<output_dir>/.forgelm_audit_salt` (creates it on first use; mode `0600`; XOR'd with `FORGELM_AUDIT_SECRET[:16]` if the env var is set). **Note:** this XOR feeds **identifier hashing only** — the audit-chain HMAC key is derived independently as `SHA-256(FORGELM_AUDIT_SECRET ‖ run_id)` (see [`docs/qms/access_control.md`](../qms/access_control.md) §3.4 / `forgelm/compliance.py:104-114`). The two primitives are intentionally separate.
 2. Writes `data.erasure_requested` to the audit log with the **hashed** target_id (`SHA-256(salt + value)`) and the operator-supplied justification.
-3. Locates the matching JSONL row by its `id` (or `row_id`) field — line-number fallback is **rejected** to defend against silent wrong-row deletion on a re-ordered file. Operators with id-less corpora must run `forgelm audit --add-row-ids <path>` (Phase 28 follow-up) first.
+3. Locates the matching JSONL row by its `id` (or `row_id`) field — line-number fallback is **rejected** to defend against silent wrong-row deletion on a re-ordered file. ForgeLM does not currently provide an id-population helper (a `forgelm audit --add-row-ids` flag is on the Phase 28 backlog); operators with id-less corpora must pre-populate ids with an operator-side script (e.g. `jq -c 'to_entries | with_entries(...)'` or a one-shot Python loop) before invoking purge.
 4. Atomically rewrites the corpus (writes a sibling temp file + `os.replace`); operators get either the full pre-erasure file or the full post-erasure file, never a partial state.
 5. Detects warning conditions and emits the matching events (memorisation, synthetic-data presence, external copies).
 6. Writes `data.erasure_completed` (or `data.erasure_failed` if the disk operation raised) so the chain reflects the final state.
@@ -104,9 +104,9 @@ Six new events ship with `forgelm purge` (catalogued in `docs/reference/audit_ev
 | `data.erasure_requested` | First step of any `forgelm purge --row-id` / `--run-id` invocation, before any deletion (`--check-policy` is read-only and emits no audit events) | `target_kind` ∈ `{row, staging, artefacts}`, `target_id` (hashed in row mode), `salt_source` (row mode), `corpus_path` (row), `output_dir` (run), `justification`, `dry_run` |
 | `data.erasure_completed` | Successful deletion finishes | All `requested` fields + `bytes_freed`, `files_modified`, `pre_erasure_line_number` (row mode), `match_count` (row mode) |
 | `data.erasure_failed` | Disk operation raised, OR no matching row/run found, OR multi-row policy refused on ambiguity | All `requested` fields + `error_class`, `error_message` |
-| `data.erasure_warning_memorisation` | Row erasure × `final_model/` exists | All `completed` fields + `affected_run_ids` |
-| `data.erasure_warning_synthetic_data_present` | Row erasure × `synthetic_data*.jsonl` exists | All `completed` fields + `synthetic_files` |
-| `data.erasure_warning_external_copies` | Loaded config has a webhook block | All `completed` fields + `webhook_targets` |
+| `data.erasure_warning_memorisation` | **Row mode only.** Row erasure × `final_model/` exists for any run that consumed the corpus. (Run mode does not emit memorisation warnings — the run-scoped `staging` / `artefacts` kinds are by definition pre-promotion.) | All `completed` fields + `affected_run_ids` |
+| `data.erasure_warning_synthetic_data_present` | **Row mode only.** Row erasure × `synthetic_data*.jsonl` exists in `output_dir`. (Run mode does not surface this warning — synthetic data is corpus-scoped, not run-scoped.) | All `completed` fields + `synthetic_files` |
+| `data.erasure_warning_external_copies` | Loaded config has a webhook block (both modes). | All `completed` fields + `webhook_targets` |
 
 ## Verifying a chain post-erasure
 

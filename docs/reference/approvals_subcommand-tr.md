@@ -46,11 +46,31 @@ fg-abc123def456   3h    2026-04-30T11:33:10+00:00  present
 fg-def456abc789   1d    2026-04-29T14:12:55+00:00  present
 ```
 
-Örnek JSON zarfı:
+Örnek JSON zarfı (per-summary alanları `_summarise_pending` tarafından inşa edilir):
 
 ```json
-{"success": true, "pending": [{"run_id": "fg-abc123def456", "requested_at": "2026-04-30T11:33:10+00:00", "age": "3h", "staging": "present"}], "count": 1}
+{
+  "success": true,
+  "pending": [
+    {
+      "run_id": "fg-abc123def456",
+      "staging_path": "outputs/run42/final_model.staging.fg-abc123def456",
+      "staging_exists": true,
+      "requested_at": "2026-04-30T11:33:10+00:00",
+      "age_seconds": 11340,
+      "metrics": {"safety_score": 0.97, "judge_score": 8.4},
+      "config_hash": null,
+      "reason": "require_human_approval=true"
+    }
+  ],
+  "count": 1
+}
 ```
+
+Alan notları:
+- `age_seconds` integer (clock skew güvencesi — hiç negatif olmaz; text renderer bunu tabloda `3h` / `1d` olarak biçimlendirir).
+- `staging_exists`, text `STAGING present|missing` hücresinin boolean karşılığı.
+- `config_hash`, `human_approval.required` event payload'ından forward-compatibly okunur (legacy `config_fingerprint` anahtarına fallback ile). **Mevcut trainer emisyonu henüz iki alanı da doldurmuyor**, bu yüzden renderer `--json` çıktısında `null`, text tablosunda boş hücre gösterir; read path bağlı, ileride bir emitter doc değişikliği olmadan alanı aydınlatabilir.
 
 ## `--show RUN_ID` ne yapar
 
@@ -78,11 +98,33 @@ Staging contents (4 entries):
   - tokenizer_config.json
 ```
 
-Örnek JSON zarfı:
+Örnek JSON zarfı (üst-düzey anahtarlar `_emit_show_json` tarafından inşa edilir):
 
 ```json
-{"success": true, "run_id": "fg-abc123def456", "status": "pending", "events": [{"event": "human_approval.required", "timestamp": "2026-04-30T11:33:10+00:00", "operator": "gha:Acme/pipelines:training:run-42"}], "staging": {"path": "outputs/run42/final_model.staging.fg-abc123def456", "entries": ["adapter_config.json", "adapter_model.safetensors", "tokenizer.json", "tokenizer_config.json"]}}
+{
+  "success": true,
+  "run_id": "fg-abc123def456",
+  "status": "pending",
+  "chain": [
+    {
+      "event": "human_approval.required",
+      "timestamp": "2026-04-30T11:33:10+00:00",
+      "operator": "gha:Acme/pipelines:training:run-42"
+    }
+  ],
+  "staging_contents": [
+    "adapter_config.json",
+    "adapter_model.safetensors",
+    "tokenizer.json",
+    "tokenizer_config.json"
+  ]
+}
 ```
+
+Alan notları:
+- `chain`, koşum için sıralı `human_approval.*` event listesidir (`required` → opsiyonel `granted` / `rejected`).
+- `staging_contents`, staging path altındaki dosya/dizin adlarının düz listesi (staging dizini yoksa boş — örn. zaten promote edilmiş ya da purge edilmiş).
+- `status` ∈ `{pending, granted, rejected}` — en son terminal kararı yansıtır (yoksa `pending`).
 
 ## Yayılan audit event'leri
 
@@ -92,11 +134,17 @@ Staging contents (4 entries):
 
 | Kod | Anlamı |
 |---|---|
-| 0 | Listeleme veya `--show` başarılı. `--pending` kuyruk boşken 0 döner (pending karar yok geçerli yanıttır). |
-| 1 | Config hatası: `audit_log.jsonl` okunamaz veya bozuk, ne `--pending` ne `--show` verilmiş (argparse genelde yakalar), `--show` üzerinde bilinmeyen `run_id`. |
-| 2 | Runtime hatası: zinciri okurken veya staging dizinini listelerken I/O başarısızlığı. |
+| 0 | `EXIT_SUCCESS` — listeleme veya `--show` başarılı. `--pending` kuyruk boşken 0 döner (pending karar yok, geçerli yanıttır). |
+| 1 | `EXIT_CONFIG_ERROR` — `audit_log.jsonl` **mevcut ama okunamaz veya bozuk**, ne `--pending` ne `--show` verilmiş (argparse genelde yakalar) ya da `--show` üzerinde bilinmeyen `run_id`. |
+| 2 | `EXIT_TRAINING_ERROR` — zinciri yinelerken mid-stream I/O başarısızlığı (NFS flap, kısmi-okuma OSError'ı). |
 
 Kod 3 (`EXIT_EVAL_FAILURE`) ve 4 (`EXIT_AWAITING_APPROVAL`) bu subcommand'ın yüzeyinin parçası değildir.
+
+> **Asimetrik missing-log davranışı.**
+> - Eksik `audit_log.jsonl`'a karşı `--pending` boş bir pending listesiyle **0** döner — yeni bootstrap edilmiş bir output dizininin meşru olarak ikisi de yoktur (`_run_approvals_list_pending`).
+> - Eksik `audit_log.jsonl`'a karşı `--show` **1** döner — gösterilecek bir koşum yok ve operatörün isteği spesifikti (`_run_approvals_show`).
+>
+> Permission-denied (yokluğa kıyasla) ikisinde de aynı şekilde ele alınır: boş bir sonuç sessizce sunmak yerine açık bir hatayla exit 1.
 
 ## CI kullanım deseni
 
@@ -111,7 +159,7 @@ if [ "$pending" -gt 0 ]; then
 fi
 ```
 
-Daha zengin bir policy kuran operatörler (örn. "herhangi bir bekleyen karar N saatten eskiyse deploy'u blokla") `age` field'ını parse eder. Text çıktısını yalnızca tavsiye olarak ele alın — JSON zarfı stabil sözleşmedir.
+Daha zengin bir policy kuran operatörler (örn. "herhangi bir bekleyen karar N saatten eskiyse deploy'u blokla") `age_seconds` field'ını parse eder — ör. "bir günden eski olan her şey" için `jq '[.pending[] | select(.age_seconds > 86400)] | length'`. Text çıktısını yalnızca tavsiye olarak ele alın — JSON zarfı stabil sözleşmedir.
 
 ## Bkz.
 

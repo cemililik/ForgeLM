@@ -61,7 +61,7 @@ What the regulator asks vs. how ForgeLM answers:
 - Implementation: `forgelm.trainer` post-training evaluation chain;
   `auto_revert` flag triggers fall-back to baseline on regression.
 - Evidence: `safety_results.json` (per-prompt classification);
-  `pipeline.reverted` audit event with regression delta.
+  `model.reverted` audit event with regression delta.
 - Configuration: `evaluation.safety.enabled`,
   `evaluation.auto_revert`, `evaluation.safety.scoring`,
   `evaluation.safety.min_safety_score`.
@@ -69,8 +69,14 @@ What the regulator asks vs. how ForgeLM answers:
 ### Safety classifier + 3-layer gate
 
 - Implementation: `forgelm.safety` runs Llama Guard 3 (or operator-
-  configured classifier) on a 140-prompt corpus across 6 categories
-  (was 50 × 3 in the v0.4 series; expanded in v0.5.0).
+  configured classifier) on the bundled
+  `forgelm/safety_prompts/default_probes.jsonl` corpus — 51 prompts
+  across 18 harm categories (`benign-control`, `animal-cruelty`,
+  `biosecurity`, `controlled-substances`, `credentials`, `csam`,
+  `cybersecurity`, `extremism`, `fraud`, `harassment`, `hate-speech`,
+  `jailbreak`, `malware`, `medical-misinfo`, `privacy-violence`,
+  `self-harm`, `sexual-content`, `weapons-violence`). Operators with
+  larger external corpora point `--probes` at their own JSONL.
 - 3-layer gate: binary safe-ratio → confidence-weighted score →
   severity threshold.  Each layer fails the run with a distinct
   `audit.classifier_*` event so the operator can attribute the
@@ -96,10 +102,15 @@ What the regulator asks vs. how ForgeLM answers:
   is a **distinct primitive** — it salts identifier hashing in
   `forgelm purge` / `forgelm reverse-pii` events
   (`_purge._resolve_salt`) and does NOT participate in chain-key
-  derivation. Genesis manifest sidecar (`audit_log.manifest.json`)
-  refuses truncate-and-resume tampering.
+  derivation. Genesis manifest sidecar
+  (`audit_log.jsonl.manifest.json`) refuses truncate-and-resume
+  tampering.
 - Verification: `forgelm verify-audit [--require-hmac]` validates
-  the chain end-to-end; exits 0/1/2/3.
+  the chain end-to-end; exits 0 (valid) or 1 (any failure — parse
+  error, HMAC mismatch, manifest divergence, file not found,
+  option error). The richer 0/1/2/3 exit-code surface applies to
+  the **trainer** entry-point (`forgelm --config ...`), not to
+  `verify-audit`.
 
 ### Article 14 staging gate
 
@@ -109,7 +120,7 @@ What the regulator asks vs. how ForgeLM answers:
   `forgelm approve <run_id> --output-dir <output_dir>` from a
   non-trainer operator (positional `run_id`; `--run-id` is not a
   flag).
-- Listing: `forgelm approvals --pending` (Phase 37).
+- Listing: `forgelm approvals --pending --output-dir <dir>` (Phase 37 — `--output-dir` is required).
 - Audit: `human_approval.required/granted/rejected` events.
 
 ### GDPR Article 15 + 17 (Wave 2b + Wave 3)
@@ -132,9 +143,11 @@ What the regulator asks vs. how ForgeLM answers:
 
 ## Gaps + residual operator-side considerations
 
-ForgeLM ships ~61 of the 93 ISO 27001 Annex A controls' technical
-evidence; the remaining ~32 are deployer-side (physical security,
-HR processes, network segregation, etc.).  For the deployer's
+ForgeLM ships technical evidence for ~59 of the 93 ISO 27001 Annex A
+controls (11 marked `FL` "full" + 48 `FL-helps` "partial" in
+`docs/reference/iso27001_control_mapping.md`); the remaining ~34 are
+`OOS` deployer-side (physical security, HR processes, network
+segregation, etc.).  For the deployer's
 ISMS posture:
 
 - **Encryption at rest** — ForgeLM is encryption-substrate-agnostic;
@@ -187,7 +200,7 @@ name; this survives refactors that the prior `#L33` form did not.
   `forgelm.cli.subcommands._reject`,
   `forgelm.cli.subcommands._approvals`.
 - **Webhook lifecycle**: `forgelm.webhook` (search for
-  `notify_started`, `notify_succeeded`, `notify_failed`,
+  `notify_start`, `notify_success`, `notify_failure`,
   `notify_reverted`, `notify_awaiting_approval`).
 - **HTTP discipline**: `forgelm._http` (search for `safe_post`,
   `safe_get`).

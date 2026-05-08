@@ -24,27 +24,27 @@ SFT, post-training'in iş atıdır. Modele doğru çıktıların örneklerini ve
 ```yaml
 model:
   name_or_path: "Qwen/Qwen2.5-7B-Instruct"
-  load_in_4bit: true
   max_length: 4096
+  backend: "transformers"            # or "unsloth" — replaces the legacy `use_unsloth: true` flag
 
 lora:
   r: 16
   alpha: 32
+  method: "lora"                     # or "dora" / "pissa" / "rslora"
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
-datasets:
-  - path: "data/train.jsonl"
-    format: "messages"
+data:
+  dataset_name_or_path: "data/train.jsonl"
 
 training:
-  trainer: "sft"
-  epochs: 3
-  batch_size: 4
+  trainer_type: "sft"
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 2
   learning_rate: 2.0e-4
   warmup_ratio: 0.03
-  scheduler: "cosine"
-
-output:
-  dir: "./checkpoints/sft"
+  output_dir: "./checkpoints/sft"
+  packing: false                     # set to true to bin-pack short samples
 ```
 
 ```shell
@@ -75,13 +75,13 @@ SFT-özgü ayarlar standart `training` bloğuyla yan yanadır.
 
 | Parametre | Tip | Vars. | Açıklama |
 |---|---|---|---|
-| `learning_rate` | float | `2e-4` | LoRA: 1e-4 - 5e-4. Full-parametre: 1e-5 - 5e-5. |
-| `epochs` | int | `3` | Daha çok = daha çok ezberleme, daha az genelleme. |
-| `batch_size` | int | `4` | Cihaz başına. Etkili batch için gradient accumulation ile çarpın. |
-| `max_length` | int | `4096` | Eğitimdeki context. Uzun = çok VRAM. |
-| `packing` | bool | `false` | Kısa dizileri throughput için paketle. %30-50 hız. |
-| `neftune_noise_alpha` | float | `null` | Embedding-noise regülarizasyonu. Küçük dataset'lerde `5.0` iyileştirir. |
-| `loss_on_completions_only` | bool | `true` | Sadece assistant token'larında loss hesapla. Önerilir. |
+| `training.learning_rate` | float | `2e-4` | LoRA: 1e-4 - 5e-4. Full-parametre: 1e-5 - 5e-5. |
+| `training.num_train_epochs` | int | `3` | Daha çok = daha çok ezberleme, daha az genelleme. |
+| `training.per_device_train_batch_size` | int | `4` | Cihaz başına. Etkili batch için `gradient_accumulation_steps` ile çarpın. |
+| `training.packing` | bool | `false` | Kısa dizileri throughput için paketle. %30-50 hız. |
+| `training.sample_packing` | bool | `false` | Alternatif TRL-tarafı packing yolu; `packing` ile karşılıklı dışlayıcı. |
+| `training.neftune_noise_alpha` | float | `null` | Embedding-noise regülarizasyonu. Küçük dataset'lerde `5.0` iyileştirir. |
+| `model.max_length` | int | `2048` | Eğitimdeki context (yapı `model:` altında, `training:` değil). Uzun = çok VRAM. |
 
 Tam parametre listesi: [Konfigürasyon Referansı](#/reference/configuration).
 
@@ -109,7 +109,7 @@ Her zaman göndermeden önce `--fit-check` koşturun.
 :::
 
 :::warn
-**`loss_on_completions_only` etkinleştirmeyi unutmak.** Devre dışıyken model kapasiteyi prompt'u tekrarlamayı öğrenmekle harcar. Varsayılan `true`; sadece olağandışı eğitim-objesi deneyleri için kapatın.
+**Tokenizer değişikliği sonrası loss artıyor.** `model.name_or_path`'i farklı chat template ship eden modeller arasında değiştirip yeni tokenizer'a karşı `forgelm audit` koşturmamak en sık foot-gun'dır. Audit'in render edilmiş örnek önizlemesi trainer'ın gerçekte ne göreceğini gösterir — commit'lemeden önce format'ın eşleştiğini doğrulayın.
 :::
 
 :::tip
@@ -125,7 +125,7 @@ checkpoints/sft/
 ├── adapter_model.safetensors      ← LoRA ağırlıkları (LoRA kullanılmıyorsa merged checkpoint)
 ├── README.md                      ← model kartı
 ├── config_snapshot.yaml           ← kullanılan tam config
-└── artifacts/                     ← uyumluluk kanıtı (compliance.annex_iv etkinse)
+└── compliance/                   ← Annex IV bundle (`compliance:` config bloğu varsa otomatik üretilir)
 ```
 
 ## Bkz.

@@ -13,9 +13,9 @@ ForgeLM'in exit kodları kamuya açık bir kontrattır. CI/CD hatları, schedule
 |---|---|---|---|
 | **0** | `EXIT_SUCCESS` | Koşu tamamlandı; tüm kapılar geçti; checkpoint terfi etti. | Hattı sürdür |
 | **1** | `EXIT_CONFIG_ERROR` | YAML geçersiz, dosya yok, env var ayarsız veya argüman bozuk. | Hızlı başarısız |
-| **2** | `EXIT_TRAINING_ERROR` | Eğitim sırasında runtime hatası (config veya değerlendirme kapısı dışı her ele alınmamış istisna: data yükleme, OOM, NaN loss, audit `--strict` ihlali, I/O). | İncele; logları yüzeyle |
+| **2** | `EXIT_TRAINING_ERROR` | Eğitim sırasında runtime hatası (config veya değerlendirme kapısı dışı her ele alınmamış istisna: data yükleme, OOM, NaN loss, I/O başarısızlığı, mid-stream audit-iteration OSError). | İncele; logları yüzeyle |
 | **3** | `EXIT_EVAL_FAILURE` | Benchmark veya güvenlik kapısı geçemedi; konfigüre edilmişse geri alındı. | İncele; terfi ETTİRME |
-| **4** | `EXIT_AWAITING_APPROVAL` | `compliance.human_approval: true` engelliyor. | Hattı tut; reviewer'ı tetikle |
+| **4** | `EXIT_AWAITING_APPROVAL` | `evaluation.require_human_approval: true` engelliyor. | Hattı tut; reviewer'ı tetikle |
 
 Bu beş tam sayı tüm kamuya açık kontratı oluşturur — kanonik tanım için bkz. [`forgelm/cli/_exit_codes.py`](https://github.com/cemililik/ForgeLM/blob/main/forgelm/cli/_exit_codes.py). Diğer her sıfır olmayan değer (sinyal kaynaklı 128+N kodları dahil) süreç çıkmadan önce `EXIT_TRAINING_ERROR` (2) değerine sıkıştırılır.
 
@@ -80,11 +80,11 @@ stage('Train') {
 | YAML'da typo (ör. `learnng_rate`) | 1 |
 | YAML'da `${HF_TOKEN}` ama env var yok | 1 |
 | `--config` var olmayan dosyaya işaret ediyor | 1 |
-| `--strict` ile audit bir ihlal raporladı | 2 |
 | Eğitim ortasında final loss NaN / OOM / I/O hatası | 2 |
+| `forgelm verify-audit` zincir kopması veya HMAC uyuşmazlığı | 1 (v0.5.5 döngüsünde EXIT_CONFIG_ERROR hem opsiyon hatalarını hem bütünlük arızalarını kapsar; v0.6.x deprecation notu için bkz. [`verify-audit` referansı](../../../reference/verify_audit-tr.md)) |
 | DPO koşusu, Llama Guard S5 toleransı aştı | 3 |
 | Benchmark hellaswag floor altına düştü | 3 |
-| `compliance.human_approval: true` ve onay imzalanmamış | 4 |
+| `evaluation.require_human_approval: true` ve onay imzalanmamış | 4 |
 | Kullanıcı Ctrl+C (sinyal kaynaklı 128+N) | 2 (sıkıştırılır) |
 
 ## Programatik tespit
@@ -103,7 +103,7 @@ Exit kodu kontrat tek başına yeterli — POSIX kabuklarda `$?`, cmd'de `%ERROR
 - Annex IV paketi yazmış (konfigüre ise).
 - Manifest.json'u tüm artifact'lar üzerinde SHA-256 ile yazmış.
 - Opsiyonel: GGUF, deployment config yazmış.
-- Audit log'u `run_complete` ile kapatmış.
+- Audit log'u `pipeline.completed` ile kapatmış (kanonik event adı).
 
 Bunlardan biri başarısız olursa exit kod sıfır değildir. Tasarım gereği "kısmi başarı" exit kodu yok.
 

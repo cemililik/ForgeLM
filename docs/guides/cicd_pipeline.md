@@ -203,13 +203,14 @@ ForgeLM sends structured payloads:
 ```json
 // Exit code 4 — awaiting human approval
 {
-  "event": "training.awaiting_approval",
+  "event": "approval.required",
   "run_name": "Llama-3.1-8B-Instruct_finetune",
   "status": "awaiting_approval",
-  "message": "All automated checks passed. Human review required before deployment.",
-  "compliance_artifacts": "./checkpoints/compliance/"
+  "model_path": "./checkpoints/final_model.staging.<run_id>"
 }
 ```
+
+(Wire-format event name is `approval.required` — see `docs/reference/audit_event_catalog.md` Webhook lifecycle table for the full 5-event surface and `forgelm/webhook.py:notify_awaiting_approval` for the emitter.)
 
 ---
 

@@ -21,66 +21,70 @@ Gerçek veri kıt veya pahalı olduğunda ek eğitim örneklerini daha güçlü 
 ```yaml
 synthetic:
   enabled: true
-  teacher:
-    provider: "openai"                  # veya "anthropic", "local"
-    model: "gpt-4o"
-    api_key: "${OPENAI_API_KEY}"
-  seed_prompts: "data/seeds.jsonl"      # başlangıç prompt'ları
-  output: "data/synthetic.jsonl"
-  num_samples: 5000
+  teacher_model: "gpt-4o"               # API model adı VEYA HF Hub ID VEYA yerel yol
+  teacher_backend: "api"                # "api" | "local" | "file"
+  api_base: "https://api.openai.com/v1" # OpenAI-uyumlu endpoint
+  api_key_env: OPENAI_API_KEY           # anahtarı taşıyan env var (tercih edilen)
+  api_delay: 0.5                        # çağrılar arası saniye (rate-limit dostluğu)
+  api_timeout: 60                       # çağrı başı timeout
+  seed_file: "data/seeds.jsonl"         # VEYA seed_prompts: ["...", "..."] inline
+  system_prompt: ""                     # opsiyonel — her çağrının başına eklenir
+  max_new_tokens: 1024                  # yanıt uzunluğu sınırı
   temperature: 0.7
-  prompt_template: "default"            # veya özel template yolu
-  budget_usd: 50.0                      # maliyet tavanı
+  output_file: "data/synthetic.jsonl"
+  output_format: "messages"             # "messages" | "instruction" | "chatml" | "prompt_response"
 
+# Trainer'ın data bloğu üzerinden seed + sentetik birleştirin:
+data:
+  dataset_name_or_path: "data/seeds.jsonl"
+  extra_datasets: ["data/synthetic.jsonl"]
+  mix_ratio: [0.6, 0.4]
 training:
-  trainer: "sft"
-datasets:
-  - path: "data/seeds.jsonl"
-  - path: "data/synthetic.jsonl"        # seed + sentetik birleştir
+  trainer_type: "sft"
 ```
 
 ```shell
 $ forgelm --config configs/distill.yaml --generate-data
 [2026-04-29 14:01:32] gpt-4o'dan üretim
-[2026-04-29 14:01:35] 100/5000 (şu ana kadar maliyet: $1.20)
-[2026-04-29 14:18:55] 5000/5000 (toplam maliyet: $42.30)
-✓ data/synthetic.jsonl'a 5000 satır yazıldı
+[2026-04-29 14:01:35] 100/<seeds>
+[2026-04-29 14:18:55] <seeds>/<seeds>
+✓ data/synthetic.jsonl'a <n> satır yazıldı
 $ forgelm --config configs/distill.yaml          # normal eğit
 ```
 
 ## Sağlayıcı desteği
 
-| Sağlayıcı | Modeller | Auth env var |
+`teacher_backend` literal'ı ForgeLM'in teacher'a nasıl ulaştığını kontrol eder. Sağlayıcı whitelist'i yoktur — API yolu, `api_base` üzerinden pinlenmiş herhangi OpenAI-uyumlu endpoint'i kullanır.
+
+| `teacher_backend` | Beklenen | Auth |
 |---|---|---|
-| `openai` | gpt-4o, gpt-4o-mini, o1, o3-mini | `OPENAI_API_KEY` |
-| `anthropic` | claude-opus-4, claude-sonnet-4, claude-haiku-4 | `ANTHROPIC_API_KEY` |
-| `local` | Herhangi HuggingFace causal LM | yok — yerel inference |
-| `vllm` | vLLM üzerinden servis edilen herhangi model | `VLLM_BASE_URL` |
+| `"api"` | Herhangi OpenAI-uyumlu chat-completions endpoint'i (OpenAI, Azure OpenAI, OpenAI-compat shim üzerinden Anthropic, Together, Groq, `--api-key`'li self-hosted vLLM, vb.) | Runtime'da çözülen `api_key_env` |
+| `"local"` | In-process yüklenen herhangi HuggingFace causal LM | Yok — yerel inference |
+| `"file"` | Önceden üretilmiş teacher yanıtları JSONL'i (reproducibility için replay modu) | Yok |
 
 Yerel üretim için:
 
 ```yaml
 synthetic:
-  teacher:
-    provider: "local"
-    model: "Qwen/Qwen2.5-72B-Instruct"
-    load_in_4bit: true
+  enabled: true
+  teacher_backend: "local"
+  teacher_model: "Qwen/Qwen2.5-72B-Instruct"
+  seed_file: "data/seeds.jsonl"
+  output_file: "data/synthetic.jsonl"
 ```
+
+Student-trainer'ın `model.load_in_4bit` knob'ı sentetik teacher'dan **ayrıdır** — `synthetic.teacher.load_in_4bit` yoktur; teacher'ın quantize edilmesi gerekiyorsa `teacher_model`'da pre-quantized bir HF Hub varyantı pin'leyin.
 
 ## Maliyet kontrolleri
 
-API tabanlı üretim hızla maliyet biriktirir. ForgeLM sıkı sınırlar yayınlar:
+ForgeLM runtime USD bütçesi uygulamaz. `synthetic.budget_usd` ve `synthetic.rate_limit` bloğu yoktur. Maliyeti şunlarla yönetin:
 
-```yaml
-synthetic:
-  budget_usd: 50.0                      # sıkı tavan — üretim burada durur
-  max_tokens_per_response: 1024         # yanıt uzunluğu sınırı
-  rate_limit:
-    requests_per_minute: 100            # sağlayıcı rate-limit'lerine saygı
-    burst: 10
-```
+- **`api_delay`** — çağrılar arası minimum saniye; rate-limit dostluğu olarak da iş görür.
+- **`max_new_tokens`** — yanıt uzunluğu tavanı; tek prompt'un 10k-token completion'a sürüklenmesini engeller.
+- **Seed-set boyutu** — her seed prompt bir teacher çağrısı olur. `seed_file` boyutunu bütçenizle orantılı tutun.
+- **Sağlayıcı-tarafı cap'ler** — throughput / harcama cap'lerini OpenAI / Anthropic / Together dashboard'unuzda set edin, `forgelm`'in zorlamasını beklemek yerine.
 
-Bütçe dolduğunda ForgeLM kısmi dataset ile durur. Audit log harcanan miktarı tam olarak kaydeder.
+Trainer'ın audit log'u her teacher çağrısını model adı ve timestamp ile kaydeder; koşum sonrası maliyeti yeniden inşa etmek için `audit_log.jsonl`'i kullanın.
 
 ## Kalite kontrolleri
 

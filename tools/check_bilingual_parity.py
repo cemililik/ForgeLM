@@ -64,6 +64,8 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 _PAIRS: Tuple[Tuple[str, str], ...] = (
     # docs/guides/
     ("docs/guides/air_gap_deployment.md", "docs/guides/air_gap_deployment-tr.md"),
+    ("docs/guides/alignment.md", "docs/guides/alignment-tr.md"),
+    ("docs/guides/cicd_pipeline.md", "docs/guides/cicd_pipeline-tr.md"),
     ("docs/guides/data_audit.md", "docs/guides/data_audit-tr.md"),
     ("docs/guides/gdpr_erasure.md", "docs/guides/gdpr_erasure-tr.md"),
     ("docs/guides/getting-started.md", "docs/guides/getting-started-tr.md"),
@@ -72,7 +74,9 @@ _PAIRS: Tuple[Tuple[str, str], ...] = (
     ("docs/guides/iso_soc2_deployer_guide.md", "docs/guides/iso_soc2_deployer_guide-tr.md"),
     ("docs/guides/library_api.md", "docs/guides/library_api-tr.md"),
     ("docs/guides/performance.md", "docs/guides/performance-tr.md"),
+    ("docs/guides/quickstart.md", "docs/guides/quickstart-tr.md"),
     ("docs/guides/safety_compliance.md", "docs/guides/safety_compliance-tr.md"),
+    ("docs/guides/troubleshooting.md", "docs/guides/troubleshooting-tr.md"),
     # docs/qms/
     ("docs/qms/README.md", "docs/qms/README-tr.md"),
     ("docs/qms/access_control.md", "docs/qms/access_control-tr.md"),
@@ -90,6 +94,7 @@ _PAIRS: Tuple[Tuple[str, str], ...] = (
     ("docs/reference/architecture.md", "docs/reference/architecture-tr.md"),
     ("docs/reference/audit_event_catalog.md", "docs/reference/audit_event_catalog-tr.md"),
     ("docs/reference/cache_subcommands.md", "docs/reference/cache_subcommands-tr.md"),
+    ("docs/reference/compliance_summary.md", "docs/reference/compliance_summary-tr.md"),
     ("docs/reference/configuration.md", "docs/reference/configuration-tr.md"),
     ("docs/reference/data_preparation.md", "docs/reference/data_preparation-tr.md"),
     ("docs/reference/distributed_training.md", "docs/reference/distributed_training-tr.md"),

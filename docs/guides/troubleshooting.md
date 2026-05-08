@@ -178,12 +178,17 @@ If the teacher model API times out during `--generate-data`:
 
 ```yaml
 synthetic:
-  timeout: 120       # increase from default 60 seconds
-  retry_attempts: 5  # increase retries (default: 3)
-  batch_size: 5      # reduce batch size for slower APIs
+  api_timeout: 120   # increase from default 60 seconds
+  api_delay: 1.0     # seconds between API calls (rate limiting; default 0.5)
+  max_new_tokens: 512 # cap teacher response size if it's hanging
 ```
 
-For local teacher models, ensure sufficient GPU memory is available. Consider using a smaller teacher model or reducing `max_tokens`.
+`SyntheticConfig` does not surface dedicated retry / batch knobs in v0.5.5
+— retries are handled at the HTTP-client layer, and batch size is fixed
+at one prompt per API call. Phase 28+ backlog tracks adding explicit
+retry-count and batched-call parameters.
+
+For local teacher models, ensure sufficient GPU memory is available. Consider using a smaller teacher model or reducing `synthetic.max_new_tokens`.
 
 ### `ValueError: Unknown trainer_type`
 
@@ -219,7 +224,7 @@ forgelm --config my_config.yaml --dry-run
 
 ForgeLM uses Pydantic v2 for validation. Error messages show the exact field:
 
-```
+```text
 Configuration validation failed: 1 validation error for ForgeConfig
 training -> learning_rate
   Input should be a valid number [type=float_parsing, input_value='not_a_number']
@@ -231,7 +236,7 @@ Fix the YAML value to match the expected type.
 
 ForgeLM now **rejects unknown fields** in YAML configs — all sub-models enforce strict validation (`extra="forbid"`). Typos or unsupported fields raise a clear error:
 
-```
+```text
 ConfigError: Configuration validation failed: 1 validation error for ForgeConfig
 training.lerning_rate
   Extra inputs are not permitted [type=extra_forbidden, input_value=2e-5]
@@ -260,7 +265,7 @@ lora:
 
 ### `mix_ratio` Validation Error
 
-```
+```text
 ConfigError: mix_ratio values must be non-negative
 ConfigError: mix_ratio values cannot all be zero
 ```
@@ -329,7 +334,7 @@ nvidia-smi
 
 ### DeepSpeed Config Not Found
 
-```
+```text
 FileNotFoundError: DeepSpeed preset 'zero2' not found
 ```
 
@@ -380,7 +385,7 @@ docker run --gpus all --shm-size=16g ...
 | `1` | Config error | Fix your YAML |
 | `2` | Training error | Check GPU, memory, dependencies |
 | `3` | Evaluation failure | Model quality below threshold — adjust thresholds or improve data |
-| `4` | Awaiting approval | Human review required — review results in `checkpoints/compliance/` and redeploy when ready |
+| `4` | Awaiting approval | Human review required — run `forgelm approvals --show <run_id> --output-dir <dir>` to inspect the staging directory, then `forgelm approve <run_id> --output-dir <dir>` to promote or `forgelm reject <run_id> --output-dir <dir>` to discard. The staging path is `<output_dir>/final_model.staging.<run_id>/`. |
 
 ---
 

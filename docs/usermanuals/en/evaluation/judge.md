@@ -1,11 +1,11 @@
 ---
 title: LLM-as-Judge
-description: Quality scoring with OpenAI or a local judge model — pairwise, single-rubric, or ELO-style.
+description: Quality scoring on a held-out prompt set using a stronger judge model — single-rubric average score with a configurable minimum.
 ---
 
 # LLM-as-Judge
 
-Standard benchmarks measure narrow capabilities; they don't capture "is this response actually good?". LLM-as-judge fills that gap by using a stronger model to evaluate yours. ForgeLM supports three modes: pairwise comparison, single-rubric scoring, and ELO-style ranking.
+Standard benchmarks measure narrow capabilities; they don't capture "is this response actually good?". LLM-as-judge fills that gap by using a stronger model (or a local instruction-tuned LLM) to score the trained model's outputs on a held-out prompt set. ForgeLM's judge is a single-rubric average-score gate — the judge assigns a 1-10 score per (prompt, completion) pair and the run fails if the mean score drops below a configured floor.
 
 ## When to use
 
@@ -13,147 +13,86 @@ Standard benchmarks measure narrow capabilities; they don't capture "is this res
 |---|---|
 | Output quality is subjective (helpful, polite, on-brand). | The task has a verifiable answer. |
 | You don't have ground truth. | You have ground truth. |
-| You're comparing two models' qualitative output. | You're tracking absolute performance over time. |
+| You're tracking qualitative regressions across runs. | You're tracking absolute capability. |
 | Cost is acceptable (~$1-5 per 1K judgements with GPT-4o). | You need free, local eval. |
 
 ## Quick example
 
 ```yaml
 evaluation:
-  judge:
+  llm_judge:                            # block name is `llm_judge`, not `judge`
     enabled: true
-    mode: "pairwise"                    # or single-rubric, elo
-    judge_model:
-      provider: "openai"
-      model: "gpt-4o-mini"               # cheaper than gpt-4o, almost as good for judging
-      api_key: "${OPENAI_API_KEY}"
-    baseline_model: "./checkpoints/sft-base"
-    test_prompts: "data/eval-prompts.jsonl"
-    num_samples: 200
-    rubric: "default"                   # or path to custom rubric
+    judge_model: "gpt-4o-mini"          # or local path, e.g. "./judges/Qwen2.5-72B-Instruct"
+    judge_api_key_env: OPENAI_API_KEY   # null = local model (no API call)
+    judge_api_base: null                # override for Azure OpenAI / vLLM-compatible gateway
+    eval_dataset: "data/eval-prompts.jsonl"
+    min_score: 6.5                      # mean score floor (1-10 scale); revert below this
+    batch_size: 8                       # (prompt, completion) pairs scored per round; 1 disables batching
 ```
 
-## Pairwise mode
+## Eval-dataset format
 
-Asks the judge: "Response A or Response B — which is better, and why?" Aggregates win-rates.
+`eval_dataset` is a JSONL file. Each line is a single prompt the judge scores against the trained model's response:
+
+```jsonl
+{"prompt": "Explain mitosis to a 10-year-old."}
+{"prompt": "Refactor this Python list comprehension into a for-loop: [x*2 for x in nums]"}
+```
+
+ForgeLM generates the trained model's completion for each prompt and asks the judge: "Score this response on a 1-10 scale for helpfulness and correctness." The mean across the dataset is the run's `judge_score`.
+
+## Output
+
+`<output_dir>/judge_report.json`:
 
 ```json
 {
-  "pairwise_results": {
-    "wins": 124,
-    "losses": 56,
-    "ties": 20,
-    "win_rate": 0.62,
-    "judge_explanations_sample": [...]
-  }
+  "judge_model": "gpt-4o-mini",
+  "eval_dataset": "data/eval-prompts.jsonl",
+  "n_prompts": 200,
+  "mean_score": 7.4,
+  "min_score_threshold": 6.5,
+  "passed": true,
+  "per_prompt": [
+    {"prompt_id": 0, "score": 8, "explanation": "..."},
+    {"prompt_id": 1, "score": 6, "explanation": "..."}
+  ]
 }
 ```
 
-A win rate above 0.55 with 200+ samples is statistically meaningful. Below that, run more samples or accept that the differences are noise.
+When `mean_score < min_score`, the trainer treats it as an evaluation regression: if `auto_revert: true`, the model is reverted; otherwise the trainer exits non-zero with the failure recorded in the audit log.
 
-## Single-rubric mode
-
-Asks the judge to score each response on a rubric (1-5 stars per criterion).
-
-```yaml
-evaluation:
-  judge:
-    mode: "single-rubric"
-    rubric:
-      criteria:
-        - name: "helpfulness"
-          description: "Does the response solve the user's problem?"
-          scale: 5
-        - name: "tone"
-          description: "Is the tone appropriate for customer support?"
-          scale: 5
-        - name: "factual_accuracy"
-          description: "Are claims correct?"
-          scale: 5
-```
-
-Output:
-
-```json
-{
-  "rubric_means": {
-    "helpfulness": 4.2,
-    "tone": 4.7,
-    "factual_accuracy": 3.8
-  },
-  "rubric_distributions": {...}
-}
-```
-
-## ELO mode
-
-Runs round-robin pairwise comparisons across multiple model versions, computes ELO ratings.
-
-```yaml
-evaluation:
-  judge:
-    mode: "elo"
-    candidates:
-      - name: "v1"
-        path: "./checkpoints/v1"
-      - name: "v2"
-        path: "./checkpoints/v2"
-      - name: "v3-current"
-        path: "./checkpoints/v3"
-    rounds: 50
-```
-
-Output: ELO ratings per candidate. Useful when comparing across many runs (e.g. hyperparameter sweep).
-
-## Judge model choice
+## Judge-model choice
 
 | Judge | Cost / 1K judgements | Quality |
 |---|---|---|
-| `openai:gpt-4o` | ~$5 | Highest. Default for production. |
-| `openai:gpt-4o-mini` | ~$1 | 90% of gpt-4o quality. Recommended. |
-| `anthropic:claude-haiku-4` | ~$1.50 | Comparable to gpt-4o-mini. |
-| `local:Qwen2.5-72B-Instruct` | $0 (your GPU time) | Reasonable; weaker on subtle judgement calls. |
-| `local:Llama-3.1-70B-Instruct` | $0 | Slightly worse than Qwen 72B for judging. |
+| `gpt-4o` (set `judge_api_key_env: OPENAI_API_KEY`) | ~$5 | Highest. Default for production. |
+| `gpt-4o-mini` | ~$1 | 90% of gpt-4o quality. Recommended cost-balanced default. |
+| `claude-haiku-4` (set `judge_api_base: https://api.anthropic.com/v1` + correct env var) | ~$1.50 | Comparable to gpt-4o-mini. |
+| Local path (e.g. `./judges/Qwen2.5-72B-Instruct`, `judge_api_key_env: null`) | $0 (your GPU time) | Reasonable; weaker on subtle judgement calls. |
 
-## Reducing variance
-
-Single judge runs are noisy. ForgeLM ships standard variance-reduction:
-
-- **Self-consistency** — `--num-judgements 3` runs each comparison three times, takes majority.
-- **Position swap** — alternates which response is "A" vs "B" to detect position bias.
-- **Multiple rubrics** — averages across criteria.
-
-```yaml
-evaluation:
-  judge:
-    self_consistency: 3                 # 3 votes per comparison
-    swap_positions: true                # detect position bias
-```
+The judge is a single configurable model — there is no built-in pairwise / ELO / multi-criteria rubric pipeline. To do pairwise A/B comparison across two trained models, run two separate trainer invocations against the same eval dataset and compare the resulting `mean_score` values; ForgeLM does not orchestrate the pairwise call internally.
 
 ## Cost controls
 
-```yaml
-evaluation:
-  judge:
-    budget_usd: 20.0                    # halt at $20
-    rate_limit:
-      requests_per_minute: 60
-```
+ForgeLM does not enforce a runtime USD budget. Manage cost externally:
 
-When the budget is hit, judge halts with partial results.
+- **Limit `eval_dataset` size.** Each prompt = one judge API call. 200 prompts × $0.005 (gpt-4o-mini) ≈ $1 per run.
+- **Use a local judge for iteration.** Pin a 70B-class instruction-tuned model on your own GPU for nightly runs; reserve API judges for the release-gate run.
+- **Provider-side rate limiting.** Set throughput caps in your OpenAI/Anthropic dashboard rather than in `forgelm` config.
 
 ## Common pitfalls
 
 :::warn
-**Using the same model as judge and student.** A 7B model judging another 7B's outputs won't catch subtle quality issues. Use a stronger judge.
+**Using the same model as judge and student.** A 7B model judging another 7B's outputs won't catch subtle quality issues. Use a stronger judge — for a 7B trained model, an instruction-tuned 70B+ or an API-class judge.
 :::
 
 :::warn
-**Position bias.** Judges often prefer the first response slightly. Always set `swap_positions: true` for pairwise comparisons.
+**Tiny `eval_dataset`.** Scoring 20 prompts is statistical noise. Use 200+ for a meaningful mean score; for a release gate, 1000+ is better.
 :::
 
 :::warn
-**Tiny sample sizes.** Comparing two models with 20 prompts is statistical noise. Use 200+ for meaningful win-rates.
+**Forgetting `judge_api_key_env`.** When `judge_model` is an API model name (e.g. `gpt-4o-mini`) and `judge_api_key_env` is unset, ForgeLM falls back to local-model loading and tries to download `gpt-4o-mini` from HF Hub, which fails noisily. Set the env-var name explicitly when the judge is an API.
 :::
 
 :::tip
@@ -163,5 +102,5 @@ When the budget is hit, judge halts with partial results.
 ## See also
 
 - [Benchmark Integration](#/evaluation/benchmarks) — quantitative eval companion.
-- [Synthetic Data](#/data/synthetic-data) — same provider abstraction.
-- [Auto-Revert](#/evaluation/auto-revert) — judge can be a gating signal.
+- [Synthetic Data](#/data/synthetic-data) — uses a similar `api_base` / `api_key_env` envelope for the teacher model.
+- [Auto-Revert](#/evaluation/auto-revert) — judge mean-score is one of the four guard families.

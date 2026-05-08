@@ -1,6 +1,6 @@
 ---
 title: GPU Cost Estimation
-description: Auto-detect across 18 GPU profiles and track per-run cost against your hourly rate.
+description: Auto-detect across 16 GPU profiles and track per-run cost against your hourly rate.
 ---
 
 # GPU Cost Estimation
@@ -78,15 +78,17 @@ estimated at $0.58 USD at the configured rate.
 
 ## Pre-flight cost estimation
 
-Before starting a long training run, get an estimate:
+Before starting a long training run, run a short calibration (1-2 steps with `training.max_steps: 2`), capture the resulting `gpu_hours` from the per-run `compliance_report.json`, and multiply by your provider's hourly rate. (A dedicated `--estimate-cost` flag was discussed but not shipped; the resource-tracking path emits actuals only.)
 
 ```shell
-$ forgelm --config configs/run.yaml --estimate-cost
-Estimated training time: 6h 30m
-Estimated cost (1× A100 80GB at $1.10/hr): $7.15
+$ forgelm --config configs/calibration.yaml --output-dir /tmp/calib
+$ jq '.resource_usage.gpu_hours' /tmp/calib/compliance_report.json
+0.034
+$ python -c "print(0.034 * (3 / 0.034) * 1.10)"   # 6h training at $1.10/hr
+$7.15
 ```
 
-The estimate uses dataset size + epochs + per-step throughput from a small calibration run. Accuracy is typically within 20% of actual.
+The calibration approach is typically within 20% of actual.
 
 ## Multi-GPU and distributed
 

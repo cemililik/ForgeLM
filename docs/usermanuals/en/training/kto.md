@@ -24,43 +24,48 @@ model:
   name_or_path: "./checkpoints/sft-base"
   max_length: 4096
 
-datasets:
-  - path: "data/feedback.jsonl"
-    format: "binary"
+lora:
+  r: 16
+  alpha: 32
+  method: "lora"
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+
+data:
+  dataset_name_or_path: "data/feedback.jsonl"
 
 training:
-  trainer: "kto"
-  epochs: 1
+  trainer_type: "kto"
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
   learning_rate: 5.0e-7
-  kto:
-    beta: 0.1
-    desirable_weight: 1.0
-    undesirable_weight: 1.0
-
-output:
-  dir: "./checkpoints/kto"
+  kto_beta: 0.1                  # flat field — KTO's only required tuning knob
+  output_dir: "./checkpoints/kto"
 ```
+
+The `desirable_weight` / `undesirable_weight` knobs from TRL's KTOConfig are not surfaced as ForgeLM config fields today; the trainer uses TRL's defaults (1.0 / 1.0) and operators who need asymmetric weighting wire it via a TRL-side override script. (Phase 28+ backlog.)
 
 ## Dataset format
 
 ```json
-{"prompt": "How do I cancel?", "response": "Just stop paying lol.", "label": false}
-{"prompt": "How do I cancel?", "response": "From Settings → Billing…", "label": true}
+{"prompt": "How do I cancel?", "completion": "Just stop paying lol.", "label": false}
+{"prompt": "How do I cancel?", "completion": "From Settings → Billing…", "label": true}
 ```
 
 KTO needs both classes — at minimum 5-10% of your data should be the minority class. If your dataset is 99% thumbs-up and 1% thumbs-down (which is typical of production telemetry), KTO will struggle to find a useful signal in the rare class.
 
 ## Configuration parameters
 
+KTO's only configurable knob in ForgeLM is `training.kto_beta` (flat field, no nested `training.kto:` block):
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `beta` | float | `0.1` | KL strength, same role as DPO. |
-| `desirable_weight` | float | `1.0` | Up-weight thumbs-up rows in the loss. |
-| `undesirable_weight` | float | `1.0` | Up-weight thumbs-down rows. |
-| `loss_type` | string | `"sigmoid"` | `sigmoid` or `kto-pair` (paired-loss variant). |
+| `training.kto_beta` | float | `0.1` | KL strength, same role as DPO's `dpo_beta`. |
+| `training.trainer_type` | string | `"sft"` | Set to `"kto"` to enable the KTO training path. |
+
+`desirable_weight`, `undesirable_weight`, and `loss_type` are NOT exposed as ForgeLM config fields. TRL's `KTOTrainer` runs with library defaults (1.0 / 1.0 weights, sigmoid loss). For imbalanced data, oversample the minority class in the JSONL or use a TRL-side override script — the loss-weight knob is on the Phase 28+ backlog.
 
 :::tip
-**Imbalanced data?** Set `undesirable_weight: 5.0` (or whatever ratio matches your imbalance) to amplify the rare-class signal. Don't oversample the JSONL itself — let the loss weights do it.
+**Imbalanced data?** Until per-class weighting is exposed, oversample the minority class in your JSONL (e.g. duplicate thumbs-down rows so they reach 30-40% of the dataset). Don't expect a `undesirable_weight` knob to exist.
 :::
 
 ## Compute and memory

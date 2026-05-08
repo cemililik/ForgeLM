@@ -117,8 +117,8 @@ auditable evidence. Cited symbols are real (verified against
 | Annex IV bundle verification        | `forgelm verify-annex-iv` (Phase 36)                       | manifest-hash check, missing-artefact detection         |
 | GGUF integrity                      | `forgelm verify-gguf` (Phase 36)                           | magic header + `.sha256` sidecar                        |
 | Risk classification gate            | `_warn_high_risk_compliance` (Faz 28 strict gate)          | `ConfigError` for high-risk + safety-disabled           |
-| Auto-revert                         | `evaluation.auto_revert` + safety-eval                     | `pipeline.reverted` audit event                         |
-| Webhook lifecycle                   | `notify_started/succeeded/failed/reverted/awaiting_approval` (Phase 8) | webhook event payload + audit trail              |
+| Auto-revert                         | `evaluation.auto_revert` + safety-eval                     | `model.reverted` audit event                         |
+| Webhook lifecycle                   | `notify_start/succeeded/failed/reverted/awaiting_approval` (Phase 8) | webhook event payload + audit trail              |
 | HTTP discipline                     | `safe_post` (Phase 7)                                      | SSRF guard, TLS-only, no-redirect, header masking       |
 | Data audit pipeline                 | `forgelm audit` (Phase 11)                                 | `data_audit_report.json` (PII / secrets / dedup)        |
 | Annex IV §8 governance              | `_data_governance_block` (compliance.py)                   | `data_governance_report.json` Article 10                |
@@ -175,9 +175,9 @@ Each row classifies coverage as one of:
 | A.5.24 Information security incident management planning and preparation | FL-helps | `sop_incident_response.md` QMS template; audit chain preserves incident state | Establish IR team, on-call rotation | Org structure deployer-side |
 | A.5.25 Assessment and decision on information security events | FL-helps | `data.erasure_failed`, `pipeline.failed`, `audit.classifier_load_failed` events with `error_class`+`error_message` | Triage runbook tied to event class | Triage process deployer-side |
 | A.5.26 Response to information security incidents | FL-helps | Audit chain preserves before/after state through HMAC chain | Document runbook actions per event class | Runbook deployer-side |
-| A.5.27 Learning from information security incidents | FL-helps | `pipeline.reverted` events accumulate post-mortem evidence | Weekly post-mortem cadence | Process deployer-side |
+| A.5.27 Learning from information security incidents | FL-helps | `model.reverted` events accumulate post-mortem evidence | Weekly post-mortem cadence | Process deployer-side |
 | A.5.28 Collection of evidence | FL | `audit_log.jsonl` is forensic-grade (HMAC + hash chain + manifest sidecar); `forgelm verify-audit` validates | Ship to write-once storage (S3 Object Lock, Azure Immutable Blob) | Storage substrate deployer-side |
-| A.5.29 Information security during disruption | FL-helps | `auto_revert` flips to baseline model on safety regression; `pipeline.reverted` event | Document base-model retention; multi-region replicas | DR infra deployer-side |
+| A.5.29 Information security during disruption | FL-helps | `auto_revert` flips to baseline model on safety regression; `model.reverted` event | Document base-model retention; multi-region replicas | DR infra deployer-side |
 | A.5.30 ICT readiness for business continuity | OOS | — | DR planning | Out of scope |
 | A.5.31 Identification of legal, statutory, regulatory and contractual requirements | FL-helps | EU AI Act mapping in `compliance.py`; GDPR Article 15/17 handling; Annex IV bundle | Track jurisdictional rule changes (e.g. UK Online Safety Act updates) | Legal monitoring deployer-side |
 | A.5.32 Intellectual property rights | FL-helps | License extraction in SBOM; HF Hub model-card metadata recorded in manifest | Track per-model license terms | Legal review deployer-side |
@@ -236,7 +236,7 @@ ForgeLM contributes nothing here.
 | A.8.6 Capacity management | FL-helps | `forgelm doctor` reports VRAM / CPU / RAM; `resource_usage` block in manifest | Quota / autoscaling |
 | A.8.7 Protection against malware | OOS | — | Antivirus on training hosts |
 | A.8.8 Management of technical vulnerabilities | FL-helps | SBOM (CycloneDX 1.5); `pip-audit` nightly (Faz 23); `bandit` CI (Faz 23); Pydantic config validation | OS patch management |
-| A.8.9 Configuration management | FL | YAML config validated via Pydantic; `forgelm --dry-run` gate; `compliance.config_hash` in audit events | Version-control configs |
+| A.8.9 Configuration management | FL | YAML config validated via Pydantic; `forgelm --dry-run` gate; `config_hash` (per-run manifest sidecar field) in audit events | Version-control configs |
 | A.8.10 Information deletion | FL | `forgelm purge` Article 17; salted-hash audit; `data.erasure_warning_memorisation` flags model-weight retention risk | DSAR workflow |
 | A.8.11 Data masking | FL | `forgelm audit` regex + Presidio ML-NER masking; `_SECRET_PATTERNS` credentials scan | Masking strategy decisions (replace vs delete) |
 | A.8.12 Data leakage prevention | FL | `forgelm reverse-pii` plaintext residual scan; webhook never carries raw training rows | DLP at egress / endpoint |
@@ -256,10 +256,10 @@ ForgeLM contributes nothing here.
 | A.8.26 Application security requirements | FL-helps | F-compliance-110 strict gate; Pydantic config validation; ReDoS guard in `_reverse_pii` | App-level threat modelling |
 | A.8.27 Secure system architecture and engineering principles | FL-helps | Append-only audit log architecture (`flock`+`fsync` per line); audit chain HMAC; lazy import discipline; `safe_post` SSRF guard | Defence-in-depth design |
 | A.8.28 Secure coding | FL-helps | `docs/standards/coding.md` standards; type hints throughout; CommonMark escaping in `_sanitize_md_list` | Custom-extension review |
-| A.8.29 Security testing in development and acceptance | FL-helps | `pytest` 1300+ tests (post-Wave 3); `bandit` static analysis (Faz 23); `forgelm safety-eval` standalone gate | E2E security tests |
+| A.8.29 Security testing in development and acceptance | FL-helps | `pytest` test suite across ~70 modules (post-Wave 5); `bandit` static analysis (Faz 23); `forgelm safety-eval` standalone gate | E2E security tests |
 | A.8.30 Outsourced development | OOS | — | Third-party-developer security |
 | A.8.31 Separation of development, test and production environments | FL-helps | `forgelm --dry-run` flag; staging dir (Phase 9); `evaluation.require_human_approval` gate | Separate pipelines |
-| A.8.32 Change management | FL | `human_approval.required/granted/rejected` chain; `compliance.config_hash`; staging dir snapshot | Change Advisory Board process |
+| A.8.32 Change management | FL | `human_approval.required/granted/rejected` chain; `config_hash` (per-run manifest sidecar field); staging dir snapshot | Change Advisory Board process |
 | A.8.33 Test information | FL-helps | `forgelm audit` flags PII / secrets in test sets too | Test-data-handling policy |
 | A.8.34 Protection of information systems during audit testing | OOS | — | Read-only audit access |
 
@@ -316,7 +316,7 @@ categories are scoped per-engagement.
 | CC7.1   | Detects vulnerabilities                | `pip-audit` nightly (Faz 23); CVE feed                           | Vuln-mgmt cadence |
 | CC7.2   | Monitors system components             | `forgelm verify-audit`; `forgelm verify-gguf`; `safety_trend.jsonl` | SIEM dashboards |
 | CC7.3   | Evaluates security events              | `data.erasure_failed`, `pipeline.failed` events with `error_class`+`error_message` | Triage runbook |
-| CC7.4   | Responds to security events            | `auto_revert`, `pipeline.reverted` event; `data.erasure_failed` event | IR runbook |
+| CC7.4   | Responds to security events            | `auto_revert`, `model.reverted` event; `data.erasure_failed` event | IR runbook |
 | CC7.5   | Identifies, develops corrective actions| `human_approval.rejected` event; `sop_change_management.md`     | CAPA cadence |
 | CC8.1   | Authorises changes                     | `forgelm approve` Article 14 gate; staging dir                  | Change Advisory Board |
 | CC9.1   | Identifies, manages risks              | `risk_assessment` config + safety eval; `risk_treatment_plan.md` (Faz 23) | Risk register |
@@ -602,8 +602,10 @@ produces harmful output, accuracy drop, formatting errors).
    severity. Runbook: pin to safe version, rebuild SBOM, regenerate
    dependent artefacts, notify deployer if model already shipped.
 4. **Webhook target compromised** — webhook recipient confirms breach.
-   Runbook: rotate `webhook.secret_env`; re-emit lifecycle events from
-   audit chain to confirm attacker did not splice events.
+   Runbook: rotate the webhook URL (read via `webhook.url_env`) and
+   the destination-side bearer token; re-emit lifecycle events from
+   the audit chain to confirm attacker did not splice events. (HMAC
+   body signing is not yet implemented in ForgeLM — Phase 28+ backlog.)
 5. **PII subject access request (Article 15)** — `forgelm reverse-pii`
    workflow + DSR response template.
 6. **PII erasure request (Article 17)** — `forgelm purge` workflow +
@@ -651,7 +653,7 @@ A.6.8, A.8.15, A.8.16.
 4. **Walking the auditor through evidence:**
    - "Show me the audit trail" → `audit_log.jsonl` + `forgelm verify-audit`.
    - "Show me the change controls" → CI logs + `human_approval.granted`
-     events + `compliance.config_hash`.
+     events + `config_hash` (per-run manifest sidecar field).
    - "Show me the data lineage" → `data_provenance.json`,
      `compute_dataset_fingerprint`, HF Hub revision pin.
    - "Show me the supply chain" → SBOM artefacts on every release tag.
@@ -683,68 +685,68 @@ A.6.8, A.8.15, A.8.16.
 
 ### 13.1 Tooling
 
-- [ ] `pyproject.toml` — add `[project.optional-dependencies] security`.
-- [ ] `tools/check_pip_audit.py` — parse pip-audit JSON, exit 1 on
+- [x] `pyproject.toml` — add `[project.optional-dependencies] security`.
+- [x] `tools/check_pip_audit.py` — parse pip-audit JSON, exit 1 on
       high-severity, warn on med/low.
-- [ ] `tools/check_bandit.py` — parse bandit JSON, same severity
+- [x] `tools/check_bandit.py` — parse bandit JSON, same severity
       tiering.
-- [ ] `tests/test_sbom.py` — determinism contract + schema validation.
-- [ ] `.github/workflows/ci.yml` — bandit step.
-- [ ] `.github/workflows/nightly.yml` — pip-audit + bandit steps.
+- [x] `tests/test_sbom.py` — determinism contract + schema validation.
+- [x] `.github/workflows/ci.yml` — bandit step.
+- [x] `.github/workflows/nightly.yml` — pip-audit + bandit steps.
 
 ### 13.2 QMS docs (EN + TR pairs)
 
-- [ ] `docs/qms/encryption_at_rest.md` (+ `-tr.md`) — §8.1 outline.
-- [ ] `docs/qms/access_control.md` (+ `-tr.md`) — §8.2 outline.
-- [ ] `docs/qms/risk_treatment_plan.md` (+ `-tr.md`) — §8.3 outline.
-- [ ] `docs/qms/statement_of_applicability.md` (+ `-tr.md`) — §8.4 outline.
-- [ ] `docs/qms/sop_incident_response.md` — §9 expansion (+ TR mirror
+- [x] `docs/qms/encryption_at_rest.md` (+ `-tr.md`) — §8.1 outline.
+- [x] `docs/qms/access_control.md` (+ `-tr.md`) — §8.2 outline.
+- [x] `docs/qms/risk_treatment_plan.md` (+ `-tr.md`) — §8.3 outline.
+- [x] `docs/qms/statement_of_applicability.md` (+ `-tr.md`) — §8.4 outline.
+- [x] `docs/qms/sop_incident_response.md` — §9 expansion (+ TR mirror
       lands in Faz 26).
-- [ ] `docs/qms/sop_change_management.md` — §10 expansion (+ TR mirror
+- [x] `docs/qms/sop_change_management.md` — §10 expansion (+ TR mirror
       lands in Faz 26).
 
 ### 13.3 Guides + references
 
-- [ ] `docs/guides/iso_soc2_deployer_guide.md` (+ `-tr.md`) — §11 outline.
-- [ ] `docs/reference/iso27001_control_mapping.md` (+ `-tr.md`) — §3
+- [x] `docs/guides/iso_soc2_deployer_guide.md` (+ `-tr.md`) — §11 outline.
+- [x] `docs/reference/iso27001_control_mapping.md` (+ `-tr.md`) — §3
       table reformatted as reference doc.
-- [ ] `docs/reference/soc2_trust_criteria_mapping.md` (+ `-tr.md`) — §4
+- [x] `docs/reference/soc2_trust_criteria_mapping.md` (+ `-tr.md`) — §4
       table reformatted as reference doc.
-- [ ] `docs/reference/supply_chain_security.md` (+ `-tr.md`) — SBOM /
+- [x] `docs/reference/supply_chain_security.md` (+ `-tr.md`) — SBOM /
       pip-audit / bandit overview.
 
 ### 13.4 Cross-cutting
 
-- [ ] `README.md` — 1 paragraph "ISO 27001 / SOC 2 Type II alignment"
+- [x] `README.md` — 1 paragraph "ISO 27001 / SOC 2 Type II alignment"
       section + link to deployer guide.
-- [ ] `CHANGELOG.md` — Wave 4 / Faz 22-23 line.
-- [ ] `tools/check_bilingual_parity.py` `_PAIRS` — register the new
+- [x] `CHANGELOG.md` — Wave 4 / Faz 22-23 line.
+- [x] `tools/check_bilingual_parity.py` `_PAIRS` — register the new
       EN ↔ TR pairs (≈8 new pairs).
 
 ### 13.5 Tests
 
-- [ ] `tests/test_sbom.py::test_deterministic`.
-- [ ] `tests/test_sbom.py::test_cyclonedx_1_5_schema_valid`.
-- [ ] `tests/test_pip_audit_check.py` — `tools/check_pip_audit.py`
+- [x] `tests/test_sbom.py::test_deterministic`.
+- [x] `tests/test_sbom.py::test_cyclonedx_1_5_schema_valid`.
+- [x] `tests/test_pip_audit_check.py` — `tools/check_pip_audit.py`
       severity-tiering logic on synthetic JSON.
-- [ ] `tests/test_bandit_check.py` — `tools/check_bandit.py` severity
+- [x] `tests/test_bandit_check.py` — `tools/check_bandit.py` severity
       tiering on synthetic JSON.
 
 ## 14. Acceptance criteria
 
 Faz 22 (this design):
 
-- [ ] **Length ≥ 800 lines** (closure-plan acceptance bar). This file
+- [x] **Length ≥ 800 lines** (closure-plan acceptance bar). This file
       will satisfy that on commit.
-- [ ] **§3 covers all 93 ISO 27001:2022 Annex A controls.** ✓ (37 + 8
+- [x] **§3 covers all 93 ISO 27001:2022 Annex A controls.** ✓ (37 + 8
       + 14 + 34 = 93).
-- [ ] **§4 covers all 5 SOC 2 categories with full Common Criteria.** ✓.
-- [ ] **§13 work breakdown is the canonical Faz 23 task list.** ✓.
-- [ ] **Cited symbols are real.** ✓ (all symbols verified against
+- [x] **§4 covers all 5 SOC 2 categories with full Common Criteria.** ✓.
+- [x] **§13 work breakdown is the canonical Faz 23 task list.** ✓.
+- [x] **Cited symbols are real.** ✓ (all symbols verified against
       `closure/wave4-integration` HEAD `b87c872`).
-- [ ] **Bilingual parity unaffected.** ✓ (this file lives under
+- [x] **Bilingual parity unaffected.** ✓ (this file lives under
       `docs/analysis/` which is not in `_PAIRS`).
-- [ ] **Adds zero behaviour change.** ✓ (design doc only).
+- [x] **Adds zero behaviour change.** ✓ (design doc only).
 
 Faz 23 (next phase, gated on this design landing):
 

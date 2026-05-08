@@ -61,21 +61,20 @@ model:
 lora:
   r: 16
   alpha: 32
+  method: "lora"
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
-datasets:
-  - path: "data/preferences.jsonl"
-    format: "preference"
+data:
+  dataset_name_or_path: "data/preferences.jsonl"
 
 training:
-  trainer: "dpo"
-  epochs: 1
-  batch_size: 2
+  trainer_type: "dpo"
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4
   learning_rate: 5.0e-6                    # ~10× smaller than SFT
-  dpo:
-    beta: 0.1                              # KL strength
-
-output:
-  dir: "./checkpoints/dpo"
+  dpo_beta: 0.1                            # KL strength (flat field, not nested under dpo:)
+  output_dir: "./checkpoints/dpo"
 ```
 
 Run it:
@@ -105,17 +104,14 @@ ForgeLM's data audit (`forgelm audit`) catches preference rows where `chosen` an
 
 ## Configuration parameters
 
-The `training.dpo` block holds DPO-specific knobs.
+DPO-specific knobs live as flat fields under `training:` (not a nested `training.dpo:` block — see `forgelm/config.py` `TrainingConfig`):
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `beta` | float | `0.1` | KL divergence regularisation strength. Lower = closer to reference model, higher = more aggressive preference shift. |
-| `loss_type` | string | `"sigmoid"` | One of `sigmoid` (original DPO), `hinge` (RLHF-style margin), `ipo` (IPO regularisation), `kto` (KTO-style binary loss). |
-| `label_smoothing` | float | `0.0` | Smoothing on preference labels; helps when annotations are noisy. |
-| `reference_free` | bool | `false` | Skip the reference model entirely (closer to SimPO). Saves memory but trains less stably. |
-| `reference_model` | string | (auto) | Path to an explicit reference model. Defaults to the model being trained, frozen. |
-| `loss_dpop_lambda` | float | `null` | Enable DPO-Positive (DPOP) regularisation. `0.5` is a sensible starting point. |
-| `pref_chosen_weight` | float | `1.0` | Up-weight chosen responses during loss computation; useful when chosen responses are rarer. |
+| `training.dpo_beta` | float | `0.1` | DPO temperature / KL divergence regularisation strength. Lower = closer to the reference model, higher = more aggressive preference shift. |
+| `training.trainer_type` | string | `"sft"` | Set to `"dpo"` to enable the DPO training path. |
+
+ForgeLM does **not** expose `loss_type` / `label_smoothing` / `reference_free` / `reference_model` / `loss_dpop_lambda` / `pref_chosen_weight` as configurable fields — TRL's `DPOTrainer` runs with its library defaults (sigmoid loss, no label smoothing, automatic frozen reference model). If you need those knobs, fork the trainer.
 
 The full set of training-block parameters (epochs, learning rate, scheduler, etc.) applies to DPO too — see [Configuration Reference](#/reference/configuration) for the complete list.
 
@@ -183,20 +179,25 @@ sequenceDiagram
 
 ```yaml
 training:
-  trainer: "dpo"
-  dpo: { beta: 0.1 }
+  trainer_type: "dpo"
+  dpo_beta: 0.1
 
 evaluation:
+  require_human_approval: true                    # Article 14 oversight gate
+  auto_revert: true                               # rolls back on regression
   safety:
     enabled: true
-    model: "meta-llama/Llama-Guard-3-8B"
-    block_categories: ["S1", "S2", "S5", "S10"]   # the categories you must not regress on
+    classifier: "meta-llama/Llama-Guard-3-8B"
+    track_categories: true                        # tracks all 14 Llama-Guard categories
+    severity_thresholds:
+      S1: 0.05
+      S2: 0.05
+      S5: 0.10
+      S10: 0.05
   benchmark:
-    tasks: ["truthfulqa", "hellaswag"]
-    floors: { truthfulqa: 0.45 }                  # auto-revert if it drops below
-
-compliance:
-  human_approval: true                            # Article 14 oversight gate
+    enabled: true
+    tasks: ["truthfulqa_mc1", "hellaswag"]
+    min_score: 0.45                               # single floor across averaged tasks
 ```
 
 If post-train Llama Guard scores show a regression in any blocked category, ForgeLM automatically rolls back to the pre-DPO checkpoint and emits a structured incident record. See [Auto-Revert](#/evaluation/auto-revert) for the gating logic.
@@ -216,7 +217,7 @@ If post-train Llama Guard scores show a regression in any blocked category, Forg
 :::
 
 :::danger
-**Mixing SFT and DPO in a single dataset.** Don't put SFT-format rows (`{prompt, completion}`) into the same JSONL as DPO-format rows (`{prompt, chosen, rejected}`). The data loader can't unambiguously route them. Use separate files and reference both via `datasets:` if you genuinely need to mix.
+**Mixing SFT and DPO in a single dataset.** Don't put SFT-format rows (`{prompt, completion}`) into the same JSONL as DPO-format rows (`{prompt, chosen, rejected}`). The data loader can't unambiguously route them. Use separate files and reference the secondary one via `data.extra_datasets: ["data/sft.jsonl"]` if you genuinely need to mix.
 :::
 
 ## See also

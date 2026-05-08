@@ -111,11 +111,14 @@ If the judge model is the same family as the safety classifier, you can usually 
 
 ForgeLM ingestion (`forgelm/ingestion.py`) supports four chunking strategies. The `paragraph` strategy is the one most operators reach for after running `sliding` and noticing chunks split mid-thought.
 
-```yaml
-ingestion:
-  strategy: "paragraph"           # sliding | paragraph | markdown | semantic
-  chunk_size: 1024                # soft cap for paragraph; hard cap for sliding
-  overlap: 128                    # sliding only; ignored by paragraph
+Ingestion is configured via CLI flags, not a YAML block — there is no top-level `ingestion:` key in `ForgeConfig`. The chunker selection happens at `forgelm ingest` invocation time:
+
+```shell
+$ forgelm ingest INPUT_PATH \
+    --output data/policies.jsonl \
+    --strategy paragraph        # sliding | paragraph | markdown | semantic
+    --chunk-size 1024           # soft cap for paragraph; hard cap for sliding
+    --overlap 128               # sliding only; ignored by paragraph
 ```
 
 ### Performance characteristics

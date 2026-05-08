@@ -14,7 +14,7 @@ Her ForgeLM trainer'ı belirli bir JSONL formatı bekler. ForgeLM dosyanın ilk 
 | `instructions` | SFT | `prompt`, `completion` |
 | `messages` | SFT (multi-turn) | `messages: [{role, content}, …]` |
 | `preference` | DPO, SimPO, ORPO | `prompt`, `chosen`, `rejected` |
-| `binary` | KTO | `prompt`, `response`, `label` |
+| `binary` | KTO | `prompt`, `completion`, `label` |
 | `reward` | GRPO | `prompt` (yanıt eğitim sırasında üretilir) |
 
 ## Instructions (tek-tur SFT)
@@ -73,8 +73,16 @@ Audit (`forgelm audit`) `chosen == rejected` olan satırları flagler — prefer
 Tek yanıt + thumbs-up/down. Eşli tercihten daha kolay toplanır.
 
 ```json
-{"prompt": "Aboneliği nasıl iptal ederim?", "response": "Sadece ödemeyi durdur.", "label": false}
-{"prompt": "Aboneliği nasıl iptal ederim?", "response": "Ayarlar → Faturalandırma...", "label": true}
+{
+  "prompt": "Aboneliği nasıl iptal ederim?",
+  "response": "Sadece ödemeyi durdur.",
+  "label": false
+}
+{
+  "prompt": "Aboneliği nasıl iptal ederim?",
+  "response": "Ayarlar → Faturalandırma → Aboneliği iptal et…",
+  "label": true
+}
 ```
 
 Anlamlar:
@@ -127,7 +135,7 @@ Ağırlıklar 1.0'a tamamlanır; her batch bu olasılıklara göre örneklenir.
 |---|---|
 | `messages` array | `messages` |
 | `chosen` ve `rejected` | `preference` |
-| `response` ve `label` (bool) | `binary` |
+| `completion` ve `label` (bool) | `binary` |
 | `prompt` ve `completion` | `instructions` |
 | Sadece `prompt` | `reward` |
 

@@ -9,21 +9,21 @@ Kod repo'ları, destek ticket'ları ve operasyonel log'lar kimlik bilgileri sız
 
 ## Tespit edilenler
 
-| Kategori | Tespit edilen pattern |
-|---|---|
-| **AWS access key'leri** | `AKIA[0-9A-Z]{16}` + secret-key heuristikleri |
-| **GitHub PAT'leri** | `ghp_*`, `gho_*`, `ghu_*`, `ghs_*`, `ghr_*` |
-| **GitHub fine-grained token'lar** | `github_pat_*` |
-| **Slack token'lar** | `xox[bpars]-*` |
-| **OpenAI API key'leri** | `sk-*` (uzunluk ve entropi kontrolüyle) |
-| **Anthropic API key'leri** | `sk-ant-*` |
-| **Google API key'leri** | `AIza*` |
-| **JWT'ler** | Üç-segment base64url (header.payload.signature) |
-| **PEM özel anahtar blokları** | `BEGIN ... PRIVATE KEY...END` (RSA, EC, OpenSSH, PGP) |
-| **Azure storage string'leri** | `DefaultEndpointsProtocol=...` |
-| **Stripe / SendGrid / Twilio** | Servis-özgü pattern'ler |
+Bundled detector `_SECRET_PATTERNS` (`forgelm/data_audit/_secrets.py::_SECRET_PATTERNS`) altında **9 secret ailesi** ship eder:
 
-Tüm eşleşmeler `[REDACTED-SECRET]` (veya `--secrets-tag-by-category` ile kategori başı etiketler) ile değiştirilir.
+| Pattern anahtarı | Anchor |
+|---|---|
+| `aws_access_key` | `AKIA` / `ASIA` + 16 büyük harf alphanum |
+| `github_token` | `ghp_*`, `gho_*`, `ghu_*`, `ghs_*`, `ghr_*`, `github_pat_*` (tek birleşik aile) |
+| `slack_token` | `xox[baprs]-*` |
+| `openai_api_key` | `sk-*` ve `sk-proj-*` |
+| `google_api_key` | `AIza` + 35 karakter |
+| `jwt` | Kanonik JWT header anahtarlarıyla üç-segment base64url (`eyJ.eyJ.X`-şekilli prose false-positive'lerine karşı savunma) |
+| `openssh_private_key` | `BEGIN OPENSSH/RSA/DSA/EC PRIVATE KEY` … `END …` (tam PEM zarfı) |
+| `pgp_private_key` | `BEGIN PGP PRIVATE KEY BLOCK` … `END …` |
+| `azure_storage_key` | `DefaultEndpointsProtocol=…AccountKey=…` |
+
+Tüm eşleşmeler `mask_secrets()` (`forgelm/data_audit/_secrets.py::mask_secrets`) tarafından literal `[REDACTED-SECRET]` string'i ile değiştirilir. Detector bugün Anthropic, Stripe, SendGrid ya da Twilio için per-vendor pattern ship **etmez** — bu trafik tipleri olan operatörler regex setini out-of-tree genişletir (Phase 28+ backlog'u bunları opt-in extras olarak ship etmeyi takip ediyor).
 
 ## Hızlı örnek
 
@@ -33,11 +33,11 @@ $ forgelm ingest ./support-tickets/ \
     --secrets-mask \
     --output data/tickets.jsonl
 ✓ 47 sır maskelendi:
-    aws_access_key: 12
-    github_pat:     8
-    jwt:            18
-    pem_block:      2
-    openai_key:     7
+    aws_access_key:       12
+    github_token:          8
+    jwt:                  18
+    openssh_private_key:   2
+    openai_api_key:        7
 ```
 
 ## "PEM block" ne demek
@@ -51,7 +51,7 @@ MIIEpAIBAAKCAQEA1+...
 -----END RSA PRIVATE KEY-----
 ```
 
-ForgeLM'in PEM detector'ı tüm bloğu (BEGIN'den END'e) eşleştirir, sadece marker satırını değil. Tüm blok `[REDACTED-PEM-BLOCK]` ile değiştirilir. Bu, BEGIN satırını tespit edip key body'sini JSONL'da bırakan yaygın bug'ı önler.
+ForgeLM'in PEM detector'ı (`openssh_private_key` ailesi — RSA / DSA / EC envelope'larını da kapsar) tüm bloğu (BEGIN'den END'e) eşleştirir, sadece marker satırını değil. Diğer her aile gibi, tüm blok `[REDACTED-SECRET]` ile değiştirilir — per-family token yoktur (`mask_secrets()` tek bir `replacement="[REDACTED-SECRET]"` sabiti ship eder; `forgelm/data_audit/_secrets.py::mask_secrets`). Bu, BEGIN satırını tespit edip key body'sini JSONL'da bırakan yaygın bug'ı önler.
 
 ## Sadece-audit modu
 
@@ -88,7 +88,7 @@ ForgeLM tipik "git-secrets" tarzı araçlardan daha sıkı false-positive guard'
 2. Çoğu sadece-regex pattern `EXAMPLEKEY` veya test fixture'ları flagler; audit raporlarını kullanışsız kılar.
 
 Spesifik guard'lar:
-- OpenAI / Anthropic key'leri için **entropi eşiği** (insan-okunur değil, rastgele görünüm).
+- OpenAI key'leri için **entropi eşiği** (insan-okunur değil, rastgele görünüm). ForgeLM Anthropic / Stripe / SendGrid / Twilio pattern'larını **göndermez** (bkz. Line 26); bu trafik profiline sahip operatörler `_SECRET_PATTERNS`'i out-of-tree genişletir.
 - **Bağlam pencere kontrolü** — `AKIA*` sadece secret-key-şeklinde komşu veya 100 karakter içinde "aws" bağlamı varsa tetiklenir.
 - **Test/örnek dışlama listesi** — yaygın dummy değerler (`AKIAIOSFODNN7EXAMPLE`, `xxx`, `your_key_here`) tespiti atlar.
 
@@ -96,19 +96,7 @@ Yüksek-stake audit (ör. yasal açıklama taraması) için test-dışlama liste
 
 ## Konfigürasyon
 
-```yaml
-ingestion:
-  secrets_mask:
-    enabled: true
-    tag_by_category: true              # [REDACTED-SECRET] yerine kategori-özgü etiket
-    strict: false                      # false-positive guard'ları kapat
-    categories:                        # seçici etkinleştir
-      - aws_access_key
-      - github_pat
-      - jwt
-      - pem_block
-      # eklemediğiniz kategori kapalı
-```
+Secrets scanner **`forgelm audit` içinde her zaman açıktır** — enable/disable knob'u ve per-family allow/deny listesi yoktur. Mask-on-emit `audit_dataset()` üzerindeki `secrets_mask: bool` argümanıyla (ve `forgelm ingest` üzerindeki `--secrets-mask` flag'iyle) kontrol edilir; replacement string'i `mask_secrets()` içindeki tek sabit `[REDACTED-SECRET]` constant'ıdır. `ingestion.secrets_mask:` YAML bloğu, `enabled` / `tag_by_category` / `strict` / `categories` alt-alanları **yoktur** — bu adlar eski doc taslaklarında geçiyordu ama hiç ship olmadı. Family setini genişletmek/kısıtlamak için `forgelm/data_audit/_secrets.py::_SECRET_PATTERNS`'i fork edin.
 
 ## Sık hatalar
 

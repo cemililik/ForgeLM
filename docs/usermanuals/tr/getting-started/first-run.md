@@ -149,7 +149,7 @@ checkpoints/customer-support/
 
 O `artifacts/` dizini compliance incelemeleri için teslim edilebilirdir. İçindeki her dosya `manifest.json`'da tamper-evidence için hashlenmiştir.
 
-## Sıraki adımlar
+## Sonraki adımlar
 
 - [Proje Yapısı](#/getting-started/project-layout) — ForgeLM şeyleri nereye ve neden koyar.
 - [Trainer Seçimi](#/concepts/choosing-trainer) — `customer-support`'tan kendi kullanım senaryonuza geçiş.

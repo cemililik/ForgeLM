@@ -41,7 +41,7 @@ JSONL eğitim corpus'undan `id` (veya `row_id`) field'ı ile tanımlanan tek bir
 
 **Atomik yazma sözleşmesi.** Corpus, kardeş bir temp dosya + `os.replace` ile yeniden yazılır; kesilen bir purge ya tam silme-öncesi dosyayı ya da tam silme-sonrası dosyayı bırakır — asla kısmi state'i değil.
 
-**Satır-numarası fallback'i reddedilir** (design §4.2). Id'siz corpus'lara sahip operatörler önce `forgelm audit --add-row-ids` çalıştırarak id'leri pre-populate etmelidir.
+**Satır-numarası fallback'i reddedilir** (design §4.2). ForgeLM şu an bir id-doldurma yardımcısı sunmuyor (`forgelm audit --add-row-ids` Phase 28 backlog'unda); id'siz corpus'lara sahip operatörler `forgelm purge --row-id` çalıştırmadan önce id'leri operatör-tarafı bir script ile pre-populate etmelidir.
 
 ### Koşum-kapsamlı artefact silme (`--run-id` + `--kind`)
 
@@ -98,23 +98,70 @@ Altı event de [`audit_event_catalog.md`](audit_event_catalog.md)'deki ortak zar
 
 ## JSON çıktı zarfı
 
-`--output-format json` ile her çağrı stdout'a tam olarak bir JSON nesnesi yazdırır. Zarf, compliance subcommand ailesinin geri kalanını yansıtır:
+`--output-format json` ile her çağrı stdout'a tam olarak bir JSON nesnesi yazdırır. Şekil moda göre değişir — toplam üç zarf.
+
+**Row modu (başarı)** — `_perform_row_erasure_and_audit`'den yayılır:
 
 ```json
-{"success": true, "deleted": "row", "files_modified": ["data/train.jsonl"], "bytes_freed": 482, "match_count": 1}
+{
+  "mode": "row",
+  "dry_run": false,
+  "salt_source": "per_dir",
+  "corpus_path": "/abs/path/data/train.jsonl",
+  "matches": 1,
+  "first_line": 142,
+  "bytes_freed": 482,
+  "warnings": []
+}
 ```
 
-Hata zarfları:
+`--dry-run` çağrılarında aynı zarf `dry_run: true` ile ve `bytes_freed` olmadan görünür (rewrite hiç olmaz).
+
+**Run modu (başarı)** — `_run_purge_run_id`'den yayılır:
 
 ```json
-{"success": false, "error": "Row id 'ali@example.com' not found in 'data/train.jsonl'."}
+{
+  "mode": "run",
+  "kind": "staging",
+  "dry_run": false,
+  "run_id": "fg-abc123def456",
+  "deleted": ["/abs/path/outputs/run42/final_model.staging.fg-abc123def456"],
+  "bytes_freed": 102400000
+}
 ```
 
-`--check-policy` için yapı aynıdır:
+`deleted` gerçekten silinen mutlak yolların **listesidir** (ya da `--dry-run`'da `would_delete` anahtarı aynı şekli taşır ve `deleted` yoktur).
+
+**`--check-policy` modu** — `_run_purge_check_policy`'ten yayılır:
 
 ```json
-{"success": true, "violations": [{"path": "outputs/run42/", "kind": "ephemeral_artefact", "age_days": 121, "age_source": "audit_genesis", "horizon_days": 90}]}
+{
+  "success": true,
+  "violations": [
+    {
+      "artefact_kind": "ephemeral_artefact",
+      "path": "/abs/path/outputs/run42/compliance/data_audit_report.json",
+      "age_days": 121.4,
+      "horizon_days": 90,
+      "age_source": "audit_genesis"
+    }
+  ],
+  "count": 1
+}
 ```
+
+`age_source` ∈ `{audit_genesis, mtime}` — `audit_genesis` kanonik yaş (koşumun ilk audit event timestamp'i); `mtime` operatörün farkındalığı için işaretlenmiş filesystem fallback'i.
+
+**Hata zarfı (her mod)** — `_output_error_and_exit`:
+
+```json
+{
+  "success": false,
+  "error": "Row id 'ali@example.com' not found in 'data/train.jsonl'."
+}
+```
+
+Asimetri notu: row/run başarı zarfları açık `success` field'ı **taşımaz** (`mode` ayraç başarı sinyalidir); `--check-policy` ve hata zarfı taşır. CI gate'leri `mode` anahtarına (başarı yolu) ya da `success: false`'a (hata yolu) dallanmalı; `success: true`'nin varlığı/yokluğuna değil.
 
 ## Bkz.
 

@@ -24,27 +24,27 @@ SFT first, almost always. Even teams with rich preference data SFT before DPO/Si
 ```yaml
 model:
   name_or_path: "Qwen/Qwen2.5-7B-Instruct"
-  load_in_4bit: true
   max_length: 4096
+  backend: "transformers"            # or "unsloth" — replaces the legacy `use_unsloth: true` flag
 
 lora:
   r: 16
   alpha: 32
+  method: "lora"                     # or "dora" / "pissa" / "rslora"
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
-datasets:
-  - path: "data/train.jsonl"
-    format: "messages"
+data:
+  dataset_name_or_path: "data/train.jsonl"
 
 training:
-  trainer: "sft"
-  epochs: 3
-  batch_size: 4
+  trainer_type: "sft"
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 2
   learning_rate: 2.0e-4
   warmup_ratio: 0.03
-  scheduler: "cosine"
-
-output:
-  dir: "./checkpoints/sft"
+  output_dir: "./checkpoints/sft"
+  packing: false                     # set true to bin-pack short samples
 ```
 
 ```shell
@@ -75,13 +75,13 @@ The SFT-specific knobs live alongside the standard `training` block.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `learning_rate` | float | `2e-4` | LoRA: 1e-4 to 5e-4. Full-parameter: 1e-5 to 5e-5. |
-| `epochs` | int | `3` | More epochs = more memorisation, less generalisation. |
-| `batch_size` | int | `4` | Per-device. Multiply by gradient accumulation steps for effective batch. |
-| `max_length` | int | `4096` | Context window during training. Longer = more VRAM. |
-| `packing` | bool | `false` | Pack short sequences together for throughput. Adds 30-50% speed. |
-| `neftune_noise_alpha` | float | `null` | Embedding-noise regularisation. `5.0` improves on small datasets. |
-| `loss_on_completions_only` | bool | `true` | Only compute loss on assistant tokens, not the prompt. Recommended. |
+| `training.learning_rate` | float | `2e-4` | LoRA: 1e-4 to 5e-4. Full-parameter: 1e-5 to 5e-5. |
+| `training.num_train_epochs` | int | `3` | More epochs = more memorisation, less generalisation. |
+| `training.per_device_train_batch_size` | int | `4` | Per-device. Multiply by `gradient_accumulation_steps` for effective batch. |
+| `training.packing` | bool | `false` | Pack short sequences together for throughput. Adds 30-50% speed. |
+| `training.sample_packing` | bool | `false` | Alternative TRL-side packing path; mutually exclusive with `packing`. |
+| `training.neftune_noise_alpha` | float | `null` | Embedding-noise regularisation. `5.0` improves on small datasets. |
+| `model.max_length` | int | `2048` | Context window during training (lives under `model:`, not `training:`). Longer = more VRAM. |
 
 The full parameter list is in [Configuration Reference](#/reference/configuration).
 
@@ -110,11 +110,11 @@ FITS  est. peak 7.8 GB / 12 GB available
 :::
 
 :::warn
-**Loss going up instead of down.** Likely a tokeniser mismatch — your data was formatted for a different chat template than the one in the model's tokeniser. Re-run `forgelm audit` and check the rendered samples in the audit report.
+**Loss going up instead of down.** Likely a tokenizer mismatch — your data was formatted for a different chat template than the one in the model's tokenizer. Re-run `forgelm audit` and check the rendered samples in the audit report.
 :::
 
 :::warn
-**Forgetting to enable `loss_on_completions_only`.** With it disabled, the model wastes capacity learning to repeat the prompt. Default is `true`; only disable for unusual training-objective experiments.
+**Loss going up after a tokenizer change.** Switching `model.name_or_path` between models that ship different chat templates without re-running `forgelm audit` against the new tokenizer is the most common foot-gun. The audit's rendered-sample preview shows what the trainer will actually see — verify the format matches before committing.
 :::
 
 :::tip
@@ -130,7 +130,7 @@ checkpoints/sft/
 ├── adapter_model.safetensors      ← LoRA weights (or merged checkpoint if not using LoRA)
 ├── README.md                      ← model card
 ├── config_snapshot.yaml           ← exact config used
-└── artifacts/                     ← compliance evidence (if compliance.annex_iv enabled)
+└── compliance/                   ← Annex IV bundle (auto-generated when the `compliance:` config block is present)
 ```
 
 ## See also
