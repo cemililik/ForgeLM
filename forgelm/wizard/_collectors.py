@@ -23,8 +23,19 @@ from ._io import (
     _prompt_float,
     _prompt_int,
     _prompt_optional_list,
+    _prompt_required,
     _prompt_yes_no,
 )
+
+
+def _prompt_required_list(question: str) -> list:
+    """Prompt for a non-empty comma-separated list, re-asking until provided."""
+    while True:
+        items = _prompt_optional_list(question)
+        if items:
+            return items
+        _print("    At least one entry is required.")
+
 
 # ---------------------------------------------------------------------------
 # Risk-tier surface (mirrors ``forgelm.config._STRICT_RISK_TIERS`` /
@@ -148,7 +159,10 @@ def _collect_webhook_config() -> Optional[Dict[str, Any]]:
             continue
         if section is None:
             return None
-        section.setdefault("notify_on_start", True)
+        # Defaults mirror ``site/js/wizard.js`` and ``WebhookConfig`` —
+        # start notifications are noisy and off by default; success +
+        # failure are the operationally interesting ones.
+        section.setdefault("notify_on_start", False)
         section.setdefault("notify_on_success", True)
         section.setdefault("notify_on_failure", True)
         return section
@@ -359,19 +373,42 @@ def _collect_galore_config(use_galore: bool) -> Dict[str, Any]:
 
 
 def _collect_compliance_metadata() -> Dict[str, Any]:
-    """Article 11 + Annex IV §1: provider + system metadata."""
+    """Article 11 + Annex IV §1: provider + system metadata.
+
+    ``risk_classification`` is collected FIRST so the operator sees the
+    strict-tier hint up front; downstream Article 9 / 10 collectors
+    branch on the chosen tier and the wizard's auto-coercion gate
+    (``_apply_strict_tier_coercion``) reads it without an awkward
+    forward-reference.
+    """
+    risk_classification = _prompt_choice(
+        "Risk classification (mirrored at risk_assessment.risk_category):",
+        list(_RISK_TIERS),
+        default=2,  # ``minimal-risk`` — same default as the Pydantic field.
+    )
+    if risk_classification in _STRICT_RISK_TIERS:
+        _print(
+            "  Strict tier selected — Article 11 / Annex IV §1 fields below "
+            "(provider name, contact, system name, intended purpose) are "
+            "mandatory and re-prompt until provided."
+        )
+        provider_name = _prompt_required("Organization (legal-entity) name")
+        provider_contact = _prompt_required("Provider regulatory contact (email or phone)")
+        system_name = _prompt_required("Human-readable system name")
+        intended_purpose = _prompt_required("Intended purpose of the system")
+    else:
+        provider_name = _prompt("Organization (legal-entity) name", "")
+        provider_contact = _prompt("Provider regulatory contact (email or phone)", "")
+        system_name = _prompt("Human-readable system name", "")
+        intended_purpose = _prompt("Intended purpose of the system", "")
     return {
-        "provider_name": _prompt("Organization (legal-entity) name", ""),
-        "provider_contact": _prompt("Provider regulatory contact (email or phone)", ""),
-        "system_name": _prompt("Human-readable system name", ""),
-        "intended_purpose": _prompt("Intended purpose of the system", ""),
+        "provider_name": provider_name,
+        "provider_contact": provider_contact,
+        "system_name": system_name,
+        "intended_purpose": intended_purpose,
         "known_limitations": _prompt("Known limitations operator wants documented (free-text)", ""),
         "system_version": _prompt("System version string", "v0.1.0"),
-        "risk_classification": _prompt_choice(
-            "Risk classification (mirrored at risk_assessment.risk_category):",
-            list(_RISK_TIERS),
-            default=2,  # ``minimal-risk`` — same default as the Pydantic field.
-        ),
+        "risk_classification": risk_classification,
     }
 
 
@@ -386,13 +423,14 @@ def _collect_risk_assessment(risk_classification: str) -> Optional[Dict[str, Any
             "risk_assessment evidence is mandatory.  All four fields below "
             "should be populated."
         )
-    intended_use = (
-        _prompt("Article 9(2)(a): intended_use", "")
-        if is_strict
-        else _prompt("intended_use (Article 9(2)(a)) — optional", "")
-    )
-    foreseeable = _prompt_optional_list("Article 9(2)(b): foreseeable_misuse — list at least one realistic misuse")
-    mitigation = _prompt_optional_list("Article 9(2)(c): mitigation_measures the deployer applies")
+    if is_strict:
+        intended_use = _prompt_required("Article 9(2)(a): intended_use")
+        foreseeable = _prompt_required_list("Article 9(2)(b): foreseeable_misuse — list at least one realistic misuse")
+        mitigation = _prompt_required_list("Article 9(2)(c): mitigation_measures the deployer applies")
+    else:
+        intended_use = _prompt("intended_use (Article 9(2)(a)) — optional", "")
+        foreseeable = _prompt_optional_list("Article 9(2)(b): foreseeable_misuse — list at least one realistic misuse")
+        mitigation = _prompt_optional_list("Article 9(2)(c): mitigation_measures the deployer applies")
     vulnerable = _prompt_yes_no(
         "Article 9(2)(b): vulnerable_groups_considered (children / minorities / etc.)?",
         default=is_strict,
@@ -414,11 +452,22 @@ def _collect_data_governance(*, mandatory: bool) -> Optional[Dict[str, Any]]:
     if not mandatory and not _prompt_yes_no("Configure Article 10 data.governance metadata?", default=False):
         return None
     if mandatory:
-        _print("  Risk classification is high-risk / unacceptable — Article 10 data.governance evidence is mandatory.")
+        _print(
+            "  Risk classification is high-risk / unacceptable — Article 10 "
+            "data.governance evidence is mandatory.  Free-text fields below "
+            "re-prompt until provided."
+        )
+        collection_method = _prompt_required("Article 10(2)(b): how was data collected?")
+        annotation_process = _prompt_required("Article 10(2)(b): annotation methodology")
+        known_biases = _prompt_required("Article 10(2)(f): known_biases")
+    else:
+        collection_method = _prompt("Article 10(2)(b): how was data collected?", "")
+        annotation_process = _prompt("Article 10(2)(b): annotation methodology", "")
+        known_biases = _prompt("Article 10(2)(f): known_biases", "")
     return {
-        "collection_method": _prompt("Article 10(2)(b): how was data collected?", ""),
-        "annotation_process": _prompt("Article 10(2)(b): annotation methodology", ""),
-        "known_biases": _prompt("Article 10(2)(f): known_biases", ""),
+        "collection_method": collection_method,
+        "annotation_process": annotation_process,
+        "known_biases": known_biases,
         "personal_data_included": _prompt_yes_no("Article 10(5): personal_data_included?", default=False),
         "dpia_completed": _prompt_yes_no("Article 35 GDPR: dpia_completed?", default=False),
     }

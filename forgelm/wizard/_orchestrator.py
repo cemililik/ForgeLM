@@ -9,7 +9,7 @@ Each step is registered as a small :class:`_StepDef`.  Steps return
 
 from __future__ import annotations
 
-import json
+import copy
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -197,13 +197,23 @@ def _step_model(state: _WizardState) -> None:
     options.append("Custom (enter your own)")
     if preset_default and preset_default in POPULAR_MODELS:
         default_idx = POPULAR_MODELS.index(preset_default) + 1
+    elif preset_default:
+        # Preset from step 2 (use-case) isn't in POPULAR_MODELS — default
+        # to the custom slot and pre-fill the prompt with the operator's
+        # earlier choice so a bare ``Enter`` keeps it.
+        default_idx = len(options)
     else:
         default_idx = 1
     from ._io import _prompt_choice
 
     chosen = _prompt_choice("Choose a model:", options, default=default_idx)
     if chosen.startswith("Custom"):
-        model_name = _prompt_required("HuggingFace model name or local path")
+        if preset_default and preset_default not in POPULAR_MODELS:
+            model_name = _prompt("HuggingFace model name or local path", preset_default)
+            if not model_name.strip():
+                model_name = preset_default
+        else:
+            model_name = _prompt_required("HuggingFace model name or local path")
     else:
         model_name = chosen
     state.config.setdefault("model", {})["name_or_path"] = model_name
@@ -494,13 +504,23 @@ def _persist_state(state: _WizardState) -> None:
 
 
 def _drive_wizard_steps(state: _WizardState) -> _WizardState:
-    """Run the wizard's step machine, honouring back / reset."""
+    """Run the wizard's step machine, honouring back / reset.
+
+    ``WizardBack`` rolls *state.config* back to the snapshot taken before
+    the step ran — partial mutations made by a half-completed step would
+    otherwise leak into the previous step's prompts.
+
+    ``WizardReset`` re-loops with a fresh state instead of returning;
+    returning would let ``_run_full_wizard`` treat the reset as a
+    completed run and try to save an empty config.
+    """
     while state.current_step < len(_STEPS):
         step = _STEPS[state.current_step]
-        prev_config = json.loads(json.dumps(state.config))  # deep copy
+        prev_config = copy.deepcopy(state.config)
         try:
             step.runner(state)
         except WizardBack:
+            state.config = prev_config
             if state.current_step == 0:
                 _print("  Already at the first step.")
                 continue
@@ -512,7 +532,8 @@ def _drive_wizard_steps(state: _WizardState) -> _WizardState:
         except WizardReset:
             _print("  Resetting wizard state.")
             _clear_wizard_state()
-            return _WizardState()
+            state = _WizardState()
+            continue
         _print_step_diff(prev_config, state.config, step.label)
         if step.label not in state.completed_steps:
             state.completed_steps.append(step.label)

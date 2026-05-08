@@ -104,6 +104,14 @@ def _save_wizard_state(state: Mapping[str, Any]) -> None:
         snapshot = {"v": _STATE_VERSION, **dict(state)}
         with open(target, "w", encoding="utf-8") as fh:
             yaml.safe_dump(snapshot, fh, default_flow_style=False, sort_keys=False)
+        # Wizard state can carry compliance metadata (provider name,
+        # contact, governance fields) that operators consider sensitive.
+        # ``0o600`` keeps it readable only by the operator running the
+        # wizard.  Best-effort: chmod is a no-op on Windows / FAT.
+        try:
+            os.chmod(target, 0o600)
+        except OSError:  # pragma: no cover — best-effort permission tightening
+            pass
     except OSError as exc:
         logger.warning("Could not persist wizard state to %s: %s", target, exc)
 
@@ -209,10 +217,16 @@ def _print_step_diff(prev: Mapping[str, Any], curr: Mapping[str, Any], step_labe
 
 
 def _save_config_to_file(config: Dict[str, Any], requested_filename: str) -> str:
-    """Write *config* as YAML; falls back to a unique filename on OSError."""
+    """Write *config* as YAML; falls back to a unique filename on OSError.
+
+    Uses ``yaml.safe_dump`` so unknown Python objects (e.g. accidental
+    ``Path`` / ``set`` leak from a collector) raise a representable
+    error instead of silently emitting a Python-only ``!!python/object``
+    tag that ``ForgeConfig`` then rejects on load.
+    """
     try:
-        with open(requested_filename, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        with open(requested_filename, "w", encoding="utf-8") as f:
+            yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
         _print(f"\n  Config saved to: {requested_filename}")
         logger.info("Wizard config saved to %s", requested_filename)
         return requested_filename
@@ -228,8 +242,8 @@ def _save_config_to_file(config: Dict[str, Any], requested_filename: str) -> str
         f"{base}_{_dt.now().strftime('%Y%m%d_%H%M%S')}.yaml",
     )
     try:
-        with open(fallback, "w") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        with open(fallback, "w", encoding="utf-8") as f:
+            yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
         _print(f"  Saved to fallback location: {fallback}")
         logger.info("Wizard config saved to fallback location %s", fallback)
         return fallback
@@ -279,7 +293,7 @@ def _print_wizard_summary(config: Dict[str, Any]) -> None:
         _print(f"  Extras:   {', '.join(sorted(sections))}")
     _print("\n  Full YAML preview:")
     _print("  " + "─" * 58)
-    yaml_text = yaml.dump(config, default_flow_style=False, sort_keys=False)
+    yaml_text = yaml.safe_dump(config, default_flow_style=False, sort_keys=False, allow_unicode=True)
     for line in yaml_text.splitlines():
         _print(f"  {line}")
     _print("  " + "─" * 58)

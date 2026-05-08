@@ -145,7 +145,7 @@ Model merging with 4 strategies: linear interpolation, TIES-Merging (trim + sign
 ### `synthetic.py`
 Synthetic data generation via teacher-to-student distillation. The `SyntheticDataGenerator` class takes a teacher model (API-based or local), generates training samples from seed prompts, and outputs formatted JSONL datasets. Triggered via `--generate-data` CLI flag or `synthetic` config section. Supports configurable teacher backends, output formats, and generation parameters.
 
-### `wizard.py`
+### `wizard/`
 Interactive CLI wizard for generating valid YAML configs. Phase 22 modernisation (2026-05-08) brought the CLI to parity with `site/js/wizard.js`: 9-step state machine (welcome / use-case / model / strategy / trainer / dataset / training-params / compliance / operations), per-trainer hyperparameters (`dpo_beta` / `simpo_beta` + `simpo_gamma` / `kto_beta` / `orpo_beta` / `grpo_*`), full PEFT method coverage (`lora` / `dora` / `pissa` / `rslora`) plus GaLore axis, EU AI Act Article 9 + 10 + 11 + 12+17 compliance accordions, F-compliance-110 strict-tier auto-coercion, `back` / `reset` navigation, XDG-aware persistence at `$XDG_CACHE_HOME/forgelm/wizard_state.yaml`, step-diff preview, beginner / expert toggle, and the Phase 11.5 / 12.5 BYOD inline ingest + audit helpers (`_offer_ingest_for_directory`, `_offer_audit_for_jsonl`).
 
 ### `webhook.py`

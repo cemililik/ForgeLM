@@ -109,6 +109,8 @@ def _prompt_choice(question: str, options: List[str], default: int = 1) -> str:
     _check_navigation_token(choice)
     try:
         idx = int(choice) if choice else default
+        if idx < 1 or idx > len(options):
+            return options[default - 1]
         return options[idx - 1]
     except (ValueError, IndexError):
         return options[default - 1]
@@ -189,7 +191,7 @@ def _detect_hardware() -> Dict[str, Any]:
         if torch.cuda.is_available():
             info["gpu_available"] = True
             info["gpu_name"] = torch.cuda.get_device_name(0)
-            info["vram_gb"] = round(torch.cuda.get_device_properties(0).total_mem / (1024**3), 1)
+            info["vram_gb"] = round(torch.cuda.get_device_properties(0).total_memory / (1024**3), 1)
             info["cuda_version"] = torch.version.cuda
     except ImportError:
         pass

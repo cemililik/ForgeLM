@@ -10,6 +10,7 @@ the BYOD logic — the helpers are well-tested in
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 from typing import List, Optional
 
@@ -79,7 +80,7 @@ def _offer_ingest_for_directory(directory: Path) -> Optional[str]:
     ):
         _print(
             "  Skipped — to ingest manually:\n"
-            f"      forgelm ingest {resolved} --recursive --output data/from_docs.jsonl\n"
+            f"      forgelm ingest {shlex.quote(str(resolved))} --recursive --output data/from_docs.jsonl\n"
             "  Then re-run the wizard with the resulting JSONL path."
         )
         return None
@@ -159,7 +160,7 @@ def _offer_audit_for_jsonl(jsonl_path: Path) -> bool:
         )
     if not _prompt_yes_no(prompt, default=True):
         _print("  Skipped — audit can be run later via:")
-        _print(f"      forgelm audit {jsonl_path}")
+        _print(f"      forgelm audit {shlex.quote(str(jsonl_path))}")
         return False
 
     try:
@@ -192,7 +193,18 @@ def _offer_audit_for_jsonl(jsonl_path: Path) -> bool:
 
 
 def _prompt_dataset_path_with_ingest_offer(question: str) -> str:
-    """Prompt for a dataset path; auto-offer ingestion when the user gives a directory."""
+    """Prompt for a dataset path; auto-offer ingestion when the user gives a directory.
+
+    Validates that the typed value is one of:
+    1. A directory containing ingestible documents (triggers Phase 11.5
+       inline ingest).
+    2. A local JSONL / JSON file (triggers the Phase 12.5 audit offer).
+    3. A HuggingFace Hub dataset ID (``<org>/<name>``).
+
+    Anything else re-prompts.  Without this validation a typo silently
+    becomes ``data.dataset_name_or_path`` and surfaces only at training
+    time as a confusing HF resolver error.
+    """
     while True:
         raw = _prompt(question, "").strip()
         if not raw:
@@ -204,9 +216,19 @@ def _prompt_dataset_path_with_ingest_offer(question: str) -> str:
             if ingested is None:
                 continue
             return ingested
-        if candidate.is_file() and candidate.suffix.lower() in (".jsonl", ".json"):
-            _offer_audit_for_jsonl(candidate.resolve())
-        return raw
+        if candidate.is_file():
+            if candidate.suffix.lower() in (".jsonl", ".json"):
+                _offer_audit_for_jsonl(candidate.resolve())
+                return str(candidate.resolve())
+            _print(
+                f"  '{candidate}' is not a JSONL / JSON file. "
+                "Provide a JSONL dataset, a directory of raw documents, or an HF Hub ID."
+            )
+            continue
+        if _HF_HUB_ID_RE.match(raw):
+            _print(f"  Treating '{raw}' as an HF Hub dataset ID (no local validation).")
+            return raw
+        _print(f"  '{raw}' is not a local file/directory and is not a valid HF Hub ID (expected '<org>/<name>').")
 
 
 def _validate_local_jsonl(raw_path: str):

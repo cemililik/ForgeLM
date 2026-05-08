@@ -360,12 +360,15 @@ class TestCollectWebhookConfig:
 
     def test_env_prefix_default_accepted(self):
         # The prompt default is ``env:FORGELM_WEBHOOK_URL`` so an empty
-        # answer accepts the suggested env-var.
+        # answer accepts the suggested env-var.  ``notify_on_start``
+        # defaults to ``False`` (web-wizard parity) — start
+        # notifications are noisy and most operators want only success
+        # / failure pings.
         with patch("builtins.input", side_effect=_input_returning("y", "")):
             section = wizard._collect_webhook_config()
         assert section == {
             "url_env": "FORGELM_WEBHOOK_URL",
-            "notify_on_start": True,
+            "notify_on_start": False,
             "notify_on_success": True,
             "notify_on_failure": True,
         }
@@ -490,3 +493,238 @@ class TestSchemaDefaultParity:
         from forgelm.config import TrainingConfig
 
         assert wizard.DEFAULT_LR == TrainingConfig.model_fields["learning_rate"].default
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator step-machine — Phase 22 / G3 + G7 + I3
+#
+# The orchestrator was the lowest-coverage module after the Phase 22
+# split (14 % per the post-merge review).  These tests exercise the
+# step driver directly with stub steps so we don't need to mock 9
+# real ``_collect_*`` helpers.
+# ---------------------------------------------------------------------------
+
+
+class TestStepMachineDriver:
+    """Exercise ``_drive_wizard_steps`` directly with stub steps."""
+
+    def _make_steps(self, runners):
+        """Build a tuple of ``_StepDef``-shaped objects for *runners*."""
+        return tuple(
+            wizard._orchestrator._StepDef(label=f"step-{i}", runner=runner) for i, runner in enumerate(runners)
+        )
+
+    def test_runs_every_step_in_order(self, isolated_state_dir, monkeypatch):
+        order = []
+
+        def make(label):
+            def runner(state):
+                order.append(label)
+                state.config[label] = True
+
+            return runner
+
+        steps = self._make_steps([make("a"), make("b"), make("c")])
+        monkeypatch.setattr(wizard._orchestrator, "_STEPS", steps)
+
+        state = wizard._orchestrator._drive_wizard_steps(wizard._WizardState())
+        assert order == ["a", "b", "c"]
+        assert state.completed_steps == ["step-0", "step-1", "step-2"]
+        assert state.current_step == 3
+
+    def test_back_restores_prev_config(self, isolated_state_dir, monkeypatch):
+        # Step 1 mutates state.config; step 2 mutates it then raises
+        # WizardBack.  Mutations from step 2 must NOT leak back into
+        # step 1 — that's the whole point of the prev_config snapshot.
+        attempts = {"step-1": 0}
+
+        def step0(state):
+            state.config.setdefault("model", {})["name"] = "from-step-0"
+
+        def step1_first(state):
+            # First entry: mutate then back out.
+            attempts["step-1"] += 1
+            if attempts["step-1"] == 1:
+                state.config["leaked"] = "should-not-survive"
+                raise wizard.WizardBack
+
+        def step0_after_back(state):
+            # Re-running step 0 — the leaked key from step 1's first
+            # attempt MUST be gone.
+            assert "leaked" not in state.config
+
+        # Stitch: step 0 runs twice (first then after back); step 1
+        # runs once (raises back), then once more silently.
+        runs = {"step-0": 0}
+
+        def step0_combined(state):
+            runs["step-0"] += 1
+            if runs["step-0"] == 1:
+                step0(state)
+            else:
+                step0_after_back(state)
+
+        def step1_combined(state):
+            attempts["step-1"] += 1
+            if attempts["step-1"] == 1:
+                state.config["leaked"] = "should-not-survive"
+                raise wizard.WizardBack
+
+        steps = self._make_steps([step0_combined, step1_combined])
+        monkeypatch.setattr(wizard._orchestrator, "_STEPS", steps)
+
+        state = wizard._orchestrator._drive_wizard_steps(wizard._WizardState())
+        assert "leaked" not in state.config
+        assert state.config["model"]["name"] == "from-step-0"
+
+    def test_back_at_first_step_is_no_op(self, isolated_state_dir, monkeypatch, capsys):
+        attempts = {"calls": 0}
+
+        def step0(state):
+            attempts["calls"] += 1
+            if attempts["calls"] == 1:
+                raise wizard.WizardBack
+            # Second call: succeed normally.
+            state.config["done"] = True
+
+        steps = self._make_steps([step0])
+        monkeypatch.setattr(wizard._orchestrator, "_STEPS", steps)
+
+        wizard._orchestrator._drive_wizard_steps(wizard._WizardState())
+        captured = capsys.readouterr().out
+        assert "Already at the first step" in captured
+
+    def test_reset_re_loops_with_fresh_state(self, isolated_state_dir, monkeypatch):
+        # WizardReset MUST cause the driver to start over with a fresh
+        # _WizardState — returning early would let _run_full_wizard
+        # treat the reset as a completed run and try to save an empty
+        # config.
+        attempts = {"step-0": 0, "step-1": 0}
+
+        def step0(state):
+            attempts["step-0"] += 1
+            state.config["k0"] = attempts["step-0"]
+
+        def step1(state):
+            attempts["step-1"] += 1
+            if attempts["step-1"] == 1:
+                raise wizard.WizardReset
+
+        steps = self._make_steps([step0, step1])
+        monkeypatch.setattr(wizard._orchestrator, "_STEPS", steps)
+
+        state = wizard._orchestrator._drive_wizard_steps(wizard._WizardState())
+        # step-0 ran twice (first run + after reset), step-1 ran twice
+        # too (first raised reset, second completed cleanly).
+        assert attempts["step-0"] == 2
+        assert attempts["step-1"] == 2
+        # State after the reset should reflect the second (fresh) run,
+        # not the first.
+        assert state.config["k0"] == 2
+
+    def test_persists_after_each_completed_step(self, isolated_state_dir, monkeypatch):
+        def step0(state):
+            state.config["a"] = 1
+
+        def step1(state):
+            # Snapshot must already include step 0's mutation when we
+            # arrive here — the orchestrator persists eagerly.
+            saved = wizard._load_wizard_state()
+            assert saved is not None
+            assert saved["config"]["a"] == 1
+            state.config["b"] = 2
+
+        steps = self._make_steps([step0, step1])
+        monkeypatch.setattr(wizard._orchestrator, "_STEPS", steps)
+
+        wizard._orchestrator._drive_wizard_steps(wizard._WizardState())
+        saved = wizard._load_wizard_state()
+        assert saved is not None
+        assert saved["config"] == {"a": 1, "b": 2}
+        assert saved["completed_steps"] == ["step-0", "step-1"]
+
+
+class TestMaybeResumeState:
+    def test_returns_fresh_state_when_no_snapshot(self, isolated_state_dir):
+        state = wizard._orchestrator._maybe_resume_state()
+        assert state.current_step == 0
+        assert state.config == {}
+        assert state.completed_steps == []
+
+    def test_resumes_from_saved_snapshot(self, isolated_state_dir):
+        wizard._save_wizard_state(
+            {
+                "experience": "beginner",
+                "use_case": "domain-expert",
+                "current_step": 2,
+                "completed_steps": ["welcome", "use-case"],
+                "config": {"model": {"name_or_path": "x"}},
+            }
+        )
+        with patch("builtins.input", side_effect=_input_returning("y")):  # accept resume
+            state = wizard._orchestrator._maybe_resume_state()
+        assert state.current_step == 2
+        assert state.completed_steps == ["welcome", "use-case"]
+        assert state.config == {"model": {"name_or_path": "x"}}
+        assert state.experience == "beginner"
+
+    def test_decline_resume_clears_snapshot(self, isolated_state_dir):
+        wizard._save_wizard_state(
+            {
+                "experience": "expert",
+                "use_case": "custom",
+                "current_step": 1,
+                "completed_steps": ["welcome"],
+                "config": {"a": 1},
+            }
+        )
+        with patch("builtins.input", side_effect=_input_returning("n")):  # decline
+            state = wizard._orchestrator._maybe_resume_state()
+        assert state.current_step == 0
+        assert state.config == {}
+        # Snapshot was cleared so a future load returns None.
+        assert wizard._load_wizard_state() is None
+
+
+class TestStepWelcome:
+    def test_welcome_sets_backend_hint(self, capsys):
+        # Stubbing _detect_hardware to return "no GPU" makes the
+        # outcome deterministic across CI runners that may or may not
+        # see CUDA.
+        state = wizard._WizardState()
+        with (
+            patch("builtins.input", side_effect=_input_returning("n")),  # not first-time
+            patch.object(
+                wizard._orchestrator,
+                "_detect_hardware",
+                return_value={
+                    "gpu_available": False,
+                    "gpu_name": None,
+                    "vram_gb": None,
+                    "cuda_version": None,
+                },
+            ),
+        ):
+            wizard._orchestrator._step_welcome(state)
+        assert state.experience == "expert"
+        assert state.config["model"]["backend"] == "transformers"
+        captured = capsys.readouterr().out
+        assert "No GPU detected" in captured
+
+    def test_welcome_beginner_branch(self):
+        state = wizard._WizardState()
+        with (
+            patch("builtins.input", side_effect=_input_returning("y")),  # first-time
+            patch.object(
+                wizard._orchestrator,
+                "_detect_hardware",
+                return_value={
+                    "gpu_available": False,
+                    "gpu_name": None,
+                    "vram_gb": None,
+                    "cuda_version": None,
+                },
+            ),
+        ):
+            wizard._orchestrator._step_welcome(state)
+        assert state.experience == "beginner"
