@@ -670,7 +670,10 @@ def _collect_synthetic() -> Optional[Dict[str, Any]]:
         "teacher_backend": backend_token,
         "teacher_model": _prompt("teacher_model (HF Hub ID or API model name)", "gpt-4o"),
     }
-    if backend_token == "api":
+    # ``"api"`` is a backend-mode discriminator (one of "api"/"local"/"file"),
+    # not a credential.  Bandit B105 flags it as "possible hardcoded password"
+    # because of the proximity of ``backend_token``; suppress with rationale.
+    if backend_token == "api":  # nosec B105 -- enum-style discriminator, not a secret
         api_base = _prompt(
             "api_base (OpenAI-compatible endpoint URL)",
             "https://api.openai.com/v1",

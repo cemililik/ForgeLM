@@ -59,7 +59,7 @@ from __future__ import annotations
 # ruff: noqa: F401
 # Public entry point + navigation exceptions
 from ._byod import (
-    _AUDIT_LARGE_FILE_THRESHOLD_BYTES,
+    _AUDIT_LARGE_FILE_THRESHOLD_BYTES,  # noqa: F401  -- re-export for tests (pyflakes/Prospector compat)
     _BYOD_LOCAL_NOT_FOUND,
     _INGEST_SUPPORTED_EXTENSIONS,
     _directory_has_ingestible_files,
@@ -72,7 +72,7 @@ from ._byod import (
     _validate_local_jsonl,
 )
 from ._collectors import (
-    _GALORE_OPTIMIZERS,
+    _GALORE_OPTIMIZERS,  # noqa: F401  -- re-export for tests (pyflakes/Prospector compat)
     _MANUAL_USE_CASE,
     _PREFERENCE_COLUMNS_HINT,
     _RISK_TIERS,
@@ -100,7 +100,7 @@ from ._collectors import (
     _wizard_use_case_presets,
 )
 from ._io import (
-    _BACK_TOKENS,
+    _BACK_TOKENS,  # noqa: F401  -- re-export for tests (pyflakes/Prospector compat)
     _CANCEL_TOKENS,
     _HF_HUB_ID_RE,
     _PLATFORM,
@@ -119,7 +119,7 @@ from ._io import (
     _prompt_yes_no,
 )
 from ._orchestrator import (
-    _STEPS,
+    _STEPS,  # noqa: F401  -- re-export for tests (pyflakes/Prospector compat)
     WizardOutcome,
     _apply_strict_tier_coercion,
     _drive_wizard_steps,
@@ -147,7 +147,7 @@ from ._orchestrator import (
     run_wizard_full,
 )
 from ._state import (
-    _STATE_VERSION,
+    _STATE_VERSION,  # noqa: F401  -- re-export for tests (pyflakes/Prospector compat)
     DEFAULT_BATCH_SIZE,
     DEFAULT_DROPOUT,
     DEFAULT_EPOCHS,
