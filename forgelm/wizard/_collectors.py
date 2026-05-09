@@ -587,6 +587,11 @@ def _collect_risk_assessment(risk_classification: str) -> Optional[Dict[str, Any
     }
 
 
+_ARTICLE10_COLLECTION_PROMPT = "Article 10(2)(b): how was data collected?"
+_ARTICLE10_ANNOTATION_PROMPT = "Article 10(2)(b): annotation methodology"
+_ARTICLE10_KNOWN_BIASES_PROMPT = "Article 10(2)(f): known_biases"
+
+
 def _collect_data_governance(
     *,
     mandatory: bool,
@@ -594,12 +599,11 @@ def _collect_data_governance(
 ) -> Optional[Dict[str, Any]]:
     """Article 10: data governance metadata.  Mandatory under strict tiers.
 
-    PR-D-B5 (PR-E review fix): when *existing* carries previously
-    populated values (operator iterating from ``--wizard-start-from``),
-    each prompt defaults to the prior answer so a bare Enter keeps
-    it.  Strict-tier ``_prompt_required`` calls still re-prompt until
-    non-empty — the existing-value default just spares the operator
-    from re-typing.
+    When *existing* carries previously populated values (operator
+    iterating from ``--wizard-start-from``), each prompt defaults to
+    the prior answer so a bare Enter keeps it.  Strict-tier
+    ``_prompt_required`` calls still re-prompt until non-empty — the
+    existing-value default just spares the operator from re-typing.
     """
     existing = existing or {}
     if not mandatory and not _prompt_yes_no(
@@ -617,24 +621,24 @@ def _collect_data_governance(
         # iteration we fall back to ``_prompt`` when an existing
         # non-empty value exists, otherwise enforce the strict re-prompt.
         collection_method = (
-            _prompt("Article 10(2)(b): how was data collected?", existing["collection_method"])
+            _prompt(_ARTICLE10_COLLECTION_PROMPT, existing["collection_method"])
             if existing.get("collection_method")
-            else _prompt_required("Article 10(2)(b): how was data collected?")
+            else _prompt_required(_ARTICLE10_COLLECTION_PROMPT)
         )
         annotation_process = (
-            _prompt("Article 10(2)(b): annotation methodology", existing["annotation_process"])
+            _prompt(_ARTICLE10_ANNOTATION_PROMPT, existing["annotation_process"])
             if existing.get("annotation_process")
-            else _prompt_required("Article 10(2)(b): annotation methodology")
+            else _prompt_required(_ARTICLE10_ANNOTATION_PROMPT)
         )
         known_biases = (
-            _prompt("Article 10(2)(f): known_biases", existing["known_biases"])
+            _prompt(_ARTICLE10_KNOWN_BIASES_PROMPT, existing["known_biases"])
             if existing.get("known_biases")
-            else _prompt_required("Article 10(2)(f): known_biases")
+            else _prompt_required(_ARTICLE10_KNOWN_BIASES_PROMPT)
         )
     else:
-        collection_method = _prompt("Article 10(2)(b): how was data collected?", existing.get("collection_method", ""))
-        annotation_process = _prompt("Article 10(2)(b): annotation methodology", existing.get("annotation_process", ""))
-        known_biases = _prompt("Article 10(2)(f): known_biases", existing.get("known_biases", ""))
+        collection_method = _prompt(_ARTICLE10_COLLECTION_PROMPT, existing.get("collection_method", ""))
+        annotation_process = _prompt(_ARTICLE10_ANNOTATION_PROMPT, existing.get("annotation_process", ""))
+        known_biases = _prompt(_ARTICLE10_KNOWN_BIASES_PROMPT, existing.get("known_biases", ""))
     return {
         "collection_method": collection_method,
         "annotation_process": annotation_process,

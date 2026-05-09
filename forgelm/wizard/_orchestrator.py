@@ -980,12 +980,15 @@ def _load_initial_state_from_yaml(path: str) -> _WizardState:
     # silently disabled the upfront schema check that the wizard's
     # whole "fail fast" promise depends on.
     try:
-        from ..config import ForgeConfig
+        from ..config import ForgeConfig as _ForgeConfig
     except ImportError:  # pragma: no cover — config always present
-        ForgeConfig = None  # type: ignore[assignment]
-    if ForgeConfig is not None:
+        # Use a separate identifier so the import failure path doesn't
+        # shadow the ``ForgeConfig`` name (static analyzers flag the
+        # ``ForgeConfig = None`` rebind as a class shadow).
+        _ForgeConfig = None
+    if _ForgeConfig is not None:
         try:
-            ForgeConfig.model_validate(data)
+            _ForgeConfig.model_validate(data)
         except Exception as exc:  # noqa: BLE001 — pydantic raises ValidationError; surface to operator
             raise ValueError(f"--wizard-start-from YAML failed schema validation: {exc}") from exc
     state = _WizardState(

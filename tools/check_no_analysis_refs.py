@@ -44,10 +44,34 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 # Pattern matches any reference to ``docs/analysis/`` or
 # ``docs/marketing/`` inside Markdown links, code-quoted strings, plain
 # prose, or ``analysis/`` / ``marketing/`` relative paths from inside
-# ``docs/``.  The leading word boundary keeps us from matching
-# ``docs-analysis-…`` style identifiers.
+# ``docs/``.
+#
+# Two alternatives:
+#
+# 1. ``docs/(analysis|marketing)/`` — absolute form; trailing slash
+#    is enough on its own (it's already a path).  Leading negative
+#    look-behind keeps us from matching ``docs-analysis-…`` style
+#    identifiers.
+#
+# 2. ``(analysis|marketing)/<segment>`` — relative form.  The
+#    ``<segment>`` is required to either continue with another path
+#    separator or terminate with a known file extension; that
+#    distinguishes a path (``analysis/code_reviews/x.md``,
+#    ``marketing/strategy/``) from English prose that uses ``/`` as
+#    "or" (e.g. ``marketing/product copy``, ``analysis/report
+#    output``).  Without this constraint the broad form caught
+#    legitimate noun-phrase uses of slash in standards docs.  Newly-
+#    created working-memory subfolders are still caught because they
+#    inevitably either contain another ``/`` or end with a file
+#    extension.
 _PROHIBITED_RE = re.compile(
-    r"(?:(?<!/)docs/(analysis|marketing)/|(?<![A-Za-z./])(analysis|marketing)/(?:code_reviews|QKV-Core|Trion|ART|autoresearch|proposals|strategy|drafts)/)",
+    r"(?:"
+    r"(?<!/)docs/(analysis|marketing)/"
+    r"|"
+    r"(?<![A-Za-z./])(analysis|marketing)/"
+    r"[A-Za-z0-9_.-]+"
+    r"(?:/|\.(?:md|py|html|js|css|yaml|yml|json|txt|jsonl|sh|cfg|toml|ini))"
+    r")",
 )
 
 # Files under the public tree to scan.  Gitignored directories
@@ -94,7 +118,18 @@ _EXEMPT: dict[str, frozenset[str]] = {
     ),
     "tests/test_check_bilingual_parity.py": frozenset({"docs/marketing/", "docs/analysis/"}),
     # This guard itself contains the prohibited substrings as patterns.
-    "tools/check_no_analysis_refs.py": frozenset({"docs/marketing/", "docs/analysis/"}),
+    "tools/check_no_analysis_refs.py": frozenset(
+        {
+            "docs/marketing/",
+            "docs/analysis/",
+            # Regex docstring carries explanatory example patterns that
+            # match the broadened relative form (``analysis/code_reviews/x.md``
+            # and ``marketing/strategy/``).  These are documentation of
+            # what the regex catches, not content citations.
+            "analysis/code_reviews/",
+            "marketing/strategy/",
+        }
+    ),
     # Roadmap pages publicly disclose the EXISTENCE of the gitignored
     # marketing directory ("internal only"); that's a policy mention,
     # not a content citation, and the explicit "(gitignored)" suffix
@@ -144,13 +179,20 @@ def _enumerate_public_files() -> List[Path]:
 
 
 def _check_file(path: Path) -> List[Tuple[int, str]]:
-    """Return list of ``(line_no, line_text)`` for prohibited refs in *path*."""
+    """Return list of ``(line_no, line_text)`` for prohibited refs in *path*.
+
+    Fail-closed semantics: an unreadable file (``OSError``) or a file
+    with a non-UTF-8 byte sequence (``UnicodeDecodeError``) is reported
+    as a finding rather than silently skipped, so CI surfaces the
+    problem instead of going green on a stale or malformed input.
+    """
     rel = path.relative_to(_REPO_ROOT).as_posix()
     exempt_substrings = _EXEMPT.get(rel, frozenset())
     findings: List[Tuple[int, str]] = []
     try:
         text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError) as exc:
+        findings.append((0, f"could not read file ({exc.__class__.__name__}: {exc})"))
         return findings
     for line_no, line in enumerate(text.splitlines(), start=1):
         if not _PROHIBITED_RE.search(line):

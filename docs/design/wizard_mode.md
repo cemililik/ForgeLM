@@ -6,6 +6,8 @@
 > actual implementation in `forgelm/wizard/` (split from a 976-line
 > monolith into five focused submodules) is now the source of truth.
 
+<!-- separator: distinct status notes follow; explicit blank line + comment satisfies markdownlint MD028. -->
+
 > **Review-cycle 2 additions (2026-05-09):** validate-on-exit
 > (`ForgeConfig.model_validate`), overwrite confirmation with auto-
 > suffix, non-tty stdin refusal, pre-flight checklist, atomic
@@ -16,6 +18,8 @@
 > exit code, best-effort `readline` integration. Schema-default
 > parity tightened: judge `min_score` `5.0` (was `6.5`), web
 > `learningRate` `2e-5` (was `1e-4`), web `batchSize` `4` (was `2`).
+
+<!-- separator -->
 
 > **PR-D additions (E3, 2026-05-09):** new `--wizard-start-from
 > <yaml>` flag preloads the wizard from an existing config so each

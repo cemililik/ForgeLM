@@ -112,7 +112,9 @@ def _offer_ingest_for_directory(directory: Path) -> Optional[str]:
     except (FileNotFoundError, ValueError) as exc:
         _print(f"  Ingest failed: {exc}")
         return None
-    except (PermissionError, IsADirectoryError, OSError) as exc:
+    except OSError as exc:
+        # PermissionError / IsADirectoryError both subclass OSError — the
+        # bare OSError catch handles every filesystem-level failure mode.
         _print(f"  Ingest failed due to filesystem error: {exc} — check permissions or output path.")
         return None
     except ImportError as exc:
@@ -172,7 +174,8 @@ def _offer_audit_for_jsonl(jsonl_path: Path) -> bool:
     _print(f"\n  Running audit on '{jsonl_path}'…")
     try:
         report = audit_dataset(str(jsonl_path))
-    except (FileNotFoundError, ValueError, OSError) as exc:
+    except (OSError, ValueError) as exc:
+        # FileNotFoundError subclasses OSError — bare OSError covers it.
         _print(f"  Audit could not run: {exc}")
         return False
     except ImportError as exc:
