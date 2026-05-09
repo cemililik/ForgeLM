@@ -125,7 +125,7 @@ class TestWizardAuditFirstOffer:
         self._write_jsonl(ds, [{"text": "alpha"}, {"text": "beta"}])
 
         # Simulate "yes" to the offer.
-        with patch("forgelm.wizard._prompt_yes_no", return_value=True):
+        with patch("forgelm.wizard._byod._prompt_yes_no", return_value=True):
             outcome = _offer_audit_for_jsonl(ds)
 
         assert outcome is True
@@ -139,7 +139,7 @@ class TestWizardAuditFirstOffer:
         self._write_jsonl(ds, [{"text": "alpha"}])
 
         # Simulate "no" — must short-circuit before invoking audit_dataset.
-        with patch("forgelm.wizard._prompt_yes_no", return_value=False):
+        with patch("forgelm.wizard._byod._prompt_yes_no", return_value=False):
             with patch("forgelm.data_audit.audit_dataset") as mock_audit:
                 outcome = _offer_audit_for_jsonl(ds)
                 mock_audit.assert_not_called()
@@ -155,7 +155,7 @@ class TestWizardAuditFirstOffer:
         ds = tmp_path / "data.jsonl"
         self._write_jsonl(ds, [{"text": "alpha"}])
 
-        with patch("forgelm.wizard._prompt_yes_no", return_value=True):
+        with patch("forgelm.wizard._byod._prompt_yes_no", return_value=True):
             with patch(
                 "forgelm.data_audit.audit_dataset",
                 side_effect=RuntimeError("simulated audit failure"),

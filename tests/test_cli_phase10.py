@@ -369,10 +369,105 @@ class TestSubcommandRouting:
         assert exc_info.value.code == EXIT_SUCCESS
 
     def test_wizard_still_works(self):
-        """--wizard flow must be unaffected."""
-        mock_wizard = MagicMock(return_value=None)
-        with patch("forgelm.wizard.run_wizard", mock_wizard):
+        """--wizard flow must remain reachable via the dispatcher.
+
+        Post-D2 (review-cycle 2 / 2026-05-09) the dispatcher consumes
+        ``run_wizard_full`` and emits ``EXIT_SUCCESS`` when the operator
+        produced + deferred (saved a YAML but answered "no" to "start
+        training now?").  ``EXIT_WIZARD_CANCELLED = 5`` is now the
+        exit code for genuine cancels (Ctrl-C, non-tty refusal,
+        decline-to-save) — covered separately below.
+        """
+        from forgelm.wizard._orchestrator import WizardOutcome
+
+        deferred = WizardOutcome(config_path="/tmp/saved.yaml", start_training=False)
+        with patch("forgelm.wizard.run_wizard_full", MagicMock(return_value=deferred)):
             with patch("sys.argv", ["forgelm", "--wizard"]):
                 with pytest.raises(SystemExit) as exc_info:
                     main()
+        assert exc_info.value.code == EXIT_SUCCESS
+
+    def test_wizard_cancelled_exits_5(self):
+        """D2: a cancelled wizard exits ``EXIT_WIZARD_CANCELLED`` (5)."""
+        from forgelm.cli._exit_codes import EXIT_WIZARD_CANCELLED
+        from forgelm.wizard._orchestrator import WizardOutcome
+
+        cancelled = WizardOutcome(config_path=None, start_training=False)
+        with patch("forgelm.wizard.run_wizard_full", MagicMock(return_value=cancelled)):
+            with patch("sys.argv", ["forgelm", "--wizard"]):
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+        assert exc_info.value.code == EXIT_WIZARD_CANCELLED
+
+    def test_wizard_start_from_threads_through_to_run_wizard_full(self, monkeypatch):
+        """PR-D-B1 (PR-E review fix): the --wizard-start-from flag must reach
+        run_wizard_full as the start_from kwarg.
+
+        Pre-fix coverage stopped at the orchestrator boundary; a future
+        rename of the argparse ``dest`` would silently regress to
+        ``None`` (legacy behaviour) without any test catching it.  This
+        test stubs ``run_wizard_full`` to capture its kwargs, builds an
+        argparse Namespace via the real parser, and asserts the path
+        flowed through parser → dispatcher → wizard.
+        """
+        from forgelm.wizard._orchestrator import WizardOutcome
+
+        captured: dict = {}
+
+        def _stub_run_wizard_full(*, start_from=None):
+            captured["start_from"] = start_from
+            return WizardOutcome(config_path=None, start_training=False)
+
+        with patch("forgelm.wizard.run_wizard_full", _stub_run_wizard_full):
+            with patch("sys.argv", ["forgelm", "--wizard", "--wizard-start-from", "/tmp/some-config.yaml"]):
+                with pytest.raises(SystemExit):
+                    main()
+        assert captured["start_from"] == "/tmp/some-config.yaml", (
+            "--wizard-start-from did not thread through to run_wizard_full"
+        )
+
+    def test_wizard_start_training_routes_through_dispatcher(self, monkeypatch, tmp_path, minimal_config):
+        """E22-24 (review-cycle 3): the start_training=True branch must mutate
+        ``args.config`` and let the trainer pipeline take over.
+
+        The pre-cycle test only exercised the deferred + cancel paths;
+        the dispatcher's ``args.config = outcome.config_path`` line was
+        uncovered.  Stub the trainer so the test stays GPU-free + fast.
+        """
+        import yaml as _yaml
+
+        from forgelm.wizard._orchestrator import WizardOutcome
+
+        cfg_path = tmp_path / "wizard.yaml"
+        config_data = minimal_config()
+        cfg_path.write_text(_yaml.safe_dump(config_data), encoding="utf-8")
+        # G3 (review-cycle 3): defensive hardening — verify the YAML
+        # the test writes actually loads cleanly.  Without this assert,
+        # a future change to ``minimal_config`` that produced an
+        # invalid YAML would still pass this test (because the
+        # trainer pipeline is mocked BEFORE validation runs in
+        # ``_dispatch.main``), giving false-positive coverage.
+        from forgelm.config import ForgeConfig
+
+        ForgeConfig.model_validate(config_data)
+        outcome = WizardOutcome(config_path=str(cfg_path), start_training=True)
+
+        captured = {}
+
+        # ``_run_training_pipeline`` is called as
+        # ``_run_training_pipeline(config, args, json_output)`` from
+        # ``forgelm/cli/_dispatch.py:232``.  Stub captures the args
+        # object so the test can verify ``args.config`` was mutated.
+        def _stub_pipeline(_config_obj, args, *_a, **_kw):
+            captured["config"] = args.config
+            sys.exit(EXIT_SUCCESS)
+
+        with patch("forgelm.wizard.run_wizard_full", MagicMock(return_value=outcome)):
+            monkeypatch.setattr("forgelm.cli._dispatch._run_training_pipeline", _stub_pipeline)
+            with patch("sys.argv", ["forgelm", "--wizard"]):
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+        # The dispatcher must have set args.config = outcome.config_path
+        # and routed into the (stubbed) trainer pipeline.
+        assert captured["config"] == str(cfg_path)
         assert exc_info.value.code == EXIT_SUCCESS

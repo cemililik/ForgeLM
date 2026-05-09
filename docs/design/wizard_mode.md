@@ -1,9 +1,32 @@
 # Design: Interactive Configuration Wizard (`forgelm --wizard`)
 
-> **Status: Implemented in v0.5.5.** This document is retained as the
-> historical design reference; the actual implementation in
-> `forgelm/wizard.py` (≈800 lines) diverged from the original 6-step
-> sketch in three concrete ways and is now the source of truth.
+> **Status: Implemented in v0.5.5; modernised Phase 22 / 2026-05-08;
+> review-cycle 2 polish 2026-05-09 (`forgelm/wizard/` sub-package).**
+> This document is retained as the historical design reference; the
+> actual implementation in `forgelm/wizard/` (split from a 976-line
+> monolith into five focused submodules) is now the source of truth.
+
+> **Review-cycle 2 additions (2026-05-09):** validate-on-exit
+> (`ForgeConfig.model_validate`), overwrite confirmation with auto-
+> suffix, non-tty stdin refusal, pre-flight checklist, atomic
+> `wizard_state.yaml` writes (`tempfile` + `os.replace`), webhook
+> SSRF preflight, CLI ↔ web safety field union, web wizard
+> `model.max_length` surface, monitoring `endpoint_env` syntax,
+> cross-tab `storage` sync, distinct `EXIT_WIZARD_CANCELLED = 5`
+> exit code, best-effort `readline` integration. Schema-default
+> parity tightened: judge `min_score` `5.0` (was `6.5`), web
+> `learningRate` `2e-5` (was `1e-4`), web `batchSize` `4` (was `2`).
+
+> **PR-D additions (E3, 2026-05-09):** new `--wizard-start-from
+> <yaml>` flag preloads the wizard from an existing config so each
+> step's prompts default to the operator's prior answers; the
+> quickstart-template prelude is skipped, and the save flow defaults
+> to overwriting the start-from path.  New
+> `_load_initial_state_from_yaml()` helper validates the YAML
+> against `ForgeConfig` up-front so schema rejections surface
+> immediately instead of 30 minutes into a failed training run.
+> Per-step prompts in `_step_strategy` / `_step_training_params` /
+> `_step_dataset` updated to honour existing values.
 
 ## Overview
 
@@ -21,36 +44,65 @@ forgelm --wizard
 top-level `forgelm --wizard` flag is the canonical operator-facing
 entry point.)
 
-## Implemented flow (`forgelm/wizard.py:799+`)
+## Implemented flow (`forgelm/wizard::run_wizard`)
 
-The shipped wizard runs **8 steps** plus an optional template prelude
-(`_maybe_run_quickstart_template`):
+The shipped wizard (Phase 22 / 2026-05-08 modernisation) runs **9 steps**
+plus an optional quickstart-template prelude (`_maybe_run_quickstart_template`).
+Step ordering and naming are kept in lockstep with the in-browser web
+wizard at `site/js/wizard.js`:
 
-0.  **Quickstart prelude** *(optional)*: detect whether the operator
-    is starting from a bundled `forgelm/templates/<name>/config.yaml`
-    template (e.g. `customer-support`, `medical-qa-tr`) and, if so,
-    pre-fill the rest of the wizard's defaults from that template.
-1.  **Welcome & Hardware Detection**: detect available VRAM via
-    `forgelm.fit_check`; suggest a backend (`transformers` vs
-    `unsloth`).
-2.  **Model Selection**: prompt for a HuggingFace repository name;
-    pre-flight check for `safetensors` shards via the HF Hub API.
-3.  **Strategy Selection**: LoRA / QLoRA / DoRA / PiSSA / rsLoRA
-    selection with simplified explanations.
-4.  **Dataset Path**: prompt for a local file path or HF Hub dataset
-    id; validate format auto-detection (SFT / DPO / KTO / GRPO) on
-    the fly via `forgelm.data._detect_dataset_format`.
-5.  **Trainer + Hyperparameters**: select `trainer_type` from
-    `{sft, dpo, simpo, kto, orpo, grpo}` and the hyperparameters most
-    operators tune (`learning_rate`, `num_train_epochs`,
-    `per_device_train_batch_size`, `gradient_accumulation_steps`).
-6.  **Compliance + Safety**: prompt for `compliance.risk_classification`,
-    `evaluation.require_human_approval`, and the safety classifier
-    block (`safety.enabled`, `safety.classifier`).
-7.  **Output Config**: ask for a filename to save the generated YAML.
-8.  **Quick Run**: ask whether to start training immediately using the
-    generated config; if yes, dispatches to the standard training
-    pipeline.
+0. **Quickstart prelude** *(optional)*: offer the curated
+   `forgelm/quickstart.py::TEMPLATES` list (`customer-support`,
+   `code-assistant`, `domain-expert`, `medical-qa-tr`, `grpo-math`)
+   as a one-shot shortcut.  When accepted, the prelude generates the
+   config from the bundled template and skips the full 9-step flow.
+1. **Welcome**: experience toggle (beginner / expert), navigation
+   primer (`back` / `reset` / Ctrl-C), hardware detection (torch +
+   CUDA + VRAM), backend hint (`unsloth` on Linux + GPU, otherwise
+   `transformers`).
+2. **Use-case**: same registry as the prelude, surfaced inside the
+   full flow so operators who declined the shortcut still benefit
+   from sensible preselects (the choice seeds Steps 3 + 5 defaults
+   but the operator can still override every later answer).
+3. **Model**: pick a HuggingFace Hub ID from `POPULAR_MODELS` (kept
+   in lockstep with `site/js/wizard.js`'s presets) or enter a custom
+   path.
+4. **Strategy**: 6 cards (QLoRA / LoRA / DoRA / PiSSA / rsLoRA /
+   GaLore) covering the full `LoraConfigModel.method` Literal +
+   GaLore as a separate axis.  Captures `lora.r`, `lora.alpha`,
+   `lora.target_modules` (standard / extended / full preset).
+5. **Trainer + per-trainer hyperparameters**: pick `trainer_type` from
+   `{sft, dpo, simpo, kto, orpo, grpo}`; the wizard then prompts for
+   the trainer's specific knobs (`dpo_beta`, `simpo_beta` /
+   `simpo_gamma`, `kto_beta`, `orpo_beta`, `grpo_num_generations`,
+   `grpo_max_completion_length`, `grpo_reward_model`).  SFT short-
+   circuits (no per-trainer knobs to surface).
+6. **Dataset**: HF Hub ID, local JSONL, or directory of raw documents.
+   Directory inputs trigger inline ingestion (Phase 11.5).  JSONL
+   inputs trigger an inline audit (Phase 12.5).  Optional Article 10
+   `data.governance` accordion.
+7. **Training parameters**: epochs, batch size, max length, output
+   directory, RoPE scaling (4 schema types incl. `longrope`),
+   NEFTune, OOM recovery, GaLore advanced (6-variant optimizer +
+   rank).
+8. **Compliance + risk**: `compliance` (Article 11 + Annex IV §1)
+   plus optional `risk_assessment` (Article 9), `data.governance`
+   (Article 10), `retention` (GDPR Article 5(1)(e) + 17),
+   `monitoring` (Article 12 + 17) accordions.  This step is
+   deliberately collected **before** evaluation so the wizard can
+   front-stop the F-compliance-110 strict-tier gate.
+9. **Operations + evaluation**: `evaluation.auto_revert`,
+   `evaluation.safety` (Llama Guard, probe set resolved through
+   `importlib.resources`), `evaluation.benchmark`,
+   `evaluation.llm_judge`, `webhook` (single prompt with `env:VAR`
+   prefix sugar), `synthetic` block.  After the operator answers,
+   `_apply_strict_tier_coercion` enforces F-compliance-110 (high-
+   risk → safety enabled + Article 14 staging gate).
+
+Persistence: state snapshot is written to
+`$XDG_CACHE_HOME/forgelm/wizard_state.yaml` after each completed step
+so a Ctrl-C / fresh session can offer to resume.  Snapshot is cleared
+on successful completion or when the operator types `reset` / `r`.
 
 ## Implementation Details
 

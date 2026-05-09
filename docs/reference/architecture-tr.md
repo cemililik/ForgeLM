@@ -33,7 +33,7 @@ forgelm --config job.yaml
     │   └── webhook.py          → Slack/Teams bildirimleri
     ├── merging.py          → TIES/DARE/SLERP model birleştirme
     ├── synthetic.py        → Sentetik veri üretimi
-    └── wizard.py           → Etkileşimli config üretici
+    └── wizard/             → Etkileşimli config üretici (alt-paket, Faz 22)
 ```
 
 ## Dizin Yapısı
@@ -75,7 +75,7 @@ ForgeLM/
 │   ├── synthetic.py          # Sentetik veri üretimi (öğretmen→öğrenci)
 │   ├── grpo_rewards.py       # Yerleşik GRPO format/uzunluk ödül şekillendiricileri
 │   ├── quickstart.py         # Tek komutlu hazır şablonlar
-│   ├── wizard.py             # Etkileşimli yapılandırma sihirbazı
+│   ├── wizard/               # Etkileşimli yapılandırma sihirbazı (alt-paket — Faz 22)
 │   ├── webhook.py            # Webhook bildirimleri (Slack/Teams)
 │   ├── _http.py              # SSRF-korumalı HTTP chokepoint
 │   ├── _version.py           # __version__ + __api_version__ (decoupled)
@@ -145,8 +145,8 @@ HuggingFace-uyumlu README.md üretir: YAML front-matter, eğitim parametreleri t
 ### `synthetic.py`
 Öğretmen-öğrenci distillasyonu ile sentetik veri üretimi. `SyntheticDataGenerator` sınıfı bir öğretmen modeli (API tabanlı veya yerel) alır, tohum promptlardan eğitim örnekleri üretir ve formatlanmış JSONL veri setleri çıktılar. `--generate-data` CLI flag'i veya `synthetic` config bölümü ile tetiklenir. Yapılandırılabilir öğretmen backend'leri, çıktı formatları ve üretim parametrelerini destekler.
 
-### `wizard.py`
-Etkileşimli CLI sihirbazı. GPU algılama, model seçimi, LoRA stratejisi, eğitim hedefi (6 trainer), güvenlik değerlendirme (binary/confidence_weighted, kategori takibi), uyumluluk metadata yapılandırması.
+### `wizard/`
+Etkileşimli CLI sihirbazı. Faz 22 modernizasyonu (2026-05-08) ile `site/js/wizard.js`'e parite getirildi: 9-adımlı state machine (welcome / use-case / model / strategy / trainer / dataset / training-params / compliance / operations), trainer-spesifik hyperparam'lar (`dpo_beta` / `simpo_beta` + `simpo_gamma` / `kto_beta` / `orpo_beta` / `grpo_*`), tam PEFT method kapsamı (`lora` / `dora` / `pissa` / `rslora`) + GaLore ayrı axis, EU AI Act Madde 9 + 10 + 11 + 12+17 uyumluluk akordeon'ları, F-compliance-110 strict-tier auto-coercion, `back` / `reset` navigasyon, XDG-aware persistence (`$XDG_CACHE_HOME/forgelm/wizard_state.yaml`), step-diff preview, beginner / expert toggle ve Phase 11.5 / 12.5 BYOD inline ingest + audit helper'ları (`_offer_ingest_for_directory`, `_offer_audit_for_jsonl`).
 
 ### `webhook.py`
 Eğitim başlangıcı/başarı/başarısızlık durumlarında yapılandırılmış JSON payload gönderir. Yapılandırılabilir timeout ile güvenilir hata yönetimi.

@@ -39,6 +39,7 @@ Bunlardan herhangi biri için `forgelm <subcommand> --help`.
 |---|---|
 | `--config PATH` | YAML config dosya yolu. Eğitim için gerekli. |
 | `--wizard` | `config.yaml` üretmek için etkileşimli yapılandırma sihirbazını başlat. |
+| `--wizard-start-from PATH` | Sihirbazı mevcut bir YAML'dan pre-populate et: her adımın prompt'ları operatörün önceki cevaplarına default'lar (idempotent yeniden koşum). `--wizard` ile birlikte kullanın. |
 | `--dry-run` | Config'i ve model/dataset erişimini doğrula; eğitim yok. |
 | `--fit-check` | Eğitim VRAM tahmini; model yüklenmez. `--config` gerektirir. |
 | `--resume [PATH]` | Eğitime kaldığı yerden devam. Çıplak `--resume` son checkpoint'i otomatik bulur; `--resume PATH` belirli bir yerden. |

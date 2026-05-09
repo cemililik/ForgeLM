@@ -2,7 +2,9 @@
   "//": "ForgeLM markdownlint policy. Consumed by Codacy's markdownlint scanner (loadbearing — without this config Codacy emits MD051 across every SPA hash-router link in docs/usermanuals/).",
   "//1": "MD051 (link-fragments-valid): docs use SPA hash-router routes like `#/data/audit` for in-app navigation; markdownlint's anchor-resolution doesn't understand SPA conventions and would flag every cross-reference.",
   "//2": "MD014 (commands-show-output): shell examples in operator docs deliberately show only the command (`$ forgelm audit ...`) without sample output — output snippets rot quickly across versions and would force a doc update on every CLI banner change.",
+  "//3": "MD013 (line-length): bilingual (EN+TR) reference + design docs intentionally carry long lines for paragraph-style explanations, table cells, and prose with long inline links. The 80-col limit is a code-style holdover that hurts readability of documentation; the project's bilingual_parity guard already enforces structural alignment, and the rest of the prose stays human-readable at any reasonable width.",
   "default": true,
   "MD051": false,
-  "MD014": false
+  "MD014": false,
+  "MD013": false
 }

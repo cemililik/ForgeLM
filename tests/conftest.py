@@ -41,3 +41,27 @@ def _pin_audit_operator(monkeypatch):
     via ``monkeypatch.delenv`` inside the test body.
     """
     monkeypatch.setenv("FORGELM_OPERATOR", os.environ.get("FORGELM_OPERATOR") or "test-operator")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_wizard_state(request, tmp_path_factory, monkeypatch):
+    """B10 — keep wizard XDG state out of the developer's real ``~/.cache``.
+
+    Any test under ``tests/test_wizard_*`` (or anything that ends up
+    invoking ``forgelm.wizard._save_wizard_state`` indirectly) writes
+    a YAML to ``$XDG_CACHE_HOME/forgelm/wizard_state.yaml``. Without
+    isolation a contributor running ``pytest`` would have their real
+    in-flight wizard snapshot clobbered.
+
+    We redirect ``XDG_CACHE_HOME`` to a per-test tmp dir for every
+    wizard-flavoured test file. The ``test_wizard_phase22`` module
+    already has its own ``isolated_state_dir`` fixture; this one is
+    additive — they coexist because they both monkeypatch the same
+    env var, and the more-specific fixture takes precedence on the
+    tests that explicitly request it.
+    """
+    test_path = str(getattr(request.node, "fspath", "") or "")
+    if "test_wizard_" not in test_path and "test_phase12_5" not in test_path:
+        return
+    isolated = tmp_path_factory.mktemp("wizard_xdg_isolated")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(isolated))

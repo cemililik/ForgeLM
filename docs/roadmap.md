@@ -34,7 +34,7 @@ Originally planned as four sequential PyPI tags (`v0.5.0` / `v0.5.1` / `v0.5.2` 
 
 **Current state:** 18 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6) complete on `development`, ready for PR #29 → `main`. 2 phases (13, 14) planned. `v0.5.5`: Phase 12.6 (release imminent — pyproject bump + tag push). `v0.6.0`: Phase 14 follow-up. `v0.6.0-pro` (Phase 13) gated on adoption metrics + ISO/SOC 2 baseline shipped in v0.5.5.
 
-> **Phase 12.6 / Faz dual-axis note:** Phase 12.6 is itself a 38-task closure cycle (Faz 1-38) tracked at [`roadmap/phase-12-6-closure-cycle.md`](roadmap/phase-12-6-closure-cycle.md) with wave-by-wave reports under [`analysis/code_reviews/`](analysis/code_reviews/).
+> **Phase 12.6 / Faz dual-axis note:** Phase 12.6 is itself a 38-task closure cycle (Faz 1-38) tracked at [`roadmap/phase-12-6-closure-cycle.md`](roadmap/phase-12-6-closure-cycle.md); per-wave PR descriptions carry the closure-task delta.
 
 ## Quick summary of what's planned
 

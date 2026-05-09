@@ -475,6 +475,14 @@
 </footer>
 
 <script src="js/main.js"></script>
+<!-- F1 (review-cycle 3): schema-derived wizard defaults shipped as a
+     tiny inline-loadable script so wizard.js's defaultState() reads
+     ``window.WIZARD_DEFAULTS`` instead of hardcoding values that drift
+     from forgelm/config.py.  Both scripts use ``defer`` so neither
+     blocks HTML parsing; deferred scripts execute in document order
+     (HTML5 spec) so wizard_defaults.js is guaranteed to set
+     ``window.WIZARD_DEFAULTS`` BEFORE wizard.js runs ``defaultState()``. -->
+<script src="js/wizard_defaults.js" defer></script>
 <script src="js/wizard.js" defer></script>
 </body>
 </html>

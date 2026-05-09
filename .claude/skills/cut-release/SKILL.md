@@ -174,7 +174,8 @@ If the install fails or returns the wrong version, investigate the workflow run.
 
 ### 1. Announce
 
-Template in [docs/marketing/05_content_strategy.md](../../../docs/marketing/05_content_strategy.md) under "New Release":
+Use this template (the maintainer keeps a longer canonical version in
+local working memory; the spirit is the same):
 
 ```
 📦 ForgeLM v0.4.0 released!
@@ -205,7 +206,10 @@ git push
 
 ### 3. Update marketing roadmap metrics
 
-[`docs/marketing/marketing_strategy_roadmap.md`](../../../docs/marketing/marketing_strategy_roadmap.md) — metrics row for the release month.
+The maintainer keeps a marketing roadmap in local working memory
+(gitignored).  Add a metrics row for the release month there as part
+of the release-day checklist; nothing on the public surface needs to
+change.
 
 ### 4. Close the phase (if applicable)
 
