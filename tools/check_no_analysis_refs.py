@@ -85,6 +85,11 @@ _EXEMPT: dict[str, frozenset[str]] = {
     # and which guard enforces it).  Naming the dirs here is the
     # documentation; it is not a content citation.
     "CHANGELOG.md": frozenset({"docs/marketing/", "docs/analysis/"}),
+    # docs/roadmap/releases.md describes the working-memory directory
+    # policy as a release-note bullet under the upcoming PyPI release.
+    # Same rationale as CHANGELOG.md — naming the dirs is the policy
+    # statement, not a content reference.
+    "docs/roadmap/releases.md": frozenset({"docs/marketing/", "docs/analysis/"}),
     # The standards file IS the rule about these directories.
     "docs/standards/documentation.md": frozenset({"docs/marketing/", "docs/analysis/"}),
     # Localization standard names docs/marketing as a mixed-language

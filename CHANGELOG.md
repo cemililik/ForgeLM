@@ -4,563 +4,265 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
-### Changed
-
-- **Working-memory directories cleanup (review-cycle 5 / 2026-05-09).**
-  ``docs/marketing/`` and ``docs/analysis/`` are now strictly gitignored
-  with **zero exceptions**, and the public tree no longer cites them.
-  Closes a long-running documentation-drift surface where review notes,
-  audit drafts, and external-repo comparisons under those directories
-  were referenced from CHANGELOG entries, design docs, standards, and
-  test docstrings — only to rot into 404s the moment the maintainer
-  touched the local working-memory tree.
-  - **`.gitignore`** simplified: dropped 11 explicit "re-include"
-    exception entries that re-exposed specific closure-plan and
-    master-review files; the directory-level ignore now applies
-    uniformly.
-  - **`git rm --cached -r docs/analysis/`** untracked the 11
-    previously-leaked files (kept on disk locally; just no longer
-    versioned).
-  - **19 references** removed / restructured across `CHANGELOG.md`,
-    `CLAUDE.md`, `docs/standards/{coding,documentation,localization}.md`,
-    `docs/design/iso27001_soc2_alignment.md`, `docs/roadmap.md`,
-    `docs/roadmap/phase-12-6-closure-cycle.md`,
-    `docs/roadmap/phase-12-data-curation-maturity.md`,
-    `tests/test_wizard_phase22.py`,
-    `tests/test_check_bilingual_parity.py`,
-    `tools/check_anchor_resolution.py`,
-    `tools/check_yaml_snippets.py`,
-    `.claude/skills/{cut-release,sync-bilingual-docs}/SKILL.md`.
-    Where the citation was the load-bearing anchor of a sentence,
-    the surrounding text was rewritten to convey the same intent
-    without the file reference.
-  - **New "Working-memory directories" rule** in
-    `docs/standards/documentation.md` codifies the ban: no public-tree
-    file (markdown, code, commit message, PR description) may link
-    into `docs/marketing/` or `docs/analysis/`.  Path-string filters
-    in production code (e.g. `_SKIP_PATH_FRAGMENTS`) are exempt as
-    functional path exclusions, not content references.
-  - **New CI guard `tools/check_no_analysis_refs.py`** scans every
-    git-tracked file (uses `git ls-files`) and fails the run on any
-    citation into the working-memory tree.  Wired into the self-
-    review chain in `CLAUDE.md` (now 9 commands).  False positives
-    are handled via an `_EXEMPT` allowlist with per-entry
-    justification comments.
-  - **Memory section in `CLAUDE.md`** rewritten so the two
-    working-memory directories are described together with the new
-    "no references allowed" rule, replacing the prior bullet that
-    framed `docs/analysis/` as citable research.
-  - **Site verification report (read-only)** generated as part of
-    the same audit pass: 3 CRITICAL + 5 HIGH + 6 MEDIUM + 3 LOW
-    findings on `site/` claims vs. live code.  The report itself
-    lives in the now-gitignored `docs/analysis/` working-memory
-    tree (per the new policy); follow-up site fixes are tracked
-    as separate PRs.
-
-### Fixed
-
-- **Wizard PR-D contract violations — idempotent re-run actually
-  preserves prior answers (PR-E / 2026-05-09).** The independent
-  review of PR-D (`2ac9df2`) found three HIGH-severity bugs where
-  pressing Enter at certain prompts silently regressed the operator's
-  loaded YAML to wizard defaults, plus four MEDIUM/LOW issues.  All
-  closed in this commit.
-  - **PR-D-A1: ``_step_strategy`` now honours existing values**
-    for ``lora.method`` / ``lora.target_modules`` / ``lora.dropout``
-    / ``lora.bias`` / ``lora.task_type``.  ``_select_strategy()``
-    accepts ``existing_method`` / ``existing_load_in_4bit`` /
-    ``existing_galore`` kwargs and derives the prompt's ``default_idx``
-    so a bare Enter on a DoRA / PiSSA / rsLoRA / GaLore config keeps
-    the choice.  Target-modules prompt detects the loaded list shape
-    against ``TARGET_MODULE_PRESETS`` and shifts its default
-    accordingly.  Non-prompted fields (dropout / bias / task_type) now
-    use ``setdefault`` so existing operator overrides survive.
-  - **PR-D-A2: ``_step_evaluation`` no longer clobbers existing
-    benchmark / llm_judge / safety blocks.**  The function now seeds
-    ``evaluation`` from ``state.config.get("evaluation")`` via
-    ``copy.deepcopy``, defaults the ``auto_revert`` gate based on the
-    existing value, and keeps the prior block intact when the
-    operator declines a re-prompt.  The pre-fix code built a fresh
-    dict and assigned it unconditionally — high-risk operators with
-    populated benchmark + judge configs lost them on a "press Enter"
-    iteration.
-  - **PR-D-A3: ``_step_use_case`` skips the use-case prompt when
-    existing model + trainer choices are detected.**  Pre-fix the
-    operator's ``model.name_or_path`` and ``training.trainer_type``
-    were silently overwritten by the first template's preset (default
-    index = 1, "customer-support") on Enter.  Combined with the
-    save-default-to-``start_from`` behaviour, this corrupted the
-    original YAML.  Step now emits a clear "Existing model / trainer
-    choices detected — skipping use-case preset" line and early-
-    returns when state already carries those keys.  Even on greenfield
-    runs, ``setdefault`` is now used so explicit values survive.
-  - **PR-D-A4: ``_step_welcome`` ``model.backend`` chained
-    ``setdefault``** instead of nested-dict-replace pattern.  An
-    operator with an explicit ``model.backend: transformers`` on a
-    Linux+GPU box no longer flips silently to ``unsloth`` based on
-    hardware detection.
-  - **PR-D-A5: ``_load_initial_state_from_yaml`` split try/except**
-    so a downstream ``ImportError`` from inside a Pydantic validator
-    can't silently bypass schema validation.  The ``ForgeConfig``
-    import lives in its own try block; the ``model_validate`` call is
-    wrapped separately.
-  - **PR-D-A6: warns before discarding pre-existing wizard resume
-    state.**  When ``--wizard-start-from`` is supplied alongside an
-    in-progress ``$XDG_CACHE_HOME/forgelm/wizard_state.yaml``, the
-    operator now sees a one-line notice that the snapshot will be
-    cleared at save time.  Pre-fix the snapshot was silently
-    destroyed at the end of the start-from run.
-  - **PR-D-A7: tightened ``docs/guides/quickstart{,-tr}.md`` claim**
-    so it accurately scopes "press Enter to keep" to numeric / text /
-    choice prompts (now), explicitly notes the use-case skip, and
-    records the ``setdefault`` pattern for non-prompted fields.
-  - **PR-D-B1: new CLI dispatcher integration test**
-    (``test_wizard_start_from_threads_through_to_run_wizard_full``)
-    pins the parser → dispatcher → ``run_wizard_full`` thread-through
-    so a future rename of the argparse ``dest`` would be caught.
-  - **PR-D-B3: ``--wizard-start-from`` without ``--wizard``** now
-    prints a one-line warning instead of silently no-op'ing.
-  - **PR-D-B5: ``_collect_data_governance(existing=...)``** kwarg
-    threads the operator's existing Article 10 free-text values
-    through as prompt defaults.  Strict-tier operators iterating
-    from a populated YAML no longer re-type collection_method /
-    annotation_process / known_biases.
-  - **PR-D-B6: ``_canonical_start_from()`` helper** applies
-    ``Path(...).expanduser()`` once at the entry point and
-    propagates the canonical form through the load + save flow.
-    Pre-fix, ``--wizard-start-from ~/configs/x.yaml`` would expand
-    ``~`` for the load existence check but pass the raw string to
-    the save flow's overwrite confirmation, causing the check to
-    return False and a literal ``~/configs/x.yaml`` directory to be
-    created on save.
-  - **15 new regression tests** under ``tests/test_wizard_phase22.py``:
-    DoRA preserved, target_modules extended preserved, GaLore
-    preserved, evaluation benchmark + judge preserved, use-case skip,
-    backend setdefault, ImportError split happy path, resume-state
-    warning, --start-from-without-wizard, governance defaults, and
-    expanduser canonicalisation.  Plus 1 dispatcher integration test.
-
 ### Added
 
-- **Wizard idempotent re-run via ``--wizard-start-from <yaml>``
-  (E3 / PR-D / 2026-05-09).** Operators can now iterate on an
-  existing config without losing prior answers — long-asked-for
-  ergonomic improvement that closes the "wizard always starts from
-  scratch" gap noted across review cycles 1, 2, and 3.  Bound to F1
-  (PR-B) since the per-step value-honoring relies on the same
-  schema-derived defaults plumbing.
-  - **New CLI flag:** ``forgelm --wizard --wizard-start-from
-    /path/to/existing.yaml`` reads the YAML, validates it against
-    ``ForgeConfig`` (immediate failure on schema violation rather
-    than 30 minutes into a failed training run), and seeds the
-    wizard's :class:`_WizardState.config` with the loaded dict.
-    The quickstart-template prelude is skipped — the operator's
-    intent is "edit this file", not "pick a fresh template".
-  - **Per-step value honoring:** ``_step_strategy`` /
-    ``_step_training_params`` / ``_step_dataset`` now read existing
-    values from ``state.config`` for their prompt defaults so a bare
-    Enter keeps them; ``_step_dataset`` adds an explicit "keep
-    existing dataset?" yes/no early-out so the operator doesn't
-    re-trigger ingestion / audit on an unchanged dataset path.
-  - **Save flow defaults to start-from path:** when launched with
-    ``--wizard-start-from existing.yaml`` the save prompt defaults
-    to the same path; the existing overwrite confirmation
-    (``_prompt_unique_filename``) still fires before clobbering.
-  - **New ``_load_initial_state_from_yaml(path)`` helper** in
-    ``forgelm/wizard/_orchestrator.py``.  Surfaces three distinct
-    error categories: missing path → ``FileNotFoundError``;
-    parse failure → ``ValueError`` with YAML diagnostic; non-mapping
-    root or schema rejection → ``ValueError`` with a clear hint.
-    All three are caught by ``run_wizard_full`` and surfaced as a
-    cancelled outcome with a printed warning instead of a traceback.
-  - **10 new tests** cover: valid-YAML pre-population (with
-    deepcopy isolation), missing-path error, malformed YAML, non-
-    mapping root, schema-invalid YAML, dispatcher cancel-on-error,
-    per-step value-honoring for strategy / training-params / dataset.
-
-- **Wizard review-cycle 3 follow-up — generator hardening + CI guard
-  test coverage (2026-05-09).** Closes the actionable findings from
-  the independent review of commits `5667885` (cycle-3 bug fixes) +
-  `91d5726` (F1 SOT).
-  - **B1: generator unwraps ``Optional[BaseModel]`` sub-blocks**
-    (`tools/generate_wizard_defaults.py`). Pre-fix the walk only
-    matched bare-class annotations, so a wizard flag on a field
-    inside an `Optional[XxxConfig]` sub-model was silently skipped.
-    10 of 14 ForgeConfig top-level fields are `Optional[...]` —
-    today no flags exist on them, but a future contributor would
-    have hit the silent-skip trap. New `_unwrap_basemodel()` helper
-    walks `typing.get_args` to find the inner BaseModel.
-  - **B2: PydanticUndefined identity comparison.** Replaces the
-    brittle `repr(default).startswith("PydanticUndefined")` with the
-    canonical `default is PydanticUndefined` import from
-    `pydantic_core`. Stable across Pydantic v2 minor releases.
-  - **C2: generator JSON-serialisable contract documented** as a
-    module-level header. Future flags on Path / datetime / callable
-    defaults fail loudly at generator run, but the contract is now
-    explicit so contributors don't get surprised.
-  - **B5: schema↔fallback drift WARNING in `_state.py`.** When the
-    shipped JSON and the hardcoded fallback disagree, the wizard now
-    emits a `logger.warning` so the second-source-of-truth drift
-    surfaces in CI logs. Happy path is silent (matches → no warning).
-  - **G2: CI guard fail-path test coverage.** New
-    `tests/test_check_wizard_defaults_sync.py` with 7 tests:
-    corrupt-JSON triggers failure + diff message, missing-target
-    triggers failure, diff truncation works, generator unwraps
-    Optional[BaseModel], required fields skipped, etc. Without this
-    a regression in the diff-printing logic could silently report
-    "OK" against a corrupted JSON.
-  - **G3: dispatcher test now asserts `ForgeConfig.model_validate`
-    on the test fixture YAML.** Pre-fix, a future change to
-    `minimal_config()` that produced an invalid YAML would still
-    pass `test_wizard_start_training_routes_through_dispatcher`
-    (because the trainer pipeline is mocked before validation).
-  - **B7: `defer` attribute on `wizard_defaults.js`.** Both wizard
-    scripts now defer; HTML5 spec guarantees execution order
-    (document order) so `WIZARD_DEFAULTS` still lands before
-    `defaultState()` runs, but neither blocks HTML parsing.
-  - **A3: hardware-cache freshness caveat documented** in
-    `_cached_hardware()` docstring (GPU hot-plug mid-session is an
-    acceptable edge case).
-  - **F3: README directory tree** mentions `_defaults.json` shipped
-    as schema-derived defaults SOT.
-  - **CI guard self-protection: `_display_path()` helper** in
-    `check_wizard_defaults_sync.py` falls back to absolute path when
-    the target is outside `_REPO_ROOT` (prevents `Path.relative_to`
-    crash when tests monkeypatch the target to a tmp dir).
-
-- **Wizard schema-driven defaults SOT (F1 / 2026-05-09).** Closes the
-  long-running drift surface tracked through P1-P17 across review
-  cycles 1, 2, and 3.  A schema field default change without a
-  matching wizard update was the single biggest source of CLI ↔ web
-  parity gaps; this PR turns the schema into the canonical source.
-  - **Pydantic field metadata flag:** wizard-relevant fields in
-    `forgelm/config.py` carry `json_schema_extra={"wizard": True}`
-    (8 fields today: `model.max_length`, `lora.r/alpha/dropout`,
-    `training.num_train_epochs/per_device_train_batch_size/learning_rate/gradient_accumulation_steps`).
-  - **Generator script:** `tools/generate_wizard_defaults.py` walks
-    every nested submodel reachable from `ForgeConfig`, extracts the
-    flagged defaults, and writes two artefacts:
-    - `forgelm/wizard/_defaults.json` — package data shipped via
-      `[tool.setuptools.package-data]` so wheel installs preserve it.
-    - `site/js/wizard_defaults.js` — tiny script that exposes
-      `window.WIZARD_DEFAULTS` for the web wizard's `defaultState()`.
-  - **CI guard:** `tools/check_wizard_defaults_sync.py` re-runs the
-    generator into a temp comparison and fails the run if the
-    shipped artefacts drift from the schema. Operators get a clear
-    "regenerate via …" hint with the first 5 differing lines.
-  - **Python consumer:** `forgelm/wizard/_state.py` now reads
-    `DEFAULT_*` constants from the shipped JSON via
-    `importlib.resources`. Hardcoded fallbacks survive only when the
+- **CLI wizard parity-with-web (Phase 22).** `forgelm --wizard` now
+  runs the same 9-step flow as the in-browser wizard at
+  `forgelm.dev/quickstart`: welcome → use-case → model → strategy →
+  trainer → dataset → training-params → compliance → evaluation, with
+  `back` / `b` to navigate backwards and `reset` / `r` to clear in-
+  memory state. The wizard module was split into a sub-package
+  (`forgelm/wizard/`) for orchestrator / state / collectors / BYOD /
+  IO concerns.
+  - **Idempotent re-run:** `forgelm --wizard --wizard-start-from
+    /path/to/existing.yaml` reads the YAML, validates it against
+    `ForgeConfig` up front, and seeds the wizard with the loaded
+    values so a bare Enter at every prompt keeps the operator's
+    earlier answer. Save flow defaults to the same path; existing
+    overwrite confirmation still fires.
+  - **State persistence:** snapshot at
+    `$XDG_CACHE_HOME/forgelm/wizard_state.yaml` (or
+    `~/.cache/forgelm/wizard_state.yaml`) saved after every completed
+    step; resume on next launch when the snapshot is present and
+    schema-compatible. Snapshot is `chmod 0o600` and cleared on
+    successful completion. Atomic writes via temp file + `fsync` +
+    `os.replace` prevent half-written state under SIGKILL / power
+    loss.
+  - **Schema-driven defaults:** wizard-relevant fields in
+    `forgelm/config.py` are flagged with
+    `json_schema_extra={"wizard": True}`. A generator script
+    (`tools/generate_wizard_defaults.py`) walks the schema and writes
+    `forgelm/wizard/_defaults.json` (consumed by the CLI wizard via
+    `importlib.resources`) and `site/js/wizard_defaults.js` (consumed
+    by the web wizard's `defaultState()`). A CI guard
+    (`tools/check_wizard_defaults_sync.py`) fails the run on schema-
+    vs-shipped-JSON drift. Hardcoded fallbacks survive only when the
     JSON is missing entirely (broken pip install).
-  - **JS consumer:** `site/js/wizard.js` `defaultState()` reads
-    schema-derived values via a new `wd(section, key, fallback)`
-    helper; `<script src="js/wizard_defaults.js">` is loaded before
-    `wizard.js` from `site/quickstart.html`.
-  - **Schema parity tests:** `TestSchemaDrivenDefaultsSOT` pins the
-    contract — every `DEFAULT_*` equals its `Field.default`, the
-    JSON ships, and the missing-file fallback returns `{}` cleanly.
-  - **Why a generator + JSON instead of importing live values?** Web
-    wizard is a static site — no Python runtime to query schema
-    defaults at page load.  JSON-as-data ships with the assets, the
-    Python side benefits from a low import-cost path, and the JSON
-    file is auditable in git diffs.
-  - **B4 (`--wizard-from-yaml`) removed from roadmap consideration**
-    (politik çelişki, B3 kapattı).
-  - **E3 (`--wizard --start-from <yaml>`) explicitly bound to F1:**
-    reverse-mapping reuses this PR's metadata flags + JSON shape;
-    deferred until needed (no scope rush).
-
-- **Wizard review-cycle 3 — bug fixes + UX polish (2026-05-09).**
-  Closes the eleven actionable findings from the review-cycle 2 audit
-  summarised in the PR #40 review thread.  Low-risk batch — no
-  architectural changes.
-  - **Atomic-write temp leak (A3):** `_save_wizard_state` now unlinks
-    the temp file when `os.replace` fails (cross-device home, EACCES,
-    EXDEV) so `.wizard_state.*.tmp` stops accumulating under
-    `$XDG_CACHE_HOME/forgelm/`. Defensive `finally`-branch sweep
-    catches the case where `yaml.safe_dump` itself raises before the
-    rename can run.
-  - **Strict-tier coercion announce-once (A4):** the
-    `_apply_strict_tier_coercion` notice now prints once per wizard
-    run instead of twice (compliance step + evaluation step idempotent
-    re-call). Tracked via a `_wizard_meta.strict_tier_announced` flag
-    that `_strip_internal_meta` removes before save.
-  - **Hardware detection cache (C16):** `_detect_hardware()` is now
-    cached on `_WizardState.hardware`; the welcome step + the post-
-    save pre-flight checklist share the result instead of paying a
-    second torch import + CUDA enumeration (~50–200 ms saved).
-  - **Structured WARNING on validate failure (G30):**
-    `_validate_generated_config` now emits `logger.warning(...)` in
-    addition to the inline `_print` notice, so CI / log pipelines
-    don't have to scrape stdout for "wizard output failed schema
-    validation" events. Per `docs/standards/error-handling.md` rule 2.
-  - **Cross-tab storage error visibility (B11):** the web wizard's
-    `storage` event listener now `console.warn`s on a sync failure
-    instead of silently swallowing the error.
-  - **Mobile YAML preview clamp (C3):** the expanded YAML accordion
-    on `<900px` viewports now caps at `38vh` with `overflow:auto` so
-    long configs (high-risk + every gate) no longer push the
-    Copy/Download/Back/Next footer off-screen.
-  - **State-version migration registry skeleton (F3):** new
-    `_STATE_MIGRATIONS` dict + `_migrate_wizard_state` helper in
-    `_state.py`. Registry is empty until the first real version bump;
-    the skeleton lets us add `{1: migrate_v1_to_v2}` without
-    plumbing rewrite. Rejects unknown / newer versions / non-
-    advancing migrators with a structured WARNING.
-  - **Inline rationale on five high-impact prompts (E2 hedefli):**
-    `lora_r`, `lora_alpha`, `num_train_epochs`, `batch_size`,
-    `max_length`, `risk_classification` now carry one-clause
-    rationale strings inline so first-time operators see the
-    operational hint without flipping into beginner mode.
-  - **Dispatcher start-training test (E22-24):** new
-    `test_wizard_start_training_routes_through_dispatcher` covers
-    the previously-uncovered branch in `_maybe_run_wizard` where
-    `outcome.start_training=True` mutates `args.config` and lets
-    the trainer pipeline run.
-  - **Doc consistency sweep (A9):** `docs/product_strategy{,-tr}.md`
-    + `docs/design/gdpr_erasure.md` + `docs/design/data_audit_cli_split.md`
-    "0/1/2/3/4 contract" claims now acknowledge `EXIT_WIZARD_CANCELLED = 5`.
-  - **Human-approval-gate cross-reference (F27):**
-    `docs/usermanuals/{en,tr}/compliance/human-approval-gate.md` now
-    cross-references exit code 5 alongside the existing exit-4
-    discussion — operators using `forgelm --wizard` to produce
-    high-risk configs need both signals.
-  - **SSRF preflight DNS-rebinding caveat (B10 doc-only):** comment
-    above `_parse_webhook_value` now notes that the preflight catches
-    "wrong URL at config time", not "guaranteed-public destination at
-    training time" (the runtime TOCTOU window is tracked separately
-    at issue #14).
-  - **20+ new tests** covering atomic-write cleanup, announce-once
-    flag, migration skeleton, hardware cache reuse, validate-warning
-    log line, dispatcher start-training branch.
-  - **B4 (`--wizard-from-yaml`) removed from roadmap consideration:**
-    politik çelişki — projenin "config-driven is the identity"
-    ilkesiyle çatışır ve B3 (non-tty stdin reddi + `quickstart`
-    yönlendirmesi) zaten boşluğu kapattı.
-  - **E3 (`--wizard --start-from <yaml>`) explicitly bound to F1:**
-    reverse-mapping work duplicates F1's schema-driven SOT effort;
-    deferred until F1 lands so the mapping reuses generated metadata.
-
-- **Wizard review-cycle 2 — operator-quality guardrails (2026-05-09).**
-  Phase 22 follow-up addressing 17 newly-discovered parity / UX gaps
-  surfaced during the post-PR-#40 audit. Both surfaces (CLI sub-package
-  + `site/js/wizard.js`) tightened in lockstep.
-  - **Validate-on-exit (B1 / E1):** the wizard now runs
-    `ForgeConfig.model_validate` on the saved YAML before declaring
-    success. Schema rejections surface inline with the offending field
-    rather than 30 minutes into a failed training run.
-  - **Overwrite confirmation + auto-suffix (B2):** `_save_config_to_file`
-    detects pre-existing files, asks the operator before clobbering,
-    and falls back to the next free `_2.yaml` / `_3.yaml` slot when
-    they decline. Closes a silent data-loss path.
-  - **Non-tty stdin refusal (B3):** `forgelm --wizard < answers.txt`
-    used to silently produce empty configs; the wizard now refuses
-    to launch on a non-tty stdin and points the operator at
-    `forgelm quickstart <template>` for deterministic scripted
-    generation.
-  - **Pre-flight checklist (E4):** GPU/VRAM/dataset/risk-tier signals
-    surface before the configuration summary, calling out the most
-    common operator errors (low-VRAM full-precision, missing local
-    file, strict tier without safety eval) up front.
-  - **Atomic state writes (B-NEW-3):** `_save_wizard_state` now writes
-    via `tempfile.NamedTemporaryFile` + `fsync` + `os.replace`, so a
-    SIGKILL / power loss / concurrent wizard process can never leave
-    a half-written `wizard_state.yaml` on disk.
-  - **Step-diff scrubs internal meta (B-NEW-1):** `_print_step_diff`
-    no longer leaks `_wizard_meta.use_galore` and friends into the
-    operator-visible diff.
-  - **Compliance step preserves earlier governance answers (B-NEW-2):**
-    `_step_compliance` skips the Article 10 governance re-prompt when
-    step 6 already populated it under a non-strict tier.
-  - **Strict-tier coercion idempotent (B5):** `_apply_strict_tier_coercion`
-    fires at the end of `_step_compliance` too, so an operator who
-    Ctrl-C's between steps 8 and 9 still gets a loadable YAML.
-  - **Webhook SSRF preflight (A1):** `_parse_webhook_value` rejects
-    loopback / RFC1918 / link-local destinations up front by reusing
-    `forgelm._http._is_private_destination`. Catches typos like
-    `http://10.0.0.1/x` at config time instead of training time.
-  - **Distinct exit code for wizard cancel (D2):** new
-    `EXIT_WIZARD_CANCELLED = 5` constant. Clean cancels exit `5`
-    instead of `0`, so CI can differentiate "wizard finished" from
-    "wizard never produced output". New `WizardOutcome` dataclass +
-    `run_wizard_full()` entry point.
-  - **Best-effort readline (D1):** arrow-key line editing + history
-    on Linux/macOS via stdlib `readline` import; Windows unaffected.
-  - **CLI ↔ web safety field union (P1 / P18):** `_collect_safety_config`
-    now emits `classifier`, `max_safety_regression`, and (under
-    `confidence_weighted` scoring) `min_classifier_confidence`. The
-    web wizard mirrors back `scoring`, `track_categories`, and
-    `severity_thresholds`. Both surfaces produce structurally
-    equivalent `evaluation.safety` blocks.
-  - **Schema-default parity (P2 / P14 / P16 / C1 / I3):** judge
-    `min_score` lowered from `6.5` to `5.0`;
-    `auto_revert.max_acceptable_loss` now emits `2.0` default when
-    the prompt is blank; QLoRA path emits `bnb_4bit_quant_type` +
-    `bnb_4bit_compute_dtype`. Web wizard `learningRate` / `batchSize`
-    realigned to `2e-5` / `4` (schema defaults).
-  - **Web wizard `model.max_length` surface (P3):** new number input
-    on the training step writes the chosen length into the YAML.
-  - **Monitoring `endpoint_env` (P9):** both wizards accept the
-    `env:VAR_NAME` prefix on the monitoring endpoint.
-  - **HF Hub format hint (P13):** soft warning when a custom model
-    name isn't `<org>/<name>` shape and isn't an existing path.
-  - **Cross-tab localStorage sync (C2):** web wizard listens for
-    `storage` events and reloads state when a sibling tab edits the
-    same wizard, eliminating the "last write wins" race.
-  - **Test isolation (B10):** new autouse `_isolate_wizard_state`
-    fixture in `tests/conftest.py` redirects `XDG_CACHE_HOME` for any
-    `tests/test_wizard_*` module.
-  - **20 new tests** added to `tests/test_wizard_phase22.py` (146
-    wizard tests passing total; orchestrator coverage continues to
-    rise).
-
-- **CLI wizard parity-with-web modernisation (Phase 22 / 2026-05-08).**
-  `forgelm --wizard` now closes the parity gap with the in-browser
-  `site/js/wizard.js`.  20 findings (G1-G20) documented in the PR #40
-  review thread plus 5 independent observations (I1-I5) from a
-  second-opinion pass.
-  - **Step machine:** 9-step flow (welcome / use-case / model /
-    strategy / trainer / dataset / training-params / compliance /
-    operations) with `back` / `b` to navigate backwards and `reset` /
-    `r` to clear in-memory state.  `compliance.risk_classification`
-    is now collected **before** `evaluation.safety` so high-risk
-    auto-coercion (Article 9 / F-compliance-110) can fire reliably.
-  - **Trainer-specific hyperparameters (G1):** `dpo_beta`,
-    `simpo_beta` / `simpo_gamma`, `kto_beta`, `orpo_beta`,
-    `grpo_num_generations`, `grpo_max_completion_length`,
-    `grpo_reward_model` are now surfaced per `trainer_type`.  SFT
-    short-circuits.
-  - **PEFT method breadth (G2):** the strategy step now offers all
-    four schema-supported `lora.method` values (`lora`, `dora`,
-    `pissa`, `rslora`) plus GaLore as a separate axis (6 cards
-    total).
-  - **GaLore optimiser variants (G9):** all six `galore_optim` Literal
-    values surfaced, including the three `_layerwise` siblings that
-    drop peak VRAM further.
-  - **RoPE scaling types (G10):** `longrope` joined `linear` /
-    `dynamic` / `yarn` for the full 4-of-4 schema coverage.
-  - **LoRA `r` schema parity (G11):** `DEFAULT_LORA_R` lowered from
-    `16` → `8` to match `LoraConfigModel.r`.
-  - **Compliance depth (G5):** `compliance` (Article 11 + Annex IV §1)
+  - **Trainer-specific hyperparameters:** `dpo_beta`, `simpo_beta` /
+    `simpo_gamma`, `kto_beta`, `orpo_beta`, `grpo_num_generations`,
+    `grpo_max_completion_length`, `grpo_reward_model` surface per
+    `trainer_type`. SFT short-circuits.
+  - **PEFT method breadth:** the strategy step offers all four
+    schema-supported `lora.method` values (`lora`, `dora`, `pissa`,
+    `rslora`) plus GaLore as a separate axis. All six `galore_optim`
+    Literal values surfaced, including the three `_layerwise`
+    variants. RoPE scaling adds `longrope` (full 4-of-4 schema
+    coverage).
+  - **Compliance depth:** `compliance` (Article 11 + Annex IV §1)
     plus optional `risk_assessment` (Article 9), `data.governance`
     (Article 10), `retention` (GDPR Article 5(1)(e) + 17),
-    `monitoring` (Article 12+17), `evaluation.benchmark`,
-    `evaluation.llm_judge`, `synthetic` blocks now configurable.
-  - **High-risk auto-coercion (G8):** `risk_classification ∈
-    {high-risk, unacceptable}` automatically enables
-    `evaluation.safety` + `evaluation.require_human_approval` with a
-    visible operator notice — front-stops the schema-side
-    `F-compliance-110` `ConfigError`.
-  - **Webhook URL parsing (G15):** single prompt accepts a literal
-    URL or `env:VAR_NAME` reference; the URL form is `urlparse`-
-    validated and HTTPS is recommended (HTTP accepted with a
-    warning, matching `forgelm/webhook.py` runtime behaviour).
-  - **Safety probe path (G16):** the bundled probe set is now
-    resolved through `importlib.resources.files("forgelm.safety_prompts")`,
-    fixing the `pip install forgelm` regression where
-    `configs/safety_prompts/general_safety.jsonl` was the wizard
-    default but never shipped in the wheel.
-  - **Configuration summary (G17):** `_print_wizard_summary` now
-    dumps the full YAML alongside the labelled headline.  Operator
-    sees every block — webhook / evaluation / compliance / risk /
-    retention / monitoring — without `cat`-ing the file.
-  - **Persistence (G6):** state snapshot at
-    `$XDG_CACHE_HOME/forgelm/wizard_state.yaml` (or
-    `~/.cache/forgelm/wizard_state.yaml`) saved after every
-    completed step.  Schema versioned (`v: 1`); version mismatches
-    or parse errors silently fall back to defaults.  Snapshot is
-    cleared on successful completion.
-  - **Step-diff preview (G7):** each completed step prints `+ key.path:
-    value` / `~ key.path: before → after` so the operator sees
-    exactly what changed mid-flow.
-  - **Beginner / expert toggle (G13):** beginner mode prefixes each
-    step with a 2-3-line tutorial paragraph; expert mode is silent.
-  - **Use-case integration (G12):** the curated quickstart-template
-    list is also offered as Step 2 of the full flow (in addition to
-    the existing prelude shortcut), seeding sensible defaults for
-    later steps without locking anything down.
-  - **Use-case key alignment with web (I4):**
-    `site/js/wizard.js::USE_CASE_PRESETS` keys renamed to match
-    `forgelm/quickstart.py::TEMPLATES` (`code-copilot` →
-    `code-assistant`, `medical-tr` → `medical-qa-tr`).  `quickstart.py`
-    is now the single source of truth.
-  - **`POPULAR_MODELS` alignment with web (G14):** the CLI list now
-    matches `site/js/wizard.js`'s preset cards.
-  - **Step-machine docstring + design doc refresh (I2 + I5):**
-    `site/js/wizard.js` header comment updated from "7 steps" to "9
-    steps" + correct step list; `docs/design/wizard_mode.md`
-    rewritten to describe the actual 9-step flow.
+    `monitoring` (Article 12 + 17), `evaluation.benchmark`,
+    `evaluation.llm_judge`, `synthetic` blocks all configurable from
+    the wizard.
+  - **High-risk auto-coercion:** `risk_classification ∈ {high-risk,
+    unacceptable}` automatically enables `evaluation.safety` +
+    `evaluation.require_human_approval` with a visible operator
+    notice — front-stops the schema-side `F-compliance-110`
+    `ConfigError`.
+  - **Webhook URL parsing with SSRF preflight:** single prompt
+    accepts a literal URL or `env:VAR_NAME` reference; the URL is
+    `urlparse`-validated, HTTPS recommended, and loopback / RFC1918
+    / link-local destinations rejected up front by reusing
+    `forgelm._http._is_private_destination` so typos like
+    `http://10.0.0.1/x` fail at config time instead of training time.
+  - **Configuration summary:** the wizard prints the full generated
+    YAML alongside the labelled headline so the operator sees every
+    block (webhook / evaluation / compliance / risk / retention /
+    monitoring) without `cat`-ing the file.
+  - **Step-diff preview:** each completed step prints
+    `+ key.path: value` / `~ key.path: before → after` so the operator
+    sees exactly what changed mid-flow.
+  - **Beginner / expert toggle:** beginner mode prefixes each step
+    with a 2-3-line tutorial paragraph; expert mode is silent.
+  - **Use-case integration:** the curated quickstart-template list is
+    available as Step 2 of the full flow (in addition to the existing
+    prelude shortcut), seeding sensible defaults for later steps
+    without locking anything down. Use-case keys mirror
+    `forgelm/quickstart.py::TEMPLATES` exactly; `quickstart.py` is
+    the single source of truth.
+  - **Pre-flight checklist:** GPU / VRAM / dataset / risk-tier
+    signals surface before the configuration summary, calling out
+    common operator errors (low-VRAM full-precision, missing local
+    file, strict tier without safety eval).
+  - **Distinct exit code for wizard cancel:** new
+    `EXIT_WIZARD_CANCELLED = 5`. Clean cancels exit `5` instead of
+    `0` so CI can distinguish "wizard finished" from "wizard never
+    produced output". Public exit-code surface is now `0–5`.
+  - **Best-effort readline:** arrow-key line editing + history on
+    Linux/macOS via stdlib `readline` import; Windows unaffected.
+  - **Validate-on-exit:** the wizard runs `ForgeConfig.model_validate`
+    on the saved YAML before declaring success. Schema rejections
+    surface inline with the offending field rather than 30 minutes
+    into a failed training run.
+  - **Overwrite confirmation + auto-suffix:** the save flow detects
+    pre-existing files, asks before clobbering, and falls back to the
+    next free `_2.yaml` / `_3.yaml` slot when declined.
+  - **Non-tty stdin refusal:** `forgelm --wizard < answers.txt` used
+    to silently produce empty configs; the wizard now refuses to
+    launch on a non-tty stdin and points the operator at
+    `forgelm quickstart <template>` for deterministic scripted
+    generation.
 
 ### Changed
 
-- Minimum required `torch` version bumped from 2.1.0 to 2.3.0; `torch.distributed.fsdp.FSDPModule` (introduced in torch 2.3) is referenced by `tests/test_grpo_reward.py` and runtime GRPO paths. (#F-PR29-A4-07)
+- **Working-memory directories cleanup.** `docs/marketing/` and
+  `docs/analysis/` are now strictly gitignored with no exceptions.
+  These directories carry operator-local research, audit drafts, and
+  external-repo comparisons that never appear in fresh clones; any
+  reference to them from a public-tree file rots into a 404 the
+  moment the maintainer touches the local working-memory tree. The
+  rule is now codified in `docs/standards/documentation.md`
+  ("Working-memory directories"), enforced by a new CI guard
+  (`tools/check_no_analysis_refs.py`) wired into the self-review
+  chain in `CLAUDE.md`. False positives (functional path filters in
+  production code) are handled via an `_EXEMPT` allowlist with per-
+  entry justification comments.
+
+- **Site copy now matches the live code surface.** Sweep across
+  `site/*.html` and `site/js/translations.js` correcting drift that
+  had accumulated against the production code. Highlights:
+  - **YAML demo accuracy:** the homepage hero YAML demo and the
+    quickstart `verify-audit` example now use real Pydantic field
+    names and accept paths that pass the live CLI check; copying any
+    visible snippet and running `forgelm --config <copy> --dry-run`
+    works as advertised.
+  - **Compliance artefact tree:** the EU AI Act / ISO 27001 page
+    redrawn against the actual on-disk layout — `compliance/`
+    sub-tree (was `artifacts/`), `audit_log.jsonl` at the checkpoint
+    root, `final_model/` carrying the model card + deployer
+    instructions + integrity manifest. Removed phantom
+    `config_snapshot.yaml` row (no code path emits it).
+  - **Ghost YAML keys removed:** `compliance.config_hash` and
+    `compliance.human_approval` (which `ComplianceMetadataConfig`'s
+    `extra="forbid"` rejected) replaced with the canonical
+    `evaluation.require_human_approval` and a description of
+    `forgelm verify-audit` chain integrity.
+  - **Ghost CLI flag removed:** `--model-card` no longer mentioned
+    on the Article 13 evidence cell; the model card is auto-generated
+    on every successful run.
+  - **Stale namespace + symbol-list corrected:** Library API
+    references now use `from forgelm import …` with real symbols
+    from `forgelm.__all__` (`ForgeTrainer`, `audit_dataset`,
+    `verify_audit_log`, `verify_annex_iv_artifact`, `mask_pii`).
+  - **Wording aligned with live behaviour:** auto-revert (deletes
+    artefacts + exits with `EXIT_EVAL_FAILURE = 3`, not "rolls back
+    to last-good checkpoint"), exit codes (`0–5`, was `0/1/2/3/4`),
+    Annex IV "nine §1-9 sections" (was "eight"),
+    `forgelm safety-eval` accepted formats (`--probes` JSONL or
+    `--default-probes`; outputs `safety_results.json` +
+    `safety_trend.jsonl`), `forgelm verify-annex-iv` claim narrowed
+    to schema completeness + `manifest_hash` (audit-chain integrity
+    is the separate `verify-audit` command), `forgelm purge`
+    documented as emitting `data.erasure_requested` +
+    `data.erasure_completed` audit events.
+  - **Wizard preset divergence:** the in-browser
+    `USE_CASE_PRESETS` is now byte-equivalent to
+    `forgelm/quickstart.py::TEMPLATES`. Operators who finish the
+    wizard see the same model IDs and bundled-dataset paths the CLI
+    `quickstart` would have set.
+  - **i18n parity:** German / French / Spanish / Chinese now match
+    English and Turkish at 731 keys each (was 689). The 168
+    previously-untranslated strings cover the regulator-facing
+    surfaces (`compliance.gdpr15.*`, `compliance.gdpr17.*`,
+    `compliance.iso.*`, `features.gov.*`, `features.eval.safetyeval.*`,
+    `features.ent.*`).
+  - **JSON-LD `operatingSystem`:** all 8 pages updated from
+    `"Linux, macOS"` to `"Linux, macOS, Windows"`, matching the
+    README's tri-platform pitch and the PyPI
+    `Operating System :: OS Independent` classifier.
+  - **Mermaid disclosure:** the privacy page now lists three
+    third-party requests (Google Fonts, jsDelivr / Mermaid on the
+    Guide page only, Formspree on contact-form submit) in all six
+    locales.
+  - **Audit-event scope:** Article 12 description widened from
+    "training start, eval gates, auto-revert decisions" to the real
+    vocabulary (training start/end, eval gates, auto-revert
+    decisions, human-approval gates, GDPR Article 17 erasure,
+    Article 15 access-request queries, model export) with HMAC +
+    SHA-256 chain language replacing the per-artefact SHA-256
+    wording.
+  - **Wizard divergence cross-doc notes:** inline NOTE blocks in
+    `forgelm/wizard/_orchestrator.py`, `forgelm/wizard/_state.py`,
+    and `site/js/wizard.js` document that the CLI and web wizard
+    step-ID lists and `STATE_VERSION` numbers are intentionally
+    independent (different stores, different state-shape evolution
+    schedules) — both flows produce the same generated YAML.
+
+- **Minimum required `torch` bumped from 2.1.0 to 2.3.0.**
+  `torch.distributed.fsdp.FSDPModule` (introduced in torch 2.3) is
+  referenced by `tests/test_grpo_reward.py` and runtime GRPO paths.
 
 ### Fixed
 
-- **Phase 22 wizard — PR #40 review-cycle 1 (2026-05-09).**
-  Closes the inline-comment + verified-finding sweep on
-  `feat/phase22-wizard-modernisation`:
-  - **Critical:** `torch.cuda.get_device_properties(0).total_mem` →
-    `total_memory` in `_io.py::_detect_hardware` (the previous
-    attribute does not exist; welcome step crashed on real CUDA
-    hosts).
-  - **Critical:** `WizardReset` in `_orchestrator.py::_drive_wizard_steps`
-    now re-loops with a fresh `_WizardState()` instead of returning;
-    returning made `_run_full_wizard` treat the reset as a completed
-    run and try to save an empty config.
-  - **Major:** `WizardBack` now restores `state.config` from a
-    `copy.deepcopy` snapshot taken before the step ran — partial
-    mutations made by a half-completed step would otherwise leak into
-    the previous step's prompts.
-  - **Major:** BYOD `_prompt_dataset_path_with_ingest_offer` now
-    validates the typed value as a directory of ingestible docs, a
-    JSONL/JSON file, or an HF Hub ID before accepting; bare typos
-    no longer silently become `data.dataset_name_or_path`.
-  - **Major:** Article 9 / Article 10 strict-tier collectors now
-    re-prompt until non-empty for the EU AI Act mandatory free-text
-    fields (`intended_use`, `foreseeable_misuse`, `mitigation_measures`,
-    `collection_method`, `annotation_process`, `known_biases`).
-    Previously empty values silently slipped through and surfaced as
-    Pydantic ConfigError at load time.
-  - **Major:** `webhook.notify_on_start` defaults to `False` in the
-    wizard to mirror `site/js/wizard.js` — start notifications are
-    noisy and most operators want only success / failure pings.
-  - **Major:** `_step_model` now preserves a use-case preset model
-    that isn't in `POPULAR_MODELS` (the operator's earlier choice
-    becomes the default for the custom slot).
-  - **Medium:** `_save_config_to_file` + `_print_wizard_summary`
-    use `yaml.safe_dump(allow_unicode=True)` instead of
-    `yaml.dump`, with explicit UTF-8 encoding on the file
-    handles. Prevents `!!python/object` tags from leaking into the
-    generated YAML when a collector accidentally returns a Path or
-    set, and stops mojibake on non-ASCII compliance fields.
-  - **Medium:** `wizard_state.yaml` is `chmod 0o600` after each write
-    — the snapshot can carry compliance metadata operators consider
-    sensitive.
-  - **Medium:** `_collect_compliance_metadata` collects
-    `risk_classification` first; downstream Article 9 / 10 collectors
-    branch on the chosen tier and the strict-tier hint surfaces up
-    front instead of after Annex IV §1.
-  - **Medium:** `_prompt_choice` guards against negative or
-    out-of-range numeric input by falling back to the default
-    instead of raising IndexError.
-  - **Minor:** BYOD shell hints (`forgelm ingest …`, `forgelm audit …`)
-    pass user-supplied paths through `shlex.quote` so paths with
-    spaces / metacharacters render copy-paste-safe.
-  - **Minor:** `_orchestrator._drive_wizard_steps` snapshots state
-    via `copy.deepcopy` instead of `json.loads(json.dumps(...))`
-    (the previous form silently lost tuples / sets).
-  - **Docs:** `docs/design/wizard_mode.md` ordered list switched
-    from two-space to single-space markers (MD030); `docs/reference/
-    architecture{,-tr}.md` heading `wizard.py` → `wizard/` to match
-    the Phase 22 sub-package layout.
-  - **Tests:** `tests/test_wizard_phase22.py` gains
-    `TestStepMachineDriver`, `TestMaybeResumeState`, `TestStepWelcome`
-    classes (5 + 3 + 2 cases) exercising the orchestrator end-to-end
-    + back / reset / persistence / resume — `_orchestrator.py`
-    coverage 14 % → 30 %.
+- **Nightly pip-audit gate — `transformers` CVE-2026-1839
+  (issue [#37](https://github.com/cemililik/ForgeLM/issues/37)).** The
+  Supply-chain security workflow flagged the CVE whose published fix
+  lives in `transformers 5.0.0rc3` (release candidate). ForgeLM's
+  `pyproject.toml` pins `transformers>=4.38.0,<5.0.0`; the 5.x branch
+  is a major version bump that breaks downstream callers (TRL adapter
+  signature changes + tokenizer-config API drift), and there is no
+  4.x backport available at the time of writing. Stop-gap: an
+  explicit `--ignore-vuln CVE-2026-1839` in
+  `.github/workflows/nightly.yml` with documented rationale and a
+  remove-after condition (revisit at every release; remove the ignore
+  once `transformers` ships a 4.x point release with the fix or
+  ForgeLM cuts a tracked major-version-bump cycle).
+
+- **Wizard YAML output is now `safe_dump(allow_unicode=True)` with
+  explicit UTF-8 file handles** — prevents `!!python/object` tags
+  from leaking into generated YAML when a collector returns a Path
+  or set, and stops mojibake on non-ASCII compliance fields.
+
+- **Wizard hardware-detection cache.** `_detect_hardware()` runs
+  once per session; the welcome step and the post-save pre-flight
+  checklist share the result instead of paying a second torch import
+  + CUDA enumeration (~50–200 ms saved).
+
+- **Wizard back / reset semantics.** `WizardBack` restores
+  `state.config` from a `copy.deepcopy` snapshot taken before the
+  step ran (partial mutations no longer leak into the previous
+  step's prompts). `WizardReset` re-loops with a fresh state instead
+  of treating the reset as a completed run and trying to save an
+  empty config.
+
+- **Wizard BYOD path validation.** Typed dataset values are now
+  checked as a directory of ingestible docs, a JSONL/JSON file, or
+  an HF Hub ID before being accepted; bare typos no longer silently
+  become `data.dataset_name_or_path`.
+
+- **Wizard non-empty re-prompt for Article 9 / Article 10
+  free-text fields** (`intended_use`, `foreseeable_misuse`,
+  `mitigation_measures`, `collection_method`, `annotation_process`,
+  `known_biases`). Empty values used to slip through and surface as
+  Pydantic `ConfigError` at training-time load.
+
+- **CUDA capability check.**
+  `torch.cuda.get_device_properties(0).total_mem` →
+  `total_memory` in `_detect_hardware` (the previous attribute
+  doesn't exist; welcome step crashed on real CUDA hosts).
+
+- **Wizard cross-tab sync.** The web wizard listens for `storage`
+  events and reloads state when a sibling tab edits the same
+  wizard, eliminating the "last write wins" race.
+
+- **Wizard bundled safety-probes resolution.** The wizard's
+  default safety probe set is now resolved through
+  `importlib.resources.files("forgelm.safety_prompts")`, fixing the
+  `pip install forgelm` regression where
+  `configs/safety_prompts/general_safety.jsonl` was the wizard
+  default but never shipped in the wheel.
+
+- **Documentation and CI guard plumbing:** `docs/design/wizard_mode.md`
+  rewritten to describe the actual 9-step flow;
+  `docs/reference/architecture{,-tr}.md` heading updated from
+  `wizard.py` to `wizard/` to match the sub-package layout;
+  `docs/usermanuals/{en,tr}/compliance/human-approval-gate.md`
+  cross-references exit code 5 alongside the existing exit-4
+  discussion.
 
 ### Removed
+
+(none in this release.)
 
 ## [0.5.5] — 2026-05-06
 
