@@ -6,6 +6,48 @@ All notable changes to ForgeLM are documented here.
 
 ### Added
 
+- **Wizard schema-driven defaults SOT (F1 / 2026-05-09).** Closes the
+  long-running drift surface tracked through P1-P17 across review
+  cycles 1, 2, and 3.  A schema field default change without a
+  matching wizard update was the single biggest source of CLI ↔ web
+  parity gaps; this PR turns the schema into the canonical source.
+  - **Pydantic field metadata flag:** wizard-relevant fields in
+    `forgelm/config.py` carry `json_schema_extra={"wizard": True}`
+    (8 fields today: `model.max_length`, `lora.r/alpha/dropout`,
+    `training.num_train_epochs/per_device_train_batch_size/learning_rate/gradient_accumulation_steps`).
+  - **Generator script:** `tools/generate_wizard_defaults.py` walks
+    every nested submodel reachable from `ForgeConfig`, extracts the
+    flagged defaults, and writes two artefacts:
+    - `forgelm/wizard/_defaults.json` — package data shipped via
+      `[tool.setuptools.package-data]` so wheel installs preserve it.
+    - `site/js/wizard_defaults.js` — tiny script that exposes
+      `window.WIZARD_DEFAULTS` for the web wizard's `defaultState()`.
+  - **CI guard:** `tools/check_wizard_defaults_sync.py` re-runs the
+    generator into a temp comparison and fails the run if the
+    shipped artefacts drift from the schema. Operators get a clear
+    "regenerate via …" hint with the first 5 differing lines.
+  - **Python consumer:** `forgelm/wizard/_state.py` now reads
+    `DEFAULT_*` constants from the shipped JSON via
+    `importlib.resources`. Hardcoded fallbacks survive only when the
+    JSON is missing entirely (broken pip install).
+  - **JS consumer:** `site/js/wizard.js` `defaultState()` reads
+    schema-derived values via a new `wd(section, key, fallback)`
+    helper; `<script src="js/wizard_defaults.js">` is loaded before
+    `wizard.js` from `site/quickstart.html`.
+  - **Schema parity tests:** `TestSchemaDrivenDefaultsSOT` pins the
+    contract — every `DEFAULT_*` equals its `Field.default`, the
+    JSON ships, and the missing-file fallback returns `{}` cleanly.
+  - **Why a generator + JSON instead of importing live values?** Web
+    wizard is a static site — no Python runtime to query schema
+    defaults at page load.  JSON-as-data ships with the assets, the
+    Python side benefits from a low import-cost path, and the JSON
+    file is auditable in git diffs.
+  - **B4 (`--wizard-from-yaml`) removed from roadmap consideration**
+    (politik çelişki, B3 kapattı).
+  - **E3 (`--wizard --start-from <yaml>`) explicitly bound to F1:**
+    reverse-mapping reuses this PR's metadata flags + JSON shape;
+    deferred until needed (no scope rush).
+
 - **Wizard review-cycle 3 — bug fixes + UX polish (2026-05-09).**
   Closes the eleven actionable findings from the review-cycle 2 audit
   (`docs/analysis/code_reviews/review-cycle-2-findings.md` summary in

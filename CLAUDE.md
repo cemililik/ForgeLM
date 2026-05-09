@@ -76,7 +76,8 @@ ForgeLM/
 │                            # check_bilingual_parity, check_cli_help_consistency,
 │                            # check_field_descriptions, check_pip_audit,
 │                            # check_bandit, check_site_claims,
-│                            # generate_sbom, build_usermanuals
+│                            # check_wizard_defaults_sync, generate_sbom,
+│                            # generate_wizard_defaults, build_usermanuals
 ├── docs/
 │   ├── roadmap.md           # Public roadmap (short index)
 │   ├── roadmap/             # Detailed phase files + archive
@@ -150,13 +151,16 @@ Default workflow for a non-trivial change:
      forgelm --config config_template.yaml --dry-run && \
      python3 tools/check_bilingual_parity.py --strict && \
      python3 tools/check_anchor_resolution.py --strict && \
-     python3 tools/check_cli_help_consistency.py --strict
+     python3 tools/check_cli_help_consistency.py --strict && \
+     python3 tools/check_wizard_defaults_sync.py
    ```
 
-   All seven must pass. The first four are the historical gauntlet; the
-   three doc guards (Wave 3 / Wave 4 / Wave 5 additions) catch bilingual
-   structural drift, broken markdown anchors, and CLI ↔ docs help-text
-   drift before the PR opens.
+   All eight must pass. The first four are the historical gauntlet;
+   the three doc guards (Wave 3 / Wave 4 / Wave 5 additions) catch
+   bilingual structural drift, broken markdown anchors, and CLI ↔ docs
+   help-text drift before the PR opens. The wizard-defaults guard
+   (review-cycle 3) catches schema-vs-shipped-JSON drift for the
+   wizard's source-of-truth defaults.
 
 ## Etiquette when communicating with the user
 

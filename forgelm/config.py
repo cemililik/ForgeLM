@@ -49,7 +49,11 @@ class ModelConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name_or_path: str = Field(description="HuggingFace Hub repo ID or local path to the base model.")
-    max_length: int = Field(default=2048, description="Tokenizer/context max sequence length used during training.")
+    max_length: int = Field(
+        default=2048,
+        description="Tokenizer/context max sequence length used during training.",
+        json_schema_extra={"wizard": True},
+    )
     load_in_4bit: bool = Field(default=True, description="Load the model in 4-bit NF4 quantisation (QLoRA path).")
     backend: Literal["transformers", "unsloth"] = Field(
         default="transformers",
@@ -99,9 +103,21 @@ class ModelConfig(BaseModel):
 class LoraConfigModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    r: int = Field(default=8, description="LoRA rank: dimension of the low-rank update matrices.")
-    alpha: int = Field(default=16, description="LoRA scaling factor (typically `2 * r`).")
-    dropout: float = Field(default=0.1, description="Dropout rate applied to the LoRA update.")
+    r: int = Field(
+        default=8,
+        description="LoRA rank: dimension of the low-rank update matrices.",
+        json_schema_extra={"wizard": True},
+    )
+    alpha: int = Field(
+        default=16,
+        description="LoRA scaling factor (typically `2 * r`).",
+        json_schema_extra={"wizard": True},
+    )
+    dropout: float = Field(
+        default=0.1,
+        description="Dropout rate applied to the LoRA update.",
+        json_schema_extra={"wizard": True},
+    )
     bias: Literal["none", "all", "lora_only"] = Field(
         default="none",
         description="Which bias parameters to train: `none` (no biases), `all`, or `lora_only` (LoRA-injected layers only).",
@@ -168,17 +184,24 @@ class TrainingConfig(BaseModel):
         default=-1, description="Hard step cap; `-1` = use `num_train_epochs`, positive value overrides epochs."
     )
     num_train_epochs: int = Field(
-        default=3, description="Number of training epochs (only consulted when `max_steps == -1`)."
+        default=3,
+        description="Number of training epochs (only consulted when `max_steps == -1`).",
+        json_schema_extra={"wizard": True},
     )
     per_device_train_batch_size: int = Field(
         default=4,
         description="Micro-batch size per GPU.  Multiply by `gradient_accumulation_steps` × world size for effective batch.",
+        json_schema_extra={"wizard": True},
     )
     gradient_accumulation_steps: int = Field(
-        default=2, description="Number of micro-batches to accumulate before each optimiser step."
+        default=2,
+        description="Number of micro-batches to accumulate before each optimiser step.",
+        json_schema_extra={"wizard": True},
     )
     learning_rate: float = Field(
-        default=2e-5, description="Peak learning rate.  LoRA / QLoRA usually tolerates 2e-4; full-finetune wants 2e-5."
+        default=2e-5,
+        description="Peak learning rate.  LoRA / QLoRA usually tolerates 2e-4; full-finetune wants 2e-5.",
+        json_schema_extra={"wizard": True},
     )
     warmup_ratio: float = Field(
         default=0.1, description="Fraction of total steps spent warming up the learning rate from 0 → peak."

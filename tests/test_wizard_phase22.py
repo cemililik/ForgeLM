@@ -1275,3 +1275,63 @@ class TestValidateGeneratedConfigLogger:
         # At least one WARNING record from the wizard logger.
         warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
         assert any("failed schema validation" in r.message for r in warning_records)
+
+
+# ---------------------------------------------------------------------------
+# F1 (review-cycle 3) — schema-driven defaults SOT
+# ---------------------------------------------------------------------------
+
+
+class TestSchemaDrivenDefaultsSOT:
+    """F1 — wizard defaults come from the shipped JSON, in lockstep with schema."""
+
+    def test_module_constants_match_schema_via_json(self):
+        from forgelm.config import LoraConfigModel, ModelConfig, TrainingConfig
+
+        # The module-level DEFAULT_* constants must equal the schema
+        # defaults today.  This is the contract the JSON enforces.
+        assert wizard.DEFAULT_LORA_R == LoraConfigModel.model_fields["r"].default
+        assert wizard.DEFAULT_LORA_ALPHA == LoraConfigModel.model_fields["alpha"].default
+        assert wizard.DEFAULT_DROPOUT == LoraConfigModel.model_fields["dropout"].default
+        assert wizard.DEFAULT_EPOCHS == TrainingConfig.model_fields["num_train_epochs"].default
+        assert wizard.DEFAULT_BATCH_SIZE == TrainingConfig.model_fields["per_device_train_batch_size"].default
+        assert wizard.DEFAULT_LR == TrainingConfig.model_fields["learning_rate"].default
+        assert wizard.DEFAULT_MAX_LENGTH == ModelConfig.model_fields["max_length"].default
+
+    def test_defaults_json_shipped_and_loadable(self):
+        # The JSON must be importable as package data.
+        from importlib.resources import files
+
+        path = files("forgelm.wizard").joinpath("_defaults.json")
+        assert path.is_file()
+        # Sanity: required sections + at least the schema-flagged fields.
+        import json
+
+        with path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        assert isinstance(data, dict)
+        assert "lora" in data and "r" in data["lora"]
+        assert "training" in data and "num_train_epochs" in data["training"]
+        assert "model" in data and "max_length" in data["model"]
+
+    def test_default_helper_returns_fallback_when_section_missing(self):
+        from forgelm.wizard import _state as _state_mod
+
+        # Use the live module-level helper but against a dict that
+        # lacks the requested section/key.
+        assert _state_mod._default("nonexistent_section", "key", 42) == 42
+        assert _state_mod._default("lora", "nonexistent_key", "fallback") == "fallback"
+
+    def test_load_defaults_returns_empty_on_missing_file(self, monkeypatch):
+        # Simulate a slim install where the JSON is absent — _load_defaults
+        # must return ``{}`` so the hardcoded fallbacks below activate
+        # rather than raising at import time.
+        from forgelm.wizard import _state as _state_mod
+
+        class _NoFile:
+            def joinpath(self, _):
+                raise FileNotFoundError("simulated missing JSON")
+
+        monkeypatch.setattr("importlib.resources.files", lambda _pkg: _NoFile())
+        result = _state_mod._load_defaults()
+        assert result == {}
