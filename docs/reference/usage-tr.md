@@ -206,6 +206,7 @@ forgelm --config my_config.yaml --compliance-export ./audit/       # Uyumluluk b
 | `2` | Eğitim hatası | GPU/bellek/bağımlılıkları kontrol et |
 | `3` | Değerlendirme hatası | Model eşiğin altında |
 | `4` | Onay bekleniyor | İnsan incelemesi gerekli (`require_human_approval: true`) |
+| `5` | Wizard iptal edildi | `forgelm --wizard` YAML üretmeden çıktı (Ctrl-C, non-tty reddi, kaydetmeyi reddetme) — `0`'dan ayrı ki CI "wizard tamamlandı" ile "wizard hiçbir şey yazmadı" arasını ayırt edebilsin |
 
 ## Eğitim Çıktısı
 

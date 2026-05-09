@@ -19,7 +19,7 @@ graph TB
 
     subgraph Config["Config layer"]
         CONFIG[config.py]
-        WIZARD[wizard.py]
+        WIZARD[wizard/ sub-package]
     end
 
     subgraph Orch["Orchestration"]
@@ -94,7 +94,7 @@ never silent — they ship as a coherent series with regression tests.
 |---|---|---|
 | `cli/` (package) | Argument parsing, top-level dispatch, exit codes, per-subcommand wiring (`_audit`, `_ingest`, `_doctor`, `_cache`, `_purge`, `_reverse_pii`, `_safety_eval`, `_verify_*`, `_approve`, `_approvals`, ...) | Training, data, evaluation logic |
 | `config.py` | Pydantic schemas, validation, YAML load | Runtime behaviour |
-| `wizard.py` | Interactive config generation | Config validation (that's `config.py`) |
+| `wizard/` (package) | Interactive config generation — sub-package with `_io`, `_state`, `_collectors`, `_orchestrator`, `_byod` modules; emits `WizardOutcome` to the CLI dispatcher (Phase 22) | Config validation (that's `config.py`) |
 | `trainer.py` | Orchestrating SFT/DPO/…/GRPO runs | Model loading (delegates to `model.py`) |
 | `model.py` | `AutoModelForCausalLM`/PEFT setup | Dataset formatting |
 | `data.py` | Dataset load + format detection | Training loops |

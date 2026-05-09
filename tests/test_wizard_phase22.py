@@ -728,3 +728,371 @@ class TestStepWelcome:
         ):
             wizard._orchestrator._step_welcome(state)
         assert state.experience == "beginner"
+
+
+# ---------------------------------------------------------------------------
+# Phase 22 review-cycle 2 — new behaviour pinned by tests
+# ---------------------------------------------------------------------------
+
+
+class TestStepDiffStripsInternalMeta:
+    """B-NEW-1 — ``_print_step_diff`` must NOT leak ``_wizard_meta.*`` keys."""
+
+    def test_strategy_step_diff_omits_wizard_meta(self, isolated_state_dir, monkeypatch, capsys):
+        # Arrange: stub a step that mutates both a real config key and
+        # the internal _wizard_meta scratch namespace (mirroring what
+        # _step_strategy does at orchestrator.py:265).
+        def step_with_meta(state):
+            state.config.setdefault("model", {})["name_or_path"] = "real-value"
+            state.config.setdefault("_wizard_meta", {})["use_galore"] = True
+
+        steps = (wizard._orchestrator._StepDef(label="meta-step", runner=step_with_meta),)
+        monkeypatch.setattr(wizard._orchestrator, "_STEPS", steps)
+
+        wizard._orchestrator._drive_wizard_steps(wizard._WizardState())
+        captured = capsys.readouterr().out
+        assert "model.name_or_path" in captured
+        # The leaked key was the bug — pin its absence.
+        assert "_wizard_meta" not in captured
+
+
+class TestComplianceDoesNotOverwriteEarlierGovernance:
+    """B-NEW-2 — _step_compliance must skip governance re-prompt under non-strict tier."""
+
+    def test_skip_when_already_populated_and_non_strict(self, isolated_state_dir, capsys):
+        state = wizard._WizardState()
+        state.config.setdefault("data", {})["governance"] = {
+            "collection_method": "from-step-6",
+            "annotation_process": "from-step-6",
+            "known_biases": "from-step-6",
+            "personal_data_included": False,
+            "dpia_completed": False,
+        }
+        with patch(
+            "builtins.input",
+            side_effect=_input_returning(
+                "y",  # configure compliance metadata
+                "",  # provider_name
+                "",  # provider_contact
+                "",  # system_name
+                "",  # intended_purpose
+                "",  # known_limitations
+                "v0.1.0",  # system_version
+                "2",  # risk_classification = minimal-risk (non-strict)
+                "n",  # decline article 9 risk_assessment
+                "n",  # decline retention
+                "n",  # decline monitoring
+            ),
+        ):
+            wizard._orchestrator._step_compliance(state)
+        captured = capsys.readouterr().out
+        assert "Article 10 data.governance already populated" in captured
+        # The earlier governance answers must survive untouched.
+        assert state.config["data"]["governance"]["collection_method"] == "from-step-6"
+
+
+class TestAtomicStateWrite:
+    """B-NEW-3 — _save_wizard_state must use temp+rename, not direct write."""
+
+    def test_save_state_lands_atomically(self, isolated_state_dir, monkeypatch):
+        # Sanity: snapshot exists after a clean save.
+        wizard._save_wizard_state({"experience": "expert"})
+        assert wizard._wizard_state_path().is_file()
+
+    def test_failed_save_does_not_leave_partial_file(self, isolated_state_dir, monkeypatch):
+        # Force os.replace to fail mid-flight; the target file must
+        # remain absent rather than a half-written YAML.
+        from forgelm.wizard import _state as _state_mod
+
+        fake_replace_calls = []
+
+        def _broken_replace(src, dst):
+            fake_replace_calls.append((src, dst))
+            raise OSError("simulated atomic rename failure")
+
+        monkeypatch.setattr(_state_mod.os, "replace", _broken_replace)
+        wizard._save_wizard_state({"experience": "expert"})
+        assert fake_replace_calls, "os.replace should have been invoked"
+        # The target file must NOT exist (write was best-effort, the
+        # atomic rename never landed).
+        assert not wizard._wizard_state_path().exists()
+
+
+class TestWebhookSSRFPreflight:
+    """A1 — _parse_webhook_value rejects loopback / RFC1918 hostnames."""
+
+    def test_loopback_rejected(self):
+        with pytest.raises(ValueError, match="private / loopback"):
+            wizard._parse_webhook_value("https://127.0.0.1/hook")
+
+    def test_link_local_imds_rejected(self):
+        with pytest.raises(ValueError, match="private / loopback"):
+            wizard._parse_webhook_value("https://169.254.169.254/latest/meta-data")
+
+    def test_rfc1918_rejected(self):
+        with pytest.raises(ValueError, match="private / loopback"):
+            wizard._parse_webhook_value("https://10.0.0.5/x")
+
+    def test_public_url_still_accepted(self):
+        section = wizard._parse_webhook_value("https://hooks.slack.com/services/T/B/X")
+        assert section == {"url": "https://hooks.slack.com/services/T/B/X"}
+
+    def test_env_prefix_does_not_resolve(self):
+        # ``env:VAR`` short-circuits before SSRF checks because the URL
+        # is unresolved at config time.
+        section = wizard._parse_webhook_value("env:SLACK_WEBHOOK_URL")
+        assert section == {"url_env": "SLACK_WEBHOOK_URL"}
+
+
+class TestUniqueFilenamePrompt:
+    """B2 — overwrite confirmation + auto-suffix on existing files."""
+
+    def test_returns_default_when_target_absent(self, tmp_path, monkeypatch):
+        target = str(tmp_path / "fresh.yaml")
+        with patch("builtins.input", side_effect=_input_returning(target)):
+            result = wizard._prompt_unique_filename("Save as", "default.yaml")
+        assert result == target
+
+    def test_overwrite_confirmation_yes(self, tmp_path, monkeypatch):
+        target = tmp_path / "exists.yaml"
+        target.write_text("old\n", encoding="utf-8")
+        with patch("builtins.input", side_effect=_input_returning(str(target), "y")):
+            result = wizard._prompt_unique_filename("Save as", "default.yaml")
+        assert result == str(target)
+
+    def test_overwrite_declined_uses_next_free(self, tmp_path):
+        target = tmp_path / "exists.yaml"
+        target.write_text("old\n", encoding="utf-8")
+        with patch("builtins.input", side_effect=_input_returning(str(target), "n")):
+            result = wizard._prompt_unique_filename("Save as", "default.yaml")
+        assert result == str(tmp_path / "exists_2.yaml")
+
+    def test_next_free_filename_increments(self, tmp_path):
+        (tmp_path / "x.yaml").write_text("a", encoding="utf-8")
+        (tmp_path / "x_2.yaml").write_text("b", encoding="utf-8")
+        result = wizard._next_free_filename(str(tmp_path / "x.yaml"))
+        assert result == str(tmp_path / "x_3.yaml")
+
+
+class TestNonTtyRefusal:
+    """B3 — wizard refuses to launch when stdin is not a TTY."""
+
+    def test_run_wizard_full_returns_cancelled_outcome_on_non_tty(self, capsys, monkeypatch):
+        import sys as _sys
+
+        # Simulate piped stdin: ``isatty`` returns False.
+        monkeypatch.setattr(_sys.stdin, "isatty", lambda: False)
+        outcome = wizard.run_wizard_full()
+        assert outcome.cancelled is True
+        assert outcome.config_path is None
+        assert outcome.start_training is False
+        captured = capsys.readouterr().out
+        assert "stdin is not a TTY" in captured
+        # Must point operators at the deterministic alternative.
+        assert "forgelm quickstart" in captured
+
+
+class TestValidateGeneratedConfig:
+    """B1/E1 — validate-on-exit catches schema violations."""
+
+    def test_valid_yaml_passes(self, tmp_path, capsys, minimal_config):
+        cfg = tmp_path / "valid.yaml"
+        import yaml as _yaml
+
+        cfg.write_text(_yaml.safe_dump(minimal_config()), encoding="utf-8")
+        wizard._validate_generated_config(str(cfg))
+        out = capsys.readouterr().out
+        assert "Schema validation passed" in out
+
+    def test_invalid_yaml_surfaces_error(self, tmp_path, capsys):
+        cfg = tmp_path / "broken.yaml"
+        # Empty config — schema requires model + data + training.
+        cfg.write_text("training: {}\n", encoding="utf-8")
+        wizard._validate_generated_config(str(cfg))
+        out = capsys.readouterr().out
+        assert "failed schema validation" in out
+
+
+class TestWizardOutcomeContract:
+    """D2 — WizardOutcome's cancelled flag distinguishes the three exit paths."""
+
+    def test_cancelled_when_no_path(self):
+        outcome = wizard.WizardOutcome(config_path=None, start_training=False)
+        assert outcome.cancelled is True
+
+    def test_not_cancelled_when_saved_and_deferred(self):
+        outcome = wizard.WizardOutcome(config_path="/tmp/x.yaml", start_training=False)
+        assert outcome.cancelled is False
+        assert outcome.start_training is False
+
+    def test_not_cancelled_when_saved_and_starting(self):
+        outcome = wizard.WizardOutcome(config_path="/tmp/x.yaml", start_training=True)
+        assert outcome.cancelled is False
+        assert outcome.start_training is True
+
+
+class TestPreflightChecklist:
+    """E4 — _print_preflight_checklist names the three operator-actionable signals."""
+
+    def test_minimal_config_prints_checklist(self, capsys, monkeypatch):
+        monkeypatch.setattr(
+            wizard._orchestrator,
+            "_detect_hardware",
+            lambda: {"gpu_available": False, "gpu_name": None, "vram_gb": None, "cuda_version": None},
+        )
+        wizard._print_preflight_checklist(
+            {
+                "model": {"name_or_path": "x", "load_in_4bit": True},
+                "data": {"dataset_name_or_path": "tatsu-lab/alpaca"},
+                "compliance": {"risk_classification": "high-risk"},
+                "evaluation": {"safety": {"enabled": True}},
+            }
+        )
+        out = capsys.readouterr().out
+        assert "Pre-flight checklist" in out
+        assert "GPU" in out
+        assert "Dataset" in out
+        assert "high-risk" in out
+        assert "safety eval enabled" in out
+
+
+class TestMonitoringEnvPrefix:
+    """P9 — monitoring collector accepts env:VAR_NAME like the webhook collector."""
+
+    def test_env_prefix_routes_to_endpoint_env(self):
+        with patch(
+            "builtins.input",
+            side_effect=_input_returning(
+                "y",  # configure post-market monitoring
+                "env:DATADOG_URL",  # endpoint
+                "1",  # metrics_export = none
+                "y",  # alert_on_drift
+                "24",  # check_interval_hours
+            ),
+        ):
+            result = wizard._collect_monitoring()
+        assert result["endpoint_env"] == "DATADOG_URL"
+        assert "endpoint" not in result
+
+    def test_literal_url_routes_to_endpoint(self):
+        with patch(
+            "builtins.input",
+            side_effect=_input_returning("y", "https://prom.example.com/push", "1", "y", "24"),
+        ):
+            result = wizard._collect_monitoring()
+        assert result["endpoint"] == "https://prom.example.com/push"
+        assert "endpoint_env" not in result
+
+
+class TestSafetyFieldUnion:
+    """P1/P18 — safety collector emits the union of CLI + web fields."""
+
+    def test_binary_scoring_includes_classifier_and_max_regression(self):
+        # Prompt order in _collect_safety_config:
+        #   1. enable yes/no
+        #   2. _prompt_choice (scoring mode)  — Python computes scoring_mode BEFORE the dict literal
+        #   3. _prompt (classifier)          — first member of the dict literal
+        #   4. _prompt_float (max_safety_regression)
+        #   5. _prompt_yes_no (track categories)
+        with patch(
+            "builtins.input",
+            side_effect=_input_returning(
+                "y",  # enable safety eval
+                "1",  # binary scoring
+                "",  # classifier (use default)
+                "0.05",  # max_safety_regression
+                "n",  # don't track categories
+            ),
+        ):
+            section = wizard._collect_safety_config()
+        assert section["enabled"] is True
+        assert section["classifier"] == "meta-llama/Llama-Guard-3-8B"
+        assert section["max_safety_regression"] == 0.05
+        assert section["scoring"] == "binary"
+
+    def test_confidence_weighted_includes_min_confidence(self):
+        # Same prompt order as binary, plus the extra
+        # min_classifier_confidence prompt before track_categories.
+        with patch(
+            "builtins.input",
+            side_effect=_input_returning(
+                "y",  # enable
+                "2",  # confidence_weighted
+                "",  # classifier (default)
+                "0.05",  # max_safety_regression
+                "0.7",  # min_classifier_confidence
+                "n",  # don't track categories
+            ),
+        ):
+            section = wizard._collect_safety_config()
+        assert section["scoring"] == "confidence_weighted"
+        assert section["min_classifier_confidence"] == 0.7
+        assert section["min_safety_score"] == 0.85
+
+
+class TestJudgeMinScoreSchemaParity:
+    """P2 — judge collector default min_score now matches schema (5.0)."""
+
+    def test_default_min_score_is_5_0(self):
+        with patch(
+            "builtins.input",
+            side_effect=_input_returning("y", "gpt-4o-mini", "OPENAI_API_KEY", ""),
+        ):
+            section = wizard._collect_judge()
+        assert section["min_score"] == 5.0
+
+
+class TestQLoraQuantFlagsEmitted:
+    """P16 — strategy step emits bnb_4bit_* when load_in_4bit=True."""
+
+    def test_qlora_flags_present(self, isolated_state_dir):
+        state = wizard._WizardState()
+        with patch(
+            "builtins.input",
+            side_effect=_input_returning(
+                "1",  # strategy = QLoRA (load_in_4bit=True)
+                "1",  # target_modules = standard
+                "8",  # lora_r
+                "16",  # lora_alpha
+            ),
+        ):
+            wizard._orchestrator._step_strategy(state)
+        assert state.config["model"]["load_in_4bit"] is True
+        assert state.config["model"]["bnb_4bit_quant_type"] == "nf4"
+        assert state.config["model"]["bnb_4bit_compute_dtype"] == "auto"
+
+    def test_lora_no_qlora_flags(self, isolated_state_dir):
+        state = wizard._WizardState()
+        with patch(
+            "builtins.input",
+            side_effect=_input_returning(
+                "2",  # strategy = LoRA (load_in_4bit=False)
+                "1",
+                "8",
+                "16",
+            ),
+        ):
+            wizard._orchestrator._step_strategy(state)
+        assert state.config["model"]["load_in_4bit"] is False
+        assert "bnb_4bit_quant_type" not in state.config["model"]
+
+
+class TestWebhookConfigDefaultsParity:
+    """P14 — auto_revert.max_acceptable_loss carries default 2.0 like web wizard."""
+
+    def test_auto_revert_emits_default_2_0_when_blank(self, isolated_state_dir):
+        state = wizard._WizardState()
+        with patch(
+            "builtins.input",
+            side_effect=_input_returning(
+                "y",  # enable auto-revert
+                "",  # max_loss blank → use default
+                "n",  # decline safety eval (default_enabled=False here)
+                "n",  # decline benchmark
+                "n",  # decline judge
+                "n",  # decline webhook
+                "n",  # decline synthetic
+            ),
+        ):
+            wizard._orchestrator._step_evaluation(state)
+        assert state.config["evaluation"]["max_acceptable_loss"] == 2.0

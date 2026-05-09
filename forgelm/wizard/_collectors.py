@@ -132,6 +132,23 @@ def _parse_webhook_value(raw: str) -> Optional[Dict[str, str]]:
             "  Warning: webhook URL uses HTTP, not HTTPS.  Data will travel unencrypted.  "
             "Use `env:VAR_NAME` to source the URL from a secret manager."
         )
+    # SSRF preflight — reject loopback / RFC1918 / IMDS-style hosts up
+    # front so the operator catches typos at config time, not 30 minutes
+    # into a training run when ``forgelm/_http.safe_post`` rejects the
+    # destination.  Runtime ``allow_private`` overrides remain available
+    # for operators who legitimately point at internal hooks.
+    host = (parsed.hostname or "").strip()
+    if host:
+        try:
+            from .._http import _is_private_destination
+        except ImportError:  # pragma: no cover — _http always present
+            _is_private_destination = None
+        if _is_private_destination is not None and _is_private_destination(host):
+            raise ValueError(
+                f"Webhook URL `{raw}` resolves to a private / loopback / link-local "
+                f"destination (`{host}`).  Use `env:VAR_NAME` for production hooks "
+                "or set `webhook.allow_private=true` in the YAML if this is intentional."
+            )
     return {"url": raw}
 
 
@@ -193,11 +210,33 @@ def _collect_safety_config(*, default_enabled: bool = False) -> Optional[Dict[st
     scoring_mode = "confidence_weighted" if "confidence" in scoring_choice else "binary"
     safety: Dict[str, Any] = {
         "enabled": True,
+        # P1/P18: classifier name + max_safety_regression were previously
+        # only emitted by the web wizard.  Surface both here so a CLI-
+        # generated YAML and a web-generated YAML share the same
+        # ``evaluation.safety`` shape.  Both fall back to schema defaults
+        # so the prompt stays light unless the operator wants to override.
+        "classifier": _prompt(
+            "Harm classifier (HF Hub ID — leave empty for Llama-Guard-3-8B default)",
+            "meta-llama/Llama-Guard-3-8B",
+        )
+        or "meta-llama/Llama-Guard-3-8B",
         "test_prompts": _default_safety_probes_path(),
         "scoring": scoring_mode,
+        "max_safety_regression": _prompt_float(
+            "max_safety_regression (0.0-1.0; auto-revert above this unsafe-response ratio)",
+            0.05,
+            min_val=0.0,
+            max_val=1.0,
+        ),
     }
     if scoring_mode == "confidence_weighted":
         safety["min_safety_score"] = 0.85
+        safety["min_classifier_confidence"] = _prompt_float(
+            "min_classifier_confidence (0.0-1.0; flag responses below this confidence floor for review)",
+            0.7,
+            min_val=0.0,
+            max_val=1.0,
+        )
     if _prompt_yes_no("Track harm categories (S1-S14 + ForgeLM-curated)?", default=False):
         safety["track_categories"] = True
         safety["severity_thresholds"] = {"critical": 0, "high": 0.01, "medium": 0.05}
@@ -513,22 +552,43 @@ def _collect_retention() -> Optional[Dict[str, Any]]:
 
 
 def _collect_monitoring() -> Optional[Dict[str, Any]]:
-    """Article 12+17: post-market monitoring hooks."""
+    """Article 12+17: post-market monitoring hooks.
+
+    Endpoint accepts either a literal URL or ``env:VAR_NAME`` to source
+    the URL from the environment — mirrors the webhook collector's
+    convention so the same syntax works in both places.
+    """
     if not _prompt_yes_no("Configure post-market monitoring?", default=False):
         return None
-    endpoint = _prompt("Monitoring endpoint URL (Prometheus push gateway / Datadog / custom)", "")
+    endpoint_raw = _prompt(
+        "Monitoring endpoint URL (or `env:VAR_NAME` to source from environment)",
+        "",
+    )
     metrics_export = _prompt_choice(
         "metrics_export:",
         ["none", "prometheus", "datadog", "custom_webhook"],
         default=1,
     )
-    return {
+    monitoring: Dict[str, Any] = {
         "enabled": True,
-        "endpoint": endpoint,
         "metrics_export": metrics_export,
         "alert_on_drift": _prompt_yes_no("alert_on_drift?", default=True),
         "check_interval_hours": _prompt_int("check_interval_hours", 24, min_val=1, max_val=720),
     }
+    # P9: support env:VAR_NAME indirection for the monitoring endpoint
+    # the same way the webhook collector does.  ``MonitoringConfig`` has
+    # both ``endpoint`` and ``endpoint_env`` fields; emit whichever the
+    # operator typed.
+    endpoint_stripped = endpoint_raw.strip()
+    if endpoint_stripped.lower().startswith("env:"):
+        var_name = endpoint_stripped[4:].strip()
+        if var_name and re.match(r"^[A-Z][A-Z0-9_]*$", var_name):
+            monitoring["endpoint_env"] = var_name
+        else:
+            _print(f"  '{endpoint_stripped}' is not a valid env-var reference — monitoring endpoint left unset.")
+    elif endpoint_stripped:
+        monitoring["endpoint"] = endpoint_stripped
+    return monitoring
 
 
 def _collect_benchmark() -> Optional[Dict[str, Any]]:
@@ -567,7 +627,11 @@ def _collect_judge() -> Optional[Dict[str, Any]]:
     judge: Dict[str, Any] = {
         "enabled": True,
         "judge_model": judge_model,
-        "min_score": _prompt_float("min_score (mean 1-10 floor; auto-revert below)", 6.5, min_val=1.0, max_val=10.0),
+        # P2: schema default in ``JudgeConfig.min_score`` is 5.0 — the
+        # wizard previously prompted with 6.5 which silently drifted from
+        # the runtime default.  Aligned so an operator who accepts every
+        # prompt produces a YAML byte-equivalent to ``ForgeConfig()``.
+        "min_score": _prompt_float("min_score (mean 1-10 floor; auto-revert below)", 5.0, min_val=1.0, max_val=10.0),
     }
     if judge_api_key_env.strip():
         judge["judge_api_key_env"] = judge_api_key_env.strip()

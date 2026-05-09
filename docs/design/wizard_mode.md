@@ -1,11 +1,21 @@
 # Design: Interactive Configuration Wizard (`forgelm --wizard`)
 
-> **Status: Implemented in v0.5.5; modernised Phase 22 / 2026-05-08
-> (`forgelm/wizard/` sub-package).** This document is retained as the
-> historical design reference; the actual implementation in
-> `forgelm/wizard/` (split from a 976-line monolith into five
-> focused submodules, ~270 / 300 / 600 / 280 / 460 LOC) is now the
-> source of truth.
+> **Status: Implemented in v0.5.5; modernised Phase 22 / 2026-05-08;
+> review-cycle 2 polish 2026-05-09 (`forgelm/wizard/` sub-package).**
+> This document is retained as the historical design reference; the
+> actual implementation in `forgelm/wizard/` (split from a 976-line
+> monolith into five focused submodules) is now the source of truth.
+
+> **Review-cycle 2 additions (2026-05-09):** validate-on-exit
+> (`ForgeConfig.model_validate`), overwrite confirmation with auto-
+> suffix, non-tty stdin refusal, pre-flight checklist, atomic
+> `wizard_state.yaml` writes (`tempfile` + `os.replace`), webhook
+> SSRF preflight, CLI ↔ web safety field union, web wizard
+> `model.max_length` surface, monitoring `endpoint_env` syntax,
+> cross-tab `storage` sync, distinct `EXIT_WIZARD_CANCELLED = 5`
+> exit code, best-effort `readline` integration. Schema-default
+> parity tightened: judge `min_score` `5.0` (was `6.5`), web
+> `learningRate` `2e-5` (was `1e-4`), web `batchSize` `4` (was `2`).
 
 ## Overview
 

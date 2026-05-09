@@ -6,6 +6,79 @@ All notable changes to ForgeLM are documented here.
 
 ### Added
 
+- **Wizard review-cycle 2 — operator-quality guardrails (2026-05-09).**
+  Phase 22 follow-up addressing 17 newly-discovered parity / UX gaps
+  surfaced during the post-PR-#40 audit. Both surfaces (CLI sub-package
+  + `site/js/wizard.js`) tightened in lockstep.
+  - **Validate-on-exit (B1 / E1):** the wizard now runs
+    `ForgeConfig.model_validate` on the saved YAML before declaring
+    success. Schema rejections surface inline with the offending field
+    rather than 30 minutes into a failed training run.
+  - **Overwrite confirmation + auto-suffix (B2):** `_save_config_to_file`
+    detects pre-existing files, asks the operator before clobbering,
+    and falls back to the next free `_2.yaml` / `_3.yaml` slot when
+    they decline. Closes a silent data-loss path.
+  - **Non-tty stdin refusal (B3):** `forgelm --wizard < answers.txt`
+    used to silently produce empty configs; the wizard now refuses
+    to launch on a non-tty stdin and points the operator at
+    `forgelm quickstart <template>` for deterministic scripted
+    generation.
+  - **Pre-flight checklist (E4):** GPU/VRAM/dataset/risk-tier signals
+    surface before the configuration summary, calling out the most
+    common operator errors (low-VRAM full-precision, missing local
+    file, strict tier without safety eval) up front.
+  - **Atomic state writes (B-NEW-3):** `_save_wizard_state` now writes
+    via `tempfile.NamedTemporaryFile` + `fsync` + `os.replace`, so a
+    SIGKILL / power loss / concurrent wizard process can never leave
+    a half-written `wizard_state.yaml` on disk.
+  - **Step-diff scrubs internal meta (B-NEW-1):** `_print_step_diff`
+    no longer leaks `_wizard_meta.use_galore` and friends into the
+    operator-visible diff.
+  - **Compliance step preserves earlier governance answers (B-NEW-2):**
+    `_step_compliance` skips the Article 10 governance re-prompt when
+    step 6 already populated it under a non-strict tier.
+  - **Strict-tier coercion idempotent (B5):** `_apply_strict_tier_coercion`
+    fires at the end of `_step_compliance` too, so an operator who
+    Ctrl-C's between steps 8 and 9 still gets a loadable YAML.
+  - **Webhook SSRF preflight (A1):** `_parse_webhook_value` rejects
+    loopback / RFC1918 / link-local destinations up front by reusing
+    `forgelm._http._is_private_destination`. Catches typos like
+    `http://10.0.0.1/x` at config time instead of training time.
+  - **Distinct exit code for wizard cancel (D2):** new
+    `EXIT_WIZARD_CANCELLED = 5` constant. Clean cancels exit `5`
+    instead of `0`, so CI can differentiate "wizard finished" from
+    "wizard never produced output". New `WizardOutcome` dataclass +
+    `run_wizard_full()` entry point.
+  - **Best-effort readline (D1):** arrow-key line editing + history
+    on Linux/macOS via stdlib `readline` import; Windows unaffected.
+  - **CLI ↔ web safety field union (P1 / P18):** `_collect_safety_config`
+    now emits `classifier`, `max_safety_regression`, and (under
+    `confidence_weighted` scoring) `min_classifier_confidence`. The
+    web wizard mirrors back `scoring`, `track_categories`, and
+    `severity_thresholds`. Both surfaces produce structurally
+    equivalent `evaluation.safety` blocks.
+  - **Schema-default parity (P2 / P14 / P16 / C1 / I3):** judge
+    `min_score` lowered from `6.5` to `5.0`;
+    `auto_revert.max_acceptable_loss` now emits `2.0` default when
+    the prompt is blank; QLoRA path emits `bnb_4bit_quant_type` +
+    `bnb_4bit_compute_dtype`. Web wizard `learningRate` / `batchSize`
+    realigned to `2e-5` / `4` (schema defaults).
+  - **Web wizard `model.max_length` surface (P3):** new number input
+    on the training step writes the chosen length into the YAML.
+  - **Monitoring `endpoint_env` (P9):** both wizards accept the
+    `env:VAR_NAME` prefix on the monitoring endpoint.
+  - **HF Hub format hint (P13):** soft warning when a custom model
+    name isn't `<org>/<name>` shape and isn't an existing path.
+  - **Cross-tab localStorage sync (C2):** web wizard listens for
+    `storage` events and reloads state when a sibling tab edits the
+    same wizard, eliminating the "last write wins" race.
+  - **Test isolation (B10):** new autouse `_isolate_wizard_state`
+    fixture in `tests/conftest.py` redirects `XDG_CACHE_HOME` for any
+    `tests/test_wizard_*` module.
+  - **20 new tests** added to `tests/test_wizard_phase22.py` (146
+    wizard tests passing total; orchestrator coverage continues to
+    rise).
+
 - **CLI wizard parity-with-web modernisation (Phase 22 / 2026-05-08).**
   `forgelm --wizard` now closes the parity gap with the in-browser
   `site/js/wizard.js` documented in

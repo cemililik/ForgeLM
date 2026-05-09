@@ -19,6 +19,19 @@ import re
 import sys
 from typing import Any, Dict, List, Tuple
 
+# Best-effort readline integration — when present, gives the operator
+# arrow-key line editing + history recall (Up arrow to repeat the
+# previous answer, e.g. when typing the same long HF Hub ID after a
+# ``back``).  ``readline`` is part of CPython's stdlib on Linux and
+# macOS but absent on Windows; the import is wrapped so the wizard
+# stays portable either way.  The single import side-effects glob
+# completion onto ``input()`` automatically — no further wiring needed
+# at the prompt sites.
+try:
+    import readline as _readline  # noqa: F401  -- side-effect import
+except ImportError:  # pragma: no cover — Windows / minimal environments
+    _readline = None
+
 # ---------------------------------------------------------------------------
 # Output indirection
 # ---------------------------------------------------------------------------

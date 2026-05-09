@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ._byod import (
@@ -40,6 +41,7 @@ from ._collectors import (
     _select_use_case,
 )
 from ._io import (
+    _HF_HUB_ID_RE,
     _PLATFORM,
     WizardBack,
     WizardReset,
@@ -133,6 +135,30 @@ class _StepDef:
     runner: Callable[[_WizardState], None]
 
 
+@dataclass(frozen=True)
+class WizardOutcome:
+    """Result of a wizard run.
+
+    Two orthogonal signals:
+        - ``config_path``: filesystem path to the saved YAML, or ``None``
+          when the wizard exited without writing anything (cancelled,
+          Ctrl-C, non-tty refusal).
+        - ``start_training``: ``True`` when the operator answered "yes"
+          to "Start training now?" — the CLI dispatcher uses this to
+          differentiate exit code 0 (saved + start) from exit code 5
+          (cancelled, no YAML).  Saved-and-deferred is also exit 0
+          because the YAML deliverable was produced.
+    """
+
+    config_path: Optional[str] = None
+    start_training: bool = False
+
+    @property
+    def cancelled(self) -> bool:
+        """True when the wizard never produced a YAML."""
+        return self.config_path is None
+
+
 def _step_welcome(state: _WizardState) -> None:
     """Step 1: welcome + experience toggle + hardware detection."""
     _print("\n[1/9] Welcome")
@@ -214,6 +240,24 @@ def _step_model(state: _WizardState) -> None:
                 model_name = preset_default
         else:
             model_name = _prompt_required("HuggingFace model name or local path")
+        # P13: nudge the operator when the value looks like a typo.  We
+        # can't validate that an HF Hub ID actually resolves without
+        # network, but ``<org>/<name>`` is the universal shape — and a
+        # local path either points at an existing directory or is
+        # operator intent we shouldn't second-guess.
+        from pathlib import Path as _P
+
+        looks_like_hub = "/" in model_name and not model_name.startswith((".", "/", "~"))
+        if looks_like_hub and not _HF_HUB_ID_RE.match(model_name):
+            _print(
+                f"  ⚠ '{model_name}' doesn't look like a valid HF Hub ID "
+                "(expected '<org>/<name>') and isn't a local path — double-check before training."
+            )
+        elif not looks_like_hub and not _P(model_name).expanduser().exists():
+            _print(
+                f"  ⚠ '{model_name}' is not an existing local path and is not in HF Hub format — "
+                "the trainer will try to resolve it on HuggingFace at startup."
+            )
     else:
         model_name = chosen
     state.config.setdefault("model", {})["name_or_path"] = model_name
@@ -244,6 +288,13 @@ def _step_strategy(state: _WizardState) -> None:
     lora_alpha = _prompt_int("LoRA alpha", lora_r * 2, min_val=1, max_val=1024)
     state.config.setdefault("model", {})["load_in_4bit"] = strategy.load_in_4bit
     state.config["model"].setdefault("trust_remote_code", False)
+    # P16: when QLoRA (load_in_4bit=True) is selected, emit the two
+    # bnb-related quant flags the web wizard already writes.  Both have
+    # schema defaults but writing them explicitly keeps the YAML self-
+    # documenting and matches ``site/js/wizard.js`` (parity).
+    if strategy.load_in_4bit:
+        state.config["model"].setdefault("bnb_4bit_quant_type", "nf4")
+        state.config["model"].setdefault("bnb_4bit_compute_dtype", "auto")
     lora_block = state.config.setdefault("lora", {})
     lora_block["r"] = lora_r
     lora_block["alpha"] = lora_alpha
@@ -395,15 +446,27 @@ def _step_compliance(state: _WizardState) -> None:
     if risk_assessment:
         state.config["risk_assessment"] = risk_assessment
     is_strict = risk in _STRICT_RISK_TIERS
-    governance = _collect_data_governance(mandatory=is_strict)
-    if governance:
-        state.config.setdefault("data", {})["governance"] = governance
+    existing_governance = state.config.get("data", {}).get("governance")
+    if existing_governance and not is_strict:
+        # Step 6 (dataset) already collected the optional Article 10 block.
+        # Re-prompting under non-strict tier would silently overwrite the
+        # operator's earlier answers — skip and keep what they typed.
+        _print("  Article 10 data.governance already populated (Step 6 — Dataset). Keeping previous answers.")
+    else:
+        governance = _collect_data_governance(mandatory=is_strict)
+        if governance:
+            state.config.setdefault("data", {})["governance"] = governance
     retention = _collect_retention()
     if retention:
         state.config["retention"] = retention
     monitoring = _collect_monitoring()
     if monitoring:
         state.config["monitoring"] = monitoring
+    # B5: fire strict-tier coercion at the end of the compliance step too.
+    # ``_step_evaluation`` calls it again at flow end (idempotent), but
+    # firing here means the operator who Ctrl-C's between steps 8 and 9
+    # still gets a loadable YAML when they manually save state.
+    _apply_strict_tier_coercion(state.config, compliance)
 
 
 def _step_evaluation(state: _WizardState) -> None:
@@ -420,12 +483,19 @@ def _step_evaluation(state: _WizardState) -> None:
     evaluation: Dict[str, Any] = {}
     if _prompt_yes_no("Enable auto-revert (discard model if quality drops)?", default=False):
         evaluation["auto_revert"] = True
-        max_loss = _prompt("Max acceptable loss (leave empty for baseline-only)", "")
+        # P14: when auto-revert is on but no explicit threshold is given,
+        # emit the web wizard's safe ``2.0`` default rather than leaving
+        # the field unset.  Mirrors ``site/js/wizard.js:163`` so the
+        # two surfaces produce equivalent YAMLs for the same answers.
+        max_loss = _prompt("Max acceptable loss (leave empty for default 2.0)", "")
         if max_loss.strip():
             try:
                 evaluation["max_acceptable_loss"] = float(max_loss)
             except ValueError:
-                _print(f"  '{max_loss}' is not a number; max_acceptable_loss left unset.")
+                _print(f"  '{max_loss}' is not a number; using default 2.0.")
+                evaluation["max_acceptable_loss"] = 2.0
+        else:
+            evaluation["max_acceptable_loss"] = 2.0
     risk = state.config.get("compliance", {}).get("risk_classification", "minimal-risk")
     safety = _collect_safety_config(default_enabled=risk in _STRICT_RISK_TIERS)
     if safety:
@@ -534,7 +604,13 @@ def _drive_wizard_steps(state: _WizardState) -> _WizardState:
             _clear_wizard_state()
             state = _WizardState()
             continue
-        _print_step_diff(prev_config, state.config, step.label)
+        # Strip the ``_wizard_meta`` namespace before showing the operator
+        # what changed — those are internal scratch keys (e.g.
+        # ``_wizard_meta.use_galore``) the strategy step uses to thread
+        # signals to the training-params step.  They never reach the
+        # YAML (``_strip_internal_meta`` is applied at save time) so they
+        # shouldn't appear in the live diff either.
+        _print_step_diff(_strip_internal_meta(prev_config), _strip_internal_meta(state.config), step.label)
         if step.label not in state.completed_steps:
             state.completed_steps.append(step.label)
         state.current_step += 1
@@ -548,20 +624,56 @@ def _drive_wizard_steps(state: _WizardState) -> _WizardState:
 
 
 def run_wizard() -> Optional[str]:
-    """Run the interactive configuration wizard.
+    """Run the interactive configuration wizard (back-compat shim).
 
     Returns the path to the generated config file when the user opts
-    to start training immediately, or ``None`` when the user defers —
-    callers must handle both cases.
+    to start training immediately, or ``None`` for either "deferred"
+    or "cancelled" — callers that need to differentiate the two should
+    use :func:`run_wizard_full` (returns a :class:`WizardOutcome`).
     """
+    outcome = run_wizard_full()
+    if outcome.start_training and outcome.config_path:
+        return outcome.config_path
+    return None
+
+
+def run_wizard_full() -> WizardOutcome:
+    """Run the wizard and return a structured outcome.
+
+    Refuses to launch when stdin isn't a TTY (piped input, CI cron job)
+    because silent ``EOFError`` answers produce empty configs that look
+    like successful runs.  Operators who want a deterministic scripted
+    config should reach for ``forgelm quickstart <template>`` instead.
+    """
+    import sys as _sys
+
+    if not _sys.stdin.isatty():
+        _print(
+            "  ⚠ Wizard refused to launch: stdin is not a TTY.\n"
+            "    The interactive wizard needs a real terminal — piped input "
+            "(`forgelm --wizard < answers.txt`) and CI cron jobs produce "
+            "silently-empty configs.  For deterministic scripted config "
+            "generation use:\n"
+            "      forgelm quickstart <template-name>\n"
+            "    Available templates: "
+            "customer-support, code-assistant, domain-expert, medical-qa-tr, grpo-math."
+        )
+        return WizardOutcome(config_path=None, start_training=False)
     quickstart_path = _maybe_run_quickstart_template()
     if quickstart_path is not None:
-        return _finalize_quickstart_path(quickstart_path)
+        # Quickstart template path: ``_finalize_quickstart_path`` returns
+        # the path when the operator wants to train now, else None.
+        # Either way the YAML was saved by the quickstart machinery.
+        finalized = _finalize_quickstart_path(quickstart_path)
+        return WizardOutcome(
+            config_path=quickstart_path,
+            start_training=finalized is not None,
+        )
     _print("\n  Falling back to the full configuration wizard.")
-    return _run_full_wizard()
+    return _run_full_wizard_outcome()
 
 
-def _run_full_wizard() -> Optional[str]:
+def _run_full_wizard_outcome() -> WizardOutcome:
     """9-step interactive flow producing a hand-rolled config.yaml."""
     state = _maybe_resume_state()
     try:
@@ -569,19 +681,137 @@ def _run_full_wizard() -> Optional[str]:
     except (KeyboardInterrupt, EOFError):
         _persist_state(state)
         _print(f"\n  Interrupted.  State preserved at {_wizard_state_path()} — rerun `forgelm --wizard` to resume.")
-        return None
+        return WizardOutcome(config_path=None, start_training=False)
     config = _strip_internal_meta(state.config)
-    config_filename = _prompt("Save config as", "my_config.yaml")
-    if not config_filename.endswith((".yaml", ".yml")):
-        config_filename += ".yaml"
+    config_filename = _prompt_unique_filename("Save config as", "my_config.yaml")
     config_filename = _save_config_to_file(config, config_filename)
+    _print_preflight_checklist(config)
     _print_wizard_summary(config)
+    _validate_generated_config(config_filename)
     _clear_wizard_state()
     if _prompt_yes_no("Start training now?", default=False):
         _print(f"\n  Running: forgelm --config {config_filename}")
         _print()
-        return config_filename
+        return WizardOutcome(config_path=config_filename, start_training=True)
     _print("\n  To start training later, run:")
     _print(f"    forgelm --config {config_filename}")
     _print()
-    return None
+    return WizardOutcome(config_path=config_filename, start_training=False)
+
+
+def _run_full_wizard() -> Optional[str]:
+    """Back-compat wrapper around :func:`_run_full_wizard_outcome`."""
+    outcome = _run_full_wizard_outcome()
+    return outcome.config_path if outcome.start_training else None
+
+
+def _prompt_unique_filename(question: str, default: str) -> str:
+    """Prompt for a config filename, offering a non-clobber suffix if it exists.
+
+    Without this, a second wizard run with the default ``my_config.yaml``
+    silently overwrites yesterday's config.  We re-prompt with an
+    explicit overwrite confirmation; on decline we suffix with the next
+    free integer (``my_config_2.yaml``) so the operator never loses
+    work without typing ``y``.
+    """
+    while True:
+        raw = _prompt(question, default).strip()
+        if not raw:
+            raw = default
+        if not raw.endswith((".yaml", ".yml")):
+            raw += ".yaml"
+        if not Path(raw).exists():
+            return raw
+        if _prompt_yes_no(f"  '{raw}' already exists.  Overwrite?", default=False):
+            return raw
+        suffixed = _next_free_filename(raw)
+        _print(f"  Will save as '{suffixed}' instead.")
+        return suffixed
+
+
+def _next_free_filename(path: str) -> str:
+    """Append ``_2``, ``_3`` … to *path* (before suffix) until a free name is found."""
+    p = Path(path)
+    stem, suffix = p.stem, p.suffix
+    parent = p.parent
+    counter = 2
+    while True:
+        candidate = parent / f"{stem}_{counter}{suffix}"
+        if not candidate.exists():
+            return str(candidate)
+        counter += 1
+
+
+def _validate_generated_config(config_filename: str) -> None:
+    """Validate the wizard's output against ``ForgeConfig`` before exit.
+
+    Catches schema violations (e.g., F-compliance-110 strict-tier
+    leftovers, accidentally-emitted incompatible field combinations)
+    BEFORE the operator runs ``forgelm --config <path>`` and discovers
+    the breakage 30 seconds in.  Re-prompts the operator on failure
+    with a clear "wizard output failed validation" hint.
+    """
+    try:
+        import yaml as _yaml
+
+        from ..config import ForgeConfig
+    except ImportError:  # pragma: no cover — config always present
+        return
+    try:
+        with open(config_filename, "r", encoding="utf-8") as fh:
+            data = _yaml.safe_load(fh) or {}
+        ForgeConfig.model_validate(data)
+    except Exception as exc:  # noqa: BLE001 — pydantic raises ValidationError; yaml raises YAMLError
+        _print("\n  ⚠ Wizard output failed schema validation:")
+        for line in str(exc).splitlines()[:10]:
+            _print(f"    {line}")
+        _print(
+            "  The YAML was saved but will fail to load.  Hand-edit the file or "
+            "rerun the wizard.  This is rare — usually a strict-tier coercion gap."
+        )
+        return
+    _print("  ✓ Schema validation passed.")
+
+
+def _print_preflight_checklist(config: Dict[str, Any]) -> None:
+    """Print a short pre-flight checklist before the summary.
+
+    Three quick checks the operator can act on immediately: GPU VRAM
+    against load_in_4bit / model_size assumption; dataset path
+    existence (or HF Hub flag); audit-ran heuristic.  Skipped silently
+    when the relevant info is missing.
+    """
+    _print("\n" + "=" * 60)
+    _print("  Pre-flight checklist")
+    _print("=" * 60)
+
+    hw = _detect_hardware()
+    if hw["gpu_available"] and hw.get("vram_gb"):
+        _print(f"  · GPU      : {hw['gpu_name']} ({hw['vram_gb']} GB VRAM)")
+        load_in_4bit = config.get("model", {}).get("load_in_4bit", False)
+        if hw["vram_gb"] < 12 and not load_in_4bit:
+            _print("    ⚠ <12 GB VRAM with full-precision loading — consider QLoRA (load_in_4bit=True).")
+    else:
+        _print("  · GPU      : not detected (training will be CPU-only — slow for real workloads)")
+
+    dataset = config.get("data", {}).get("dataset_name_or_path")
+    if dataset:
+        path = Path(dataset).expanduser()
+        if path.is_file():
+            _print(f"  · Dataset  : {dataset} (local file ✓)")
+        elif path.is_dir():
+            _print(f"  · Dataset  : {dataset} (directory — needs ingestion)")
+        elif "/" in dataset and not str(dataset).startswith("/"):
+            _print(f"  · Dataset  : {dataset} (HuggingFace Hub ID)")
+        else:
+            _print(f"  · Dataset  : {dataset} (⚠ unrecognised — check before running)")
+
+    risk = config.get("compliance", {}).get("risk_classification")
+    if risk:
+        safety_enabled = config.get("evaluation", {}).get("safety", {}).get("enabled", False)
+        if risk in _STRICT_RISK_TIERS and safety_enabled:
+            _print(f"  · Risk     : {risk} → safety eval enabled ✓")
+        elif risk in _STRICT_RISK_TIERS:
+            _print(f"  · Risk     : {risk} → ⚠ safety eval NOT enabled (will fail F-compliance-110)")
+        else:
+            _print(f"  · Risk     : {risk}")

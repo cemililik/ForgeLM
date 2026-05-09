@@ -57,6 +57,7 @@ from ._exit_codes import (
     EXIT_EVAL_FAILURE,
     EXIT_SUCCESS,
     EXIT_TRAINING_ERROR,
+    EXIT_WIZARD_CANCELLED,
 )
 
 # Fit-check (VRAM estimate) mode.
@@ -243,6 +244,7 @@ __all__ = [
     "EXIT_TRAINING_ERROR",
     "EXIT_EVAL_FAILURE",
     "EXIT_AWAITING_APPROVAL",
+    "EXIT_WIZARD_CANCELLED",
     # Public entry points
     "parse_args",
     "main",

@@ -137,8 +137,18 @@
       loraR: 8,
       loraAlpha: 16,
       epochs: 3,
-      learningRate: '1e-4',
-      batchSize: 2,
+      // C1/I3 + P3 (review-cycle 2): defaults reconciled to the schema
+      // in ``forgelm/config.py`` (TrainingConfig.learning_rate=2e-5,
+      // per_device_train_batch_size=4, ModelConfig.max_length=2048) so
+      // an operator who clicks through with no overrides produces a
+      // YAML byte-equivalent to ``ForgeConfig()``.  Earlier values
+      // (1e-4 / 2 / no max_length) were practical-tuned for 12 GB
+      // consumer GPUs but drifted from runtime defaults — operators
+      // who wanted "just the schema default" couldn't get there from
+      // the wizard.
+      learningRate: '2e-5',
+      batchSize: 4,
+      maxLength: 2048,
       gradientAccumulation: 2,
       // Trainer-specific hyperparameters. Defaults mirror the schema
       // defaults in forgelm/config.py (TrainingConfig fields), so a
@@ -541,6 +551,11 @@
       k(1, 'bnb_4bit_quant_type', '"nf4"');
       k(1, 'bnb_4bit_compute_dtype', '"auto"');
     }
+    // P3: emit ``max_length`` so the YAML matches the operator's
+    // chosen sequence length rather than defaulting to 2048 silently.
+    // Always emitted even when equal to the schema default — keeps
+    // long-context configs self-documenting.
+    k(1, 'max_length', String(state.maxLength || 2048));
     blank();
 
     header(0, 'lora');
@@ -658,6 +673,18 @@
       k(2, 'classifier', '"meta-llama/Llama-Guard-3-8B"');
       k(2, 'min_classifier_confidence', '0.7');
       k(2, 'max_safety_regression', '0.05');
+      // P1 / P18 (review-cycle 2): align safety-block surface with the
+      // CLI wizard.  ``scoring`` and ``test_prompts`` were CLI-only;
+      // surfacing them here lets the YAML carry the audit-policy
+      // knobs (severity_thresholds) the schema supports.  Defaults
+      // mirror ``forgelm/config.py`` SafetyConfig.
+      k(2, 'scoring', '"binary"');
+      k(2, 'track_categories', 'true');
+      // ``severity_thresholds`` is a nested mapping — emit inline.
+      lines.push('    severity_thresholds:');
+      lines.push('      critical: 0');
+      lines.push('      high: 0.01');
+      lines.push('      medium: 0.05');
     }
     // BenchmarkConfig (lm-evaluation-harness). Optional quality gate
     // that scores the fine-tuned model on academic tasks. Tasks are
@@ -1173,6 +1200,31 @@
     // Close on browser back when the modal is open.
     window.addEventListener('popstate', function () {
       if (!modal.hasAttribute('hidden')) closeModal();
+    });
+
+    // C2 (review-cycle 2): cross-tab synchronisation.  The wizard
+    // persists state to a single ``localStorage`` key; without a
+    // listener, two tabs editing the same wizard race — last write
+    // wins, mid-edit answers in tab A vanish on render in tab B.
+    // ``storage`` events fire in OTHER tabs (not the writer), so we
+    // can detect when a sibling tab updated the wizard and either
+    // reload its state into our own UI or warn the operator.  The
+    // simpler "reload state" branch is correct for the common case
+    // (operator is comparing two configs) and recoverable for the
+    // edge case (operator is mid-edit in BOTH tabs simultaneously).
+    window.addEventListener('storage', function (e) {
+      if (e.key !== STORAGE_KEY) return;
+      if (modal.hasAttribute('hidden')) return; // not visible — nothing to refresh
+      try {
+        var fresh = loadState();
+        if (fresh) {
+          // Mutate state in place so closures (persist, render) keep
+          // their reference.  Re-render with the new values.
+          Object.keys(state).forEach(function (k) { delete state[k]; });
+          Object.keys(fresh).forEach(function (k) { state[k] = fresh[k]; });
+          render();
+        }
+      } catch (err) { /* swallow — best-effort sync */ }
     });
 
     // Surface a resume banner in the welcome step the first time the
@@ -1856,9 +1908,12 @@
     appendDetail(epochsRow, 'wizard.training.epochs.detail');
     pane.appendChild(epochsRow);
 
-    // Learning rate
+    // Learning rate. Includes the schema default ``2e-5`` (review-
+    // cycle 2 / C1+I3) so an operator who wants byte-for-byte parity
+    // with ``ForgeConfig()`` can pick it from the dropdown rather than
+    // hand-edit the YAML afterwards.
     var lrSelect = el('select', { class: 'wizard-select' });
-    ['1e-4', '5e-5', '3e-5', '1e-5'].forEach(function (lr) {
+    ['1e-4', '5e-5', '3e-5', '2e-5', '1e-5'].forEach(function (lr) {
       var option = el('option', { value: lr, text: lr });
       if (state.learningRate === lr) option.selected = true;
       lrSelect.appendChild(option);
@@ -1895,6 +1950,35 @@
     ]);
     appendDetail(batchRow, 'wizard.training.batch.detail');
     pane.appendChild(batchRow);
+
+    // Max sequence length (P3 / review-cycle 2).  Was previously
+    // omitted entirely — operators emitting an 8K-context model still
+    // got ``model.max_length=2048`` (the schema default), causing
+    // silent truncation halfway through long-form RAG / code-assist
+    // prompts.  Surface as a number input clamped to the schema's
+    // [64, 131072] range.
+    var maxLengthInput = el('input', {
+      type: 'number', class: 'wizard-input', value: String(state.maxLength || 2048),
+      min: '64', max: '131072', step: '64'
+    });
+    maxLengthInput.addEventListener('change', function () {
+      var parsed = parseInt(maxLengthInput.value, 10);
+      if (!isNaN(parsed) && parsed >= 64 && parsed <= 131072) {
+        state.maxLength = parsed;
+        persist();
+        liveYaml();
+      } else {
+        // Snap back to current persisted value on bogus input rather
+        // than emit an invalid YAML.
+        maxLengthInput.value = String(state.maxLength || 2048);
+      }
+    });
+    var maxLengthRow = el('div', { class: 'wizard-row' }, [
+      el('label', { class: 'wizard-row-label', text: 'Max sequence length' }),
+      maxLengthInput,
+      el('span', { class: 'wizard-row-hint', text: 'Tokens per training example. 2048 is the safe default; raise for long-context models (RoPE scaling kicks in above 4096).' })
+    ]);
+    pane.appendChild(maxLengthRow);
 
     /* Trainer-specific hyperparameters. Conditionally rendered based
        on state.trainerType. The schema in forgelm/config.py defines

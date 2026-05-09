@@ -102,8 +102,28 @@ def _save_wizard_state(state: Mapping[str, Any]) -> None:
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         snapshot = {"v": _STATE_VERSION, **dict(state)}
-        with open(target, "w", encoding="utf-8") as fh:
-            yaml.safe_dump(snapshot, fh, default_flow_style=False, sort_keys=False)
+        # Atomic write: serialise to a sibling temp file, fsync, then
+        # ``os.replace`` so a SIGKILL / power loss / concurrent wizard
+        # process never leaves a half-written ``wizard_state.yaml``.
+        # ``NamedTemporaryFile(delete=False)`` is the standard idiom for
+        # this; ``os.replace`` is atomic on POSIX and Windows.
+        import tempfile
+
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=str(target.parent),
+            prefix=".wizard_state.",
+            suffix=".tmp",
+            delete=False,
+        )
+        try:
+            yaml.safe_dump(snapshot, tmp, default_flow_style=False, sort_keys=False)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        finally:
+            tmp.close()
+        os.replace(tmp.name, target)
         # Wizard state can carry compliance metadata (provider name,
         # contact, governance fields) that operators consider sensitive.
         # ``0o600`` keeps it readable only by the operator running the

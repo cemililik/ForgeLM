@@ -16,8 +16,9 @@ ForgeLM's exit codes are a public contract. CI/CD pipelines, schedulers, and das
 | **2** | `EXIT_TRAINING_ERROR` | Training-time runtime error (any unhandled exception that isn't a config or eval-gate failure: data load, OOM, NaN loss, I/O failure, mid-stream audit-iteration OSError). | Investigate; surface logs |
 | **3** | `EXIT_EVAL_FAILURE` | Benchmark or safety gate failed; auto-reverted if configured. | Investigate; do NOT promote |
 | **4** | `EXIT_AWAITING_APPROVAL` | `evaluation.require_human_approval: true` blocking. | Hold pipeline; trigger reviewer |
+| **5** | `EXIT_WIZARD_CANCELLED` | `forgelm --wizard` exited without producing a YAML — Ctrl-C, non-tty stdin refusal, or operator declined to save. Distinct from `EXIT_SUCCESS` so CI can tell "wizard finished" from "wizard never wrote anything". | Treat as no-op; surface message; do NOT continue with stale config |
 
-These five integers are the entire public contract — see [`forgelm/cli/_exit_codes.py`](https://github.com/cemililik/ForgeLM/blob/main/forgelm/cli/_exit_codes.py) for the canonical definition. Any other non-zero value (including signal-derived 128+N codes) is clamped to `EXIT_TRAINING_ERROR` (2) before the process exits.
+These six integers are the entire public contract — see [`forgelm/cli/_exit_codes.py`](https://github.com/cemililik/ForgeLM/blob/main/forgelm/cli/_exit_codes.py) for the canonical definition. Any other non-zero value (including signal-derived 128+N codes) is clamped to `EXIT_TRAINING_ERROR` (2) before the process exits.
 
 ## Mapping to CI patterns
 
@@ -109,7 +110,7 @@ If any of these failed, the exit code is non-zero. There is no "partial success"
 
 ## Compatibility guarantee
 
-Exit codes 0-4 are stable across versions. New codes may be added (5, 6, ...) but existing ones won't change semantics. CI pipelines pinned to the contract above will continue working across ForgeLM upgrades.
+Exit codes 0-5 are stable across versions. New codes may be added (6, 7, ...) but existing ones won't change semantics. CI pipelines pinned to the contract above will continue working across ForgeLM upgrades.
 
 ## See also
 

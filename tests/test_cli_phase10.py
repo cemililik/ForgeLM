@@ -369,10 +369,32 @@ class TestSubcommandRouting:
         assert exc_info.value.code == EXIT_SUCCESS
 
     def test_wizard_still_works(self):
-        """--wizard flow must be unaffected."""
-        mock_wizard = MagicMock(return_value=None)
-        with patch("forgelm.wizard.run_wizard", mock_wizard):
+        """--wizard flow must remain reachable via the dispatcher.
+
+        Post-D2 (review-cycle 2 / 2026-05-09) the dispatcher consumes
+        ``run_wizard_full`` and emits ``EXIT_SUCCESS`` when the operator
+        produced + deferred (saved a YAML but answered "no" to "start
+        training now?").  ``EXIT_WIZARD_CANCELLED = 5`` is now the
+        exit code for genuine cancels (Ctrl-C, non-tty refusal,
+        decline-to-save) — covered separately below.
+        """
+        from forgelm.wizard._orchestrator import WizardOutcome
+
+        deferred = WizardOutcome(config_path="/tmp/saved.yaml", start_training=False)
+        with patch("forgelm.wizard.run_wizard_full", MagicMock(return_value=deferred)):
             with patch("sys.argv", ["forgelm", "--wizard"]):
                 with pytest.raises(SystemExit) as exc_info:
                     main()
         assert exc_info.value.code == EXIT_SUCCESS
+
+    def test_wizard_cancelled_exits_5(self):
+        """D2: a cancelled wizard exits ``EXIT_WIZARD_CANCELLED`` (5)."""
+        from forgelm.cli._exit_codes import EXIT_WIZARD_CANCELLED
+        from forgelm.wizard._orchestrator import WizardOutcome
+
+        cancelled = WizardOutcome(config_path=None, start_training=False)
+        with patch("forgelm.wizard.run_wizard_full", MagicMock(return_value=cancelled)):
+            with patch("sys.argv", ["forgelm", "--wizard"]):
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+        assert exc_info.value.code == EXIT_WIZARD_CANCELLED

@@ -3,7 +3,7 @@
 Phase 22 modernisation (2026-05-08) brought the CLI wizard to parity
 with the in-browser ``site/js/wizard.js``: 9-step state machine
 (welcome / use-case / model / strategy / trainer / dataset /
-training-params / compliance / operations), trainer-specific
+training-params / compliance / evaluation), trainer-specific
 hyperparameters (``dpo_beta``, ``simpo_beta`` / ``simpo_gamma``,
 ``kto_beta``, ``orpo_beta``, ``grpo_*``), full PEFT method coverage
 (``lora`` / ``dora`` / ``pissa`` / ``rslora``) plus GaLore as a
@@ -13,6 +13,14 @@ accordions, F-compliance-110 strict-tier auto-coercion, ``back`` /
 ``$XDG_CACHE_HOME/forgelm/wizard_state.yaml``, step-diff preview,
 beginner / expert toggle, and the Phase 11.5 / 12.5 BYOD inline
 ingest + audit helpers.
+
+Phase 22 review-cycle 2 (2026-05-09) layered on operator-quality
+guardrails: validate-on-exit (``ForgeConfig.model_validate``),
+overwrite confirmation with auto-suffix, non-tty stdin refusal, the
+pre-flight checklist, atomic state writes, web-vs-CLI safety field
+union (P1 / P18), webhook SSRF preflight (A1), distinct exit-code
+``EXIT_WIZARD_CANCELLED = 5`` for genuine cancels, plus best-effort
+readline integration on Linux/macOS.
 
 The module was split from a 976-line monolith into a sub-package per
 ``docs/standards/architecture.md``'s 1000-line ceiling rule: each
@@ -112,13 +120,18 @@ from ._io import (
 )
 from ._orchestrator import (
     _STEPS,
+    WizardOutcome,
     _apply_strict_tier_coercion,
     _drive_wizard_steps,
     _is_beginner,
     _maybe_resume_state,
+    _next_free_filename,
     _persist_state,
+    _print_preflight_checklist,
     _print_tutorial,
+    _prompt_unique_filename,
     _run_full_wizard,
+    _run_full_wizard_outcome,
     _step_compliance,
     _step_dataset,
     _step_evaluation,
@@ -129,7 +142,9 @@ from ._orchestrator import (
     _step_use_case,
     _step_welcome,
     _StepDef,
+    _validate_generated_config,
     run_wizard,
+    run_wizard_full,
 )
 from ._state import (
     _STATE_VERSION,
@@ -162,6 +177,8 @@ from ._state import (
 # advertised.
 __all__ = [
     "run_wizard",
+    "run_wizard_full",
+    "WizardOutcome",
     "WizardBack",
     "WizardReset",
     "POPULAR_MODELS",
