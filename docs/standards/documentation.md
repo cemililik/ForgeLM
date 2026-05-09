@@ -34,9 +34,32 @@ docs/
 | Contributor writing code | `standards/` | this file |
 | Contributor understanding "why" | `design/` | `design/wizard_mode.md` |
 | Planner tracking work | `roadmap/` | `roadmap/phase-10-post-training.md` |
-| Researcher comparing projects | `analysis/` | `analysis/QKV-Core/` |
 
-If a doc doesn't fit any of these, it probably doesn't belong in `docs/`. Long thinking / drafts → `marketing/` (gitignored) or `analysis/`.
+If a doc doesn't fit any of these, it probably doesn't belong in `docs/`. Long thinking / drafts / PR-cycle audit notes / external-repo comparisons live under gitignored working-memory directories (`docs/marketing/`, `docs/analysis/`) and **must not be linked from public docs or production code** — see "Working-memory directories" below.
+
+## Working-memory directories
+
+Two directories under `docs/` are gitignored working memory and **never reachable from the public surface**:
+
+| Directory | Contents | Audience |
+|---|---|---|
+| `docs/marketing/` | Internal product / pricing strategy, marketing roadmap, GTM drafts | Maintainer / project owner only |
+| `docs/analysis/` | PR-cycle audit notes, external-repo comparisons, draft research, working-document scratchpads | Whoever ran the audit (review-cycle author) |
+
+These directories exist on the maintainer's local checkout and may also be created by AI agents during research passes. They never appear in fresh clones, so any link pointing into them resolves to a 404 in the public tree.
+
+**Hard rules:**
+
+1. **Never link from public-tree files into `docs/marketing/` or `docs/analysis/`.** That includes:
+   - Any markdown file under `docs/` not itself in those directories.
+   - Source files under `forgelm/`, `tests/`, `tools/`, `site/`.
+   - `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `CLAUDE.md`.
+   - Commit messages, PR descriptions, GitHub issue bodies.
+2. **Never quote file paths from those directories** as the source of a decision. The decisions distilled from those notes live in `docs/standards/`, `docs/roadmap/`, the CHANGELOG, and inline code comments — those are what reviewers and external users see.
+3. **Path filters are exempt.** Production code (e.g. `_SKIP_PATH_FRAGMENTS` in `tools/check_yaml_snippets.py`) may name `docs/analysis/` as a path-string filter — that's not a content reference, it's a directory exclusion to keep the linter from descending into local artefacts.
+4. **The CI guard** at `tools/check_no_analysis_refs.py` enforces this rule. It scans the public tree for citations / hyperlinks into `docs/marketing/` or `docs/analysis/` and fails the gauntlet on a violation. Add the offending file's exemption to the guard only with a written justification in the comment block above the exemption list.
+
+**Why?** Working-memory documents are useful drafts but rot fast — they often cite specific commit hashes, line numbers, or features that drift on every refactor. Linking from the stable public tree to a moving target is a documentation-drift sin (see [`coding.md`](coding.md) anti-patterns).
 
 ## Markdown structure
 

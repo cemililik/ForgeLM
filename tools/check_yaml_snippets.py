@@ -17,8 +17,9 @@ they cannot be validated against ``ForgeConfig`` without inventing the
 missing required fields, and the doc author intentionally elided them
 for readability.
 
-Path-level scope: ``docs/analysis/`` is skipped (gitignored research
-artefacts; not user-facing).
+Path-level scope: gitignored working-memory directories are skipped
+(see ``_SKIP_PATH_FRAGMENTS`` for the canonical list — those paths
+carry local-only artefacts that aren't user-facing).
 
 Exit codes (per ``tools/`` contract — NOT the public 0/1/2/3/4 surface
 that ``forgelm/`` honours):
@@ -83,7 +84,9 @@ _FENCE_CLOSE_RE = re.compile(r"^```\s*$", re.MULTILINE)
 # validated against ForgeConfig without inventing the missing keys.
 _REQUIRED_FORGELM_KEYS = frozenset({"model", "training", "data"})
 
-# Paths to skip entirely (gitignored research artefacts).
+# Paths to skip entirely — gitignored working-memory directories carry
+# local-only YAML examples that aren't part of the user-facing surface
+# the guard validates against ``ForgeConfig``.
 _SKIP_PATH_FRAGMENTS = ("docs/analysis/", "docs/marketing/")
 
 

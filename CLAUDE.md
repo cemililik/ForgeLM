@@ -74,8 +74,8 @@ ForgeLM/
 ├── tests/                   # 70 test modules; count grows over time (run `pytest --collect-only -q` for current)
 ├── tools/                   # CI guards: check_anchor_resolution,
 │                            # check_bilingual_parity, check_cli_help_consistency,
-│                            # check_field_descriptions, check_pip_audit,
-│                            # check_bandit, check_site_claims,
+│                            # check_field_descriptions, check_no_analysis_refs,
+│                            # check_pip_audit, check_bandit, check_site_claims,
 │                            # check_wizard_defaults_sync, generate_sbom,
 │                            # generate_wizard_defaults, build_usermanuals
 ├── docs/
@@ -124,9 +124,10 @@ Reinforced in [docs/marketing/strategy/05-yapmayacaklarimiz.md](docs/marketing/s
 
 If a task pushes in any of those directions, raise it with the user before implementing.
 
-## Common pitfalls (from prior analysis)
+## Common pitfalls (from prior reviews)
 
-Learned the hard way from [docs/analysis/QKV-Core/](docs/analysis/QKV-Core/) and [docs/analysis/Trion/](docs/analysis/Trion/) external-repo reviews:
+Learned the hard way across multiple PR-cycle audits and external-repo
+comparisons; treat each bullet as a hard rule:
 
 - **Documentation drift** — marketing claims that code doesn't back up. Every README claim must point to real code.
 - **Silent import fallbacks** — `try: import X; except: X = None` hides missing deps behind mysterious `AttributeError` later.
@@ -152,15 +153,19 @@ Default workflow for a non-trivial change:
      python3 tools/check_bilingual_parity.py --strict && \
      python3 tools/check_anchor_resolution.py --strict && \
      python3 tools/check_cli_help_consistency.py --strict && \
-     python3 tools/check_wizard_defaults_sync.py
+     python3 tools/check_wizard_defaults_sync.py && \
+     python3 tools/check_no_analysis_refs.py
    ```
 
-   All eight must pass. The first four are the historical gauntlet;
+   All nine must pass. The first four are the historical gauntlet;
    the three doc guards (Wave 3 / Wave 4 / Wave 5 additions) catch
    bilingual structural drift, broken markdown anchors, and CLI ↔ docs
    help-text drift before the PR opens. The wizard-defaults guard
    (review-cycle 3) catches schema-vs-shipped-JSON drift for the
-   wizard's source-of-truth defaults.
+   wizard's source-of-truth defaults. The working-memory-refs guard
+   (review-cycle 5) keeps the public tree from citing gitignored
+   `docs/marketing/` or `docs/analysis/` paths — see
+   `docs/standards/documentation.md` "Working-memory directories".
 
 ## Etiquette when communicating with the user
 
@@ -180,7 +185,7 @@ Default workflow for a non-trivial change:
 ## Memory and context
 
 - The `docs/marketing/` directory is gitignored (internal strategy). Content there is real; treat it as a source of truth for direction but don't reference it in public-facing code or docs.
-- The external-repo analyses under `docs/analysis/` are research artifacts. Cite them when explaining decisions, but the decisions themselves live in the standards.
+- The `docs/analysis/` directory is gitignored research / audit working memory (PR-cycle review notes, external-repo comparisons, drafts). **Never reference its contents from production code, public docs, CHANGELOG entries, commit messages, or PR descriptions.** Decisions distilled from those notes live in `docs/standards/`, `docs/roadmap/`, the CHANGELOG, and inline code comments — those are the citations reviewers see.
 - The roadmap ([docs/roadmap.md](docs/roadmap.md)) is what ships. The marketing strategy roadmap ([docs/marketing/marketing_strategy_roadmap.md](docs/marketing/marketing_strategy_roadmap.md)) is what gets announced. Don't conflate the two.
 
 ---

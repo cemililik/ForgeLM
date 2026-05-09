@@ -2,8 +2,8 @@
 
 Covers the new helpers + step-machine plumbing introduced when the CLI
 wizard was extended to close the parity gap with ``site/js/wizard.js``
-documented in
-``docs/analysis/code_reviews/2026-05-07_cli_wizard_ux_analysis.md``:
+(20 findings G1-G20 + 5 independent observations I1-I5 documented in
+the PR #40 review thread):
 
 - ``_parse_webhook_value`` — single-prompt webhook syntax with
   ``env:VAR_NAME`` prefix and HTTPS validation.

@@ -4,6 +4,59 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Working-memory directories cleanup (review-cycle 5 / 2026-05-09).**
+  ``docs/marketing/`` and ``docs/analysis/`` are now strictly gitignored
+  with **zero exceptions**, and the public tree no longer cites them.
+  Closes a long-running documentation-drift surface where review notes,
+  audit drafts, and external-repo comparisons under those directories
+  were referenced from CHANGELOG entries, design docs, standards, and
+  test docstrings — only to rot into 404s the moment the maintainer
+  touched the local working-memory tree.
+  - **`.gitignore`** simplified: dropped 11 explicit "re-include"
+    exception entries that re-exposed specific closure-plan and
+    master-review files; the directory-level ignore now applies
+    uniformly.
+  - **`git rm --cached -r docs/analysis/`** untracked the 11
+    previously-leaked files (kept on disk locally; just no longer
+    versioned).
+  - **19 references** removed / restructured across `CHANGELOG.md`,
+    `CLAUDE.md`, `docs/standards/{coding,documentation,localization}.md`,
+    `docs/design/iso27001_soc2_alignment.md`, `docs/roadmap.md`,
+    `docs/roadmap/phase-12-6-closure-cycle.md`,
+    `docs/roadmap/phase-12-data-curation-maturity.md`,
+    `tests/test_wizard_phase22.py`,
+    `tests/test_check_bilingual_parity.py`,
+    `tools/check_anchor_resolution.py`,
+    `tools/check_yaml_snippets.py`,
+    `.claude/skills/{cut-release,sync-bilingual-docs}/SKILL.md`.
+    Where the citation was the load-bearing anchor of a sentence,
+    the surrounding text was rewritten to convey the same intent
+    without the file reference.
+  - **New "Working-memory directories" rule** in
+    `docs/standards/documentation.md` codifies the ban: no public-tree
+    file (markdown, code, commit message, PR description) may link
+    into `docs/marketing/` or `docs/analysis/`.  Path-string filters
+    in production code (e.g. `_SKIP_PATH_FRAGMENTS`) are exempt as
+    functional path exclusions, not content references.
+  - **New CI guard `tools/check_no_analysis_refs.py`** scans every
+    git-tracked file (uses `git ls-files`) and fails the run on any
+    citation into the working-memory tree.  Wired into the self-
+    review chain in `CLAUDE.md` (now 9 commands).  False positives
+    are handled via an `_EXEMPT` allowlist with per-entry
+    justification comments.
+  - **Memory section in `CLAUDE.md`** rewritten so the two
+    working-memory directories are described together with the new
+    "no references allowed" rule, replacing the prior bullet that
+    framed `docs/analysis/` as citable research.
+  - **Site verification report (read-only)** generated as part of
+    the same audit pass: 3 CRITICAL + 5 HIGH + 6 MEDIUM + 3 LOW
+    findings on `site/` claims vs. live code.  The report itself
+    lives in the now-gitignored `docs/analysis/` working-memory
+    tree (per the new policy); follow-up site fixes are tracked
+    as separate PRs.
+
 ### Fixed
 
 - **Wizard PR-D contract violations — idempotent re-run actually
@@ -219,8 +272,8 @@ All notable changes to ForgeLM are documented here.
 
 - **Wizard review-cycle 3 — bug fixes + UX polish (2026-05-09).**
   Closes the eleven actionable findings from the review-cycle 2 audit
-  (`docs/analysis/code_reviews/review-cycle-2-findings.md` summary in
-  the PR body). Low-risk batch — no architectural changes.
+  summarised in the PR #40 review thread.  Low-risk batch — no
+  architectural changes.
   - **Atomic-write temp leak (A3):** `_save_wizard_state` now unlinks
     the temp file when `os.replace` fails (cross-device home, EACCES,
     EXDEV) so `.wizard_state.*.tmp` stops accumulating under
@@ -363,9 +416,9 @@ All notable changes to ForgeLM are documented here.
 
 - **CLI wizard parity-with-web modernisation (Phase 22 / 2026-05-08).**
   `forgelm --wizard` now closes the parity gap with the in-browser
-  `site/js/wizard.js` documented in
-  `docs/analysis/code_reviews/2026-05-07_cli_wizard_ux_analysis.md` +
-  `-2.md`.
+  `site/js/wizard.js`.  20 findings (G1-G20) documented in the PR #40
+  review thread plus 5 independent observations (I1-I5) from a
+  second-opinion pass.
   - **Step machine:** 9-step flow (welcome / use-case / model /
     strategy / trainer / dataset / training-params / compliance /
     operations) with `back` / `b` to navigate backwards and `reset` /
@@ -1236,8 +1289,8 @@ subcommands surface in `forgelm --help` and the help epilog.
 > **Active cycle:** v0.5.5 closure — a single-release consolidation of
 > the master review's 175 findings + 4 new feature tracks (Library API,
 > ISO 27001 / SOC 2 alignment, GDPR right-to-erasure, Article 14 real
-> staging directory). Detailed plan:
-> [closure-plan-202604300906.md](docs/analysis/code_reviews/closure-plan-202604300906.md).
+> staging directory).  Detailed plan tracked at
+> [`docs/roadmap/phase-12-6-closure-cycle.md`](docs/roadmap/phase-12-6-closure-cycle.md).
 > No interim releases; v0.5.5 ships once Faz 1-33 are complete.
 > Per-PR CHANGELOG entries below collapse into the v0.5.5 release
 > notes at tag time.
@@ -1387,8 +1440,7 @@ preserved verbatim.
 Round-2 multi-agent review of PR #28 surfaced 52 findings (4 specialist
 agents) plus 9 maintainer inline comments.  All verified findings either
 fixed or explicitly skipped with rationale; the pre-merge fix set landed
-in this revision.  Full delta:
-[`docs/analysis/code_reviews/wave2a-round2-fix-summary-20260504.md`](docs/analysis/code_reviews/wave2a-round2-fix-summary-20260504.md).
+in this revision.
 
 **New surfaces (additive, forward-compatible):**
 
@@ -2078,12 +2130,10 @@ Both are design-only PRs — Phase 19 + Phase 21 implementations follow.
 
 ### Documentation
 
-- Full Faz 1-8 closure plan:
-  [closure-plan-202604300906.md](docs/analysis/code_reviews/closure-plan-202604300906.md)
-  (33 phases, ~47 PRs).
-- Master review:
-  [master-review-opus-202604300906.md](docs/analysis/code_reviews/master-review-opus-202604300906.md)
-  (175 findings).
+- Full Faz 1-8 closure plan tracked at
+  [`docs/roadmap/phase-12-6-closure-cycle.md`](docs/roadmap/phase-12-6-closure-cycle.md)
+  (33 phases, ~47 PRs).  Source review: 175 findings (8 Critical +
+  67 Major + 60 Minor + 40 Nit) — see PR thread for the full list.
 - `data_audit/` + `cli/` package split design:
   [data_audit_cli_split.md](docs/design/data_audit_cli_split.md)
   (Faz 14-15 forward-looking).

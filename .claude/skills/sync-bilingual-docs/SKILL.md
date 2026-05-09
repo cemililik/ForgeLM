@@ -17,11 +17,14 @@ Any change to these paths or their siblings:
 
 Do **not** use for:
 - `docs/standards/*` (English only)
-- `docs/marketing/*` (local-only, mixed)
-- `docs/analysis/*` (whichever language suits the source)
+- `docs/marketing/*` (gitignored working-memory; mixed languages)
 - `docs/qms/*` (English only)
 - `docs/design/*` (English only)
 - `docs/guides/*` (English only for now — Turkish is future work)
+
+Do **not** reference any file under gitignored working-memory directories
+(`docs/marketing/`, `docs/analysis/`) from the bilingual docs you edit —
+those paths are local-only and won't resolve in fresh clones.
 
 ## Required reading
 
