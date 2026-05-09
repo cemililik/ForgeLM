@@ -1042,6 +1042,16 @@ def parse_args():
     parser.add_argument(
         "--wizard", action="store_true", help="Launch interactive configuration wizard to generate a config.yaml."
     )
+    parser.add_argument(
+        "--wizard-start-from",
+        type=str,
+        metavar="PATH",
+        default=None,
+        help=(
+            "Pre-populate the wizard from an existing YAML so each step's prompts default to "
+            "the operator's prior answers (idempotent re-run).  Combine with --wizard."
+        ),
+    )
     parser.add_argument("--version", action="version", version=f"ForgeLM {_get_version()}")
     parser.add_argument(
         "--dry-run", action="store_true", help="Validate configuration and check model/dataset access without training."

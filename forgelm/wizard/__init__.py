@@ -124,6 +124,7 @@ from ._orchestrator import (
     _apply_strict_tier_coercion,
     _drive_wizard_steps,
     _is_beginner,
+    _load_initial_state_from_yaml,
     _maybe_resume_state,
     _next_free_filename,
     _persist_state,

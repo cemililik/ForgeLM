@@ -25,7 +25,13 @@ def _maybe_run_wizard(args) -> None:
         return
     from ..wizard import run_wizard_full
 
-    outcome = run_wizard_full()
+    # ``--wizard-start-from`` (E3 / PR-D) preloads the wizard with an
+    # existing YAML so the operator can iterate on a prior config
+    # without losing answers.  ``getattr`` for back-compat: callers
+    # constructing argparse Namespaces by hand might not include the
+    # field on legacy code paths.
+    start_from = getattr(args, "wizard_start_from", None)
+    outcome = run_wizard_full(start_from=start_from)
     if outcome.cancelled:
         sys.exit(EXIT_WIZARD_CANCELLED)
     # YAML was produced — either start training now or exit cleanly so

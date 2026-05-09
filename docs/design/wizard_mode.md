@@ -17,6 +17,17 @@
 > parity tightened: judge `min_score` `5.0` (was `6.5`), web
 > `learningRate` `2e-5` (was `1e-4`), web `batchSize` `4` (was `2`).
 
+> **PR-D additions (E3, 2026-05-09):** new `--wizard-start-from
+> <yaml>` flag preloads the wizard from an existing config so each
+> step's prompts default to the operator's prior answers; the
+> quickstart-template prelude is skipped, and the save flow defaults
+> to overwriting the start-from path.  New
+> `_load_initial_state_from_yaml()` helper validates the YAML
+> against `ForgeConfig` up-front so schema rejections surface
+> immediately instead of 30 minutes into a failed training run.
+> Per-step prompts in `_step_strategy` / `_step_training_params` /
+> `_step_dataset` updated to honour existing values.
+
 ## Overview
 
 To improve accessibility for users coming from no-code tools (like the

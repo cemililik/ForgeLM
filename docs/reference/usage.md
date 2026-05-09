@@ -45,6 +45,9 @@ forgelm --config my_config.yaml
 # Interactive config wizard
 forgelm --wizard
 
+# Iterate on an existing config (preloads each step's prompts with prior answers)
+forgelm --wizard --wizard-start-from existing.yaml
+
 # Validate config without training (no GPU needed)
 forgelm --config my_config.yaml --dry-run
 

@@ -6,6 +6,42 @@ All notable changes to ForgeLM are documented here.
 
 ### Added
 
+- **Wizard idempotent re-run via ``--wizard-start-from <yaml>``
+  (E3 / PR-D / 2026-05-09).** Operators can now iterate on an
+  existing config without losing prior answers — long-asked-for
+  ergonomic improvement that closes the "wizard always starts from
+  scratch" gap noted across review cycles 1, 2, and 3.  Bound to F1
+  (PR-B) since the per-step value-honoring relies on the same
+  schema-derived defaults plumbing.
+  - **New CLI flag:** ``forgelm --wizard --wizard-start-from
+    /path/to/existing.yaml`` reads the YAML, validates it against
+    ``ForgeConfig`` (immediate failure on schema violation rather
+    than 30 minutes into a failed training run), and seeds the
+    wizard's :class:`_WizardState.config` with the loaded dict.
+    The quickstart-template prelude is skipped — the operator's
+    intent is "edit this file", not "pick a fresh template".
+  - **Per-step value honoring:** ``_step_strategy`` /
+    ``_step_training_params`` / ``_step_dataset`` now read existing
+    values from ``state.config`` for their prompt defaults so a bare
+    Enter keeps them; ``_step_dataset`` adds an explicit "keep
+    existing dataset?" yes/no early-out so the operator doesn't
+    re-trigger ingestion / audit on an unchanged dataset path.
+  - **Save flow defaults to start-from path:** when launched with
+    ``--wizard-start-from existing.yaml`` the save prompt defaults
+    to the same path; the existing overwrite confirmation
+    (``_prompt_unique_filename``) still fires before clobbering.
+  - **New ``_load_initial_state_from_yaml(path)`` helper** in
+    ``forgelm/wizard/_orchestrator.py``.  Surfaces three distinct
+    error categories: missing path → ``FileNotFoundError``;
+    parse failure → ``ValueError`` with YAML diagnostic; non-mapping
+    root or schema rejection → ``ValueError`` with a clear hint.
+    All three are caught by ``run_wizard_full`` and surfaced as a
+    cancelled outcome with a printed warning instead of a traceback.
+  - **10 new tests** cover: valid-YAML pre-population (with
+    deepcopy isolation), missing-path error, malformed YAML, non-
+    mapping root, schema-invalid YAML, dispatcher cancel-on-error,
+    per-step value-honoring for strategy / training-params / dataset.
+
 - **Wizard review-cycle 3 follow-up — generator hardening + CI guard
   test coverage (2026-05-09).** Closes the actionable findings from
   the independent review of commits `5667885` (cycle-3 bug fixes) +

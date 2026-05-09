@@ -1335,3 +1335,141 @@ class TestSchemaDrivenDefaultsSOT:
         monkeypatch.setattr("importlib.resources.files", lambda _pkg: _NoFile())
         result = _state_mod._load_defaults()
         assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# E3 (PR-D) — ``--wizard-start-from <yaml>`` idempotent re-run
+# ---------------------------------------------------------------------------
+
+
+class TestStartFromYAMLLoad:
+    """E3 — ``_load_initial_state_from_yaml`` validates + pre-populates state."""
+
+    def test_valid_yaml_populates_state(self, tmp_path, minimal_config):
+        import yaml as _yaml
+
+        cfg = tmp_path / "existing.yaml"
+        config_data = minimal_config(training={"trainer_type": "dpo", "dpo_beta": 0.2})
+        cfg.write_text(_yaml.safe_dump(config_data), encoding="utf-8")
+
+        state = wizard._orchestrator._load_initial_state_from_yaml(str(cfg))
+        assert state.experience == "expert"
+        assert state.use_case == wizard._MANUAL_USE_CASE
+        assert state.config["training"]["trainer_type"] == "dpo"
+        assert state.config["training"]["dpo_beta"] == 0.2
+        # ``copy.deepcopy`` invariant — mutating returned state must
+        # not bleed into the source dict.
+        state.config["mutated"] = "by-test"
+        assert "mutated" not in config_data
+
+    def test_missing_path_raises_filenotfound(self, tmp_path):
+        with pytest.raises(FileNotFoundError, match="--wizard-start-from"):
+            wizard._orchestrator._load_initial_state_from_yaml(str(tmp_path / "nope.yaml"))
+
+    def test_invalid_yaml_raises_value_error(self, tmp_path):
+        cfg = tmp_path / "bad.yaml"
+        cfg.write_text(":\n  - this is not valid yaml mapping at top level\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="failed to parse|root must be a mapping"):
+            wizard._orchestrator._load_initial_state_from_yaml(str(cfg))
+
+    def test_yaml_root_not_mapping_raises(self, tmp_path):
+        cfg = tmp_path / "list.yaml"
+        cfg.write_text("- one\n- two\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="root must be a mapping"):
+            wizard._orchestrator._load_initial_state_from_yaml(str(cfg))
+
+    def test_schema_invalid_raises(self, tmp_path):
+        cfg = tmp_path / "bad-schema.yaml"
+        # Missing ``model``, ``data``, ``training`` — ForgeConfig will reject.
+        cfg.write_text("training: {}\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="failed schema validation"):
+            wizard._orchestrator._load_initial_state_from_yaml(str(cfg))
+
+
+class TestRunWizardFullStartFrom:
+    """E3 — run_wizard_full(start_from=...) skips quickstart, surfaces error cleanly."""
+
+    def test_missing_start_from_returns_cancelled_outcome(self, tmp_path, capsys, monkeypatch):
+        # When the YAML doesn't exist the wizard should NOT prompt; it
+        # should surface the FileNotFoundError as a printed warning and
+        # return a cancelled outcome (no save flow, no quickstart).
+        import sys as _sys
+
+        monkeypatch.setattr(_sys.stdin, "isatty", lambda: True)
+        outcome = wizard.run_wizard_full(start_from=str(tmp_path / "absent.yaml"))
+        assert outcome.cancelled is True
+        captured = capsys.readouterr().out
+        assert "--wizard-start-from path does not exist" in captured
+
+    def test_invalid_yaml_returns_cancelled_outcome(self, tmp_path, capsys, monkeypatch):
+        import sys as _sys
+
+        cfg = tmp_path / "broken.yaml"
+        cfg.write_text("training: {}\n", encoding="utf-8")
+        monkeypatch.setattr(_sys.stdin, "isatty", lambda: True)
+        outcome = wizard.run_wizard_full(start_from=str(cfg))
+        assert outcome.cancelled is True
+        captured = capsys.readouterr().out
+        assert "failed schema validation" in captured
+
+
+class TestStepHonorsExistingValues:
+    """E3 — per-step prompts default to existing values when state pre-populated."""
+
+    def test_strategy_step_uses_existing_lora(self, isolated_state_dir):
+        # Pre-populate state with non-default LoRA values; verify the
+        # strategy step uses them as prompt defaults.  Since
+        # ``_step_strategy`` calls ``_prompt_int(question, existing_lora.get('r', ...))``,
+        # an empty operator answer (just Enter) preserves the existing
+        # value — that's the contract we test here.
+        state = wizard._WizardState(config={"lora": {"r": 64, "alpha": 128}})
+        with patch(
+            "builtins.input",
+            side_effect=_input_returning(
+                "1",  # strategy = QLoRA
+                "1",  # target_modules = standard
+                "",  # accept default for lora_r (= existing 64)
+                "",  # accept default for lora_alpha (= existing 128)
+            ),
+        ):
+            wizard._orchestrator._step_strategy(state)
+        assert state.config["lora"]["r"] == 64
+        assert state.config["lora"]["alpha"] == 128
+
+    def test_training_params_step_uses_existing_values(self, isolated_state_dir):
+        state = wizard._WizardState(
+            config={
+                "training": {"num_train_epochs": 7, "per_device_train_batch_size": 16, "output_dir": "./my-runs"},
+                "model": {"max_length": 4096},
+            }
+        )
+        with patch(
+            "builtins.input",
+            side_effect=_input_returning(
+                "",  # epochs (= 7)
+                "",  # batch_size (= 16)
+                "",  # max_length (= 4096; will trigger RoPE scaling prompt for >4096)
+                "",  # output_dir (= './my-runs')
+                "n",  # decline NEFTune
+                "n",  # decline OOM recovery
+            ),
+        ):
+            wizard._orchestrator._step_training_params(state)
+        assert state.config["training"]["num_train_epochs"] == 7
+        assert state.config["training"]["per_device_train_batch_size"] == 16
+        assert state.config["model"]["max_length"] == 4096
+        assert state.config["training"]["output_dir"] == "./my-runs"
+
+    def test_dataset_step_offers_keep_existing(self, isolated_state_dir, capsys):
+        state = wizard._WizardState(config={"data": {"dataset_name_or_path": "tatsu-lab/alpaca"}})
+        with patch(
+            "builtins.input",
+            side_effect=_input_returning(
+                "y",  # keep existing dataset
+                "n",  # decline governance
+            ),
+        ):
+            wizard._orchestrator._step_dataset(state)
+        captured = capsys.readouterr().out
+        assert "Existing dataset:" in captured
+        assert state.config["data"]["dataset_name_or_path"] == "tatsu-lab/alpaca"

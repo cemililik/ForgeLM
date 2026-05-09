@@ -66,6 +66,7 @@ from ._state import (
     POPULAR_MODELS,
     TARGET_MODULE_PRESETS,
     _clear_wizard_state,
+    _flatten_dict,
     _load_wizard_state,
     _print_step_diff,
     _print_wizard_summary,
@@ -326,16 +327,22 @@ def _step_strategy(state: _WizardState) -> None:
     # hint operators most often need (without adding a separate full
     # rationale catalogue — see ``docs/design/wizard_mode.md`` for
     # scope rationale).
+    # E3 (PR-D): when the wizard was started from an existing YAML the
+    # operator's prior LoRA values become the prompt defaults so a
+    # bare Enter keeps them.  Falls back to the schema defaults
+    # (DEFAULT_LORA_R / DEFAULT_LORA_R*2) when ``state.config`` has
+    # no ``lora`` block yet.
+    existing_lora = state.config.get("lora", {})
     lora_r = _prompt_int(
         "LoRA rank (r) — capacity of the adapter (higher = more expressive, more VRAM; "
         "8 is the schema default, 16 is a common 'a bit stronger' bump, 64+ rarely helps)",
-        DEFAULT_LORA_R,
+        int(existing_lora.get("r", DEFAULT_LORA_R)),
         min_val=1,
         max_val=512,
     )
     lora_alpha = _prompt_int(
         "LoRA alpha — adapter scaling (the 'alpha = 2 × r' convention is what most papers use)",
-        lora_r * 2,
+        int(existing_lora.get("alpha", lora_r * 2)),
         min_val=1,
         max_val=1024,
     )
@@ -414,9 +421,18 @@ def _step_dataset(state: _WizardState) -> None:
             "JSONL files are auto-audited (length / language / dedup / PII / secrets).",
         ],
     )
-    dataset_path = _prompt_dataset_path_with_ingest_offer(
-        "HuggingFace dataset name or local file path (or directory of raw documents)",
-    )
+    # E3 (PR-D): when state already carries a dataset path (operator
+    # started from an existing YAML), offer to keep it instead of
+    # forcing a re-prompt that would re-trigger ingestion / audit.
+    existing_dataset = state.config.get("data", {}).get("dataset_name_or_path")
+    if existing_dataset:
+        _print(f"  Existing dataset: {existing_dataset!r}")
+    if existing_dataset and _prompt_yes_no("  Keep this dataset?", default=True):
+        dataset_path = existing_dataset
+    else:
+        dataset_path = _prompt_dataset_path_with_ingest_offer(
+            "HuggingFace dataset name or local file path (or directory of raw documents)",
+        )
     data_block = state.config.setdefault("data", {})
     data_block["dataset_name_or_path"] = dataset_path
     data_block.setdefault("shuffle", True)
@@ -439,10 +455,14 @@ def _step_training_params(state: _WizardState) -> None:
         ],
     )
     # E2: inline rationale on the three most-tuned operator knobs.
+    # E3 (PR-D): defaults pull from the existing config when the
+    # wizard was started from a YAML so the operator can iterate.
+    existing_training = state.config.get("training", {})
+    existing_model = state.config.get("model", {})
     epochs = _prompt_int(
         "Number of epochs — full passes over the training set "
         "(SFT typically wants 1-3; DPO/SimPO/ORPO 1-2; 5+ usually overfits on instruction-tuning corpora)",
-        DEFAULT_EPOCHS,
+        int(existing_training.get("num_train_epochs", DEFAULT_EPOCHS)),
         min_val=1,
         max_val=1000,
     )
@@ -450,7 +470,7 @@ def _step_training_params(state: _WizardState) -> None:
         "Batch size per device — effective tokens/step is "
         "``batch_size × gradient_accumulation_steps × max_length``; "
         "4 fits 7B QLoRA in 12 GB VRAM with the schema-default 2048 max_length",
-        DEFAULT_BATCH_SIZE,
+        int(existing_training.get("per_device_train_batch_size", DEFAULT_BATCH_SIZE)),
         min_val=1,
         max_val=512,
     )
@@ -458,11 +478,11 @@ def _step_training_params(state: _WizardState) -> None:
         "Max sequence length — tokens per training example; "
         "2048 is safe for instruction tuning, raise for long-form RAG / code-assist "
         "(>4096 triggers an automatic RoPE-scaling prompt)",
-        DEFAULT_MAX_LENGTH,
+        int(existing_model.get("max_length", DEFAULT_MAX_LENGTH)),
         min_val=64,
         max_val=131072,
     )
-    output_dir = _prompt("Output directory", "./checkpoints")
+    output_dir = _prompt("Output directory", existing_training.get("output_dir", "./checkpoints"))
     rope_scaling = _collect_rope_scaling(max_length)
     neftune_alpha = _collect_neftune_alpha()
     use_oom_recovery = _prompt_yes_no(
@@ -697,27 +717,39 @@ def _drive_wizard_steps(state: _WizardState) -> _WizardState:
 # ---------------------------------------------------------------------------
 
 
-def run_wizard() -> Optional[str]:
+def run_wizard(start_from: Optional[str] = None) -> Optional[str]:
     """Run the interactive configuration wizard (back-compat shim).
 
     Returns the path to the generated config file when the user opts
     to start training immediately, or ``None`` for either "deferred"
     or "cancelled" — callers that need to differentiate the two should
     use :func:`run_wizard_full` (returns a :class:`WizardOutcome`).
+
+    *start_from* (E3 / PR-D): pre-populate the wizard from an existing
+    YAML so each step's prompts default to the operator's prior
+    answers — see :func:`run_wizard_full` for the full contract.
     """
-    outcome = run_wizard_full()
+    outcome = run_wizard_full(start_from=start_from)
     if outcome.start_training and outcome.config_path:
         return outcome.config_path
     return None
 
 
-def run_wizard_full() -> WizardOutcome:
+def run_wizard_full(start_from: Optional[str] = None) -> WizardOutcome:
     """Run the wizard and return a structured outcome.
 
     Refuses to launch when stdin isn't a TTY (piped input, CI cron job)
     because silent ``EOFError`` answers produce empty configs that look
     like successful runs.  Operators who want a deterministic scripted
     config should reach for ``forgelm quickstart <template>`` instead.
+
+    When *start_from* is supplied the wizard preloads its state from
+    the YAML at that path (E3 / PR-D), validates it against
+    ``ForgeConfig``, and skips the quickstart-template prelude — the
+    operator's intent is "iterate on this existing config", not "pick
+    a fresh template".  The save flow defaults to overwriting
+    *start_from*; the existing :func:`_prompt_unique_filename` overwrite
+    confirmation still fires.
     """
     import sys as _sys
 
@@ -733,6 +765,10 @@ def run_wizard_full() -> WizardOutcome:
             "customer-support, code-assistant, domain-expert, medical-qa-tr, grpo-math."
         )
         return WizardOutcome(config_path=None, start_training=False)
+    if start_from is not None:
+        # E3: skip the quickstart prelude — operator's intent is "iterate
+        # on this YAML", not "pick a curated template".
+        return _run_full_wizard_outcome(start_from=start_from)
     quickstart_path = _maybe_run_quickstart_template()
     if quickstart_path is not None:
         # Quickstart template path: ``_finalize_quickstart_path`` returns
@@ -747,9 +783,66 @@ def run_wizard_full() -> WizardOutcome:
     return _run_full_wizard_outcome()
 
 
-def _run_full_wizard_outcome() -> WizardOutcome:
+def _load_initial_state_from_yaml(path: str) -> _WizardState:
+    """Build a :class:`_WizardState` pre-populated from *path*'s YAML (E3 / PR-D).
+
+    Reads the YAML, validates it against ``ForgeConfig`` (so a typo
+    in the source surfaces immediately rather than 30 minutes into a
+    failed training run), and seeds :attr:`_WizardState.config` with
+    the loaded dict.  The wizard's per-step prompts already read from
+    ``state.config`` for their defaults — pre-populating it is the
+    full plumbing.
+
+    Raises :class:`FileNotFoundError` when the path doesn't exist and
+    :class:`ValueError` when the YAML doesn't parse / fails schema
+    validation.  Both surface a clear single-line error to the
+    operator before the wizard's interactive flow begins.
+    """
+    import yaml as _yaml
+
+    src = Path(path).expanduser()
+    if not src.is_file():
+        raise FileNotFoundError(f"--wizard-start-from path does not exist: {path}")
+    try:
+        with open(src, "r", encoding="utf-8") as fh:
+            data = _yaml.safe_load(fh)
+    except _yaml.YAMLError as exc:
+        raise ValueError(f"--wizard-start-from YAML failed to parse: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"--wizard-start-from YAML root must be a mapping; got {type(data).__name__}")
+    try:
+        from ..config import ForgeConfig
+
+        ForgeConfig.model_validate(data)
+    except ImportError:  # pragma: no cover — config always present
+        pass
+    except Exception as exc:  # noqa: BLE001 — pydantic raises ValidationError; surface to operator
+        raise ValueError(f"--wizard-start-from YAML failed schema validation: {exc}") from exc
+    state = _WizardState(
+        experience="expert",  # YAML-supplied operators are typically expert
+        use_case=_MANUAL_USE_CASE,  # already-edited config; no preset re-application
+        current_step=0,
+        completed_steps=[],
+        config=copy.deepcopy(data),
+    )
+    return state
+
+
+def _run_full_wizard_outcome(start_from: Optional[str] = None) -> WizardOutcome:
     """9-step interactive flow producing a hand-rolled config.yaml."""
-    state = _maybe_resume_state()
+    if start_from is not None:
+        try:
+            state = _load_initial_state_from_yaml(start_from)
+        except (FileNotFoundError, ValueError) as exc:
+            _print(f"\n  ⚠ {exc}")
+            return WizardOutcome(config_path=None, start_training=False)
+        _print(f"\n  Loaded {start_from} as wizard starting state.")
+        # Print a small breadcrumb so operators understand the wizard
+        # will use the loaded values as defaults for each step.
+        flat = _flatten_dict(state.config)
+        _print(f"  {len(flat)} field(s) populated; press Enter at each prompt to keep the existing value.")
+    else:
+        state = _maybe_resume_state()
     try:
         state = _drive_wizard_steps(state)
     except (KeyboardInterrupt, EOFError):
@@ -757,7 +850,12 @@ def _run_full_wizard_outcome() -> WizardOutcome:
         _print(f"\n  Interrupted.  State preserved at {_wizard_state_path()} — rerun `forgelm --wizard` to resume.")
         return WizardOutcome(config_path=None, start_training=False)
     config = _strip_internal_meta(state.config)
-    config_filename = _prompt_unique_filename("Save config as", "my_config.yaml")
+    # E3 (PR-D): when the wizard was started from an existing YAML the
+    # operator's intent is "edit this file"; default the save filename
+    # to ``start_from`` so a bare Enter overwrites it (subject to the
+    # existing overwrite confirmation in ``_prompt_unique_filename``).
+    save_default = start_from if start_from else "my_config.yaml"
+    config_filename = _prompt_unique_filename("Save config as", save_default)
     config_filename = _save_config_to_file(config, config_filename)
     _print_preflight_checklist(config, state)
     _print_wizard_summary(config)
@@ -773,9 +871,9 @@ def _run_full_wizard_outcome() -> WizardOutcome:
     return WizardOutcome(config_path=config_filename, start_training=False)
 
 
-def _run_full_wizard() -> Optional[str]:
+def _run_full_wizard(start_from: Optional[str] = None) -> Optional[str]:
     """Back-compat wrapper around :func:`_run_full_wizard_outcome`."""
-    outcome = _run_full_wizard_outcome()
+    outcome = _run_full_wizard_outcome(start_from=start_from)
     return outcome.config_path if outcome.start_training else None
 
 

@@ -37,10 +37,11 @@ Gated modeller (Llama, Gemma) veya özel veri setleri için:
 ### Temel Komutlar
 
 ```bash
-forgelm --config my_config.yaml              # Model eğit
-forgelm --wizard                             # Etkileşimli config oluşturucu
-forgelm --config my_config.yaml --dry-run    # Config doğrula (GPU gerektirmez)
-forgelm --version                            # Versiyon göster
+forgelm --config my_config.yaml                                  # Model eğit
+forgelm --wizard                                                 # Etkileşimli config oluşturucu
+forgelm --wizard --wizard-start-from existing.yaml               # Mevcut bir config üzerinden iterate et
+forgelm --config my_config.yaml --dry-run                        # Config doğrula (GPU gerektirmez)
+forgelm --version                                                # Versiyon göster
 ```
 
 ### Çıktı ve Loglama

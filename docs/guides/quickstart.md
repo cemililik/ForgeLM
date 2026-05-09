@@ -71,6 +71,14 @@ The wizard offers a curated quickstart-template shortcut first; declining opens 
 
 Operator guardrails layered on by review-cycle 2 (2026-05-09): the wizard runs `ForgeConfig.model_validate` on the saved YAML before exit (so schema rejections surface inline, not 30 minutes into training), prompts before overwriting an existing config (auto-suffixes `_2.yaml` / `_3.yaml` if you decline), refuses to launch under non-tty stdin (use `forgelm quickstart <template>` for scripted runs), prints a pre-flight checklist (GPU/VRAM/dataset/risk-tier signals), and exits `EXIT_WIZARD_CANCELLED = 5` on Ctrl-C / cancel so CI can tell "wizard finished" from "wizard never wrote anything".
 
+**Idempotent re-run (PR-D, 2026-05-09):** to iterate on an existing config without losing prior answers, pass `--wizard-start-from`:
+
+```bash
+forgelm --wizard --wizard-start-from my_config.yaml
+```
+
+The wizard reads the YAML, validates it against `ForgeConfig` up-front (immediate failure on schema violation), and seeds each step's prompts with the loaded values — pressing Enter at each prompt keeps the existing value.  The save flow defaults to overwriting the same path; the existing overwrite confirmation still fires before clobbering.
+
 ### Option B: Copy Template
 
 ```bash
