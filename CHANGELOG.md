@@ -4,6 +4,89 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Wizard PR-D contract violations — idempotent re-run actually
+  preserves prior answers (PR-E / 2026-05-09).** The independent
+  review of PR-D (`2ac9df2`) found three HIGH-severity bugs where
+  pressing Enter at certain prompts silently regressed the operator's
+  loaded YAML to wizard defaults, plus four MEDIUM/LOW issues.  All
+  closed in this commit.
+  - **PR-D-A1: ``_step_strategy`` now honours existing values**
+    for ``lora.method`` / ``lora.target_modules`` / ``lora.dropout``
+    / ``lora.bias`` / ``lora.task_type``.  ``_select_strategy()``
+    accepts ``existing_method`` / ``existing_load_in_4bit`` /
+    ``existing_galore`` kwargs and derives the prompt's ``default_idx``
+    so a bare Enter on a DoRA / PiSSA / rsLoRA / GaLore config keeps
+    the choice.  Target-modules prompt detects the loaded list shape
+    against ``TARGET_MODULE_PRESETS`` and shifts its default
+    accordingly.  Non-prompted fields (dropout / bias / task_type) now
+    use ``setdefault`` so existing operator overrides survive.
+  - **PR-D-A2: ``_step_evaluation`` no longer clobbers existing
+    benchmark / llm_judge / safety blocks.**  The function now seeds
+    ``evaluation`` from ``state.config.get("evaluation")`` via
+    ``copy.deepcopy``, defaults the ``auto_revert`` gate based on the
+    existing value, and keeps the prior block intact when the
+    operator declines a re-prompt.  The pre-fix code built a fresh
+    dict and assigned it unconditionally — high-risk operators with
+    populated benchmark + judge configs lost them on a "press Enter"
+    iteration.
+  - **PR-D-A3: ``_step_use_case`` skips the use-case prompt when
+    existing model + trainer choices are detected.**  Pre-fix the
+    operator's ``model.name_or_path`` and ``training.trainer_type``
+    were silently overwritten by the first template's preset (default
+    index = 1, "customer-support") on Enter.  Combined with the
+    save-default-to-``start_from`` behaviour, this corrupted the
+    original YAML.  Step now emits a clear "Existing model / trainer
+    choices detected — skipping use-case preset" line and early-
+    returns when state already carries those keys.  Even on greenfield
+    runs, ``setdefault`` is now used so explicit values survive.
+  - **PR-D-A4: ``_step_welcome`` ``model.backend`` chained
+    ``setdefault``** instead of nested-dict-replace pattern.  An
+    operator with an explicit ``model.backend: transformers`` on a
+    Linux+GPU box no longer flips silently to ``unsloth`` based on
+    hardware detection.
+  - **PR-D-A5: ``_load_initial_state_from_yaml`` split try/except**
+    so a downstream ``ImportError`` from inside a Pydantic validator
+    can't silently bypass schema validation.  The ``ForgeConfig``
+    import lives in its own try block; the ``model_validate`` call is
+    wrapped separately.
+  - **PR-D-A6: warns before discarding pre-existing wizard resume
+    state.**  When ``--wizard-start-from`` is supplied alongside an
+    in-progress ``$XDG_CACHE_HOME/forgelm/wizard_state.yaml``, the
+    operator now sees a one-line notice that the snapshot will be
+    cleared at save time.  Pre-fix the snapshot was silently
+    destroyed at the end of the start-from run.
+  - **PR-D-A7: tightened ``docs/guides/quickstart{,-tr}.md`` claim**
+    so it accurately scopes "press Enter to keep" to numeric / text /
+    choice prompts (now), explicitly notes the use-case skip, and
+    records the ``setdefault`` pattern for non-prompted fields.
+  - **PR-D-B1: new CLI dispatcher integration test**
+    (``test_wizard_start_from_threads_through_to_run_wizard_full``)
+    pins the parser → dispatcher → ``run_wizard_full`` thread-through
+    so a future rename of the argparse ``dest`` would be caught.
+  - **PR-D-B3: ``--wizard-start-from`` without ``--wizard``** now
+    prints a one-line warning instead of silently no-op'ing.
+  - **PR-D-B5: ``_collect_data_governance(existing=...)``** kwarg
+    threads the operator's existing Article 10 free-text values
+    through as prompt defaults.  Strict-tier operators iterating
+    from a populated YAML no longer re-type collection_method /
+    annotation_process / known_biases.
+  - **PR-D-B6: ``_canonical_start_from()`` helper** applies
+    ``Path(...).expanduser()`` once at the entry point and
+    propagates the canonical form through the load + save flow.
+    Pre-fix, ``--wizard-start-from ~/configs/x.yaml`` would expand
+    ``~`` for the load existence check but pass the raw string to
+    the save flow's overwrite confirmation, causing the check to
+    return False and a literal ``~/configs/x.yaml`` directory to be
+    created on save.
+  - **15 new regression tests** under ``tests/test_wizard_phase22.py``:
+    DoRA preserved, target_modules extended preserved, GaLore
+    preserved, evaluation benchmark + judge preserved, use-case skip,
+    backend setdefault, ImportError split happy path, resume-state
+    warning, --start-from-without-wizard, governance defaults, and
+    expanduser canonicalisation.  Plus 1 dispatcher integration test.
+
 ### Added
 
 - **Wizard idempotent re-run via ``--wizard-start-from <yaml>``

@@ -499,29 +499,66 @@ def _collect_risk_assessment(risk_classification: str) -> Optional[Dict[str, Any
     }
 
 
-def _collect_data_governance(*, mandatory: bool) -> Optional[Dict[str, Any]]:
-    """Article 10: data governance metadata.  Mandatory under strict tiers."""
-    if not mandatory and not _prompt_yes_no("Configure Article 10 data.governance metadata?", default=False):
-        return None
+def _collect_data_governance(
+    *,
+    mandatory: bool,
+    existing: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Article 10: data governance metadata.  Mandatory under strict tiers.
+
+    PR-D-B5 (PR-E review fix): when *existing* carries previously
+    populated values (operator iterating from ``--wizard-start-from``),
+    each prompt defaults to the prior answer so a bare Enter keeps
+    it.  Strict-tier ``_prompt_required`` calls still re-prompt until
+    non-empty — the existing-value default just spares the operator
+    from re-typing.
+    """
+    existing = existing or {}
+    if not mandatory and not _prompt_yes_no(
+        "Configure Article 10 data.governance metadata?",
+        default=bool(existing),
+    ):
+        return existing or None
     if mandatory:
         _print(
             "  Risk classification is high-risk / unacceptable — Article 10 "
             "data.governance evidence is mandatory.  Free-text fields below "
             "re-prompt until provided."
         )
-        collection_method = _prompt_required("Article 10(2)(b): how was data collected?")
-        annotation_process = _prompt_required("Article 10(2)(b): annotation methodology")
-        known_biases = _prompt_required("Article 10(2)(f): known_biases")
+        # ``_prompt_required`` doesn't accept a default; for strict-tier
+        # iteration we fall back to ``_prompt`` when an existing
+        # non-empty value exists, otherwise enforce the strict re-prompt.
+        collection_method = (
+            _prompt("Article 10(2)(b): how was data collected?", existing["collection_method"])
+            if existing.get("collection_method")
+            else _prompt_required("Article 10(2)(b): how was data collected?")
+        )
+        annotation_process = (
+            _prompt("Article 10(2)(b): annotation methodology", existing["annotation_process"])
+            if existing.get("annotation_process")
+            else _prompt_required("Article 10(2)(b): annotation methodology")
+        )
+        known_biases = (
+            _prompt("Article 10(2)(f): known_biases", existing["known_biases"])
+            if existing.get("known_biases")
+            else _prompt_required("Article 10(2)(f): known_biases")
+        )
     else:
-        collection_method = _prompt("Article 10(2)(b): how was data collected?", "")
-        annotation_process = _prompt("Article 10(2)(b): annotation methodology", "")
-        known_biases = _prompt("Article 10(2)(f): known_biases", "")
+        collection_method = _prompt("Article 10(2)(b): how was data collected?", existing.get("collection_method", ""))
+        annotation_process = _prompt("Article 10(2)(b): annotation methodology", existing.get("annotation_process", ""))
+        known_biases = _prompt("Article 10(2)(f): known_biases", existing.get("known_biases", ""))
     return {
         "collection_method": collection_method,
         "annotation_process": annotation_process,
         "known_biases": known_biases,
-        "personal_data_included": _prompt_yes_no("Article 10(5): personal_data_included?", default=False),
-        "dpia_completed": _prompt_yes_no("Article 35 GDPR: dpia_completed?", default=False),
+        "personal_data_included": _prompt_yes_no(
+            "Article 10(5): personal_data_included?",
+            default=bool(existing.get("personal_data_included", False)),
+        ),
+        "dpia_completed": _prompt_yes_no(
+            "Article 35 GDPR: dpia_completed?",
+            default=bool(existing.get("dpia_completed", False)),
+        ),
     }
 
 
@@ -745,12 +782,42 @@ _STRATEGY_CHOICES: Tuple[_StrategyChoice, ...] = (
 )
 
 
-def _select_strategy() -> _StrategyChoice:
-    """Prompt for the fine-tuning strategy."""
+def _select_strategy(
+    *,
+    existing_method: Optional[str] = None,
+    existing_load_in_4bit: Optional[bool] = None,
+    existing_galore: bool = False,
+) -> _StrategyChoice:
+    """Prompt for the fine-tuning strategy.
+
+    PR-D-A1 (PR-E review fix): when the operator supplied an existing
+    YAML the prompt's default index is derived from the loaded
+    ``lora.method`` + ``model.load_in_4bit`` + ``training.galore_enabled``
+    triplet so a bare Enter preserves the existing strategy.  Falls
+    back to QLoRA (default=1) for greenfield runs, matching the
+    pre-cycle behaviour.
+    """
+    default_idx = 1  # QLoRA
+    if existing_galore:
+        default_idx = next(
+            (i for i, c in enumerate(_STRATEGY_CHOICES, 1) if c.use_galore),
+            1,
+        )
+    elif existing_method is not None:
+        # Match by (method, load_in_4bit) pair where possible — DoRA/
+        # PiSSA/rsLoRA all live in the QLoRA branch (load_in_4bit=True).
+        for i, choice in enumerate(_STRATEGY_CHOICES, 1):
+            if choice.use_galore:
+                continue
+            if choice.method == existing_method and (
+                existing_load_in_4bit is None or choice.load_in_4bit == existing_load_in_4bit
+            ):
+                default_idx = i
+                break
     label = _prompt_choice(
         "Choose your fine-tuning strategy:",
         [choice.label for choice in _STRATEGY_CHOICES],
-        default=1,
+        default=default_idx,
     )
     return next(c for c in _STRATEGY_CHOICES if c.label == label)
 

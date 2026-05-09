@@ -22,6 +22,14 @@ def _maybe_run_wizard(args) -> None:
           "wizard never produced output".
     """
     if not args.wizard:
+        # PR-D-B3 (PR-E review fix): warn the operator who passed
+        # --wizard-start-from without --wizard so the typo doesn't
+        # silently no-op into the regular config-driven path.
+        if getattr(args, "wizard_start_from", None):
+            print(
+                "  ⚠ --wizard-start-from has no effect without --wizard.  "
+                "Add --wizard to launch the interactive wizard preloaded from your YAML."
+            )
         return
     from ..wizard import run_wizard_full
 

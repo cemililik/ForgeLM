@@ -82,7 +82,9 @@ Review-cycle 2 (2026-05-09) ile eklenen operatör guardrail'ları: sihirbaz çı
 forgelm --wizard --wizard-start-from my_config.yaml
 ```
 
-Sihirbaz YAML'ı okur, `ForgeConfig` ile önden doğrular (schema reddetmesi anında patlar) ve her adımın prompt'larını yüklenmiş değerlerle besler — her prompt'ta Enter'a basmak mevcut değeri korur. Save akışı aynı path'e overwrite'a default'lar; mevcut overwrite confirmation üzerine yazmadan önce hâlâ tetiklenir.
+Sihirbaz YAML'ı okur, `ForgeConfig` ile önden doğrular (schema reddetmesi anında patlar) ve her adımın prompt'larını yüklenmiş değerlerle besler — her sayısal / metin prompt'unda Enter'a basmak mevcut değeri korur. Choice prompt'ları (Strategy, Target modules, Trainer, Use-case) yüklenen değeri tespit edip default index'i ona göre kaydırır, böylece Enter yine korur. Use-case step'i (Adım 2), mevcut model + trainer seçimi tespit edildiğinde **tamamen atlanır** — ilk template preset'inin bunları override etmesini önlemek için. Save akışı aynı path'e overwrite'a default'lar; mevcut overwrite confirmation üzerine yazmadan önce hâlâ tetiklenir.
+
+**Dikkat:** prompt edilmeyen Annex IV / risk-assessment alanları (örn. `lora.dropout`, `lora.bias`, `lora.task_type`) artık override edilmek yerine `setdefault` pattern'iyle korunuyor — review-cycle 4 (PR-E, 2026-05-09) bu regression'ı kapattı.
 
 ### Seçenek B: Şablon Kopyala
 

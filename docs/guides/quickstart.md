@@ -77,7 +77,9 @@ Operator guardrails layered on by review-cycle 2 (2026-05-09): the wizard runs `
 forgelm --wizard --wizard-start-from my_config.yaml
 ```
 
-The wizard reads the YAML, validates it against `ForgeConfig` up-front (immediate failure on schema violation), and seeds each step's prompts with the loaded values — pressing Enter at each prompt keeps the existing value.  The save flow defaults to overwriting the same path; the existing overwrite confirmation still fires before clobbering.
+The wizard reads the YAML, validates it against `ForgeConfig` up-front (immediate failure on schema violation), and seeds each step's prompts with the loaded values — pressing Enter at each numeric / text prompt keeps the existing value.  Choice prompts (Strategy, Target modules, Trainer, Use-case) detect the loaded value and shift their default index to match, so Enter still preserves it.  The use-case step (Step 2) is skipped entirely when an existing model + trainer choice is detected, to avoid overwriting them with the first template's preset.  The save flow defaults to overwriting the same path; the existing overwrite confirmation still fires before clobbering.
+
+**Heads-up:** non-prompted Annex IV / risk-assessment fields (e.g., `lora.dropout`, `lora.bias`, `lora.task_type`) are now preserved via `setdefault` patterns rather than overwritten — review-cycle 4 (PR-E, 2026-05-09) closed this regression.
 
 ### Option B: Copy Template
 

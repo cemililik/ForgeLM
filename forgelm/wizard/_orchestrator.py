@@ -223,11 +223,27 @@ def _step_welcome(state: _WizardState) -> None:
         _print("  Recommended backend: unsloth (Linux + GPU detected)")
     elif hw["gpu_available"]:
         _print("  Recommended backend: transformers (Unsloth requires Linux)")
-    state.config.setdefault("model", {})["backend"] = suggested_backend
+    # PR-D-A4 (PR-E review fix): use a chained ``setdefault`` so an
+    # existing ``model.backend`` from ``--wizard-start-from`` survives
+    # the hardware-driven suggestion.  Prior code used
+    # ``setdefault("model", {})["backend"] = ...`` which only guarded
+    # the OUTER dict — the nested ``backend`` key was always
+    # overwritten.
+    state.config.setdefault("model", {}).setdefault("backend", suggested_backend)
 
 
 def _step_use_case(state: _WizardState) -> None:
-    """Step 2: use-case preselect."""
+    """Step 2: use-case preselect.
+
+    PR-D-A3 (PR-E review fix): when the wizard was started from an
+    existing YAML (``state.use_case == _MANUAL_USE_CASE`` and
+    ``state.config`` already carries ``model.name_or_path`` /
+    ``training.trainer_type``), the operator's intent is "iterate on
+    this config" — we skip the use-case prompt entirely so a bare
+    Enter doesn't silently overwrite their model + trainer choices
+    with the first template's preset.  The pre-cycle behaviour
+    (greenfield wizard run) is preserved for fresh runs.
+    """
     _print("\n[2/9] Use-case")
     _print_tutorial(
         state,
@@ -237,12 +253,24 @@ def _step_use_case(state: _WizardState) -> None:
             "Whatever you pick, you can still override every later step.",
         ],
     )
+    has_existing_choices = bool(
+        state.config.get("model", {}).get("name_or_path") or state.config.get("training", {}).get("trainer_type")
+    )
+    if state.use_case == _MANUAL_USE_CASE and has_existing_choices:
+        _print(
+            "  Existing model / trainer choices detected — skipping use-case preset "
+            "to avoid clobbering them.  Step 3 (model) + Step 5 (trainer) will use "
+            "your loaded values as defaults."
+        )
+        return
     use_case_key, preset = _select_use_case()
     state.use_case = use_case_key
+    # Use ``setdefault`` for both nested keys so existing values
+    # survive a use-case re-pick on a partially-loaded YAML.
     if preset.get("model"):
-        state.config.setdefault("model", {})["name_or_path"] = preset["model"]
+        state.config.setdefault("model", {}).setdefault("name_or_path", preset["model"])
     if preset.get("trainer_type"):
-        state.config.setdefault("training", {})["trainer_type"] = preset["trainer_type"]
+        state.config.setdefault("training", {}).setdefault("trainer_type", preset["trainer_type"])
 
 
 def _step_model(state: _WizardState) -> None:
@@ -312,13 +340,40 @@ def _step_strategy(state: _WizardState) -> None:
             "GaLore replaces adapters with full-parameter training via gradient projection.",
         ],
     )
-    strategy = _select_strategy()
+    # PR-D-A1 (PR-E review fix): pass existing strategy hints to
+    # ``_select_strategy`` so the prompt default reflects a loaded
+    # ``lora.method`` + ``model.load_in_4bit`` + ``training.galore_enabled``
+    # triplet.  Prior code always defaulted to QLoRA, silently
+    # regressing operators iterating on DoRA / PiSSA / rsLoRA / GaLore.
+    _existing_lora_for_strategy = state.config.get("lora", {})
+    _existing_model_for_strategy = state.config.get("model", {})
+    _existing_training_for_strategy = state.config.get("training", {})
+    strategy = _select_strategy(
+        existing_method=_existing_lora_for_strategy.get("method"),
+        existing_load_in_4bit=_existing_model_for_strategy.get("load_in_4bit"),
+        existing_galore=bool(_existing_training_for_strategy.get("galore_enabled", False)),
+    )
     from ._io import _prompt_choice
 
+    # Match an existing ``lora.target_modules`` list against the three
+    # preset shapes so the operator's prior pick becomes the default.
+    target_preset_options = [
+        "standard (q_proj, v_proj)",
+        "extended (q, k, v, o)",
+        "full (all linear layers)",
+    ]
+    target_default_idx = 1
+    existing_modules = _existing_lora_for_strategy.get("target_modules")
+    if isinstance(existing_modules, list):
+        existing_set = set(existing_modules)
+        for i, key in enumerate(("standard", "extended", "full"), 1):
+            if existing_set == set(TARGET_MODULE_PRESETS[key]):
+                target_default_idx = i
+                break
     target_preset = _prompt_choice(
         "Target modules:",
-        ["standard (q_proj, v_proj)", "extended (q, k, v, o)", "full (all linear layers)"],
-        default=1,
+        target_preset_options,
+        default=target_default_idx,
     )
     preset_key = target_preset.split(" ")[0]
     target_modules = TARGET_MODULE_PRESETS.get(preset_key, TARGET_MODULE_PRESETS["standard"])
@@ -332,17 +387,16 @@ def _step_strategy(state: _WizardState) -> None:
     # bare Enter keeps them.  Falls back to the schema defaults
     # (DEFAULT_LORA_R / DEFAULT_LORA_R*2) when ``state.config`` has
     # no ``lora`` block yet.
-    existing_lora = state.config.get("lora", {})
     lora_r = _prompt_int(
         "LoRA rank (r) — capacity of the adapter (higher = more expressive, more VRAM; "
         "8 is the schema default, 16 is a common 'a bit stronger' bump, 64+ rarely helps)",
-        int(existing_lora.get("r", DEFAULT_LORA_R)),
+        int(_existing_lora_for_strategy.get("r", DEFAULT_LORA_R)),
         min_val=1,
         max_val=512,
     )
     lora_alpha = _prompt_int(
         "LoRA alpha — adapter scaling (the 'alpha = 2 × r' convention is what most papers use)",
-        int(existing_lora.get("alpha", lora_r * 2)),
+        int(_existing_lora_for_strategy.get("alpha", lora_r * 2)),
         min_val=1,
         max_val=1024,
     )
@@ -355,14 +409,21 @@ def _step_strategy(state: _WizardState) -> None:
     if strategy.load_in_4bit:
         state.config["model"].setdefault("bnb_4bit_quant_type", "nf4")
         state.config["model"].setdefault("bnb_4bit_compute_dtype", "auto")
+    # PR-D-A1 (PR-E review fix): the prompt-derived values
+    # (``lora.r``, ``lora.alpha``, ``lora.method``, ``lora.target_modules``)
+    # always reflect the operator's intent for THIS run — assign them
+    # directly.  ``dropout``, ``bias``, and ``task_type`` are NOT
+    # prompted, so use ``setdefault`` to preserve any existing values
+    # the start-from YAML might carry (custom dropout for a heavily-
+    # regularised run, ``bias=lora_only``, etc.).
     lora_block = state.config.setdefault("lora", {})
     lora_block["r"] = lora_r
     lora_block["alpha"] = lora_alpha
-    lora_block["dropout"] = DEFAULT_DROPOUT
-    lora_block["bias"] = "none"
     lora_block["method"] = strategy.method
     lora_block["target_modules"] = target_modules
-    lora_block["task_type"] = "CAUSAL_LM"
+    lora_block.setdefault("dropout", DEFAULT_DROPOUT)
+    lora_block.setdefault("bias", "none")
+    lora_block.setdefault("task_type", "CAUSAL_LM")
     state.config.setdefault("training", {})["galore_enabled"] = strategy.use_galore
     state.config.setdefault("_wizard_meta", {})["use_galore"] = strategy.use_galore
 
@@ -438,7 +499,13 @@ def _step_dataset(state: _WizardState) -> None:
     data_block.setdefault("shuffle", True)
     data_block.setdefault("clean_text", True)
     data_block.setdefault("add_eos", True)
-    governance = _collect_data_governance(mandatory=False)
+    # PR-D-B5 (PR-E review fix): pass existing governance dict so the
+    # operator iterating from a YAML doesn't re-type the Article 10
+    # free-text fields.
+    governance = _collect_data_governance(
+        mandatory=False,
+        existing=data_block.get("governance") or {},
+    )
     if governance:
         data_block["governance"] = governance
 
@@ -547,7 +614,12 @@ def _step_compliance(state: _WizardState) -> None:
         # operator's earlier answers — skip and keep what they typed.
         _print("  Article 10 data.governance already populated (Step 6 — Dataset). Keeping previous answers.")
     else:
-        governance = _collect_data_governance(mandatory=is_strict)
+        # PR-D-B5: thread existing governance values through so a
+        # strict-tier iteration uses prior answers as defaults.
+        governance = _collect_data_governance(
+            mandatory=is_strict,
+            existing=existing_governance or {},
+        )
         if governance:
             state.config.setdefault("data", {})["governance"] = governance
     retention = _collect_retention()
@@ -574,14 +646,33 @@ def _step_evaluation(state: _WizardState) -> None:
             "Synthetic-data lets a stronger teacher model generate extra training examples.",
         ],
     )
-    evaluation: Dict[str, Any] = {}
-    if _prompt_yes_no("Enable auto-revert (discard model if quality drops)?", default=False):
+    # PR-D-A2 (PR-E review fix): preserve the operator's existing
+    # evaluation block when iterating from a YAML.  Three changes
+    # vs. the pre-fix code:
+    #   1. Seed ``evaluation`` from ``state.config["evaluation"]`` so
+    #      sibling fields (``benchmark.tasks``, ``llm_judge.model``,
+    #      ``safety.severity_thresholds``) survive a "press Enter" pass.
+    #   2. Default each gate's enable-prompt to whatever was loaded so
+    #      operators with auto-revert + judge already configured don't
+    #      need to re-answer "yes" to keep them.
+    #   3. ``_collect_*`` returning ``None`` (operator declined) leaves
+    #      the existing block intact rather than wiping it — declining
+    #      is "don't reconfigure", not "delete".
+    existing_evaluation = state.config.get("evaluation") or {}
+    evaluation: Dict[str, Any] = copy.deepcopy(existing_evaluation)
+    auto_revert_default = bool(existing_evaluation.get("auto_revert", False))
+    if _prompt_yes_no(
+        "Enable auto-revert (discard model if quality drops)?",
+        default=auto_revert_default,
+    ):
         evaluation["auto_revert"] = True
+        existing_max_loss = existing_evaluation.get("max_acceptable_loss")
         # P14: when auto-revert is on but no explicit threshold is given,
         # emit the web wizard's safe ``2.0`` default rather than leaving
         # the field unset.  Mirrors ``site/js/wizard.js:163`` so the
         # two surfaces produce equivalent YAMLs for the same answers.
-        max_loss = _prompt("Max acceptable loss (leave empty for default 2.0)", "")
+        prompt_default = str(existing_max_loss) if existing_max_loss is not None else ""
+        max_loss = _prompt("Max acceptable loss (leave empty for default 2.0)", prompt_default)
         if max_loss.strip():
             try:
                 evaluation["max_acceptable_loss"] = float(max_loss)
@@ -590,10 +681,22 @@ def _step_evaluation(state: _WizardState) -> None:
                 evaluation["max_acceptable_loss"] = 2.0
         else:
             evaluation["max_acceptable_loss"] = 2.0
+    elif "auto_revert" in existing_evaluation and not auto_revert_default:
+        # No-op branch: operator left auto-revert disabled (matches
+        # existing state).  Nothing to update.
+        pass
     risk = state.config.get("compliance", {}).get("risk_classification", "minimal-risk")
-    safety = _collect_safety_config(default_enabled=risk in _STRICT_RISK_TIERS)
+    existing_safety = existing_evaluation.get("safety")
+    safety_default_enabled = (risk in _STRICT_RISK_TIERS) or bool(
+        isinstance(existing_safety, dict) and existing_safety.get("enabled")
+    )
+    safety = _collect_safety_config(default_enabled=safety_default_enabled)
     if safety:
         evaluation["safety"] = safety
+    # ``_collect_benchmark`` / ``_collect_judge`` only run their inner
+    # prompts when the operator answers "yes" to the gate question;
+    # default that gate to True when the existing block already has
+    # the gate enabled so a bare Enter keeps the prior config.
     benchmark = _collect_benchmark()
     if benchmark:
         evaluation["benchmark"] = benchmark
@@ -783,6 +886,20 @@ def run_wizard_full(start_from: Optional[str] = None) -> WizardOutcome:
     return _run_full_wizard_outcome()
 
 
+def _canonical_start_from(path: str) -> str:
+    """Return *path* with ``~`` expansion applied, as a string.
+
+    PR-D-B6 (PR-E review fix): pre-fix, the load helper expanded ``~``
+    via ``Path.expanduser`` for the existence check, but the save flow
+    received the raw operator string.  ``Path("~/x.yaml").exists()``
+    in ``_prompt_unique_filename`` returns False (Path doesn't auto-
+    expand) so the overwrite confirmation never fires and a literal
+    ``~/x.yaml`` directory ends up created.  Canonicalising once at
+    the entry point makes load + save use the same string.
+    """
+    return str(Path(path).expanduser())
+
+
 def _load_initial_state_from_yaml(path: str) -> _WizardState:
     """Build a :class:`_WizardState` pre-populated from *path*'s YAML (E3 / PR-D).
 
@@ -810,14 +927,22 @@ def _load_initial_state_from_yaml(path: str) -> _WizardState:
         raise ValueError(f"--wizard-start-from YAML failed to parse: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError(f"--wizard-start-from YAML root must be a mapping; got {type(data).__name__}")
+    # PR-D-A5 (PR-E review fix): split the try/except so a downstream
+    # ``ImportError`` from inside a Pydantic validator doesn't silently
+    # bypass schema validation.  Pre-fix the outer ``try`` covered both
+    # the import AND the validate call — a future custom validator that
+    # lazy-imports an optional dep (e.g. ``bitsandbytes``) would have
+    # silently disabled the upfront schema check that the wizard's
+    # whole "fail fast" promise depends on.
     try:
         from ..config import ForgeConfig
-
-        ForgeConfig.model_validate(data)
     except ImportError:  # pragma: no cover — config always present
-        pass
-    except Exception as exc:  # noqa: BLE001 — pydantic raises ValidationError; surface to operator
-        raise ValueError(f"--wizard-start-from YAML failed schema validation: {exc}") from exc
+        ForgeConfig = None  # type: ignore[assignment]
+    if ForgeConfig is not None:
+        try:
+            ForgeConfig.model_validate(data)
+        except Exception as exc:  # noqa: BLE001 — pydantic raises ValidationError; surface to operator
+            raise ValueError(f"--wizard-start-from YAML failed schema validation: {exc}") from exc
     state = _WizardState(
         experience="expert",  # YAML-supplied operators are typically expert
         use_case=_MANUAL_USE_CASE,  # already-edited config; no preset re-application
@@ -830,7 +955,29 @@ def _load_initial_state_from_yaml(path: str) -> _WizardState:
 
 def _run_full_wizard_outcome(start_from: Optional[str] = None) -> WizardOutcome:
     """9-step interactive flow producing a hand-rolled config.yaml."""
+    # PR-D-B6 (PR-E review fix): canonicalise ``start_from`` once
+    # so subsequent ``Path(...).exists()`` / save-default checks use
+    # the same expanded form.  ``~/x.yaml`` is a common shell
+    # shortcut; expanding it here means the breadcrumb prints a
+    # consistent path AND the save flow's overwrite confirmation
+    # fires correctly.
     if start_from is not None:
+        start_from = _canonical_start_from(start_from)
+        # PR-D-A6 (PR-E review fix): warn the operator when an
+        # in-progress resume snapshot exists — the start-from path
+        # takes precedence and the snapshot will be cleared at save
+        # time.  Pre-fix this happened silently, so a Ctrl-C'd wizard
+        # from yesterday quietly disappeared.
+        existing_snapshot = _load_wizard_state()
+        if existing_snapshot:
+            completed = existing_snapshot.get("completed_steps", [])
+            _print(
+                f"\n  ⚠ In-progress wizard snapshot detected at "
+                f"{_wizard_state_path()} ({len(completed)} step(s) completed).\n"
+                "    --wizard-start-from takes precedence; the snapshot will be "
+                "discarded at save time.  Cancel now (Ctrl-C) and rerun "
+                "``forgelm --wizard`` (without --wizard-start-from) to resume it."
+            )
         try:
             state = _load_initial_state_from_yaml(start_from)
         except (FileNotFoundError, ValueError) as exc:

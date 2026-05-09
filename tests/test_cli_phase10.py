@@ -399,6 +399,33 @@ class TestSubcommandRouting:
                     main()
         assert exc_info.value.code == EXIT_WIZARD_CANCELLED
 
+    def test_wizard_start_from_threads_through_to_run_wizard_full(self, monkeypatch):
+        """PR-D-B1 (PR-E review fix): the --wizard-start-from flag must reach
+        run_wizard_full as the start_from kwarg.
+
+        Pre-fix coverage stopped at the orchestrator boundary; a future
+        rename of the argparse ``dest`` would silently regress to
+        ``None`` (legacy behaviour) without any test catching it.  This
+        test stubs ``run_wizard_full`` to capture its kwargs, builds an
+        argparse Namespace via the real parser, and asserts the path
+        flowed through parser → dispatcher → wizard.
+        """
+        from forgelm.wizard._orchestrator import WizardOutcome
+
+        captured: dict = {}
+
+        def _stub_run_wizard_full(*, start_from=None):
+            captured["start_from"] = start_from
+            return WizardOutcome(config_path=None, start_training=False)
+
+        with patch("forgelm.wizard.run_wizard_full", _stub_run_wizard_full):
+            with patch("sys.argv", ["forgelm", "--wizard", "--wizard-start-from", "/tmp/some-config.yaml"]):
+                with pytest.raises(SystemExit):
+                    main()
+        assert captured["start_from"] == "/tmp/some-config.yaml", (
+            "--wizard-start-from did not thread through to run_wizard_full"
+        )
+
     def test_wizard_start_training_routes_through_dispatcher(self, monkeypatch, tmp_path, minimal_config):
         """E22-24 (review-cycle 3): the start_training=True branch must mutate
         ``args.config`` and let the trainer pipeline take over.
