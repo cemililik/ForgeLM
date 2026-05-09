@@ -7,13 +7,17 @@ All notable changes to ForgeLM are documented here.
 ### Added
 
 - **CLI wizard parity-with-web (Phase 22).** `forgelm --wizard` now
-  runs the same 9-step flow as the in-browser wizard at
-  `forgelm.dev/quickstart`: welcome → use-case → model → strategy →
-  trainer → dataset → training-params → compliance → evaluation, with
-  `back` / `b` to navigate backwards and `reset` / `r` to clear in-
-  memory state. The wizard module was split into a sub-package
-  (`forgelm/wizard/`) for orchestrator / state / collectors / BYOD /
-  IO concerns.
+  covers the same nine user-visible stages as the in-browser wizard
+  at `forgelm.dev/quickstart` and produces the same generated YAML.
+  Internal step IDs and the trainer-vs-model order may differ between
+  the two surfaces by design — both flows reach an equivalent
+  `ForgeConfig` shape; the divergence is documented inline at
+  `forgelm/wizard/_orchestrator.py`. The CLI flow is welcome →
+  use-case → model → strategy → trainer → dataset → training-params
+  → compliance → evaluation, with `back` / `b` to navigate backwards
+  and `reset` / `r` to clear in-memory state. The wizard module was
+  split into a sub-package (`forgelm/wizard/`) for orchestrator /
+  state / collectors / BYOD / IO concerns.
   - **Idempotent re-run:** `forgelm --wizard --wizard-start-from
     /path/to/existing.yaml` reads the YAML, validates it against
     `ForgeConfig` up front, and seeds the wizard with the loaded
@@ -105,18 +109,19 @@ All notable changes to ForgeLM are documented here.
 
 ### Changed
 
-- **Working-memory directories cleanup.** `docs/marketing/` and
-  `docs/analysis/` are now strictly gitignored with no exceptions.
-  These directories carry operator-local research, audit drafts, and
-  external-repo comparisons that never appear in fresh clones; any
-  reference to them from a public-tree file rots into a 404 the
-  moment the maintainer touches the local working-memory tree. The
-  rule is now codified in `docs/standards/documentation.md`
-  ("Working-memory directories"), enforced by a new CI guard
-  (`tools/check_no_analysis_refs.py`) wired into the self-review
-  chain in `CLAUDE.md`. False positives (functional path filters in
-  production code) are handled via an `_EXEMPT` allowlist with per-
-  entry justification comments.
+- **Working-memory directories cleanup.** Operator-local research,
+  audit drafts, and external-repo comparisons now live in
+  working-memory directories that are strictly gitignored with no
+  exceptions and never appear in fresh clones. The previous
+  re-include carve-outs that exposed individual files were dropped,
+  the working-memory tree was untracked at the directory level, and
+  every public-tree citation pointing into it was rewritten or
+  removed. The rule is now codified in
+  `docs/standards/documentation.md` ("Working-memory directories"),
+  enforced by a new CI guard (`tools/check_no_analysis_refs.py`)
+  wired into the self-review chain in `CLAUDE.md`. False positives
+  (functional path filters in production code) are handled via an
+  `_EXEMPT` allowlist with per-entry justification comments.
 
 - **Site copy now matches the live code surface.** Sweep across
   `site/*.html` and `site/js/translations.js` correcting drift that

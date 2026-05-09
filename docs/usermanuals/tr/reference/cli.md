@@ -209,6 +209,7 @@ Env var set değilse ForgeLM config yüklemede net bir hata ile çıkar — eği
 | 2 | Audit warning (`--strict` ile) / probe crash (`forgelm doctor`) |
 | 3 | Auto-revert / regression |
 | 4 | İnsan onayı bekleniyor (eğitim pipeline) |
+| 5 | Sihirbaz iptal (operatör kaydı reddetti / non-tty reddi) |
 | 130 | Kullanıcı kesintiye uğrattı (Ctrl+C) |
 
 Tam kontrat için bkz. [Exit Kodları](#/reference/exit-codes).

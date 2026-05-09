@@ -48,8 +48,13 @@ entry point.)
 
 The shipped wizard (Phase 22 / 2026-05-08 modernisation) runs **9 steps**
 plus an optional quickstart-template prelude (`_maybe_run_quickstart_template`).
-Step ordering and naming are kept in lockstep with the in-browser web
-wizard at `site/js/wizard.js`:
+The flow listed below describes the CLI surface; the in-browser web wizard
+at `site/js/wizard.js` covers the same nine user-visible stages but uses
+different internal step IDs and a `trainer ↔ model` order swap motivated by
+the web's preset-driven flow (web order: `welcome → use-case → trainer →
+model → dataset → training → compliance → operations → review`). Both
+surfaces produce the same generated YAML; the divergence is by design and
+documented inline at `forgelm/wizard/_orchestrator.py`:
 
 0. **Quickstart prelude** *(optional)*: offer the curated
    `forgelm/quickstart.py::TEMPLATES` list (`customer-support`,

@@ -209,6 +209,7 @@ If the env var isn't set, ForgeLM fails at config load with a clear error — be
 | 2 | Audit warnings (with `--strict`) / probe crash (`forgelm doctor`) |
 | 3 | Auto-revert / regression |
 | 4 | Awaiting human approval (training pipeline) |
+| 5 | Wizard cancelled (operator declined to save / non-tty refusal) |
 | 130 | User interrupted (Ctrl+C) |
 
 See [Exit Codes](#/reference/exit-codes) for the full contract.

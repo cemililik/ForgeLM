@@ -328,8 +328,9 @@ def _build_argparser() -> argparse.ArgumentParser:
             "Default exclude list strips ``analysis/`` only — gitignored "
             "working-memory directories carry local-only path references "
             "and are excluded by default.  Passing ``--exclude`` REPLACES "
-            "the default (e.g. pass ``--exclude ''`` or omit the default "
-            "to scan everything)."
+            "the default; empty values are ignored (default still applies), "
+            "so use a non-matching path (e.g. ``--exclude __none__``) when "
+            "the goal is to scan everything."
         ),
     )
     parser.add_argument(

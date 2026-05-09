@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
@@ -442,8 +443,51 @@ def _print_step_diff(prev: Mapping[str, Any], curr: Mapping[str, Any], step_labe
 # ---------------------------------------------------------------------------
 
 
+def _atomic_yaml_write(payload: Dict[str, Any], target_path: str) -> None:
+    """Serialise *payload* to *target_path* via temp file + ``os.replace``.
+
+    Mirrors the wizard-state atomic-write pattern: a SIGKILL / power
+    loss / concurrent process between the YAML dump and the rename
+    cannot corrupt or truncate ``target_path``.  Critical for
+    ``--wizard-start-from`` reruns where the target may be the
+    operator's existing config — an interrupted plain ``open(..., "w")``
+    would leave them with neither the old config nor a complete new
+    one.  ``os.replace`` is atomic on POSIX and Windows (when source
+    and destination live on the same filesystem, which the
+    ``dir=parent`` argument below guarantees).
+    """
+    target = Path(target_path)
+    parent = target.parent if str(target.parent) else Path(".")
+    parent.mkdir(parents=True, exist_ok=True)
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=str(parent),
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        delete=False,
+    )
+    tmp_name = tmp.name
+    try:
+        try:
+            yaml.safe_dump(payload, tmp, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        finally:
+            tmp.close()
+        os.replace(tmp_name, target_path)
+        tmp_name = None  # successful rename
+    finally:
+        if tmp_name is not None:
+            _safe_unlink(tmp_name)
+
+
 def _save_config_to_file(config: Dict[str, Any], requested_filename: str) -> str:
     """Write *config* as YAML; falls back to a unique filename on OSError.
+
+    Atomic via temp file + ``os.replace`` (see :func:`_atomic_yaml_write`)
+    so an interrupted save during a ``--wizard-start-from`` rerun
+    cannot corrupt the operator's pre-existing config.
 
     Uses ``yaml.safe_dump`` so unknown Python objects (e.g. accidental
     ``Path`` / ``set`` leak from a collector) raise a representable
@@ -451,8 +495,7 @@ def _save_config_to_file(config: Dict[str, Any], requested_filename: str) -> str
     tag that ``ForgeConfig`` then rejects on load.
     """
     try:
-        with open(requested_filename, "w", encoding="utf-8") as f:
-            yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        _atomic_yaml_write(config, requested_filename)
         _print(f"\n  Config saved to: {requested_filename}")
         logger.info("Wizard config saved to %s", requested_filename)
         return requested_filename
@@ -468,8 +511,7 @@ def _save_config_to_file(config: Dict[str, Any], requested_filename: str) -> str
         f"{base}_{_dt.now().strftime('%Y%m%d_%H%M%S')}.yaml",
     )
     try:
-        with open(fallback, "w", encoding="utf-8") as f:
-            yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        _atomic_yaml_write(config, fallback)
         _print(f"  Saved to fallback location: {fallback}")
         logger.info("Wizard config saved to fallback location %s", fallback)
         return fallback

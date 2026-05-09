@@ -80,16 +80,6 @@ _EXEMPT: dict[str, frozenset[str]] = {
     ".gitignore": frozenset({"docs/marketing/", "docs/analysis/"}),
     # CLAUDE.md carries the policy statement that names the directories.
     "CLAUDE.md": frozenset({"docs/marketing/", "docs/analysis/"}),
-    # CHANGELOG.md announces the policy itself (review-cycle 5 entry that
-    # explains *why* docs/analysis/ + docs/marketing/ are now gitignored
-    # and which guard enforces it).  Naming the dirs here is the
-    # documentation; it is not a content citation.
-    "CHANGELOG.md": frozenset({"docs/marketing/", "docs/analysis/"}),
-    # docs/roadmap/releases.md describes the working-memory directory
-    # policy as a release-note bullet under the upcoming PyPI release.
-    # Same rationale as CHANGELOG.md — naming the dirs is the policy
-    # statement, not a content reference.
-    "docs/roadmap/releases.md": frozenset({"docs/marketing/", "docs/analysis/"}),
     # The standards file IS the rule about these directories.
     "docs/standards/documentation.md": frozenset({"docs/marketing/", "docs/analysis/"}),
     # Localization standard names docs/marketing as a mixed-language
@@ -141,7 +131,7 @@ def _enumerate_public_files() -> List[Path]:
             for p in _REPO_ROOT.glob(pat):
                 if p.is_file():
                     files.append(p)
-        return sorted({p for p in files})
+        return sorted(set(files))
     tracked: List[Path] = []
     suffixes = (".md", ".py", ".html", ".js", ".css")
     for line in result.stdout.splitlines():

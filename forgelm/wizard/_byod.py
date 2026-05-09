@@ -347,9 +347,10 @@ def _maybe_run_quickstart_template() -> Optional[str]:
 
 def _finalize_quickstart_path(quickstart_path: str) -> Optional[str]:
     """Ask whether to start training now with the quickstart-generated config."""
+    quoted_path = shlex.quote(quickstart_path)
     if _prompt_yes_no("Start training now with the generated config?", default=False):
-        _print(f"\n  Running: forgelm --config {quickstart_path}")
+        _print(f"\n  Running: forgelm --config {quoted_path}")
         return quickstart_path
     _print("\n  To start training later, run:")
-    _print(f"    forgelm --config {quickstart_path}")
+    _print(f"    forgelm --config {quoted_path}")
     return None

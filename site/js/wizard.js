@@ -1255,6 +1255,20 @@
       if (e.key !== STORAGE_KEY) return;
       if (modal.hasAttribute('hidden')) return; // not visible — nothing to refresh
       try {
+        // Cross-tab reset: a sibling tab cleared the wizard
+        // (operator typed `reset`/`r` or finished successfully); the
+        // ``storage`` event arrives with ``e.newValue === null``.  We
+        // can't ``loadState`` ourselves because nothing is persisted,
+        // so explicitly reset the in-memory state to defaults and
+        // re-render so this tab's UI doesn't drift into a config that
+        // no longer exists.
+        if (e.newValue === null) {
+          var fallback = defaultState();
+          Object.keys(state).forEach(function (k) { delete state[k]; });
+          Object.keys(fallback).forEach(function (k) { state[k] = fallback[k]; });
+          render();
+          return;
+        }
         var fresh = loadState();
         if (fresh) {
           // Mutate state in place so closures (persist, render) keep
@@ -2024,9 +2038,9 @@
       }
     });
     var maxLengthRow = el('div', { class: 'wizard-row' }, [
-      el('label', { class: 'wizard-row-label', text: 'Max sequence length' }),
+      el('label', { class: 'wizard-row-label', text: tr('wizard.training.max_length.label') }),
       maxLengthInput,
-      el('span', { class: 'wizard-row-hint', text: 'Tokens per training example. 2048 is the safe default; raise for long-context models (RoPE scaling kicks in above 4096).' })
+      el('span', { class: 'wizard-row-hint', text: tr('wizard.training.max_length.hint') })
     ]);
     pane.appendChild(maxLengthRow);
 

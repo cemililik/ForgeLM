@@ -1557,10 +1557,13 @@ class TestPRDA1StrategyHonorsExisting:
 class TestPRDA2EvaluationHonorsExisting:
     """PR-D-A2 — _step_evaluation preserves benchmark/llm_judge/safety on Enter."""
 
-    def test_existing_benchmark_and_judge_preserved(self, isolated_state_dir):
+    def test_existing_benchmark_and_judge_preserved_on_enter(self, isolated_state_dir):
         # Operator iterates from a YAML with benchmark + judge already
-        # configured.  Declining each gate prompt MUST keep the prior
-        # block intact (pre-fix it was wiped via fresh ``evaluation = {}``).
+        # configured.  Pressing Enter through each gate prompt — whose
+        # default reflects the prior ``enabled`` state — keeps the
+        # block intact; inner prompts also default to the loaded values
+        # so a bare-Enter rerun produces a YAML byte-equivalent to the
+        # input.  Pin the keep-on-Enter contract.
         state = wizard._WizardState(
             config={
                 "evaluation": {
@@ -1574,20 +1577,54 @@ class TestPRDA2EvaluationHonorsExisting:
         with patch(
             "builtins.input",
             side_effect=_input_returning(
-                "y",  # auto-revert (default=True now since existing has it)
-                "",  # max_acceptable_loss = "" → default 2.0; but existing 1.5 is shown as default
-                "n",  # safety eval
-                "n",  # benchmark
-                "n",  # judge
+                "",  # auto-revert gate (default=True — existing has it)
+                "",  # max_acceptable_loss (existing 1.5)
+                "n",  # safety eval (no existing block — default-False)
+                "",  # benchmark gate (default=True — existing.tasks set)
+                "",  # benchmark tasks (default "mmlu, arc_easy")
+                "",  # benchmark min_score (default 0.6)
+                "",  # judge gate (default=True — existing.judge_model set)
+                "",  # judge_model (default "gpt-4o")
+                "",  # judge_api_key_env (default "OPENAI_API_KEY")
+                "",  # judge min_score (default 7.0)
                 "n",  # webhook
                 "n",  # synthetic
             ),
         ):
             wizard._orchestrator._step_evaluation(state)
-        # Critical: declining the benchmark + judge gates must NOT
-        # delete the existing blocks.
         assert state.config["evaluation"]["benchmark"]["tasks"] == ["mmlu", "arc_easy"]
+        assert state.config["evaluation"]["benchmark"]["min_score"] == 0.6
         assert state.config["evaluation"]["llm_judge"]["judge_model"] == "gpt-4o"
+        assert state.config["evaluation"]["llm_judge"]["min_score"] == 7.0
+
+    def test_existing_benchmark_and_judge_dropped_on_explicit_no(self, isolated_state_dir):
+        # Operator explicitly disables previously-enabled gates on a
+        # rerun.  The previous "decline = preserve" semantics made it
+        # impossible to turn a feature OFF via the wizard; a typed "n"
+        # now drops the block from the rebuild.  Pin the explicit-
+        # disable contract.
+        state = wizard._WizardState(
+            config={
+                "evaluation": {
+                    "benchmark": {"enabled": True, "tasks": ["mmlu"]},
+                    "llm_judge": {"enabled": True, "judge_model": "gpt-4o"},
+                }
+            }
+        )
+        with patch(
+            "builtins.input",
+            side_effect=_input_returning(
+                "n",  # auto-revert
+                "n",  # safety
+                "n",  # benchmark — explicit decline
+                "n",  # judge — explicit decline
+                "n",  # webhook
+                "n",  # synthetic
+            ),
+        ):
+            wizard._orchestrator._step_evaluation(state)
+        assert "benchmark" not in state.config["evaluation"]
+        assert "llm_judge" not in state.config["evaluation"]
 
     def test_auto_revert_default_reflects_existing(self, isolated_state_dir, capsys):
         state = wizard._WizardState(config={"evaluation": {"auto_revert": True, "max_acceptable_loss": 1.5}})
@@ -1603,12 +1640,11 @@ class TestPRDA2EvaluationHonorsExisting:
             ),
         ):
             wizard._orchestrator._step_evaluation(state)
-        # Operator explicitly answered "no", so auto_revert is removed
-        # from the rebuild — existing-state preservation only kicks in
-        # for blocks whose collector returned None (operator wasn't
-        # asked anew).  This test pins the explicit-disable contract.
-        # Existing fields preserved via deepcopy of existing block.
-        assert state.config["evaluation"].get("auto_revert") in (True, False)
+        # Operator explicitly answered "no" to the auto-revert prompt
+        # whose default reflected the existing ``True`` value.  Pin the
+        # explicit-disable contract: a "no" must override the loaded
+        # state, leaving auto_revert disabled (False) on the rebuild.
+        assert state.config["evaluation"].get("auto_revert") is False
 
 
 class TestPRDA3UseCaseSkipsWhenExisting:

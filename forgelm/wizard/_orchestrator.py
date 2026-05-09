@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -466,8 +467,13 @@ def _step_trainer(state: _WizardState) -> None:
     }.get(trainer_type, "Standard format")
     _print(f"  Dataset format: {dataset_format_hint}")
     training_block = state.config.setdefault("training", {})
+    # Snapshot the existing per-trainer knobs *before* writing the new
+    # ``trainer_type`` so the helper sees the loaded YAML's prior values
+    # as prompt defaults (rather than the schema literals) on a
+    # ``--wizard-start-from`` rerun.
+    existing_training = dict(training_block)
     training_block["trainer_type"] = trainer_type
-    hyperparams = _collect_trainer_hyperparameters(trainer_type)
+    hyperparams = _collect_trainer_hyperparameters(trainer_type, existing=existing_training)
     training_block.update(hyperparams)
 
 
@@ -550,14 +556,22 @@ def _step_training_params(state: _WizardState) -> None:
         max_val=131072,
     )
     output_dir = _prompt("Output directory", existing_training.get("output_dir", "./checkpoints"))
-    rope_scaling = _collect_rope_scaling(max_length)
+    rope_scaling = _collect_rope_scaling(
+        max_length,
+        existing=existing_training.get("rope_scaling")
+        if isinstance(existing_training.get("rope_scaling"), dict)
+        else None,
+    )
     neftune_alpha = _collect_neftune_alpha()
     use_oom_recovery = _prompt_yes_no(
         "Enable OOM recovery? (auto-halves batch size on CUDA out-of-memory, then retries)",
         default=False,
     )
     use_galore = bool(state.config.get("_wizard_meta", {}).get("use_galore"))
-    galore_config = _collect_galore_config(use_galore)
+    # ``existing_training`` already carries the loaded ``galore_*`` keys
+    # at the top level (TrainingConfig is a flat block); pass it through
+    # so the collector can offer to keep the prior tuning.
+    galore_config = _collect_galore_config(use_galore, existing=existing_training)
     model_block = state.config.setdefault("model", {})
     model_block["max_length"] = max_length
     training_block = state.config.setdefault("training", {})
@@ -667,10 +681,10 @@ def _step_evaluation(state: _WizardState) -> None:
     ):
         evaluation["auto_revert"] = True
         existing_max_loss = existing_evaluation.get("max_acceptable_loss")
-        # P14: when auto-revert is on but no explicit threshold is given,
+        # When auto-revert is on but no explicit threshold is given,
         # emit the web wizard's safe ``2.0`` default rather than leaving
-        # the field unset.  Mirrors ``site/js/wizard.js:163`` so the
-        # two surfaces produce equivalent YAMLs for the same answers.
+        # the field unset.  Mirrors ``site/js/wizard.js`` so the two
+        # surfaces produce equivalent YAMLs for the same answers.
         prompt_default = str(existing_max_loss) if existing_max_loss is not None else ""
         max_loss = _prompt("Max acceptable loss (leave empty for default 2.0)", prompt_default)
         if max_loss.strip():
@@ -681,28 +695,53 @@ def _step_evaluation(state: _WizardState) -> None:
                 evaluation["max_acceptable_loss"] = 2.0
         else:
             evaluation["max_acceptable_loss"] = 2.0
-    elif "auto_revert" in existing_evaluation and not auto_revert_default:
-        # No-op branch: operator left auto-revert disabled (matches
-        # existing state).  Nothing to update.
-        pass
+    else:
+        # Explicit "no" — operator turned auto-revert OFF on this run.
+        # The deepcopy of ``existing_evaluation`` would otherwise leave
+        # ``auto_revert: true`` (and a stale ``max_acceptable_loss``)
+        # in the rebuild, ignoring the operator's choice.  Pin the
+        # contract: a "no" answer always disables, regardless of the
+        # loaded state.
+        evaluation["auto_revert"] = False
+        evaluation.pop("max_acceptable_loss", None)
     risk = state.config.get("compliance", {}).get("risk_classification", "minimal-risk")
     existing_safety = existing_evaluation.get("safety")
     safety_default_enabled = (risk in _STRICT_RISK_TIERS) or bool(
         isinstance(existing_safety, dict) and existing_safety.get("enabled")
     )
-    safety = _collect_safety_config(default_enabled=safety_default_enabled)
+    safety = _collect_safety_config(
+        default_enabled=safety_default_enabled,
+        existing=existing_safety if isinstance(existing_safety, dict) else None,
+    )
     if safety:
         evaluation["safety"] = safety
-    # ``_collect_benchmark`` / ``_collect_judge`` only run their inner
-    # prompts when the operator answers "yes" to the gate question;
-    # default that gate to True when the existing block already has
-    # the gate enabled so a bare Enter keeps the prior config.
-    benchmark = _collect_benchmark()
+    else:
+        # Operator declined safety eval at the gate prompt.  Drop any
+        # loaded safety block so the rebuild reflects the current
+        # answer rather than silently re-enabling on a deepcopy.
+        evaluation.pop("safety", None)
+    # ``_collect_benchmark`` / ``_collect_judge`` accept the loaded
+    # block via *existing* so a rerun with a populated benchmark / judge
+    # config defaults the gate prompt to "yes" (bare Enter keeps it).
+    # An explicit "no" returns ``None`` and pops the block — the
+    # explicit-disable contract that lets a rerun actually turn
+    # previously-enabled gates off.
+    existing_benchmark = existing_evaluation.get("benchmark")
+    benchmark = _collect_benchmark(
+        existing=existing_benchmark if isinstance(existing_benchmark, dict) else None,
+    )
     if benchmark:
         evaluation["benchmark"] = benchmark
-    judge = _collect_judge()
+    else:
+        evaluation.pop("benchmark", None)
+    existing_judge = existing_evaluation.get("llm_judge")
+    judge = _collect_judge(
+        existing=existing_judge if isinstance(existing_judge, dict) else None,
+    )
     if judge:
         evaluation["llm_judge"] = judge
+    else:
+        evaluation.pop("llm_judge", None)
     if evaluation:
         state.config["evaluation"] = evaluation
     webhook_section = _collect_webhook_config()
@@ -1012,14 +1051,14 @@ def _run_full_wizard_outcome(start_from: Optional[str] = None) -> WizardOutcome:
     config_filename = _save_config_to_file(config, config_filename)
     _print_preflight_checklist(config, state)
     _print_wizard_summary(config)
-    _validate_generated_config(config_filename)
+    is_valid = _validate_generated_config(config_filename)
     _clear_wizard_state()
-    if _prompt_yes_no("Start training now?", default=False):
-        _print(f"\n  Running: forgelm --config {config_filename}")
+    if is_valid and _prompt_yes_no("Start training now?", default=False):
+        _print(f"\n  Running: forgelm --config {shlex.quote(config_filename)}")
         _print()
         return WizardOutcome(config_path=config_filename, start_training=True)
     _print("\n  To start training later, run:")
-    _print(f"    forgelm --config {config_filename}")
+    _print(f"    forgelm --config {shlex.quote(config_filename)}")
     _print()
     return WizardOutcome(config_path=config_filename, start_training=False)
 
@@ -1067,29 +1106,31 @@ def _next_free_filename(path: str) -> str:
         counter += 1
 
 
-def _validate_generated_config(config_filename: str) -> None:
+def _validate_generated_config(config_filename: str) -> bool:
     """Validate the wizard's output against ``ForgeConfig`` before exit.
 
     Catches schema violations (e.g., F-compliance-110 strict-tier
     leftovers, accidentally-emitted incompatible field combinations)
     BEFORE the operator runs ``forgelm --config <path>`` and discovers
-    the breakage 30 seconds in.  Re-prompts the operator on failure
-    with a clear "wizard output failed validation" hint, and (G30 /
-    review-cycle 3) emits a structured WARNING log line so CI / log
-    pipelines see the failure without scraping stdout.
+    the breakage 30 seconds in.  Returns ``True`` on a clean validation
+    and ``False`` on any failure (or when the config / yaml imports
+    are missing) so the caller can short-circuit the immediate-train
+    branch and never offer "Start training now?" against a YAML the
+    schema already rejected.  Emits a structured WARNING log line so
+    CI / log pipelines see the failure without scraping stdout.
     """
     try:
         import yaml as _yaml
 
         from ..config import ForgeConfig
     except ImportError:  # pragma: no cover — config always present
-        return
+        return False
     try:
         with open(config_filename, "r", encoding="utf-8") as fh:
             data = _yaml.safe_load(fh) or {}
         ForgeConfig.model_validate(data)
     except Exception as exc:  # noqa: BLE001 — pydantic raises ValidationError; yaml raises YAMLError
-        # G30: structured-log visibility per docs/standards/error-handling.md.
+        # Structured-log visibility per docs/standards/error-handling.md.
         # Operators tail audit / CI logs and miss stdout-only failures;
         # the WARNING line keeps the "wizard wrote a YAML the schema
         # rejects" event in the same channel as every other config-time
@@ -1103,8 +1144,9 @@ def _validate_generated_config(config_filename: str) -> None:
             "  The YAML was saved but will fail to load.  Hand-edit the file or "
             "rerun the wizard.  This is rare — usually a strict-tier coercion gap."
         )
-        return
+        return False
     _print("  ✓ Schema validation passed.")
+    return True
 
 
 def _print_preflight_checklist(config: Dict[str, Any], state: Optional[_WizardState] = None) -> None:

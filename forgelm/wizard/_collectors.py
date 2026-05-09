@@ -197,56 +197,74 @@ def _collect_webhook_config() -> Optional[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def _collect_safety_config(*, default_enabled: bool = False) -> Optional[Dict[str, Any]]:
+def _collect_safety_config(
+    *,
+    default_enabled: bool = False,
+    existing: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
     """Prompt for safety eval; returns the safety section or None.
 
     *default_enabled* is set to ``True`` by ``_apply_strict_tier_coercion``
     so high-risk operators see "Y/n" instead of "y/N" — the hint is
     the nudge.
+
+    *existing* lets ``--wizard-start-from`` reruns honour the loaded
+    YAML's prior choices: prompt defaults are taken from the existing
+    block, and ``track_categories`` / ``severity_thresholds`` flow
+    through verbatim when the operator declines the re-prompt.  A
+    bare Enter at every step preserves the prior config.
     """
     if not _prompt_yes_no("Enable safety evaluation (Llama Guard)?", default=default_enabled):
         return None
+    existing = existing or {}
+    existing_scoring = existing.get("scoring")
+    scoring_default = 2 if existing_scoring == "confidence_weighted" else 1
     scoring_choice = _prompt_choice(
         "Safety scoring mode:",
         [
             "binary (simple safe/unsafe ratio)",
             "confidence_weighted (uses classifier confidence)",
         ],
-        default=1,
+        default=scoring_default,
     )
     scoring_mode = "confidence_weighted" if "confidence" in scoring_choice else "binary"
+    classifier_default = existing.get("classifier") or "meta-llama/Llama-Guard-3-8B"
     safety: Dict[str, Any] = {
         "enabled": True,
-        # P1/P18: classifier name + max_safety_regression were previously
-        # only emitted by the web wizard.  Surface both here so a CLI-
-        # generated YAML and a web-generated YAML share the same
-        # ``evaluation.safety`` shape.  Both fall back to schema defaults
-        # so the prompt stays light unless the operator wants to override.
+        # ``classifier`` and ``max_safety_regression`` were originally
+        # web-wizard-only fields.  Surfacing both here keeps CLI- and
+        # web-generated YAMLs structurally equivalent; defaults fall
+        # through to the loaded value when an existing block is passed.
         "classifier": _prompt(
             "Harm classifier (HF Hub ID — leave empty for Llama-Guard-3-8B default)",
-            "meta-llama/Llama-Guard-3-8B",
+            classifier_default,
         )
-        or "meta-llama/Llama-Guard-3-8B",
-        "test_prompts": _default_safety_probes_path(),
+        or classifier_default,
+        "test_prompts": existing.get("test_prompts") or _default_safety_probes_path(),
         "scoring": scoring_mode,
         "max_safety_regression": _prompt_float(
             "max_safety_regression (0.0-1.0; auto-revert above this unsafe-response ratio)",
-            0.05,
+            float(existing.get("max_safety_regression", 0.05)),
             min_val=0.0,
             max_val=1.0,
         ),
     }
     if scoring_mode == "confidence_weighted":
-        safety["min_safety_score"] = 0.85
+        safety["min_safety_score"] = float(existing.get("min_safety_score", 0.85))
         safety["min_classifier_confidence"] = _prompt_float(
             "min_classifier_confidence (0.0-1.0; flag responses below this confidence floor for review)",
-            0.7,
+            float(existing.get("min_classifier_confidence", 0.7)),
             min_val=0.0,
             max_val=1.0,
         )
-    if _prompt_yes_no("Track harm categories (S1-S14 + ForgeLM-curated)?", default=False):
+    track_default = bool(existing.get("track_categories"))
+    if _prompt_yes_no("Track harm categories (S1-S14 + ForgeLM-curated)?", default=track_default):
         safety["track_categories"] = True
-        safety["severity_thresholds"] = {"critical": 0, "high": 0.01, "medium": 0.05}
+        safety["severity_thresholds"] = existing.get("severity_thresholds") or {
+            "critical": 0,
+            "high": 0.01,
+            "medium": 0.05,
+        }
     return safety
 
 
@@ -255,7 +273,11 @@ def _collect_safety_config(*, default_enabled: bool = False) -> Optional[Dict[st
 # ---------------------------------------------------------------------------
 
 
-def _collect_trainer_hyperparameters(trainer_type: str) -> Dict[str, Any]:
+def _collect_trainer_hyperparameters(
+    trainer_type: str,
+    *,
+    existing: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """Return trainer-specific hyperparameters as a flat dict.
 
     SFT has no per-trainer knobs (the schema's generic
@@ -264,15 +286,21 @@ def _collect_trainer_hyperparameters(trainer_type: str) -> Dict[str, Any]:
     prompt for the fields ``forgelm.config.TrainingConfig`` exposes;
     defaults mirror the schema so an operator who accepts every
     prompt produces a YAML byte-equivalent to ``ForgeConfig()``.
+
+    *existing* lets ``--wizard-start-from`` reruns honour the loaded
+    YAML's prior trainer-specific knobs as prompt defaults so a bare
+    Enter through this step keeps ``dpo_beta``, ``simpo_*``,
+    ``kto_beta``, ``orpo_beta``, ``grpo_*`` exactly as they were.
     """
     if trainer_type == "sft":
         return {}
+    existing = existing or {}
     _print("\n  Trainer-specific hyperparameters")
     if trainer_type == "dpo":
         return {
             "dpo_beta": _prompt_float(
                 "dpo_beta — temperature / KL strength (lower → closer to reference model)",
-                0.1,
+                float(existing.get("dpo_beta", 0.1)),
                 min_val=1e-5,
                 max_val=10.0,
             ),
@@ -281,7 +309,7 @@ def _collect_trainer_hyperparameters(trainer_type: str) -> Dict[str, Any]:
         return {
             "orpo_beta": _prompt_float(
                 "orpo_beta — odds-ratio penalty strength",
-                0.1,
+                float(existing.get("orpo_beta", 0.1)),
                 min_val=1e-5,
                 max_val=10.0,
             ),
@@ -290,7 +318,7 @@ def _collect_trainer_hyperparameters(trainer_type: str) -> Dict[str, Any]:
         return {
             "kto_beta": _prompt_float(
                 "kto_beta — same KL role as dpo_beta for binary feedback",
-                0.1,
+                float(existing.get("kto_beta", 0.1)),
                 min_val=1e-5,
                 max_val=10.0,
             ),
@@ -299,13 +327,13 @@ def _collect_trainer_hyperparameters(trainer_type: str) -> Dict[str, Any]:
         return {
             "simpo_beta": _prompt_float(
                 "simpo_beta — length-normalised reward scale (NOT same scale as dpo_beta)",
-                2.0,
+                float(existing.get("simpo_beta", 2.0)),
                 min_val=1e-5,
                 max_val=10.0,
             ),
             "simpo_gamma": _prompt_float(
                 "simpo_gamma — margin between chosen / rejected log-likelihoods",
-                0.5,
+                float(existing.get("simpo_gamma", 0.5)),
                 min_val=0.0,
                 max_val=10.0,
             ),
@@ -314,20 +342,20 @@ def _collect_trainer_hyperparameters(trainer_type: str) -> Dict[str, Any]:
         result: Dict[str, Any] = {
             "grpo_num_generations": _prompt_int(
                 "grpo_num_generations — responses sampled per prompt (higher = more stable, more compute)",
-                4,
+                int(existing.get("grpo_num_generations", 4)),
                 min_val=2,
                 max_val=64,
             ),
             "grpo_max_completion_length": _prompt_int(
                 "grpo_max_completion_length — cap on generated response length",
-                512,
+                int(existing.get("grpo_max_completion_length", 512)),
                 min_val=32,
                 max_val=8192,
             ),
         }
         reward = _prompt(
             "grpo_reward_model — dotted-path callable, HF Hub reward model, or empty for the built-in shaper",
-            "",
+            str(existing.get("grpo_reward_model") or ""),
         )
         if reward.strip():
             result["grpo_reward_model"] = reward.strip()
@@ -340,13 +368,33 @@ def _collect_trainer_hyperparameters(trainer_type: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _collect_rope_scaling(max_length: int) -> Optional[Dict[str, Any]]:
-    """Prompt for RoPE scaling parameters when context is long; otherwise None."""
+_ROPE_SCALING_TYPES: Tuple[str, ...] = ("linear", "dynamic", "yarn", "longrope")
+
+
+def _collect_rope_scaling(
+    max_length: int,
+    *,
+    existing: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Prompt for RoPE scaling parameters when context is long; otherwise None.
+
+    *existing* lets ``--wizard-start-from`` reruns offer to keep a
+    previously-tuned ``rope_scaling`` block verbatim.  When the loaded
+    YAML carries one, the helper asks "Keep existing RoPE scaling?"
+    (default yes) and returns the stored dict on accept; on decline,
+    or when there is no prior block, the standard prompt flow runs.
+    """
     if max_length <= 4096:
         return None
+    if existing:
+        _print(f"\n  Existing RoPE scaling: type={existing.get('type', '?')}, factor={existing.get('factor', '?')}")
+        if _prompt_yes_no("  Keep existing RoPE scaling?", default=True):
+            return dict(existing)
     _print(f"\n  Long context detected ({max_length} tokens).")
     if not _prompt_yes_no("Enable RoPE scaling for extended context?", default=True):
         return None
+    existing_type = existing.get("type") if existing else None
+    type_default = _ROPE_SCALING_TYPES.index(existing_type) + 1 if existing_type in _ROPE_SCALING_TYPES else 1
     rope_type = _prompt_choice(
         "RoPE scaling type:",
         [
@@ -355,10 +403,12 @@ def _collect_rope_scaling(max_length: int) -> Optional[Dict[str, Any]]:
             "yarn (best quality, newer)",
             "longrope (newest — 32K+ context, requires LongRoPE-aware model)",
         ],
-        default=1,
+        default=type_default,
     )
     base_context = 4096
-    rope_factor = max_length / base_context
+    rope_factor = (
+        float(existing["factor"]) if existing and existing.get("factor") is not None else max_length / base_context
+    )
     _print(
         f"  Note: RoPE factor {rope_factor:.1f}x computed assuming base context of "
         f"{base_context} tokens.  Adjust manually if your model has a different "
@@ -391,24 +441,62 @@ _GALORE_OPTIMIZERS: Tuple[str, ...] = (
 )
 
 
-def _collect_galore_config(use_galore: bool) -> Dict[str, Any]:
-    """Prompt for GaLore-specific knobs when GaLore was selected."""
+def _collect_galore_config(
+    use_galore: bool,
+    *,
+    existing: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Prompt for GaLore-specific knobs when GaLore was selected.
+
+    *existing* (any subset of ``galore_optim`` / ``galore_rank`` /
+    ``galore_update_proj_gap`` / ``galore_scale`` from the loaded
+    config) lets ``--wizard-start-from`` reruns offer to keep the
+    operator's prior tuning verbatim.  On decline (or no prior block)
+    the helper falls back to schema defaults — same as a greenfield
+    run.
+    """
     if not use_galore:
         return {}
+    existing = existing or {}
+    if existing.get("galore_optim") or existing.get("galore_rank"):
+        _print(
+            f"\n  Existing GaLore: optim={existing.get('galore_optim', '?')}, "
+            f"rank={existing.get('galore_rank', '?')}, "
+            f"update_proj_gap={existing.get('galore_update_proj_gap', 200)}, "
+            f"scale={existing.get('galore_scale', 0.25)}"
+        )
+        if _prompt_yes_no("  Keep existing GaLore tuning?", default=True):
+            return {
+                "galore_enabled": True,
+                "galore_optim": existing.get("galore_optim", "galore_adamw"),
+                "galore_rank": int(existing.get("galore_rank", 128)),
+                "galore_update_proj_gap": int(existing.get("galore_update_proj_gap", 200)),
+                "galore_scale": float(existing.get("galore_scale", 0.25)),
+            }
     _print("\n[Advanced] GaLore Configuration")
-    galore_rank = _prompt_int("GaLore rank (lower = less memory)", 128, min_val=1, max_val=4096)
+    galore_rank = _prompt_int(
+        "GaLore rank (lower = less memory)",
+        int(existing.get("galore_rank", 128)),
+        min_val=1,
+        max_val=4096,
+    )
+    optim_default = (
+        _GALORE_OPTIMIZERS.index(existing.get("galore_optim")) + 1
+        if existing.get("galore_optim") in _GALORE_OPTIMIZERS
+        else 1
+    )
     galore_optim = _prompt_choice(
         "GaLore optimizer (variants ending in _8bit halve optimiser VRAM; "
         "_layerwise variants further reduce peak VRAM via per-layer recompute):",
         [f"{name} (recommended)" if name == "galore_adamw" else name for name in _GALORE_OPTIMIZERS],
-        default=1,
+        default=optim_default,
     )
     return {
         "galore_enabled": True,
         "galore_optim": galore_optim.split(" ")[0],
         "galore_rank": galore_rank,
-        "galore_update_proj_gap": 200,
-        "galore_scale": 0.25,
+        "galore_update_proj_gap": int(existing.get("galore_update_proj_gap", 200)),
+        "galore_scale": float(existing.get("galore_scale", 0.25)),
     }
 
 
@@ -641,21 +729,38 @@ def _collect_monitoring() -> Optional[Dict[str, Any]]:
     return monitoring
 
 
-def _collect_benchmark() -> Optional[Dict[str, Any]]:
-    """``evaluation.benchmark`` lm-evaluation-harness gate."""
+def _collect_benchmark(
+    *,
+    existing: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """``evaluation.benchmark`` lm-evaluation-harness gate.
+
+    *existing* lets ``--wizard-start-from`` reruns default the gate
+    prompt to "yes" when a prior block was loaded (so a bare Enter
+    keeps the loaded values) and seed the inner prompts (``tasks``
+    list, ``min_score`` floor) from the existing block.  An explicit
+    "no" still drops the block — the caller's pop-on-decline contract
+    in ``_step_evaluation`` is what disables a previously-enabled
+    gate.
+    """
+    existing = existing or {}
+    has_prior = bool(existing.get("tasks"))
     if not _prompt_yes_no(
         "Enable benchmark evaluation (lm-evaluation-harness — needs `forgelm[eval]` extra)?",
-        default=False,
+        default=has_prior,
     ):
         return None
+    default_tasks_csv = ", ".join(existing["tasks"]) if has_prior else "arc_easy, hellaswag"
     tasks = _prompt_optional_list(
         "Benchmark tasks (e.g. arc_easy, hellaswag, mmlu)",
-        default_csv="arc_easy, hellaswag",
+        default_csv=default_tasks_csv,
     )
     if not tasks:
         _print("  No tasks specified; benchmark gate disabled.")
         return None
-    min_score_raw = _prompt("min_score (auto-revert below this) — leave empty for `null`", "")
+    existing_min_score = existing.get("min_score")
+    min_score_default = "" if existing_min_score is None else str(existing_min_score)
+    min_score_raw = _prompt("min_score (auto-revert below this) — leave empty for `null`", min_score_default)
     benchmark: Dict[str, Any] = {"enabled": True, "tasks": tasks}
     if min_score_raw.strip():
         try:
@@ -665,23 +770,42 @@ def _collect_benchmark() -> Optional[Dict[str, Any]]:
     return benchmark
 
 
-def _collect_judge() -> Optional[Dict[str, Any]]:
-    """``evaluation.llm_judge`` LLM-as-Judge gate."""
-    if not _prompt_yes_no("Enable LLM-as-Judge scoring?", default=False):
+def _collect_judge(
+    *,
+    existing: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """``evaluation.llm_judge`` LLM-as-Judge gate.
+
+    *existing* lets ``--wizard-start-from`` reruns default the gate
+    prompt to "yes" when a prior block was loaded and seed the inner
+    prompts (``judge_model``, ``judge_api_key_env``, ``min_score``)
+    from the loaded values.  Same pop-on-explicit-decline semantics as
+    :func:`_collect_benchmark`.
+    """
+    existing = existing or {}
+    has_prior = bool(existing.get("enabled") or existing.get("judge_model"))
+    if not _prompt_yes_no("Enable LLM-as-Judge scoring?", default=has_prior):
         return None
-    judge_model = _prompt("judge_model (API name or local path)", "gpt-4o-mini")
+    judge_model = _prompt(
+        "judge_model (API name or local path)",
+        existing.get("judge_model") or "gpt-4o-mini",
+    )
     judge_api_key_env = _prompt(
         "judge_api_key_env (env-var name carrying API key; leave empty for a local judge)",
-        "OPENAI_API_KEY",
+        existing.get("judge_api_key_env") or "OPENAI_API_KEY",
     )
     judge: Dict[str, Any] = {
         "enabled": True,
         "judge_model": judge_model,
-        # P2: schema default in ``JudgeConfig.min_score`` is 5.0 — the
-        # wizard previously prompted with 6.5 which silently drifted from
-        # the runtime default.  Aligned so an operator who accepts every
-        # prompt produces a YAML byte-equivalent to ``ForgeConfig()``.
-        "min_score": _prompt_float("min_score (mean 1-10 floor; auto-revert below)", 5.0, min_val=1.0, max_val=10.0),
+        # ``JudgeConfig.min_score`` schema default is 5.0 — keep parity
+        # so an operator who accepts every prompt produces a YAML
+        # byte-equivalent to ``ForgeConfig()``.
+        "min_score": _prompt_float(
+            "min_score (mean 1-10 floor; auto-revert below)",
+            float(existing.get("min_score", 5.0)),
+            min_val=1.0,
+            max_val=10.0,
+        ),
     }
     if judge_api_key_env.strip():
         judge["judge_api_key_env"] = judge_api_key_env.strip()

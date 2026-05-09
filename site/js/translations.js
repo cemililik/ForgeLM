@@ -4589,5 +4589,42 @@
     "features.ent.workers.body": "<code>--workers N</code> 并行化数据审计,同时在多次运行间保持确定性、字节级一致的报告。",
   });
 
+
+  /* PR-42 review: localize the max-sequence-length wizard row */
+  Object.assign(T.en, {
+    "wizard.training.max_length.label": "Max sequence length",
+    "wizard.training.max_length.hint": "Tokens per training example. 2048 is the safe default; raise for long-context models (RoPE scaling kicks in above 4096).",
+  });
+
+  /* PR-42 review: localize the max-sequence-length wizard row */
+  Object.assign(T.tr, {
+    "wizard.training.max_length.label": "Maks. sekans uzunluğu",
+    "wizard.training.max_length.hint": "Eğitim örneği başına token sayısı. 2048 güvenli varsayılan; uzun-context modeller için artırın (4096 üstünde RoPE scaling devreye girer).",
+  });
+
+  /* PR-42 review: localize the max-sequence-length wizard row */
+  Object.assign(T.de, {
+    "wizard.training.max_length.label": "Max. Sequenzlänge",
+    "wizard.training.max_length.hint": "Tokens pro Trainingsbeispiel. 2048 ist der sichere Standard; für Long-Context-Modelle erhöhen (über 4096 greift RoPE-Scaling).",
+  });
+
+  /* PR-42 review: localize the max-sequence-length wizard row */
+  Object.assign(T.fr, {
+    "wizard.training.max_length.label": "Longueur maximale de séquence",
+    "wizard.training.max_length.hint": "Tokens par exemple d'entraînement. 2048 est la valeur par défaut sûre ; à augmenter pour les modèles à long contexte (le RoPE scaling s'active au-delà de 4096).",
+  });
+
+  /* PR-42 review: localize the max-sequence-length wizard row */
+  Object.assign(T.es, {
+    "wizard.training.max_length.label": "Longitud máxima de secuencia",
+    "wizard.training.max_length.hint": "Tokens por ejemplo de entrenamiento. 2048 es el valor predeterminado seguro; aumente para modelos de contexto largo (el RoPE scaling se activa por encima de 4096).",
+  });
+
+  /* PR-42 review: localize the max-sequence-length wizard row */
+  Object.assign(T.zh, {
+    "wizard.training.max_length.label": "最大序列长度",
+    "wizard.training.max_length.hint": "每个训练样本的 token 数。2048 是安全的默认值;长上下文模型可调高 (超过 4096 时 RoPE 缩放生效)。",
+  });
+
   window.ForgeLMTranslations = T;
 })();

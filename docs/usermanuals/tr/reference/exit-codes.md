@@ -110,7 +110,7 @@ Bunlardan biri başarısız olursa exit kod sıfır değildir. Tasarım gereği 
 
 ## Uyumluluk garantisi
 
-Exit kodları 0-4 sürümler arası kararlıdır. Yeni kodlar eklenebilir (5, 6, …) ama mevcutların semantiği değişmez. Yukarıdaki kontrata pinli CI hatları ForgeLM yükseltmelerinde çalışmaya devam eder.
+Exit kodları 0-5 sürümler arası kararlıdır. Yeni kodlar eklenebilir (6, 7, …) ama mevcutların semantiği değişmez. Yukarıdaki kontrata pinli CI hatları ForgeLM yükseltmelerinde çalışmaya devam eder.
 
 ## Bkz.
 
