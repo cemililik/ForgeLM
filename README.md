@@ -279,6 +279,7 @@ forgelm/
 ├── grpo_rewards.py   # Built-in GRPO reward shapers (format / length fallbacks)
 ├── quickstart.py     # `forgelm quickstart <template>` — bundled SFT / code / domain templates
 ├── wizard/           # Interactive configuration wizard sub-package (Phase 22 split)
+│                     # — ships ``_defaults.json`` (schema-derived defaults SOT, F1)
 ├── webhook.py        # Slack/Teams webhook notifications (5-event vocabulary)
 ├── _http.py          # Single chokepoint for outbound HTTP (SSRF guard, timeout floor, secret masking)
 ├── _version.py       # `__version__` + `__api_version__` constants

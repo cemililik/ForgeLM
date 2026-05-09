@@ -412,7 +412,17 @@ class TestSubcommandRouting:
         from forgelm.wizard._orchestrator import WizardOutcome
 
         cfg_path = tmp_path / "wizard.yaml"
-        cfg_path.write_text(_yaml.safe_dump(minimal_config()), encoding="utf-8")
+        config_data = minimal_config()
+        cfg_path.write_text(_yaml.safe_dump(config_data), encoding="utf-8")
+        # G3 (review-cycle 3): defensive hardening — verify the YAML
+        # the test writes actually loads cleanly.  Without this assert,
+        # a future change to ``minimal_config`` that produced an
+        # invalid YAML would still pass this test (because the
+        # trainer pipeline is mocked BEFORE validation runs in
+        # ``_dispatch.main``), giving false-positive coverage.
+        from forgelm.config import ForgeConfig
+
+        ForgeConfig.model_validate(config_data)
         outcome = WizardOutcome(config_path=str(cfg_path), start_training=True)
 
         captured = {}

@@ -72,12 +72,35 @@ _DEFAULTS = _load_defaults()
 
 
 def _default(section: str, key: str, fallback: Any) -> Any:
-    """Return the schema-derived value, or *fallback* when missing."""
+    """Return the schema-derived value; warn on schema↔fallback drift.
+
+    B5 (review-cycle 3): the hardcoded fallbacks below act as a
+    second source of truth that activates when the shipped JSON is
+    missing.  When BOTH are present and disagree, the schema/JSON is
+    canonical (we return that value), but we emit a WARNING so the
+    drift surfaces in CI logs — that's the trigger for a contributor
+    to update the fallback literal in ``_state.py`` to match.
+
+    No-op on the happy path: when ``_DEFAULTS`` is empty (slim install)
+    the fallback wins silently; when both agree the WARNING never
+    fires.
+    """
     block = _DEFAULTS.get(section)
     if not isinstance(block, dict):
         return fallback
     value = block.get(key)
-    return fallback if value is None else value
+    if value is None:
+        return fallback
+    if value != fallback:
+        logger.warning(
+            "Wizard default fallback drift: %s.%s schema-derived=%r hardcoded fallback=%r — "
+            "update the hardcoded literal in forgelm/wizard/_state.py to match.",
+            section,
+            key,
+            value,
+            fallback,
+        )
+    return value
 
 
 DEFAULT_MAX_LENGTH: int = _default("model", "max_length", 2048)

@@ -6,6 +6,56 @@ All notable changes to ForgeLM are documented here.
 
 ### Added
 
+- **Wizard review-cycle 3 follow-up — generator hardening + CI guard
+  test coverage (2026-05-09).** Closes the actionable findings from
+  the independent review of commits `5667885` (cycle-3 bug fixes) +
+  `91d5726` (F1 SOT).
+  - **B1: generator unwraps ``Optional[BaseModel]`` sub-blocks**
+    (`tools/generate_wizard_defaults.py`). Pre-fix the walk only
+    matched bare-class annotations, so a wizard flag on a field
+    inside an `Optional[XxxConfig]` sub-model was silently skipped.
+    10 of 14 ForgeConfig top-level fields are `Optional[...]` —
+    today no flags exist on them, but a future contributor would
+    have hit the silent-skip trap. New `_unwrap_basemodel()` helper
+    walks `typing.get_args` to find the inner BaseModel.
+  - **B2: PydanticUndefined identity comparison.** Replaces the
+    brittle `repr(default).startswith("PydanticUndefined")` with the
+    canonical `default is PydanticUndefined` import from
+    `pydantic_core`. Stable across Pydantic v2 minor releases.
+  - **C2: generator JSON-serialisable contract documented** as a
+    module-level header. Future flags on Path / datetime / callable
+    defaults fail loudly at generator run, but the contract is now
+    explicit so contributors don't get surprised.
+  - **B5: schema↔fallback drift WARNING in `_state.py`.** When the
+    shipped JSON and the hardcoded fallback disagree, the wizard now
+    emits a `logger.warning` so the second-source-of-truth drift
+    surfaces in CI logs. Happy path is silent (matches → no warning).
+  - **G2: CI guard fail-path test coverage.** New
+    `tests/test_check_wizard_defaults_sync.py` with 7 tests:
+    corrupt-JSON triggers failure + diff message, missing-target
+    triggers failure, diff truncation works, generator unwraps
+    Optional[BaseModel], required fields skipped, etc. Without this
+    a regression in the diff-printing logic could silently report
+    "OK" against a corrupted JSON.
+  - **G3: dispatcher test now asserts `ForgeConfig.model_validate`
+    on the test fixture YAML.** Pre-fix, a future change to
+    `minimal_config()` that produced an invalid YAML would still
+    pass `test_wizard_start_training_routes_through_dispatcher`
+    (because the trainer pipeline is mocked before validation).
+  - **B7: `defer` attribute on `wizard_defaults.js`.** Both wizard
+    scripts now defer; HTML5 spec guarantees execution order
+    (document order) so `WIZARD_DEFAULTS` still lands before
+    `defaultState()` runs, but neither blocks HTML parsing.
+  - **A3: hardware-cache freshness caveat documented** in
+    `_cached_hardware()` docstring (GPU hot-plug mid-session is an
+    acceptable edge case).
+  - **F3: README directory tree** mentions `_defaults.json` shipped
+    as schema-derived defaults SOT.
+  - **CI guard self-protection: `_display_path()` helper** in
+    `check_wizard_defaults_sync.py` falls back to absolute path when
+    the target is outside `_REPO_ROOT` (prevents `Path.relative_to`
+    crash when tests monkeypatch the target to a tmp dir).
+
 - **Wizard schema-driven defaults SOT (F1 / 2026-05-09).** Closes the
   long-running drift surface tracked through P1-P17 across review
   cycles 1, 2, and 3.  A schema field default change without a

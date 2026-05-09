@@ -33,8 +33,9 @@ from __future__ import annotations
 
 import json
 import sys
+import typing
 from pathlib import Path
-from typing import Any, Dict, Tuple, Type
+from typing import Any, Dict, Optional, Tuple, Type
 
 # Allow `python tools/generate_wizard_defaults.py` from the repo root
 # without a separate ``python -m forgelm.tools`` install.
@@ -42,8 +43,26 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
 from pydantic import BaseModel  # noqa: E402  -- after path tweak
+from pydantic_core import PydanticUndefined  # noqa: E402  -- after path tweak
 
 from forgelm.config import ForgeConfig  # noqa: E402  -- after path tweak
+
+# ---------------------------------------------------------------------------
+# Wizard-flag contract
+#
+# Fields carrying ``json_schema_extra={"wizard": True}`` MUST have
+# JSON-primitive defaults (int / float / bool / str / None / list of
+# primitives / dict of primitives).  ``Path``, ``datetime``, callables,
+# and arbitrary BaseModel instances will fail ``json.dumps`` and bring
+# down both the generator and the CI guard.  This contract is enforced
+# implicitly by the JSON serialisation step at the end of ``main()``;
+# document it here so future contributors don't get surprised.
+#
+# Optional[BaseModel] sub-blocks are unwrapped via :mod:`typing` so a
+# wizard flag on, say, ``evaluation.cost_ceiling_usd`` (where
+# ``evaluation: Optional[EvaluationConfig]``) is picked up correctly
+# rather than silently skipped (B1 fix from review-cycle 3).
+# ---------------------------------------------------------------------------
 
 # Output destinations — both kept in lockstep by the CI guard.
 PYTHON_TARGET = _REPO_ROOT / "forgelm" / "wizard" / "_defaults.json"
@@ -73,28 +92,58 @@ def _is_wizard_flagged(field_info: Any) -> bool:
     return False
 
 
+def _unwrap_basemodel(annotation: Any) -> Optional[Type[BaseModel]]:
+    """Return the underlying :class:`BaseModel` subclass, or ``None``.
+
+    Handles three shapes:
+        - bare class: ``EvaluationConfig`` → ``EvaluationConfig``
+        - ``Optional[Cls]`` (== ``Union[Cls, None]``) → ``Cls``
+        - ``Union[Cls, OtherCls]`` → first ``BaseModel`` found
+
+    B1 fix (review-cycle 3): the previous version only matched the
+    bare-class case, so ``Optional[XxxConfig]`` sub-blocks (10 of 14
+    top-level ForgeConfig fields) were silently skipped — a wizard
+    flag on any field inside one of them would never reach the JSON.
+    """
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    args = typing.get_args(annotation)
+    if not args:
+        return None
+    for arg in args:
+        if isinstance(arg, type) and issubclass(arg, BaseModel):
+            return arg
+    return None
+
+
 def _walk_model(model: Type[BaseModel], section: str, sink: Dict[str, Dict[str, Any]]) -> None:
     """Populate *sink* with wizard-flagged defaults from *model*.
 
     Recurses into nested ``BaseModel`` types so a wizard flag on a deep
-    field still surfaces.  ``model_fields`` is Pydantic v2's
-    introspection API; we read each field's ``default`` attribute
-    directly because the live Pydantic instance would substitute
-    ``PydanticUndefined`` for required fields (which we skip).
+    field still surfaces — including ``Optional[XxxConfig]`` (B1).
+    ``model_fields`` is Pydantic v2's introspection API; we read each
+    field's ``default`` attribute directly because the live Pydantic
+    instance would substitute :data:`pydantic_core.PydanticUndefined`
+    for required fields (which we skip via identity comparison — B2).
     """
     for name, field_info in model.model_fields.items():
-        annotation = field_info.annotation
-        # Recurse into nested BaseModel types so flagged sub-fields
-        # surface under their natural section namespace.
-        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-            _walk_model(annotation, name, sink)
+        nested = _unwrap_basemodel(field_info.annotation)
+        if nested is not None:
+            # Surface the nested submodel under its own section name
+            # rather than the parent's; this keeps the JSON shape
+            # operator-readable (``evaluation.safety_eval``, not
+            # ``evaluation.evaluation.safety_eval``).
+            _walk_model(nested, name, sink)
             continue
         if not _is_wizard_flagged(field_info):
             continue
         default = field_info.default
-        # Pydantic uses a sentinel for required-no-default fields; skip
-        # those silently — wizard fields should always carry a default.
-        if repr(default).startswith("PydanticUndefined"):
+        # B2: identity comparison against the canonical sentinel —
+        # ``repr().startswith()`` was brittle across Pydantic v2 minor
+        # releases.  Required fields (no default) carry the sentinel;
+        # skip them silently because wizard-flagged fields should
+        # always carry a real default.
+        if default is PydanticUndefined:
             continue
         sink.setdefault(section, {})[name] = default
 
@@ -103,9 +152,9 @@ def collect_defaults() -> Dict[str, Dict[str, Any]]:
     """Walk ForgeConfig + every nested submodel; return wizard-flagged defaults."""
     sink: Dict[str, Dict[str, Any]] = {}
     for top_name, field_info in ForgeConfig.model_fields.items():
-        annotation = field_info.annotation
-        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-            _walk_model(annotation, top_name, sink)
+        nested = _unwrap_basemodel(field_info.annotation)
+        if nested is not None:
+            _walk_model(nested, top_name, sink)
     # Reorder for deterministic output (sections that aren't in
     # ``_SECTION_ORDER`` come last, alphabetised for repeatability).
     ordered: Dict[str, Dict[str, Any]] = {}

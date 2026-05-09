@@ -136,6 +136,14 @@ def _cached_hardware(state: _WizardState) -> Dict[str, Any]:
     cache on the per-run :class:`_WizardState`.  The cache lives only
     for the wizard's lifetime — never persisted (excluded from the YAML
     snapshot in :func:`_persist_state`).
+
+    **Caveat (A3 doc note, review-cycle 3 follow-up):** the cache is
+    populated once at welcome-step time and reused for the rest of the
+    run.  An operator who hot-plugs a GPU mid-session would still see
+    the original (no-GPU) snapshot in the pre-flight checklist.
+    Acceptable: hot-plug mid-wizard is an edge case far below the
+    50–200 ms/import cost of refreshing on every step, and the
+    operator can always exit-and-resume to refresh.
     """
     if state.hardware is None:
         state.hardware = _detect_hardware()

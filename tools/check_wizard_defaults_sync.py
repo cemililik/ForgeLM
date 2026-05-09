@@ -37,15 +37,28 @@ from tools.generate_wizard_defaults import (  # noqa: E402  -- after path tweak
 )
 
 
+def _display_path(target: Path) -> str:
+    """Best-effort relative path for display; falls back to absolute.
+
+    The guard normally runs against in-repo paths; tests that
+    monkeypatch ``PYTHON_TARGET`` to a tmp dir would crash inside
+    ``Path.relative_to`` without this guard.
+    """
+    try:
+        return str(target.relative_to(_REPO_ROOT))
+    except ValueError:
+        return str(target)
+
+
 def _check_one(target: Path, expected: str) -> bool:
     """Return ``True`` when *target* matches *expected* byte-for-byte."""
     if not target.is_file():
-        print(f"  ✗ {target.relative_to(_REPO_ROOT)} is missing.")
+        print(f"  ✗ {_display_path(target)} is missing.")
         return False
     actual = target.read_text(encoding="utf-8")
     if actual == expected:
         return True
-    print(f"  ✗ {target.relative_to(_REPO_ROOT)} drifted from schema-derived value.")
+    print(f"  ✗ {_display_path(target)} drifted from schema-derived value.")
     # Print the first ~10 differing lines so operators see WHAT
     # changed without having to scroll the whole file.
     actual_lines = actual.splitlines()
