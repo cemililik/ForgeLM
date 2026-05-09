@@ -80,6 +80,11 @@ _EXEMPT: dict[str, frozenset[str]] = {
     ".gitignore": frozenset({"docs/marketing/", "docs/analysis/"}),
     # CLAUDE.md carries the policy statement that names the directories.
     "CLAUDE.md": frozenset({"docs/marketing/", "docs/analysis/"}),
+    # CHANGELOG.md announces the policy itself (review-cycle 5 entry that
+    # explains *why* docs/analysis/ + docs/marketing/ are now gitignored
+    # and which guard enforces it).  Naming the dirs here is the
+    # documentation; it is not a content citation.
+    "CHANGELOG.md": frozenset({"docs/marketing/", "docs/analysis/"}),
     # The standards file IS the rule about these directories.
     "docs/standards/documentation.md": frozenset({"docs/marketing/", "docs/analysis/"}),
     # Localization standard names docs/marketing as a mixed-language

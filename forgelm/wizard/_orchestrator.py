@@ -716,6 +716,12 @@ def _step_evaluation(state: _WizardState) -> None:
         _apply_strict_tier_coercion(state.config, compliance)
 
 
+# NOTE: ``_STEPS`` lists the CLI wizard's nine canonical step IDs.  The
+# in-browser wizard at ``site/js/wizard.js::STEPS`` covers the same nine
+# user-visible stages but uses different IDs (welcome / use-case / trainer /
+# model / dataset / training / compliance / operations / review) and a
+# ``trainer ↔ model`` order swap motivated by the web's preset-driven flow.
+# Both surfaces reach the same generated YAML; the divergence is by design.
 _STEPS: Tuple[_StepDef, ...] = (
     _StepDef("welcome", _step_welcome),
     _StepDef("use-case", _step_use_case),

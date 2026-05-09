@@ -144,6 +144,14 @@ _PREFERENCE_COLUMNS_HINT = "Columns: prompt, chosen, rejected"
 
 # Bumped whenever the on-disk wizard-state shape changes.  Version
 # mismatches are silently ignored (treated as "no resume available").
+#
+# This number is the CLI-side wizard's serialised resume-state version.
+# It is intentionally independent of the in-browser wizard's
+# ``site/js/wizard.js::STATE_VERSION`` (currently 3 at time of writing):
+# the two surfaces persist to entirely different stores (XDG cache JSON
+# here vs. browser ``localStorage`` there) and bump on schedules tied to
+# their own state-shape evolution, so a number drift between them is
+# normal and not a synchronisation bug.
 _STATE_VERSION = 1
 
 
