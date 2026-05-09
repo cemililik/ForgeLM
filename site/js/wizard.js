@@ -71,6 +71,14 @@
   // v2 → v3: new fields don't break old saves (loadState merges over
   // defaults), but bumping the version reserves the right to drop
   // incompatible state shapes if needed in the future.
+  //
+  // This number is the in-browser wizard's resume-state version; it is
+  // intentionally independent of the CLI wizard's
+  // ``forgelm/wizard/_state.py::_STATE_VERSION`` (currently 1).  The
+  // two surfaces persist to entirely different stores (browser
+  // ``localStorage`` here vs. XDG cache JSON there) and bump on their
+  // own state-shape schedules, so a drift between the two numbers is
+  // normal and not a synchronisation bug.
   var STATE_VERSION = 3;
 
   // Trainer registry — single source of truth for the 6 trainer_type
@@ -479,41 +487,50 @@
   // with ``forgelm/quickstart.py::TEMPLATES`` — the CLI quickstart
   // catalogue is the single source of truth so an operator who
   // crosses surfaces never sees a renamed key.
+  // The model + dataset values mirror ``forgelm/quickstart.py::TEMPLATES``
+  // verbatim — that registry is the runtime source of truth, and an operator
+  // who finishes the wizard and runs ``forgelm --config <generated>.yaml``
+  // must see exactly the same defaults the CLI quickstart would have set.
+  // Bundled-dataset templates use ``datasetKind: 'local-jsonl'`` with the
+  // in-repo path under ``forgelm/templates/<key>/data.jsonl`` (the trainer
+  // resolves the path without any HF Hub call).  ``domain-expert`` is the
+  // only BYOD template — kind ``local-pdf`` reflects its README's "drop
+  // your PDFs into ./policies/".
   var USE_CASE_PRESETS = {
     'customer-support': {
       trainerType: 'sft',
-      model: 'meta-llama/Llama-3.1-8B-Instruct',
-      modelPreset: 'llama3-8b',
-      datasetKind: 'huggingface',
-      datasetName: 'argilla/Capybara-Preferences'
+      model: 'Qwen/Qwen2.5-7B-Instruct',
+      modelPreset: 'qwen-7b',
+      datasetKind: 'local-jsonl',
+      datasetName: 'forgelm/templates/customer-support/data.jsonl'
     },
     'code-assistant': {
       trainerType: 'sft',
       model: 'Qwen/Qwen2.5-Coder-7B-Instruct',
       modelPreset: 'custom',
-      datasetKind: 'huggingface',
-      datasetName: 'bigcode/the-stack-smol-xs'
+      datasetKind: 'local-jsonl',
+      datasetName: 'forgelm/templates/code-assistant/data.jsonl'
     },
     'domain-expert': {
       trainerType: 'sft',
-      model: 'meta-llama/Llama-3.1-8B-Instruct',
-      modelPreset: 'llama3-8b',
+      model: 'Qwen/Qwen2.5-7B-Instruct',
+      modelPreset: 'qwen-7b',
       datasetKind: 'local-pdf',
       datasetName: './policies/'
     },
     'grpo-math': {
       trainerType: 'grpo',
-      model: 'Qwen/Qwen2.5-7B-Instruct',
-      modelPreset: 'qwen-7b',
-      datasetKind: 'huggingface',
-      datasetName: 'openai/gsm8k'
+      model: 'Qwen/Qwen2.5-Math-7B-Instruct',
+      modelPreset: 'custom',
+      datasetKind: 'local-jsonl',
+      datasetName: 'forgelm/templates/grpo-math/data.jsonl'
     },
     'medical-qa-tr': {
       trainerType: 'sft',
-      model: 'meta-llama/Llama-3.1-8B-Instruct',
-      modelPreset: 'llama3-8b',
-      datasetKind: 'huggingface',
-      datasetName: 'forgelm/medical-qa-tr'
+      model: 'Qwen/Qwen2.5-7B-Instruct',
+      modelPreset: 'qwen-7b',
+      datasetKind: 'local-jsonl',
+      datasetName: 'forgelm/templates/medical-qa-tr/data.jsonl'
     },
     'custom': {
       /* leave the existing values intact — user wants explicit control */

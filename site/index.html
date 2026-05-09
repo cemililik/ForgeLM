@@ -46,7 +46,7 @@
   "description": "YAML in. Fine-tuned model out. Config-driven LLM fine-tuning toolkit for regulated environments.",
   "url": "https://forgelm.dev/",
   "downloadUrl": "https://pypi.org/project/forgelm/",
-  "operatingSystem": "Linux, macOS",
+  "operatingSystem": "Linux, macOS, Windows",
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
   "softwareVersion": "0.5.5",
   "offers": {
@@ -364,7 +364,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M9 14l2 2 4-4"/></svg>
         </div>
         <h3 data-i18n="home.why.autorevert.title">Auto-revert on regression</h3>
-        <p data-i18n="home.why.autorevert.body">When a benchmark drops below the floor, ForgeLM rolls back.</p>
+        <p data-i18n="home.why.autorevert.body">When a benchmark drops below the floor, ForgeLM discards the trained artefacts and exits non-zero so CI gates fail loudly.</p>
         <div class="feature-tags">
           <span class="feature-tag">Llama Guard</span>
           <span class="feature-tag">exit codes</span>
@@ -459,7 +459,7 @@
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
         <h3 data-i18n="home.cap.chat.title">Interactive chat</h3>
-        <p data-i18n-html="home.cap.chat.body">Streaming REPL with safety routing.</p>
+        <p data-i18n-html="home.cap.chat.body">Streaming REPL with <code>/reset</code>, <code>/save</code>, <code>/temperature</code>, <code>/system</code> commands. Per-response Llama Guard routing is planned for an upcoming Pro CLI release.</p>
         <div class="feature-tags">
           <span class="feature-tag">forgelm chat</span>
         </div>
@@ -478,9 +478,9 @@
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div>
         <h3 data-i18n="home.cap.api.title">Library API</h3>
-        <p data-i18n-html="home.cap.api.body">Import <code>forgelm.api</code> and embed training, audit, safety eval, and verify-audit calls inside your own Python pipelines.</p>
+        <p data-i18n-html="home.cap.api.body">Use <code>from forgelm import …</code> to embed <code>ForgeTrainer</code>, <code>audit_dataset</code>, <code>verify_audit_log</code>, and <code>verify_annex_iv_artifact</code> calls inside your own Python pipelines.</p>
         <div class="feature-tags">
-          <span class="feature-tag">forgelm.api</span>
+          <span class="feature-tag">from forgelm import …</span>
           <span class="feature-tag">embed</span>
         </div>
       </div>
@@ -539,36 +539,35 @@
 <span class="key">lora</span>:
   <span class="key">r</span>: <span class="number">16</span>
   <span class="key">alpha</span>: <span class="number">32</span>
-  <span class="key">use_dora</span>: <span class="number">true</span>
+  <span class="key">method</span>: <span class="string">"dora"</span>           <span class="comment"># lora / dora / pissa / rslora</span>
 
-<span class="key">datasets</span>:
-  - <span class="key">path</span>: <span class="string">"data/policies.jsonl"</span>
-    <span class="key">format</span>: <span class="string">"messages"</span>
+<span class="key">data</span>:
+  <span class="key">dataset_name_or_path</span>: <span class="string">"data/policies.jsonl"</span>
 
 <span class="key">training</span>:
-  <span class="key">trainer</span>: <span class="string">"sft"</span>          <span class="comment"># or dpo / simpo / kto / orpo / grpo</span>
-  <span class="key">epochs</span>: <span class="number">3</span>
-  <span class="key">batch_size</span>: <span class="number">2</span>
+  <span class="key">trainer_type</span>: <span class="string">"sft"</span>      <span class="comment"># sft / dpo / simpo / kto / orpo / grpo</span>
+  <span class="key">num_train_epochs</span>: <span class="number">3</span>
+  <span class="key">per_device_train_batch_size</span>: <span class="number">2</span>
   <span class="key">learning_rate</span>: <span class="number">2.0e-5</span>
+  <span class="key">output_dir</span>: <span class="string">"./checkpoints/policy-bot"</span>
 
 <span class="key">evaluation</span>:
   <span class="key">benchmark</span>:
+    <span class="key">enabled</span>: <span class="number">true</span>
     <span class="key">tasks</span>: [<span class="string">"hellaswag"</span>, <span class="string">"arc_easy"</span>, <span class="string">"truthfulqa"</span>]
-    <span class="key">floors</span>: { <span class="key">hellaswag</span>: <span class="number">0.55</span>, <span class="key">arc_easy</span>: <span class="number">0.70</span> }
+    <span class="key">min_score</span>: <span class="number">0.65</span>          <span class="comment"># aggregate floor; run fails (exit 3) below this</span>
   <span class="key">safety</span>:
     <span class="key">enabled</span>: <span class="number">true</span>
-    <span class="key">model</span>: <span class="string">"meta-llama/Llama-Guard-3-8B"</span>
-    <span class="key">block_categories</span>: [<span class="string">"S1"</span>, <span class="string">"S2"</span>, <span class="string">"S5"</span>, <span class="string">"S10"</span>]
+    <span class="key">classifier</span>: <span class="string">"meta-llama/Llama-Guard-3-8B"</span>
+    <span class="key">severity_thresholds</span>: { <span class="key">critical</span>: <span class="number">0.0</span>, <span class="key">high</span>: <span class="number">0.01</span> }
+  <span class="key">require_human_approval</span>: <span class="number">true</span>   <span class="comment"># Article 14 oversight gate</span>
 
 <span class="key">compliance</span>:
-  <span class="key">annex_iv</span>: <span class="number">true</span>
-  <span class="key">data_audit_artifact</span>: <span class="string">"./audit/data_audit_report.json"</span>
-  <span class="key">human_approval</span>: <span class="number">true</span>     <span class="comment"># Article 14 oversight gate</span>
+  <span class="key">provider_name</span>: <span class="string">"Acme Inc."</span>
+  <span class="key">risk_classification</span>: <span class="string">"limited-risk"</span>
 
-<span class="key">output</span>:
-  <span class="key">dir</span>: <span class="string">"./checkpoints/policy-bot"</span>
-  <span class="key">model_card</span>: <span class="number">true</span>
-  <span class="key">webhook</span>: <span class="string">"${SLACK_WEBHOOK}"</span>
+<span class="key">webhook</span>:
+  <span class="key">url</span>: <span class="string">"${SLACK_WEBHOOK}"</span>
 </pre>
       </div>
 
@@ -602,7 +601,7 @@
         <div>
           <h3 data-i18n="home.use.domain.title">Domain expert from policy PDFs</h3>
           <p data-i18n-html="home.use.domain.body">Drop your regulatory corpus into <code>forgelm ingest</code>.</p>
-          <span class="use-case-tag">forgelm quickstart byod</span>
+          <span class="use-case-tag">forgelm quickstart domain-expert</span>
         </div>
       </div>
 

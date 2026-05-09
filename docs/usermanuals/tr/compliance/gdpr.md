@@ -108,7 +108,7 @@ Yüksek-riskli işleme için GDPR Md. 35 DPIA gerektirir. ForgeLM DPIA'nızı ya
 - Uygulanan azaltıcılar → `compliance.risk_assessment.mitigations`'dan.
 - Kalıntı riskler → `compliance.risk_assessment.residual_risks`'tan.
 
-Bunları tüketen DPIA şablonu `docs/qms/dpia-template.md`'de.
+DPIA çalışması için yukarıdaki girdileri `docs/qms/risk_treatment_plan-tr.md`'deki QMS risk tedavi planı ve `docs/qms/statement_of_applicability-tr.md`'deki Uygulanabilirlik Beyanı ile eşleştirin. (Adanmış bir DPIA şablonu yol haritasındadır; şimdilik risk tedavi planı aynı zemini kapsıyor.)
 
 ## Konfigürasyon referansı
 

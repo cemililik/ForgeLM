@@ -12,9 +12,11 @@ Tam walkthrough için bkz. [`docs/guides/human_approval_gate-tr.md`](../../../gu
 ## Kapı ne zaman ateşlenir
 
 ```yaml
-compliance:
-  human_approval: true
+evaluation:
+  require_human_approval: true
 ```
+
+> **Phantom anahtar notu.** Eski taslaklar bunu `compliance.human_approval` olarak adlandırıyordu. O anahtar hiç gönderilmedi — `ComplianceMetadataConfig` `extra="forbid"` ile yapılandırıldığı için onu reddeder. Kanonik aktivasyon anahtarı `EvaluationConfig` üzerindedir. Tam phantom-anahtar listesi için bkz. [İnsan Gözetimi](#/compliance/human-oversight).
 
 Bu flag ile, bu config'i tüketen her koşum eval başarılı olduktan **sonra** ve `final_model.staging/` `final_model/`'e terfi etmeden **önce** duraklar. Trainer:
 

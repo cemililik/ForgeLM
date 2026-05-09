@@ -46,7 +46,7 @@
   "description": "Full feature matrix of ForgeLM: training, evaluation, ingestion, compliance, deployment.",
   "url": "https://forgelm.dev/features.html",
   "downloadUrl": "https://pypi.org/project/forgelm/",
-  "operatingSystem": "Linux, macOS",
+  "operatingSystem": "Linux, macOS, Windows",
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
   "softwareVersion": "0.5.5",
   "offers": {
@@ -148,7 +148,7 @@
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6l9-3 9 3v6a9 9 0 1 1-18 0z"/></svg></div>
         <h3 data-i18n-html="features.train.dposimpo.title">DPO &amp; SimPO</h3>
-        <p data-i18n="features.train.dposimpo.body">Direct Preference Optimization on chosen/rejected pairs.</p>
+        <p data-i18n="features.train.dposimpo.body">Direct Preference Optimization on chosen/rejected pairs; SimPO for reference-free, lower-memory variants.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 9l6-6"/><path d="M3 21l6-6"/><path d="M21 3l-9 9-3-3-9 9"/></svg></div>
@@ -226,7 +226,7 @@
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
         <h3 data-i18n="features.eval.trend.title">Trend tracking</h3>
-        <p data-i18n="features.eval.trend.body">Cross-run safety / quality history.</p>
+        <p data-i18n="features.eval.trend.body">Cross-run safety history (<code>safety_trend.jsonl</code> per output_dir).</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></div>
@@ -236,7 +236,7 @@
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
         <h3 data-i18n="features.eval.safetyeval.title">Standalone safety eval</h3>
-        <p data-i18n-html="features.eval.safetyeval.body"><code>forgelm safety-eval</code> runs Llama Guard against any JSONL/Parquet/HF dataset and emits the same Article 9 risk artefact as a full run.</p>
+        <p data-i18n-html="features.eval.safetyeval.body"><code>forgelm safety-eval</code> runs Llama Guard against a <code>--probes</code> JSONL prompt file (or <code>--default-probes</code> for the bundled 50-prompt set) and emits a per-category safety summary (<code>safety_evaluation.json</code> + <code>safety_trend.jsonl</code>).</p>
       </div>
     </div>
   </div>
@@ -317,7 +317,7 @@
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
         <h3 data-i18n="features.ent.webhook.title">Webhook notifications</h3>
-        <p data-i18n="features.ent.webhook.body">Slack and Teams alerts on training events.</p>
+        <p data-i18n="features.ent.webhook.body">Slack, Teams, Discord, or any HTTP webhook receiver alerts on training events.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
@@ -337,7 +337,7 @@
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
         <h3 data-i18n-html="features.ent.docker.title">Docker &amp; compose</h3>
-        <p data-i18n-html="features.ent.docker.body">Official Dockerfile and <code>docker-compose.yml</code>.</p>
+        <p data-i18n-html="features.ent.docker.body">Official Dockerfile and <code>docker-compose.yaml</code>.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg></div>
@@ -362,12 +362,12 @@
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div>
         <h3 data-i18n="features.ent.api.title">Library API</h3>
-        <p data-i18n-html="features.ent.api.body"><code>forgelm.api</code> exposes train, audit, safety-eval, and verify-audit as Python functions for embedding inside other pipelines.</p>
+        <p data-i18n-html="features.ent.api.body"><code>from forgelm import …</code> exposes <code>ForgeTrainer</code>, <code>audit_dataset</code>, <code>verify_audit_log</code>, <code>verify_annex_iv_artifact</code>, <code>mask_pii</code>, and friends as Python functions for embedding inside other pipelines.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M9 12l2 2 4-4"/></svg></div>
         <h3 data-i18n="features.ent.doctor.title">Environment diagnostics</h3>
-        <p data-i18n-html="features.ent.doctor.body"><code>forgelm doctor</code> probes Python, GPU, drivers, optional extras, disk space, network, and prints a green/yellow/red triage report.</p>
+        <p data-i18n-html="features.ent.doctor.body"><code>forgelm doctor</code> probes Python, GPU, drivers, optional extras, disk space, network, and prints a <code>pass / warn / fail</code> triage report.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="7 10 12 7 17 10"/></svg></div>
@@ -415,12 +415,12 @@
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
         <h3 data-i18n="features.gov.access.title">GDPR Article 15 access</h3>
-        <p data-i18n-html="features.gov.access.body"><code>forgelm reverse-pii</code> walks the PII redaction map back to surface every row in which a data subject appears.</p>
+        <p data-i18n-html="features.gov.access.body"><code>forgelm reverse-pii</code> scans masked JSONL corpora for forensic substring or salted-digest matches that surface every row in which a data-subject identifier appears.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg></div>
         <h3 data-i18n="features.gov.annex.title">Annex IV verifier</h3>
-        <p data-i18n-html="features.gov.annex.body"><code>forgelm verify-annex-iv</code> validates a generated artefact bundle against the Annex IV schema and the run's audit chain.</p>
+        <p data-i18n-html="features.gov.annex.body"><code>forgelm verify-annex-iv</code> validates the Annex IV §1-9 schema completeness and the bundle's <code>manifest_hash</code> for tampering detection. (Audit-chain integrity is the separate <code>forgelm verify-audit</code> command.)</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="9 12 11 14 15 10"/></svg></div>

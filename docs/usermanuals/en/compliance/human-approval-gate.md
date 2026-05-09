@@ -12,9 +12,11 @@ For the full walkthrough, see [`docs/guides/human_approval_gate.md`](../../../gu
 ## When the gate fires
 
 ```yaml
-compliance:
-  human_approval: true
+evaluation:
+  require_human_approval: true
 ```
+
+> **Phantom-key note.** Earlier drafts named this `compliance.human_approval`. That key never shipped — `ComplianceMetadataConfig` is `extra="forbid"` and rejects it. The canonical activation key lives on `EvaluationConfig`. See [Human Oversight](#/compliance/human-oversight) for the full phantom-key list.
 
 With that flag, every run consuming this config pauses **after** evaluation succeeds and **before** `final_model.staging/` is promoted to `final_model/`. The trainer:
 
