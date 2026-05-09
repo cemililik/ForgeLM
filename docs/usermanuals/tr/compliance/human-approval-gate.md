@@ -25,6 +25,8 @@ Bu flag ile, bu config'i tüketen her koşum eval başarılı olduktan **sonra**
 
 Başarısız bir eval yine 3 (`EXIT_EVAL_FAILURE`) ile çıkar ve kapıya asla ulaşmaz.
 
+> **Not:** Operatör strict-tier config'i `forgelm --wizard` ile üretirken iptal ederse (Ctrl-C, non-tty reddi, kaydetmeyi reddetme), wizard 5 (`EXIT_WIZARD_CANCELLED`) ile çıkar — bkz. [Çıkış Kodları](../reference/exit-codes.md) — ve trainer pipeline'a hiç ulaşmaz. Yalnızca exit 0'ı "wizard temiz tamamlandı" olarak ele alan CI pipeline'ları, exit 5'i ayrı olarak ele alıp "config üretilmedi" mesajını yüzeylemeli, generic başarısızlık olarak işlememelidir.
+
 ## CI wiring
 
 Exit kodu 4 bir **duraklamadır**, **başarısızlık** değil. CI'a bu açıkça söylenmeli:

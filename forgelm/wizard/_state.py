@@ -98,7 +98,10 @@ def _save_wizard_state(state: Mapping[str, Any]) -> None:
     container) are logged at WARNING and swallowed — the wizard's
     contract is to *produce a config*, not to guarantee resumability.
     """
+    import tempfile
+
     target = _wizard_state_path()
+    tmp_name: Optional[str] = None
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         snapshot = {"v": _STATE_VERSION, **dict(state)}
@@ -107,8 +110,6 @@ def _save_wizard_state(state: Mapping[str, Any]) -> None:
         # process never leaves a half-written ``wizard_state.yaml``.
         # ``NamedTemporaryFile(delete=False)`` is the standard idiom for
         # this; ``os.replace`` is atomic on POSIX and Windows.
-        import tempfile
-
         tmp = tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
@@ -117,13 +118,26 @@ def _save_wizard_state(state: Mapping[str, Any]) -> None:
             suffix=".tmp",
             delete=False,
         )
+        tmp_name = tmp.name
         try:
             yaml.safe_dump(snapshot, tmp, default_flow_style=False, sort_keys=False)
             tmp.flush()
             os.fsync(tmp.fileno())
         finally:
             tmp.close()
-        os.replace(tmp.name, target)
+        # A3 (review-cycle 3): when ``os.replace`` fails (cross-device
+        # /home overlay, EACCES, EXDEV) the temp file would otherwise
+        # accumulate under ``$XDG_CACHE_HOME/forgelm/`` on every run.
+        # Wrap the rename in its own try/except so the cleanup runs
+        # even when the outer ``except OSError`` would otherwise just
+        # log and return.
+        try:
+            os.replace(tmp_name, target)
+            tmp_name = None  # successful rename — nothing to clean up
+        except OSError:
+            _safe_unlink(tmp_name)
+            tmp_name = None
+            raise
         # Wizard state can carry compliance metadata (provider name,
         # contact, governance fields) that operators consider sensitive.
         # ``0o600`` keeps it readable only by the operator running the
@@ -134,14 +148,36 @@ def _save_wizard_state(state: Mapping[str, Any]) -> None:
             pass
     except OSError as exc:
         logger.warning("Could not persist wizard state to %s: %s", target, exc)
+    finally:
+        # Defensive sweep: if any branch above left the temp file behind
+        # (e.g., ``yaml.safe_dump`` raised before we even reached
+        # ``os.replace``), unlink it here. ``tmp_name = None`` after
+        # successful rename means this is a no-op on the happy path.
+        if tmp_name is not None:
+            _safe_unlink(tmp_name)
+
+
+def _safe_unlink(path: str) -> None:
+    """Best-effort ``os.unlink`` that swallows missing-file / permission errors."""
+    try:
+        os.unlink(path)
+    except FileNotFoundError:  # pragma: no cover — already gone, fine
+        pass
+    except OSError as exc:  # pragma: no cover — read-only / permission noise
+        logger.debug("Could not remove temp file %s: %s", path, exc)
 
 
 def _load_wizard_state() -> Optional[Dict[str, Any]]:
     """Load a previously-saved state snapshot, returning ``None`` on miss.
 
-    Version mismatches and parse errors return ``None`` — the wizard
-    falls back to defaults rather than asking the operator to debug a
-    stale snapshot.
+    Parse errors return ``None`` — the wizard falls back to defaults
+    rather than asking the operator to debug a stale snapshot.
+
+    Version handling (F3 / review-cycle 3): older snapshots are passed
+    through :data:`_STATE_MIGRATIONS` so an operator's in-flight session
+    survives a wizard schema bump.  When migration fails (unknown
+    version, exception in a migrator), we fall back to ``None`` rather
+    than partially-migrated state.
     """
     target = _wizard_state_path()
     if not target.is_file():
@@ -152,10 +188,92 @@ def _load_wizard_state() -> Optional[Dict[str, Any]]:
     except (OSError, yaml.YAMLError) as exc:
         logger.warning("Could not read wizard state from %s: %s", target, exc)
         return None
-    if not isinstance(snapshot, dict) or snapshot.get("v") != _STATE_VERSION:
+    if not isinstance(snapshot, dict):
         return None
+    on_disk_version = snapshot.get("v")
+    if on_disk_version != _STATE_VERSION:
+        migrated = _migrate_wizard_state(snapshot, on_disk_version)
+        if migrated is None:
+            return None
+        snapshot = migrated
     snapshot.pop("v", None)
     return snapshot
+
+
+# ---------------------------------------------------------------------------
+# Wizard-state version-migration registry (F3 / review-cycle 3).
+#
+# When ``_STATE_VERSION`` is bumped, register a migrator under the
+# OLD version key returning the snapshot in NEW shape.  The runtime
+# loop below walks the chain (1 → 2 → 3 → … → latest) so an operator's
+# wizard_state.yaml from N versions ago still resumes cleanly.
+#
+# Until the first real bump, the registry is empty — older snapshots
+# (none yet exist) silently fall back to "no resume" via the ``return
+# None`` path.  Keeping the skeleton in place means the first bump only
+# adds a new entry, no plumbing rewrite.
+# ---------------------------------------------------------------------------
+
+
+_StateMigrator = "Callable[[Dict[str, Any]], Dict[str, Any]]"
+
+# Empty by design.  Each entry is ``{old_version: migrator}`` where
+# ``migrator(snapshot) -> snapshot`` upgrades exactly one major version.
+# Example future entry::
+#
+#     def _migrate_v1_to_v2(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+#         snapshot["completed_steps"] = snapshot.pop("done_steps", [])
+#         snapshot["v"] = 2
+#         return snapshot
+#
+#     _STATE_MIGRATIONS = {1: _migrate_v1_to_v2}
+_STATE_MIGRATIONS: Dict[int, Any] = {}
+
+
+def _migrate_wizard_state(snapshot: Dict[str, Any], from_version: Any) -> Optional[Dict[str, Any]]:
+    """Walk the migration chain from *from_version* up to ``_STATE_VERSION``.
+
+    Returns the migrated snapshot on success, ``None`` when the chain
+    cannot complete (unknown source version, missing migrator, exception
+    raised by a migrator).  Fall-back to ``None`` is intentional — the
+    wizard prefers "no resume" over "resume with corrupt state".
+    """
+    if not isinstance(from_version, int) or from_version < 1:
+        return None
+    if from_version > _STATE_VERSION:
+        # Snapshot from a NEWER wizard than the running binary — never
+        # downgrade.  Operator probably switched to an older virtualenv;
+        # safer to start fresh than guess-strip new fields.
+        logger.info(
+            "Wizard state v=%s newer than running v=%s; ignoring snapshot.",
+            from_version,
+            _STATE_VERSION,
+        )
+        return None
+    current = snapshot
+    version = from_version
+    while version != _STATE_VERSION:
+        migrator = _STATE_MIGRATIONS.get(version)
+        if migrator is None:
+            logger.warning(
+                "No migrator registered for wizard state v=%s; cannot resume.",
+                version,
+            )
+            return None
+        try:
+            current = migrator(current)
+        except Exception as exc:  # noqa: BLE001 — defensive; migrators are project-internal
+            logger.warning("Wizard state migration v=%s failed: %s", version, exc)
+            return None
+        next_version = current.get("v")
+        if not isinstance(next_version, int) or next_version <= version:
+            logger.warning(
+                "Migrator for wizard state v=%s did not advance the version field; aborting.",
+                version,
+            )
+            return None
+        version = next_version
+    return current
 
 
 def _clear_wizard_state() -> None:
@@ -187,6 +305,12 @@ class _WizardState:
     Persisted after each completed step to ``wizard_state.yaml`` so a
     refresh / Ctrl-C / fresh session resumes where the operator left
     off.
+
+    ``hardware`` is a per-run cache of :func:`forgelm.wizard._io._detect_hardware`
+    (C16 / review-cycle 3): the welcome step + the post-save pre-flight
+    checklist both want the GPU/VRAM/CUDA snapshot, and re-importing
+    torch each time costs ~50–200 ms.  Excluded from persistence
+    (``repr`` only) — the snapshot YAML never carries it.
     """
 
     experience: str = "expert"  # "beginner" | "expert"
@@ -194,6 +318,7 @@ class _WizardState:
     current_step: int = 0
     completed_steps: List[str] = field(default_factory=list)
     config: Dict[str, Any] = field(default_factory=dict)
+    hardware: Optional[Dict[str, Any]] = field(default=None, repr=False, compare=False)
 
 
 # ---------------------------------------------------------------------------

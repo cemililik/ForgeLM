@@ -25,6 +25,8 @@ With that flag, every run consuming this config pauses **after** evaluation succ
 
 A failing eval still exits 3 (`EXIT_EVAL_FAILURE`) and never reaches the gate.
 
+> **Note:** When the operator generates the strict-tier config via `forgelm --wizard` and cancels (Ctrl-C, non-tty refusal, decline-to-save), the wizard exits 5 (`EXIT_WIZARD_CANCELLED`) — see [Exit Codes](../reference/exit-codes.md) — and never reaches the trainer pipeline. CI pipelines that only treat exit 0 as "wizard finished cleanly" should branch separately on 5 to surface a "no config produced" message rather than treating it as a generic failure.
+
 ## CI wiring
 
 Exit code 4 is a **pause**, not a **failure**. CI must be told this explicitly:

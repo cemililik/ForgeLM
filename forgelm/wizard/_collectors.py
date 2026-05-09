@@ -137,6 +137,13 @@ def _parse_webhook_value(raw: str) -> Optional[Dict[str, str]]:
     # into a training run when ``forgelm/_http.safe_post`` rejects the
     # destination.  Runtime ``allow_private`` overrides remain available
     # for operators who legitimately point at internal hooks.
+    #
+    # B10 (review-cycle 2 audit): the preflight rejects URLs whose
+    # *current* DNS resolution lands on a private IP — DNS rebinding at
+    # runtime is the same TOCTOU window ``_http.safe_post`` resolves
+    # under tracked at issue #14 and is NOT closed here. The preflight
+    # buys "wrong URL caught at config time", not "guaranteed-public
+    # destination at training time".
     host = (parsed.hostname or "").strip()
     if host:
         try:
@@ -420,8 +427,14 @@ def _collect_compliance_metadata() -> Dict[str, Any]:
     (``_apply_strict_tier_coercion``) reads it without an awkward
     forward-reference.
     """
+    # E2 (review-cycle 3): inline rationale — risk_classification gates
+    # F-compliance-110 auto-coercion (high-risk + unacceptable both force
+    # safety eval + Article 14 staging gate); operators picking
+    # 'minimal-risk' bypass these mandatory checks.
     risk_classification = _prompt_choice(
-        "Risk classification (mirrored at risk_assessment.risk_category):",
+        "Risk classification (mirrored at risk_assessment.risk_category) — "
+        "high-risk / unacceptable auto-enable safety eval + human-approval staging "
+        "(EU AI Act Article 9 + 14 / F-compliance-110):",
         list(_RISK_TIERS),
         default=2,  # ``minimal-risk`` — same default as the Pydantic field.
     )

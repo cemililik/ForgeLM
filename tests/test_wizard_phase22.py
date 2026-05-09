@@ -1096,3 +1096,182 @@ class TestWebhookConfigDefaultsParity:
         ):
             wizard._orchestrator._step_evaluation(state)
         assert state.config["evaluation"]["max_acceptable_loss"] == 2.0
+
+
+# ---------------------------------------------------------------------------
+# Phase 22 review-cycle 3 — additional fixes
+# ---------------------------------------------------------------------------
+
+
+class TestAtomicWriteTempCleanup:
+    """A3 — temp file must be cleaned up when os.replace fails."""
+
+    def test_replace_failure_unlinks_temp_file(self, isolated_state_dir, monkeypatch):
+        from forgelm.wizard import _state as _state_mod
+
+        def _broken_replace(src, dst):
+            raise OSError("EXDEV simulated")
+
+        monkeypatch.setattr(_state_mod.os, "replace", _broken_replace)
+        wizard._save_wizard_state({"experience": "expert"})
+        # Sweep the state directory for any leftover temp files. The
+        # naming convention is ``.wizard_state.<random>.tmp``; a
+        # successful cleanup leaves zero matches.
+        state_dir = wizard._wizard_state_path().parent
+        leftovers = list(state_dir.glob(".wizard_state.*.tmp"))
+        assert leftovers == [], f"Temp file leak: {leftovers}"
+
+    def test_dump_failure_also_cleans_up(self, isolated_state_dir, monkeypatch):
+        # If yaml.safe_dump itself raises before os.replace runs, the
+        # finally-branch defensive sweep must still unlink the temp.
+        import yaml as _yaml
+
+        from forgelm.wizard import _state as _state_mod
+
+        def _broken_dump(data, stream, **kw):
+            stream.write("partial-write")  # force a temp file artifact
+            raise _yaml.YAMLError("simulated dump failure")
+
+        monkeypatch.setattr(_state_mod.yaml, "safe_dump", _broken_dump)
+        try:
+            wizard._save_wizard_state({"experience": "expert"})
+        except _yaml.YAMLError:
+            pass  # outer except OSError won't catch YAMLError; finally still runs
+        state_dir = wizard._wizard_state_path().parent
+        leftovers = list(state_dir.glob(".wizard_state.*.tmp"))
+        assert leftovers == [], f"Temp file leak after dump failure: {leftovers}"
+
+
+class TestStrictTierAnnouncedOnce:
+    """A4 — _apply_strict_tier_coercion prints its notice only once per run."""
+
+    def test_two_calls_print_once(self, capsys):
+        config = {}
+        compliance = {"risk_classification": "high-risk"}
+        wizard._apply_strict_tier_coercion(config, compliance)
+        first_out = capsys.readouterr().out
+        assert "Auto-enabling both" in first_out
+
+        # Second call (mirrors the orchestrator's compliance-step +
+        # evaluation-step double invocation).
+        wizard._apply_strict_tier_coercion(config, compliance)
+        second_out = capsys.readouterr().out
+        assert "Auto-enabling both" not in second_out
+        # And the strict-tier behaviour is still enforced.
+        assert config["evaluation"]["require_human_approval"] is True
+
+    def test_meta_flag_stripped_before_save(self):
+        config = {"_wizard_meta": {"strict_tier_announced": True}, "model": {"name_or_path": "x"}}
+        cleaned = wizard._strip_internal_meta(config)
+        assert "_wizard_meta" not in cleaned
+        assert cleaned["model"]["name_or_path"] == "x"
+
+
+class TestStateMigrationSkeleton:
+    """F3 — state-version migration registry handles future bumps cleanly."""
+
+    def test_unknown_version_returns_none(self, isolated_state_dir):
+        from forgelm.wizard import _state as _state_mod
+
+        # No migrators registered for v=0 (or any version older than
+        # the current _STATE_VERSION); _load should return None.
+        path = wizard._wizard_state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("v: 0\nexperience: expert\n", encoding="utf-8")
+        assert _state_mod._load_wizard_state() is None
+
+    def test_newer_version_silently_ignored(self, isolated_state_dir):
+        from forgelm.wizard import _state as _state_mod
+
+        path = wizard._wizard_state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # _STATE_VERSION = 1 currently — pretend the file is from v=99.
+        path.write_text("v: 99\nexperience: expert\n", encoding="utf-8")
+        assert _state_mod._load_wizard_state() is None
+
+    def test_migrator_chain_runs(self, isolated_state_dir, monkeypatch):
+        from forgelm.wizard import _state as _state_mod
+
+        # Simulate a future v=1 → v=2 migrator path.  Patch the registry
+        # + STATE_VERSION temporarily.
+        def _migrate_v1_to_v2(snapshot):
+            snapshot = dict(snapshot)
+            snapshot["v"] = 2
+            snapshot["new_field"] = "added-by-migrator"
+            return snapshot
+
+        monkeypatch.setitem(_state_mod._STATE_MIGRATIONS, 1, _migrate_v1_to_v2)
+        monkeypatch.setattr(_state_mod, "_STATE_VERSION", 2)
+
+        path = wizard._wizard_state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("v: 1\nexperience: expert\n", encoding="utf-8")
+        loaded = _state_mod._load_wizard_state()
+        assert loaded is not None
+        assert loaded["experience"] == "expert"
+        assert loaded["new_field"] == "added-by-migrator"
+
+    def test_migrator_that_does_not_advance_version_aborts(self, isolated_state_dir, monkeypatch):
+        from forgelm.wizard import _state as _state_mod
+
+        def _bad_migrator(snapshot):
+            # Returns the same version — infinite loop risk; should
+            # abort with a warning instead.
+            return snapshot
+
+        monkeypatch.setitem(_state_mod._STATE_MIGRATIONS, 1, _bad_migrator)
+        monkeypatch.setattr(_state_mod, "_STATE_VERSION", 2)
+
+        path = wizard._wizard_state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("v: 1\nexperience: expert\n", encoding="utf-8")
+        assert _state_mod._load_wizard_state() is None
+
+
+class TestHardwareCacheReuse:
+    """C16 — _detect_hardware result is cached on _WizardState."""
+
+    def test_first_call_populates_cache(self):
+        state = wizard._WizardState()
+        assert state.hardware is None
+        result = wizard._orchestrator._cached_hardware(state)
+        assert state.hardware is result
+        assert "gpu_available" in result
+
+    def test_second_call_returns_same_object(self, monkeypatch):
+        state = wizard._WizardState()
+        call_count = {"n": 0}
+
+        def _stub():
+            call_count["n"] += 1
+            return {"gpu_available": False, "gpu_name": None, "vram_gb": None, "cuda_version": None}
+
+        monkeypatch.setattr(wizard._orchestrator, "_detect_hardware", _stub)
+        first = wizard._orchestrator._cached_hardware(state)
+        second = wizard._orchestrator._cached_hardware(state)
+        assert first is second
+        # _detect_hardware should have run exactly once across both calls.
+        assert call_count["n"] == 1
+
+    def test_hardware_excluded_from_persistence(self, isolated_state_dir, monkeypatch):
+        # Persisted snapshot must NOT include the hardware cache field
+        # (it's per-run, repr=False, compare=False on the dataclass).
+        state = wizard._WizardState()
+        state.hardware = {"gpu_available": True, "gpu_name": "test-gpu", "vram_gb": 24, "cuda_version": "12.1"}
+        wizard._persist_state(state)
+        loaded = wizard._load_wizard_state()
+        assert loaded is not None
+        assert "hardware" not in loaded
+
+
+class TestValidateGeneratedConfigLogger:
+    """G30 — _validate_generated_config emits a structured WARNING on failure."""
+
+    def test_failure_logs_warning(self, tmp_path, caplog):
+        cfg = tmp_path / "broken.yaml"
+        cfg.write_text("training: {}\n", encoding="utf-8")
+        with caplog.at_level("WARNING", logger="forgelm.wizard"):
+            wizard._validate_generated_config(str(cfg))
+        # At least one WARNING record from the wizard logger.
+        warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert any("failed schema validation" in r.message for r in warning_records)

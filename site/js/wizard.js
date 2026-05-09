@@ -1224,7 +1224,18 @@
           Object.keys(fresh).forEach(function (k) { state[k] = fresh[k]; });
           render();
         }
-      } catch (err) { /* swallow — best-effort sync */ }
+      } catch (err) {
+        // B11 (review-cycle 3): the previous version silently swallowed
+        // every error here, leaving the operator with no clue why a
+        // sibling tab's edits failed to propagate.  ``loadState`` already
+        // logs YAML / version-mismatch issues to the console; surface
+        // anything ELSE (e.g. structuredClone-style errors, quota loss)
+        // explicitly so debugging is possible.  Soft visibility — no
+        // user-facing modal, just devtools breadcrumbs.
+        if (window.console && window.console.warn) {
+          window.console.warn('[forgelm-wizard] cross-tab state sync failed:', err);
+        }
+      }
     });
 
     // Surface a resume banner in the welcome step the first time the

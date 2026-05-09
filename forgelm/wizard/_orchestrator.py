@@ -10,9 +10,12 @@ Each step is registered as a small :class:`_StepDef`.  Steps return
 from __future__ import annotations
 
 import copy
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+logger = logging.getLogger("forgelm.wizard")
 
 from ._byod import (
     _finalize_quickstart_path,
@@ -82,14 +85,25 @@ from ._state import (
 
 
 def _apply_strict_tier_coercion(config: Dict[str, Any], compliance: Dict[str, Any]) -> None:
-    """Mutate *config* in place to satisfy F-compliance-110 strict-tier requirements."""
+    """Mutate *config* in place to satisfy F-compliance-110 strict-tier requirements.
+
+    Idempotent — called twice in the wizard flow (end of compliance step
+    + end of evaluation step) so a Ctrl-C between the two still produces
+    a loadable YAML.  The notice line prints only once per wizard run
+    (A4 / review-cycle 3): tracked via the ``_wizard_meta`` namespace
+    which ``_strip_internal_meta`` removes before save, so the flag
+    never reaches the operator's YAML.
+    """
     if compliance.get("risk_classification") not in _STRICT_RISK_TIERS:
         return
-    _print(
-        "\n  Risk classification is high-risk / unacceptable — Article 9 "
-        "(F-compliance-110) requires safety evaluation enabled and Article 14 "
-        "requires the human-approval staging gate.  Auto-enabling both."
-    )
+    meta = config.setdefault("_wizard_meta", {})
+    if not meta.get("strict_tier_announced"):
+        _print(
+            "\n  Risk classification is high-risk / unacceptable — Article 9 "
+            "(F-compliance-110) requires safety evaluation enabled and Article 14 "
+            "requires the human-approval staging gate.  Auto-enabling both."
+        )
+        meta["strict_tier_announced"] = True
     evaluation = config.setdefault("evaluation", {})
     evaluation.setdefault("auto_revert", True)
     evaluation["require_human_approval"] = True
@@ -111,6 +125,21 @@ def _apply_strict_tier_coercion(config: Dict[str, Any], compliance: Dict[str, An
 
 def _is_beginner(state: _WizardState) -> bool:
     return state.experience == "beginner"
+
+
+def _cached_hardware(state: _WizardState) -> Dict[str, Any]:
+    """Return ``state.hardware``, populating it on first call.
+
+    C16 / review-cycle 3: ``_detect_hardware`` lazy-imports torch and
+    enumerates CUDA devices; both are slow (~50–200 ms).  The welcome
+    step + the post-save pre-flight checklist both want the result, so
+    cache on the per-run :class:`_WizardState`.  The cache lives only
+    for the wizard's lifetime — never persisted (excluded from the YAML
+    snapshot in :func:`_persist_state`).
+    """
+    if state.hardware is None:
+        state.hardware = _detect_hardware()
+    return state.hardware
 
 
 def _print_tutorial(state: _WizardState, lines: List[str]) -> None:
@@ -174,7 +203,7 @@ def _step_welcome(state: _WizardState) -> None:
         state.experience = "beginner"
     else:
         state.experience = "expert"
-    hw = _detect_hardware()
+    hw = _cached_hardware(state)
     if hw["gpu_available"]:
         _print(f"  GPU detected: {hw['gpu_name']} ({hw['vram_gb']} GB VRAM, CUDA {hw['cuda_version']})")
     else:
@@ -284,8 +313,24 @@ def _step_strategy(state: _WizardState) -> None:
     )
     preset_key = target_preset.split(" ")[0]
     target_modules = TARGET_MODULE_PRESETS.get(preset_key, TARGET_MODULE_PRESETS["standard"])
-    lora_r = _prompt_int("LoRA rank (r)", DEFAULT_LORA_R, min_val=1, max_val=512)
-    lora_alpha = _prompt_int("LoRA alpha", lora_r * 2, min_val=1, max_val=1024)
+    # E2 (review-cycle 3): inline rationale on the high-impact operator
+    # knobs.  Each prompt extends its question text with a one-clause
+    # hint operators most often need (without adding a separate full
+    # rationale catalogue — see ``docs/design/wizard_mode.md`` for
+    # scope rationale).
+    lora_r = _prompt_int(
+        "LoRA rank (r) — capacity of the adapter (higher = more expressive, more VRAM; "
+        "8 is the schema default, 16 is a common 'a bit stronger' bump, 64+ rarely helps)",
+        DEFAULT_LORA_R,
+        min_val=1,
+        max_val=512,
+    )
+    lora_alpha = _prompt_int(
+        "LoRA alpha — adapter scaling (the 'alpha = 2 × r' convention is what most papers use)",
+        lora_r * 2,
+        min_val=1,
+        max_val=1024,
+    )
     state.config.setdefault("model", {})["load_in_4bit"] = strategy.load_in_4bit
     state.config["model"].setdefault("trust_remote_code", False)
     # P16: when QLoRA (load_in_4bit=True) is selected, emit the two
@@ -385,9 +430,30 @@ def _step_training_params(state: _WizardState) -> None:
             "OOM recovery halves the batch size on CUDA out-of-memory and retries.",
         ],
     )
-    epochs = _prompt_int("Number of epochs", DEFAULT_EPOCHS, min_val=1, max_val=1000)
-    batch_size = _prompt_int("Batch size per device", DEFAULT_BATCH_SIZE, min_val=1, max_val=512)
-    max_length = _prompt_int("Max sequence length", DEFAULT_MAX_LENGTH, min_val=64, max_val=131072)
+    # E2: inline rationale on the three most-tuned operator knobs.
+    epochs = _prompt_int(
+        "Number of epochs — full passes over the training set "
+        "(SFT typically wants 1-3; DPO/SimPO/ORPO 1-2; 5+ usually overfits on instruction-tuning corpora)",
+        DEFAULT_EPOCHS,
+        min_val=1,
+        max_val=1000,
+    )
+    batch_size = _prompt_int(
+        "Batch size per device — effective tokens/step is "
+        "``batch_size × gradient_accumulation_steps × max_length``; "
+        "4 fits 7B QLoRA in 12 GB VRAM with the schema-default 2048 max_length",
+        DEFAULT_BATCH_SIZE,
+        min_val=1,
+        max_val=512,
+    )
+    max_length = _prompt_int(
+        "Max sequence length — tokens per training example; "
+        "2048 is safe for instruction tuning, raise for long-form RAG / code-assist "
+        "(>4096 triggers an automatic RoPE-scaling prompt)",
+        DEFAULT_MAX_LENGTH,
+        min_val=64,
+        max_val=131072,
+    )
     output_dir = _prompt("Output directory", "./checkpoints")
     rope_scaling = _collect_rope_scaling(max_length)
     neftune_alpha = _collect_neftune_alpha()
@@ -685,7 +751,7 @@ def _run_full_wizard_outcome() -> WizardOutcome:
     config = _strip_internal_meta(state.config)
     config_filename = _prompt_unique_filename("Save config as", "my_config.yaml")
     config_filename = _save_config_to_file(config, config_filename)
-    _print_preflight_checklist(config)
+    _print_preflight_checklist(config, state)
     _print_wizard_summary(config)
     _validate_generated_config(config_filename)
     _clear_wizard_state()
@@ -749,7 +815,9 @@ def _validate_generated_config(config_filename: str) -> None:
     leftovers, accidentally-emitted incompatible field combinations)
     BEFORE the operator runs ``forgelm --config <path>`` and discovers
     the breakage 30 seconds in.  Re-prompts the operator on failure
-    with a clear "wizard output failed validation" hint.
+    with a clear "wizard output failed validation" hint, and (G30 /
+    review-cycle 3) emits a structured WARNING log line so CI / log
+    pipelines see the failure without scraping stdout.
     """
     try:
         import yaml as _yaml
@@ -762,6 +830,13 @@ def _validate_generated_config(config_filename: str) -> None:
             data = _yaml.safe_load(fh) or {}
         ForgeConfig.model_validate(data)
     except Exception as exc:  # noqa: BLE001 — pydantic raises ValidationError; yaml raises YAMLError
+        # G30: structured-log visibility per docs/standards/error-handling.md.
+        # Operators tail audit / CI logs and miss stdout-only failures;
+        # the WARNING line keeps the "wizard wrote a YAML the schema
+        # rejects" event in the same channel as every other config-time
+        # error.  ``_print`` below still surfaces the human-readable
+        # error inline.
+        logger.warning("Wizard output failed schema validation (%s): %s", config_filename, exc)
         _print("\n  ⚠ Wizard output failed schema validation:")
         for line in str(exc).splitlines()[:10]:
             _print(f"    {line}")
@@ -773,19 +848,26 @@ def _validate_generated_config(config_filename: str) -> None:
     _print("  ✓ Schema validation passed.")
 
 
-def _print_preflight_checklist(config: Dict[str, Any]) -> None:
+def _print_preflight_checklist(config: Dict[str, Any], state: Optional[_WizardState] = None) -> None:
     """Print a short pre-flight checklist before the summary.
 
     Three quick checks the operator can act on immediately: GPU VRAM
     against load_in_4bit / model_size assumption; dataset path
-    existence (or HF Hub flag); audit-ran heuristic.  Skipped silently
-    when the relevant info is missing.
+    existence (or HF Hub flag); risk-tier ↔ safety-eval consistency.
+    Skipped silently when the relevant info is missing.
+
+    Accepts an optional :class:`_WizardState` so the GPU detection
+    result can be reused from :func:`_step_welcome` (C16 / review-cycle
+    3) — a fresh ``_detect_hardware`` call lazy-imports torch and
+    enumerates CUDA devices, which is wasted work when the welcome step
+    already paid that cost.  ``None`` falls back to a direct call so
+    isolated callers (e.g., tests) keep working.
     """
     _print("\n" + "=" * 60)
     _print("  Pre-flight checklist")
     _print("=" * 60)
 
-    hw = _detect_hardware()
+    hw = _cached_hardware(state) if state is not None else _detect_hardware()
     if hw["gpu_available"] and hw.get("vram_gb"):
         _print(f"  · GPU      : {hw['gpu_name']} ({hw['vram_gb']} GB VRAM)")
         load_in_4bit = config.get("model", {}).get("load_in_4bit", False)

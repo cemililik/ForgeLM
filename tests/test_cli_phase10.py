@@ -398,3 +398,39 @@ class TestSubcommandRouting:
                 with pytest.raises(SystemExit) as exc_info:
                     main()
         assert exc_info.value.code == EXIT_WIZARD_CANCELLED
+
+    def test_wizard_start_training_routes_through_dispatcher(self, monkeypatch, tmp_path, minimal_config):
+        """E22-24 (review-cycle 3): the start_training=True branch must mutate
+        ``args.config`` and let the trainer pipeline take over.
+
+        The pre-cycle test only exercised the deferred + cancel paths;
+        the dispatcher's ``args.config = outcome.config_path`` line was
+        uncovered.  Stub the trainer so the test stays GPU-free + fast.
+        """
+        import yaml as _yaml
+
+        from forgelm.wizard._orchestrator import WizardOutcome
+
+        cfg_path = tmp_path / "wizard.yaml"
+        cfg_path.write_text(_yaml.safe_dump(minimal_config()), encoding="utf-8")
+        outcome = WizardOutcome(config_path=str(cfg_path), start_training=True)
+
+        captured = {}
+
+        # ``_run_training_pipeline`` is called as
+        # ``_run_training_pipeline(config, args, json_output)`` from
+        # ``forgelm/cli/_dispatch.py:232``.  Stub captures the args
+        # object so the test can verify ``args.config`` was mutated.
+        def _stub_pipeline(_config_obj, args, *_a, **_kw):
+            captured["config"] = args.config
+            sys.exit(EXIT_SUCCESS)
+
+        with patch("forgelm.wizard.run_wizard_full", MagicMock(return_value=outcome)):
+            monkeypatch.setattr("forgelm.cli._dispatch._run_training_pipeline", _stub_pipeline)
+            with patch("sys.argv", ["forgelm", "--wizard"]):
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+        # The dispatcher must have set args.config = outcome.config_path
+        # and routed into the (stubbed) trainer pipeline.
+        assert captured["config"] == str(cfg_path)
+        assert exc_info.value.code == EXIT_SUCCESS

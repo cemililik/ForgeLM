@@ -201,7 +201,7 @@ A single invocation does exactly one of the three.  Combining flags is a `Config
 
 ### 4.3 Exit codes
 
-Standard ForgeLM 0/1/2/3/4 contract — all codes from `forgelm.cli._exit_codes` reused, no new value introduced:
+Standard ForgeLM 0/1/2/3/4 contract — all codes from `forgelm.cli._exit_codes` reused, no new value introduced by `forgelm purge` (the global contract was extended with `EXIT_WIZARD_CANCELLED = 5` in review-cycle 2 for the interactive wizard surface; purge does not consume code 5):
 
 | Code | Constant | Meaning |
 |---|---|---|
@@ -211,7 +211,7 @@ Standard ForgeLM 0/1/2/3/4 contract — all codes from `forgelm.cli._exit_codes`
 | 3 | `EXIT_EVAL_FAILURE` | Reserved for the trainer pre-flight gate when `enforce: block_on_excess` is configured (see §3.4 in the spirit of the master `error-handling.md` exit-code contract).  **Not** used by `forgelm purge --check-policy` — that path is a report, not a gate; see §10 Q5 + the paragraph below. |
 | 4 | `EXIT_AWAITING_APPROVAL` | Reserved for its trainer-pipeline meaning per `docs/standards/error-handling.md` ("Training + evals passed, but `require_human_approval: true` — staged, awaiting human sign-off").  **Not** reused by `forgelm purge`. Since the shipped `forgelm purge` is non-interactive (no prompt, no `--yes` flag), there is no "operator declined the prompt" path; consent is recorded in the operator-supplied `--justification` and the audit chain. |
 
-**`--check-policy` always exits 0** (per §10 Q5 — the resolved decision: report-not-gate semantic).  Operators who want a CI gate use `--output-format json` and pipe to `jq '.violations | length'` themselves; CI then branches on that count rather than on the exit code.  This keeps the public contract `docs/standards/error-handling.md` 0/1/2/3/4 consistent across every ForgeLM subcommand: a code-3 from `forgelm purge` always means "trainer pre-flight gate failed", never "report found something".
+**`--check-policy` always exits 0** (per §10 Q5 — the resolved decision: report-not-gate semantic).  Operators who want a CI gate use `--output-format json` and pipe to `jq '.violations | length'` themselves; CI then branches on that count rather than on the exit code.  This keeps the public contract `docs/standards/error-handling.md` (0/1/2/3/4 trainer + 5 wizard-cancel) consistent across every ForgeLM subcommand: a code-3 from `forgelm purge` always means "trainer pre-flight gate failed", never "report found something".
 
 ### 4.4 Atomicity
 

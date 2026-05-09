@@ -6,6 +6,77 @@ All notable changes to ForgeLM are documented here.
 
 ### Added
 
+- **Wizard review-cycle 3 — bug fixes + UX polish (2026-05-09).**
+  Closes the eleven actionable findings from the review-cycle 2 audit
+  (`docs/analysis/code_reviews/review-cycle-2-findings.md` summary in
+  the PR body). Low-risk batch — no architectural changes.
+  - **Atomic-write temp leak (A3):** `_save_wizard_state` now unlinks
+    the temp file when `os.replace` fails (cross-device home, EACCES,
+    EXDEV) so `.wizard_state.*.tmp` stops accumulating under
+    `$XDG_CACHE_HOME/forgelm/`. Defensive `finally`-branch sweep
+    catches the case where `yaml.safe_dump` itself raises before the
+    rename can run.
+  - **Strict-tier coercion announce-once (A4):** the
+    `_apply_strict_tier_coercion` notice now prints once per wizard
+    run instead of twice (compliance step + evaluation step idempotent
+    re-call). Tracked via a `_wizard_meta.strict_tier_announced` flag
+    that `_strip_internal_meta` removes before save.
+  - **Hardware detection cache (C16):** `_detect_hardware()` is now
+    cached on `_WizardState.hardware`; the welcome step + the post-
+    save pre-flight checklist share the result instead of paying a
+    second torch import + CUDA enumeration (~50–200 ms saved).
+  - **Structured WARNING on validate failure (G30):**
+    `_validate_generated_config` now emits `logger.warning(...)` in
+    addition to the inline `_print` notice, so CI / log pipelines
+    don't have to scrape stdout for "wizard output failed schema
+    validation" events. Per `docs/standards/error-handling.md` rule 2.
+  - **Cross-tab storage error visibility (B11):** the web wizard's
+    `storage` event listener now `console.warn`s on a sync failure
+    instead of silently swallowing the error.
+  - **Mobile YAML preview clamp (C3):** the expanded YAML accordion
+    on `<900px` viewports now caps at `38vh` with `overflow:auto` so
+    long configs (high-risk + every gate) no longer push the
+    Copy/Download/Back/Next footer off-screen.
+  - **State-version migration registry skeleton (F3):** new
+    `_STATE_MIGRATIONS` dict + `_migrate_wizard_state` helper in
+    `_state.py`. Registry is empty until the first real version bump;
+    the skeleton lets us add `{1: migrate_v1_to_v2}` without
+    plumbing rewrite. Rejects unknown / newer versions / non-
+    advancing migrators with a structured WARNING.
+  - **Inline rationale on five high-impact prompts (E2 hedefli):**
+    `lora_r`, `lora_alpha`, `num_train_epochs`, `batch_size`,
+    `max_length`, `risk_classification` now carry one-clause
+    rationale strings inline so first-time operators see the
+    operational hint without flipping into beginner mode.
+  - **Dispatcher start-training test (E22-24):** new
+    `test_wizard_start_training_routes_through_dispatcher` covers
+    the previously-uncovered branch in `_maybe_run_wizard` where
+    `outcome.start_training=True` mutates `args.config` and lets
+    the trainer pipeline run.
+  - **Doc consistency sweep (A9):** `docs/product_strategy{,-tr}.md`
+    + `docs/design/gdpr_erasure.md` + `docs/design/data_audit_cli_split.md`
+    "0/1/2/3/4 contract" claims now acknowledge `EXIT_WIZARD_CANCELLED = 5`.
+  - **Human-approval-gate cross-reference (F27):**
+    `docs/usermanuals/{en,tr}/compliance/human-approval-gate.md` now
+    cross-references exit code 5 alongside the existing exit-4
+    discussion — operators using `forgelm --wizard` to produce
+    high-risk configs need both signals.
+  - **SSRF preflight DNS-rebinding caveat (B10 doc-only):** comment
+    above `_parse_webhook_value` now notes that the preflight catches
+    "wrong URL at config time", not "guaranteed-public destination at
+    training time" (the runtime TOCTOU window is tracked separately
+    at issue #14).
+  - **20+ new tests** covering atomic-write cleanup, announce-once
+    flag, migration skeleton, hardware cache reuse, validate-warning
+    log line, dispatcher start-training branch.
+  - **B4 (`--wizard-from-yaml`) removed from roadmap consideration:**
+    politik çelişki — projenin "config-driven is the identity"
+    ilkesiyle çatışır ve B3 (non-tty stdin reddi + `quickstart`
+    yönlendirmesi) zaten boşluğu kapattı.
+  - **E3 (`--wizard --start-from <yaml>`) explicitly bound to F1:**
+    reverse-mapping work duplicates F1's schema-driven SOT effort;
+    deferred until F1 lands so the mapping reuses generated metadata.
+
 - **Wizard review-cycle 2 — operator-quality guardrails (2026-05-09).**
   Phase 22 follow-up addressing 17 newly-discovered parity / UX gaps
   surfaced during the post-PR-#40 audit. Both surfaces (CLI sub-package
