@@ -1,3 +1,4 @@
+import inspect
 import logging
 import math
 import os
@@ -425,8 +426,6 @@ class ForgeTrainer:
         kwargs = self._get_common_training_kwargs()
 
         if tt == "sft":
-            import inspect
-
             from trl import SFTConfig
 
             kwargs["packing"] = bool(getattr(self.config.training, "packing", False))
@@ -435,11 +434,26 @@ class ForgeTrainer:
             #   trl 0.12.x: ``SFTConfig(max_seq_length=...)``
             #   trl 0.13+ / 1.x: ``SFTConfig(max_length=...)`` — old name removed
             # ``pyproject.toml`` pins ``trl>=0.12.0,<2.0.0``, so detect at runtime.
+            # Hard-fail (don't warn-and-continue) if neither name is exposed:
+            # silently dropping ``model.max_length`` would let TRL pick its
+            # default and produce a model trained against an unintended
+            # context window — exactly the "no silent failures" rule in
+            # docs/standards/error-handling.md.
             sft_params = inspect.signature(SFTConfig).parameters
             if "max_length" in sft_params:
                 kwargs["max_length"] = self.config.model.max_length
             elif "max_seq_length" in sft_params:
                 kwargs["max_seq_length"] = self.config.model.max_length
+            else:
+                import trl as _trl
+
+                raise ValueError(
+                    f"SFTConfig in trl {getattr(_trl, '__version__', '?')} exposes neither "
+                    "`max_length` nor `max_seq_length` as a named parameter; cannot apply "
+                    f"the sequence-length cap from config (model.max_length={self.config.model.max_length}). "
+                    f"Detected parameters: {sorted(sft_params)}. Pin trl to a known-compatible "
+                    "version or file an issue referencing this error."
+                )
             return SFTConfig(**kwargs)
 
         elif tt == "orpo":

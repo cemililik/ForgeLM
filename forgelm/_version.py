@@ -37,8 +37,10 @@ except PackageNotFoundError:  # pragma: no cover — uninstalled-source path
 # the formal Phase 19 library-API surface — 30 stable symbols in
 # ``forgelm.__all__``).  v0.5.6 reverted the v0.5.5 torch min bump;
 # v0.5.7 fixes a runtime ``SFTConfig.max_seq_length`` TypeError on
-# modern trl (rename to ``max_length`` in trl 0.13+).  Neither patch
-# changes the Python API surface, so ``__api_version__`` stays at 1.0.0.
+# modern trl (rename to ``max_length`` in trl 0.13+) plus the Intel
+# Mac NumPy 2 ABI mismatch (numpy<2 marker + ``numpy.torch_abi``
+# doctor probe).  None of these patches change the Python API
+# surface, so ``__api_version__`` stays at 1.0.0.
 __api_version__ = "1.0.0"
 
 __all__ = ["__version__", "__api_version__"]

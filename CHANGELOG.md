@@ -4,6 +4,52 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+Review-absorption round 3 follow-up to v0.5.7. No public surface change,
+but training-pipeline UX, doctor robustness, and roadmap hygiene
+improve.
+
+### Added
+
+- **Early-fail ABI preflight in the training pipeline.** A new shared
+  helper at `forgelm/cli/_abi_check.py` runs the same numpy/torch
+  pairing check as `forgelm doctor`'s `numpy.torch_abi` probe, and
+  `forgelm/cli/_training.py::_run_training_pipeline` now calls it
+  before importing the heavy stack. An operator who hits a residual
+  Intel Mac NumPy 2 mismatch (drifted env, out-of-band
+  `pip install -U numpy`) now sees a single-line error with the exact
+  remediation command (`pip install 'numpy<2'`) instead of a cryptic
+  `NameError: name '_C' is not defined` from torch mid-training. The
+  PEP 508 marker in `pyproject.toml` remains the primary fix for
+  fresh installs; the preflight is the second line of defense.
+
+### Fixed
+
+- **`forgelm/trainer.py::_get_training_args_for_type`** — SFT branch
+  now raises `ValueError` (not warn-and-continue) when neither
+  `max_length` nor `max_seq_length` is exposed on `SFTConfig`. Silent
+  drop of an explicit `model.max_length` YAML setting would violate
+  `docs/standards/error-handling.md` "no silent failures" — error
+  message lists the actually-detected parameters for forensics.
+- **`tests/test_doctor.py` + `tests/test_quickstart_compat.py`** —
+  three pre-existing tests that popped `sys.modules['torch']` /
+  `sys.modules['numpy']` without restoring them now use
+  `monkeypatch.delitem` for tracked teardown. The stranded modules
+  half-initialised every subsequent `import torch` in the pytest
+  session (`torch._C` never re-bound), causing every downstream
+  `from trl import SFTConfig` and a long tail of merging / moe /
+  quickstart / wizard / judge / safety tests to fail in the full
+  suite even though they passed in isolation. Pure test-only fix; no
+  production behaviour change.
+- **`forgelm/cli/subcommands/_doctor.py::_check_numpy_torch_abi`** —
+  refactored to call into the shared `_abi_check.py` helper rather
+  than duplicating the version-parsing + threshold logic. Docstring
+  tightened to honestly note that torch's C++ `_ARRAY_API not found`
+  message is outside Python's warnings machinery and `fprintf(stderr,
+  …)`-based suppression would require fd-level redirection (which is
+  unsafe in a long-lived CLI process). Module-level `re` / `warnings`
+  imports promoted from function-local since the shared helper now
+  owns them.
+
 ## [0.5.7] — 2026-05-10
 
 Patch release. Fixes a runtime `TypeError` in the SFT trainer that

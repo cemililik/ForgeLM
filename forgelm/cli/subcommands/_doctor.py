@@ -213,26 +213,30 @@ def _check_torch_cuda() -> _CheckResult:
 def _check_numpy_torch_abi() -> _CheckResult:
     """Detect a torch <-> numpy binary-ABI mismatch.
 
-    PyTorch wheels are compiled against a specific NumPy major version:
-    torch < 2.3 was built against NumPy 1.x and silently degrades when
-    paired with NumPy 2.x (the well-known ``_ARRAY_API not found``
-    UserWarning emitted from torch's C++ tensor-numpy bridge).  This
-    typically bites Intel Mac (x86_64) hosts where PyTorch Foundation
-    no longer publishes torch >= 2.3 wheels, so pip's resolver caps at
-    torch 2.2.x and any newer numpy on the box mismatches.
+    Thin doctor-side wrapper over
+    :func:`forgelm.cli._abi_check.compute_numpy_torch_abi_status`; the
+    same helper is also called as a fail-fast preflight from
+    :mod:`forgelm.cli._training` so an operator who skips ``forgelm
+    doctor`` and jumps straight to training still gets the actionable
+    remediation message rather than a cryptic
+    ``NameError: name '_C' is not defined`` from torch mid-run.
 
-    Best-effort probe: torch / numpy are imported with warnings
-    suppressed so the probe itself does not pollute stderr with the
-    very ``UserWarning`` it is trying to detect.
+    See :mod:`forgelm.cli._abi_check` for the underlying logic + the
+    full stderr-suppression caveat (torch's C++ ``_ARRAY_API not
+    found`` line is outside Python's warnings machinery).
     """
-    import re
-    import warnings
+    from .._abi_check import (
+        ABI_BROKEN,
+        ABI_OK,
+        ABI_SKIPPED_NUMPY,
+        ABI_SKIPPED_TORCH,
+        compute_numpy_torch_abi_status,
+        format_abi_remediation,
+    )
 
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            import torch
-    except ImportError:
+    status, torch_version, numpy_version = compute_numpy_torch_abi_status()
+
+    if status == ABI_SKIPPED_TORCH:
         # The dedicated torch.cuda probe already surfaces a missing
         # torch as fail; do not double-report here.
         return _CheckResult(
@@ -241,11 +245,7 @@ def _check_numpy_torch_abi() -> _CheckResult:
             detail="torch is not installed; ABI compatibility check skipped.",
             extras={"skipped": True, "reason": "torch_missing"},
         )
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            import numpy
-    except ImportError:
+    if status == ABI_SKIPPED_NUMPY:
         # numpy is an *optional* fast-path for the simhash backend
         # (see forgelm/data_audit/_optional.py::_HAS_NUMPY) — its
         # absence is not a doctor failure.
@@ -256,41 +256,25 @@ def _check_numpy_torch_abi() -> _CheckResult:
             extras={"skipped": True, "reason": "numpy_missing"},
         )
 
-    def _major_minor(version: str) -> Tuple[int, int]:
-        # Tolerates prerelease ("2.2.0a0") and local-version ("2.2.0+cpu")
-        # suffixes by extracting the leading numeric MAJOR.MINOR pair only.
-        match = re.match(r"^(\d+)\.(\d+)", version)
-        if not match:
-            return (0, 0)
-        return (int(match.group(1)), int(match.group(2)))
-
-    torch_mm = _major_minor(torch.__version__)
-    numpy_mm = _major_minor(numpy.__version__)
     extras: Dict[str, Any] = {
-        "torch_version": torch.__version__,
-        "numpy_version": numpy.__version__,
+        "torch_version": torch_version,
+        "numpy_version": numpy_version,
     }
-
-    # The known incompatibility window: torch < 2.3 was built against
-    # NumPy 1.x and silently degrades when paired with NumPy 2.x.
-    if torch_mm < (2, 3) and numpy_mm >= (2, 0):
+    if status == ABI_BROKEN:
+        # ``format_abi_remediation`` is the canonical fix-instructions
+        # string — shared so the training preflight emits the same hint.
         return _CheckResult(
             name=_PROBE_NUMPY_TORCH_ABI,
             status=_STATUS_FAIL,
-            detail=(
-                f"torch {torch.__version__} (compiled against NumPy 1.x) is "
-                f"paired with numpy {numpy.__version__}. This triggers an "
-                "`_ARRAY_API not found` ABI mismatch and silently degrades "
-                "the numpy bridge inside torch. Fix with: pip install 'numpy<2' "
-                "(or upgrade to torch>=2.3 if your platform has wheels for it)."
-            ),
+            detail=format_abi_remediation(torch_version, numpy_version),
             extras=extras,
         )
 
+    assert status == ABI_OK, f"unexpected ABI status {status!r}"
     return _CheckResult(
         name=_PROBE_NUMPY_TORCH_ABI,
         status=_STATUS_PASS,
-        detail=f"torch {torch.__version__} + numpy {numpy.__version__} are ABI-compatible.",
+        detail=f"torch {torch_version} + numpy {numpy_version} are ABI-compatible.",
         extras=extras,
     )
 

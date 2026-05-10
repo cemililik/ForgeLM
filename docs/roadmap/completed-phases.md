@@ -927,7 +927,7 @@ suite because it is wall-clock-noisy.
 
 > **Note:** Phase 11 + 11.5 built the ingestion / audit lineage (Phase 11 → `v0.5.0`, Phase 11.5 → `v0.5.1`); this phase moves the same lineage from **enterprise-acceptable** to **enterprise-competitive**.
 
-**Goal:** Mature ForgeLM's `forgelm ingest` + `forgelm audit` layer along three axes — **scale** (LSH-based near-duplicate detection beyond ~50K rows, large-corpus throughput), **security** (code/secret leakage scanning + optional ML-based PII), and **quality** (markdown-aware chunking + heuristic quality filters + table structure preservation). The competitive review that followed Phase 11.5 (see `docs/roadmap/phase-11-5-backlog.md` "Measured speedups" section + the 2026-04-27 ingestion-comparison synthesis) lists the exact gaps this phase closes.
+**Goal:** Mature ForgeLM's `forgelm ingest` + `forgelm audit` layer along three axes — **scale** (LSH-based near-duplicate detection beyond ~50K rows, large-corpus throughput), **security** (code/secret leakage scanning + optional ML-based PII), and **quality** (markdown-aware chunking + heuristic quality filters + table structure preservation). The competitive review that followed Phase 11.5 (see [Phase 11.5 section above](#phase-115-ingestion-audit-polish), "Measured speedups" subsection, plus the 2026-04-27 ingestion-comparison synthesis) lists the exact gaps this phase closes.
 
 **Estimated Effort:** Medium (4-6 weeks) — **Actual: ~1 day** (single-author implementation, leveraging the streaming aggregator + tier-mapped pattern from Phase 11.5).
 **Priority:** High — answers the enterprise demand surfaced after the `v0.5.0` PyPI launch; sequences naturally with Phase 14 (Multi-Stage Pipeline Chains), which is reslotted to `v0.5.3`.
@@ -1139,11 +1139,11 @@ The "Won't-do" list at the bottom of [(see Phase 12 — Data Curation Maturity s
 
 The v0.5.0 master code review surfaced **175 findings** plus **4 user-added scope items** (Library API support, ISO 27001 / SOC 2 alignment, GDPR right-to-erasure full implementation, Article 14 real staging). Rather than stretch these across 5 sequential patch releases, the maintainer chose **Path B — full Tasks 1-38 sweep into a single v0.5.5 tag**:
 
-- Bisectable PR-per-faz history
-- One coherent surface (every faz feeds the same release candidate)
+- Bisectable PR-per-task history
+- One coherent surface (every task feeds the same release candidate)
 - 5/5 quality bar reached before publish, not after
 
-The 38 tasks were merged across **5 integration waves** (Wave 0/1 through Wave 5). Each wave landed via a dedicated PR onto `development`, then into `main`. This file is the index that maps every faz to its wave, integration PR, and merge SHA.
+The 38 tasks were merged across **5 integration waves** (Wave 0/1 through Wave 5). Each wave landed via a dedicated PR onto `development`, then into `main`. This file is the index that maps every task to its wave, integration PR, and merge SHA.
 
 ### Scope (in / out)
 

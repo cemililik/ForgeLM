@@ -97,7 +97,14 @@ class TestVramProbe:
         with patch.dict(sys.modules, {"torch": fake_torch}):
             assert _detect_available_vram_gb() is None
 
-    def test_detect_vram_handles_torch_missing(self):
+    def test_detect_vram_handles_torch_missing(self, monkeypatch):
+        # Why monkeypatch.delitem (and not `sys.modules.pop`):  popping
+        # torch without restoring it leaves the module re-import in a
+        # half-initialised state for every later test in the same
+        # pytest session — torch._C ends up unbound, and every
+        # downstream `from trl import SFTConfig` then explodes with
+        # `NameError: name '_C' is not defined`.  monkeypatch tracks
+        # the deletion and restores the original torch on teardown.
         real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
@@ -105,11 +112,9 @@ class TestVramProbe:
                 raise ImportError("no torch in this env")
             return real_import(name, *args, **kwargs)
 
-        # Drop any cached torch module so the local `import torch` re-resolves.
-        with patch.dict(sys.modules, {}, clear=False):
-            sys.modules.pop("torch", None)
-            with patch.object(builtins, "__import__", side_effect=fake_import):
-                assert _detect_available_vram_gb() is None
+        monkeypatch.delitem(sys.modules, "torch", raising=False)
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        assert _detect_available_vram_gb() is None
 
 
 # ---------------------------------------------------------------------------

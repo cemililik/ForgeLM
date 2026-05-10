@@ -162,9 +162,17 @@ class TestNumpyTorchAbiCheck:
             result = _check_numpy_torch_abi()
         assert result.status == "pass"
 
-    def test_no_numpy_skips_gracefully(self) -> None:
+    def test_no_numpy_skips_gracefully(self, monkeypatch) -> None:
         """numpy is an optional fast-path for the simhash backend; its
-        absence is not a doctor failure."""
+        absence is not a doctor failure.
+
+        Uses ``monkeypatch.delitem`` so the popped ``sys.modules['numpy']``
+        is auto-restored on test teardown — a plain ``sys.modules.pop``
+        leaves numpy un-cached, and a later test that re-imports torch
+        will partially re-initialise it (no ``torch._C`` binding) and
+        every downstream ``from trl import SFTConfig`` then fails with
+        ``NameError: name '_C' is not defined``.
+        """
         import builtins
 
         from forgelm.cli.subcommands import _doctor
@@ -178,18 +186,25 @@ class TestNumpyTorchAbiCheck:
                 raise ImportError("No module named 'numpy'")
             return original_import(name, *args, **kwargs)
 
-        # Drop any cached numpy so the patched __import__ actually fires.
-        with patch.dict("sys.modules", {"torch": fake_torch}, clear=False):
-            sys.modules.pop("numpy", None)
-            with patch.object(builtins, "__import__", _block_numpy):
-                result = _doctor._check_numpy_torch_abi()
+        # Both swaps are tracked by monkeypatch so the original modules
+        # come back automatically; nothing leaks into the next test.
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+        monkeypatch.delitem(sys.modules, "numpy", raising=False)
+        monkeypatch.setattr(builtins, "__import__", _block_numpy)
+        result = _doctor._check_numpy_torch_abi()
         assert result.status == "pass"
         assert result.extras.get("skipped") is True
         assert result.extras.get("reason") == "numpy_missing"
 
-    def test_no_torch_skips_gracefully(self) -> None:
+    def test_no_torch_skips_gracefully(self, monkeypatch) -> None:
         """torch.cuda probe already surfaces a missing torch as fail; the
-        ABI probe must not double-report."""
+        ABI probe must not double-report.
+
+        ``monkeypatch.delitem`` keeps ``sys.modules['torch']`` restored
+        on teardown — see ``test_no_numpy_skips_gracefully`` for the
+        full pollution-cascade rationale (a stranded torch entry
+        breaks every subsequent TRL-loading test in the suite).
+        """
         import builtins
 
         from forgelm.cli.subcommands import _doctor
@@ -201,10 +216,9 @@ class TestNumpyTorchAbiCheck:
                 raise ImportError("No module named 'torch'")
             return original_import(name, *args, **kwargs)
 
-        # Drop any cached torch so the patched __import__ actually fires.
-        sys.modules.pop("torch", None)
-        with patch.object(builtins, "__import__", _block_torch):
-            result = _doctor._check_numpy_torch_abi()
+        monkeypatch.delitem(sys.modules, "torch", raising=False)
+        monkeypatch.setattr(builtins, "__import__", _block_torch)
+        result = _doctor._check_numpy_torch_abi()
         assert result.status == "pass"
         assert result.extras.get("skipped") is True
         assert result.extras.get("reason") == "torch_missing"
