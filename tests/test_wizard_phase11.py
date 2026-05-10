@@ -12,6 +12,7 @@ the side effects hermetic.
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 from unittest.mock import patch
 
@@ -202,7 +203,11 @@ class TestWizardByodOutput:
 
         captured = capsys.readouterr().out
         assert "Skipped — audit can be run later via:" in captured
-        assert f"forgelm audit {good}" in captured
+        # Production code wraps the path with ``shlex.quote`` so paths
+        # containing spaces / Windows backslashes render copy-paste-safe;
+        # the assertion mirrors that quoting so the test passes on every
+        # cross-OS publish-matrix combo.
+        assert f"forgelm audit {shlex.quote(str(good))}" in captured
 
 
 # ---------------------------------------------------------------------------

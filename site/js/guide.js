@@ -139,10 +139,20 @@
   }
 
   function refreshSidebarFallbackMarks() {
-    var bag = (window.ForgeLMUserManuals || {})[state.lang] || {};
+    // When the user-selected language has no bag at all (deferred
+    // language per ``tools/build_usermanuals.py``), every page in the
+    // sidebar is a fallback — the entire manual surface falls through
+    // to English.  Per-page fallback flags on the bag's pages still
+    // win for the supported languages (in case a single page is
+    // missing from an otherwise-populated bag).
+    var manuals = window.ForgeLMUserManuals || {};
+    var nativeBag = manuals[state.lang];
+    var langHasNoBag = !nativeBag && state.lang !== 'en';
+    var bag = nativeBag || {};
     document.querySelectorAll('#guide-nav a').forEach(function (a) {
       var p = bag[a.dataset.route];
-      a.classList.toggle('fallback', !!(p && p.fallback));
+      var isFallback = langHasNoBag || !!(p && p.fallback);
+      a.classList.toggle('fallback', isFallback);
     });
   }
 
@@ -154,14 +164,27 @@
 
     ensureLangLoaded(state.lang).then(function () {
       var lang = state.lang;
-      var bag = (window.ForgeLMUserManuals || {})[lang]
-             || (window.ForgeLMUserManuals || {}).en
-             || {};
+      var manuals = window.ForgeLMUserManuals || {};
+      var nativeBag = manuals[lang];
+      var bag = nativeBag || manuals.en || {};
       var page = bag[route];
 
       if (!page) {
         renderNotFound(route);
         return;
+      }
+
+      // Mark the page as a translation-fallback when either the entire
+      // language has no bag (deferred language — ``de`` / ``fr`` /
+      // ``es`` / ``zh``) or the specific page is missing from the
+      // language's bag and we used English as a fallback.  ``page`` is
+      // shared across calls (cached in the global bag), so clone before
+      // mutating to avoid cross-route leakage.
+      var pageMissingInNative = !!nativeBag && !nativeBag[route];
+      var langHasNoBag = !nativeBag && lang !== 'en';
+      var isFallback = langHasNoBag || pageMissingInNative;
+      if (isFallback) {
+        page = Object.assign({}, page, { fallback: true });
       }
 
       renderPage(route, page);
@@ -531,7 +554,21 @@
   /* ──────────────────────────────────────────── lazy-load language data */
 
   function ensureLangLoaded(lang) {
-    return new Promise(function (resolve, reject) {
+    // Resolves once the page bag for *lang* is available, OR once we
+    // know there is no bag and the caller should fall back to English.
+    //
+    // ``tools/build_usermanuals.py`` only emits JS bags for the
+    // ``SUPPORTED_LANGUAGES`` set (currently ``en`` + ``tr``).  The
+    // remaining picker entries (``de`` / ``fr`` / ``es`` / ``zh``) are
+    // intentionally bag-less per the localization standard — operators
+    // who pick those locales should see the English manual content with
+    // a ``This page has not been translated yet`` banner.  The 404 from
+    // ``js/usermanuals/<lang>.js`` is therefore an EXPECTED outcome for
+    // deferred languages, not an error: we mark the lang as "loaded"
+    // (with no bag) and resolve so the caller's bag-fall-through path
+    // can pick up ``ForgeLMUserManuals.en`` and tag the page as a
+    // fallback.
+    return new Promise(function (resolve) {
       if (state.loadedLangs[lang]) { resolve(); return; }
       var existing = (window.ForgeLMUserManuals || {})[lang];
       if (existing) {
@@ -542,7 +579,13 @@
       var s = document.createElement('script');
       s.src = 'js/usermanuals/' + lang + '.js';
       s.onload = function () { state.loadedLangs[lang] = true; resolve(); };
-      s.onerror = function () { reject(new Error('failed to load ' + lang)); };
+      s.onerror = function () {
+        // Deferred-language path: no bag emitted.  Mark as loaded so
+        // we don't re-attempt the 404 on every navigation, and resolve
+        // so the caller falls back to English with a banner.
+        state.loadedLangs[lang] = true;
+        resolve();
+      };
       document.head.appendChild(s);
     });
   }

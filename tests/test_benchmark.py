@@ -120,40 +120,35 @@ class TestRunBenchmark:
         assert result.scores == {}
 
     @pytest.mark.skipif(not lm_eval_available, reason="lm_eval not installed")
-    @patch("forgelm.benchmark._check_lm_eval_available")
-    @patch("forgelm.benchmark.lm_eval", create=True)
-    @patch("forgelm.benchmark.HFLM", create=True)
-    def test_successful_benchmark(self, mock_hflm_cls, mock_lm_eval, mock_check):
-        """Test benchmark with mocked lm-eval results."""
-        # We need to mock the imports inside run_benchmark
-        mock_lm_obj = MagicMock()
-        mock_hflm_cls.return_value = mock_lm_obj
+    def test_successful_benchmark(self):
+        """Test benchmark with mocked lm-eval results.
 
+        ``run_benchmark`` does function-local imports (``import lm_eval``;
+        ``from lm_eval.models.huggingface import HFLM``) so the
+        ``forgelm.benchmark`` module namespace never holds the symbols
+        and ``patch("forgelm.benchmark.lm_eval", create=True)`` is a
+        no-op against the function-scope rebind.  Patch the real
+        import sites directly: ``lm_eval.simple_evaluate`` (callable on
+        the module) and ``lm_eval.models.huggingface.HFLM`` (the class
+        constructor the function looks up via ``from ... import``).
+        """
+        mock_lm_obj = MagicMock()
         mock_results = {
             "results": {
                 "arc_easy": {"acc_norm,none": 0.65},
                 "hellaswag": {"acc_norm,none": 0.55},
             }
         }
-
-        # Patch the actual imports inside the function
-        with patch("forgelm.benchmark.HFLM", return_value=mock_lm_obj):
-            with patch("forgelm.benchmark.lm_eval") as mock_eval_module:
-                mock_eval_module.simple_evaluate.return_value = mock_results
-                # Need to also patch the import check
-                import forgelm.benchmark as bm
-
-                original_check = bm._check_lm_eval_available
-                bm._check_lm_eval_available = lambda: None
-
-                try:
-                    result = run_benchmark(
-                        model=MagicMock(),
-                        tokenizer=MagicMock(),
-                        tasks=["arc_easy", "hellaswag"],
-                    )
-                finally:
-                    bm._check_lm_eval_available = original_check
+        with (
+            patch("lm_eval.models.huggingface.HFLM", return_value=mock_lm_obj),
+            patch("lm_eval.simple_evaluate", return_value=mock_results),
+            patch("forgelm.benchmark._check_lm_eval_available", return_value=None),
+        ):
+            result = run_benchmark(
+                model=MagicMock(),
+                tokenizer=MagicMock(),
+                tasks=["arc_easy", "hellaswag"],
+            )
 
         assert result.scores.get("arc_easy") == pytest.approx(0.65)
         assert result.scores.get("hellaswag") == pytest.approx(0.55)

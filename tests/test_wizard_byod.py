@@ -149,8 +149,13 @@ def test_byod_expands_user_home(tmp_path, monkeypatch):
     good.write_text('{"messages":[]}\n', encoding="utf-8")
 
     # Pretend the user's home is tmp_path so "~/data.jsonl" expands to our file.
+    # ``Path.expanduser()`` reads ``$HOME`` on POSIX and ``%USERPROFILE%`` on
+    # Windows (with ``%HOMEDRIVE%%HOMEPATH%`` as a secondary fallback) —
+    # set all four so the test passes on every cross-OS publish-matrix combo.
     monkeypatch.setenv("HOME", str(tmp_path))
-    # On POSIX Path.expanduser() reads $HOME; setting it is enough.
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("HOMEDRIVE", "")
+    monkeypatch.setenv("HOMEPATH", str(tmp_path))
 
     typed = "~/data.jsonl"
     # Phase 12.5: extra "n" declines the post-validation audit offer.

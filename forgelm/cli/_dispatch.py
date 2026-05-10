@@ -116,6 +116,37 @@ def _dispatch_subcommand(command: str, args) -> None:
     sys.exit(EXIT_SUCCESS)
 
 
+def _force_utf8_console_streams() -> None:
+    """Promote stdout/stderr to UTF-8 on Windows consoles.
+
+    ForgeLM's CLI help text and prose use Unicode arrows / dashes
+    (``→``, ``—``).  The Windows console default codec (``cp1252``)
+    cannot encode these characters and ``argparse``'s ``--help``
+    print path raises ``UnicodeEncodeError`` mid-write, propagating
+    through subprocess-based test runners as a non-zero exit before
+    the help text actually finishes printing.  ``reconfigure`` is a
+    no-op on POSIX (stdout is already utf-8) and on Windows it flips
+    the stream encoding so the cp1252 fallback never triggers.
+    ``errors="replace"`` is a belt-and-braces fallback so a future
+    code-point we miss prints as ``?`` instead of crashing.
+
+    Python 3.7+ guarantees ``reconfigure`` exists on text streams
+    (``TextIOWrapper``); when the CLI is invoked with a buffer
+    type that lacks it (rare embedded use), the call is skipped.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                # OSError: stream not a tty or already detached.
+                # ValueError: caller already set conflicting state.
+                # Both are non-fatal — fall back to whatever encoding
+                # the platform default chose.
+                pass
+
+
 def main():
     # PR #29 F-CLI-01: wrap the entire entry path in the same SIGINT
     # contract as the subcommand dispatcher.  Without this, a Ctrl-C
@@ -125,6 +156,7 @@ def main():
     # Python's default handler and exits with shell-shaped 130
     # (= 128+SIGINT) — outside the documented public 0/1/2/3/4 surface
     # and surprising to CI/CD scripts that branch on exit code 2.
+    _force_utf8_console_streams()
     try:
         return _main_inner()
     except KeyboardInterrupt:

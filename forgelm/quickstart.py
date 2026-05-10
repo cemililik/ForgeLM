@@ -22,6 +22,7 @@ Usage (programmatic):
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import os
@@ -303,10 +304,26 @@ def _materialize_config(template: Template, chosen_model: str, dataset_path: str
     return cfg
 
 
+# Monotonic counter appended to every slug — guarantees uniqueness for
+# back-to-back calls in the same process even when ``datetime.now()``
+# returns the same microsecond (Windows clock resolution can be as
+# coarse as ~16ms; macOS/Linux are sub-microsecond, but the counter
+# costs nothing on those platforms and is the cheapest way to keep
+# the cross-OS contract identical).
+_run_slug_counter = itertools.count()
+
+
 def _run_timestamp_slug() -> str:
-    """UTC timestamp with microsecond precision plus PID, for collision-free run dirs."""
+    """UTC timestamp + microseconds + PID + monotonic counter.
+
+    The counter suffix makes the slug collision-free regardless of the
+    underlying clock resolution; without it, Windows callers can hit
+    the ``test_two_immediate_calls_produce_distinct_paths`` regression
+    when two ``_default_output_path`` calls land in the same OS-clock
+    tick (16ms granularity on stock Windows 10).
+    """
     now = datetime.now(timezone.utc)
-    return f"{now.strftime('%Y%m%dT%H%M%S')}-{now.microsecond:06d}-{os.getpid()}"
+    return f"{now.strftime('%Y%m%dT%H%M%S')}-{now.microsecond:06d}-{os.getpid()}-{next(_run_slug_counter)}"
 
 
 def _default_output_path(template_name: str) -> Path:
