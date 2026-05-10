@@ -70,7 +70,7 @@
 - `--dry-run` validates all stages' configs before any GPU allocation.
 
 ### Delivery:
-- Target release: `v0.6.0` (reslotted from earlier `v0.5.x` placeholders; Phase 14 is grouped with the Phase 13 Pro CLI tier per the v0.5.5 closure cycle's deferred-callout policy in `docs/usermanuals/{en,tr}/deployment/model-merging.md` and the [phase-12-6-closure-cycle.md](completed-phases.md) summary).
+- Target release: `v0.6.0` (reslotted from earlier `v0.5.x` placeholders; Phase 14 is grouped with the Phase 13 Pro CLI tier per the v0.5.5 closure cycle's deferred-callout policy in `docs/usermanuals/{en,tr}/deployment/model-merging.md` and the [Phase 12.6 closure cycle archive](completed-phases.md#phase-126-closure-cycle-38-tasks-across-5-waves)).
 - No hard blockers; the v0.5.5 closure cycle has merged. Phase 14 starts after the v0.5.5 PyPI tag is published.
 
 ---
