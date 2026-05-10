@@ -42,7 +42,7 @@
 
 **Status:** Released — published to PyPI on 2026-04-26 ([release notes](https://github.com/cemililik/ForgeLM/releases/tag/v0.4.0)).
 
-Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inference, chat, GGUF export, VRAM fit-check, deployment config generation.
+Odak: [Phase 10](completed-phases.md). Full post-training handoff: inference, chat, GGUF export, VRAM fit-check, deployment config generation.
 
 ### Features:
 1. [x] **`forgelm/inference.py`** — Shared generation primitives: `load_model`, `generate`, `generate_stream` (streaming via background thread, with timeout-based deadlock guard), `logit_stats`, `adaptive_sample`. Supports transformers + peft (merge-and-unload) + unsloth backends.
@@ -60,7 +60,7 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ## v0.4.5 — "Quickstart Layer" (2026-04-26)
 
-**Status:** Released — published to PyPI on 2026-04-26 ([release notes](https://github.com/cemililik/ForgeLM/releases/tag/v0.4.5)). Focus: [Phase 10.5](phase-10-5-quickstart.md) (Quickstart). One-command bundled templates, sample datasets, opinionated defaults — primary community growth driver.
+**Status:** Released — published to PyPI on 2026-04-26 ([release notes](https://github.com/cemililik/ForgeLM/releases/tag/v0.4.5)). Focus: [Phase 10.5](completed-phases.md) (Quickstart). One-command bundled templates, sample datasets, opinionated defaults — primary community growth driver.
 
 ### Features:
 1. [x] **`forgelm/quickstart.py`** — Template registry (`@dataclass(frozen=True) Template`), `auto_select_model()` GPU-aware downsizing (≥10 GB VRAM → primary model; otherwise fallback ≤2B), `run_quickstart()` end-to-end orchestrator that copies the bundled seed dataset, substitutes `model.name_or_path` and `data.dataset_name_or_path`, and writes a `configs/<template>-YYYYMMDDHHMMSS.yaml` the existing trainer accepts unchanged.

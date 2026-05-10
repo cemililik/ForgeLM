@@ -782,7 +782,7 @@ review-cycle fixes applied across the four phases above).
 ### Phase 12.5 — Data Curation Polish (backlog items #1–#4)
 
 Four follow-up items from
-[`docs/roadmap/phase-12-5-backlog.md`](docs/roadmap/phase-12-5-backlog.md)
+[`docs/roadmap/completed-phases.md`](docs/roadmap/completed-phases.md)
 ship together — none require new architecture; each is a small
 additive surface on top of the Phase 12 ingestion + audit lineage.
 
@@ -1141,7 +1141,7 @@ Round-1 review of the Phase 12 commit surfaced four critical regressions / bugs 
 
 ### Added — Phase 12 (Data Curation Maturity, targeting v0.5.2)
 
-Direct continuation of the Phase 11 / 11.5 ingestion + audit lineage. Closes the four concrete gaps surfaced by the post-`v0.5.1` competitive review (LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling). Tier 1 (5 must-have tasks) shipped; Tier 2/3 (Presidio adapter, Croissant metadata, `--all-mask`, wizard "audit first") deferred to a [Phase 12.5 backlog](docs/roadmap/phase-12-5-backlog.md).
+Direct continuation of the Phase 11 / 11.5 ingestion + audit lineage. Closes the four concrete gaps surfaced by the post-`v0.5.1` competitive review (LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling). Tier 1 (5 must-have tasks) shipped; Tier 2/3 (Presidio adapter, Croissant metadata, `--all-mask`, wizard "audit first") deferred to a [Phase 12.5 backlog](docs/roadmap/completed-phases.md).
 
 - **MinHash LSH dedup option** (`forgelm/data_audit.py`: `compute_minhash`, `find_near_duplicates_minhash`, `_count_leaked_rows_minhash`) — Opt-in `--dedup-method minhash --jaccard-threshold 0.85` route via the optional `[ingestion-scale]` extra (`datasketch>=1.6.0`). Default simhash + LSH banding from Phase 11.5 stays untouched and remains the only method that runs without an optional dependency. `audit_dataset(...)` API gains `dedup_method`, `minhash_jaccard`, `minhash_num_perm` parameters; `near_duplicate_summary.method` records which path ran. Cross-split overlap + within-split duplicate scan share the same method flag. MinHash is approximate (permutation noise; default `num_perm=128`) — pin `num_perm` for cross-run determinism.
 - **Markdown-aware splitter** (`forgelm/ingestion.py`: `_chunk_markdown`, `_chunk_markdown_tokens`, `_markdown_sections`, `_heading_breadcrumb`) — New `--strategy markdown` parses heading hierarchy (`# H1` … `###### H6`), keeps code-fenced blocks atomic (heading-shaped lines inside ```` ``` ```` blocks are not interpreted as section boundaries), and inlines a heading **breadcrumb** at the top of each chunk so SFT loss sees the document context. Composes with the Phase 11.5 token-aware mode (`--chunk-tokens` + `--tokenizer`).
@@ -1305,7 +1305,7 @@ Operational polish on top of `v0.5.0`'s ingestion + audit surface — no new tra
 ### Documentation
 
 - New "Option 0: One-Command Quickstart Template" section at the top of `docs/guides/quickstart.md`.
-- `docs/roadmap.md`, `docs/roadmap-tr.md`, `docs/roadmap/phase-10-5-quickstart.md`, `docs/roadmap/releases.md` updated to mark Phase 10.5 as Done.
+- `docs/roadmap.md`, `docs/roadmap-tr.md`, `docs/roadmap/completed-phases.md`, `docs/roadmap/releases.md` updated to mark Phase 10.5 as Done.
 - `README.md` quickstart section updated to lead with `forgelm quickstart`.
 
 ---

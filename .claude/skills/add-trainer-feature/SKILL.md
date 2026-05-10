@@ -24,7 +24,7 @@ Do **not** use for:
 
 1. [docs/standards/architecture.md](../../../docs/standards/architecture.md) — module boundaries
 2. [docs/standards/testing.md](../../../docs/standards/testing.md) — what tests CI demands
-3. The **phase file** describing the feature (e.g., [docs/roadmap/phase-10-post-training.md](../../../docs/roadmap/phase-10-post-training.md))
+3. The **phase file** describing the feature (e.g., [docs/roadmap/completed-phases.md](../../../docs/roadmap/completed-phases.md))
 4. Existing similar feature — read one similar trainer/module end-to-end before writing yours
 
 ## The scaffold

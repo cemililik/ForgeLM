@@ -15,7 +15,7 @@ noisy on shared CI:
     python tools/bench_simhash.py
 
 Results are written to stdout; copy the table back into
-``docs/roadmap/phase-11-5-backlog.md`` if it has shifted materially after
+``docs/roadmap/completed-phases.md`` if it has shifted materially after
 a backend / dependency / Python version change.
 
 The corpus generators below are **fully deterministic**: they walk

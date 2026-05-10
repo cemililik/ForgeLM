@@ -516,7 +516,7 @@ def _chunk_paragraph(text: str, max_chunk_size: int) -> Iterable[str]:
 
 def _chunk_semantic(text: str, chunk_size: int) -> Iterable[str]:
     # Embedding-based semantic chunking was deliberately deferred past
-    # Phase 12 (see docs/roadmap/phase-12-data-curation-maturity.md — the
+    # Phase 12 (see docs/roadmap/completed-phases.md — the
     # "deferred to Phase 13+" entry on embedding-based semantic dedup)
     # because a runtime embedding-model dependency conflicts with the
     # air-gapped Annex IV reproducibility guarantee. The closure plan
@@ -526,7 +526,7 @@ def _chunk_semantic(text: str, chunk_size: int) -> Iterable[str]:
     # F-PR29-A6-05-issue-link.
     raise NotImplementedError(
         "Semantic chunking requires an embedding model and is deferred past "
-        "Phase 12 (see docs/roadmap/phase-12-data-curation-maturity.md — "
+        "Phase 12 (see docs/roadmap/completed-phases.md — "
         "embedding-based semantic dedup deferred to Phase 13+ for Annex IV "
         "reproducibility); tracked under F-PR29-A6-05-issue-link in "
         "docs/roadmap/risks-and-decisions.md. Use 'sliding' or 'paragraph' "
