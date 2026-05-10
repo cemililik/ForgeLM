@@ -412,7 +412,7 @@ collectors / BYOD / IO concerns.
   refusal, secret-mask error path, TLS verify). Used by
   `forgelm doctor` and any future probe / telemetry / registry ping
   that needs an outbound read.
-- **`forgelm/_http.safe_post`** (Faz 7 carry-over) — single boundary
+- **`forgelm/_http.safe_post`** — single boundary
   for outbound HTTP with SSRF guard, redirect refusal, scheme policy,
   timeout floor, TLS pinning, secret-mask error reasons. Migrated
   webhook + judge + synthetic call sites.

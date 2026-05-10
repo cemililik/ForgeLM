@@ -642,8 +642,6 @@ graph TD
 
 ## Phase 10: Post-Training Completion
 
-> **Not:** Bu dosya tek bir planlanan fazı detaylandırır. Tüm fazların özeti için [../roadmap.md](../roadmap.md).
-
 **Goal:** Close the "trained, now what?" gap. After a fine-tune finishes, users should be able to sanity-check, export, and hand the model to a serving runtime (Ollama, vLLM, TGI) without leaving ForgeLM.
 **Estimated Effort:** Medium (2-3 months)
 **Priority:** High — single biggest post-9 UX gap; foundation for Phase 12 (quickstart)
@@ -719,7 +717,7 @@ graph TD
 > **Status:** ✅ **DONE** — shipped as `v0.4.5` on 2026-04-26 (PyPI). Module: [`forgelm/quickstart.py`](../../forgelm/quickstart.py); five bundled templates under [`forgelm/templates/`](../../forgelm/templates/); CLI: `forgelm quickstart <template>`; tests: [`tests/test_quickstart.py`](../../tests/test_quickstart.py); CI smoke in [nightly.yml](../../.github/workflows/nightly.yml).
 
 > **Note:** This file details a single phase. For a summary of all phases, see [../roadmap.md](../roadmap.md).
-> **Filename history:** Originally `phase-12-quickstart.md` (the slot Quickstart held in early planning); renamed to (see relevant Phase section above/below) in the v0.5.2 cycle so the filename matches the current phase number. The Phase 12 slot now belongs to [Data Curation Maturity](#phase-12-data-curation-maturity).
+> **Filename history:** Originally `phase-12-quickstart.md` (the slot Quickstart held in early planning); renamed to its current filename slug in the v0.5.2 cycle so the filename matches the current phase number. The Phase 12 slot now belongs to [Data Curation Maturity](#phase-12-data-curation-maturity).
 
 **Goal:** Make "my first fine-tune" a 10-minute experience. One command, one model in the end, zero YAML writing. Without sacrificing the CI/CD-native core — quickstart generates a YAML the user can later customize.
 **Estimated Effort:** Medium (1-2 months) — **Actual: 1 week**
@@ -783,9 +781,6 @@ graph TD
 > [`docs/guides/data_audit.md`](../guides/data_audit.md). Follow-up
 > work tracked in [Phase 11.5 backlog](#phase-115-ingestion-audit-polish).
 >
-> **Not:** Bu dosya tek bir planlanan fazı detaylandırır. Tüm fazların
-> özeti için [../roadmap.md](../roadmap.md).
-
 **Goal:** Turn raw domain documents (PDF, DOCX, EPUB, TXT, plus structured sources) into training-ready JSONL, with automatic data quality reports that plug into EU AI Act Article 10 data governance.
 **Estimated Effort:** Medium (1-2 months) — **Actual: 1 day**
 **Priority:** High — enterprise onboarding accelerator; bridges ingestion → training → compliance audit in one tool.
@@ -929,9 +924,9 @@ suite because it is wall-clock-noisy.
 > and 12.5 — see [releases.md](releases.md#v050-document-ingestion-data-curation-pipeline).
 > Version-label references below preserve the historical planning trail.
 >
-> **Status:** ✅ **Tier 1 DONE** — landed on `development` for the (originally) `v0.5.2` cycle. All five must-have tasks shipped: MinHash LSH dedup option (`[ingestion-scale]` extra via `datasketch`), markdown-aware splitter (`--strategy markdown`), code/secrets leakage tagger (`[ingestion-secrets]` extra via `detect-secrets` with regex fallback), heuristic quality filter (`--quality-filter`), DOCX/Markdown table preservation. Tier 2 (Presidio adapter, Croissant metadata) and Tier 3 (`--all-mask` composite, wizard "audit first" hook) are deferred to a follow-up **Phase 12.5** backlog file (analogous to Phase 11.5 → (see relevant Phase section above/below)). Modules: [`forgelm/data_audit.py`](../../forgelm/data_audit/), [`forgelm/ingestion.py`](../../forgelm/ingestion.py), [`forgelm/cli.py`](../../forgelm/cli/); tests: [`tests/test_data_audit_phase12.py`](../../tests/test_data_audit_phase12.py), [`tests/test_ingestion_phase12.py`](../../tests/test_ingestion_phase12.py); CLI tests added in [`tests/test_cli_subcommands.py`](../../tests/test_cli_subcommands.py).
+> **Status:** ✅ **Tier 1 DONE** — landed on `development` for the (originally) `v0.5.2` cycle. All five must-have tasks shipped: MinHash LSH dedup option (`[ingestion-scale]` extra via `datasketch`), markdown-aware splitter (`--strategy markdown`), code/secrets leakage tagger (`[ingestion-secrets]` extra via `detect-secrets` with regex fallback), heuristic quality filter (`--quality-filter`), DOCX/Markdown table preservation. Tier 2 (Presidio adapter, Croissant metadata) and Tier 3 (`--all-mask` composite, wizard "audit first" hook) are deferred to a follow-up **Phase 12.5** backlog file (analogous to [Phase 11.5 section above](#phase-115-ingestion-audit-polish)). Modules: [`forgelm/data_audit.py`](../../forgelm/data_audit/), [`forgelm/ingestion.py`](../../forgelm/ingestion.py), [`forgelm/cli.py`](../../forgelm/cli/); tests: [`tests/test_data_audit_phase12.py`](../../tests/test_data_audit_phase12.py), [`tests/test_ingestion_phase12.py`](../../tests/test_ingestion_phase12.py); CLI tests added in [`tests/test_cli_subcommands.py`](../../tests/test_cli_subcommands.py).
 
-> **Not:** Bu dosya tek bir planlanan fazı detaylandırır. Tüm fazların özeti için [../roadmap.md](../roadmap.md). Phase 11 + 11.5 built the ingestion / audit lineage (Phase 11 → `v0.5.0`, Phase 11.5 → `v0.5.1`); this phase moves the same lineage from **enterprise-acceptable** to **enterprise-competitive**.
+> **Note:** Phase 11 + 11.5 built the ingestion / audit lineage (Phase 11 → `v0.5.0`, Phase 11.5 → `v0.5.1`); this phase moves the same lineage from **enterprise-acceptable** to **enterprise-competitive**.
 
 **Goal:** Mature ForgeLM's `forgelm ingest` + `forgelm audit` layer along three axes — **scale** (LSH-based near-duplicate detection beyond ~50K rows, large-corpus throughput), **security** (code/secret leakage scanning + optional ML-based PII), and **quality** (markdown-aware chunking + heuristic quality filters + table structure preservation). The competitive review that followed Phase 11.5 (see `docs/roadmap/phase-11-5-backlog.md` "Measured speedups" section + the 2026-04-27 ingestion-comparison synthesis) lists the exact gaps this phase closes.
 
@@ -1134,22 +1129,22 @@ The "Won't-do" list at the bottom of [(see Phase 12 — Data Curation Maturity s
 
 ---
 
-## Phase 12.6 — Closure Cycle (38 fazlar across 5 waves)
+## Phase 12.6 — Closure Cycle (38 tasks across 5 waves)
 
-> **Status:** ✅ Done — Faz 33 release publish remains as POST-WAVE.
+> **Status:** ✅ Done — Task 33 release publish remains as POST-WAVE.
 > **Bundled into:** [v0.5.5 release](releases.md#v055-closure-cycle-bundle-phase-22-wizard-site-documentation-sweep-2026-05-10).
-> **Source review:** v0.5.0 master code review (175 findings: 8 Critical + 67 Major + 60 Minor + 40 Nit) — distilled into the Faz 1-38 task list below.
+> **Source review:** v0.5.0 master code review (175 findings: 8 Critical + 67 Major + 60 Minor + 40 Nit) — distilled into the Tasks 1-38 task list below.
 > **Target:** ★★★★★ across all 8 quality dimensions before v0.5.5 PyPI publish.
 
 ### Why this exists as a single phase entry
 
-The v0.5.0 master code review surfaced **175 findings** plus **4 user-added scope items** (Library API support, ISO 27001 / SOC 2 alignment, GDPR right-to-erasure full implementation, Article 14 real staging). Rather than stretch these across 5 sequential patch releases, the maintainer chose **Path B — full Faz 1-38 sweep into a single v0.5.5 tag**:
+The v0.5.0 master code review surfaced **175 findings** plus **4 user-added scope items** (Library API support, ISO 27001 / SOC 2 alignment, GDPR right-to-erasure full implementation, Article 14 real staging). Rather than stretch these across 5 sequential patch releases, the maintainer chose **Path B — full Tasks 1-38 sweep into a single v0.5.5 tag**:
 
 - Bisectable PR-per-faz history
 - One coherent surface (every faz feeds the same release candidate)
 - 5/5 quality bar reached before publish, not after
 
-The 38 fazlar were merged across **5 integration waves** (Wave 0/1 through Wave 5). Each wave landed via a dedicated PR onto `development`, then into `main`. This file is the index that maps every faz to its wave, integration PR, and merge SHA.
+The 38 tasks were merged across **5 integration waves** (Wave 0/1 through Wave 5). Each wave landed via a dedicated PR onto `development`, then into `main`. This file is the index that maps every faz to its wave, integration PR, and merge SHA.
 
 ### Scope (in / out)
 
@@ -1178,11 +1173,11 @@ The 38 fazlar were merged across **5 integration waves** (Wave 0/1 through Wave 
 | **Wave 3** | `closure/wave3-integration` | PR #31 → `development` | `b87c872` | 2026-05-05 | 1298 → 1374 (+76) |
 | **Wave 4** | `closure/wave4-integration` | PR #33 → `development` | `01e40ba` | 2026-05-06 | 1374 → 1411 (+37) |
 | **Wave 5** | `closure/wave5-integration` | PR #34 → `development` merged `8f9f951` | `8f9f951` | 2026-05-06 | 1411 → ~1442 (+31) |
-| **Faz 33** (POST-WAVE) | release commit | tag `v0.5.5` → `main` | (post-Wave-5) | TBD | n/a |
+| **Task 33** (POST-WAVE) | release commit | tag `v0.5.5` → `main` | (post-Wave-5) | TBD | n/a |
 
-### Faz inventory (38 entries)
+### Task inventory (38 entries)
 
-| # | Faz | Wave | Status |
+| # | Task | Wave | Status |
 |---|---|---|---|
 | 1 | Site & doc honesty + count drift sweep | Wave 0 (PR #19) | ✅ |
 | 2 | CI gates & standards drift cleanup | Wave 0 (PR #19) | ✅ |
@@ -1223,39 +1218,39 @@ The 38 fazlar were merged across **5 integration waves** (Wave 0/1 through Wave 
 | 37 | `forgelm approvals` listing subcommand (GH-007) | Wave 2a (PR #28) | ✅ |
 | 38 | `forgelm reverse-pii` GDPR Article 15 subcommand (GH-014) | Wave 3 (PR #31) | ✅ |
 
-**Total:** 38 fazlar / ~52 PRs (multi-PR series counted separately).
+**Total:** 38 tasks / ~52 PRs (multi-PR series counted separately).
 
 ### Wave-by-wave outcomes
 
 #### Wave 0 / 1 (PR #19, PR #21)
 
-Foundation + the bulk of the master-review backlog — fazlar 1-15, 25, 27, 29, 31, 32. Site honesty fixes, CI gates, audit log forensic completeness, performance pass, the two big package splits (`data_audit/` 5-PR series, `cli/` 6-PR series).
+Foundation + the bulk of the master-review backlog — tasks 1-15, 25, 27, 29, 31, 32. Site honesty fixes, CI gates, audit log forensic completeness, performance pass, the two big package splits (`data_audit/` 5-PR series, `cli/` 6-PR series).
 
 #### Wave 2a (PR #28, 2026-05-04)
 
-5 fazlar: 17 (`audit --workers N`), 18 (Library API design), 20 (GDPR design), 34 (`doctor`), 37 (`approvals`).
+5 tasks: 17 (`audit --workers N`), 18 (Library API design), 20 (GDPR design), 34 (`doctor`), 37 (`approvals`).
 
 #### Wave 2b (PR #30, 2026-05-05, merge `b05edb5`)
 
-5 fazlar: 16 (Pydantic `description=` migration), 19 (Library API implementation), 21 (GDPR erasure implementation), 35 (air-gap pre-cache), 36 (compliance verification toolbelt). Suite 1160 → 1298 (+138). 6 absorption rounds + 4-agent final review + 4 followup absorption commits.
+5 tasks: 16 (Pydantic `description=` migration), 19 (Library API implementation), 21 (GDPR erasure implementation), 35 (air-gap pre-cache), 36 (compliance verification toolbelt). Suite 1160 → 1298 (+138). 6 absorption rounds + 4-agent final review + 4 followup absorption commits.
 
 #### Wave 3 (PR #31, 2026-05-05, merge `b87c872`)
 
-3 fazlar: 24 (bilingual TR mirror sweep + `tools/check_bilingual_parity.py`), 28 (curated Tier 1+2 cleanup), 38 (`reverse-pii`). Suite 1298 → 1374 (+76). Behaviour changes: high-risk + unacceptable + safety-disabled now `ConfigError` (F-compliance-110); webhook timeout 5s → 10s default (F-compliance-106).
+3 tasks: 24 (bilingual TR mirror sweep + `tools/check_bilingual_parity.py`), 28 (curated Tier 1+2 cleanup), 38 (`reverse-pii`). Suite 1298 → 1374 (+76). Behaviour changes: high-risk + unacceptable + safety-disabled now `ConfigError` (F-compliance-110); webhook timeout 5s → 10s default (F-compliance-106).
 
 #### Wave 4 (PR #33, 2026-05-06, merge `01e40ba`)
 
-4 fazlar: 22 + 23 (ISO 27001 / SOC 2 alignment design + implementation), 26 (QMS bilingual mirror + `tools/check_anchor_resolution.py` + `compliance_summary.md` rewrite), 30 partial (Tier 1 ghost-feature drift + stat blocks). Suite 1374 → 1411 (+37: 16 supply-chain + 21 anchor checker). Bilingual parity scope 9/9 → 23/23 pairs.
+4 tasks: 22 + 23 (ISO 27001 / SOC 2 alignment design + implementation), 26 (QMS bilingual mirror + `tools/check_anchor_resolution.py` + `compliance_summary.md` rewrite), 30 partial (Tier 1 ghost-feature drift + stat blocks). Suite 1374 → 1411 (+37: 16 supply-chain + 21 anchor checker). Bilingual parity scope 9/9 → 23/23 pairs.
 
 #### Wave 5 (PR #34 merged `8f9f951`, 2026-05-06)
 
-Faz 30 full sweep: residual ghost-feature drift (GH-011 benchmarks, GH-016 `--export-bundle`, GH-018 deploy-targets `kserve`/`triton`, GH-020 ingest flag drift); Task A doc-triplet completion (~12 features × {guide, reference, usermanual} × {EN, TR} ≈ 50 new files — landed in commit `2a32842`); Task J `tools/check_cli_help_consistency.py` (commit `c7bedc9`); Task N anchor-checker `--strict` flip + 36-baseline cleanup (commit `fbb082d`); Tasks B/C `_meta.yaml` + `build_usermanuals.py` rebuild; Task D site/* finalization; Tasks E/F/G README + CONTRIBUTING + CLAUDE + roadmap + standards final pass; Tasks H/I/K/L/M parity strict + site-claim CI + config regen + locale policy + diagrams.
+Task 30 full sweep: residual ghost-feature drift (GH-011 benchmarks, GH-016 `--export-bundle`, GH-018 deploy-targets `kserve`/`triton`, GH-020 ingest flag drift); Task A doc-triplet completion (~12 features × {guide, reference, usermanual} × {EN, TR} ≈ 50 new files — landed in commit `2a32842`); Task J `tools/check_cli_help_consistency.py` (commit `c7bedc9`); Task N anchor-checker `--strict` flip + 36-baseline cleanup (commit `fbb082d`); Tasks B/C `_meta.yaml` + `build_usermanuals.py` rebuild; Task D site/* finalization; Tasks E/F/G README + CONTRIBUTING + CLAUDE + roadmap + standards final pass; Tasks H/I/K/L/M parity strict + site-claim CI + config regen + locale policy + diagrams.
 
-#### Faz 33 (POST-WAVE)
+#### Task 33 (POST-WAVE)
 
 The actual v0.5.5 PyPI publish:
 
-1. `pyproject.toml` `version = "0.5.5"` — already bumped during Wave 5 Task D (`4610dc6`) so `check_site_claims.py --strict` can pin the site → code version parity. Faz 33 only confirms it remains `0.5.5` and adds the date to the `[0.5.5]` CHANGELOG section.
+1. `pyproject.toml` `version = "0.5.5"` — already bumped during Wave 5 Task D (`4610dc6`) so `check_site_claims.py --strict` can pin the site → code version parity. Task 33 only confirms it remains `0.5.5` and adds the date to the `[0.5.5]` CHANGELOG section.
 2. CHANGELOG `[Unreleased]` → `[0.5.5] — YYYY-MM-DD`
 3. `git tag -s v0.5.5 -m "v0.5.5 — Closure Cycle Bundle"`
 4. `git push origin main v0.5.5`
