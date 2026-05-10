@@ -4,6 +4,13 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+## [0.5.5] — 2026-05-10
+
+### Post-merge follow-up (2026-05-08 → 2026-05-10)
+
+After the closure-cycle bundle landed on `main` (PR #38, 2026-05-07), three follow-up PRs landed before the PyPI tag was cut: PR #40 (Phase 22 wizard modernisation), PR #41 (site documentation correction sweep + i18n parity backfill), and PR #42 (release-prep + nightly pip-audit gate fix + two review-absorption rounds). The bundle now ships under the v0.5.5 tag.
+
+
 ### Added
 
 - **CLI wizard parity-with-web (Phase 22).** `forgelm --wizard` now
@@ -269,7 +276,6 @@ All notable changes to ForgeLM are documented here.
 
 (none in this release.)
 
-## [0.5.5] — 2026-05-06
 
 ### Wave 5 — Faz 30 full sweep (`closure/wave5-integration`)
 

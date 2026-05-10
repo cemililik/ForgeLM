@@ -1,7 +1,7 @@
 # Phase 12.6 — Closure Cycle (38 fazlar across 5 waves)
 
 > **Status:** ✅ Done — Faz 33 release publish remains as POST-WAVE.
-> **Bundled into:** [v0.5.5 release](releases.md#v055-closure-cycle-bundle-merged-on-main-pypi-tag-deferred).
+> **Bundled into:** [v0.5.5 release](releases.md#v055-closure-cycle-bundle-phase-22-wizard-site-documentation-sweep-2026-05-10).
 > **Source review:** v0.5.0 master code review (175 findings: 8 Critical + 67 Major + 60 Minor + 40 Nit) — distilled into the Faz 1-38 task list below.
 > **Target:** ★★★★★ across all 8 quality dimensions before v0.5.5 PyPI publish.
 

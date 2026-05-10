@@ -128,9 +128,9 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ---
 
-## v0.5.5 — "Closure Cycle Bundle" (Merged on `main`; PyPI tag deferred)
+## v0.5.5 — "Closure Cycle Bundle + Phase 22 Wizard + Site Documentation Sweep" (2026-05-10)
 
-**Status:** Merged on `main` 2026-05-07 (`pyproject.toml` pinned to `version = "0.5.5"`; CHANGELOG `[0.5.5]` finalised). The PyPI tag push was deferred so the post-merge work landing on `development` (Phase 22 wizard parity + the site documentation correction sweep) can fold into a single tagged release rather than producing a `0.5.5` PyPI artefact that would diverge from the `[Unreleased]` block one day after publish. The next tag push will trigger the cross-OS publish workflow ([`.github/workflows/publish.yml`](../../.github/workflows/publish.yml)) which gates PyPI publish on 12 wheel-install matrix combos (3 OS × 4 Python).
+**Status:** Released to PyPI 2026-05-10 via the cross-OS publish workflow ([`.github/workflows/publish.yml`](../../.github/workflows/publish.yml)) which gates PyPI publish on 12 wheel-install matrix combos (3 OS × 4 Python). The release fold three phases: Phase 12.6 closure cycle (paper-merged 2026-05-07), Phase 22 CLI wizard modernisation (PR #40, 2026-05-08), and the site documentation correction sweep (PR #41, 2026-05-09). The CHANGELOG `[0.5.5]` section's "Post-merge follow-up" subsection traces the day-by-day landing.
 
 ### Headline additions (consolidated from the closure-cycle phases)
 
@@ -152,37 +152,23 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 - Webhook delivery default timeout raised from 5s to 10s (F-compliance-106) — non-breaking for happy path; flaky webhook receivers may see one fewer retry trigger.
 - `--data-audit` flag fully removed (was deprecated in v0.5.0, originally scheduled for v0.7.0). The deprecation cadence (one intervening minor before removal) was honoured by deprecation in v0.5.0 → removal in v0.5.5 with v0.5.0–v0.5.4 acting as the warning window; the release standard's "minor before removal" rule is satisfied. Use `forgelm audit` subcommand instead.
 
-CHANGELOG `[0.5.5]` entries cross-reference the originating fazlar; the [phase-12-6-closure-cycle.md](phase-12-6-closure-cycle.md) summary maps each faz to its wave and merge SHA.
+### Post-merge follow-up additions (folded into the `v0.5.5` tag)
 
----
+After the closure-cycle bundle landed on `main` (PR #38, 2026-05-07), three follow-up PRs were absorbed before the PyPI tag was cut.  All three ship under the `v0.5.5` label:
 
-## Next PyPI release (slot pending: `0.5.6` or `0.6.0`)
+- **Phase 22 — CLI wizard parity with the in-browser surface (PR #40, 2026-05-08).** `forgelm --wizard` now runs the same 9-step flow as the web wizard (welcome → use-case → model → strategy → trainer → dataset → training-params → compliance → evaluation), with `back` / `b` to navigate backwards and `reset` / `r` to clear in-memory state. New CLI flag `--wizard-start-from <yaml>` enables idempotent re-runs against an existing config (per-step Enter keeps the operator's prior answer). Schema-driven defaults are emitted from a generator into both surfaces' shipped artefacts so the CLI and web wizards never drift on numeric defaults. New distinct exit code `EXIT_WIZARD_CANCELLED = 5` distinguishes "wizard cancelled" from "wizard finished" in CI; the public exit-code surface is now `0–5`. State persistence under `$XDG_CACHE_HOME/forgelm/wizard_state.yaml` (atomic write + `chmod 0o600`) survives interrupted sessions; validate-on-exit catches schema rejections inline.
+- **Site documentation correction sweep (PR #41, 2026-05-09).** Every visible YAML / artefact-path / CLI / schema claim on `site/*.html` now validates against the live `forgelm/` surface. Hero YAML demo rewritten with real Pydantic field names; compliance artefact tree redrawn against the on-disk layout (`compliance/` + `final_model/`); ghost YAML keys + ghost CLI flags eliminated; auto-revert / Annex IV / `verify-annex-iv` / `safety-eval` / `forgelm purge` wording aligned with live behaviour. German / French / Spanish / Chinese now match English and Turkish at 731 keys each (was 689) — 168 translated strings cover the regulator-facing surfaces.
+- **Release-prep + nightly pip-audit gate fix (PR #42, 2026-05-10).** Working-memory directory policy codified in `docs/standards/documentation.md` and enforced by the new `tools/check_no_analysis_refs.py` CI guard.  Nightly Supply-chain security workflow gained a documented `--ignore-vuln CVE-2026-1839` stop-gap (closes [#37](https://github.com/cemililik/ForgeLM/issues/37)) so the `transformers >= 4.38, < 5.0` pin can stay until the upstream 4.x backport lands.  Two review-absorption rounds tightened the wizard's idempotent re-run semantics: collectors (`_collect_safety_config`, `_collect_trainer_hyperparameters`, `_collect_rope_scaling`, `_collect_galore_config`, `_collect_benchmark`, `_collect_judge`) now accept an `existing` parameter so a bare-Enter rerun preserves the loaded YAML's prior values; explicit `n` at a gate prompt drops the existing block (explicit-disable contract); `_validate_generated_config` returns a boolean and gates the "Start training now?" prompt; `_save_config_to_file` is atomic via temp-file + `os.replace`.
 
-**Status:** Staged on `development` in the `[Unreleased]` block of [`CHANGELOG.md`](../../CHANGELOG.md); awaits a maintainer decision on the version slot (see "Version-slot rationale" below) and a tag push. Bundles three landed scopes on top of the merged-but-untagged `v0.5.5`:
+The new `EXIT_WIZARD_CANCELLED = 5` exit code introduced by Phase 22 is **additive** (CI consumers that branch on `0–4` continue to work; `5` surfaces the previously-collapsed-into-`0` "wizard cancelled" case explicitly), so it is not listed under the breaking-changes section above.
 
-### Headline additions
-
-- **Phase 22 — CLI wizard parity with the in-browser surface.** `forgelm --wizard` now runs the same 9-step flow as the web wizard (welcome → use-case → model → strategy → trainer → dataset → training-params → compliance → evaluation), with `back` / `b` to navigate backwards and `reset` / `r` to clear in-memory state. New CLI flag `--wizard-start-from <yaml>` enables idempotent re-runs against an existing config (per-step Enter keeps the operator's prior answer). Schema-driven defaults are emitted from a generator into both surfaces' shipped artefacts so the CLI and web wizards never drift on numeric defaults. New distinct exit code `EXIT_WIZARD_CANCELLED = 5` distinguishes "wizard cancelled" from "wizard finished" in CI; the public exit-code surface is now `0–5`. State persistence under `$XDG_CACHE_HOME/forgelm/wizard_state.yaml` (atomic write + `chmod 0o600`) survives interrupted sessions; validate-on-exit catches schema rejections inline.
-- **Site documentation correction sweep.** Every visible YAML / artefact-path / CLI / schema claim on `site/*.html` now validates against the live `forgelm/` surface. Hero YAML demo rewritten with real Pydantic field names; compliance artefact tree redrawn against the on-disk layout (`compliance/` + `final_model/`); ghost YAML keys (`compliance.config_hash`, `compliance.human_approval`) and ghost CLI flags (`--model-card`) eliminated; auto-revert / Annex IV / `verify-annex-iv` / `safety-eval` / `forgelm purge` wording aligned with live behaviour.
-- **i18n parity restored across all six locales.** German / French / Spanish / Chinese now match English and Turkish at 731 keys each (was 689). 168 translated strings cover the regulator-facing surfaces (`compliance.gdpr15.*`, `compliance.gdpr17.*`, `compliance.iso.*`, `features.gov.*`, `features.eval.safetyeval.*`, `features.ent.*`).
-- **Working-memory directory policy.** Operator-local research notes now live in working-memory directories that are strictly gitignored with no exceptions; the rule is codified in `docs/standards/documentation.md` and enforced by a new `tools/check_no_analysis_refs.py` CI guard. Operators reading the public tree no longer encounter dangling links into operator-local research notes.
-
-### Version-slot rationale
-
-Two reasonable slots exist:
-
-- **`v0.5.6`** — conservative. Treats the upcoming release as a quality-of-life follow-up to `v0.5.5`'s closure bundle. Keeps the `v0.6.0` slot reserved for [Phase 14 (pipeline chains)](phase-14-pipeline-chains.md) as originally roadmap'd.
-- **`v0.6.0`** — acknowledges the new public CLI flag (`--wizard-start-from`), new exit code (`EXIT_WIZARD_CANCELLED = 5`), and the wizard sub-package split. Per [`docs/standards/release.md`](../standards/release.md), a new exit code on the public surface is a MAJOR-on-zerover signal; either slot is defensible because exit `5` is additive (no existing CI check for `0–4` will misinterpret it), but `v0.6.0` makes the surface change visible in the version number. Phase 14 then targets `v0.7.0`.
-
-### Breaking changes
-
-None. The new exit code is additive; CI consumers that branch on `0–4` continue to work, with `5` surfacing the previously-collapsed-into-`0` "wizard cancelled" case explicitly.
+CHANGELOG `[0.5.5]` entries cross-reference the originating fazlar; the [phase-12-6-closure-cycle.md](phase-12-6-closure-cycle.md) summary maps each Phase 12.6 faz to its wave and merge SHA.
 
 ---
 
 ## v0.6.0 — "Pipeline Chains" (Planned)
 
-**Status:** Planned. Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. Starts after the `v0.5.5` PyPI tag is published.
+**Status:** Planned. Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. Next release on top of `v0.5.5`.
 
 ---
 
