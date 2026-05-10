@@ -4,6 +4,33 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+## [0.5.7] — 2026-05-10
+
+Patch release. Fixes a runtime `TypeError` in the SFT trainer that
+prevented every SFT training run from starting on modern `trl`
+versions (0.13 and the 1.x line). The `max_seq_length` parameter was
+renamed to `max_length` on `SFTConfig` in trl 0.13 and the old name
+removed; the v0.5.6 release was still passing `max_seq_length`
+unconditionally, so `forgelm --config <yaml>` would crash with
+`TypeError: SFTConfig.__init__() got an unexpected keyword argument
+'max_seq_length'` on any environment that pulled a current trl wheel
+(notably the Colab default `pip install forgelm` path).
+
+### Fixed
+
+- **`forgelm/trainer.py::_get_training_args_for_type`** — the SFT
+  branch now inspects `SFTConfig.__init__`'s signature at runtime and
+  picks the correct sequence-length-cap parameter name. trl 0.13+
+  (including the 1.x line) receives `max_length`; trl 0.12.x — still
+  within the `pyproject.toml` floor `trl>=0.12.0,<2.0.0` — keeps
+  receiving `max_seq_length`. No code change for DPO / SimPO / KTO /
+  ORPO / GRPO trainers (their `*Config` parameters were not affected
+  by the rename).
+- **`tests/test_trainer_sft_config.py`** (new) — three regression
+  tests pin the modern-trl path (`max_length`), the legacy-trl path
+  (`max_seq_length`), and that `packing` / `dataset_text_field`
+  continue to be propagated.
+
 ## [0.5.6] — 2026-05-10
 
 **Status:** Released to PyPI 2026-05-10 via the cross-OS publish

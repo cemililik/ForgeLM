@@ -128,6 +128,26 @@ Odak: [Phase 10](completed-phases.md). Full post-training handoff: inference, ch
 
 ---
 
+## v0.5.7 — "SFT trainer trl-modernisation fix" (2026-05-10)
+
+**Status:** Released to PyPI 2026-05-10. Patch on top of v0.5.6. GitHub Release: [v0.5.7](https://github.com/cemililik/ForgeLM/releases/tag/v0.5.7).
+
+### Summary
+
+Fixes a `TypeError` in the SFT trainer that prevented every SFT training run from starting on modern `trl` (0.13+ and the 1.x line). The `max_seq_length` parameter was renamed to `max_length` on `SFTConfig` upstream; v0.5.6 still passed the old name unconditionally, so `forgelm --config <yaml>` crashed at trainer-args build time on any environment that pulled a current trl wheel — notably the Colab default `pip install forgelm` path.
+
+### Highlights
+
+- **Runtime signature detection** — `_get_training_args_for_type` now inspects `SFTConfig.__init__` and picks `max_length` (trl 0.13+) or `max_seq_length` (trl 0.12.x) at runtime, so both ends of the supported range (`trl>=0.12.0,<2.0.0`) work without intervention.
+- **Three new regression tests** in `tests/test_trainer_sft_config.py` pin the modern-trl path, the legacy-trl path, and that `packing` / `dataset_text_field` continue to be propagated.
+- **No effect on DPO / SimPO / KTO / ORPO / GRPO trainers** — those `*Config` parameter sets were not affected by the trl 0.13 rename.
+
+### Full changelog
+
+See [CHANGELOG.md `[0.5.7]`](../../CHANGELOG.md#057--2026-05-10).
+
+---
+
 ## v0.5.6 — "Intel Mac install fix" (2026-05-10)
 
 **Status:** Released to PyPI 2026-05-10. Patch on top of v0.5.5. GitHub Release: [v0.5.6](https://github.com/cemililik/ForgeLM/releases/tag/v0.5.6).

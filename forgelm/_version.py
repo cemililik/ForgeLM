@@ -35,12 +35,10 @@ except PackageNotFoundError:  # pragma: no cover — uninstalled-source path
 #
 # Anchored at 1.0.0 with the v0.5.5 release (first PyPI publish of
 # the formal Phase 19 library-API surface — 30 stable symbols in
-# ``forgelm.__all__``).  v0.5.6 reverts the v0.5.5 torch min bump
-# (`torch>=2.3` was inaccurate — no v2.3-specific API is referenced
-# in production code; the Intel Mac PyPI wheel cap at torch 2.2.2
-# was making `pip install forgelm` silently downgrade existing
-# users to v0.5.0).  No Python API surface change in v0.5.6, so
-# ``__api_version__`` stays at 1.0.0.
+# ``forgelm.__all__``).  v0.5.6 reverted the v0.5.5 torch min bump;
+# v0.5.7 fixes a runtime ``SFTConfig.max_seq_length`` TypeError on
+# modern trl (rename to ``max_length`` in trl 0.13+).  Neither patch
+# changes the Python API surface, so ``__api_version__`` stays at 1.0.0.
 __api_version__ = "1.0.0"
 
 __all__ = ["__version__", "__api_version__"]

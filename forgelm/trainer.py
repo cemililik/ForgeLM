@@ -425,11 +425,21 @@ class ForgeTrainer:
         kwargs = self._get_common_training_kwargs()
 
         if tt == "sft":
+            import inspect
+
             from trl import SFTConfig
 
             kwargs["packing"] = bool(getattr(self.config.training, "packing", False))
             kwargs["dataset_text_field"] = "text"
-            kwargs["max_seq_length"] = self.config.model.max_length
+            # Sequence-length cap parameter was renamed in trl 0.13:
+            #   trl 0.12.x: ``SFTConfig(max_seq_length=...)``
+            #   trl 0.13+ / 1.x: ``SFTConfig(max_length=...)`` — old name removed
+            # ``pyproject.toml`` pins ``trl>=0.12.0,<2.0.0``, so detect at runtime.
+            sft_params = inspect.signature(SFTConfig).parameters
+            if "max_length" in sft_params:
+                kwargs["max_length"] = self.config.model.max_length
+            elif "max_seq_length" in sft_params:
+                kwargs["max_seq_length"] = self.config.model.max_length
             return SFTConfig(**kwargs)
 
         elif tt == "orpo":
