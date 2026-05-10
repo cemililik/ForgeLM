@@ -22,6 +22,7 @@ reads and uses a temp directory for persistence.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1791,5 +1792,8 @@ class TestPRDB6ExpanduserCanonicalisation:
     def test_canonical_helper_expands_tilde(self):
         result = wizard._orchestrator._canonical_start_from("~/configs/my_config.yaml")
         assert "~" not in result
-        # The expanded path must be absolute on POSIX systems.
-        assert result.startswith("/")
+        # The expanded path must be absolute, but the leading-slash
+        # check is POSIX-only — Windows absolute paths look like
+        # ``C:\Users\foo\configs\...`` (no leading slash).  Use
+        # ``os.path.isabs`` for cross-platform absoluteness.
+        assert os.path.isabs(result)

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -159,7 +160,15 @@ class TestSaltPersistence:
         assert salt_path.is_file()
         assert len(salt) == 16
         assert source == "per_dir"
-        # Mode 0600 — owner read/write only.
+        # Mode check is POSIX-only: Windows ``os.chmod`` only honours the
+        # read-only bit (``stat.S_IREAD`` / ``stat.S_IWRITE``) and ignores
+        # group / other bits — the resulting mode reads back as 0o666 on
+        # NTFS regardless of what mode the call requested, so the POSIX
+        # 0o600 contract cannot be enforced at the filesystem level.
+        # ACL-based hardening (the equivalent on Windows) is operator-side
+        # via the deploy guide, not in scope for this unit test.
+        if sys.platform == "win32":
+            return
         mode = stat.S_IMODE(salt_path.stat().st_mode)
         assert mode == 0o600, f"salt file mode should be 0o600, got {oct(mode)}"
 

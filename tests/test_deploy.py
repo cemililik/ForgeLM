@@ -100,8 +100,16 @@ class TestTgiCompose:
         assert "services" in parsed
 
     def test_contains_model_path(self):
-        content = _tgi_compose("/my/model", 2048, 4096, 8080)
-        assert "/my/model" in content
+        # ``_tgi_compose`` runs the input path through ``os.path.abspath``
+        # before mounting it into the container; on POSIX the input is
+        # already absolute and round-trips verbatim, on Windows the
+        # string is normalised to a drive-anchored path
+        # (``/my/model`` → ``D:\my\model``).  Assert that the abspath
+        # form is what gets baked into the compose file so the test
+        # passes on every cross-OS publish-matrix combo.
+        model_path = "/my/model"
+        content = _tgi_compose(model_path, 2048, 4096, 8080)
+        assert os.path.abspath(model_path) in content
 
     def test_port_appears_in_config(self):
         content = _tgi_compose("/model", 2048, 4096, 9090)
