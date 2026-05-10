@@ -40,6 +40,14 @@ classifiers = [
 
 dependencies = [
   "torch>=2.2.0,<3.0.0",
+  # Intel Mac (x86_64) is wheel-locked to torch 2.2.x — PyTorch Foundation
+  # stopped publishing >=2.3 wheels for x86_64 Darwin. torch 2.2 was
+  # compiled against NumPy 1.x; without this marker pip pulls numpy>=2 and
+  # triggers an ABI mismatch (`_ARRAY_API not found`) that silently
+  # degrades the numpy bridge inside torch. Other platforms keep numpy
+  # unconstrained — torch 2.3+ on Linux / Apple Silicon / Windows is
+  # binary-compatible with NumPy 2.x.
+  "numpy<2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
   "transformers>=4.38.0,<5.0.0",
   "peft>=0.9.0,<1.0.0",
   "datasets>=2.21.0,<5.0.0",

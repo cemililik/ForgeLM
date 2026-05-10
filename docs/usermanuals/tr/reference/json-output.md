@@ -40,7 +40,7 @@ Ortam kontrolü. Bkz. [Doctor komutu](#/getting-started/first-run).
 | Anahtar | Tip | Notlar |
 |---|---|---|
 | `success` | bool | Hiçbir probe `fail` değilse VE hiçbir probe crash etmediyse `true`; aksi halde `false`. |
-| `checks` | list[object] | Çalıştırma sırasıyla probe başına bir entry. Probe adları stabildir (örn. `python.version`, `torch.cuda`, `gpu.inventory`, `extras.qlora`, `hf_hub.reachable`, `hf_hub.offline_cache`, `disk.workspace`, `operator.identity`). |
+| `checks` | list[object] | Çalıştırma sırasıyla probe başına bir entry. Probe adları stabildir (örn. `python.version`, `torch.cuda`, `numpy.torch_abi`, `gpu.inventory`, `extras.qlora`, `hf_hub.reachable`, `hf_hub.offline_cache`, `disk.workspace`, `operator.identity`). |
 | `checks[].name` | str | Probe adı. Sürümler arası stabil; yeni probe'lar yeniden adlandırma yerine eklenir. |
 | `checks[].status` | str | `pass`, `warn`, `fail`, `crashed`'tan biri. |
 | `checks[].detail` | str | Sonuç için operatör-yüzlü tek satırlık açıklama. |

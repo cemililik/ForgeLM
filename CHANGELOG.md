@@ -16,6 +16,28 @@ unconditionally, so `forgelm --config <yaml>` would crash with
 'max_seq_length'` on any environment that pulled a current trl wheel
 (notably the Colab default `pip install forgelm` path).
 
+Also closes the NumPy 2.x ↔ torch 2.2 binary-ABI mismatch that the
+v0.5.6 Intel Mac torch revert exposed. With `torch>=2.2.0` as the
+floor and no upper-pin on numpy, pip resolved `numpy>=2` on Intel Mac
+hosts; torch 2.2 was compiled against NumPy 1.x and silently
+degraded its numpy bridge with `_ARRAY_API not found`. v0.5.7 adds a
+platform-scoped marker pin (`numpy<2; sys_platform == 'darwin' and
+platform_machine == 'x86_64'`) plus a new doctor probe that surfaces
+the mismatch as a structured `fail` instead of a stderr-only
+UserWarning.
+
+### Added
+
+- **`forgelm doctor` — `numpy.torch_abi` probe.** New diagnostic
+  inspects torch + numpy major-version pairing and emits a `fail`
+  with a `pip install 'numpy<2'` remediation hint when a torch < 2.3
+  install is paired with NumPy ≥ 2 (the canonical Intel Mac install
+  failure mode). Probe imports torch / numpy with warnings suppressed
+  so the probe itself does not pollute stderr with the very
+  `_ARRAY_API not found` warning it is trying to detect. Surfaces in
+  the `forgelm doctor --output-format json` envelope so CI consumers
+  catch the issue programmatically.
+
 ### Fixed
 
 - **`forgelm/trainer.py::_get_training_args_for_type`** — the SFT
@@ -30,6 +52,13 @@ unconditionally, so `forgelm --config <yaml>` would crash with
   tests pin the modern-trl path (`max_length`), the legacy-trl path
   (`max_seq_length`), and that `packing` / `dataset_text_field`
   continue to be propagated.
+- **`pyproject.toml` — Intel Mac (x86_64) NumPy 2 ABI mismatch.**
+  Added `numpy<2; sys_platform == 'darwin' and platform_machine ==
+  'x86_64'` so pip's resolver caps numpy at the 1.x line on the only
+  platform that is wheel-locked to torch 2.2.x. Other platforms keep
+  numpy unconstrained — torch 2.3+ on Linux / Apple Silicon / Windows
+  is binary-compatible with NumPy 2.x. Affected `pip install forgelm`
+  users on Intel Mac since the v0.5.6 torch revert.
 
 ## [0.5.6] — 2026-05-10
 

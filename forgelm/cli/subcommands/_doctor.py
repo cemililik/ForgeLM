@@ -63,6 +63,7 @@ _STATUS_FAIL = "fail"
 _PROBE_PYTHON_VERSION = "python.version"
 _PROBE_TORCH_INSTALLED = "torch.installed"
 _PROBE_TORCH_CUDA = "torch.cuda"
+_PROBE_NUMPY_TORCH_ABI = "numpy.torch_abi"
 _PROBE_GPU_INVENTORY = "gpu.inventory"
 _PROBE_HF_HUB_REACHABLE = "hf_hub.reachable"
 _PROBE_HF_HUB_OFFLINE_CACHE = "hf_hub.offline_cache"
@@ -206,6 +207,91 @@ def _check_torch_cuda() -> _CheckResult:
             "cuda_available": True,
             "cuda_version": cuda_version,
         },
+    )
+
+
+def _check_numpy_torch_abi() -> _CheckResult:
+    """Detect a torch <-> numpy binary-ABI mismatch.
+
+    PyTorch wheels are compiled against a specific NumPy major version:
+    torch < 2.3 was built against NumPy 1.x and silently degrades when
+    paired with NumPy 2.x (the well-known ``_ARRAY_API not found``
+    UserWarning emitted from torch's C++ tensor-numpy bridge).  This
+    typically bites Intel Mac (x86_64) hosts where PyTorch Foundation
+    no longer publishes torch >= 2.3 wheels, so pip's resolver caps at
+    torch 2.2.x and any newer numpy on the box mismatches.
+
+    Best-effort probe: torch / numpy are imported with warnings
+    suppressed so the probe itself does not pollute stderr with the
+    very ``UserWarning`` it is trying to detect.
+    """
+    import re
+    import warnings
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            import torch
+    except ImportError:
+        # The dedicated torch.cuda probe already surfaces a missing
+        # torch as fail; do not double-report here.
+        return _CheckResult(
+            name=_PROBE_NUMPY_TORCH_ABI,
+            status=_STATUS_PASS,
+            detail="torch is not installed; ABI compatibility check skipped.",
+            extras={"skipped": True, "reason": "torch_missing"},
+        )
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            import numpy
+    except ImportError:
+        # numpy is an *optional* fast-path for the simhash backend
+        # (see forgelm/data_audit/_optional.py::_HAS_NUMPY) — its
+        # absence is not a doctor failure.
+        return _CheckResult(
+            name=_PROBE_NUMPY_TORCH_ABI,
+            status=_STATUS_PASS,
+            detail="numpy is not installed; ABI compatibility check skipped.",
+            extras={"skipped": True, "reason": "numpy_missing"},
+        )
+
+    def _major_minor(version: str) -> Tuple[int, int]:
+        # Tolerates prerelease ("2.2.0a0") and local-version ("2.2.0+cpu")
+        # suffixes by extracting the leading numeric MAJOR.MINOR pair only.
+        match = re.match(r"^(\d+)\.(\d+)", version)
+        if not match:
+            return (0, 0)
+        return (int(match.group(1)), int(match.group(2)))
+
+    torch_mm = _major_minor(torch.__version__)
+    numpy_mm = _major_minor(numpy.__version__)
+    extras: Dict[str, Any] = {
+        "torch_version": torch.__version__,
+        "numpy_version": numpy.__version__,
+    }
+
+    # The known incompatibility window: torch < 2.3 was built against
+    # NumPy 1.x and silently degrades when paired with NumPy 2.x.
+    if torch_mm < (2, 3) and numpy_mm >= (2, 0):
+        return _CheckResult(
+            name=_PROBE_NUMPY_TORCH_ABI,
+            status=_STATUS_FAIL,
+            detail=(
+                f"torch {torch.__version__} (compiled against NumPy 1.x) is "
+                f"paired with numpy {numpy.__version__}. This triggers an "
+                "`_ARRAY_API not found` ABI mismatch and silently degrades "
+                "the numpy bridge inside torch. Fix with: pip install 'numpy<2' "
+                "(or upgrade to torch>=2.3 if your platform has wheels for it)."
+            ),
+            extras=extras,
+        )
+
+    return _CheckResult(
+        name=_PROBE_NUMPY_TORCH_ABI,
+        status=_STATUS_PASS,
+        detail=f"torch {torch.__version__} + numpy {numpy.__version__} are ABI-compatible.",
+        extras=extras,
     )
 
 
@@ -786,6 +872,7 @@ def _build_check_plan(*, offline: bool) -> List[Tuple[str, Callable[[], _CheckRe
     plan: List[Tuple[str, Callable[[], _CheckResult]]] = [
         (_PROBE_PYTHON_VERSION, _check_python_version),
         (_PROBE_TORCH_CUDA, _check_torch_cuda),
+        (_PROBE_NUMPY_TORCH_ABI, _check_numpy_torch_abi),
         (_PROBE_GPU_INVENTORY, _check_gpu_inventory),
     ]
     for extra_name, module, purpose in _OPTIONAL_EXTRAS:
@@ -988,6 +1075,7 @@ __all__ = [
     "_CheckResult",
     "_check_python_version",
     "_check_torch_cuda",
+    "_check_numpy_torch_abi",
     "_check_gpu_inventory",
     "_check_optional_extra",
     "_check_hf_hub_reachable",
