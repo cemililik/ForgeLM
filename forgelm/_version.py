@@ -35,11 +35,12 @@ except PackageNotFoundError:  # pragma: no cover — uninstalled-source path
 #
 # Anchored at 1.0.0 with the v0.5.5 release (first PyPI publish of
 # the formal Phase 19 library-API surface — 30 stable symbols in
-# ``forgelm.__all__``).  Phase 22 (CLI wizard modernisation) and the
-# site documentation correction sweep that landed on top of v0.5.5
-# touch the CLI / site surfaces only and do not change the Python
-# library contract, so ``__api_version__`` stays at 1.0.0 for the
-# v0.5.5 tag.
+# ``forgelm.__all__``).  v0.5.6 reverts the v0.5.5 torch min bump
+# (`torch>=2.3` was inaccurate — no v2.3-specific API is referenced
+# in production code; the Intel Mac PyPI wheel cap at torch 2.2.2
+# was making `pip install forgelm` silently downgrade existing
+# users to v0.5.0).  No Python API surface change in v0.5.6, so
+# ``__api_version__`` stays at 1.0.0.
 __api_version__ = "1.0.0"
 
 __all__ = ["__version__", "__api_version__"]

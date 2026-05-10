@@ -168,6 +168,8 @@ cd ForgeLM
 pip install -e .
 ```
 
+**Prerequisites:** Python 3.10+ and `torch>=2.2.0`. The PyTorch Foundation publishes torch wheels for Linux × {x86_64, aarch64}, macOS × {x86_64 ≤ 2.2.2, arm64 (Apple Silicon)}, and Windows × x86_64; ForgeLM's dependency floor is set to the highest torch minor available on every supported platform. If `pip install forgelm` resolves to an older ForgeLM version, run `pip show torch` to check the installed torch — pip's resolver silently downgrades ForgeLM when the local torch can't satisfy a newer floor. See [docs/usermanuals/en/getting-started/installation.md](docs/usermanuals/en/getting-started/installation.md) for platform-specific notes.
+
 ### Optional Dependencies
 
 From PyPI (most users):
