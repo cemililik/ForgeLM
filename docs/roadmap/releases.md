@@ -128,41 +128,57 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ---
 
+## v0.5.6 — "Intel Mac install fix" (2026-05-10)
+
+**Status:** Released to PyPI 2026-05-10. Patch on top of v0.5.5. GitHub Release: [v0.5.6](https://github.com/cemililik/ForgeLM/releases/tag/v0.5.6).
+
+### Summary
+
+Reverts the v0.5.5 `torch>=2.3.0` floor back to `torch>=2.2.0`. The 2.3 floor was inaccurate (no v2.3-specific PyTorch API is referenced in production code) and made `pip install forgelm` silently downgrade existing users to v0.5.0 on Intel Mac (x86_64) hosts, where PyPI has no `torch>=2.3` wheel. v0.5.6 restores Intel Mac installability without losing any v0.5.5 functionality.
+
+### Highlights
+
+- **`pyproject.toml`** — `torch>=2.3.0,<3.0.0` → `torch>=2.2.0,<3.0.0`. No other dependency changes.
+- **Intel Mac (x86_64) installability restored** — `pip install -U forgelm` from a v0.5.0 install now correctly upgrades to v0.5.6 instead of silently staying on v0.5.0.
+- **Fix is dependency-only** — every v0.5.5 feature (Library API, GDPR purge / reverse-pii, ISO/SOC 2 alignment, operational subcommands, CLI wizard parity) is unchanged in v0.5.6.
+
+### Full changelog
+
+See [CHANGELOG.md `[0.5.6]`](../../CHANGELOG.md#056--2026-05-10).
+
+---
+
 ## v0.5.5 — "Closure Cycle Bundle + Phase 22 Wizard + Site Documentation Sweep" (2026-05-10)
 
-**Status:** Released to PyPI 2026-05-10 via the cross-OS publish workflow ([`.github/workflows/publish.yml`](../../.github/workflows/publish.yml)) which gates PyPI publish on 12 wheel-install matrix combos (3 OS × 4 Python). The release fold three phases: Phase 12.6 closure cycle (paper-merged 2026-05-07), Phase 22 CLI wizard modernisation (PR #40, 2026-05-08), and the site documentation correction sweep (PR #41, 2026-05-09). The CHANGELOG `[0.5.5]` section's "Post-merge follow-up" subsection traces the day-by-day landing.
+**Status:** Released to PyPI 2026-05-10 via the cross-OS publish workflow ([`.github/workflows/publish.yml`](../../.github/workflows/publish.yml)) which gates PyPI publish on 12 wheel-install matrix combos (3 OS × 4 Python). GitHub Release: [v0.5.5](https://github.com/cemililik/ForgeLM/releases/tag/v0.5.5).
 
-### Headline additions (consolidated from the closure-cycle phases)
+### Summary
 
-- **Library API surface** (`forgelm.ForgeTrainer`, `audit_dataset`, `verify_audit_log`, `verify_annex_iv_artifact`, `verify_gguf`, `mask_pii`, `mask_secrets`, ...; full set via `python -c "import forgelm; print(sorted(forgelm.__all__))"`) — every CLI surface has a stable Python entry point, version-pinned via `forgelm.__api_version__` decoupled from the CLI `__version__`.
-- **GDPR Article 17 (right-to-erasure)** — `forgelm purge --subject-id <id>` performs in-place redaction of dataset rows, audit-log compensating entries (hash chain preserved), and adapter scrubbing. Covered by `tests/test_gdpr_erasure.py`.
-- **GDPR Article 15 (right-of-access)** — `forgelm reverse-pii --query <fragment>` locates PII matches across artefacts without re-loading the source dataset. Emits `data.access_request_query` audit event.
-- **ISO 27001 / SOC 2 Type II alignment** — 93-control deployer cookbook ([`docs/guides/iso_soc2_deployer_guide.md`](../guides/iso_soc2_deployer_guide.md)), 4 new QMS docs (encryption, access control, risk treatment, statement of applicability) + 10 new TR mirrors, supply-chain security (CycloneDX 1.5 SBOM per release-tag matrix combo, `pip-audit` + `bandit` nightly + on-tag, `gitleaks` pre-commit).
-- **Operational subcommands** — `forgelm doctor` (env / GPU / CUDA / extras pre-flight), `forgelm cache-models` + `forgelm cache-tasks` (air-gap pre-cache), `forgelm safety-eval` (standalone Llama Guard run), `forgelm verify-audit` / `verify-annex-iv` / `verify-gguf` (compliance + artefact verification toolbelt), `forgelm approvals` (list pending Article 14 staging-gate runs).
-- **Cross-OS release-tag matrix** — `publish.yml` now runs Linux + macOS + Windows × Python 3.10 / 3.11 / 3.12 / 3.13 = 12 combos before PyPI publish; per-combo CycloneDX SBOM artefact preserved for downstream supply-chain audits.
-- **Pre-commit hooks (optional)** — `.pre-commit-config.yaml` mirrors CI ruff / format / gitleaks / hygiene checks for local fast feedback. Opt-in only; CI remains the enforcement boundary.
-- **Doc CI guards** — `tools/check_bilingual_parity.py` (Wave 3, Faz 24), `tools/check_anchor_resolution.py` (Wave 4, Faz 26), `tools/check_cli_help_consistency.py` (Wave 5, Faz 30 Task J) all on `--strict` in CI; bilingual parity scope expanded from 9/9 to 23/23 file pairs across `docs/qms/` + `docs/reference/`.
-- **`forgelm.cli/` and `forgelm.data_audit/` package splits** — legacy single-file `cli.py` (1756 lines) and `data_audit.py` (3098 lines) decomposed into focused sub-packages while preserving their public import surface. `[Unreleased]` CHANGELOG entries trace the refactor across Wave 1.
-- **Library + JSON envelope schema** — every subcommand's success / error JSON envelope is locked in [`docs/usermanuals/en/reference/json-output.md`](../usermanuals/en/reference/json-output.md) (+ TR mirror) per the `release.md` "Changed JSON output key names → MAJOR bump" rule.
-- **Bilingual TR mirror sweep** — `docs/qms/*.md` flipped from "No (yet)" to "Yes" in the localization standard; structural H2/H3/H4 parity enforced by CI.
+v0.5.5 promotes ForgeLM from a CLI fine-tuning tool to a complete enterprise pipeline. The release ships a stable Python library API for downstream embedders, GDPR Article 15 + 17 tooling (`forgelm reverse-pii` + `forgelm purge`), an environment / supply-chain / verification toolbelt of operational subcommands (`doctor`, `cache-models`, `cache-tasks`, `safety-eval`, `verify-audit`, `verify-annex-iv`, `verify-gguf`, `approve` / `reject` / `approvals`), the ISO 27001 / SOC 2 Type II alignment artefacts (93-control deployer cookbook + 4 new QMS docs + bilingual mirror sweep), a CLI wizard surface that reaches parity with the in-browser counterpart, and a tag-driven cross-OS release pipeline with per-combo CycloneDX SBOM. Every claim on `forgelm.dev` was re-validated against the live code; the `forgelm/cli.py` and `forgelm/data_audit.py` monoliths were split into focused sub-packages while preserving their public import surface.
+
+### Highlights
+
+- **Library API (`forgelm.__all__`)** — every CLI surface has a stable Python entry point with PEP 561 typing (`py.typed`), lazy-import facade (`import forgelm` does not pull `torch`), and `__api_version__` decoupled from the CLI `__version__`.
+- **GDPR Article 17 (`forgelm purge`)** — three-mode dispatcher (row erasure / run-scoped artefact / read-only policy report) with per-output-dir-salted SHA-256 audit events; `RetentionConfig` Pydantic block with four configurable horizons.
+- **GDPR Article 15 (`forgelm reverse-pii`)** — locate identifier matches across JSONL artefacts; literal / email / phone / regional-id / regex modes; identifier salted-and-hashed before audit emission.
+- **Operational subcommands** — `forgelm doctor` (env / GPU / CUDA / extras pre-flight + JSON envelope), `cache-models` + `cache-tasks` (air-gap pre-cache for HF Hub + lm-eval), `safety-eval` (standalone Llama Guard with bundled 50-prompt × 14-category default probes), `verify-audit` / `verify-annex-iv` / `verify-gguf` (compliance + artefact integrity toolbelt), `approve` / `reject` / `approvals` (Article 14 staging-gate management).
+- **CLI wizard parity-with-web** — same 9-step flow as `forgelm.dev/quickstart`, schema-driven defaults shared between the two surfaces (CI guard fails on drift), idempotent re-run via `--wizard-start-from <yaml>`, distinct `EXIT_WIZARD_CANCELLED = 5` exit code (additive; public surface now `0–5`).
+- **ISO 27001 / SOC 2 Type II alignment** — 93-control deployer cookbook ([`docs/guides/iso_soc2_deployer_guide.md`](../guides/iso_soc2_deployer_guide.md)), 4 new QMS docs (encryption at rest, access control, risk treatment plan, statement of applicability) with 10 new TR mirrors, 2 new reference tables.
+- **Supply-chain security** — CycloneDX 1.5 SBOM per release-tag matrix combo, `pip-audit` + `bandit` nightly + on-tag (HIGH/CRITICAL → exit 1, MEDIUM → warning), opt-in `gitleaks` pre-commit, new `[security]` extra.
+- **Cross-OS release-tag matrix** — `publish.yml` runs Linux + macOS + Windows × Python 3.10 / 3.11 / 3.12 / 3.13 = 12 combos before PyPI publish; OIDC trusted publishing.
+- **Doc CI guards** — bilingual parity (40 pairs), anchor resolution, CLI ↔ docs help consistency, no-analysis-refs, wizard-defaults-sync, Pydantic field-description (all `--strict`).
+- **`forgelm/cli/` + `forgelm/data_audit/` package splits** — legacy 2300-line + 3098-line monoliths decomposed into 24-module + 14-module sub-packages while preserving public import surface. 16 broad `except Exception` sites narrowed; 6 enum-shaped config fields tightened to `Literal[...]`.
+- **Site documentation correction sweep** — every visible YAML / artefact-path / CLI / schema claim on `site/*.html` validated against the live `forgelm/` surface; `i18n` parity at 731 keys per locale across EN + TR + DE + FR + ES + ZH.
 
 ### Breaking changes (deliberate)
 
-- High-risk + unacceptable + safety-disabled config combinations now raise `ConfigError` (F-compliance-110 OR-across-fields strict gate). Previously logged a warning. Operators with intentionally permissive configs must explicitly enable safety eval or downgrade `eu_ai_act.system_risk_class`.
-- Webhook delivery default timeout raised from 5s to 10s (F-compliance-106) — non-breaking for happy path; flaky webhook receivers may see one fewer retry trigger.
-- `--data-audit` flag fully removed (was deprecated in v0.5.0, originally scheduled for v0.7.0). The deprecation cadence (one intervening minor before removal) was honoured by deprecation in v0.5.0 → removal in v0.5.5 with v0.5.0–v0.5.4 acting as the warning window; the release standard's "minor before removal" rule is satisfied. Use `forgelm audit` subcommand instead.
+- High-risk / unacceptable `risk_classification` combined with `evaluation.safety.enabled=false` now raises `ConfigError` at config-load time (was a warning). EU AI Act Article 9 risk-management evidence cannot be derived from a disabled safety eval.
+- `WebhookConfig.timeout` default raised from 5s to 10s. Slack/Teams gateway latency spikes regularly cross 5s; webhook failure is best-effort but a timeout silently degrades the audit chain.
+- `--data-audit` flag fully removed (was deprecated in v0.5.0). Use the `forgelm audit` subcommand instead.
 
-### Post-merge follow-up additions (folded into the `v0.5.5` tag)
+### Full changelog
 
-After the closure-cycle bundle landed on `main` (PR #38, 2026-05-07), three follow-up PRs were absorbed before the PyPI tag was cut.  All three ship under the `v0.5.5` label:
-
-- **Phase 22 — CLI wizard parity with the in-browser surface (PR #40, 2026-05-08).** `forgelm --wizard` now runs the same 9-step flow as the web wizard (welcome → use-case → model → strategy → trainer → dataset → training-params → compliance → evaluation), with `back` / `b` to navigate backwards and `reset` / `r` to clear in-memory state. New CLI flag `--wizard-start-from <yaml>` enables idempotent re-runs against an existing config (per-step Enter keeps the operator's prior answer). Schema-driven defaults are emitted from a generator into both surfaces' shipped artefacts so the CLI and web wizards never drift on numeric defaults. New distinct exit code `EXIT_WIZARD_CANCELLED = 5` distinguishes "wizard cancelled" from "wizard finished" in CI; the public exit-code surface is now `0–5`. State persistence under `$XDG_CACHE_HOME/forgelm/wizard_state.yaml` (atomic write + `chmod 0o600`) survives interrupted sessions; validate-on-exit catches schema rejections inline.
-- **Site documentation correction sweep (PR #41, 2026-05-09).** Every visible YAML / artefact-path / CLI / schema claim on `site/*.html` now validates against the live `forgelm/` surface. Hero YAML demo rewritten with real Pydantic field names; compliance artefact tree redrawn against the on-disk layout (`compliance/` + `final_model/`); ghost YAML keys + ghost CLI flags eliminated; auto-revert / Annex IV / `verify-annex-iv` / `safety-eval` / `forgelm purge` wording aligned with live behaviour. German / French / Spanish / Chinese now match English and Turkish at 731 keys each (was 689) — 168 translated strings cover the regulator-facing surfaces.
-- **Release-prep + nightly pip-audit gate fix (PR #42, 2026-05-10).** Working-memory directory policy codified in `docs/standards/documentation.md` and enforced by the new `tools/check_no_analysis_refs.py` CI guard.  Nightly Supply-chain security workflow gained a documented `--ignore-vuln CVE-2026-1839` stop-gap (closes [#37](https://github.com/cemililik/ForgeLM/issues/37)) so the `transformers >= 4.38, < 5.0` pin can stay until the upstream 4.x backport lands.  Two review-absorption rounds tightened the wizard's idempotent re-run semantics: collectors (`_collect_safety_config`, `_collect_trainer_hyperparameters`, `_collect_rope_scaling`, `_collect_galore_config`, `_collect_benchmark`, `_collect_judge`) now accept an `existing` parameter so a bare-Enter rerun preserves the loaded YAML's prior values; explicit `n` at a gate prompt drops the existing block (explicit-disable contract); `_validate_generated_config` returns a boolean and gates the "Start training now?" prompt; `_save_config_to_file` is atomic via temp-file + `os.replace`.
-
-The new `EXIT_WIZARD_CANCELLED = 5` exit code introduced by Phase 22 is **additive** (CI consumers that branch on `0–4` continue to work; `5` surfaces the previously-collapsed-into-`0` "wizard cancelled" case explicitly), so it is not listed under the breaking-changes section above.
-
-CHANGELOG `[0.5.5]` entries cross-reference the originating fazlar; the [phase-12-6-closure-cycle.md](phase-12-6-closure-cycle.md) summary maps each Phase 12.6 faz to its wave and merge SHA.
+See [CHANGELOG.md `[0.5.5]`](../../CHANGELOG.md#055--2026-05-10) for the complete list of additions, changes, fixes, deprecations, and removals.
 
 ---
 
