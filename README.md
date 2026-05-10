@@ -243,7 +243,7 @@ forgelm/
 │   ├── __main__.py   # `python -m forgelm.cli` entrypoint
 │   ├── _parser.py    # argparse wiring for the top-level + every subcommand
 │   ├── _dispatch.py  # subcommand router; one entry per *_subcommand* below
-│   ├── _exit_codes.py# 0/1/2/3/4 — public CLI contract
+│   ├── _exit_codes.py# 0/1/2/3/4/5 — public CLI contract
 │   └── subcommands/  # _audit, _ingest, _chat, _export, _deploy, _quickstart,
 │                     # _doctor, _cache, _purge, _reverse_pii, _approve,
 │                     # _approvals, _safety_eval, _verify_audit,
@@ -297,7 +297,9 @@ tools/                # CI guards (check_anchor_resolution, check_bilingual_pari
                       # check_pip_audit, check_bandit, check_site_claims,
                       # generate_sbom, build_usermanuals)
 docs/guides/          # Quickstart, ingestion, audit, alignment, CI/CD, enterprise, safety, ISO/SOC 2 guides
-docs/usermanuals/{en,tr}/  # 4-section user manual: training, evaluation, deployment, reference
+docs/usermanuals/{en,tr}/  # 9-section user manual: compliance, concepts, data,
+                           # deployment, evaluation, getting-started, operations,
+                           # reference, training
 ```
 
 ---

@@ -6,6 +6,12 @@ All notable changes to ForgeLM are documented here.
 
 ## [0.5.6] — 2026-05-10
 
+**Status:** Released to PyPI 2026-05-10 via the cross-OS publish
+workflow ([`.github/workflows/publish.yml`](.github/workflows/publish.yml))
+which gates PyPI publish on 12 wheel-install matrix combos
+(3 OS × 4 Python). GitHub Release:
+[v0.5.6](https://github.com/cemililik/ForgeLM/releases/tag/v0.5.6).
+
 Patch release. Reverts the v0.5.5 `torch>=2.3.0` minimum back to
 `torch>=2.2.0` to restore Intel Mac (x86_64) installability. The
 `torch>=2.3` floor in v0.5.5 was inaccurate — no v2.3-specific
