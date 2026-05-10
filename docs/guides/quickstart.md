@@ -67,7 +67,19 @@ See [LICENSES.md](https://github.com/cemililik/ForgeLM/blob/main/forgelm/templat
 forgelm --wizard
 ```
 
-The wizard walks you through model selection, LoRA strategy, dataset, and hyperparameters. It generates a ready-to-use YAML config.
+The wizard offers a curated quickstart-template shortcut first; declining opens a 9-step interactive flow (welcome / use-case / model / strategy / trainer / dataset / training-params / compliance / operations) that covers every `ForgeConfig` block — model, LoRA / DoRA / PiSSA / rsLoRA / GaLore strategy, per-trainer hyperparameters (`dpo_beta` / `simpo_*` / `kto_beta` / `orpo_beta` / `grpo_*`), EU AI Act Article 9 / 10 / 11 / 12+17 compliance metadata, retention, monitoring, evaluation gates, webhooks, synthetic data — and writes a ready-to-use YAML. Type `back` / `b` to navigate backwards, `reset` / `r` to start over; state is persisted to `~/.cache/forgelm/wizard_state.yaml` so a Ctrl-C / fresh session can resume.
+
+Operator guardrails layered on by review-cycle 2 (2026-05-09): the wizard runs `ForgeConfig.model_validate` on the saved YAML before exit (so schema rejections surface inline, not 30 minutes into training), prompts before overwriting an existing config (auto-suffixes `_2.yaml` / `_3.yaml` if you decline), refuses to launch under non-tty stdin (use `forgelm quickstart <template>` for scripted runs), prints a pre-flight checklist (GPU/VRAM/dataset/risk-tier signals), and exits `EXIT_WIZARD_CANCELLED = 5` on Ctrl-C / cancel so CI can tell "wizard finished" from "wizard never wrote anything".
+
+**Idempotent re-run (PR-D, 2026-05-09):** to iterate on an existing config without losing prior answers, pass `--wizard-start-from`:
+
+```bash
+forgelm --wizard --wizard-start-from my_config.yaml
+```
+
+The wizard reads the YAML, validates it against `ForgeConfig` up-front (immediate failure on schema violation), and seeds each step's prompts with the loaded values — pressing Enter at each numeric / text prompt keeps the existing value.  Choice prompts (Strategy, Target modules, Trainer, Use-case) detect the loaded value and shift their default index to match, so Enter still preserves it.  The use-case step (Step 2) is skipped entirely when an existing model + trainer choice is detected, to avoid overwriting them with the first template's preset.  The save flow defaults to overwriting the same path; the existing overwrite confirmation still fires before clobbering.
+
+**Heads-up:** non-prompted Annex IV / risk-assessment fields (e.g., `lora.dropout`, `lora.bias`, `lora.task_type`) are now preserved via `setdefault` patterns rather than overwritten — review-cycle 4 (PR-E, 2026-05-09) closed this regression.
 
 ### Option B: Copy Template
 

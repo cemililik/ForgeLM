@@ -46,7 +46,7 @@
   "description": "EU AI Act, GDPR, and ISO/SOC2 mapping for ForgeLM. Compliance is shipped, not promised.",
   "url": "https://forgelm.dev/compliance.html",
   "downloadUrl": "https://pypi.org/project/forgelm/",
-  "operatingSystem": "Linux, macOS",
+  "operatingSystem": "Linux, macOS, Windows",
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
   "softwareVersion": "0.5.5",
   "offers": {
@@ -147,34 +147,34 @@
         <span class="article-num">Article 10</span>
         <h3 data-i18n-html="compliance.art10.title">Data &amp; data governance</h3>
         <p data-i18n="compliance.art10.body">Quality, relevance, representativeness criteria. Bias detection, PII redaction. Optional <b>Presidio</b> ML-NER for unstructured PII; optional <b>Croissant 1.0</b> dataset card emitted alongside the audit.</p>
-        <div class="article-evidence"><b>forgelm/data_audit.py</b> · <b>forgelm/ingestion.py</b></div>
+        <div class="article-evidence"><b>forgelm/data_audit/</b> · <b>forgelm/ingestion.py</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">Article 11</span>
         <h3 data-i18n="compliance.art11.title">Technical documentation</h3>
-        <p data-i18n="compliance.art11.body">Annex IV's eight required sections — auto-populated from the run.</p>
-        <div class="article-evidence"><b>artifacts/annex_iv_metadata.json</b></div>
+        <p data-i18n="compliance.art11.body">Annex IV's nine required §1-9 sections — auto-populated from the run.</p>
+        <div class="article-evidence"><b>compliance/annex_iv_metadata.json</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">Article 12</span>
         <h3 data-i18n="compliance.art12.title">Record-keeping (logs)</h3>
-        <p data-i18n="compliance.art12.body">Append-only event log over training start, eval gates, auto-revert decisions.</p>
-        <div class="article-evidence"><b>forgelm/compliance.py</b> · <b>artifacts/audit_log.jsonl</b></div>
+        <p data-i18n="compliance.art12.body">Append-only event log over training start/end, eval gates, auto-revert decisions, human-approval gates, GDPR Article 17 erasure, and Article 15 access-request queries.</p>
+        <div class="article-evidence"><b>forgelm/compliance.py</b> · <b>audit_log.jsonl</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">Article 13</span>
         <h3 data-i18n="compliance.art13.title">Transparency</h3>
-        <p data-i18n="compliance.art13.body">Auto-generated model card lists capabilities, intended use, training data summary.</p>
-        <div class="article-evidence"><b>--model-card</b> · <b>output_dir/README.md</b></div>
+        <p data-i18n="compliance.art13.body">Auto-generated model card (capabilities, intended use, training data summary) plus deployer instructions, written every successful run.</p>
+        <div class="article-evidence"><b>final_model/README.md</b> · <b>final_model/deployer_instructions.md</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">Article 14</span>
         <h3 data-i18n="compliance.art14.title">Human oversight</h3>
-        <p data-i18n-html="compliance.art14.body">Optional <code>compliance.human_approval: true</code> moves the trained checkpoint into a staging directory; <code>forgelm approve</code> / <code>reject</code> + <code>forgelm approvals</code> drive the dual-controlled sign-off, all stamped into the audit log.</p>
+        <p data-i18n-html="compliance.art14.body">Optional <code>evaluation.require_human_approval: true</code> moves the trained checkpoint into a staging directory; <code>forgelm approve</code> / <code>reject</code> + <code>forgelm approvals</code> drive the dual-controlled sign-off, all stamped into the audit log.</p>
         <div class="article-evidence"><b>forgelm approve</b> · <b>forgelm reject</b> · <b>forgelm approvals</b></div>
       </article>
 
@@ -188,28 +188,28 @@
       <article class="article-card">
         <span class="article-num">Article 16-17</span>
         <h3 data-i18n-html="compliance.art1617.title">Conformity &amp; QMS</h3>
-        <p data-i18n-html="compliance.art1617.body">QMS SOPs in <code>docs/qms/</code> cover release, incident response, data-source onboarding.</p>
+        <p data-i18n-html="compliance.art1617.body">QMS SOPs in <code>docs/qms/</code> cover model training, data management, incident response, change management, plus access control / encryption-at-rest / risk treatment / Statement of Applicability.</p>
         <div class="article-evidence"><b>docs/qms/</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">GDPR</span>
         <h3 data-i18n="compliance.gdpr.title">PII redaction at ingest</h3>
-        <p data-i18n-html="compliance.gdpr.body"><code>--pii-mask</code> redacts emails, phones, credit cards, IBAN, national IDs before chunks land in JSONL.</p>
-        <div class="article-evidence"><b>forgelm/data_audit.py::mask_pii</b></div>
+        <p data-i18n-html="compliance.gdpr.body"><code>--pii-mask</code> redacts emails, phones, credit cards (Luhn-validated), IBAN, TR national ID, DE Personalausweis, FR SSN, US SSN before chunks land in JSONL.</p>
+        <div class="article-evidence"><b>forgelm/data_audit/</b> · <b>forgelm/data_audit/_pii_regex.py</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">GDPR Art. 15</span>
         <h3 data-i18n="compliance.gdpr15.title">Right of access</h3>
-        <p data-i18n-html="compliance.gdpr15.body"><code>forgelm reverse-pii</code> walks the redaction map back from a data-subject identifier to every row of every split where that subject appears, satisfying the access-request side of the GDPR's data-subject rights.</p>
+        <p data-i18n-html="compliance.gdpr15.body"><code>forgelm reverse-pii</code> scans masked JSONL corpora for plaintext residuals or salted SHA-256 digests of a data-subject identifier and reports every row of every split where that subject appears, satisfying the access-request side of the GDPR's data-subject rights.</p>
         <div class="article-evidence"><b>forgelm reverse-pii</b></div>
       </article>
 
       <article class="article-card">
         <span class="article-num">GDPR Art. 17</span>
         <h3 data-i18n="compliance.gdpr17.title">Right to erasure</h3>
-        <p data-i18n-html="compliance.gdpr17.body"><code>forgelm purge</code> deletes a data-subject's rows from training corpora, stamps the deletion in the append-only audit log, and updates the data-provenance manifest so post-deletion runs reflect the new dataset state.</p>
+        <p data-i18n-html="compliance.gdpr17.body"><code>forgelm purge</code> deletes a data-subject's rows from training corpora and stamps <code>data.erasure_requested</code> + <code>data.erasure_completed</code> events into the append-only audit log so post-deletion runs are forensically linked to the erasure event.</p>
         <div class="article-evidence"><b>forgelm purge</b></div>
       </article>
     </div>
@@ -236,8 +236,8 @@
       <article class="article-card">
         <span class="article-num">Pillar 2</span>
         <h3 data-i18n="compliance.iso.change.title">Change control</h3>
-        <p data-i18n-html="compliance.iso.change.body">Article 14 staging gate (<code>forgelm approve</code> / <code>reject</code>) plus <code>human_approval.required/granted/rejected</code> audit events plus <code>compliance.config_hash</code> stamped per run — every model promotion is dual-controlled and forensically attributed.</p>
-        <div class="article-evidence"><b>forgelm approve</b> · <b>compliance.config_hash</b></div>
+        <p data-i18n-html="compliance.iso.change.body">Article 14 staging gate (<code>forgelm approve</code> / <code>reject</code>) plus <code>human_approval.required/granted/rejected</code> audit events plus <code>forgelm verify-audit</code> chain integrity — every model promotion is dual-controlled and forensically attributed.</p>
+        <div class="article-evidence"><b>forgelm approve</b> · <b>forgelm verify-audit</b></div>
       </article>
 
       <article class="article-card">
@@ -274,21 +274,21 @@
           <span class="lang">checkpoints/policy-bot/</span>
           <button class="copy-btn" type="button" data-i18n="common.copy.idle">copy</button>
         </div>
-        <pre class="code-block-body">artifacts/
-├── annex_iv_metadata.json         <span class="comment"># Article 11 technical documentation (flat JSON, not Markdown)</span>
-├── compliance_report.json         <span class="comment"># Full Article 9-17 manifest — superset of the per-artefact files</span>
-├── training_manifest.yaml         <span class="comment"># Human-readable summary (model, data, params, final metrics)</span>
-├── data_provenance.json           <span class="comment"># Data lineage extracted from the manifest (Article 10)</span>
-├── risk_assessment.json           <span class="comment"># Article 9 risk-management output (when risk fields are set)</span>
-├── audit_log.jsonl                <span class="comment"># Article 12 append-only event log</span>
-├── audit_log.jsonl.manifest.json  <span class="comment"># SHA-256 sidecar over the audit log</span>
-├── data_audit_report.json         <span class="comment"># Article 10 data governance — quality/PII/bias scan</span>
-├── data_governance_report.json    <span class="comment"># Article 10 governance summary (sources, licenses)</span>
-├── README.md                      <span class="comment"># Article 13 model card (HuggingFace-compatible README)</span>
-├── model_integrity.json           <span class="comment"># SHA-256 over weights/adapter for Article 15</span>
-└── deployer_instructions.md       <span class="comment"># Article 13 downstream-deployer guidance</span>
-config_snapshot.yaml               <span class="comment"># the YAML this run actually used</span>
-checkpoints/                       <span class="comment"># PEFT adapter or merged weights</span>
+        <pre class="code-block-body">checkpoints/policy-bot/             <span class="comment"># training.output_dir from your YAML</span>
+├── audit_log.jsonl                 <span class="comment"># Article 12 append-only event log</span>
+├── audit_log.jsonl.manifest.json   <span class="comment"># SHA-256 sidecar over the audit log</span>
+├── compliance/                     <span class="comment"># Annex IV bundle (Articles 9-17)</span>
+│   ├── annex_iv_metadata.json      <span class="comment"># Article 11 technical documentation (flat JSON)</span>
+│   ├── compliance_report.json      <span class="comment"># Full Article 9-17 manifest — superset of the per-artefact files</span>
+│   ├── training_manifest.yaml      <span class="comment"># Human-readable summary (model, data, params, final metrics)</span>
+│   ├── data_provenance.json        <span class="comment"># Data lineage extracted from the manifest (Article 10)</span>
+│   ├── risk_assessment.json        <span class="comment"># Article 9 risk-management output (when risk_assessment block is set)</span>
+│   ├── data_audit_report.json      <span class="comment"># Article 10 data governance — quality/PII/bias scan (forgelm audit)</span>
+│   └── data_governance_report.json <span class="comment"># Article 10 governance summary (sources, licenses)</span>
+└── final_model/                    <span class="comment"># PEFT adapter or merged weights</span>
+    ├── README.md                   <span class="comment"># Article 13 model card (HuggingFace-compatible) — auto-generated</span>
+    ├── deployer_instructions.md    <span class="comment"># Article 13 downstream-deployer guidance</span>
+    └── model_integrity.json        <span class="comment"># SHA-256 over weights/adapter for Article 15</span>
 </pre>
       </div>
     </div>

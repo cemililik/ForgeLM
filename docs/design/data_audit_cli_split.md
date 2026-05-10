@@ -520,7 +520,7 @@ Total: ~4.25 person-days. C-1 can run in parallel with **D-1** (no overlap). C-2
 - `forgelm --config config_template.yaml --dry-run` exits 0.
 - `python -m forgelm.cli --help` byte-identical (validates `__main__.py`).
 - `forgelm --data-audit path/` (legacy alias) still emits the deprecation warning and runs.
-- Exit codes 0/1/2/3/4 unchanged on every error path covered by `tests/test_cli*.py`.
+- Exit codes 0/1/2/3/4 unchanged on every error path covered by `tests/test_cli*.py` (the data-audit CLI split did not introduce a new code; `EXIT_WIZARD_CANCELLED = 5` was added separately in review-cycle 2 for the interactive wizard surface and is not reachable from `forgelm audit`).
 
 ### 2.h Lazy-import discipline (orthogonal but pinned by C-4 / C-5)
 

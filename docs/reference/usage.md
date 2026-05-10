@@ -45,6 +45,9 @@ forgelm --config my_config.yaml
 # Interactive config wizard
 forgelm --wizard
 
+# Iterate on an existing config (preloads each step's prompts with prior answers)
+forgelm --wizard --wizard-start-from existing.yaml
+
 # Validate config without training (no GPU needed)
 forgelm --config my_config.yaml --dry-run
 
@@ -228,6 +231,7 @@ forgelm --config my_config.yaml --compliance-export ./audit/
 | `2` | Training error | Check GPU/memory/deps |
 | `3` | Evaluation failure | Model below threshold — adjust data or thresholds |
 | `4` | Awaiting approval | Human review required (`require_human_approval: true`) |
+| `5` | Wizard cancelled | `forgelm --wizard` exited without producing a YAML (Ctrl-C, non-tty refusal, decline-to-save) — distinct from `0` so CI can tell "wizard finished" from "wizard never wrote anything" |
 
 ## Training Output
 

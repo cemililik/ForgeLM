@@ -72,9 +72,9 @@ Three readers:
 - **Not a key-management system.** ForgeLM consumes `FORGELM_AUDIT_SECRET`
   from the env; the deployer rotates the secret in their KMS.
 
-This is the same "deployer-toolkit boundary" articulated in
-`docs/marketing/strategy/05-yapmayacaklarimiz.md` and the root `CLAUDE.md`
-"What ForgeLM is not" section.
+This is the same "deployer-toolkit boundary" articulated in the root
+`CLAUDE.md` "What ForgeLM is not" section — ForgeLM produces evidence;
+the deployer's existing infrastructure consumes it.
 
 ### 1.4 Bağımlılıklar (closure-plan)
 
@@ -744,8 +744,9 @@ Faz 22 (this design):
 - [x] **§13 work breakdown is the canonical Faz 23 task list.** ✓.
 - [x] **Cited symbols are real.** ✓ (all symbols verified against
       `closure/wave4-integration` HEAD `b87c872`).
-- [x] **Bilingual parity unaffected.** ✓ (this file lives under
-      `docs/analysis/` which is not in `_PAIRS`).
+- [x] **Bilingual parity unaffected.** ✓ (single-language design
+      document; design docs are EN-only and excluded from
+      ``check_bilingual_parity._PAIRS``).
 - [x] **Adds zero behaviour change.** ✓ (design doc only).
 
 Faz 23 (next phase, gated on this design landing):

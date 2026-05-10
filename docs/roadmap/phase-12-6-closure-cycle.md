@@ -1,9 +1,8 @@
 # Phase 12.6 — Closure Cycle (38 fazlar across 5 waves)
 
 > **Status:** ✅ Done — Faz 33 release publish remains as POST-WAVE.
-> **Bundled into:** [v0.5.5 release](releases.md#v055-closure-cycle-bundle-upcoming).
-> **Source plan:** [`docs/analysis/code_reviews/closure-plan-202604300906.md`](../analysis/code_reviews/closure-plan-202604300906.md).
-> **Source review:** `docs/analysis/code_reviews/master-review-opus-202604300906.md` (175 findings: 8 Critical + 67 Major + 60 Minor + 40 Nit).
+> **Bundled into:** [v0.5.5 release](releases.md#v055-closure-cycle-bundle-merged-on-main-pypi-tag-deferred).
+> **Source review:** v0.5.0 master code review (175 findings: 8 Critical + 67 Major + 60 Minor + 40 Nit) — distilled into the Faz 1-38 task list below.
 > **Target:** ★★★★★ across all 8 quality dimensions before v0.5.5 PyPI publish.
 
 ## Why this exists as a single phase entry
@@ -147,5 +146,4 @@ Per the closure plan §1 baseline + §9 exit criteria:
 
 - [`releases.md`](releases.md) — v0.5.5 release notes
 - [`risks-and-decisions.md`](risks-and-decisions.md) — closure-cycle decision log entries
-- [`docs/analysis/code_reviews/closure-plan-202604300906.md`](../analysis/code_reviews/closure-plan-202604300906.md) — full plan document with per-faz task breakdown
-- [`CHANGELOG.md`](../../CHANGELOG.md) — `[0.5.5]` section (finalized at release)
+- [`CHANGELOG.md`](../../CHANGELOG.md) — `[0.5.5]` section (finalized at release; per-PR closure entries collapse into the v0.5.5 release notes)

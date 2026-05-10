@@ -12,9 +12,11 @@ For the full walkthrough, see [`docs/guides/human_approval_gate.md`](../../../gu
 ## When the gate fires
 
 ```yaml
-compliance:
-  human_approval: true
+evaluation:
+  require_human_approval: true
 ```
+
+> **Phantom-key note.** Earlier drafts named this `compliance.human_approval`. That key never shipped — `ComplianceMetadataConfig` is `extra="forbid"` and rejects it. The canonical activation key lives on `EvaluationConfig`. See [Human Oversight](#/compliance/human-oversight) for the full phantom-key list.
 
 With that flag, every run consuming this config pauses **after** evaluation succeeds and **before** `final_model.staging/` is promoted to `final_model/`. The trainer:
 
@@ -24,6 +26,8 @@ With that flag, every run consuming this config pauses **after** evaluation succ
 - Exits with code 4 (`EXIT_AWAITING_APPROVAL`).
 
 A failing eval still exits 3 (`EXIT_EVAL_FAILURE`) and never reaches the gate.
+
+> **Note:** When the operator generates the strict-tier config via `forgelm --wizard` and cancels (Ctrl-C, non-tty refusal, decline-to-save), the wizard exits 5 (`EXIT_WIZARD_CANCELLED`) — see [Exit Codes](../reference/exit-codes.md) — and never reaches the trainer pipeline. CI pipelines that only treat exit 0 as "wizard finished cleanly" should branch separately on 5 to surface a "no config produced" message rather than treating it as a generic failure.
 
 ## CI wiring
 

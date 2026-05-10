@@ -1,0 +1,24 @@
+# Codacy configuration — exclusion paths for generated artefacts.
+#
+# The exclusions below pin two categories that produce false-positive
+# Codacy findings for this project:
+#
+# 1. ``site/js/wizard_defaults.js`` is a build-time artefact emitted by
+#    ``tools/generate_wizard_defaults.py`` from Pydantic field defaults
+#    flagged with ``json_schema_extra={"wizard": True}`` (F1 review-cycle 3).
+#    PMD's ``InaccurateNumericLiteral`` rule flags scientific notation
+#    like ``2e-05``; the value comes from Python's ``json.dumps`` which
+#    chooses scientific notation for small floats — and the JS consumer
+#    canonicalises with ``Number.toExponential()`` so precision is never
+#    operator-visible.  The CI guard
+#    ``tools/check_wizard_defaults_sync.py`` already verifies the
+#    generated content matches the schema byte-for-byte; secondary
+#    static analysis adds no signal.
+#
+# 2. ``forgelm/wizard/_defaults.json`` — same generator output for the
+#    Python consumer.  Plain JSON, no analysis applies.
+#
+# Codacy's analysis YAML format mirrors GitHub Actions' path globs.
+exclude_paths:
+  - site/js/wizard_defaults.js
+  - forgelm/wizard/_defaults.json

@@ -37,10 +37,11 @@ Gated modeller (Llama, Gemma) veya özel veri setleri için:
 ### Temel Komutlar
 
 ```bash
-forgelm --config my_config.yaml              # Model eğit
-forgelm --wizard                             # Etkileşimli config oluşturucu
-forgelm --config my_config.yaml --dry-run    # Config doğrula (GPU gerektirmez)
-forgelm --version                            # Versiyon göster
+forgelm --config my_config.yaml                                  # Model eğit
+forgelm --wizard                                                 # Etkileşimli config oluşturucu
+forgelm --wizard --wizard-start-from existing.yaml               # Mevcut bir config üzerinden iterate et
+forgelm --config my_config.yaml --dry-run                        # Config doğrula (GPU gerektirmez)
+forgelm --version                                                # Versiyon göster
 ```
 
 ### Çıktı ve Loglama
@@ -206,6 +207,7 @@ forgelm --config my_config.yaml --compliance-export ./audit/       # Uyumluluk b
 | `2` | Eğitim hatası | GPU/bellek/bağımlılıkları kontrol et |
 | `3` | Değerlendirme hatası | Model eşiğin altında |
 | `4` | Onay bekleniyor | İnsan incelemesi gerekli (`require_human_approval: true`) |
+| `5` | Wizard iptal edildi | `forgelm --wizard` YAML üretmeden çıktı (Ctrl-C, non-tty reddi, kaydetmeyi reddetme) — `0`'dan ayrı ki CI "wizard tamamlandı" ile "wizard hiçbir şey yazmadı" arasını ayırt edebilsin |
 
 ## Eğitim Çıktısı
 

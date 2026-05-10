@@ -180,10 +180,8 @@ def _walk_markdown_files(root: Path, excluded_dirs: tuple[Path, ...]) -> Iterabl
     """Yield every ``*.md`` under ``root``, sorted for determinism.
 
     Files under any directory in ``excluded_dirs`` (resolved-form
-    comparison) are skipped — the default exclude list strips the
-    gitignored ``docs/analysis/`` research tree (which references
-    local-only paths from the maintainer's research workflow) so
-    the checker validates only public docs.
+    comparison) are skipped — by default we strip gitignored working-
+    memory directories so the checker validates only public docs.
     """
     excluded = tuple(p.resolve() for p in excluded_dirs)
     for path in sorted(p for p in root.rglob("*.md") if p.is_file()):
@@ -327,12 +325,12 @@ def _build_argparser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Directory (relative to scope-dir) to skip.  Repeatable.  "
-            "Default exclude list strips ``analysis/`` only — the "
-            "gitignored research tree references local-only paths and "
-            "is excluded by default; ``analysis/code_reviews/`` is a "
-            "subdirectory that gets caught transitively.  Passing "
-            "``--exclude`` REPLACES the default (e.g. pass "
-            "``--exclude ''`` or omit the default to scan analysis/ too)."
+            "Default exclude list strips ``analysis/`` only — gitignored "
+            "working-memory directories carry local-only path references "
+            "and are excluded by default.  Passing ``--exclude`` REPLACES "
+            "the default; empty values are ignored (default still applies), "
+            "so use a non-matching path (e.g. ``--exclude __none__``) when "
+            "the goal is to scan everything."
         ),
     )
     parser.add_argument(
@@ -355,10 +353,10 @@ def _build_argparser() -> argparse.ArgumentParser:
 
 
 def _resolve_excludes(scope_dir: Path, exclude_arg: list[str] | None) -> tuple[Path, ...]:
-    # Default exclude list — `analysis/` is gitignored research with
-    # local-only path references; `code_reviews/` lives under it and
-    # is caught transitively (its closure-plan docs cite real files at
-    # line-anchored locations that drift).
+    # Default exclude list — `analysis/` is a gitignored working-memory
+    # directory with local-only path references that drift on every
+    # PR-cycle audit.  Excluded by default so the checker validates
+    # only public docs; subdirectories under it are caught transitively.
     #
     # Passing --exclude REPLACES the default rather than augmenting it
     # (call sites that need additional excludes pass the full list,
@@ -368,8 +366,8 @@ def _resolve_excludes(scope_dir: Path, exclude_arg: list[str] | None) -> tuple[P
     # would otherwise resolve to ``scope_dir`` itself and silently
     # exclude the entire tree).  When all entries filter out, fall
     # back to the default rather than scanning everything — the
-    # opt-out for "scan analysis/ too" is `--exclude doesnotexist`
-    # or any other path that won't match.
+    # opt-out for "scan everything" is `--exclude doesnotexist` or
+    # any other path that won't match.
     if exclude_arg is None:
         specs: tuple[str, ...] = ("analysis",)
     else:

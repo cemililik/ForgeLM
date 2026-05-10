@@ -296,8 +296,9 @@ class TestCanonicalRepoPasses:
         Out-of-scope: ``docs/usermanuals/`` has its own structural
         validator (``tools/build_usermanuals.py``); top-level docs
         like ``docs/roadmap-tr.md`` and ``docs/product_strategy-tr.md``
-        diverge intentionally; ``docs/analysis/`` is internal /
-        gitignored research.
+        diverge intentionally; gitignored working-memory directories
+        (``docs/marketing/``, ``docs/analysis/``) are excluded by
+        construction.
 
         Allowlist: ``safety_compliance-tr.md`` carries a known
         in-progress structural drift (34 H2/H3/H4 deltas as of Wave

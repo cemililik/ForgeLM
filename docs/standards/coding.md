@@ -144,7 +144,8 @@ except Exception as e:  # noqa: BLE001 — best-effort: lm-eval HFLM wrapper cro
 
 ## Anti-patterns (rejected at review)
 
-These come from the internal QKV-Core repo analysis (synthesised in the public [`master-review-opus-202604300906.md`](../analysis/code_reviews/master-review-opus-202604300906.md)) — concrete sins ForgeLM avoids:
+Concrete sins ForgeLM avoids — distilled from prior PR-cycle audits
+and external-repo comparisons:
 
 | Anti-pattern | Why rejected | Correct form |
 |---|---|---|

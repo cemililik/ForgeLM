@@ -39,6 +39,7 @@ Bunlardan herhangi biri için `forgelm <subcommand> --help`.
 |---|---|
 | `--config PATH` | YAML config dosya yolu. Eğitim için gerekli. |
 | `--wizard` | `config.yaml` üretmek için etkileşimli yapılandırma sihirbazını başlat. |
+| `--wizard-start-from PATH` | Sihirbazı mevcut bir YAML'dan pre-populate et: her adımın prompt'ları operatörün önceki cevaplarına default'lar (idempotent yeniden koşum). `--wizard` ile birlikte kullanın. |
 | `--dry-run` | Config'i ve model/dataset erişimini doğrula; eğitim yok. |
 | `--fit-check` | Eğitim VRAM tahmini; model yüklenmez. `--config` gerektirir. |
 | `--resume [PATH]` | Eğitime kaldığı yerden devam. Çıplak `--resume` son checkpoint'i otomatik bulur; `--resume PATH` belirli bir yerden. |
@@ -208,6 +209,7 @@ Env var set değilse ForgeLM config yüklemede net bir hata ile çıkar — eği
 | 2 | Audit warning (`--strict` ile) / probe crash (`forgelm doctor`) |
 | 3 | Auto-revert / regression |
 | 4 | İnsan onayı bekleniyor (eğitim pipeline) |
+| 5 | Sihirbaz iptal (operatör kaydı reddetti / non-tty reddi) |
 | 130 | Kullanıcı kesintiye uğrattı (Ctrl+C) |
 
 Tam kontrat için bkz. [Exit Kodları](#/reference/exit-codes).

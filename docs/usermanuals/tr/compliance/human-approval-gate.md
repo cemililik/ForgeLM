@@ -12,9 +12,11 @@ Tam walkthrough için bkz. [`docs/guides/human_approval_gate-tr.md`](../../../gu
 ## Kapı ne zaman ateşlenir
 
 ```yaml
-compliance:
-  human_approval: true
+evaluation:
+  require_human_approval: true
 ```
+
+> **Phantom anahtar notu.** Eski taslaklar bunu `compliance.human_approval` olarak adlandırıyordu. O anahtar hiç gönderilmedi — `ComplianceMetadataConfig` `extra="forbid"` ile yapılandırıldığı için onu reddeder. Kanonik aktivasyon anahtarı `EvaluationConfig` üzerindedir. Tam phantom-anahtar listesi için bkz. [İnsan Gözetimi](#/compliance/human-oversight).
 
 Bu flag ile, bu config'i tüketen her koşum eval başarılı olduktan **sonra** ve `final_model.staging/` `final_model/`'e terfi etmeden **önce** duraklar. Trainer:
 
@@ -24,6 +26,8 @@ Bu flag ile, bu config'i tüketen her koşum eval başarılı olduktan **sonra**
 - Kod 4 (`EXIT_AWAITING_APPROVAL`) ile çıkar.
 
 Başarısız bir eval yine 3 (`EXIT_EVAL_FAILURE`) ile çıkar ve kapıya asla ulaşmaz.
+
+> **Not:** Operatör strict-tier config'i `forgelm --wizard` ile üretirken iptal ederse (Ctrl-C, non-tty reddi, kaydetmeyi reddetme), wizard 5 (`EXIT_WIZARD_CANCELLED`) ile çıkar — bkz. [Çıkış Kodları](../reference/exit-codes.md) — ve trainer pipeline'a hiç ulaşmaz. Yalnızca exit 0'ı "wizard temiz tamamlandı" olarak ele alan CI pipeline'ları, exit 5'i ayrı olarak ele alıp "config üretilmedi" mesajını yüzeylemeli, generic başarısızlık olarak işlememelidir.
 
 ## CI wiring
 

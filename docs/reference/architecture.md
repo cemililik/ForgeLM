@@ -33,7 +33,7 @@ forgelm --config job.yaml
     │   └── webhook.py          → Slack/Teams notifications
     ├── merging.py          → TIES/DARE/SLERP model merge
     ├── synthetic.py        → Synthetic data generation
-    └── wizard.py           → Interactive config generator
+    └── wizard/             → Interactive config generator (sub-package, Phase 22)
 ```
 
 ## Directory Layout
@@ -75,7 +75,7 @@ ForgeLM/
 │   ├── synthetic.py        # Synthetic data generation (teacher→student)
 │   ├── grpo_rewards.py     # Built-in GRPO format/length reward shapers
 │   ├── quickstart.py       # Bundled one-command templates
-│   ├── wizard.py           # Interactive configuration wizard
+│   ├── wizard/             # Interactive configuration wizard (sub-package — Phase 22)
 │   ├── webhook.py          # Webhook notifications (Slack/Teams)
 │   ├── _http.py            # SSRF-guarded HTTP chokepoint
 │   ├── _version.py         # __version__ + __api_version__ (decoupled)
@@ -145,8 +145,9 @@ Model merging with 4 strategies: linear interpolation, TIES-Merging (trim + sign
 ### `synthetic.py`
 Synthetic data generation via teacher-to-student distillation. The `SyntheticDataGenerator` class takes a teacher model (API-based or local), generates training samples from seed prompts, and outputs formatted JSONL datasets. Triggered via `--generate-data` CLI flag or `synthetic` config section. Supports configurable teacher backends, output formats, and generation parameters.
 
-### `wizard.py`
-Interactive CLI wizard for generating valid YAML configs. Detects GPU hardware, suggests backend, offers model presets, guides through LoRA strategy and training objective selection (6 trainer types with format hints), and optionally starts training immediately.
+### `wizard/`
+
+Interactive CLI wizard for generating valid YAML configs. Phase 22 modernisation (2026-05-08) brought the CLI to parity with `site/js/wizard.js`: 9-step state machine (welcome / use-case / model / strategy / trainer / dataset / training-params / compliance / operations), per-trainer hyperparameters (`dpo_beta` / `simpo_beta` + `simpo_gamma` / `kto_beta` / `orpo_beta` / `grpo_*`), full PEFT method coverage (`lora` / `dora` / `pissa` / `rslora`) plus GaLore axis, EU AI Act Article 9 + 10 + 11 + 12+17 compliance accordions, F-compliance-110 strict-tier auto-coercion, `back` / `reset` navigation, XDG-aware persistence at `$XDG_CACHE_HOME/forgelm/wizard_state.yaml`, step-diff preview, beginner / expert toggle, and the Phase 11.5 / 12.5 BYOD inline ingest + audit helpers (`_offer_ingest_for_directory`, `_offer_audit_for_jsonl`).
 
 ### `webhook.py`
 Sends structured JSON payloads to Slack/Teams/generic webhooks on training start, success, and failure. Supports URL from config or environment variable. Graceful error handling with configurable timeout.

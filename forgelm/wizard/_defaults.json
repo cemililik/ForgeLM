@@ -1,0 +1,19 @@
+{
+  "//": "Schema-derived wizard defaults — DO NOT EDIT BY HAND.",
+  "//1": "Regenerate via: python tools/generate_wizard_defaults.py",
+  "//2": "CI guard: tools/check_wizard_defaults_sync.py rejects manual drift.",
+  "model": {
+    "max_length": 2048
+  },
+  "lora": {
+    "alpha": 16,
+    "dropout": 0.1,
+    "r": 8
+  },
+  "training": {
+    "gradient_accumulation_steps": 2,
+    "learning_rate": 2e-05,
+    "num_train_epochs": 3,
+    "per_device_train_batch_size": 4
+  }
+}

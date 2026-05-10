@@ -13,6 +13,7 @@ EXIT_CONFIG_ERROR = 1
 EXIT_TRAINING_ERROR = 2
 EXIT_EVAL_FAILURE = 3
 EXIT_AWAITING_APPROVAL = 4
+EXIT_WIZARD_CANCELLED = 5
 ```
 
 | Code | When | Who reads it |
@@ -22,6 +23,7 @@ EXIT_AWAITING_APPROVAL = 4
 | **2** | Training crashed or failed mid-run (OOM, CUDA error, unhandled exception) | CI/CD retry logic |
 | **3** | Training completed but eval/safety/benchmark threshold failed, and auto-revert happened | CI/CD decision: do not deploy |
 | **4** | Training + evals passed, but `require_human_approval: true` — staged, awaiting human sign-off | CI/CD pauses pipeline |
+| **5** | Wizard cancelled before producing a config (operator decline, non-tty stdin refusal, Ctrl-C through prompts) | CI/CD distinguishes "wizard finished with a config" from "wizard never saved anything" |
 
 **Rules:**
 

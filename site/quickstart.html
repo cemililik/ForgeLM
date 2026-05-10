@@ -46,7 +46,7 @@
   "description": "From pip install to a fine-tuned model in five steps \u2014 manual or guided wizard.",
   "url": "https://forgelm.dev/quickstart.html",
   "downloadUrl": "https://pypi.org/project/forgelm/",
-  "operatingSystem": "Linux, macOS",
+  "operatingSystem": "Linux, macOS, Windows",
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
   "softwareVersion": "0.5.5",
   "offers": {
@@ -151,7 +151,7 @@
         </div>
         <div class="wizard-spotlight-meta">
           <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-            <span data-i18n="quickstart.spotlight.meta1">7 guided steps</span></span>
+            <span data-i18n="quickstart.spotlight.meta1">9 guided steps</span></span>
           <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
             <span data-i18n="quickstart.spotlight.meta2">Live YAML preview</span></span>
           <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
@@ -236,8 +236,8 @@
               <button class="copy-btn" type="button" data-i18n="common.copy.idle">copy</button>
             </div>
             <pre class="code-block-body"><span class="prompt">$</span> forgelm quickstart <span class="flag">--list</span>
-<span class="out">  code-assistant       Code-completion fine-tune (SFT + ORPO)</span>
-<span class="out">  customer-support     Multi-turn helpful + safe (SFT + DPO)</span>
+<span class="out">  code-assistant       Code-completion fine-tune (SFT)</span>
+<span class="out">  customer-support     Multi-turn helpful + safe (SFT)</span>
 <span class="out">  domain-expert        PDF/DOCX corpus → domain Q&A (SFT)</span>
 <span class="out">  grpo-math            Step-by-step math reasoning (GRPO)</span>
 <span class="out">  medical-qa-tr        Turkish medical Q&A (SFT)</span>
@@ -301,7 +301,7 @@
 <span class="ok">✔</span> <span class="out">finished, exit 0 — checkpoints/customer-support/ (staging if human_approval set)</span>
 
 <span class="comment"># verify the audit chain + approve the staged checkpoint</span>
-<span class="prompt">$</span> forgelm verify-audit ./checkpoints/customer-support
+<span class="prompt">$</span> forgelm verify-audit ./checkpoints/customer-support/audit_log.jsonl
 <span class="ok">✓</span> <span class="out">audit_log.jsonl chain valid (47 events, HMAC ok)</span>
 
 <span class="prompt">$</span> forgelm approvals --pending --output-dir ./checkpoints/customer-support  <span class="comment"># list pending stagings</span>
@@ -370,7 +370,7 @@
           <span data-i18n="wizard.progress.step">Step</span>
           <span data-wizard-counter-current>1</span>
           <span data-i18n="wizard.progress.of">of</span>
-          <span data-wizard-counter-total>7</span>
+          <span data-wizard-counter-total>9</span>
         </span>
       </div>
 
@@ -475,6 +475,14 @@
 </footer>
 
 <script src="js/main.js"></script>
+<!-- F1 (review-cycle 3): schema-derived wizard defaults shipped as a
+     tiny inline-loadable script so wizard.js's defaultState() reads
+     ``window.WIZARD_DEFAULTS`` instead of hardcoding values that drift
+     from forgelm/config.py.  Both scripts use ``defer`` so neither
+     blocks HTML parsing; deferred scripts execute in document order
+     (HTML5 spec) so wizard_defaults.js is guaranteed to set
+     ``window.WIZARD_DEFAULTS`` BEFORE wizard.js runs ``defaultState()``. -->
+<script src="js/wizard_defaults.js" defer></script>
 <script src="js/wizard.js" defer></script>
 </body>
 </html>

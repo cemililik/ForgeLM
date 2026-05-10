@@ -72,9 +72,19 @@ Bundled seed dataset'lerin lisansları için bkz. [LICENSES.md](https://github.c
 forgelm --wizard
 ```
 
-Sihirbaz model seçiminden, LoRA stratejisine, dataset'e ve
-hiperparametrelere kadar yürütür. Kullanıma-hazır bir YAML config
-üretir.
+Sihirbaz önce curated quickstart-template kısayolu önerir; reddedilirse 9 adımlı etkileşimli akış açılır (welcome / use-case / model / strategy / trainer / dataset / training-params / compliance / operations) ve her `ForgeConfig` bloğunu kapsar — model, LoRA / DoRA / PiSSA / rsLoRA / GaLore stratejisi, trainer-spesifik hyperparam'lar (`dpo_beta` / `simpo_*` / `kto_beta` / `orpo_beta` / `grpo_*`), EU AI Act Madde 9 / 10 / 11 / 12+17 uyumluluk metadata, retention, monitoring, evaluation kapıları, webhook, sentetik veri — ve kullanıma-hazır bir YAML yazar. Geri dönmek için `back` / `b`, sıfırlamak için `reset` / `r`; state `~/.cache/forgelm/wizard_state.yaml`'da persistent, Ctrl-C / yeni oturum kaldığı yerden devam edebilir.
+
+Review-cycle 2 (2026-05-09) ile eklenen operatör guardrail'ları: sihirbaz çıkmadan önce kayıtlı YAML'ı `ForgeConfig.model_validate` ile doğrular (schema reddetmeleri 30 dakika sonra eğitim sırasında değil, anında yüzeylenir), mevcut config dosyasını üzerine yazmadan önce sorar (reddederseniz `_2.yaml` / `_3.yaml` ile auto-suffix'ler), non-tty stdin altında çalışmayı reddeder (scriptli koşumlar için `forgelm quickstart <template>` kullanın), pre-flight checklist (GPU/VRAM/dataset/risk-tier sinyalleri) basar ve Ctrl-C / cancel durumunda `EXIT_WIZARD_CANCELLED = 5` ile çıkar — böylece CI "sihirbaz tamamlandı" ile "sihirbaz hiçbir şey yazmadı"yı ayırt edebilir.
+
+**Idempotent yeniden koşum (PR-D, 2026-05-09):** mevcut bir config üzerinde önceki cevapları kaybetmeden iterate etmek için `--wizard-start-from` kullanın:
+
+```bash
+forgelm --wizard --wizard-start-from my_config.yaml
+```
+
+Sihirbaz YAML'ı okur, `ForgeConfig` ile önden doğrular (schema reddetmesi anında patlar) ve her adımın prompt'larını yüklenmiş değerlerle besler — her sayısal / metin prompt'unda Enter'a basmak mevcut değeri korur. Choice prompt'ları (Strategy, Target modules, Trainer, Use-case) yüklenen değeri tespit edip default index'i ona göre kaydırır, böylece Enter yine korur. Use-case step'i (Adım 2), mevcut model + trainer seçimi tespit edildiğinde **tamamen atlanır** — ilk template preset'inin bunları override etmesini önlemek için. Save akışı aynı path'e overwrite'a default'lar; mevcut overwrite confirmation üzerine yazmadan önce hâlâ tetiklenir.
+
+**Dikkat:** prompt edilmeyen Annex IV / risk-assessment alanları (örn. `lora.dropout`, `lora.bias`, `lora.task_type`) artık override edilmek yerine `setdefault` pattern'iyle korunuyor — review-cycle 4 (PR-E, 2026-05-09) bu regression'ı kapattı.
 
 ### Seçenek B: Şablon Kopyala
 

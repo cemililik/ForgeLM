@@ -6,13 +6,268 @@ All notable changes to ForgeLM are documented here.
 
 ### Added
 
+- **CLI wizard parity-with-web (Phase 22).** `forgelm --wizard` now
+  covers the same nine user-visible stages as the in-browser wizard
+  at `forgelm.dev/quickstart` and produces the same generated YAML.
+  Internal step IDs and the trainer-vs-model order may differ between
+  the two surfaces by design — both flows reach an equivalent
+  `ForgeConfig` shape; the divergence is documented inline at
+  `forgelm/wizard/_orchestrator.py`. The CLI flow is welcome →
+  use-case → model → strategy → trainer → dataset → training-params
+  → compliance → evaluation, with `back` / `b` to navigate backwards
+  and `reset` / `r` to clear in-memory state. The wizard module was
+  split into a sub-package (`forgelm/wizard/`) for orchestrator /
+  state / collectors / BYOD / IO concerns.
+  - **Idempotent re-run:** `forgelm --wizard --wizard-start-from
+    /path/to/existing.yaml` reads the YAML, validates it against
+    `ForgeConfig` up front, and seeds the wizard with the loaded
+    values so a bare Enter at every prompt keeps the operator's
+    earlier answer. Save flow defaults to the same path; existing
+    overwrite confirmation still fires.
+  - **State persistence:** snapshot at
+    `$XDG_CACHE_HOME/forgelm/wizard_state.yaml` (or
+    `~/.cache/forgelm/wizard_state.yaml`) saved after every completed
+    step; resume on next launch when the snapshot is present and
+    schema-compatible. Snapshot is `chmod 0o600` and cleared on
+    successful completion. Atomic writes via temp file + `fsync` +
+    `os.replace` prevent half-written state under SIGKILL / power
+    loss.
+  - **Schema-driven defaults:** wizard-relevant fields in
+    `forgelm/config.py` are flagged with
+    `json_schema_extra={"wizard": True}`. A generator script
+    (`tools/generate_wizard_defaults.py`) walks the schema and writes
+    `forgelm/wizard/_defaults.json` (consumed by the CLI wizard via
+    `importlib.resources`) and `site/js/wizard_defaults.js` (consumed
+    by the web wizard's `defaultState()`). A CI guard
+    (`tools/check_wizard_defaults_sync.py`) fails the run on schema-
+    vs-shipped-JSON drift. Hardcoded fallbacks survive only when the
+    JSON is missing entirely (broken pip install).
+  - **Trainer-specific hyperparameters:** `dpo_beta`, `simpo_beta` /
+    `simpo_gamma`, `kto_beta`, `orpo_beta`, `grpo_num_generations`,
+    `grpo_max_completion_length`, `grpo_reward_model` surface per
+    `trainer_type`. SFT short-circuits.
+  - **PEFT method breadth:** the strategy step offers all four
+    schema-supported `lora.method` values (`lora`, `dora`, `pissa`,
+    `rslora`) plus GaLore as a separate axis. All six `galore_optim`
+    Literal values surfaced, including the three `_layerwise`
+    variants. RoPE scaling adds `longrope` (full 4-of-4 schema
+    coverage).
+  - **Compliance depth:** `compliance` (Article 11 + Annex IV §1)
+    plus optional `risk_assessment` (Article 9), `data.governance`
+    (Article 10), `retention` (GDPR Article 5(1)(e) + 17),
+    `monitoring` (Article 12 + 17), `evaluation.benchmark`,
+    `evaluation.llm_judge`, `synthetic` blocks all configurable from
+    the wizard.
+  - **High-risk auto-coercion:** `risk_classification ∈ {high-risk,
+    unacceptable}` automatically enables `evaluation.safety` +
+    `evaluation.require_human_approval` with a visible operator
+    notice — front-stops the schema-side `F-compliance-110`
+    `ConfigError`.
+  - **Webhook URL parsing with SSRF preflight:** single prompt
+    accepts a literal URL or `env:VAR_NAME` reference; the URL is
+    `urlparse`-validated, HTTPS recommended, and loopback / RFC1918
+    / link-local destinations rejected up front by reusing
+    `forgelm._http._is_private_destination` so typos like
+    `http://10.0.0.1/x` fail at config time instead of training time.
+  - **Configuration summary:** the wizard prints the full generated
+    YAML alongside the labelled headline so the operator sees every
+    block (webhook / evaluation / compliance / risk / retention /
+    monitoring) without `cat`-ing the file.
+  - **Step-diff preview:** each completed step prints
+    `+ key.path: value` / `~ key.path: before → after` so the operator
+    sees exactly what changed mid-flow.
+  - **Beginner / expert toggle:** beginner mode prefixes each step
+    with a 2-3-line tutorial paragraph; expert mode is silent.
+  - **Use-case integration:** the curated quickstart-template list is
+    available as Step 2 of the full flow (in addition to the existing
+    prelude shortcut), seeding sensible defaults for later steps
+    without locking anything down. Use-case keys mirror
+    `forgelm/quickstart.py::TEMPLATES` exactly; `quickstart.py` is
+    the single source of truth.
+  - **Pre-flight checklist:** GPU / VRAM / dataset / risk-tier
+    signals surface before the configuration summary, calling out
+    common operator errors (low-VRAM full-precision, missing local
+    file, strict tier without safety eval).
+  - **Distinct exit code for wizard cancel:** new
+    `EXIT_WIZARD_CANCELLED = 5`. Clean cancels exit `5` instead of
+    `0` so CI can distinguish "wizard finished" from "wizard never
+    produced output". Public exit-code surface is now `0–5`.
+  - **Best-effort readline:** arrow-key line editing + history on
+    Linux/macOS via stdlib `readline` import; Windows unaffected.
+  - **Validate-on-exit:** the wizard runs `ForgeConfig.model_validate`
+    on the saved YAML before declaring success. Schema rejections
+    surface inline with the offending field rather than 30 minutes
+    into a failed training run.
+  - **Overwrite confirmation + auto-suffix:** the save flow detects
+    pre-existing files, asks before clobbering, and falls back to the
+    next free `_2.yaml` / `_3.yaml` slot when declined.
+  - **Non-tty stdin refusal:** `forgelm --wizard < answers.txt` used
+    to silently produce empty configs; the wizard now refuses to
+    launch on a non-tty stdin and points the operator at
+    `forgelm quickstart <template>` for deterministic scripted
+    generation.
+
 ### Changed
 
-- Minimum required `torch` version bumped from 2.1.0 to 2.3.0; `torch.distributed.fsdp.FSDPModule` (introduced in torch 2.3) is referenced by `tests/test_grpo_reward.py` and runtime GRPO paths. (#F-PR29-A4-07)
+- **Working-memory directories cleanup.** Operator-local research,
+  audit drafts, and external-repo comparisons now live in
+  working-memory directories that are strictly gitignored with no
+  exceptions and never appear in fresh clones. The previous
+  re-include carve-outs that exposed individual files were dropped,
+  the working-memory tree was untracked at the directory level, and
+  every public-tree citation pointing into it was rewritten or
+  removed. The rule is now codified in
+  `docs/standards/documentation.md` ("Working-memory directories"),
+  enforced by a new CI guard (`tools/check_no_analysis_refs.py`)
+  wired into the self-review chain in `CLAUDE.md`. False positives
+  (functional path filters in production code) are handled via an
+  `_EXEMPT` allowlist with per-entry justification comments.
+
+- **Site copy now matches the live code surface.** Sweep across
+  `site/*.html` and `site/js/translations.js` correcting drift that
+  had accumulated against the production code. Highlights:
+  - **YAML demo accuracy:** the homepage hero YAML demo and the
+    quickstart `verify-audit` example now use real Pydantic field
+    names and accept paths that pass the live CLI check; copying any
+    visible snippet and running `forgelm --config <copy> --dry-run`
+    works as advertised.
+  - **Compliance artefact tree:** the EU AI Act / ISO 27001 page
+    redrawn against the actual on-disk layout — `compliance/`
+    sub-tree (was `artifacts/`), `audit_log.jsonl` at the checkpoint
+    root, `final_model/` carrying the model card + deployer
+    instructions + integrity manifest. Removed phantom
+    `config_snapshot.yaml` row (no code path emits it).
+  - **Ghost YAML keys removed:** `compliance.config_hash` and
+    `compliance.human_approval` (which `ComplianceMetadataConfig`'s
+    `extra="forbid"` rejected) replaced with the canonical
+    `evaluation.require_human_approval` and a description of
+    `forgelm verify-audit` chain integrity.
+  - **Ghost CLI flag removed:** `--model-card` no longer mentioned
+    on the Article 13 evidence cell; the model card is auto-generated
+    on every successful run.
+  - **Stale namespace + symbol-list corrected:** Library API
+    references now use `from forgelm import …` with real symbols
+    from `forgelm.__all__` (`ForgeTrainer`, `audit_dataset`,
+    `verify_audit_log`, `verify_annex_iv_artifact`, `mask_pii`).
+  - **Wording aligned with live behaviour:** auto-revert (deletes
+    artefacts + exits with `EXIT_EVAL_FAILURE = 3`, not "rolls back
+    to last-good checkpoint"), exit codes (`0–5`, was `0/1/2/3/4`),
+    Annex IV "nine §1-9 sections" (was "eight"),
+    `forgelm safety-eval` accepted formats (`--probes` JSONL or
+    `--default-probes`; outputs `safety_results.json` +
+    `safety_trend.jsonl`), `forgelm verify-annex-iv` claim narrowed
+    to schema completeness + `manifest_hash` (audit-chain integrity
+    is the separate `verify-audit` command), `forgelm purge`
+    documented as emitting `data.erasure_requested` +
+    `data.erasure_completed` audit events.
+  - **Wizard preset divergence:** the in-browser
+    `USE_CASE_PRESETS` is now byte-equivalent to
+    `forgelm/quickstart.py::TEMPLATES`. Operators who finish the
+    wizard see the same model IDs and bundled-dataset paths the CLI
+    `quickstart` would have set.
+  - **i18n parity:** German / French / Spanish / Chinese now match
+    English and Turkish at 731 keys each (was 689). The 168
+    previously-untranslated strings cover the regulator-facing
+    surfaces (`compliance.gdpr15.*`, `compliance.gdpr17.*`,
+    `compliance.iso.*`, `features.gov.*`, `features.eval.safetyeval.*`,
+    `features.ent.*`).
+  - **JSON-LD `operatingSystem`:** all 8 pages updated from
+    `"Linux, macOS"` to `"Linux, macOS, Windows"`, matching the
+    README's tri-platform pitch and the PyPI
+    `Operating System :: OS Independent` classifier.
+  - **Mermaid disclosure:** the privacy page now lists three
+    third-party requests (Google Fonts, jsDelivr / Mermaid on the
+    Guide page only, Formspree on contact-form submit) in all six
+    locales.
+  - **Audit-event scope:** Article 12 description widened from
+    "training start, eval gates, auto-revert decisions" to the real
+    vocabulary (training start/end, eval gates, auto-revert
+    decisions, human-approval gates, GDPR Article 17 erasure,
+    Article 15 access-request queries, model export) with HMAC +
+    SHA-256 chain language replacing the per-artefact SHA-256
+    wording.
+  - **Wizard divergence cross-doc notes:** inline NOTE blocks in
+    `forgelm/wizard/_orchestrator.py`, `forgelm/wizard/_state.py`,
+    and `site/js/wizard.js` document that the CLI and web wizard
+    step-ID lists and `STATE_VERSION` numbers are intentionally
+    independent (different stores, different state-shape evolution
+    schedules) — both flows produce the same generated YAML.
+
+- **Minimum required `torch` bumped from 2.1.0 to 2.3.0.**
+  `torch.distributed.fsdp.FSDPModule` (introduced in torch 2.3) is
+  referenced by `tests/test_grpo_reward.py` and runtime GRPO paths.
 
 ### Fixed
 
+- **Nightly pip-audit gate — `transformers` CVE-2026-1839
+  (issue [#37](https://github.com/cemililik/ForgeLM/issues/37)).** The
+  Supply-chain security workflow flagged the CVE whose published fix
+  lives in `transformers 5.0.0rc3` (release candidate). ForgeLM's
+  `pyproject.toml` pins `transformers>=4.38.0,<5.0.0`; the 5.x branch
+  is a major version bump that breaks downstream callers (TRL adapter
+  signature changes + tokenizer-config API drift), and there is no
+  4.x backport available at the time of writing. Stop-gap: an
+  explicit `--ignore-vuln CVE-2026-1839` in
+  `.github/workflows/nightly.yml` with documented rationale and a
+  remove-after condition (revisit at every release; remove the ignore
+  once `transformers` ships a 4.x point release with the fix or
+  ForgeLM cuts a tracked major-version-bump cycle).
+
+- **Wizard YAML output is now `safe_dump(allow_unicode=True)` with
+  explicit UTF-8 file handles** — prevents `!!python/object` tags
+  from leaking into generated YAML when a collector returns a Path
+  or set, and stops mojibake on non-ASCII compliance fields.
+
+- **Wizard hardware-detection cache.** `_detect_hardware()` runs
+  once per session; the welcome step and the post-save pre-flight
+  checklist share the result instead of paying a second torch import
+  + CUDA enumeration (~50–200 ms saved).
+
+- **Wizard back / reset semantics.** `WizardBack` restores
+  `state.config` from a `copy.deepcopy` snapshot taken before the
+  step ran (partial mutations no longer leak into the previous
+  step's prompts). `WizardReset` re-loops with a fresh state instead
+  of treating the reset as a completed run and trying to save an
+  empty config.
+
+- **Wizard BYOD path validation.** Typed dataset values are now
+  checked as a directory of ingestible docs, a JSONL/JSON file, or
+  an HF Hub ID before being accepted; bare typos no longer silently
+  become `data.dataset_name_or_path`.
+
+- **Wizard non-empty re-prompt for Article 9 / Article 10
+  free-text fields** (`intended_use`, `foreseeable_misuse`,
+  `mitigation_measures`, `collection_method`, `annotation_process`,
+  `known_biases`). Empty values used to slip through and surface as
+  Pydantic `ConfigError` at training-time load.
+
+- **CUDA capability check.**
+  `torch.cuda.get_device_properties(0).total_mem` →
+  `total_memory` in `_detect_hardware` (the previous attribute
+  doesn't exist; welcome step crashed on real CUDA hosts).
+
+- **Wizard cross-tab sync.** The web wizard listens for `storage`
+  events and reloads state when a sibling tab edits the same
+  wizard, eliminating the "last write wins" race.
+
+- **Wizard bundled safety-probes resolution.** The wizard's
+  default safety probe set is now resolved through
+  `importlib.resources.files("forgelm.safety_prompts")`, fixing the
+  `pip install forgelm` regression where
+  `configs/safety_prompts/general_safety.jsonl` was the wizard
+  default but never shipped in the wheel.
+
+- **Documentation and CI guard plumbing:** `docs/design/wizard_mode.md`
+  rewritten to describe the actual 9-step flow;
+  `docs/reference/architecture{,-tr}.md` heading updated from
+  `wizard.py` to `wizard/` to match the sub-package layout;
+  `docs/usermanuals/{en,tr}/compliance/human-approval-gate.md`
+  cross-references exit code 5 alongside the existing exit-4
+  discussion.
+
 ### Removed
+
+(none in this release.)
 
 ## [0.5.5] — 2026-05-06
 
@@ -741,8 +996,8 @@ subcommands surface in `forgelm --help` and the help epilog.
 > **Active cycle:** v0.5.5 closure — a single-release consolidation of
 > the master review's 175 findings + 4 new feature tracks (Library API,
 > ISO 27001 / SOC 2 alignment, GDPR right-to-erasure, Article 14 real
-> staging directory). Detailed plan:
-> [closure-plan-202604300906.md](docs/analysis/code_reviews/closure-plan-202604300906.md).
+> staging directory).  Detailed plan tracked at
+> [`docs/roadmap/phase-12-6-closure-cycle.md`](docs/roadmap/phase-12-6-closure-cycle.md).
 > No interim releases; v0.5.5 ships once Faz 1-33 are complete.
 > Per-PR CHANGELOG entries below collapse into the v0.5.5 release
 > notes at tag time.
@@ -892,8 +1147,7 @@ preserved verbatim.
 Round-2 multi-agent review of PR #28 surfaced 52 findings (4 specialist
 agents) plus 9 maintainer inline comments.  All verified findings either
 fixed or explicitly skipped with rationale; the pre-merge fix set landed
-in this revision.  Full delta:
-[`docs/analysis/code_reviews/wave2a-round2-fix-summary-20260504.md`](docs/analysis/code_reviews/wave2a-round2-fix-summary-20260504.md).
+in this revision.
 
 **New surfaces (additive, forward-compatible):**
 
@@ -1583,12 +1837,10 @@ Both are design-only PRs — Phase 19 + Phase 21 implementations follow.
 
 ### Documentation
 
-- Full Faz 1-8 closure plan:
-  [closure-plan-202604300906.md](docs/analysis/code_reviews/closure-plan-202604300906.md)
-  (33 phases, ~47 PRs).
-- Master review:
-  [master-review-opus-202604300906.md](docs/analysis/code_reviews/master-review-opus-202604300906.md)
-  (175 findings).
+- Full Faz 1-8 closure plan tracked at
+  [`docs/roadmap/phase-12-6-closure-cycle.md`](docs/roadmap/phase-12-6-closure-cycle.md)
+  (33 phases, ~47 PRs).  Source review: 175 findings (8 Critical +
+  67 Major + 60 Minor + 40 Nit) — see PR thread for the full list.
 - `data_audit/` + `cli/` package split design:
   [data_audit_cli_split.md](docs/design/data_audit_cli_split.md)
   (Faz 14-15 forward-looking).

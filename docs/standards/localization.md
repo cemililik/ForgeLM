@@ -39,7 +39,6 @@ Rationale:
 | `docs/standards/*.md` | No | Contributor-facing |
 | `docs/qms/*.md` | Yes | QMS templates ship bilingual EN+TR — regulated orgs in Turkey adopt the TR mirror as the canonical operating template. Wave 4 (Faz 26) drove the EN+TR pair count from 0 to 14 with the new ISO 27001 / SOC 2 alignment QMS docs |
 | `docs/marketing/**` | Mixed (strategy/ is TR, operational is EN) | Local-only; author's choice |
-| `docs/analysis/**` | Mixed | Analysis documents in whichever language suits the source |
 | `docs/roadmap/**` | Partial | `docs/roadmap.md` ↔ `docs/roadmap-tr.md` mandatory mirror; sub-files (`roadmap/*.md`) English only with the TR summary surfaced through the top-level mirror |
 
 Anything not in the "Yes" set is **English only**. Don't translate preemptively.

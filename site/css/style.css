@@ -2535,6 +2535,17 @@ section { padding: 5rem 0; }
   .wizard-yaml-pane.is-expanded .wizard-yaml-toggle svg {
     transform: rotate(180deg);
   }
+  /* C3 (review-cycle 3): when the operator expands the YAML accordion
+     on mobile, long configs (high-risk + every gate enabled) easily
+     run past 200 lines.  Without an explicit ``overflow: auto`` floor
+     the pane consumed all remaining vertical space and pushed the
+     action footer (Copy / Download / Back / Next) off-screen, leaving
+     the operator unable to navigate.  Clamp the body to a fraction of
+     the viewport so the footer always stays reachable. */
+  .wizard-yaml-pane.is-expanded .wizard-yaml-output {
+    max-height: 38vh;
+    overflow: auto;
+  }
   .wizard-cards {
     grid-template-columns: 1fr;
   }

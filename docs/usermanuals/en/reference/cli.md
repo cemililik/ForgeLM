@@ -39,6 +39,7 @@ Run `forgelm <subcommand> --help` for any of these.
 |---|---|
 | `--config PATH` | YAML config file path. Required for training. |
 | `--wizard` | Launch interactive configuration wizard to generate a `config.yaml`. |
+| `--wizard-start-from PATH` | Pre-populate the wizard from an existing YAML so each step's prompts default to the operator's prior answers (idempotent re-run). Combine with `--wizard`. |
 | `--dry-run` | Validate configuration and check model/dataset access; no training. |
 | `--fit-check` | Estimate peak training VRAM; no model load. Requires `--config`. |
 | `--resume [PATH]` | Resume training. Bare `--resume` auto-detects last checkpoint; `--resume PATH` resumes from a specific one. |
@@ -208,6 +209,7 @@ If the env var isn't set, ForgeLM fails at config load with a clear error — be
 | 2 | Audit warnings (with `--strict`) / probe crash (`forgelm doctor`) |
 | 3 | Auto-revert / regression |
 | 4 | Awaiting human approval (training pipeline) |
+| 5 | Wizard cancelled (operator declined to save / non-tty refusal) |
 | 130 | User interrupted (Ctrl+C) |
 
 See [Exit Codes](#/reference/exit-codes) for the full contract.
