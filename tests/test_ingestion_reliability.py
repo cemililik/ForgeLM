@@ -913,6 +913,110 @@ class TestRoundTwoFixes:
             )
 
 
+class TestRoundFourFixes:
+    """Round-4 regression coverage for the path-repr / presignal-floor /
+    EPUB-property-split / frontmatter-alpha-threshold changes that
+    landed in commit ``dc671f5`` without dedicated tests."""
+
+    def test_page_range_error_repr_escapes_ansi_in_path(self, tmp_path):
+        """C-A round-4: path with ANSI escapes must NOT render raw in the error message.
+
+        Pre-round-4 the error used bare ``'{path}'`` interpolation, so a
+        path containing ``\\x1b[31m...`` rendered the literal escape
+        sequence into the error string (terminal-injection vector).
+        The fix switched to ``{path!r}`` which repr-quotes the value.
+        """
+        if not HAS_PYPDF:
+            pytest.skip("pypdf extra not installed")
+        # Synthesise a minimal PDF whose filename contains an ANSI
+        # escape sequence; pass an out-of-range page-range to trigger
+        # the IngestParameterError.
+        evil_name = "evil\x1b[31mRED\x1b[0m.pdf"
+        evil_path = tmp_path / evil_name
+        evil_path.write_bytes(_synth_multipage_pdf([["body"]]))
+        out = tmp_path / "out.jsonl"
+        with pytest.raises(ValueError) as excinfo:
+            ingest_path(str(evil_path), output_path=str(out), page_range=(99, 999))
+        # The error message must repr-escape the path; the literal ESC
+        # byte (\x1b == \x1b) must NOT appear unescaped in the rendered
+        # message. ``repr()`` of an ESC-bearing string renders ``\x1b``.
+        msg = str(excinfo.value)
+        assert "\x1b" not in msg, "ANSI escape must be repr-escaped in error message"
+
+    def test_presignal_floor_silent_on_short_clean_corpus(self, tmp_path):
+        """C-B round-4: clean 5-paragraph 41-char corpus must NOT trip the alpha-ratio check.
+
+        Pre-round-4 the alpha-ratio check ran on every chunk regardless
+        of size. A perfectly clean 5-para 41-char TXT flagged 1/1
+        chunks because dots + whitespace dragged alpha < 0.70.
+        ``_PRESIGNAL_MIN_NON_WS_CHARS = 80`` floor suppresses the
+        false-positive.
+        """
+        src = tmp_path / "doc.txt"
+        src.write_text("Para 1.\n\nPara 2.\n\nPara 3.\n\nPara 4.\n\nPara 5.")
+        out = tmp_path / "out.jsonl"
+        result = ingest_path(str(src), output_path=str(out), strategy="paragraph")
+        qp = result.notes_structured.get("quality_presignal", {})
+        assert qp.get("samples_flagged", -1) == 0, "clean small corpus must not flag"
+        assert qp.get("by_check", {}).get("alpha_ratio", -1) == 0
+
+    @pytest.mark.skipif(not HAS_EPUB, reason="ebooklib extra not installed")
+    def test_epub_item_type_split_on_multi_property_string(self):
+        """S-C round-4: ``properties="nav cover-image"`` must match via tokens, not exact-string.
+
+        EPUB-3 manifest properties are space-separated tokens. The
+        pre-round-4 code exact-matched the joined form against the
+        skip-list, silently passing through any item with > 1 property.
+        """
+        from forgelm.ingestion import _epub_item_matches_skip
+
+        skip = ("nav", "toc", "cover", "copyright", "colophon", "titlepage", "frontmatter")
+        # Multi-token property strings (real EPUB-3 manifest shape).
+        assert _epub_item_matches_skip("ch01.xhtml", "nav cover-image", skip)
+        assert _epub_item_matches_skip("ch01.xhtml", "scripted mathml nav", skip)
+        # Single token that matches — back-compat.
+        assert _epub_item_matches_skip("any.xhtml", "cover", skip)
+        # Empty property string falls through to filename check.
+        assert not _epub_item_matches_skip("body.xhtml", "", skip)
+        # Property string with NO skip token must NOT match.
+        assert not _epub_item_matches_skip("body.xhtml", "scripted mathml", skip)
+
+    def test_frontmatter_threshold_audit_pilot_still_caught(self):
+        """S-E round-4 / S-C round-4: audit's Turkish-pilot ToC shape (≈ 0.15 alpha)
+        must still trip the heuristic after the 0.45 → 0.30 tightening."""
+        from forgelm.ingestion import _is_frontmatter_page
+
+        # Audit pilot shape: short Turkish chapter titles + heavy
+        # dotted leaders + inline page numbers.
+        toc = (
+            "Bölüm 1 ........................ 14\n"
+            "Bölüm 2 ........................ 28\n"
+            "Bölüm 3 ........................ 42\n"
+            "Bölüm 4 ........................ 67\n"
+            "Bölüm 5 ........................ 95\n"
+            "\n14\n\n28\n\n42\n\n67\n\n95\n"
+        )
+        assert _is_frontmatter_page(toc)
+
+    def test_frontmatter_protects_realistic_form_template_via_3signal_AND(self):
+        """S-E round-4: real form templates have NO inline page numbers, so the
+        3-signal AND filter (alpha + leader + page-num-count) protects them
+        even when alpha + leader trip individually."""
+        from forgelm.ingestion import _is_frontmatter_page
+
+        # Realistic form template — labels + underscore leaders + NO page numbers.
+        form = (
+            "Name: ___________________\n"
+            "Date: ___________________\n"
+            "Phone: __________________\n"
+            "Address: ________________\n"
+            "City: ___________________\n"
+        )
+        # Without the inline-page-number signal, the 3-signal AND filter
+        # keeps the page even though alpha + leader ratios are low.
+        assert not _is_frontmatter_page(form)
+
+
 class TestStructuredNotesAdditive:
     """Phase 15 contract: notes_structured additions never rename pre-15 keys."""
 

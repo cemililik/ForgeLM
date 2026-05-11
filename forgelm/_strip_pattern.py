@@ -363,6 +363,11 @@ def apply_strip_patterns(
     total_subs = 0
     out = text
     for raw, compiled in patterns:
+        # Round-5 review (S-E) perf nit: if an earlier pattern consumed
+        # the entire text, skip the remaining ones — each would otherwise
+        # set up + tear down a SIGALRM around a no-op subn call.
+        if not out:
+            break
         new_out, subs = _apply_one(out, raw, compiled, timeout_s, use_alarm, use_logger)
         out = new_out
         total_subs += subs

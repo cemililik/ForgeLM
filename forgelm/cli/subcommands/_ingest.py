@@ -125,6 +125,28 @@ def _run_ingest_cmd(args, output_format: str) -> None:
     )
     quality_presignal = not getattr(args, "no_quality_presignal", False)
 
+    # Round-5 independent review (C-B): if the operator passes a
+    # ``--language-hint`` that the script-sanity layer doesn't have an
+    # allow-list for, the check would silently no-op and produce a
+    # ``script_sanity_summary`` block with ``max_ratio=0.0`` — the
+    # textbook silent-failure UX Phase 15 was launched to fix, just
+    # transplanted to a new surface. Warn loudly so the operator either
+    # picks a supported hint or accepts the no-op.
+    language_hint_raw = getattr(args, "language_hint", None)
+    if language_hint_raw:
+        from ..._script_sanity import SUPPORTED_LANGUAGES
+
+        if language_hint_raw.lower() not in SUPPORTED_LANGUAGES:
+            logger.warning(
+                "--language-hint %r is not in the script-sanity allow-list (%s). "
+                "Script-sanity check will silently no-op for this corpus — the "
+                "`script_sanity_summary` block in notes_structured will report "
+                "`max_ratio: 0.0` even on heavily corrupted text. Use one of the "
+                "supported codes or omit the flag to disable the check explicitly.",
+                language_hint_raw,
+                ", ".join(SUPPORTED_LANGUAGES),
+            )
+
     sanity_threshold_raw = getattr(args, "script_sanity_threshold", None)
     sanity_kwargs = {} if sanity_threshold_raw is None else {"script_sanity_threshold": sanity_threshold_raw}
 

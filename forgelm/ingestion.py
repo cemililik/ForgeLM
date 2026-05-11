@@ -146,14 +146,24 @@ class IngestionResult:
 
 
 # Default skip-list for EPUB items the operator almost never wants to
-# train on (TOC, cover, copyright, colophon, title-page, front-matter).
+# train on (nav, cover, copyright, colophon, title-page, front-matter).
 # Implemented as a tuple of normalised lower-case tokens so a file named
 # ``cover.xhtml`` or an ``epub:type="nav cover-image"`` declaration both
 # match via the whole-token splitter (``_EPUB_NAME_TOKEN_SPLIT``) without
 # per-source spelling drift.
+#
+# Round-5 review (S-D): the standalone token ``"toc"`` was removed
+# because it is short and common enough that a legitimate chapter
+# filename can contain it as a sub-word (``historical_toc.xhtml``,
+# ``the_toc_of_war.xhtml``). The canonical EPUB-3 navigation document
+# always carries the ``"nav"`` property AND is named ``nav.xhtml`` /
+# ``navigation.xhtml`` in practice; the ``"nav"`` token catches both
+# without the false-positive surface ``"toc"`` introduced. Operators
+# on EPUBs whose navigation file is literally named ``toc.xhtml`` (and
+# does not carry the ``nav`` property) can add the token back via the
+# library ``epub_skip_items`` ctx kwarg.
 _DEFAULT_EPUB_SKIP_ITEMS: Tuple[str, ...] = (
     "nav",
-    "toc",
     "cover",
     "copyright",
     "colophon",
@@ -685,20 +695,27 @@ operator feedback shifts the modal value.
 """
 
 _FRONTMATTER_ALPHA_RATIO_MAX: float = 0.30
-"""Round-3-follow-up review (S-E): pre-round-3 threshold 0.45 caught
-genuine ToC pages but also tripped on form-template / fill-in-the-blank
-pages whose alpha ratio sits in the 0.20–0.40 band (low because of the
-underscore leaders, NOT because the page is non-content). A 5-line
-form-template page with 5 inline page numbers AND underscore runs
-matched all three signals, dropping the body silently.
+"""Alpha threshold for the front-matter heuristic.
 
-Tightening to 0.30 keeps the heuristic on the audit's pilot ToC shape
-(measured ~0.15 alpha on the front-matter pages) while letting form
-templates and exercise inserts through. Genuine ToC pages still sit
-much lower than 0.30 once the page-number leaders are accounted for;
-form-template pages sit in the 0.30–0.40 band where the prose label
-text (``Name:`` / ``Date:`` / ``Phone:``) keeps the alpha ratio
-above the tightened threshold.
+Round-3-follow-up review (S-E) tightened this from 0.45 → 0.30. The
+**primary** protection against form-template / exercise-page
+false-positives is **not** the alpha threshold (a constructed short-
+label form template + inline page numbers measures alpha ≈ 0.18,
+BELOW 0.30) but the **3-signal AND filter**: realistic form templates
+have NO inline ``\\n<digits>\\n`` page-number matches, so
+``page_num_hits >= 5`` fails first and the page is kept. The
+0.45 → 0.30 tightening narrows the band of false-positive pages that
+ALSO carry synthetic-looking inline number sequences (a thin slice of
+edge cases) but is not the dominant defence.
+
+Side-effect of the 0.30 tightening: realistic English-language ToCs
+with full-sentence chapter titles (``Chapter 1: Introduction to the
+Subject ……… 14``) measure alpha ≈ 0.47 and now PASS THROUGH the
+heuristic. The heuristic remains calibrated for the audit's pilot
+shape (Turkish single-word chapter titles + heavy dotted leaders +
+inline page numbers, alpha ≈ 0.15). Operators on long-title ToC
+corpora should use ``--strip-pattern`` / ``--page-range`` as a manual
+fallback. Documented in ``docs/guides/ingestion.md``.
 """
 _FRONTMATTER_LEADER_RATIO_MIN: float = 0.10
 _FRONTMATTER_PAGE_NUM_PATTERN = re.compile(r"\n\d{1,3}\n")
@@ -2582,10 +2599,20 @@ def _check_alpha_ratio(text: str) -> bool:
 def _check_weird_char_ratio(text: str) -> bool:
     """Phase 15 Task 4 — weird-character cheap-check.
 
-    Returns ``True`` when the chunk has > 5 % "weird" characters (control
-    chars + U+FFFD replacement char + isolated PUA glyphs). Catches the
-    audit's font-corruption mode without the full Unicode-block sanity
-    pass.
+    Returns ``True`` when the chunk has > 5 % "weird" characters
+    (control chars + U+FFFD replacement char + isolated PUA glyphs +
+    Mandaic punctuation). Catches the audit's font-corruption mode
+    without running the full Unicode-block sanity pass.
+
+    Round-5 review (S-B): the pre-round-5 range ``0x0800-0x097F``
+    covered Samaritan / Mandaic / Syriac Supplement / Arabic
+    Extended-A / Devanagari — 384 code points spanning 5 scripts.
+    The ``and not c.isalpha()`` filter saved Devanagari / Syriac
+    alphabetics, but the range was much wider than the audit's
+    actual target (U+085F Mandaic punctuation as a custom bullet
+    glyph). Narrowed to Mandaic only (0x0840-0x085F) so a Sanskrit /
+    Hindi / Arabic-script corpus does not trip on legitimate
+    non-alpha punctuation in those scripts.
     """
     if not text:
         return False
@@ -2595,7 +2622,7 @@ def _check_weird_char_ratio(text: str) -> bool:
         if c == "�"
         or (ord(c) < 0x20 and c not in ("\n", "\r", "\t"))
         or (0xE000 <= ord(c) <= 0xF8FF)
-        or (0x0800 <= ord(c) <= 0x097F and not c.isalpha())
+        or (0x0840 <= ord(c) <= 0x085F and not c.isalpha())
     )
     return weird / len(text) > 0.05
 

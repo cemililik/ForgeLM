@@ -418,14 +418,31 @@ branch eder.
 ### PDF front-matter / back-matter heuristiği (Faz 15 Wave 2 Görev 13, varsayılan AÇIK)
 
 v0.6.0, PDF'in ilk 12 / son 12 sayfasında üç-sinyalli bir heuristic
-etkinleştirir: bir sayfanın alpha oranı < 0.45 VE underscore oranı >
-0.10 VE ≥ 5 inline `\n<1-3 rakam>\n` sayfa numarası eşleşmesi varsa,
-sayfa düşürülür ve indeksleri listeleyen bir WARNING tetiklenir.
-ToC / masthead / index / glossary boilerplate'ini yakalar.
+etkinleştirir: bir sayfanın alpha oranı < 0.30 (round-4'te 0.45'ten
+sıkıştırıldı) VE leader oranı > 0.10 (uzunluğu ≥ 3 olan `_` + `.`
+çalışmalarının birleşimi) VE ≥ 5 inline `\n<1-3 rakam>\n` sayfa
+numarası eşleşmesi varsa, sayfa düşürülür ve indeksleri listeleyen
+bir WARNING tetiklenir. ToC / masthead / index / glossary
+boilerplate'ini yakalar.
 
 `--keep-frontmatter` ile Faz 15 öncesi "her şeyi tut" davranışına
 geri dönülür. Yapılandırılmış notlar `frontmatter_pages_dropped`
 raporlar; downstream audit operasyonu spot-check edebilir.
+
+> **Kalibrasyon uyarısı (round-5 bağımsız review).** Heuristic,
+> audit'in pilot Türkçe-textbook ToC şekli için kalibre edilmiştir:
+> tek-kelimelik bölüm başlıkları + ağır nokta leader'lar + inline
+> sayfa numaraları (pilot sayfalarda alpha ≈ 0.15). Tam-cümle bölüm
+> başlıkları olan gerçekçi İngilizce ToC'lar (`Chapter 1: Introduction
+> to the Subject ……… 14`) alpha ≈ 0.47 ölçer, 0.30 eşiğin üzerinde,
+> ve **değişmeden geçer**. Bu tür corpus'lar üzerinde çalışan
+> operatörler ya (a) front-matter heuristic'i atlayacağını kabul edip
+> `--strip-pattern` ile downstream'de budamalı, ya da (b) front-matter'ı
+> manuel olarak atlamak için `--page-range 12-N` geçirmelidir.
+> 3-sinyalli AND filtresi (alpha + leader + inline-sayfa-numarası)
+> aynı zamanda gerçekçi form template / egzersiz sayfalarını da
+> korur — bunlar inline-sayfa-numarası sinyalinden yoksundur ve
+> drop'u asla tetiklemez.
 
 ### `--strip-urls {keep,mask,strip}` (Faz 15 Wave 2 Görev 14)
 

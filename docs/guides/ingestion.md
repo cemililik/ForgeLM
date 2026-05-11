@@ -410,15 +410,31 @@ the same way for any operator-supplied parameter mistake.
 ### PDF front-matter / back-matter heuristic (Phase 15 Wave 2 Task 13, default ON)
 
 v0.6.0 enables a three-signal heuristic on the first 12 / last 12 PDF
-pages: when a page's alpha ratio < 0.45 AND underscore ratio > 0.10
-AND it carries ≥ 5 inline `\n<1-3 digits>\n` page-number matches, it
-is dropped with a WARNING listing the page indices. Catches ToC /
+pages: when a page's alpha ratio < 0.30 (tightened from 0.45 in
+round-4) AND leader ratio > 0.10 (combined `_` + `.` runs of length
+≥ 3) AND it carries ≥ 5 inline `\n<1-3 digits>\n` page-number matches,
+it is dropped with a WARNING listing the page indices. Catches ToC /
 masthead / index / glossary boilerplate.
 
 Opt out with `--keep-frontmatter` to restore the pre-Phase-15 "keep
 everything" behaviour. The structured-notes payload reports
 `frontmatter_pages_dropped` so an audit downstream can spot-check the
 operation.
+
+> **Calibration caveat (round-5 independent review).** The heuristic
+> is calibrated for the audit's pilot Turkish-textbook ToC shape:
+> single-word chapter titles + heavy dotted leaders + inline page
+> numbers (alpha ≈ 0.15 on the pilot pages). Realistic
+> English-language ToCs with full-sentence chapter titles
+> (`Chapter 1: Introduction to the Subject ……… 14`) measure
+> alpha ≈ 0.47, well above the 0.30 threshold, and **will pass
+> through** unchanged. Operators on such corpora should either
+> (a) accept that front-matter survives the heuristic and prune
+> downstream via `--strip-pattern`, or (b) pass `--page-range
+> 12-N` to skip the front-matter manually. The 3-signal AND filter
+> (alpha + leader + inline-page-number) also protects realistic form
+> templates / exercise pages, which lack the inline-page-number
+> signal and so never trigger the drop.
 
 ### `--strip-urls {keep,mask,strip}` (Phase 15 Wave 2 Task 14)
 
