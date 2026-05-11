@@ -96,6 +96,7 @@ _PAIRS: Tuple[Tuple[str, str], ...] = (
     ("docs/reference/cache_subcommands.md", "docs/reference/cache_subcommands-tr.md"),
     ("docs/reference/compliance_summary.md", "docs/reference/compliance_summary-tr.md"),
     ("docs/reference/configuration.md", "docs/reference/configuration-tr.md"),
+    ("docs/reference/data_ingestion_architecture.md", "docs/reference/data_ingestion_architecture-tr.md"),
     ("docs/reference/data_preparation.md", "docs/reference/data_preparation-tr.md"),
     ("docs/reference/distributed_training.md", "docs/reference/distributed_training-tr.md"),
     ("docs/reference/doctor_subcommand.md", "docs/reference/doctor_subcommand-tr.md"),
