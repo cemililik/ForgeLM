@@ -192,6 +192,26 @@ class TestTask1MultiLinePdfEdgeDedup:
             assert "PUBLICATION IDENTIFIER" not in page
         assert stripped >= 4  # at least one strip per page
 
+    def test_window_based_dedup_strips_deeper_constant_bottom_line(self):
+        """Round-3 regression: the same audit §1.1 trap at the BOTTOM edge.
+
+        CodeRabbit caught that the pre-round-3 tail walk was asymmetric:
+        it stopped at the first non-match instead of inspecting every
+        position in the window. A page shaped like
+        ``[..., "FOOTER", "<page number>"]`` would leave the constant
+        ``FOOTER`` stranded because the varying page number on the
+        last line broke the peel loop on pass 1. The symmetric tail
+        walk below covers that case.
+        """
+        from forgelm.ingestion import _strip_repeating_page_lines
+
+        # FOOTER is constant one row above the varying page number.
+        pages = [f"Body of page {i}.\n\nFOOTER\n\n{i}" for i in range(1, 5)]
+        cleaned, stripped = _strip_repeating_page_lines(pages)
+        for page in cleaned:
+            assert "FOOTER" not in page
+        assert stripped >= 4
+
     def test_short_doc_skips_dedup(self):
         """Documents with fewer than 3 pages keep the pre-15 no-op behaviour."""
         from forgelm.ingestion import _strip_repeating_page_lines

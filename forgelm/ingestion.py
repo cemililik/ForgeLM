@@ -293,8 +293,24 @@ def _pop_one_page_window(
 ) -> Tuple[List[str], int]:
     """Per-page worker for :func:`_pop_windowed_edges`.
 
-    Extracted so the outer aggregator stays below Sonar S3776's
-    cognitive-complexity ceiling. Returns ``(kept_lines, dropped_count)``.
+    Round-3 review (CodeRabbit) — the head walk inspects every
+    position in the top-N window and drops any line whose stripped
+    form is in ``repeating_firsts``, but the pre-round-3 tail walk
+    peeled consecutively from the very end and stopped at the first
+    non-match. That asymmetry let a *constant deeper bottom-edge*
+    line survive when the outermost last line varied — the audit
+    §1.1 trap re-occurring at the bottom of the page (variable page
+    number on the last line, constant footer one row deeper):
+
+    .. code-block:: text
+
+       page N: [..., "Body N.", "FOOTER", "N"]
+
+    With the outermost line varying ("1" / "2" / ...) the asymmetric
+    tail walk would never reach the constant ``"FOOTER"`` one row
+    deeper. The symmetric walk below mirrors the head walk so a
+    bottom-edge constant line at any offset within the window is
+    stripped in a single pass.
     """
     kept: List[str] = []
     dropped = 0
@@ -303,11 +319,23 @@ def _pop_one_page_window(
             dropped += 1
             continue
         kept.append(ln)
-    tail_drops = 0
-    while kept and tail_drops < window and kept[-1] in repeating_lasts:
-        kept.pop()
-        dropped += 1
-        tail_drops += 1
+    # Symmetric tail walk: drop any line within the last ``window``
+    # positions whose stripped form is in ``repeating_lasts``. Walking
+    # in reverse so ``offset`` mirrors the head walk's ``idx``.
+    surviving: List[str] = []
+    total = len(kept)
+    for rev_idx, ln in enumerate(reversed(kept)):
+        # rev_idx == 0 is the last line; rev_idx < window covers the
+        # bottom-N window inclusive.
+        if rev_idx < window and ln in repeating_lasts:
+            dropped += 1
+            continue
+        surviving.append(ln)
+    # ``surviving`` is in reversed order; flip to restore page order.
+    kept = list(reversed(surviving))
+    # Suppress unused-name warning on ``total`` — kept as documentation
+    # of the window's reference point (the original kept length).
+    del total
     return kept, dropped
 
 
