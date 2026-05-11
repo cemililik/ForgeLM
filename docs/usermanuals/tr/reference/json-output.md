@@ -49,6 +49,30 @@ Ortam kontrolü. Bkz. [Doctor komutu](#/getting-started/first-run).
 
 **Exit code mapping:** `0` = tüm probe'lar `pass` veya `warn`; `1` = en az bir `fail`; `2` = en az bir `crashed` (probe raise etti; sonraki probe'lar yine de çalıştı).
 
+## `forgelm` (eğitim) — preflight abort envelope
+
+Eğitim pipeline'ı (`forgelm --config <yaml> --output-format json`) ağır stack'i import etmeden önce bir torch/NumPy ABI sanity check çalıştırır. Sağlıklı bir ortamda preflight sessizdir ve eğitim normal şekilde devam eder; bilinen Intel Mac NumPy 2 / torch 2.2 mismatch'inde preflight şu envelope ile **stdout**'a basıp exit code `2` ile abort eder:
+
+```json
+{
+  "success": false,
+  "error": "numpy_torch_abi_mismatch",
+  "torch_version": "2.2.2",
+  "numpy_version": "2.4.4",
+  "remediation": "torch 2.2.2 (compiled against NumPy 1.x) is paired with numpy 2.4.4. ... Fix with: pip install 'numpy<2' ..."
+}
+```
+
+| Anahtar | Tip | Not |
+|---|---|---|
+| `success` | bool | Bu kod yolunda her zaman `false`; sağlıklı preflight hiçbir şey emit etmez ve pipeline devam eder. |
+| `error` | str | Stabil token `"numpy_torch_abi_mismatch"`. CI tüketicileri tam bu değer üzerinden branch'leyebilir. |
+| `torch_version` | str | Preflight anında `torch.__version__`'un raporladığı versiyon string'i. |
+| `numpy_version` | str | Preflight anında `numpy.__version__`'un raporladığı versiyon string'i. |
+| `remediation` | str | İnsan-okunabilir fix talimatı, tam `pip install 'numpy<2'` komutuyla biten. `forgelm doctor` `numpy.torch_abi` probe'unun `detail` alanıyla bire bir aynı metin — tek kaynak. |
+
+**Exit code mapping:** preflight abort, `2` (`EXIT_TRAINING_ERROR`, runtime-error sınıfı) ile çıkar. Aynı `forgelm doctor` `numpy.torch_abi` probe'u önceden `status: "fail"` olarak yüzeye çıkarırdı; preflight, `doctor`'ı skip edip eğitimi doğrudan çalıştıran operatörler için ikinci savunma hattıdır.
+
 ## `forgelm approvals --pending`
 
 Bekleyen Madde 14 onay isteklerini en yeniden başa doğru listeler.

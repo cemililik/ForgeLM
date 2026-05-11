@@ -4,6 +4,7 @@ import math
 import os
 import re
 import shutil
+import sys
 from typing import Any, Dict, Optional
 
 # NOTE: Heavy ML imports (torch, transformers.EarlyStoppingCallback, trl.SFTConfig/SFTTrainer)
@@ -445,10 +446,15 @@ class ForgeTrainer:
             elif "max_seq_length" in sft_params:
                 kwargs["max_seq_length"] = self.config.model.max_length
             else:
-                import trl as _trl
-
+                # Probe the trl version off the already-loaded module rather
+                # than re-importing — ``from trl import SFTConfig`` above
+                # left trl in ``sys.modules`` and ``SFTConfig.__module__``
+                # gives us the canonical package name without a redundant
+                # ``import trl`` line.
+                trl_module = sys.modules.get(SFTConfig.__module__.split(".", 1)[0])
+                trl_version = getattr(trl_module, "__version__", "?")
                 raise ValueError(
-                    f"SFTConfig in trl {getattr(_trl, '__version__', '?')} exposes neither "
+                    f"SFTConfig in trl {trl_version} exposes neither "
                     "`max_length` nor `max_seq_length` as a named parameter; cannot apply "
                     f"the sequence-length cap from config (model.max_length={self.config.model.max_length}). "
                     f"Detected parameters: {sorted(sft_params)}. Pin trl to a known-compatible "

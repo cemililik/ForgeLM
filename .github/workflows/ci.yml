@@ -228,6 +228,17 @@ jobs:
         # for local feedback during a docs PR.
         run: python3 tools/check_cli_help_consistency.py --strict
 
+      - name: Unguarded sys.modules.pop guard
+        # v0.5.7 round-4 absorption: the v0.5.7 round-3 review traced
+        # 35 spurious full-suite failures to three test sites that
+        # popped torch / numpy from sys.modules without restoring
+        # them, half-loading torch._C for every later test in the
+        # pytest session.  This guard fails CI on any new
+        # ``sys.modules.pop("<heavy-module>")`` /
+        # ``del sys.modules["<heavy-module>"]`` site, steering authors
+        # to ``monkeypatch.delitem`` (auto-restores on teardown).
+        run: python3 tools/check_no_unguarded_sys_modules_pop.py
+
       - name: License check
         run: |
           test -f LICENSE || (echo "LICENSE file missing" && exit 1)

@@ -144,6 +144,12 @@ chat = [
 dev = [
   "pytest>=8.0.0",
   "pytest-cov>=5.0.0",
+  # pytest-randomly shuffles test order per session so order-dependent
+  # bugs (e.g. the v0.5.7 round-3 sys.modules.pop pollution cascade)
+  # surface in CI instead of waiting for a Python micro-bump or runner
+  # change to flip collection order.  Run locally via
+  # ``pytest --randomly-seed=<n>`` to reproduce a failure.
+  "pytest-randomly>=3.15.0,<4.0.0",
   "ruff>=0.4.0",
 ]
 

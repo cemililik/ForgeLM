@@ -9,8 +9,8 @@ call sites:
   ``_preflight_numpy_torch_abi``) — covered here.
 
 The preflight is the second line of defense after the PEP 508 marker in
-``pyproject.toml`` (``numpy<2; platform_system == "Darwin" and
-platform_machine == "x86_64"``).  The marker auto-fixes fresh installs
+``pyproject.toml`` (``numpy<2; sys_platform == 'darwin' and
+platform_machine == 'x86_64'``).  The marker auto-fixes fresh installs
 and ``pip install -U`` re-resolves; the preflight catches residual
 drift (out-of-band ``pip install numpy>=2`` after a working install).
 
@@ -108,6 +108,30 @@ class TestComputeStatus:
         status, _, _ = _abi_check.compute_numpy_torch_abi_status()
         assert status == _abi_check.ABI_OK
 
+    def test_unparseable_torch_version_does_not_false_positive(self, monkeypatch):
+        # Corporate fork with a non-semver torch tag would otherwise
+        # parse to (0, 0), which compares as `< (2, 3)` and would
+        # trip ABI_BROKEN against any healthy numpy >= 2.  Round-4
+        # fail-safe: an unparseable version on either side maps to
+        # ABI_OK ("version unknown, do not classify") instead.
+        import numpy
+        import torch
+
+        monkeypatch.setattr(torch, "__version__", "foo-bar-not-semver")
+        monkeypatch.setattr(numpy, "__version__", "2.0.0")
+        status, _, _ = _abi_check.compute_numpy_torch_abi_status()
+        assert status == _abi_check.ABI_OK
+
+    def test_unparseable_numpy_version_does_not_false_positive(self, monkeypatch):
+        # Symmetric fail-safe on the numpy side.
+        import numpy
+        import torch
+
+        monkeypatch.setattr(torch, "__version__", "2.2.0")
+        monkeypatch.setattr(numpy, "__version__", "weird-vendor-tag")
+        status, _, _ = _abi_check.compute_numpy_torch_abi_status()
+        assert status == _abi_check.ABI_OK
+
 
 class TestRemediation:
     """The shared remediation hint must carry the exact pip command."""
@@ -123,6 +147,18 @@ class TestRemediation:
         # `forgelm doctor` for the full environment diagnostic.
         msg = _abi_check.format_abi_remediation("2.2.2", "2.4.4")
         assert "forgelm doctor" in msg
+
+    def test_none_version_raises_explicit_value_error(self):
+        # Precondition guard: the helper is only meaningful after an
+        # ABI_BROKEN verdict, which guarantees both versions are
+        # populated.  A None slipping through (e.g. a future caller
+        # mis-classifying ABI_SKIPPED_NUMPY) would otherwise produce a
+        # confusing "torch None ..." string in the operator-visible
+        # error path.
+        with pytest.raises(ValueError, match="format_abi_remediation requires"):
+            _abi_check.format_abi_remediation(None, "2.4.4")
+        with pytest.raises(ValueError, match="format_abi_remediation requires"):
+            _abi_check.format_abi_remediation("2.2.2", None)
 
 
 class TestPreflightAbortsOnBroken:

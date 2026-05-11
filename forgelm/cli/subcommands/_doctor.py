@@ -47,6 +47,14 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Tuple
 
+from .._abi_check import (
+    ABI_BROKEN,
+    ABI_OK,
+    ABI_SKIPPED_NUMPY,
+    ABI_SKIPPED_TORCH,
+    compute_numpy_torch_abi_status,
+    format_abi_remediation,
+)
 from .._exit_codes import EXIT_CONFIG_ERROR, EXIT_SUCCESS, EXIT_TRAINING_ERROR
 from .._logging import logger
 
@@ -225,15 +233,6 @@ def _check_numpy_torch_abi() -> _CheckResult:
     full stderr-suppression caveat (torch's C++ ``_ARRAY_API not
     found`` line is outside Python's warnings machinery).
     """
-    from .._abi_check import (
-        ABI_BROKEN,
-        ABI_OK,
-        ABI_SKIPPED_NUMPY,
-        ABI_SKIPPED_TORCH,
-        compute_numpy_torch_abi_status,
-        format_abi_remediation,
-    )
-
     status, torch_version, numpy_version = compute_numpy_torch_abi_status()
 
     if status == ABI_SKIPPED_TORCH:
@@ -270,7 +269,13 @@ def _check_numpy_torch_abi() -> _CheckResult:
             extras=extras,
         )
 
-    assert status == ABI_OK, f"unexpected ABI status {status!r}"
+    if status != ABI_OK:
+        # The four ABI_* sentinels are exhaustive today; a fifth would
+        # have to land in ``_abi_check.py`` and be added to the dispatch
+        # above.  Raise (don't ``assert``) so a future drift still
+        # surfaces under ``python -O`` — bare asserts are stripped at
+        # optimization level 1.
+        raise RuntimeError(f"unexpected ABI status {status!r} from compute_numpy_torch_abi_status()")
     return _CheckResult(
         name=_PROBE_NUMPY_TORCH_ABI,
         status=_STATUS_PASS,

@@ -4,9 +4,9 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
-Review-absorption round 3 follow-up to v0.5.7. No public surface change,
-but training-pipeline UX, doctor robustness, and roadmap hygiene
-improve.
+Review-absorption rounds 3 + 4 follow-up to v0.5.7. No public surface
+change, but training-pipeline UX, doctor robustness, and test-isolation
+guarantees improve.
 
 ### Added
 
@@ -20,7 +20,23 @@ improve.
   remediation command (`pip install 'numpy<2'`) instead of a cryptic
   `NameError: name '_C' is not defined` from torch mid-training. The
   PEP 508 marker in `pyproject.toml` remains the primary fix for
-  fresh installs; the preflight is the second line of defense.
+  fresh installs; the preflight is the second line of defense. The
+  preflight's JSON envelope is now documented in
+  [`docs/usermanuals/{en,tr}/reference/json-output.md`](docs/usermanuals/en/reference/json-output.md)
+  so CI consumers can branch on the stable `"error":
+  "numpy_torch_abi_mismatch"` token.
+- **`tools/check_no_unguarded_sys_modules_pop.py`** — new CI guard
+  fails on `sys.modules.pop("torch"|"numpy"|"trl"|…)` or
+  `del sys.modules["…"]` without `monkeypatch.delitem` for tracked
+  teardown. Wired into the self-review gauntlet
+  ([`CLAUDE.md`](CLAUDE.md)) and `.github/workflows/ci.yml`. Round-3
+  traced 35 spurious full-suite failures to this pattern; the guard
+  makes the regression impossible to silently re-introduce.
+- **`pytest-randomly` added to `[dev]` extra.** Shuffles test order
+  per session so order-dependent bugs (the exact failure mode round-3
+  fixed) surface in CI instead of waiting for a Python micro-bump or
+  runner change. Reproduce a specific shuffle with
+  `pytest --randomly-seed=<n>`.
 
 ### Fixed
 
@@ -29,7 +45,9 @@ improve.
   `max_length` nor `max_seq_length` is exposed on `SFTConfig`. Silent
   drop of an explicit `model.max_length` YAML setting would violate
   `docs/standards/error-handling.md` "no silent failures" — error
-  message lists the actually-detected parameters for forensics.
+  message lists the actually-detected parameters for forensics. The
+  trl version is probed off `SFTConfig.__module__` rather than a
+  duplicate `import trl` (round-4 cleanup).
 - **`tests/test_doctor.py` + `tests/test_quickstart_compat.py`** —
   three pre-existing tests that popped `sys.modules['torch']` /
   `sys.modules['numpy']` without restoring them now use
@@ -48,7 +66,29 @@ improve.
   …)`-based suppression would require fd-level redirection (which is
   unsafe in a long-lived CLI process). Module-level `re` / `warnings`
   imports promoted from function-local since the shared helper now
-  owns them.
+  owns them. The exhaustive-enum guard at the end of the function now
+  raises `RuntimeError` instead of `assert` so `python -O` doesn't
+  strip the check.
+- **`forgelm/cli/_abi_check.py::compute_numpy_torch_abi_status`** —
+  fail-safe short-circuit added for `(0, 0)` version-parse fallback
+  on either side. A corporate fork with a non-semver torch tag (e.g.
+  `foo-bar`) would otherwise have its `_major_minor` collapse to
+  `(0, 0)`, trip `< (2, 3)`, and trigger a false-positive
+  `ABI_BROKEN` against any healthy numpy ≥ 2. Now: if either parses
+  to `(0, 0)`, treat as `ABI_OK` ("version unknown, do not
+  classify"). `format_abi_remediation` also gained an explicit
+  precondition check so a future call-site drift can't silently
+  emit `"torch None …"` strings.
+
+### Internal
+
+- Test docstring in [`tests/test_abi_check.py`](tests/test_abi_check.py)
+  now quotes the actual PEP 508 marker from `pyproject.toml`
+  (`sys_platform == 'darwin'`) instead of the equivalent-but-different
+  `platform_system == "Darwin"` form, so future reviewers chasing the
+  marker chain don't conclude it has drifted.
+- One leftover `(Faz 12)` in the v0.5.2 CHANGELOG entry rewritten to
+  `(Phase 12)` — English-only-in-code-and-CHANGELOG cleanup.
 
 ## [0.5.7] — 2026-05-10
 
@@ -1217,7 +1257,7 @@ Second-round review of the Phase 12 commit surfaced 22 findings spanning correct
 - **`_row_quality_flags` typed `Optional[str]`** — The function already accepted `None` at runtime; the signature now reflects that and the test's `# type: ignore[arg-type]` suppression is gone.
 - **Cognitive-complexity refactors** — `_row_quality_flags` (CCN 22 → ≤ 10 via per-check helpers `_check_low_alpha_ratio` / `_check_low_punct_endings` / `_check_abnormal_mean_word_length` / `_check_short_paragraphs` / `_check_repeated_lines`); `find_near_duplicates_minhash` (CCN 21 → ≤ 10 via `_build_minhash_lsh` + `_emit_minhash_pair`); `audit_dataset` (CCN 21 → ≤ 12 via `_fold_outcome_into_summary` + `_build_quality_summary` + `_build_near_duplicate_summary`).
 - **Regex / lint code-smells** — `[A-Za-z0-9_]` → `\w` in the GitHub PAT pattern; `[ ]{0,3}` → ` {0,3}` (single-char class collapsed) in markdown patterns; `\s` → `[ \t]` in heading pattern (mitigates the polynomial-backtracking concern SonarCloud flagged); duplicate `"chunk_tokens must be positive"` / `"max_chunk_size must be positive"` literal strings extracted to module constants `_CHUNK_TOKENS_POSITIVE_MSG` / `_CHUNK_SIZE_POSITIVE_MSG`; `_MARKDOWN_OVERLAP_UNSUPPORTED_MSG` constant for the new validator; comprehension `["| " + " | ".join(c for c in row) + " |"]` simplified to `["| " + " | ".join(row) + " |"]`.
-- **Documentation parity** — `docs/guides/data_audit.md` quality-filter bullet list and JSON example now include `repeated_lines` and a note about code-fence stripping. `docs/guides/ingestion-tr.md` mirrors the EN guide's chunking-strategies table (markdown row added) and gains a new "secrets/credential masking (Faz 12)" section. `CHANGELOG`'s Phase 12 entry no longer overstates the `[ingestion-secrets]` extra: the regex set is the sole detection backend in v0.5.2, and the `detect-secrets` package is reserved for a follow-up release. `README` separates "From PyPI" and "From a local clone" install blocks so copy-paste users don't hit `-e .` confusion.
+- **Documentation parity** — `docs/guides/data_audit.md` quality-filter bullet list and JSON example now include `repeated_lines` and a note about code-fence stripping. `docs/guides/ingestion-tr.md` mirrors the EN guide's chunking-strategies table (markdown row added) and gains a new "secrets/credential masking (Phase 12)" section. `CHANGELOG`'s Phase 12 entry no longer overstates the `[ingestion-secrets]` extra: the regex set is the sole detection backend in v0.5.2, and the `detect-secrets` package is reserved for a follow-up release. `README` separates "From PyPI" and "From a local clone" install blocks so copy-paste users don't hit `-e .` confusion.
 - **Test fixtures fragmented** — All hardcoded credential / JWT literals in `tests/test_data_audit_phase12.py`, `tests/test_ingestion_phase12.py`, and `tests/test_phase12_review_fixes.py` now built at runtime from inert string fragments (e.g. `"AKIA" + "IOSFODNN7" + "EXAMPLE"`). The regex still has to match the canonical shape, but no full literal credential lives in the source tree — silences gitleaks / trufflehog scans of the repo without changing behaviour.
 - **5 new round-2 regression tests** (`tests/test_phase12_review_fixes.py`) — `TestTildeFenceRecognised` (~~~-fenced code blocks block heading splits), `TestPrivateKeyFullBlock` (full PEM body redaction), `TestMarkdownOverlapValidation` (rejection on explicit non-zero overlap; default-overlap pass-through), `TestMinHashDistinctSemantic` (unique-sketches semantic).
 - **Notebook ruff format** — `notebooks/post_training_workflow.ipynb` reformatted to satisfy `ruff format --check` in CI; `notebooks/data_curation.ipynb` install line pinned to `forgelm[ingestion]==0.5.2` rather than the moving `main` branch.

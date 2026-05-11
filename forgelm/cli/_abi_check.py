@@ -43,6 +43,14 @@ def _major_minor(version: str) -> Tuple[int, int]:
     Returns ``(0, 0)`` on a totally unparseable string — callers that
     care about the forensic distinction (the doctor probe) wrap with
     their own debug-logging call.
+
+    Note: a (0, 0) return must be treated as "version unknown, do not
+    classify" by callers; the threshold check in
+    :func:`compute_numpy_torch_abi_status` short-circuits to
+    :data:`ABI_OK` when either side fails to parse to avoid a false-
+    positive ``ABI_BROKEN`` on corporate forks with non-semver tags
+    (a torch fork tagged ``foo-bar`` would otherwise parse to (0, 0)
+    < (2, 3) and unconditionally trip the gate).
     """
     match = re.match(r"^(\d+)\.(\d+)", version)
     if not match:
@@ -81,6 +89,13 @@ def compute_numpy_torch_abi_status() -> Tuple[str, Optional[str], Optional[str]]
 
     torch_mm = _major_minor(torch.__version__)
     numpy_mm = _major_minor(numpy.__version__)
+    # Fail-safe: if either version string didn't parse (corporate forks,
+    # non-semver tags), don't classify.  The mismatch window
+    # ``torch_mm < (2, 3) AND numpy_mm >= (2, 0)`` is only meaningful
+    # when both tuples are real; a (0, 0) fallback comparing as
+    # "< (2, 3) True" would trip the gate on any unparseable build.
+    if torch_mm == (0, 0) or numpy_mm == (0, 0):
+        return (ABI_OK, torch.__version__, numpy.__version__)
     # The known incompatibility window: torch < 2.3 was built against
     # NumPy 1.x and silently degrades when paired with NumPy 2.x.
     if torch_mm < (2, 3) and numpy_mm >= (2, 0):
@@ -91,10 +106,23 @@ def compute_numpy_torch_abi_status() -> Tuple[str, Optional[str], Optional[str]]
 def format_abi_remediation(torch_version: str, numpy_version: str) -> str:
     """Human-readable remediation hint for an incompatible ABI.
 
+    Both version strings are required to be populated — callers are
+    expected to invoke this only after observing :data:`ABI_BROKEN`,
+    which guarantees both versions came back non-``None`` from
+    :func:`compute_numpy_torch_abi_status`.  An assertion guards
+    against future call sites that drift from this contract.
+
     Kept identical to the doctor probe's ``detail`` line so the
     operator sees the same fix instructions whether they hit the
     training preflight or ran ``forgelm doctor`` first.
     """
+    if torch_version is None or numpy_version is None:
+        raise ValueError(
+            "format_abi_remediation requires both torch_version and numpy_version; "
+            f"got torch_version={torch_version!r}, numpy_version={numpy_version!r}. "
+            "This helper is only meaningful after an ABI_BROKEN verdict — check the "
+            "call site for a misclassification."
+        )
     return (
         f"torch {torch_version} (compiled against NumPy 1.x) is paired with "
         f"numpy {numpy_version}. This triggers an `_ARRAY_API not found` "
