@@ -234,6 +234,17 @@ forgelm ingest INPUT_PATH \
   [--pii-mask] \
   [--secrets-mask] \
   [--all-mask] \
+  [--language-hint LANG] \
+  [--script-sanity-threshold X] \
+  [--normalise-profile {turkish,none} | --no-normalise-unicode] \
+  [--no-quality-presignal] \
+  [--epub-no-skip-frontmatter] \
+  [--keep-md-frontmatter] \
+  [--strip-pattern REGEX ...] \
+  [--strip-pattern-no-timeout] \
+  [--page-range START-END] \
+  [--keep-frontmatter] \
+  [--strip-urls {keep,mask,strip}] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```
@@ -245,12 +256,15 @@ PGP / Azure credential span'lerini chunk'lar JSONL'a inmeden önce
 `[REDACTED-SECRET]` ile değiştirir.
 
 `--output-format json` standart çıktıya makine-okunabilir bir özet
-yazar: dosya yolları, chunk sayısı, format sayıları, notlar, Faz
-11.5'te eklenen `notes_structured` (makine-okunabilir `{key: value}`
-yapısı) ve Faz 12'de eklenen `secrets_redaction_counts` (`--secrets-mask`
-çalıştığında her secret tipinden kaç span'in `[REDACTED-SECRET]` ile
-değiştirildiğini sayan `{secret_type: count}` haritası). CI/CD
-pipeline'larında kullanışlı.
+yazar. Zarf Faz 11.5 alanlarını (`notes`, `notes_structured`,
+`pdf_header_footer_lines_stripped`), Faz 12 alanlarını
+(`secrets_redaction_counts`) ve **Faz 15** ek alanlarını taşır:
+`pdf_paragraph_packed_lines_stripped` (ikinci-pas dedup'ın sıyırdığı
+sağkalan header sayısı), `script_sanity_triggered` (eşiği aşan dosya
+sayısı), `strip_pattern_substitutions` (`--strip-pattern` eşleşme
+sayısı), `urls_handled` (`--strip-urls` ile mask/strip edilen URL
+sayısı) ve `frontmatter_pages_dropped` (front-matter heuristic'inin
+düşürdüğü sayfa sayısı). CI/CD pipeline'larında kullanışlı.
 
 ### Token-aware chunking — `--chunk-tokens` (Faz 11.5)
 
@@ -270,15 +284,214 @@ boyutudur ve `--overlap` ile aynı yarım-pencere üst sınırına tabidir.
 `--chunk-tokens` ile `--tokenizer` zorunludur — varsayılan vocab
 seçmiyoruz çünkü chunk sayısı modelden modele sessizce değişirdi.
 
-### PDF sayfa header/footer dedup (Faz 11.5)
+### PDF sayfa header/footer dedup (Faz 11.5 + Faz 15 Görev 1)
 
 `forgelm ingest`, bir PDF'in sayfalarının ≥ %70'inde ilk veya son
-boş-olmayan satır olarak tekrarlayan satırları (şirket filigranı,
-copyright satırı, sayfa numarası vb.) chunk'lamadan önce otomatik
-olarak temizler. Açık/kapatma flag'i yok; bayrak gerektirmiyor.
-Audit'in `near_duplicate_pairs` metriğindeki gürültüyü azaltır. 3
-sayfadan kısa belgelerde devre dışı kalır. Yapılandırılmış notlar
-çıktısı `pdf_header_footer_lines_stripped` alanını taşır.
+birkaç boş-olmayan satır olarak tekrarlayan satırları (şirket
+filigranı, copyright satırı, sayfa numarası vb.) chunk'lamadan önce
+otomatik olarak temizler.
+
+**Faz 15 Görev 1** inceleme penceresini sadece en dıştaki satırdan
+sayfa başına **üst-3 / alt-3 satıra** genişletir. Bu sayede, dış
+satırı değişken (bölüm başlığı gibi) ama bir alttaki satırı sabit
+(yayıncı kimliği gibi) olan bir corpus tamamen temizlenir. Faz 15
+öncesi implementasyon, en dış satır sınıra ulaşmadığında pas 1'de
+döngüden çıkıyordu ve audit'in 2026-05-11 pilot corpus'unda 74 / 82
+chunk'a sızan sabit kimlik satırını gözden kaçırıyordu.
+
+Paragraph paketlemenin ardından ikinci bir pas, chunker'ın orta-bloğa
+yapıştırdığı sağ-kalan header'ları temizler — yapılandırılmış notların
+`pdf_paragraph_packed_lines_stripped` alanı bu pas'ı raporlar.
+
+Her iki pas da otomatiktir; flag yok, "PDF olmayan dosya gönder"
+dışında opt-out yok. 3 sayfadan kısa belgelerde devre dışı kalır.
+Yapılandırılmış notlar çıktısı `pdf_header_footer_lines_stripped`
+alanını taşır.
+
+### Script-sanity kontrolü + glyph normalizasyonu (Faz 15 Görevler 2 + 3)
+
+Pypdf, custom glyph adları içeren fontlarla bezenmiş PDF'lerde
+zaman zaman font-fallback artefaktları üretir (audit, gerçek bir
+Türkçe pilotta `ø Õ ú ÷ ࡟` ölçtü). v0.6.0 iki çözüm sunar:
+
+- **`--language-hint LANG`** her dosya ekstraksiyonundan sonra bir
+  Unicode-block sanity kontrolü çalıştırır. Out-of-script karakter
+  oranı kalibre edilmiş %1.5 eşiğini geçtiğinde (`--script-sanity-threshold`
+  ile ayarlanabilir), bir WARNING tetiklenir + yapılandırılmış
+  `script_sanity_summary` bloğu `notes_structured` içine düşer.
+  Desteklenen diller: `tr`, `en`, `de`, `fr`, `es`, `it`, `pt`
+  (CJK / Arapça Faz 16+'ya ertelendi).
+- **`--normalise-profile {turkish,none}`** çıkarılmış metne
+  dil-spesifik bir glyph normalizasyon tablosu uygular. Modül-düzeyi
+  varsayılan **`none`** (Faz 15 round-2 / C-2: dil ipucu olmayan
+  korpusların sessizce yeniden yazılmasını önlemek için). Operatör
+  `--language-hint tr` geçirdiğinde dispatcher (CLI ve kütüphane API
+  her ikisinde de) otomatik olarak `turkish` profiline türetir; her
+  diğer ipucu (veya ipuçsuz çalışma) `none` kalır. Açık
+  `--normalise-profile turkish` her zaman kazanır.
+  `--no-normalise-unicode` veya `--normalise-profile none`
+  normalizasyonu tamamen devre dışı bırakır. Tablonun yüklendiğini
+  doğrulamak için `forgelm doctor`'ı çalıştırın — profile sağlıklı
+  olduğunda `pypdf_normalise.turkish: pass` satırını verir.
+
+### Ingest sırasında kalite ön-sinyali (Faz 15 Görev 4)
+
+Her çalışmanın sonunda `forgelm ingest`, üretilen her chunk'a üç ucuz
+satır-seviyesi kontrol (alpha oranı, garip karakter oranı,
+tekrarlanan satır oranı) uygular ve bir chunk eşiğin altına düştüğünde
+tek satırlık bir nudge yazar:
+
+```text
+[WARN] 74/82 chunks below ingestion quality threshold. Run
+       `forgelm audit ./out.jsonl` for detail.
+```
+
+Tam tanılama `forgelm audit --quality-filter` (v0.6.0'dan itibaren
+default-on) altında yaşamaya devam eder; ön-sinyal yalnızca "hey, buna
+bakmak isteyebilirsin" mümkün olan en küçük uyarıdır. `--no-quality-presignal`
+ile kapatılır. Yapılandırılmış payload `notes_structured.quality_presignal`
+altında `samples_evaluated`, `samples_flagged` ve check-bazında
+sayıları taşır.
+
+### DOCX header / footer çıkarma (Faz 15 Görev 6)
+
+Word belgeleri her section'ın `<w:hdr>` / `<w:ftr>` parçaları altında
+tekrarlayan başlık ve altbilgileri açık-açık bildirir. v0.6.0 bu
+parçaları önceden okur ve satırlarını body extraction'ından çıkartır,
+böylece 10 sayfa boyunca tekrarlanan 3-satırlık bir header **sıfır**
+header satırı JSONL'a düşürür.
+
+### EPUB spine sırası + nav / cover / copyright atlama (Faz 15 Görev 7)
+
+EPUB ekstraksiyonu `book.spine`'ı (okuma sırası) `book.get_items()`
+(dosya sırası) yerine iterate eder; bölümler doğru sırayla iner.
+Varsayılan skip-list dosya adı veya `epub:type` değeri `nav`, `cover`,
+`copyright`, `colophon`, `titlepage` veya `frontmatter` ile eşleşen
+item'ları filtreler — TOC boilerplate'inin pure noise olduğu SFT
+eğitiminde işe yarar. `--epub-no-skip-frontmatter` ile opt-out.
+
+### TXT BOM + Markdown YAML frontmatter (Faz 15 Görev 8)
+
+TXT dosyaları `encoding="utf-8-sig"` ile okunur, böylece dosyanın
+başındaki bir UTF-8 BOM chunk'lamadan önce transparent biçimde
+strip edilir. Markdown dosyaları ayrıca `^---\n…\n---\n` YAML
+frontmatter'ı tespit edip varsayılan olarak strip eder — metadata
+bloğunda eğitim *istediğinizde* `--keep-md-frontmatter` ile geri
+açabilirsiniz.
+
+### Operatör strip-pattern'leri — `--strip-pattern REGEX` (Faz 15 Wave 2 Görev 11)
+
+Dedup heuristiği'nin gözden kaçırdığı bilinen boilerplate (değişken
+running header, DOI satırı, watermark) için escape hatch. Pattern
+başına bir kez `--strip-pattern REGEX` geçirin; eşleşmeler
+chunk'lamadan önce çıkarılmış metinden silinir:
+
+```bash
+forgelm ingest ./corpus/ --output data/clean.jsonl \
+  --strip-pattern '^Confidential — internal use only$' \
+  --strip-pattern '^https://example\.com/qr\?KOD=\d+$'
+```
+
+Her pattern **önceden yapısal olarak doğrulanır**: iç içe sınırsız
+quantifier'lar (`(a+)+b`) ve DOTALL altında `.*?` + geri-referans
+(SonarCloud `python:S5852` polinomial-runtime şekli) `EXIT_CONFIG_ERROR`
+ile reddedilir. POSIX'te per-pattern 5-saniyelik SIGALRM bütçesi
+en kötü durum eşleşme maliyetini sınırlar (pattern'lerinizin lineer
+olduğunu bağımsız doğruladığınızda `--strip-pattern-no-timeout` ile
+opt-out edebilirsiniz).
+
+### `--page-range START-END` (Faz 15 Wave 2 Görev 12)
+
+PDF ekstraksiyonunu sürekli bir sayfa dilimine sınırlar (1-indeksli,
+inclusive). Heuristik front-matter'ı gözden kaçırdığında veya yalnızca
+belirli bir bölümü istediğinizde kullanışlıdır:
+
+```bash
+forgelm ingest ./book.pdf --output data/ch3.jsonl --page-range 50-90
+```
+
+Doğrulama hataları (`start < 1`, `start > end`, `start > page_count`)
+çalışmayı `EXIT_CONFIG_ERROR` (1) ile sonlandırır; CI/CD pipeline'ları
+herhangi bir operatör-sağlamış parametre hatası için aynı şekilde
+branch eder.
+
+### PDF front-matter / back-matter heuristiği (Faz 15 Wave 2 Görev 13, varsayılan AÇIK)
+
+v0.6.0, PDF'in ilk 12 / son 12 sayfasında üç-sinyalli bir heuristic
+etkinleştirir: bir sayfanın alpha oranı < 0.30 (round-4'te 0.45'ten
+sıkıştırıldı) VE leader oranı > 0.10 (uzunluğu ≥ 3 olan `_` + `.`
+çalışmalarının birleşimi) VE ≥ 5 inline `\n<1-3 rakam>\n` sayfa
+numarası eşleşmesi varsa, sayfa düşürülür ve indeksleri listeleyen
+bir WARNING tetiklenir. ToC / masthead / index / glossary
+boilerplate'ini yakalar.
+
+`--keep-frontmatter` ile Faz 15 öncesi "her şeyi tut" davranışına
+geri dönülür. Yapılandırılmış notlar `frontmatter_pages_dropped`
+raporlar; downstream audit operasyonu spot-check edebilir.
+
+> **Kalibrasyon uyarısı (round-5 bağımsız review).** Heuristic,
+> audit'in pilot Türkçe-textbook ToC şekli için kalibre edilmiştir:
+> tek-kelimelik bölüm başlıkları + ağır nokta leader'lar + inline
+> sayfa numaraları (pilot sayfalarda alpha ≈ 0.15). Tam-cümle bölüm
+> başlıkları olan gerçekçi İngilizce ToC'lar (`Chapter 1: Introduction
+> to the Subject ……… 14`) alpha ≈ 0.47 ölçer, 0.30 eşiğin üzerinde,
+> ve **değişmeden geçer**. Bu tür corpus'lar üzerinde çalışan
+> operatörler ya (a) front-matter heuristic'i atlayacağını kabul edip
+> `--strip-pattern` ile downstream'de budamalı, ya da (b) front-matter'ı
+> manuel olarak atlamak için `--page-range 12-N` geçirmelidir.
+> 3-sinyalli AND filtresi (alpha + leader + inline-sayfa-numarası)
+> aynı zamanda gerçekçi form template / egzersiz sayfalarını da
+> korur — bunlar inline-sayfa-numarası sinyalinden yoksundur ve
+> drop'u asla tetiklemez.
+
+### `--strip-urls {keep,mask,strip}` (Faz 15 Wave 2 Görev 14)
+
+QR-kod referansları, DOI altbilgileri veya modelin ezberleyebileceği
+sosyal-medya linkleri gömen corpus'lar için URL davranışı:
+
+- `keep` (varsayılan) — URL'leri olduğu gibi geçirir.
+- `mask` — her URL'yi `[URL]` placeholder'ı ile değiştirir.
+- `strip` — URL'leri tamamen siler.
+
+URL yönetimi bilinçli olarak `--all-mask` (Faz 12.5 PII + secrets
+kısayolu) ile **bağımsızdır**. URL stripping bir content-shape
+kararıdır, GDPR redaksiyonu değildir, ve iki flag ailesi ortogonal
+kalır.
+
+### Çok-kolonlu PDF uyarısı (Faz 15 Wave 2 Görev 15)
+
+İki-kolonlu akademik makaleler, hükümet regülasyon yayınları ve
+çok-kolonlu hukuki layoutlar pypdf'in metin-ekstraksiyon okuma
+sırasını şaşırtır. v0.6.0 ilk üç sayfanın metin pozisyonlarını
+pypdf'in `visitor_text` callback'i üzerinden örnekler ve sayfa
+genişliğinin %30'undan büyük iki-küme boşluğu tespit ettiğinde bir
+WARNING tetikler:
+
+```text
+[WARN] Detected 2-column layout in 'paper.pdf' — reading order may be
+       scrambled. Consider --strategy sliding with a larger --chunk-size,
+       or pre-process the PDF with a layout-aware tool.
+```
+
+Otomatik fix yok — bu, operatörün strateji değiştirmesi gerektiğine
+dair "hiç-yoktan-iyi" bir sinyaldir. Camelot-py / pdfplumber entegrasyonu
+Wave 3 backlog'undadır.
+
+> **Bilinen sınırlama (Faz 15 round-3 review).** Mevcut dedektör bir
+> sayfadaki tüm çıkarılmış Tj glyph'lerinin min / max x-pozisyonlarını
+> karşılaştırır, satır-başlangıç pozisyonlarını değil. pypdf'in
+> `visitor_text` callback'i glyph başına ateşlendiği için tek-kolonlu
+> bir sayfanın glyph'leri doğal olarak geniş bir x-aralığına yayılır
+> (tipik gövde satırında ≈ %64 sayfa genişliği), bu nedenle algoritma
+> tek-kolonlu corpus'larda false-positive vermemek için göreceli olarak
+> yüksek %30 sayfa-genişlik boşluk eşiği kullanır. Yan etki: tipik
+> 5–10 mm oluğa sahip (≈ sayfa-genişliğinin %5–8'i) gerçek dünya
+> iki-kolonlu sayfası bugün uyarıyı tetiklemez. Dedektör aşırı layout'larda
+> (akademik posterler, geniş oluklu regülasyon yayınları) güvenilirdir
+> ama yayın-kalite iki-kolonlu makaleleri kaçırır. Histogram-tabanlı
+> bimodal-mode refactor Wave 3 takipi olarak izlenmektedir (bkz.
+> [`docs/roadmap/phase-15-ingestion-reliability.md`](../roadmap/phase-15-ingestion-reliability.md)
+> Wave 3 — multi-column layout extraction).
 
 ### Markdown-bilen splitter — `--strategy markdown` (Faz 12)
 

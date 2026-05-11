@@ -207,14 +207,18 @@ aşağı akış audit'inin near-duplicate sayımını şişirir.
 ```mermaid
 graph TD
     PAGES[sayfa başına metin] --> SPLIT[Satırlara böl]
-    SPLIT --> COUNT[Tüm sayfalarda ilk / son satır<br/>frekansını say]
+    SPLIT --> WINDOW[Sayfa başına üst-3 / alt-3 satırı incele<br/>_PDF_EDGE_WINDOW = 3]
+    WINDOW --> COUNT[Tüm sayfalarda satır<br/>frekansını say]
     COUNT --> CHECK{>= yüzde 70 sayfa?}
-    CHECK -- evet --> POP[Eşleşen kenar satırlarını çıkar]
-    POP --> COUNT
+    CHECK -- evet --> POP[Eşleşen window satırlarını çıkar<br/>window içinde herhangi bir offset]
+    POP --> WINDOW
     CHECK -- hayır --> JOIN[Sayfaları çift yeni satırla birleştir]
-    JOIN --> OUT[Temizlenmiş PDF metni]
+    JOIN --> PACK[strip_paragraph_packed_headers<br/>chunk blokları üzerinde ikinci pas dedup]
+    PACK --> OUT[Temizlenmiş PDF metni]
 
     style CHECK fill:#002244,stroke:#00aaff
+    style WINDOW fill:#002244,stroke:#00aaff
+    style PACK fill:#002244,stroke:#00aaff
 ```
 
 [`_strip_repeating_page_lines`](../../forgelm/ingestion.py) uygulama
@@ -224,12 +228,37 @@ notları:
   sinyal çok zayıf.
 - Eşik `max(2, math.ceil(_PDF_REPEAT_THRESHOLD * page_count))`; böylece
   %70 kuralı tam %70'te tetiklenir, integer kesmesi altında %60'ta değil.
-- İteratiftir: her geçiş bir kenar satırını sıyırır, sonra yeniden sayar;
-  böylece çok satırlı başlıklar ("şirket adı\nCONFIDENTIAL") tamamen
-  sıyrılır, ikinci satır artık eşleşmeyen yeni bir "ilk satır" olarak
-  kalmaz.
+- **Faz 15 Görev 1** incelemeyi katı en-dış satırdan sayfa başına
+  **üst-3 / alt-3 satıra** genişletir (`_PDF_EDGE_WINDOW = 3`); böylece
+  değişken-dış-satırlı (her bölümde farklı başlık) ama bir alttaki
+  satırı sabit (yayıncı kimliği) bir corpus, dedup'ı bir-satır-daha-derin
+  sabiti soymadan dışarı kilitlenemez. Bug, döngünün *exit condition*'ıydı,
+  en-dış-satır kontrolü değildi — Faz 15 öncesi iterator, katı en-dış
+  pozisyonda recurrence bulunmadığında hemen kırılıyordu. Çözüm bir
+  window kontrolüdür, ek bir pas değildir.
+- Paragraph paketlemenin ardından **ikinci bir pas**
+  (`strip_paragraph_packed_headers`) chunker'ın orta-bloğa yapıştırdığı
+  sağ-kalan header'ları temizler. `notes_structured`'da
+  `pdf_paragraph_packed_lines_stripped` olarak görünür.
 - Toplam sıyrılan satır sayısı `IngestionResult.notes_structured` altında
   `pdf_header_footer_lines_stripped` anahtarıyla görünür.
+
+### Faz 15 sınırlamaları özeti
+
+Çok-kolonlu PDF'ler, OCR (yalnızca taranmış) PDF'leri ve RTL
+script'leri v0.6.0'da desteklenmemeye devam eder:
+
+- **Çok-kolon** — `_maybe_warn_multi_column` yalnızca WARNING tetikler;
+  okuma sırası pypdf üzerinden hâlâ sol-üst-dan-sağ-alta serileştirilir.
+  Faz 16+ yeni bir `[ingestion-tables]` extra altında camelot-py /
+  pdfplumber fallback'i ekleyebilir.
+- **OCR** — text-layer-tespit retry'ı yok. Audit'in mevcut "Taranmış
+  PDF'lerle çalışma (OCR teslim akışı)" tarifi
+  [`docs/guides/ingestion-tr.md`](../guides/ingestion-tr.md) içindedir;
+  otomatik `ocrmypdf` önerisi Wave 3'e ertelendi (audit §6).
+- **RTL** — Arapça / İbranice için ekstraksiyon-sıralama normalizasyonu
+  Wave 3'e ertelendi. RTL corpus'lar üzerinde çalışan operatörler bugün
+  ters-glyph sırası beklemeli ve layout-bilen bir araçla ön-işlemeli.
 
 ## Chunk stratejileri
 

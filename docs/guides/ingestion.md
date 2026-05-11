@@ -235,14 +235,31 @@ forgelm ingest INPUT_PATH \
   [--pii-mask] \
   [--secrets-mask] \
   [--all-mask] \
+  [--language-hint LANG] \
+  [--script-sanity-threshold X] \
+  [--normalise-profile {turkish,none} | --no-normalise-unicode] \
+  [--no-quality-presignal] \
+  [--epub-no-skip-frontmatter] \
+  [--keep-md-frontmatter] \
+  [--strip-pattern REGEX ...] \
+  [--strip-pattern-no-timeout] \
+  [--page-range START-END] \
+  [--keep-frontmatter] \
+  [--strip-urls {keep,mask,strip}] \
   [--output-format {text,json}] \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```
 
-`--output-format json` emits a machine-readable summary to stdout (file
-paths, chunk count, format counts, notes, `notes_structured` —
-machine-readable `{key: value}` from Phase 11.5 — and `secrets_redaction_counts`
-from Phase 12). Useful for CI/CD pipelines.
+`--output-format json` emits a machine-readable summary to stdout. The
+envelope carries Phase 11.5 keys (`notes`, `notes_structured`,
+`pdf_header_footer_lines_stripped`), Phase 12 keys
+(`secrets_redaction_counts`), and the **Phase 15** additive fields:
+`pdf_paragraph_packed_lines_stripped` (survivor-header second-pass
+count), `script_sanity_triggered` (files with out-of-script char ratio
+above threshold), `strip_pattern_substitutions` (`--strip-pattern`
+match count), `urls_handled` (URLs masked / stripped by
+`--strip-urls`), and `frontmatter_pages_dropped` (front-matter
+heuristic drop count). Useful for CI/CD pipelines.
 
 ### Token-aware chunking — `--chunk-tokens` (Phase 11.5)
 
@@ -263,16 +280,209 @@ the override). `--overlap-tokens N` is the sliding-window equivalent of
 pick a default vocab because the resulting chunk count would silently
 differ per-model.
 
-### PDF page-level header/footer dedup (Phase 11.5)
+### PDF page-level header/footer dedup (Phase 11.5 + Phase 15 Task 1)
 
-`forgelm ingest` now strips lines that recur as the first or last
-non-empty line on ≥ 70 % of a PDF's pages — typical company watermarks,
-copyright lines, page numbers — before chunking. This is automatic; no
-flag, no opt-out beyond "send a non-PDF". Reduces audit
-`near_duplicate_pairs` noise on long policy / book PDFs. Skipped on
-documents shorter than 3 pages. The structured-notes payload reports
-`pdf_header_footer_lines_stripped` so operators can see post-hoc that
-dedup actually did work.
+`forgelm ingest` strips lines that recur as the first or last few
+non-empty lines on ≥ 70 % of a PDF's pages — typical company
+watermarks, copyright lines, page numbers — before chunking.
+
+**Phase 15 Task 1** widens the inspection window from the single
+outermost row to the **top-3 / bottom-3 rows** per page so a corpus
+with a variable outer line (per-chapter section title) plus a constant
+deeper line (publication identifier) gets fully dedup'd. The pre-Phase-15
+implementation exited the dedup loop on pass 1 when the outermost line
+didn't recur, leaving the deeper constant line stranded in 74 / 82
+chunks on the audit's pilot corpus.
+
+A second pass runs after paragraph packing to mop up survivor headers
+the chunker re-glued mid-block — surfaced as the structured-notes
+field `pdf_paragraph_packed_lines_stripped`.
+
+Both passes are automatic; no flag, no opt-out beyond "send a non-PDF".
+Skipped on documents shorter than 3 pages. The structured-notes payload
+reports `pdf_header_footer_lines_stripped` so operators can see
+post-hoc that dedup actually did work.
+
+### Script-sanity check + glyph normalisation (Phase 15 Tasks 2 + 3)
+
+Pypdf occasionally produces font-fallback artefacts on PDFs whose
+fonts declare custom glyph names (the audit measured `ø Õ ú ÷ ࡟` for
+Turkish characters on a real-world pilot). Two mitigations ship in
+v0.6.0:
+
+- **`--language-hint LANG`** runs a Unicode-block sanity check after
+  each per-file extract. When the out-of-script char ratio exceeds the
+  calibrated 1.5 % threshold (tunable via `--script-sanity-threshold`),
+  a WARNING fires + a structured `script_sanity_summary` block lands
+  in `notes_structured`. Supported languages: `tr`, `en`, `de`, `fr`,
+  `es`, `it`, `pt` (CJK / Arabic deferred to Phase 16+).
+- **`--normalise-profile {turkish,none}`** applies a language-specific
+  glyph normalisation table to extracted text. The module-level
+  default is **`none`** (Phase 15 round-2 / C-2: a hint-less corpus
+  must not be silently rewritten). When the operator passes
+  `--language-hint tr` the dispatcher (CLI and library API alike)
+  auto-derives the `turkish` profile; every other hint (and the
+  unset case) stays on `none`. An explicit `--normalise-profile turkish`
+  always wins. `--no-normalise-unicode` or `--normalise-profile none`
+  disables normalisation entirely. Verify the table loaded via
+  `forgelm doctor` — it surfaces a `pypdf_normalise.turkish: pass`
+  row when the profile is healthy.
+
+### Ingest-time quality pre-signal (Phase 15 Task 4)
+
+At the end of every run `forgelm ingest` applies three cheap row-level
+checks (alpha-ratio, weird-char ratio, repeated-line ratio) to every
+emitted chunk and surfaces a single nudge line when any chunk falls
+below threshold:
+
+```text
+[WARN] 74/82 chunks below ingestion quality threshold. Run
+       `forgelm audit ./out.jsonl` for detail.
+```
+
+Full diagnostics still live in `forgelm audit --quality-filter`
+(default-on from v0.6.0); the pre-signal is just the smallest possible
+"hey, you might want to look at this" prompt. Opt out with
+`--no-quality-presignal`. The structured payload lands under
+`notes_structured.quality_presignal` with `samples_evaluated`,
+`samples_flagged`, and per-check counts.
+
+### DOCX header / footer subtraction (Phase 15 Task 6)
+
+Word documents declare repeating headers and footers explicitly under
+each section's `<w:hdr>` / `<w:ftr>` parts. v0.6.0 reads those parts
+up-front and subtracts their lines from the body extraction, so a
+3-line repeating header across 10 pages emits **zero** header lines
+into the JSONL.
+
+### EPUB spine order + nav / cover / copyright skip (Phase 15 Task 7)
+
+EPUB extraction iterates `book.spine` (reading order) instead of
+`book.get_items()` (file order), so chapters land in the correct
+sequence. The default skip-list filters items whose file name or
+`epub:type` matches `nav`, `cover`, `copyright`, `colophon`,
+`titlepage`, or `frontmatter` — useful for SFT training where TOC
+boilerplate is pure noise. Opt out with `--epub-no-skip-frontmatter`.
+
+### TXT BOM + Markdown YAML frontmatter (Phase 15 Task 8)
+
+TXT files are read via `encoding="utf-8-sig"` so a UTF-8 BOM at file
+start is stripped transparently before chunking. Markdown files
+additionally detect `^---\n…\n---\n` YAML frontmatter and strip it
+by default — opt-in retention via `--keep-md-frontmatter` when you
+*want* to train on the metadata block.
+
+### Operator strip-patterns — `--strip-pattern REGEX` (Phase 15 Wave 2 Task 11)
+
+Escape hatch for known boilerplate the dedup heuristic misses (variable
+running headers, DOI lines, watermarks). Pass `--strip-pattern REGEX`
+once per pattern; matches are deleted from the extracted text before
+chunking:
+
+```bash
+forgelm ingest ./corpus/ --output data/clean.jsonl \
+  --strip-pattern '^Confidential — internal use only$' \
+  --strip-pattern '^https://example\.com/qr\?KOD=\d+$'
+```
+
+Each pattern is **structurally validated up-front**: nested unbounded
+quantifiers (`(a+)+b`) and `.*?` + back-reference under DOTALL (the
+SonarCloud `python:S5852` polynomial-runtime shape) are rejected with
+`EXIT_CONFIG_ERROR`. A 5-second per-pattern SIGALRM budget bounds the
+worst-case match cost on POSIX (opt out with
+`--strip-pattern-no-timeout` when you've independently verified your
+patterns are linear).
+
+### `--page-range START-END` (Phase 15 Wave 2 Task 12)
+
+Restrict PDF extraction to a contiguous page slice (1-indexed,
+inclusive). Useful when the heuristic misses front-matter or you only
+want a specific chapter:
+
+```bash
+forgelm ingest ./book.pdf --output data/ch3.jsonl --page-range 50-90
+```
+
+Validation failures (`start < 1`, `start > end`, `start > page_count`)
+abort the run with `EXIT_CONFIG_ERROR` (1) so CI/CD pipelines branch
+the same way for any operator-supplied parameter mistake.
+
+### PDF front-matter / back-matter heuristic (Phase 15 Wave 2 Task 13, default ON)
+
+v0.6.0 enables a three-signal heuristic on the first 12 / last 12 PDF
+pages: when a page's alpha ratio < 0.30 (tightened from 0.45 in
+round-4) AND leader ratio > 0.10 (combined `_` + `.` runs of length
+≥ 3) AND it carries ≥ 5 inline `\n<1-3 digits>\n` page-number matches,
+it is dropped with a WARNING listing the page indices. Catches ToC /
+masthead / index / glossary boilerplate.
+
+Opt out with `--keep-frontmatter` to restore the pre-Phase-15 "keep
+everything" behaviour. The structured-notes payload reports
+`frontmatter_pages_dropped` so an audit downstream can spot-check the
+operation.
+
+> **Calibration caveat (round-5 independent review).** The heuristic
+> is calibrated for the audit's pilot Turkish-textbook ToC shape:
+> single-word chapter titles + heavy dotted leaders + inline page
+> numbers (alpha ≈ 0.15 on the pilot pages). Realistic
+> English-language ToCs with full-sentence chapter titles
+> (`Chapter 1: Introduction to the Subject ……… 14`) measure
+> alpha ≈ 0.47, well above the 0.30 threshold, and **will pass
+> through** unchanged. Operators on such corpora should either
+> (a) accept that front-matter survives the heuristic and prune
+> downstream via `--strip-pattern`, or (b) pass `--page-range
+> 12-N` to skip the front-matter manually. The 3-signal AND filter
+> (alpha + leader + inline-page-number) also protects realistic form
+> templates / exercise pages, which lack the inline-page-number
+> signal and so never trigger the drop.
+
+### `--strip-urls {keep,mask,strip}` (Phase 15 Wave 2 Task 14)
+
+URL handling for corpora that embed QR-code references, DOI footers,
+or social-media links the model would memorise:
+
+- `keep` (default) — pass URLs through unchanged.
+- `mask` — replace each URL with the literal `[URL]` placeholder.
+- `strip` — delete URLs outright.
+
+URL handling is intentionally **independent of `--all-mask`** (the
+Phase 12.5 PII + secrets shorthand). URL stripping is a content-shape
+decision, not a GDPR redaction, and the two flag families stay
+orthogonal.
+
+### Multi-column PDF warning (Phase 15 Wave 2 Task 15)
+
+Two-column academic papers, government regulatory publications, and
+multi-column legal layouts confuse pypdf's text-extraction reading
+order. v0.6.0 samples the first three pages' text positions via
+pypdf's `visitor_text` callback and fires a WARNING when a > 30 %-of-
+page-width two-cluster gap is detected:
+
+```text
+[WARN] Detected 2-column layout in 'paper.pdf' — reading order may be
+       scrambled. Consider --strategy sliding with a larger --chunk-size,
+       or pre-process the PDF with a layout-aware tool.
+```
+
+No automatic fix — this is a better-than-nothing signal that the
+operator should change strategies. Camelot-py / pdfplumber integration
+is on the Wave 3 backlog.
+
+> **Known limitation (Phase 15 round-3 review).** The current detector
+> compares the min / max x-positions across all extracted Tj glyphs on a
+> page, not per-line start positions. Because pypdf's `visitor_text`
+> callback fires per glyph, a single-column page's glyphs naturally span
+> a wide x-range (≈ 64 % of page width on a typical body line), which
+> means the algorithm has to use a relatively high 30 %-of-page-width
+> gap threshold to avoid false-positiving on single-column corpora.
+> Side-effect: a real-world two-column page with a typical 5–10 mm
+> gutter (≈ 5–8 %-of-page-width) **does not** trip the warning today.
+> The detector is reliable on extreme layouts (academic posters,
+> wide-gutter regulatory publications) but misses publication-grade
+> two-column papers. A histogram-based bimodal-mode refactor is tracked
+> as a Wave 3 follow-up (see
+> [`docs/roadmap/phase-15-ingestion-reliability.md`](../roadmap/phase-15-ingestion-reliability.md)
+> Wave 3 — multi-column layout extraction).
 
 ### Markdown-aware splitter — `--strategy markdown` (Phase 12)
 

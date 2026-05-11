@@ -108,10 +108,25 @@ $ forgelm ingest INPUT_PATH \
     [--chunk-size N] [--overlap N] \
     [--chunk-tokens N] [--overlap-tokens N] [--tokenizer MODEL_NAME] \
     [--pii-mask] [--secrets-mask] [--all-mask] \
-    [--pii-ml-language LANG]
+    [--language-hint LANG] [--script-sanity-threshold X] \
+    [--normalise-profile {turkish,none} | --no-normalise-unicode] \
+    [--no-quality-presignal] \
+    [--epub-no-skip-frontmatter] [--keep-md-frontmatter] \
+    [--strip-pattern REGEX ...] [--strip-pattern-no-timeout] \
+    [--page-range START-END] [--keep-frontmatter] \
+    [--strip-urls {keep,mask,strip}] \
+    [--output-format {text,json}]
 ```
 
-See [Document Ingestion](#/data/ingestion).
+Pass `--output-format json` to get the machine-readable envelope
+described in [JSON Output Contract](#/reference/json-output) — useful
+for CI gates that branch on chunk count / files-processed without
+parsing the text summary. Phase 15 (v0.6.0) added the
+`--language-hint`, `--script-sanity-threshold`, `--normalise-profile`,
+`--no-normalise-unicode`, `--no-quality-presignal`,
+`--epub-no-skip-frontmatter`, `--keep-md-frontmatter`, `--strip-pattern`,
+`--strip-pattern-no-timeout`, `--page-range`, `--keep-frontmatter`, and
+`--strip-urls` flags. See [Document Ingestion](#/data/ingestion).
 
 ## Chat: `forgelm chat`
 

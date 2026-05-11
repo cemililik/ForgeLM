@@ -1,0 +1,3 @@
+Mixed-directory recursive sample (TXT). Body paragraph one.
+
+Body paragraph two ensures the paragraph chunker sees a real boundary.

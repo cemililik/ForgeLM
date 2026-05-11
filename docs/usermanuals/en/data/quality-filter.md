@@ -42,8 +42,19 @@ audit:
 ```
 
 ```shell
+# v0.6.0+: quality-filter is DEFAULT-ON; the explicit flag is harmless.
+# Heuristics populate quality_summary in data_audit_report.json but do
+# NOT drop rows or write a cleaned JSONL — that only happens when the
+# `audit.quality_filter.drop_flagged: true` + `write_clean_output: PATH`
+# YAML keys above are set in a config-driven run.
+$ forgelm audit data/ingested.jsonl
+✓ wrote audit/data_audit_report.json (quality_summary: 45 / 12,400 flagged)
+
+# Pre-v0.6.0 (or to be explicit), pass the flag:
 $ forgelm audit data/ingested.jsonl --quality-filter
-✓ dropped 45 rows; wrote data/clean.jsonl (12,355 rows)
+
+# Opt out of the new default if your CI gates depend on opt-in semantics:
+$ forgelm audit data/ingested.jsonl --no-quality-filter
 ```
 
 ## Tuning thresholds

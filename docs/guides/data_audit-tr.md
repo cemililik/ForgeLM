@@ -8,8 +8,11 @@ near-duplicate tespitini, streaming JSONL okuyucusunu, PII şiddet
 katmanlarını, atomik disk yazımı ve verbose-by-default kısaltma
 politikasını ekledi. **Faz 12 (`v0.5.0`'da birleşti)** opt-in MinHash LSH dedup
 yöntemini (`--dedup-method minhash`), her zaman çalışan
-code/credential leakage taramasını (`secrets_summary`), ve opt-in
-heuristic kalite filtresini (`--quality-filter`) ekledi.
+code/credential leakage taramasını (`secrets_summary`) ve heuristic
+kalite filtresini (`--quality-filter`) ekledi — başlangıçta opt-in,
+**Faz 15 Görev 5 ile v0.6.0'dan itibaren default-AÇIK**; v0.6.0 öncesi
+opt-in semantiğini isteyen operatörler yeni `--no-quality-filter`
+companion bayrağını kullanır.
 
 Trainer'ın `output_dir`'ünde mevcutsa, rapor EU AI Act Madde 10 veri
 governance artifact'ına otomatik olarak beslenir.
@@ -35,7 +38,9 @@ forgelm audit data/ --near-dup-threshold 5
 pip install 'forgelm[ingestion-scale]'
 forgelm audit data/large_corpus.jsonl --dedup-method minhash --jaccard-threshold 0.85
 
-# Faz 12: opt-in heuristic kalite filtresi (Gopher/C4 stili)
+# Faz 12 + Faz 15: heuristic kalite filtresi (Gopher/C4 stili).
+# v0.6.0'dan itibaren default-AÇIK; explicit flag yedek/zararsızdır.
+# v0.6.0 öncesi opt-in davranışına dönmek için --no-quality-filter geçirin.
 forgelm audit data/ --quality-filter
 
 # Faz 17: çoklu-split corpora için split-seviyesi paralelizm
@@ -484,7 +489,7 @@ forgelm audit PATH \
   [--near-dup-threshold N] \
   [--dedup-method {simhash,minhash}] \
   [--jaccard-threshold X] \
-  [--quality-filter] \
+  [--quality-filter | --no-quality-filter] \
   [--pii-ml] \
   [--pii-ml-language LANG] \
   [--croissant] \
@@ -517,9 +522,11 @@ varsayılan simhash Hamming eşiğini (3, ≈%95 benzerlik) ezer;
 `--dedup-method` (Faz 12) near-duplicate motorunu seçer — `simhash`
 (varsayılan) veya `minhash` (`[ingestion-scale]` extra'sı şart;
 `--jaccard-threshold` cutoff'u kontrol eder, varsayılan 0.85).
-`--quality-filter` (Faz 12) heuristic kalite skorlamasını opt-in
-çalıştırır. Credential/secrets taraması **her zaman açık** — kapatma
-flag'i yoktur.
+`--quality-filter` (Faz 12, **Faz 15 Görev 5 ile v0.6.0'dan itibaren
+default-AÇIK**) heuristic kalite skorlamasını çalıştırır;
+`--no-quality-filter` v0.6.0 öncesi opt-in semantiklerini isteyen
+operatörler için opt-out sağlar. Credential/secrets taraması **her
+zaman açık** — kapatma flag'i yoktur.
 
 Eski `forgelm --data-audit PATH` flag'i deprecation alias olarak
 korunuyor; davranış aynı, sadece ek bir uyarı log'lanıyor.
