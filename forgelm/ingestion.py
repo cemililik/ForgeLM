@@ -147,9 +147,10 @@ class IngestionResult:
 
 # Default skip-list for EPUB items the operator almost never wants to
 # train on (TOC, cover, copyright, colophon, title-page, front-matter).
-# Implemented as a frozenset of normalised lower-case substrings so a
-# file named ``cover.xhtml`` or an ``epub:type="cover"`` declaration both
-# match without per-source spelling drift.
+# Implemented as a tuple of normalised lower-case tokens so a file named
+# ``cover.xhtml`` or an ``epub:type="nav cover-image"`` declaration both
+# match via the whole-token splitter (``_EPUB_NAME_TOKEN_SPLIT``) without
+# per-source spelling drift.
 _DEFAULT_EPUB_SKIP_ITEMS: Tuple[str, ...] = (
     "nav",
     "toc",
@@ -321,9 +322,8 @@ def _pop_one_page_window(
         kept.append(ln)
     # Symmetric tail walk: drop any line within the last ``window``
     # positions whose stripped form is in ``repeating_lasts``. Walking
-    # in reverse so ``offset`` mirrors the head walk's ``idx``.
+    # in reverse so ``rev_idx`` mirrors the head walk's ``idx``.
     surviving: List[str] = []
-    total = len(kept)
     for rev_idx, ln in enumerate(reversed(kept)):
         # rev_idx == 0 is the last line; rev_idx < window covers the
         # bottom-N window inclusive.
@@ -333,9 +333,6 @@ def _pop_one_page_window(
         surviving.append(ln)
     # ``surviving`` is in reversed order; flip to restore page order.
     kept = list(reversed(surviving))
-    # Suppress unused-name warning on ``total`` — kept as documentation
-    # of the window's reference point (the original kept length).
-    del total
     return kept, dropped
 
 
@@ -585,11 +582,11 @@ def _try_pdf_decrypt(reader: Any, path: Path) -> None:
         result = reader.decrypt("")
     except (FileNotDecryptedError, NotImplementedError, DependencyError) as exc:
         raise ValueError(
-            f"PDF '{path}' is encrypted. Decrypt it first (qpdf --decrypt / pdftk input_pw …) and re-run ingest."
+            f"PDF {path!r} is encrypted. Decrypt it first (qpdf --decrypt / pdftk input_pw …) and re-run ingest."
         ) from exc
     if not result:
         # PasswordType.NOT_DECRYPTED == 0 → empty password didn't unlock it.
-        raise ValueError(f"PDF '{path}' is encrypted with a non-empty password. Decrypt externally before ingest.")
+        raise ValueError(f"PDF {path!r} is encrypted with a non-empty password. Decrypt externally before ingest.")
 
 
 def _read_pdf_pages(
@@ -665,11 +662,11 @@ def _validate_page_range(page_range: Tuple[int, int], total_pages: int, path: Pa
     """
     start, end = page_range
     if start < 1:
-        raise IngestParameterError(f"--page-range start ({start}) must be >= 1 for '{path}' (1-indexed).")
+        raise IngestParameterError(f"--page-range start ({start}) must be >= 1 for {path!r} (1-indexed).")
     if start > end:
-        raise IngestParameterError(f"--page-range start ({start}) must be <= end ({end}) for '{path}'.")
+        raise IngestParameterError(f"--page-range start ({start}) must be <= end ({end}) for {path!r}.")
     if start > total_pages:
-        raise IngestParameterError(f"--page-range start ({start}) exceeds PDF page count ({total_pages}) for '{path}'.")
+        raise IngestParameterError(f"--page-range start ({start}) exceeds PDF page count ({total_pages}) for {path!r}.")
     return (start, min(end, total_pages))
 
 
@@ -687,7 +684,22 @@ back-matter under the same envelope. Configurable in future phases if
 operator feedback shifts the modal value.
 """
 
-_FRONTMATTER_ALPHA_RATIO_MAX: float = 0.45
+_FRONTMATTER_ALPHA_RATIO_MAX: float = 0.30
+"""Round-3-follow-up review (S-E): pre-round-3 threshold 0.45 caught
+genuine ToC pages but also tripped on form-template / fill-in-the-blank
+pages whose alpha ratio sits in the 0.20–0.40 band (low because of the
+underscore leaders, NOT because the page is non-content). A 5-line
+form-template page with 5 inline page numbers AND underscore runs
+matched all three signals, dropping the body silently.
+
+Tightening to 0.30 keeps the heuristic on the audit's pilot ToC shape
+(measured ~0.15 alpha on the front-matter pages) while letting form
+templates and exercise inserts through. Genuine ToC pages still sit
+much lower than 0.30 once the page-number leaders are accounted for;
+form-template pages sit in the 0.30–0.40 band where the prose label
+text (``Name:`` / ``Date:`` / ``Phone:``) keeps the alpha ratio
+above the tightened threshold.
+"""
 _FRONTMATTER_LEADER_RATIO_MIN: float = 0.10
 _FRONTMATTER_PAGE_NUM_PATTERN = re.compile(r"\n\d{1,3}\n")
 # Round-3 review: ToC pages commonly use **dotted** leaders (`.....`)
@@ -928,7 +940,7 @@ def _extract_pdf(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
     try:
         reader = PdfReader(str(path))
     except Exception as exc:  # noqa: BLE001 — best-effort: PdfReader open surfaces OSError (file/permission), pypdf-internal errors (bad header, unsupported version, malformed xref), and on rare adversarial inputs InfiniteLoopError; converting all to a typed ValueError keeps the per-file error path uniform with DOCX/EPUB extractors.  # NOSONAR
-        raise ValueError(f"Could not open PDF '{path}': {exc}") from exc
+        raise ValueError(f"Could not open PDF {path!r}: {exc}") from exc
 
     if getattr(reader, "is_encrypted", False):
         _try_pdf_decrypt(reader, path)
@@ -1197,11 +1209,21 @@ def _epub_item_matches_skip(item_name: str, item_type: str, skip_list: Tuple[str
     Exact-token match on the ``epub:type`` value is unchanged.
     """
     name_lc = item_name.lower()
-    tokens = {token for token in _EPUB_NAME_TOKEN_SPLIT.split(name_lc) if token}
-    if tokens & set(skip_list):
+    skip_set = set(skip_list)
+    name_tokens = {token for token in _EPUB_NAME_TOKEN_SPLIT.split(name_lc) if token}
+    if name_tokens & skip_set:
         return True
+    # Round-3-follow-up review (S-C): EPUB-3 manifest properties are
+    # SPACE-SEPARATED tokens (e.g. ``properties="nav cover-image"``).
+    # The pre-fix code did an exact-string match on the joined form,
+    # which silently failed for any manifest item carrying more than
+    # one property. Apply the same path/extension/separator splitter
+    # the filename probe uses so any property token can match.
     type_lc = (item_type or "").lower()
-    return bool(type_lc) and type_lc in skip_list
+    if not type_lc:
+        return False
+    type_tokens = {token for token in _EPUB_NAME_TOKEN_SPLIT.split(type_lc) if token}
+    return bool(type_tokens & skip_set)
 
 
 def _resolve_spine_item(book: Any, spine_entry: Any, item_document_type: int) -> Optional[Tuple[Any, str, str]]:
@@ -2519,16 +2541,40 @@ def ingest_path(  # NOSONAR python:S107 — every kwarg is a documented operator
 # ---------------------------------------------------------------------------
 
 
+_PRESIGNAL_MIN_NON_WS_CHARS: int = 80
+"""Minimum non-whitespace char count before the alpha-ratio check applies.
+
+Round-3-follow-up review (C-B): a perfectly clean 41-char corpus
+(``"Para 1.\\n\\nPara 2.\\n\\n…"``) was tripping the alpha-ratio
+threshold because dots + whitespace dragged the ratio below 0.70 on a
+chunk too small to be statistically meaningful. The pre-signal is
+intended to catch corpus-scale corruption (74 / 82 chunks on the audit
+PDF), not micro-corpora where the alpha denominator is dominated by
+sentence-end punctuation. An 80-char floor (≈ one short sentence)
+suppresses the regression on clean v0.5 callers without weakening the
+signal on the audit's pilot shape.
+"""
+
+
 def _check_alpha_ratio(text: str) -> bool:
     """Phase 15 Task 4 — alpha-ratio cheap-check.
 
     Returns ``True`` when the chunk fails the check (alpha ratio < 0.70).
     Same threshold as the audit's full quality filter so the pre-signal
     aligns with the deeper diagnostic.
+
+    Round-3-follow-up (C-B): chunks below
+    :data:`_PRESIGNAL_MIN_NON_WS_CHARS` non-whitespace characters skip
+    the check entirely. Below that floor the alpha-ratio is dominated
+    by punctuation/whitespace and false-flags clean small corpora that
+    were silent on v0.5 — the change must not regress operator UX on
+    well-formed minimal-size inputs.
     """
     non_ws = [c for c in text if not c.isspace()]
     if not non_ws:
         return True
+    if len(non_ws) < _PRESIGNAL_MIN_NON_WS_CHARS:
+        return False
     alpha = sum(1 for c in non_ws if c.isalpha()) / len(non_ws)
     return alpha < 0.70
 

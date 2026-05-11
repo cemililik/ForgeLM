@@ -460,6 +460,22 @@ Otomatik fix yok — bu, operatörün strateji değiştirmesi gerektiğine
 dair "hiç-yoktan-iyi" bir sinyaldir. Camelot-py / pdfplumber entegrasyonu
 Wave 3 backlog'undadır.
 
+> **Bilinen sınırlama (Faz 15 round-3 review).** Mevcut dedektör bir
+> sayfadaki tüm çıkarılmış Tj glyph'lerinin min / max x-pozisyonlarını
+> karşılaştırır, satır-başlangıç pozisyonlarını değil. pypdf'in
+> `visitor_text` callback'i glyph başına ateşlendiği için tek-kolonlu
+> bir sayfanın glyph'leri doğal olarak geniş bir x-aralığına yayılır
+> (tipik gövde satırında ≈ %64 sayfa genişliği), bu nedenle algoritma
+> tek-kolonlu corpus'larda false-positive vermemek için göreceli olarak
+> yüksek %30 sayfa-genişlik boşluk eşiği kullanır. Yan etki: tipik
+> 5–10 mm oluğa sahip (≈ sayfa-genişliğinin %5–8'i) gerçek dünya
+> iki-kolonlu sayfası bugün uyarıyı tetiklemez. Dedektör aşırı layout'larda
+> (akademik posterler, geniş oluklu regülasyon yayınları) güvenilirdir
+> ama yayın-kalite iki-kolonlu makaleleri kaçırır. Histogram-tabanlı
+> bimodal-mode refactor Wave 3 takipi olarak izlenmektedir (bkz.
+> [`docs/roadmap/phase-15-ingestion-reliability.md`](../roadmap/phase-15-ingestion-reliability.md)
+> Wave 3 — multi-column layout extraction).
+
 ### Markdown-bilen splitter — `--strategy markdown` (Faz 12)
 
 Girdi gerçek bir markdown yapısına sahipse (teknik wiki'ler, README

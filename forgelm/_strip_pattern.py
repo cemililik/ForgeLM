@@ -209,6 +209,22 @@ def _check_unbounded_quantifier_sequence(pattern: str) -> None:
     close-paren handler are extracted into helpers (``_scan_atom_end``,
     ``_close_group_or_raise``, ``_advance_past_brace_quantifier``) to
     keep this function below Sonar S3776's cognitive-complexity ceiling.
+
+    Scope (post-round-3 review S-A):
+        This validator covers the **nested** unbounded shape
+        documented in ``docs/standards/regex.md`` rule 4 — i.e. a
+        group whose last atom carries ``+`` / ``*`` AND whose
+        closing ``)`` is itself followed by another ``+`` / ``*``.
+        Adjacent / sequential unbounded shapes (``(.+?)(.+)``,
+        ``(?:a|b)+(c|d)+``, ``(.+?)[ \\t]*$``) are also mentioned
+        by regex.md rule 4 but are **not** caught here. They
+        empirically do not backtrack catastrophically under
+        CPython 3.10–3.13 on adversarial 100-char input (verified
+        in the round-3 review), so they fall back on the per-pattern
+        SIGALRM timeout as the runtime safety net. Operators on
+        non-CPython runtimes (PyPy 7.x, Pyston) should treat the
+        SIGALRM net as the primary defence and consider replacing
+        adjacent-quantified patterns with bounded alternatives.
     """
     # Each stack entry is ``(open_index, last_atom_unbounded)``. The
     # bottom entry represents the implicit "outer" pattern; pushed

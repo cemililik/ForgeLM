@@ -8,6 +8,7 @@ from forgelm._pypdf_normalise import (
     DEFAULT_PROFILE,
     PROFILES,
     apply_profile,
+    count_substitutions,
     emitted_codepoints,
     profile_summary,
 )
@@ -74,6 +75,52 @@ class TestEmittedCodepoints:
 
     def test_none_profile_emits_nothing(self):
         assert emitted_codepoints("none") == frozenset()
+
+
+class TestCountSubstitutions:
+    """Round-3 review N-1: pin the exact-count contract.
+
+    ``count_substitutions`` replaced the zip-diff heuristic ingestion.py
+    used to log substitution counts. The function must return EXACTLY
+    the number of rules that would fire under :func:`apply_profile`.
+    """
+
+    def test_empty_text_returns_zero(self):
+        assert count_substitutions("", "turkish") == 0
+
+    def test_none_profile_returns_zero(self):
+        assert count_substitutions("ø Õ ú ÷", "none") == 0
+
+    def test_unknown_profile_returns_zero(self):
+        assert count_substitutions("ø Õ ú ÷", "klingon") == 0
+
+    def test_single_char_substitutions_counted_per_occurrence(self):
+        # Five distinct single-char artefacts, one occurrence each → 5.
+        assert count_substitutions("ø Õ ú ÷ ࡟", "turkish") == 5
+
+    def test_multi_char_rule_counted_once_per_match(self):
+        # ``"ö "`` (with trailing space) → ``"Ğ"``; single occurrence.
+        assert count_substitutions("ö abc", "turkish") == 1
+
+    def test_multi_char_rule_consumes_trigger_before_single_pass(self):
+        # ``"ö ø"`` → multi-char rule fires on ``"ö "`` (count 1), then
+        # ``ø`` single-char rule fires on the trailing ``ø`` (count 1).
+        # Total = 2; matches apply_profile result ``"Ğİ"``.
+        assert count_substitutions("ö ø", "turkish") == 2
+
+    def test_repeated_single_char_counted_per_occurrence(self):
+        # ``"øøøø"`` → four substitutions even though only one rule key.
+        assert count_substitutions("øøøø", "turkish") == 4
+
+    def test_clean_turkish_text_returns_zero(self):
+        # No artefact characters → no substitutions.
+        assert count_substitutions("Türkçe metin doğru karakterler içerir.", "turkish") == 0
+
+    def test_partial_multi_char_match_does_not_count_single_consumed(self):
+        # ``"öö abc"`` → only ONE ``"ö "`` match (the SECOND ``ö``
+        # followed by space); the first ``ö`` has no trailing space.
+        # apply_profile produces ``"öĞabc"`` → 1 substitution.
+        assert count_substitutions("öö abc", "turkish") == 1
 
 
 if __name__ == "__main__":

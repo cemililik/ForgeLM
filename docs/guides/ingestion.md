@@ -452,6 +452,22 @@ No automatic fix — this is a better-than-nothing signal that the
 operator should change strategies. Camelot-py / pdfplumber integration
 is on the Wave 3 backlog.
 
+> **Known limitation (Phase 15 round-3 review).** The current detector
+> compares the min / max x-positions across all extracted Tj glyphs on a
+> page, not per-line start positions. Because pypdf's `visitor_text`
+> callback fires per glyph, a single-column page's glyphs naturally span
+> a wide x-range (≈ 64 % of page width on a typical body line), which
+> means the algorithm has to use a relatively high 30 %-of-page-width
+> gap threshold to avoid false-positiving on single-column corpora.
+> Side-effect: a real-world two-column page with a typical 5–10 mm
+> gutter (≈ 5–8 %-of-page-width) **does not** trip the warning today.
+> The detector is reliable on extreme layouts (academic posters,
+> wide-gutter regulatory publications) but misses publication-grade
+> two-column papers. A histogram-based bimodal-mode refactor is tracked
+> as a Wave 3 follow-up (see
+> [`docs/roadmap/phase-15-ingestion-reliability.md`](../roadmap/phase-15-ingestion-reliability.md)
+> Wave 3 — multi-column layout extraction).
+
 ### Markdown-aware splitter — `--strategy markdown` (Phase 12)
 
 When the input has real markdown structure (technical wikis, README
