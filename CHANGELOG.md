@@ -4,6 +4,8 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
+_(v0.6.1 dev cycle — entries will land here as PRs merge.)_
+
 ## [0.6.0] — 2026-05-11
 
 Phase 15 (Ingestion Pipeline Reliability) Wave 1 + Wave 2. Closes the
