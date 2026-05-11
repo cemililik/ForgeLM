@@ -93,6 +93,23 @@ Yetkili liste için `forgelm ingest --help`. En sık görülenler:
 | `--secrets-mask` | AWS anahtarları, GitHub PAT'ler, JWT'leri vb. redakte et. Bkz. [Sırlar](#/data/secrets). |
 | `--all-mask` | `--secrets-mask --pii-mask`'in birleşik kısayolu. |
 
+### Faz 15 (v0.6.0) eklemeleri
+
+| Bayrak | Açıklama |
+|---|---|
+| `--language-hint LANG` | Her dosya ekstraksiyonundan sonra Unicode-block sanity kontrolü çalıştırır (`tr` / `en` / `de` / `fr` / `es` / `it` / `pt`). Out-of-script karakter oranı kalibre edilmiş %1.5 eşiğini aştığında WARNING tetikler. Kapalıyken no-op. |
+| `--script-sanity-threshold X` | Varsayılan %1.5 sanity eşiğini geçersiz kıl (aralık `[0.0, 1.0]`). |
+| `--normalise-profile {turkish,none}` | Çıkarılan metne dil-spesifik glyph normalizasyon tablosu uygular. `--language-hint tr` set edilince otomatik `turkish` türetilir; aksi halde `none`. Açık değer kazanır. |
+| `--no-normalise-unicode` | `--normalise-profile none` için kısayol. |
+| `--no-quality-presignal` | Çalışma sonu kalite ön-sinyalini (alpha / weird-char / repeated-line ucuz kontrolleri) atla. Default AÇIK. |
+| `--epub-no-skip-frontmatter` | EPUB nav / cover / copyright / colophon / titlepage / frontmatter öğelerini JSONL'da tut. Default bunları atlar. |
+| `--keep-md-frontmatter` | Markdown dosyalarının başındaki `---\n…\n---\n` YAML frontmatter'ı koru. Default strip eder. |
+| `--strip-pattern REGEX` | Operatör kontrolünde regex stripping (tekrarlanabilir). Pattern'lar önceden ReDoS-doğrulamadan geçer (iç içe sınırsız quantifier + DOTALL altında `.*?` + back-ref şekilleri reddedilir) ve POSIX'te pattern başına 5-saniyelik SIGALRM bütçesinde çalışır. |
+| `--strip-pattern-no-timeout` | Pattern başına SIGALRM timeout'u devre dışı bırak. |
+| `--page-range START-END` | PDF ekstraksiyonunu sürekli 1-indeksli sayfa aralığına sınırla. Doğrulama hatası `EXIT_CONFIG_ERROR (1)` ile durur. |
+| `--keep-frontmatter` | Default-AÇIK PDF front-matter / back-matter heuristic'inden opt-out (alpha < 0.45 + underscore > 0.10 + ≥ 5 sayfa numarası → ilk + son 12 sayfaya kadar düşür). |
+| `--strip-urls {keep,mask,strip}` | Inline URL davranışı: `keep` (varsayılan), `mask` (`[URL]` placeholder), `strip` (sil). `--all-mask`'ten bağımsız. |
+
 ## Sık hatalar
 
 :::warn

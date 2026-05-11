@@ -1858,5 +1858,7 @@ Major release: ForgeLM goes from a basic SFT fine-tuning tool to a full-stack LL
 - Basic evaluation checks (max loss, baseline comparison)
 - Auto-revert on quality degradation
 
-[Unreleased]: https://github.com/cemililik/ForgeLM/compare/v0.5.5...HEAD
+[Unreleased]: https://github.com/cemililik/ForgeLM/compare/v0.5.7...HEAD
+[0.5.7]: https://github.com/cemililik/ForgeLM/compare/v0.5.6...v0.5.7
+[0.5.6]: https://github.com/cemililik/ForgeLM/compare/v0.5.5...v0.5.6
 [0.5.5]: https://github.com/cemililik/ForgeLM/compare/v0.5.0...v0.5.5

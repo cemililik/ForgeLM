@@ -1,6 +1,6 @@
 # Phase 15: Ingestion Pipeline Reliability
 
-> **Not:** Bu dosya tek bir planlanan fazı detaylandırır. Tüm fazların özeti için [../roadmap.md](../roadmap.md).
+> **Note:** This file details a single planned phase. See [../roadmap.md](../roadmap.md) for the cross-phase summary.
 
 **Goal:** Close the silent-failure gap in `forgelm ingest` exposed by an end-to-end pilot test against a real-world Turkish-language formal-publication PDF on 2026-05-11. The current pipeline produces output that *looks* successful (no errors, no warnings) but is polluted with multi-line running headers, font-fallback glyphs, bullet-character corruption, page-number leakage, and front-matter noise — degrading downstream SFT quality without any operator-facing signal. Phase 15 turns these silent failures into either auto-corrections or loud warnings, **across all five supported formats** (PDF, DOCX, EPUB, TXT, Markdown), and bakes the regression coverage into a fixture matrix.
 
@@ -65,29 +65,29 @@ These splits are estimates, not commitments — task 1's multi-line dedup may su
 
 #### Wave 2 — strong nice-to-have (v0.6.x, ~2 weeks)
 
-11. [x] **`--strip-pattern REGEX` flag — operator-controlled regex with ReDoS guard.**
+1. [x] **`--strip-pattern REGEX` flag — operator-controlled regex with ReDoS guard.**
     Operator escape hatch for known-boilerplate that the dedup heuristic misses. Multiple patterns allowed (`--strip-pattern A --strip-pattern B`). Applied after extraction, before chunking. **Operator-supplied regexes must pass the regex-hardening guardrails defined in [`docs/standards/regex.md`](../standards/regex.md)** — the same 8-rule discipline (no unbounded greedy quantifiers in sequence, no nested groups with overlapping ranges, bounded repetition) that ForgeLM's own internal regexes obey. Implementation choice: validate the user-supplied pattern at CLI-parse time via the same SonarCloud python:S5852-style structural check ForgeLM applies internally, **and** wrap the match call in a per-pattern timeout (`re.match` with `signal.alarm` or `regex.match(... timeout=N)` if the `regex` library is added as a Wave 2 dependency — operator can opt out via `--strip-pattern-no-timeout` if they're certain). Documented in the operator guide with the canonical examples (running headers with variable content, journal DOI lines, watermarks). Acceptance: a pathological `(a+)+b`-class pattern aborts with a clear `EXIT_CONFIG_ERROR (1)` and a message naming the offending pattern, instead of hanging the ingestion process.
 
-12. [x] **`--page-range` PDF flag.**
+2. [x] **`--page-range` PDF flag.**
     Simple `--page-range 12-193` filtering for PDF files. Skips front-matter / back-matter manually when the heuristic in task 13 mis-fires. Validated as `min ≤ max`, `min ≥ 1`, `max ≤ pdf_page_count`. Validation failure **exits with `EXIT_CONFIG_ERROR (1)`** via the CLI dispatcher (matching the existing `_run_ingest_cmd` pattern in [`forgelm/cli/subcommands/_ingest.py`](../../forgelm/cli/subcommands/_ingest.py)) and prints a clear message naming the offending range and the actual page count. Library-level `ingest_path()` raises `ValueError` as before — the exit-code translation lives at the CLI boundary per the [error-handling standard](../standards/error-handling.md).
 
-13. [x] **Front-matter heuristic detection.**
+3. [x] **Front-matter heuristic detection.**
     Heuristic that looks at the first N pages of a PDF (N=12 default): if a page has alpha-ratio < 0.45 *and* underscore-ratio > 0.10 *and* contains ≥ 5 page-number-pattern matches, the page is tagged as "front-matter candidate" and dropped, with a `WARNING` listing the dropped page indices and the per-page metrics. Opt-out via `--keep-frontmatter`. Symmetric pass on the last N pages catches back-matter (bibliographies, indexes); same threshold.
 
-14. [x] **URL / QR pattern auto-strip option.**
+4. [x] **URL / QR pattern auto-strip option.**
     `--strip-urls` flag: detects URL patterns (http(s)://, www.) per chunk and either replaces with `[URL]` or strips entirely (`--strip-urls=mask|strip|keep`, default `keep`). Useful for exercise-reference QR-noise and academic-paper DOI-noise. Existing PII / secrets mask pipeline integration: applies *after* secrets mask, *before* PII mask, preserving the mask-order discipline. **Interaction with `--all-mask`:** the `--all-mask` shorthand (Phase 12.5) is explicitly *not* extended to include `--strip-urls`. Rationale: PII / secrets are GDPR-grade compliance redactions whose accidental over-application is recoverable (the original text is still in the source PDF); URL stripping is a content-shape decision that operators may want to keep off while still demanding the privacy redactions. The two flag families stay independent and the operator opts into URL handling explicitly. Documented at the CLI help text for both `--all-mask` and `--strip-urls`.
 
-15. [x] **Multi-column PDF detection.**
+5. [x] **Multi-column PDF detection.**
     Heuristic that estimates column count from pypdf's text-position metadata: per page, cluster x-positions of extracted spans; if two clusters dominate (separation > 30 % of page width), tag the document as 2-column. No fix attempt — just a `WARNING` at run start: `[WARN] Detected 2-column layout — reading order may be scrambled. Consider --strategy sliding with larger chunk-size, or pre-process with a layout-aware tool.` Better-than-nothing signal; cheaper than a layout-aware extractor.
 
 #### Wave 3 — deferred (post-Phase 15)
 
-16. [ ] OCR detection + automated `ocrmypdf` recommendation
-17. [ ] Document profile / preset system (`--profile academic`, `--profile legal`, `--profile textbook`)
-18. [ ] PDF table extractor (camelot-py / pdfplumber integration as optional `[ingestion-tables]` extra)
-19. [ ] Footnote / endnote separation (DOCX + PDF)
-20. [ ] Language-aware paragraph segmentation (CJK / Arabic / RTL scripts)
-21. [ ] RTL script extraction-order normalisation
+1. [ ] OCR detection + automated `ocrmypdf` recommendation
+2. [ ] Document profile / preset system (`--profile academic`, `--profile legal`, `--profile textbook`)
+3. [ ] PDF table extractor (camelot-py / pdfplumber integration as optional `[ingestion-tables]` extra)
+4. [ ] Footnote / endnote separation (DOCX + PDF)
+5. [ ] Language-aware paragraph segmentation (CJK / Arabic / RTL scripts)
+6. [ ] RTL script extraction-order normalisation
 
 These items go on the [risks-and-decisions](risks-and-decisions.md) backlog with the Phase 15 audit as their provenance reference, to be re-prioritised after Wave 1 lands and operator feedback arrives.
 

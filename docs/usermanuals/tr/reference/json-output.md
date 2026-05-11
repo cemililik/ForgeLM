@@ -147,7 +147,7 @@ Eğitim öncesi veri denetimi. Tam rapor; ana alanlar gösterildi.
   "secrets_summary": {"total_findings": 0, "by_kind": {}},
   "cross_split_overlap": {"pairs": {}},
   "leakage": {"...": "..."},
-  "quality_filter": null,
+  "quality_summary": {"samples_evaluated": 100, "samples_flagged": 3, "by_check": {"...": "..."}},
   "near_duplicates": {"...": "..."},
   "languages_top3": [{"code": "en", "count": 87}],
   "generated_at": "2026-05-04T12:34:56+00:00",
@@ -155,7 +155,57 @@ Eğitim öncesi veri denetimi. Tam rapor; ana alanlar gösterildi.
 }
 ```
 
+> **Faz 15 (v0.6.0) notu:** `quality_summary`, v0.6.0'dan itibaren default
+> olarak doldurulur çünkü audit'in `--quality-filter` bayrağı default-AÇIK'a
+> çevrildi. Atlamak için `--no-quality-filter` geçirin; o durumda alan `{}`
+> olur.
+
 Tam şema [`docs/guides/data_audit.md`](#/data/audit)'dedir. CI gate'leri için `report_path` (on-disk JSON'un yeri) + `success`'e karşı pin'leyin.
+
+## `forgelm ingest`
+
+Doküman ingestion stdout envelope'ı. Faz 15, `notes_structured` altına
+additive alanlar ekledi; Faz 15 öncesi anahtarlar değişmedi.
+
+```json
+{
+  "success": true,
+  "output_path": "data/curated.jsonl",
+  "chunk_count": 245,
+  "files_processed": 12,
+  "files_skipped": 0,
+  "total_chars": 824513,
+  "format_counts": {".pdf": 4, ".docx": 6, ".md": 2},
+  "pii_redaction_counts": {"email": 3, "phone": 1},
+  "secrets_redaction_counts": {},
+  "pdf_header_footer_lines_stripped": 18,
+  "pdf_paragraph_packed_lines_stripped": 4,
+  "script_sanity_triggered": 1,
+  "strip_pattern_substitutions": 12,
+  "urls_handled": 7,
+  "frontmatter_pages_dropped": 3,
+  "notes": ["..."],
+  "notes_structured": {
+    "files_processed": 12,
+    "files_skipped": 0,
+    "chunk_count": 245,
+    "total_chars": 824513,
+    "strategy": "paragraph",
+    "format_counts": {".pdf": 4, ".docx": 6, ".md": 2},
+    "pdf_header_footer_lines_stripped": 18,
+    "pdf_paragraph_packed_lines_stripped": 4,
+    "script_sanity_summary": {"files_checked": 12, "files_triggered": 1, "...": "..."},
+    "frontmatter_pages_dropped": [0, 1, 11],
+    "strip_pattern_substitutions": 12,
+    "urls_handled": 7,
+    "quality_presignal": {"samples_evaluated": 245, "samples_flagged": 17, "by_check": {"alpha_ratio": 5, "weird_chars": 1, "repeated_lines": 11}}
+  }
+}
+```
+
+Faz 15 additive alanları [Doküman Ingestion](#/data/ingestion)'da
+belgelenmiştir. Faz 15 öncesi `output_path` / `chunk_count` / `notes`
+okuyan tüketiciler değişmeden çalışmaya devam eder.
 
 ## `forgelm verify-audit`
 

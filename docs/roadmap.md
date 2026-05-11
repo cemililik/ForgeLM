@@ -17,7 +17,7 @@
 | 🚧 In review | [Phase 15 — Ingestion Pipeline Reliability](roadmap/phase-15-ingestion-reliability.md) | Wave 1 + Wave 2 landed on `development`: window-based multi-line PDF dedup, Turkish glyph normalisation profile, language-aware Unicode-block sanity check, ingest-time quality pre-signal, default-on audit `--quality-filter`, DOCX explicit header/footer subtraction, EPUB spine + nav/cover skip, TXT UTF-8 BOM + MD YAML frontmatter strip, notebook playground alignment, plus Wave 2 `--strip-pattern` (ReDoS-guarded), `--page-range`, front-matter heuristic, `--strip-urls`, multi-column warning → `v0.6.0` |
 | 📋 Planned | [Phase 13 — Pro CLI & Observability Dashboard](roadmap/phase-13-pro-cli.md) | License-gated dashboard, HPO, scheduled jobs, team config store → `v0.6.0-pro` (gated on adoption + ISO/SOC 2 baseline shipped in v0.5.5) |
 
-> **Status legend:** ✅ Released (PyPI) · 🟡 Merged on main, publish pending · ⏳ Planned
+> **Status legend:** ✅ Released (PyPI) · 🟡 Merged on main, publish pending · 🚧 In review (PR open) · 📋 / ⏳ Planned
 
 **Released:** `v0.5.0` — "Document Ingestion + Data Curation Pipeline" — PyPI 2026-04-30 (Phases 11 + 11.5 + 12 + 12.5 consolidated).
 

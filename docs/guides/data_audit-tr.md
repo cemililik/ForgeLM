@@ -8,8 +8,11 @@ near-duplicate tespitini, streaming JSONL okuyucusunu, PII şiddet
 katmanlarını, atomik disk yazımı ve verbose-by-default kısaltma
 politikasını ekledi. **Faz 12 (`v0.5.0`'da birleşti)** opt-in MinHash LSH dedup
 yöntemini (`--dedup-method minhash`), her zaman çalışan
-code/credential leakage taramasını (`secrets_summary`), ve opt-in
-heuristic kalite filtresini (`--quality-filter`) ekledi.
+code/credential leakage taramasını (`secrets_summary`) ve heuristic
+kalite filtresini (`--quality-filter`) ekledi — başlangıçta opt-in,
+**Faz 15 Görev 5 ile v0.6.0'dan itibaren default-AÇIK**; v0.6.0 öncesi
+opt-in semantiğini isteyen operatörler yeni `--no-quality-filter`
+companion bayrağını kullanır.
 
 Trainer'ın `output_dir`'ünde mevcutsa, rapor EU AI Act Madde 10 veri
 governance artifact'ına otomatik olarak beslenir.
@@ -35,7 +38,9 @@ forgelm audit data/ --near-dup-threshold 5
 pip install 'forgelm[ingestion-scale]'
 forgelm audit data/large_corpus.jsonl --dedup-method minhash --jaccard-threshold 0.85
 
-# Faz 12: opt-in heuristic kalite filtresi (Gopher/C4 stili)
+# Faz 12 + Faz 15: heuristic kalite filtresi (Gopher/C4 stili).
+# v0.6.0'dan itibaren default-AÇIK; explicit flag yedek/zararsızdır.
+# v0.6.0 öncesi opt-in davranışına dönmek için --no-quality-filter geçirin.
 forgelm audit data/ --quality-filter
 
 # Faz 17: çoklu-split corpora için split-seviyesi paralelizm

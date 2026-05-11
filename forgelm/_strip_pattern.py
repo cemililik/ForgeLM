@@ -123,72 +123,100 @@ def validate_strip_pattern(pattern: str) -> str:
 def _check_unbounded_quantifier_sequence(pattern: str) -> None:
     """Reject patterns with two unbounded quantifiers in sequence.
 
-    The classic ``(a+)+`` ReDoS shape is detected by walking the
-    pattern as plain text and looking for ``+`` / ``*`` followed by
-    a closing group ``)`` followed by another ``+`` / ``*``. We
-    deliberately do **not** parse the regex AST — that is more work
-    than the structural check warrants, and CPython already protects
-    operators against the worst cases at run time via the SIGALRM
-    timeout. The heuristic catches the textbook shape and is happy
-    to miss exotic variants (the run-time timeout is the safety net).
+    The classic ``(a+)+`` ReDoS shape — and its character-class
+    cousins ``(\\w+)+``, ``(\\d+)+``, ``(\\s+)+``, ``([abc]+)+``,
+    ``(\\w+\\s+)+`` — explodes on adversarial input even when CPython's
+    engine is "well-behaved" in practice. Phase 15 round-1 review (S-1)
+    found the original backward-walk validator skipped the escape-shape
+    variants because stepping past a ``\\`` consumed the matching ``(``;
+    the rewrite below walks **forward atom-by-atom**, tracking per
+    group whether the most recently parsed atom was unbounded
+    (quantified with ``+`` / ``*``). When a group's closing ``)`` is
+    immediately followed by another ``+`` / ``*``, that is the
+    nested-unbounded shape and we reject.
 
-    Why no full-AST parse: regex.md rule 4 is about pattern *shape*,
-    not semantic equivalence, so a textual scan is sufficient. The
-    same approach is used inside SonarCloud's S5852 implementation
-    on the JVM side.
+    The check is structural, not a full-AST parse — regex.md rule 4
+    is about pattern *shape*, so an atom-by-atom forward scan is
+    sufficient. The SIGALRM timeout remains the safety net for the
+    long tail of exotic variants we still miss.
     """
-    # Walk the raw pattern, skipping escape sequences. Look for
-    # ``)`` immediately following a ``+`` or ``*`` quantifier, then a
-    # second ``+`` or ``*`` on the outer group — that is the
-    # ``(a+)+`` / ``(.+)+`` shape.
+    # Each stack entry is ``(open_index, last_atom_unbounded)``. The
+    # bottom entry represents the implicit "outer" pattern; pushed
+    # entries represent groups. ``last_atom_unbounded`` is updated to
+    # match the most recently parsed atom — bounded atoms reset it,
+    # unbounded ones set it.
+    stack: List[Tuple[int, bool]] = [(-1, False)]
     i = 0
-    while i < len(pattern):
+    n = len(pattern)
+    while i < n:
         char = pattern[i]
-        if char == "\\":
-            i += 2  # skip the escaped pair
-            continue
-        if char in ("+", "*"):
-            # Look at the previous *non-escaped* character: if it's ``)`` and
-            # the group it closes ended on another ``+`` / ``*``, this is the
-            # textbook nested-unbounded shape.
-            prev_char = pattern[i - 1] if i > 0 else ""
-            if prev_char == ")":
-                # Find the matching opening ``(`` and walk back to see if the
-                # group itself ended on another unbounded quantifier.
-                if _group_ends_with_unbounded_quantifier(pattern, i - 1):
-                    raise StripPatternError(
-                        f"--strip-pattern {pattern!r} contains a nested unbounded "
-                        "quantifier (e.g. `(a+)+`) which is a textbook ReDoS shape. "
-                        "Rewrite with bounded repetition (e.g. `a{1,100}`) or split "
-                        "across multiple narrower --strip-pattern flags."
-                    )
-        i += 1
 
-
-def _group_ends_with_unbounded_quantifier(pattern: str, close_paren_index: int) -> bool:
-    """Return ``True`` if the group ending at ``close_paren_index`` has an inner ``+`` / ``*``."""
-    # Walk backwards, balancing parens, looking for an unbounded quantifier
-    # just before the matching ``(``. Escapes are honoured.
-    depth = 1
-    i = close_paren_index - 1
-    while i >= 0:
-        char = pattern[i]
-        if char == "\\":
-            # Escape: skip the escaped pair (one step further back).
-            i -= 2
+        # ---- Group boundary handling ----
+        if char == "(":
+            # Skip non-capturing / look-around prefixes uniformly.
+            stack.append((i, False))
+            i += 1
             continue
         if char == ")":
-            depth += 1
-        elif char == "(":
-            depth -= 1
-            if depth == 0:
-                # The character immediately *before* the closing ``)`` of the
-                # opened group tells us whether the inner content ended on an
-                # unbounded quantifier.
-                inner_last = pattern[close_paren_index - 1] if close_paren_index > 0 else ""
-                return inner_last in ("+", "*")
-        i -= 1
-    return False
+            _open_idx, inner_unbounded = stack.pop() if len(stack) > 1 else (-1, False)
+            outer_quantifier = pattern[i + 1] if i + 1 < n else ""
+            if inner_unbounded and outer_quantifier in ("+", "*"):
+                raise StripPatternError(
+                    f"--strip-pattern {pattern!r} contains a nested unbounded "
+                    "quantifier (e.g. `(a+)+`, `(\\w+)+`, `(\\w+\\s+)+`), which "
+                    "is a textbook ReDoS shape (regex.md rule 4). Rewrite with "
+                    "bounded repetition (e.g. `a{1,100}`) or split across "
+                    "multiple narrower --strip-pattern flags."
+                )
+            # Parsed one atom (the group). Mark the parent group's
+            # last-atom flag based on whether THIS group carries an
+            # outer ``+`` / ``*``.
+            if stack:
+                top_open, _ = stack[-1]
+                stack[-1] = (top_open, outer_quantifier in ("+", "*"))
+            # Skip the quantifier (if any) so we don't re-process it.
+            i += 1
+            if outer_quantifier in ("+", "*", "?"):
+                i += 1
+            continue
+
+        # ---- One atom: escape, character class, or literal ----
+        if char == "\\":
+            # Escape sequence: one atom of length 2.
+            atom_end = i + 2
+        elif char == "[":
+            # Character class: scan to matching ``]`` honouring escapes.
+            j = i + 1
+            while j < n:
+                if pattern[j] == "\\":
+                    j += 2
+                    continue
+                if pattern[j] == "]":
+                    break
+                j += 1
+            atom_end = j + 1
+        else:
+            # Plain literal (or a control char that's not a group /
+            # class / quantifier on its own). One char.
+            atom_end = i + 1
+
+        # ---- Quantifier (if any) on this atom ----
+        quantifier = pattern[atom_end] if atom_end < n else ""
+        unbounded = quantifier in ("+", "*")
+        if stack:
+            top_open, _ = stack[-1]
+            stack[-1] = (top_open, unbounded)
+        # Advance past the atom and its quantifier (if present).
+        i = atom_end
+        if quantifier in ("+", "*", "?"):
+            i += 1
+        elif quantifier == "{":
+            # ``{n,m}`` is bounded — skip the brace span so the next
+            # iteration doesn't try to parse digits as atoms.
+            j = atom_end + 1
+            while j < n and pattern[j] != "}":
+                j += 1
+            i = j + 1
 
 
 def _check_dotall_backreference(pattern: str, flags: int) -> None:
@@ -267,19 +295,28 @@ def apply_strip_patterns(
         text: Text to scan.
         patterns: Output of :func:`compile_strip_patterns`.
         timeout_s: Per-pattern budget. ``None`` disables the guard
-            entirely (used by ``--strip-pattern-no-timeout``).
+            entirely (used by ``--strip-pattern-no-timeout``). A
+            non-positive integer is **rejected** with :class:`ValueError`
+            — review round-2 (S-1) found that silently treating
+            ``0`` / negatives as "no timeout" hid operator misconfiguration
+            of the documented 5-second default.
         logger_override: Test seam; defaults to the module logger.
 
     Returns:
         The stripped text and the total number of substitutions made.
     """
+    if timeout_s is not None and timeout_s <= 0:
+        raise ValueError(
+            f"timeout_s must be a positive int or None (got {timeout_s!r}); "
+            "use None to disable the SIGALRM guard explicitly."
+        )
+
     use_logger = logger_override or logger
     if not patterns or not text:
         return text, 0
 
     use_alarm = (
         timeout_s is not None
-        and timeout_s > 0
         and os.name == "posix"
         and hasattr(signal, "SIGALRM")
         and threading.current_thread() is threading.main_thread()

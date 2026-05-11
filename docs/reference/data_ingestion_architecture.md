@@ -205,14 +205,18 @@ inflate near-duplicate counts during the downstream audit.
 ```mermaid
 graph TD
     PAGES[per-page text] --> SPLIT[Split into lines]
-    SPLIT --> COUNT[Count first / last line<br/>frequency across pages]
+    SPLIT --> WINDOW[Inspect top-3 / bottom-3 rows<br/>per page _PDF_EDGE_WINDOW = 3]
+    WINDOW --> COUNT[Count line frequency<br/>across pages]
     COUNT --> CHECK{>= 70 percent of pages?}
-    CHECK -- yes --> POP[Pop matching edge lines]
-    POP --> COUNT
+    CHECK -- yes --> POP[Pop matching window lines<br/>any offset within the window]
+    POP --> WINDOW
     CHECK -- no --> JOIN[Re-join pages with double newline]
-    JOIN --> OUT[Cleaned PDF text]
+    JOIN --> PACK[strip_paragraph_packed_headers<br/>second-pass dedup over chunk blocks]
+    PACK --> OUT[Cleaned PDF text]
 
     style CHECK fill:#002244,stroke:#00aaff
+    style WINDOW fill:#002244,stroke:#00aaff
+    style PACK fill:#002244,stroke:#00aaff
 ```
 
 Implementation notes from

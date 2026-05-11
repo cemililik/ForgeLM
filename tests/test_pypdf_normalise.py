@@ -14,8 +14,13 @@ from forgelm._pypdf_normalise import (
 
 
 class TestProfileVocabulary:
-    def test_default_profile_is_turkish(self):
-        assert DEFAULT_PROFILE == "turkish"
+    def test_default_profile_is_none_after_round2_fix(self):
+        # Round-2 review (C-2): the module-level default flipped from
+        # "turkish" to "none" so a library caller without an explicit
+        # language hint does not silently rewrite non-Turkish text.
+        # CLI dispatcher (`_resolve_normalise_profile`) + ingest_path
+        # auto-derive "turkish" when ``language_hint="tr"`` is set.
+        assert DEFAULT_PROFILE == "none"
 
     def test_profiles_includes_none_for_explicit_opt_out(self):
         assert "none" in PROFILES

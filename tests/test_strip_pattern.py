@@ -32,6 +32,38 @@ class TestValidateStripPattern:
         with pytest.raises(StripPatternError, match="ReDoS"):
             validate_strip_pattern("(a+)+b")
 
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            r"(\w+)+x",  # round-2 (S-1): escape-shape nested unbounded.
+            r"(\d+)+x",
+            r"(\s+)+x",
+            r"^(\w+\s+)+x",  # classic textbook ReDoS.
+            r"([abc]+)+d",  # character-class nested unbounded.
+        ],
+    )
+    def test_rejects_escape_and_class_nested_unbounded(self, pattern):
+        with pytest.raises(StripPatternError, match="ReDoS"):
+            validate_strip_pattern(pattern)
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            r"^WATERMARK \d+$",
+            r"a{1,100}b",
+            r"\d{1,5}",
+            r"(\d+)b",  # single unbounded inside group, no outer quantifier.
+            r"[A-Z]+",  # standalone unbounded, no nesting.
+            r"(a+b)+c",  # group ends with bounded literal, outer quantifier OK.
+            r"\b(?:https?|ftp)://[A-Z0-9]+",
+        ],
+    )
+    def test_accepts_safe_patterns(self, pattern):
+        # Sanity check: the new forward-walking validator must NOT
+        # false-positive on patterns whose last group atom is bounded
+        # or which carry only a single unbounded quantifier overall.
+        assert validate_strip_pattern(pattern) == pattern
+
     def test_rejects_dotall_lazy_with_backref(self):
         # rule 6: .*? + back-reference under DOTALL is the S5852 shape.
         with pytest.raises(StripPatternError, match="DOTALL"):
@@ -88,6 +120,25 @@ class TestApplyStripPatterns:
         # Operator-facing constant — 5s is the documented default in
         # `forgelm/_strip_pattern.py` + CLI help text.
         assert DEFAULT_TIMEOUT_S == 5
+
+    def test_apply_rejects_zero_timeout(self):
+        # Round-2 (S-1): zero / negative timeout_s used to silently
+        # disable the alarm; now rejected with ValueError so operator
+        # misconfiguration is loud.
+        patterns = compile_strip_patterns([r"^X$"])
+        with pytest.raises(ValueError, match="positive int"):
+            apply_strip_patterns("X", patterns, timeout_s=0)
+
+    def test_apply_rejects_negative_timeout(self):
+        patterns = compile_strip_patterns([r"^X$"])
+        with pytest.raises(ValueError, match="positive int"):
+            apply_strip_patterns("X", patterns, timeout_s=-5)
+
+    def test_apply_accepts_none_timeout(self):
+        patterns = compile_strip_patterns([r"^X$"])
+        # ``None`` is the explicit "no guard" signal; must keep working.
+        out, _ = apply_strip_patterns("X\nbody", patterns, timeout_s=None)
+        assert "X" not in out
 
 
 if __name__ == "__main__":

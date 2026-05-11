@@ -42,8 +42,15 @@ audit:
 ```
 
 ```shell
-$ forgelm audit data/ingested.jsonl --quality-filter
+# v0.6.0+: quality-filter is DEFAULT-ON; the explicit flag is harmless.
+$ forgelm audit data/ingested.jsonl
 ✓ dropped 45 rows; wrote data/clean.jsonl (12,355 rows)
+
+# Pre-v0.6.0 (or to be explicit), pass the flag:
+$ forgelm audit data/ingested.jsonl --quality-filter
+
+# Opt out of the new default if your CI gates depend on opt-in semantics:
+$ forgelm audit data/ingested.jsonl --no-quality-filter
 ```
 
 ## Tuning thresholds

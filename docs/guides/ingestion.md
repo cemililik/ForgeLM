@@ -250,10 +250,16 @@ forgelm ingest INPUT_PATH \
   [--quiet | --log-level {DEBUG,INFO,WARNING,ERROR}]
 ```
 
-`--output-format json` emits a machine-readable summary to stdout (file
-paths, chunk count, format counts, notes, `notes_structured` —
-machine-readable `{key: value}` from Phase 11.5 — and `secrets_redaction_counts`
-from Phase 12). Useful for CI/CD pipelines.
+`--output-format json` emits a machine-readable summary to stdout. The
+envelope carries Phase 11.5 keys (`notes`, `notes_structured`,
+`pdf_header_footer_lines_stripped`), Phase 12 keys
+(`secrets_redaction_counts`), and the **Phase 15** additive fields:
+`pdf_paragraph_packed_lines_stripped` (survivor-header second-pass
+count), `script_sanity_triggered` (files with out-of-script char ratio
+above threshold), `strip_pattern_substitutions` (`--strip-pattern`
+match count), `urls_handled` (URLs masked / stripped by
+`--strip-urls`), and `frontmatter_pages_dropped` (front-matter
+heuristic drop count). Useful for CI/CD pipelines.
 
 ### Token-aware chunking — `--chunk-tokens` (Phase 11.5)
 

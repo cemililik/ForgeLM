@@ -10,10 +10,34 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Optional, Tuple
+from typing import NoReturn, Optional, Tuple
 
+from ..._strip_pattern import DEFAULT_TIMEOUT_S as _STRIP_PATTERN_DEFAULT_TIMEOUT_S
 from .._exit_codes import EXIT_CONFIG_ERROR, EXIT_TRAINING_ERROR
 from .._logging import logger
+
+
+def _emit_error_and_exit(
+    exc: Exception,
+    *,
+    output_format: str,
+    exit_code: int,
+    log_prefix: str = "%s",
+) -> NoReturn:
+    """Centralised JSON-vs-text error envelope + ``sys.exit`` helper.
+
+    Round-2 review (nit on _ingest.py:82-168): the dispatcher used to
+    repeat the same ``if json: print(...) else: logger.error(...)``
+    pattern in every ``except`` block. Centralising the envelope keeps
+    the four code paths byte-identical in behaviour while removing
+    duplication, and lowers the cognitive-complexity score Sonar
+    python:S3776 flagged on ``_run_ingest_cmd``.
+    """
+    if output_format == "json":
+        print(json.dumps({"success": False, "error": str(exc)}))
+    else:
+        logger.error(log_prefix, exc)
+    sys.exit(exit_code)
 
 
 def _parse_page_range(value: Optional[str]) -> Optional[Tuple[int, int]]:
@@ -40,23 +64,33 @@ def _parse_page_range(value: Optional[str]) -> Optional[Tuple[int, int]]:
 
 
 def _resolve_normalise_profile(args) -> str:
-    """Resolve --normalise-profile vs --no-normalise-unicode into one knob.
+    """Resolve --normalise-profile vs --no-normalise-unicode vs --language-hint.
 
-    Both flags are valid Phase 15 surface; ``--no-normalise-unicode`` is
-    the shortcut for ``--normalise-profile none`` and wins when both are
-    set (a future profile name does not silently re-enable normalisation
-    against the operator's intent).
+    Phase 15 round-1 review (C-2): the original implementation
+    defaulted to the ``turkish`` profile unconditionally, which
+    silently rewrote legitimate non-Turkish letters (Norwegian
+    ``ø``, Estonian ``Õ``, math ``÷``). The fix couples the profile
+    to the operator's language hint:
+
+    * Explicit ``--no-normalise-unicode`` always wins (``"none"``).
+    * Explicit ``--normalise-profile X`` wins next (operator
+      override).
+    * Otherwise, derive from ``--language-hint``: ``tr`` → ``turkish``;
+      every other hint (and the unset case) → ``"none"``.
+
+    So a Turkish operator who already passes ``--language-hint tr``
+    keeps getting normalisation "for free"; everyone else is safe by
+    default.
     """
     if getattr(args, "no_normalise_unicode", False):
         return "none"
-    profile = getattr(args, "normalise_profile", None)
-    if profile is None:
-        # Library default (turkish) is the right v0.6.0 launch profile.
-        # We pass ``None`` through so library callers can introspect the
-        # default; the ingest_path keyword falls back to the library
-        # constant.
+    explicit_profile = getattr(args, "normalise_profile", None)
+    if explicit_profile is not None:
+        return explicit_profile
+    language_hint = (getattr(args, "language_hint", None) or "").lower()
+    if language_hint == "tr":
         return "turkish"
-    return profile
+    return "none"
 
 
 def _run_ingest_cmd(args, output_format: str) -> None:
@@ -84,15 +118,11 @@ def _run_ingest_cmd(args, output_format: str) -> None:
     try:
         page_range = _parse_page_range(getattr(args, "page_range", None))
     except ValueError as exc:
-        # Malformed --page-range hits before any I/O; surface as
-        # EXIT_CONFIG_ERROR via the normal envelope.
-        if output_format == "json":
-            print(json.dumps({"success": False, "error": str(exc)}))
-        else:
-            logger.error("%s", exc)
-        sys.exit(EXIT_CONFIG_ERROR)
+        _emit_error_and_exit(exc, output_format=output_format, exit_code=EXIT_CONFIG_ERROR)
     strip_patterns = getattr(args, "strip_pattern", None) or None
-    strip_pattern_timeout = None if getattr(args, "strip_pattern_no_timeout", False) else 5
+    strip_pattern_timeout = (
+        None if getattr(args, "strip_pattern_no_timeout", False) else _STRIP_PATTERN_DEFAULT_TIMEOUT_S
+    )
     quality_presignal = not getattr(args, "no_quality_presignal", False)
 
     sanity_threshold_raw = getattr(args, "script_sanity_threshold", None)
@@ -129,11 +159,12 @@ def _run_ingest_cmd(args, output_format: str) -> None:
         # would be caught by the generic block below; routed here first so
         # the error message says "strip-pattern" specifically, not "ingest
         # failed". Exit code stays EXIT_CONFIG_ERROR per the contract.
-        if output_format == "json":
-            print(json.dumps({"success": False, "error": str(exc)}))
-        else:
-            logger.error("Strip-pattern rejected: %s", exc)
-        sys.exit(EXIT_CONFIG_ERROR)
+        _emit_error_and_exit(
+            exc,
+            output_format=output_format,
+            exit_code=EXIT_CONFIG_ERROR,
+            log_prefix="Strip-pattern rejected: %s",
+        )
     except (
         FileNotFoundError,  # NOSONAR — OSError subclass; listed explicitly so the error type is visible to readers
         ValueError,
@@ -148,11 +179,12 @@ def _run_ingest_cmd(args, output_format: str) -> None:
         # through with a confusing traceback. ValueError stays first because
         # ingest_path raises it for invalid chunking parameters before any
         # filesystem access.
-        if output_format == "json":
-            print(json.dumps({"success": False, "error": str(exc)}))
-        else:
-            logger.error("Ingest failed: %s", exc)
-        sys.exit(EXIT_CONFIG_ERROR)
+        _emit_error_and_exit(
+            exc,
+            output_format=output_format,
+            exit_code=EXIT_CONFIG_ERROR,
+            log_prefix="Ingest failed: %s",
+        )
     except OptionalDependencyError as exc:
         # Catch the narrow optional-extras subclass only.  Plain ``ImportError``
         # would mask genuine bugs (e.g. an internal forgelm import error) under
@@ -161,11 +193,7 @@ def _run_ingest_cmd(args, output_format: str) -> None:
         # a missing optional extra is a *runtime* failure of the dispatched
         # feature, not a config validation failure — exit with
         # EXIT_TRAINING_ERROR so CI/CD retry logic treats it the same way.
-        if output_format == "json":
-            print(json.dumps({"success": False, "error": str(exc)}))
-        else:
-            logger.error("%s", exc)
-        sys.exit(EXIT_TRAINING_ERROR)
+        _emit_error_and_exit(exc, output_format=output_format, exit_code=EXIT_TRAINING_ERROR)
 
     if output_format == "json":
         print(

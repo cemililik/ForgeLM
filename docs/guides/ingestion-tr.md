@@ -256,12 +256,15 @@ PGP / Azure credential span'lerini chunk'lar JSONL'a inmeden önce
 `[REDACTED-SECRET]` ile değiştirir.
 
 `--output-format json` standart çıktıya makine-okunabilir bir özet
-yazar: dosya yolları, chunk sayısı, format sayıları, notlar, Faz
-11.5'te eklenen `notes_structured` (makine-okunabilir `{key: value}`
-yapısı) ve Faz 12'de eklenen `secrets_redaction_counts` (`--secrets-mask`
-çalıştığında her secret tipinden kaç span'in `[REDACTED-SECRET]` ile
-değiştirildiğini sayan `{secret_type: count}` haritası). CI/CD
-pipeline'larında kullanışlı.
+yazar. Zarf Faz 11.5 alanlarını (`notes`, `notes_structured`,
+`pdf_header_footer_lines_stripped`), Faz 12 alanlarını
+(`secrets_redaction_counts`) ve **Faz 15** ek alanlarını taşır:
+`pdf_paragraph_packed_lines_stripped` (ikinci-pas dedup'ın sıyırdığı
+sağkalan header sayısı), `script_sanity_triggered` (eşiği aşan dosya
+sayısı), `strip_pattern_substitutions` (`--strip-pattern` eşleşme
+sayısı), `urls_handled` (`--strip-urls` ile mask/strip edilen URL
+sayısı) ve `frontmatter_pages_dropped` (front-matter heuristic'inin
+düşürdüğü sayfa sayısı). CI/CD pipeline'larında kullanışlı.
 
 ### Token-aware chunking — `--chunk-tokens` (Faz 11.5)
 

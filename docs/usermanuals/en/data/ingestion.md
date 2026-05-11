@@ -94,6 +94,23 @@ that appear most often:
 | `--secrets-mask` | Redact AWS keys, GitHub PATs, JWTs, etc. See [Secrets Scrubbing](#/data/secrets). |
 | `--all-mask` | Shorthand for `--secrets-mask --pii-mask` together. |
 
+### Phase 15 (v0.6.0) additions
+
+| Flag | Description |
+|---|---|
+| `--language-hint LANG` | Enable per-file Unicode-block sanity check (`tr` / `en` / `de` / `fr` / `es` / `it` / `pt`). Fires a WARNING when the out-of-script char ratio exceeds the calibrated 1.5 % threshold. No-op when unset. |
+| `--script-sanity-threshold X` | Override the 1.5 % default sanity-threshold (range `[0.0, 1.0]`). |
+| `--normalise-profile {turkish,none}` | Apply a language-specific glyph normalisation table to extracted text. Auto-derived to `turkish` when `--language-hint tr` is set; `none` otherwise. Explicit value wins. |
+| `--no-normalise-unicode` | Shortcut for `--normalise-profile none`. |
+| `--no-quality-presignal` | Skip the end-of-run quality pre-signal (alpha / weird-char / repeated-line cheap checks). Default ON. |
+| `--epub-no-skip-frontmatter` | Keep EPUB nav / cover / copyright / colophon / titlepage / frontmatter items in the JSONL. Default skips them. |
+| `--keep-md-frontmatter` | Retain `---\n…\n---\n` YAML frontmatter at the start of Markdown files. Default strips. |
+| `--strip-pattern REGEX` | Operator-controlled regex stripping (repeatable). Patterns are ReDoS-validated up-front (nested unbounded quantifiers + `.*?` + DOTALL back-ref shapes rejected) and run under a 5-second per-pattern SIGALRM budget on POSIX. |
+| `--strip-pattern-no-timeout` | Disable the per-pattern SIGALRM timeout. |
+| `--page-range START-END` | Restrict PDF extraction to a contiguous 1-indexed page range. Validation failures abort with `EXIT_CONFIG_ERROR (1)`. |
+| `--keep-frontmatter` | Opt out of the default-ON PDF front-matter / back-matter heuristic (alpha < 0.45 + underscore > 0.10 + ≥ 5 page-number matches → drop up to 12 leading + trailing pages). |
+| `--strip-urls {keep,mask,strip}` | URL handling for inline URLs: `keep` (default), `mask` (`[URL]` placeholder), `strip` (delete). Independent of `--all-mask`. |
+
 ## Common pitfalls
 
 :::warn

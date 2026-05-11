@@ -88,12 +88,19 @@ collected. ``none`` is an explicit no-op so a CLI flag can disable the
 behaviour without special-casing ``profile is None`` at every call site.
 """
 
-DEFAULT_PROFILE: str = "turkish"
+DEFAULT_PROFILE: str = "none"
 """Default profile applied at chunk-write time.
 
-Operators opt out via ``--no-normalise-unicode`` or
-``--normalise-profile none``; opt-in profile selection (``--normalise-profile turkish``)
-is the documented forward-compatible knob for the multi-language case.
+Phase 15 round-1 review (C-2): the original default of ``turkish``
+silently rewrote legitimate non-Turkish letters (``Bjørk`` → ``BjİrkĞ``,
+``Õrö`` collapse) because the normaliser fires regardless of the
+operator's language hint. The fix is to default to ``none`` and let
+the CLI dispatcher derive the right profile from ``--language-hint``:
+``--language-hint tr`` auto-selects ``turkish`` unless
+``--normalise-profile`` is set explicitly; every other hint stays on
+``none``. Operators on a Turkish corpus continue to get the benefit
+without having to know the flag's name; everyone else is safe by
+default.
 """
 
 

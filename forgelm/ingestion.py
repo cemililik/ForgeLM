@@ -168,10 +168,15 @@ _YAML_FRONTMATTER_PATTERN = re.compile(r"\A---[ \t]*\n.*?\n---[ \t]*\n", re.DOTA
 
 
 # Operator-facing URL pattern for ``--strip-urls`` (Phase 15 Task 14).
-# Bounded character class avoids the ReDoS shape ``http\S+`` would have
-# (no greedy + lazy interaction). 2 KB upper bound (`{1,2048}`) keeps
-# the engine linear on pathologically long single-line PDFs.
-_URL_PATTERN = re.compile(r"\b(?:https?|ftp)://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]{1,2048}", re.IGNORECASE)
+# The character class is bounded and non-overlapping, so an unbounded
+# ``+`` does not backtrack catastrophically — there is no greedy/lazy
+# interaction across a shared character set. Dropping the original
+# ``{1,2048}`` upper bound (review round-2 S-5) keeps a 3-KB URL from
+# being truncated mid-string and left as a partial residue in strip
+# mode; URL handling now consumes the URL to its natural whitespace /
+# punctuation boundary in one match.  ``A-Z`` only (no ``a-z``) under
+# IGNORECASE — Sonar python:S5869 false-positive otherwise.
+_URL_PATTERN = re.compile(r"\b(?:https?|ftp)://[A-Z0-9._~:/?#\[\]@!$&'()*+,;=%-]+", re.IGNORECASE)
 
 
 @dataclass
@@ -464,8 +469,28 @@ def _post_extract_normalise(text: str, ctx: _ExtractContext, file_path: Path) ->
         return text
 
     # 1. Glyph normalisation. The function no-ops when profile == "none".
+    # Phase 15 round-1 review (C-2): when the profile is active and
+    # actually rewrites characters, surface the count at INFO so an
+    # operator who didn't intend to apply a Turkish profile to a
+    # Norwegian / Estonian corpus has a single log line to spot the
+    # mismatch. The check compares character identity rather than full
+    # text equality so a long-document round-trip stays cheap.
     if ctx.normalise_profile and ctx.normalise_profile != "none":
-        text = _apply_normalise_profile(text, ctx.normalise_profile)
+        normalised = _apply_normalise_profile(text, ctx.normalise_profile)
+        if normalised != text:
+            # Substitution count = number of differing characters.
+            # Approximate but cheap; an exact per-glyph counter would
+            # require running the table apply twice or restructuring the
+            # normaliser's API.
+            substitutions = sum(1 for a, b in zip(text, normalised) if a != b) + abs(len(normalised) - len(text))
+            logger.info(
+                "Normalisation profile %r applied %d substitution(s) on '%s'. "
+                "Pass --no-normalise-unicode or --normalise-profile none to disable.",
+                ctx.normalise_profile,
+                substitutions,
+                file_path,
+            )
+        text = normalised
 
     # 2. Script-sanity check. Always invoked when a language hint is
     # configured; the helper itself silently no-ops on unknown hints so
@@ -698,10 +723,30 @@ def _drop_frontmatter_pages(
 # ---------------------------------------------------------------------------
 
 _MULTI_COLUMN_SEPARATION_PCT: float = 0.30
-"""Fraction-of-page-width separation between text clusters that flags 2-column."""
+"""Fraction-of-page-width gap between text clusters that flags 2-column.
+
+Round-2 review (nit on ingestion.py:700-758) proposed lowering this from
+0.30 → 0.08 to match real-world 5-8 %-of-page-width gutters. After
+investigation we **kept the 0.30 threshold** because the current
+detector's cluster split is computed against the min / max of all
+extracted text-matrix x-offsets, NOT against per-line start positions.
+pypdf's ``visitor_text`` callback fires per-glyph with the running text
+matrix, so a single-line "Body content here." emits x-positions spanning
+the line's horizontal extent (e.g. 72 → 250 on a US-letter page) — the
+min / max gap on a single-column page can already exceed 25 %, well
+above the proposed 8 % threshold. A genuine 2-column page has its
+right-column glyphs starting near the page midline (≈ 300 / 612 ≈ 50 %)
+so 0.30 catches it without false-positiving on single-column body text.
+
+A histogram-based bimodal-mode detector would let us safely drop the
+threshold below 0.10; that refactor is out of scope for the Phase 15
+round-2 fix and is tracked as a Wave 3 follow-up (see
+`docs/roadmap/phase-15-ingestion-reliability.md` Wave 3 — multi-column
+layout extraction).
+"""
 
 
-def _maybe_warn_multi_column(reader: Any, path: Path) -> bool:
+def _maybe_warn_multi_column(reader: Any, path: Path, *, page_range: Optional[Tuple[int, int]] = None) -> bool:
     """Sample the first probable text-bearing page for a two-cluster x-distribution.
 
     Walks pypdf's text fragments via the ``visitor_text`` callback,
@@ -710,18 +755,33 @@ def _maybe_warn_multi_column(reader: Any, path: Path) -> bool:
     operator is expected to switch to ``--strategy sliding`` with a
     larger chunk-size or to pre-process the PDF with a layout-aware
     tool. Returns ``True`` iff a warning was emitted (test seam).
+
+    Round-2 review (nit on ingestion.py:803): when ``--page-range`` is
+    set the warning previously sampled pages 0-2 even if those pages
+    were going to be dropped from the actual extraction; we now respect
+    the same slice the extractor will use so the warning reflects the
+    real run, not the file's first three pages.
     """
     try:
-        sample_pages = reader.pages[:3]
+        if page_range is not None:
+            start_1idx, end_1idx = page_range
+            sliced = reader.pages[start_1idx - 1 : end_1idx]
+            sample_pages = sliced[:3]
+        else:
+            sample_pages = reader.pages[:3]
     except Exception:  # noqa: BLE001 — pypdf wrapper objects may raise on slice on torn PDFs.
         return False
 
     x_positions: List[float] = []
     page_width: Optional[float] = None
 
-    def visitor(text: str, _cm: Any, tm: Any, _fontDict: Any, _fontSize: Any) -> None:
+    def visitor(text: str, _cm: Any, tm: Any, _fontdict: Any, _fontsize: Any) -> None:
         # ``tm`` is a 6-tuple ``(a, b, c, d, e, f)`` representing the
-        # text-matrix; the horizontal offset is element 4.
+        # text-matrix; the horizontal offset is element 4. Pypdf calls
+        # this with the documented kwargs (``font_dict`` / ``font_size``
+        # under the historical CamelCase names) — the snake_case
+        # underscored names below keep Sonar python:S117 happy without
+        # changing the call contract.
         if text and tm is not None:
             try:
                 x_positions.append(float(tm[4]))
@@ -733,7 +793,7 @@ def _maybe_warn_multi_column(reader: Any, path: Path) -> bool:
             page.extract_text(visitor_text=visitor)
             if page_width is None and getattr(page, "mediabox", None) is not None:
                 page_width = float(page.mediabox.width)
-        except Exception:  # noqa: BLE001 — sampling is best-effort.
+        except Exception:  # noqa: BLE001 — sampling is best-effort; per-page failures from torn PDFs / unusable font tables should not block the multi-column probe.  # nosec B112
             continue
         if len(x_positions) >= 40:
             # Enough samples to make a call; stop walking further pages.
@@ -800,7 +860,7 @@ def _extract_pdf(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
     if page_range is not None:
         page_range = _validate_page_range(page_range, len(reader.pages), path)
 
-    _maybe_warn_multi_column(reader, path)
+    _maybe_warn_multi_column(reader, path, page_range=page_range)
 
     indexed_pages = _read_pdf_pages(reader, path, page_range=page_range)
     if not indexed_pages:
@@ -972,13 +1032,20 @@ def _extract_docx(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
     # footers up front; body extraction subtracts these so a document
     # with a 3-line repeating header across 10 pages emits zero header
     # lines in the JSONL.
+    #
+    # Round-2 review (S-4): the pre-review code subtracted EVERY
+    # paragraph line whose stripped form appeared in the header /
+    # footer set, which incorrectly dropped legitimate body paragraphs
+    # that happened to match a header (e.g. body line ``Chapter 1`` vs
+    # header line ``Chapter 1``). We now build the set once and apply
+    # it only to **short** lines (≤ 80 chars) AND only when the line
+    # text exactly equals a header-set member after stripping — a real
+    # body paragraph is overwhelmingly longer than its title, so the
+    # length floor protects ``# Chapter 1`` body text while still
+    # catching the boilerplate ``ACME CONFIDENTIAL`` running header.
     boilerplate = _collect_docx_header_footer_lines(doc)
+    _DOCX_BOILERPLATE_MAX_LEN = 80
 
-    # Phase 12: render tables as markdown so SFT models see the header /
-    # separator / body structure rather than a single ``|``-joined line.
-    # Walking the body in document order keeps tables next to the
-    # paragraphs that introduce them — appending all paragraphs first
-    # and all tables last (the previous behaviour) reordered content.
     blocks: List[str] = []
     for element in _iter_docx_blocks(doc):
         if isinstance(element, Table):
@@ -990,10 +1057,11 @@ def _extract_docx(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
             if not text or not text.strip():
                 continue
             if boilerplate:
-                # Strip whole-line boilerplate hits; keep the paragraph
-                # if some of its lines are unique. Comparing on a
-                # ``strip``-ed basis matches the collection side.
-                kept = [ln for ln in text.splitlines() if ln.strip() not in boilerplate]
+                kept = [
+                    ln
+                    for ln in text.splitlines()
+                    if not (len(ln.strip()) <= _DOCX_BOILERPLATE_MAX_LEN and ln.strip() in boilerplate)
+                ]
                 stripped = "\n".join(kept).strip()
                 if not stripped:
                     continue
@@ -1003,18 +1071,35 @@ def _extract_docx(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
     return "\n\n".join(blocks)
 
 
+_EPUB_NAME_TOKEN_SPLIT = re.compile(r"[/\\.\-_ ]+")
+
+
 def _epub_item_matches_skip(item_name: str, item_type: str, skip_list: Tuple[str, ...]) -> bool:
     """Return ``True`` iff the item's file name or epub:type matches the skip-list.
 
-    Substring match on the lower-cased file name catches the audit's
-    canonical examples (``cover.xhtml``, ``nav.xhtml``, ``copyright.xhtml``).
-    Exact-token match on the ``epub:type`` value catches the EPUB-3
-    explicit-typing variant (``epub:type="cover"``). Either signal is
-    sufficient to skip — the operator's opt-out path (``--epub-no-skip-frontmatter``)
-    disables the whole check rather than tuning the match logic.
+    Phase 15 round-1 review (C-1): the pre-review implementation used a
+    plain substring match, which silently skipped legitimate chapters
+    whose filenames *contained* a skip token — ``recovery.xhtml`` got
+    dropped because ``cover`` is a substring of ``recovery``;
+    ``navy.xhtml`` and ``discovery_chapter.xhtml`` had the same fate.
+    A novel with chapters named "Recovery from War" or "The Royal Navy"
+    would silently lose entire bodies of text with no operator-facing
+    warning — the same silent-failure shape Phase 15 was launched to
+    fix.
+
+    The fix is a **whole-token** match. We split the file name on
+    common path / extension / separator characters and compare each
+    resulting token against the skip-list. This catches the canonical
+    cases (``cover.xhtml``, ``nav.xhtml``, ``copyright.xhtml``,
+    ``cover-page.xhtml``, ``oebps/cover.xhtml``) while keeping
+    ``recovery.xhtml`` / ``navy.xhtml`` / ``discovery_chapter.xhtml``
+    safe.
+
+    Exact-token match on the ``epub:type`` value is unchanged.
     """
     name_lc = item_name.lower()
-    if any(token in name_lc for token in skip_list):
+    tokens = {token for token in _EPUB_NAME_TOKEN_SPLIT.split(name_lc) if token}
+    if tokens & set(skip_list):
         return True
     type_lc = (item_type or "").lower()
     return bool(type_lc) and type_lc in skip_list
@@ -1054,6 +1139,7 @@ def _extract_epub(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
     # navigation / cover XHTML that the operator does not want in SFT
     # data when ``ctx.epub_skip_frontmatter`` is on.
     chunks: List[str] = []
+    skipped_items: List[str] = []
     for spine_entry in getattr(book, "spine", []):
         item_id = spine_entry[0] if isinstance(spine_entry, (tuple, list)) else spine_entry
         item = book.get_item_with_id(item_id)
@@ -1062,16 +1148,34 @@ def _extract_epub(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
         if item.get_type() != ITEM_DOCUMENT:
             continue
         item_name = getattr(item, "file_name", "") or getattr(item, "name", "") or ""
-        # ``epub:type`` lives on the manifest item under ``properties``;
-        # ebooklib stores it on ``item.media_type`` for some files and
-        # ``item.get_id`` for others. Best-effort probe.
-        item_type = getattr(item, "media_overlay", "") or ""
+        # Round-2 nit: ebooklib exposes EPUB-3 manifest properties (e.g.
+        # ``properties=["nav", "cover-image"]``) on ``item.properties``;
+        # the pre-round-2 code probed ``media_overlay`` which is always
+        # empty for nav / cover items. Join with spaces so any property
+        # token can match the skip-list via the whole-token splitter
+        # introduced for C-1.
+        item_properties = getattr(item, "properties", None) or []
+        item_type = " ".join(str(p) for p in item_properties) if item_properties else ""
         if ctx.epub_skip_frontmatter and _epub_item_matches_skip(item_name, item_type, ctx.epub_skip_items):
+            skipped_items.append(item_name)
             continue
         soup = BeautifulSoup(item.get_content(), "html.parser")
         text = soup.get_text(separator="\n").strip()
         if text:
             chunks.append(text)
+    if skipped_items:
+        # Phase 15 round-1 review (C-1): silent skips are exactly the
+        # failure shape Phase 15 was launched to fix. A WARNING per
+        # ingest naming the skipped item filenames lets the operator
+        # spot a legitimate chapter that the heuristic mis-classified
+        # — recovery is via ``--epub-no-skip-frontmatter``.
+        logger.warning(
+            "EPUB '%s': skipped %d frontmatter / navigation item(s): %s. "
+            "Pass --epub-no-skip-frontmatter to keep these in the JSONL.",
+            path,
+            len(skipped_items),
+            ", ".join(skipped_items[:6]) + (", …" if len(skipped_items) > 6 else ""),
+        )
     return "\n\n".join(chunks)
 
 
@@ -1085,11 +1189,20 @@ def _read_text_with_bom_strip(path: Path) -> str:
     back to ``encoding="utf-8"`` with ``errors="replace"`` when the
     file is genuinely not UTF-8 (so the existing binary-contamination
     warning still fires).
+
+    Round-2 review (S-2): the fallback path used to read with
+    ``encoding="utf-8"`` rather than ``"utf-8-sig"``, leaking a literal
+    ``\\ufeff`` into chunk 0 whenever a file mixed a BOM with downstream
+    non-UTF-8 bytes. We now use ``"utf-8-sig"`` on both paths and
+    additionally strip an explicit leading ``\\ufeff`` so any encoding-
+    detection edge case is caught belt-and-braces.
     """
     try:
         raw = path.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError:
-        raw = path.read_text(encoding="utf-8", errors="replace")
+        raw = path.read_text(encoding="utf-8-sig", errors="replace")
+    if raw.startswith("﻿"):
+        raw = raw[1:]
     return raw
 
 
@@ -1108,9 +1221,14 @@ def _warn_if_binary_contamination(raw: str, path: Path) -> None:
 
 
 def _extract_text(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
-    """Extract plain TXT with UTF-8 BOM stripping (Phase 15 Task 8)."""
-    if ctx is None:
-        ctx = _ExtractContext()
+    """Extract plain TXT with UTF-8 BOM stripping (Phase 15 Task 8).
+
+    The ``ctx`` parameter is accepted for signature parity with the
+    other format extractors (the dispatcher calls every extractor with
+    ``ctx=ctx``) and intentionally unused inside this body — TXT has
+    no PDF / DOCX / EPUB-style options that need threading through.
+    """
+    del ctx  # signature parity only; Sonar S1854.
     raw = _read_text_with_bom_strip(path)
     _warn_if_binary_contamination(raw, path)
     return raw
@@ -1809,6 +1927,7 @@ def _emit_chunk(
     outcome: _FileOutcome,
     mask_pii: Optional[Callable[..., Any]],
     mask_secrets: Optional[Callable[..., Any]] = None,
+    sampler: Optional[Callable[[str], None]] = None,
 ) -> None:
     """Mask (optional), serialise, and write one chunk; update outcome counters.
 
@@ -1821,6 +1940,12 @@ def _emit_chunk(
     pass. Future PII / secret regex additions could legitimately overlap
     (e.g. an Azure connection-string substring resembling an IBAN); this
     ordering future-proofs against that case without operator action.
+
+    Round-2 review (S-3): the quality pre-signal previously read each
+    written line back via ``json.loads`` to recover the chunk text, an
+    avoidable per-chunk round-trip on large corpora. The ``sampler``
+    kwarg now hands the post-mask chunk string straight to the
+    pre-signal collector, bypassing the JSON parse entirely.
     """
     if mask_secrets is not None:
         payload, secret_counts = mask_secrets(payload, return_counts=True)
@@ -1834,6 +1959,8 @@ def _emit_chunk(
         payload, redaction_counts = mask_pii(payload, return_counts=True)
         for kind, count in redaction_counts.items():
             outcome.pii_counts[kind] = outcome.pii_counts.get(kind, 0) + count
+    if sampler is not None:
+        sampler(payload)
     out_fh.write(json.dumps({"text": payload}, ensure_ascii=False) + "\n")
     outcome.chunks_written += 1
     outcome.chars_written += len(payload)
@@ -1852,6 +1979,7 @@ def _process_one_file(
     overlap_tokens: int = 0,
     tokenizer: Any = None,
     extract_ctx: Optional[_ExtractContext] = None,
+    sampler: Optional[Callable[[str], None]] = None,
 ) -> _FileOutcome:
     """Extract → chunk → optionally mask → emit JSONL for a single file.
 
@@ -1892,7 +2020,7 @@ def _process_one_file(
         payload = chunk.strip()
         if not payload:
             continue
-        _emit_chunk(payload, out_fh, outcome, mask_pii, mask_secrets=mask_secrets)
+        _emit_chunk(payload, out_fh, outcome, mask_pii, mask_secrets=mask_secrets, sampler=sampler)
     return outcome
 
 
@@ -1925,7 +2053,9 @@ def ingest_path(
     # ---- Phase 15 knobs -------------------------------------------------
     language_hint: Optional[str] = None,
     script_sanity_threshold: float = _DEFAULT_SCRIPT_SANITY_THRESHOLD,
-    normalise_profile: str = _DEFAULT_NORMALISE_PROFILE,
+    # ``None`` triggers the C-2 auto-derive: when ``language_hint=="tr"``
+    # the profile is "turkish"; otherwise "none". An explicit value wins.
+    normalise_profile: Optional[str] = None,
     keep_md_frontmatter: bool = False,
     epub_skip_frontmatter: bool = True,
     keep_frontmatter: bool = False,
@@ -2002,6 +2132,15 @@ def ingest_path(
         from ._strip_pattern import compile_strip_patterns
 
         compiled_strip_patterns = compile_strip_patterns(strip_patterns)
+
+    # Phase 15 round-2 (C-2) library-level profile derivation.  When the
+    # caller passes ``normalise_profile=None`` we derive "turkish" from
+    # ``language_hint == "tr"`` and "none" otherwise.  Explicit kwarg
+    # values (including the literal ``"none"``) bypass derivation so
+    # operator intent is honoured.  The CLI dispatcher mirrors this
+    # logic in ``_resolve_normalise_profile`` for parity.
+    if normalise_profile is None:
+        normalise_profile = "turkish" if (language_hint or "").lower() == "tr" else "none"
 
     chunk_size_explicit = chunk_size is not None
     effective_chunk_size = chunk_size if chunk_size_explicit else DEFAULT_CHUNK_SIZE
@@ -2093,29 +2232,32 @@ def ingest_path(
 
     # Phase 15 Task 4: collect each chunk's text on the fly so the
     # end-of-run quality pre-signal can compute its three cheap checks
-    # without re-reading the JSONL.  Only enabled when ``quality_presignal``
-    # is on; off-mode keeps the path bit-for-bit unchanged.
-    sampled_chunks: List[str] = [] if quality_presignal else []
+    # without re-reading the JSONL. Round-2 review (S-3): we now pass
+    # the sampler straight into ``_emit_chunk`` instead of wrapping the
+    # file handle and re-parsing the JSON payload back out of every
+    # written line.
+    sampled_chunks: List[str] = []
     quality_sample_limit = 5000  # keep memory bounded on huge corpora
 
-    def _maybe_sample(payload: str) -> None:
-        if quality_presignal and len(sampled_chunks) < quality_sample_limit:
-            sampled_chunks.append(payload)
+    sampler: Optional[Callable[[str], None]]
+    if quality_presignal:
+
+        def _maybe_sample(payload: str) -> None:
+            if len(sampled_chunks) < quality_sample_limit:
+                sampled_chunks.append(payload)
+
+        sampler = _maybe_sample
+    else:
+        sampler = None
 
     # newline="\n" pins LF on Windows. JSONL Files spec requires LF, and
     # piping through tooling (jq -c, wc -l, downstream HF dataset loaders)
     # avoids CRLF surprises. Linux/macOS default is already LF.
     with open(dst, "w", encoding=encoding, newline="\n") as out_fh:
-        # Wrap the file handle so every emitted chunk also flows through
-        # the quality-presignal sampler. The wrapper preserves existing
-        # ``out_fh.write`` semantics — callers see a normal file-like
-        # object — so we don't have to thread an extra callback through
-        # ``_emit_chunk``.
-        sampling_fh = _QualitySamplingFileHandle(out_fh, _maybe_sample) if quality_presignal else out_fh
         for fpath in files:
             outcome = _process_one_file(
                 fpath,
-                sampling_fh,
+                out_fh,
                 strategy=strategy,
                 chunk_size=effective_chunk_size,
                 overlap=overlap,
@@ -2125,6 +2267,7 @@ def ingest_path(
                 overlap_tokens=overlap_tokens,
                 tokenizer=tokenizer_obj,
                 extract_ctx=extract_ctx,
+                sampler=sampler,
             )
             chunk_count += outcome.chunks_written
             total_chars += outcome.chars_written
@@ -2261,37 +2404,6 @@ def ingest_path(
 # ---------------------------------------------------------------------------
 # Phase 15 Task 4 — end-of-run quality pre-signal helpers
 # ---------------------------------------------------------------------------
-
-
-class _QualitySamplingFileHandle:
-    """Wrap ``out_fh`` so each written line also flows to a sampler callback.
-
-    Used by :func:`ingest_path` to feed the quality pre-signal without
-    threading an extra callback through ``_emit_chunk``. Only methods
-    the rest of the pipeline actually calls (``write`` / ``__enter__``
-    / ``__exit__``) are proxied — keeping the wrapper shallow makes it
-    trivially obvious in code review that no I/O side-effect is hidden.
-    """
-
-    __slots__ = ("_fh", "_sampler")
-
-    def __init__(self, fh: Any, sampler: Callable[[str], None]) -> None:
-        self._fh = fh
-        self._sampler = sampler
-
-    def write(self, payload: str) -> int:
-        # payload comes in as ``json.dumps({"text": ...}) + "\n"``; we
-        # extract the chunk text via a quick parse rather than splitting
-        # on the JSON shape so a future schema change can't silently
-        # corrupt the sampler.
-        try:
-            data = json.loads(payload.rstrip("\n"))
-            text = data.get("text", "") if isinstance(data, dict) else ""
-        except (json.JSONDecodeError, ValueError):
-            text = ""
-        if text:
-            self._sampler(text)
-        return self._fh.write(payload)
 
 
 def _check_alpha_ratio(text: str) -> bool:

@@ -42,8 +42,15 @@ audit:
 ```
 
 ```shell
-$ forgelm audit data/ingested.jsonl --quality-filter
+# v0.6.0+: quality-filter DEFAULT-AÇIK; açık flag zararsız.
+$ forgelm audit data/ingested.jsonl
 ✓ 45 satır düşürüldü; data/clean.jsonl yazıldı (12,355 satır)
+
+# v0.6.0 öncesi (veya açıkça belirtmek için), bayrağı geçirin:
+$ forgelm audit data/ingested.jsonl --quality-filter
+
+# CI gate'iniz opt-in semantik'e bağlıysa yeni default'tan opt-out edin:
+$ forgelm audit data/ingested.jsonl --no-quality-filter
 ```
 
 ## Eşik ayarlama

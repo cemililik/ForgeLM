@@ -1051,3 +1051,34 @@ class TestFacadeReExports:
             "_check_operator_identity",
         ):
             assert hasattr(_cli_facade, name), f"forgelm.cli must re-export {name!r}"
+
+
+class TestPypdfNormaliseDoctorProbe:
+    """Phase 15 Task 3 / round-2 N-3 — dedicated coverage for the new probe."""
+
+    def test_pass_when_table_round_trips_canonical_fixture(self):
+        from forgelm.cli.subcommands._doctor import _check_pypdf_normalise_turkish
+
+        result = _check_pypdf_normalise_turkish()
+        assert result.status == "pass"
+        assert result.name == "pypdf_normalise.turkish"
+        assert result.extras.get("single_substitutions", 0) >= 5
+        assert result.extras.get("default_profile") in ("none", "turkish")
+
+    def test_fail_when_profile_silently_no_ops(self, monkeypatch):
+        """If a future refactor breaks the dispatcher, the probe fails loudly."""
+        import forgelm.cli.subcommands._doctor as doctor_mod
+
+        # Patch the dispatcher used by the probe to no-op on the fixture so
+        # the probe's "did the table actually rewrite?" guard fires.
+        def fake_apply_profile(text, _profile):
+            return text
+
+        # The probe re-imports apply_profile inside its body — patch the
+        # underlying module so the late import resolves to our shim.
+        import forgelm._pypdf_normalise as norm_mod
+
+        monkeypatch.setattr(norm_mod, "apply_profile", fake_apply_profile)
+        result = doctor_mod._check_pypdf_normalise_turkish()
+        assert result.status == "fail"
+        assert "no substitutions" in result.detail.lower()

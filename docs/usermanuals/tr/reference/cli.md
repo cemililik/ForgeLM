@@ -108,10 +108,20 @@ $ forgelm ingest INPUT_PATH \
     [--chunk-size N] [--overlap N] \
     [--chunk-tokens N] [--overlap-tokens N] [--tokenizer MODEL_NAME] \
     [--pii-mask] [--secrets-mask] [--all-mask] \
-    [--pii-ml-language LANG]
+    [--language-hint LANG] [--script-sanity-threshold X] \
+    [--normalise-profile {turkish,none} | --no-normalise-unicode] \
+    [--no-quality-presignal] \
+    [--epub-no-skip-frontmatter] [--keep-md-frontmatter] \
+    [--strip-pattern REGEX ...] [--strip-pattern-no-timeout] \
+    [--page-range START-END] [--keep-frontmatter] \
+    [--strip-urls {keep,mask,strip}]
 ```
 
-Bkz. [Doküman Ingestion](#/data/ingestion).
+Faz 15 (v0.6.0), `--language-hint`, `--script-sanity-threshold`,
+`--normalise-profile`, `--no-normalise-unicode`, `--no-quality-presignal`,
+`--epub-no-skip-frontmatter`, `--keep-md-frontmatter`, `--strip-pattern`,
+`--strip-pattern-no-timeout`, `--page-range`, `--keep-frontmatter` ve
+`--strip-urls` bayraklarını ekledi. Bkz. [Doküman Ingestion](#/data/ingestion).
 
 ## Chat: `forgelm chat`
 

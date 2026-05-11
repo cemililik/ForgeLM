@@ -147,7 +147,7 @@ Pre-train data audit. Full report; key fields shown.
   "secrets_summary": {"total_findings": 0, "by_kind": {}},
   "cross_split_overlap": {"pairs": {}},
   "leakage": {"...": "..."},
-  "quality_filter": null,
+  "quality_summary": {"samples_evaluated": 100, "samples_flagged": 3, "by_check": {"...": "..."}},
   "near_duplicates": {"...": "..."},
   "languages_top3": [{"code": "en", "count": 87}],
   "generated_at": "2026-05-04T12:34:56+00:00",
@@ -155,7 +155,54 @@ Pre-train data audit. Full report; key fields shown.
 }
 ```
 
+> **Phase 15 (v0.6.0) note:** `quality_summary` is populated by default from v0.6.0+ because the audit's `--quality-filter` flag was flipped to default-on. Pass `--no-quality-filter` to skip; the field is `{}` in that case.
+
 The full schema is in [`docs/guides/data_audit.md`](#/data/audit). Pin against `report_path` (where the on-disk JSON lives) + `success` for CI gates.
+
+## `forgelm ingest`
+
+Document ingestion stdout envelope. Phase 15 added additive fields under
+`notes_structured`; the pre-Phase-15 keys are unchanged.
+
+```json
+{
+  "success": true,
+  "output_path": "data/curated.jsonl",
+  "chunk_count": 245,
+  "files_processed": 12,
+  "files_skipped": 0,
+  "total_chars": 824513,
+  "format_counts": {".pdf": 4, ".docx": 6, ".md": 2},
+  "pii_redaction_counts": {"email": 3, "phone": 1},
+  "secrets_redaction_counts": {},
+  "pdf_header_footer_lines_stripped": 18,
+  "pdf_paragraph_packed_lines_stripped": 4,
+  "script_sanity_triggered": 1,
+  "strip_pattern_substitutions": 12,
+  "urls_handled": 7,
+  "frontmatter_pages_dropped": 3,
+  "notes": ["..."],
+  "notes_structured": {
+    "files_processed": 12,
+    "files_skipped": 0,
+    "chunk_count": 245,
+    "total_chars": 824513,
+    "strategy": "paragraph",
+    "format_counts": {".pdf": 4, ".docx": 6, ".md": 2},
+    "pdf_header_footer_lines_stripped": 18,
+    "pdf_paragraph_packed_lines_stripped": 4,
+    "script_sanity_summary": {"files_checked": 12, "files_triggered": 1, "...": "..."},
+    "frontmatter_pages_dropped": [0, 1, 11],
+    "strip_pattern_substitutions": 12,
+    "urls_handled": 7,
+    "quality_presignal": {"samples_evaluated": 245, "samples_flagged": 17, "by_check": {"alpha_ratio": 5, "weird_chars": 1, "repeated_lines": 11}}
+  }
+}
+```
+
+The Phase 15 additive fields are documented at
+[Document Ingestion](#/data/ingestion). Pre-Phase-15 consumers reading
+`output_path` / `chunk_count` / `notes` keep working unchanged.
 
 ## `forgelm verify-audit`
 

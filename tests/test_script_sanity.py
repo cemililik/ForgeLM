@@ -50,7 +50,7 @@ class TestCheckScriptSanity:
         clean = "Türkçe metin doğru karakterler içerir. " * 50
         report = check_script_sanity(clean, language_hint="tr", file_path="clean.txt")
         assert not report.triggered
-        assert report.ratio == 0.0
+        assert report.ratio == pytest.approx(0.0)
 
     def test_silent_on_unknown_language(self):
         # Unknown language hint — check is a no-op (not an error).
@@ -100,16 +100,21 @@ class TestCheckScriptSanity:
         custom_logger.addHandler(handler)
         custom_logger.setLevel(logging.WARNING)
 
-        check_script_sanity(
-            "Body. " * 50 + "øø" * 30,
-            language_hint="tr",
-            file_path="t.txt",
-            threshold=0.01,
-            profile="none",
-            logger_override=custom_logger,
-        )
-        # Captured by the test-local logger, not the module logger.
-        assert any("Script-sanity" in m for m in captured)
+        try:
+            check_script_sanity(
+                "Body. " * 50 + "øø" * 30,
+                language_hint="tr",
+                file_path="t.txt",
+                threshold=0.01,
+                profile="none",
+                logger_override=custom_logger,
+            )
+            # Captured by the test-local logger, not the module logger.
+            assert any("Script-sanity" in m for m in captured)
+        finally:
+            # Round-2 nit: avoid leaking the test handler into other tests
+            # that share the ``test.script_sanity`` logger name.
+            custom_logger.removeHandler(handler)
 
 
 class TestReportToStructured:
