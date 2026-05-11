@@ -104,7 +104,7 @@ These come from the standards documents; summarized here for quick reference:
 1. **Config-driven.** Behaviour is determined by validated YAML. No env-var sniffing for behaviour (only for secrets). No hardcoded feature flags.
 2. **Reliability before features.** Every new capability ships with tests, docs, and CI coverage. "I'll add tests later" = the PR is not ready.
 3. **Optional dependencies as extras.** Heavy deps (`bitsandbytes`, `unsloth`, `deepspeed`, `lm-eval`, `wandb`, `mergekit`) live under `[project.optional-dependencies]` and raise `ImportError` with an install hint when missing.
-4. **Exit codes are a public contract.** 0/1/2/3/4 — see [error-handling.md](docs/standards/error-handling.md). CI/CD pipelines depend on these.
+4. **Exit codes are a public contract.** 0/1/2/3/4/5 — see [error-handling.md](docs/standards/error-handling.md) for the full table (`0=success`, `1=config`, `2=training`, `3=eval-failure`, `4=awaiting-approval`, `5=wizard-cancelled`). CI/CD pipelines depend on these.
 5. **Append-only audit log.** Every decision gate emits a structured event. Never edit or delete entries.
 6. **No silent failures.** No bare `except:`, no `except Exception: pass`, no `|| true` in CI, no logging-and-swallowing for anything except explicitly-non-fatal paths (webhooks, cleanup).
 7. **Bilingual where it counts.** User-facing docs are EN + TR mirrors. Code, CLI output, logs, config keys are English only.
