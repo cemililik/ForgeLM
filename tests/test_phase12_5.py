@@ -1,7 +1,7 @@
 """Phase 12.5 — data curation polish backlog.
 
 Covers the four follow-up items from
-:mod:`docs/roadmap/phase-12-5-backlog.md`:
+:mod:`docs/roadmap/completed-phases.md`:
 
 1. ``forgelm ingest --all-mask`` composite shorthand (this file).
 2. Wizard "audit first" entry point (this file).

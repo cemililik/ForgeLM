@@ -154,10 +154,11 @@ Default workflow for a non-trivial change:
      python3 tools/check_anchor_resolution.py --strict && \
      python3 tools/check_cli_help_consistency.py --strict && \
      python3 tools/check_wizard_defaults_sync.py && \
-     python3 tools/check_no_analysis_refs.py
+     python3 tools/check_no_analysis_refs.py && \
+     python3 tools/check_no_unguarded_sys_modules_pop.py
    ```
 
-   All nine must pass. The first four are the historical gauntlet;
+   All ten must pass. The first four are the historical gauntlet;
    the three doc guards (Wave 3 / Wave 4 / Wave 5 additions) catch
    bilingual structural drift, broken markdown anchors, and CLI ↔ docs
    help-text drift before the PR opens. The wizard-defaults guard
@@ -166,6 +167,10 @@ Default workflow for a non-trivial change:
    (review-cycle 5) keeps the public tree from citing gitignored
    `docs/marketing/` or `docs/analysis/` paths — see
    `docs/standards/documentation.md` "Working-memory directories".
+   The unguarded-`sys.modules`-pop guard (v0.5.7 round-4) flags any
+   `sys.modules.pop("torch"|"numpy"|"trl"|…)` without
+   `monkeypatch.delitem` — the v0.5.7 round-3 review traced 35
+   spurious full-suite failures to that exact pattern.
 
 ## Etiquette when communicating with the user
 

@@ -113,6 +113,131 @@ class TestTorchCudaCheck:
         assert "12.4" in result.detail
 
 
+class TestNumpyTorchAbiCheck:
+    """Catches the torch < 2.3 + NumPy >= 2 binary-ABI mismatch.
+
+    The bug surfaces as the ``_ARRAY_API not found`` UserWarning emitted
+    from torch's C++ tensor-numpy bridge.  Intel Mac (x86_64) hosts are
+    the canonical victim — PyTorch Foundation no longer publishes
+    torch >= 2.3 wheels for that platform, so pip caps at torch 2.2.x
+    and any modern numpy on the box silently degrades the bridge.
+    """
+
+    def test_torch_22_with_numpy_2_fails(self) -> None:
+        from forgelm.cli.subcommands._doctor import _check_numpy_torch_abi
+
+        fake_torch = MagicMock()
+        fake_torch.__version__ = "2.2.2"
+        fake_numpy = MagicMock()
+        fake_numpy.__version__ = "2.0.1"
+        with patch.dict("sys.modules", {"torch": fake_torch, "numpy": fake_numpy}):
+            result = _check_numpy_torch_abi()
+        assert result.status == "fail"
+        assert "2.2.2" in result.detail
+        assert "2.0.1" in result.detail
+        assert "numpy<2" in result.detail  # remediation hint
+        assert result.extras["torch_version"] == "2.2.2"
+        assert result.extras["numpy_version"] == "2.0.1"
+
+    def test_torch_23_with_numpy_2_passes(self) -> None:
+        from forgelm.cli.subcommands._doctor import _check_numpy_torch_abi
+
+        fake_torch = MagicMock()
+        fake_torch.__version__ = "2.3.0"
+        fake_numpy = MagicMock()
+        fake_numpy.__version__ = "2.0.1"
+        with patch.dict("sys.modules", {"torch": fake_torch, "numpy": fake_numpy}):
+            result = _check_numpy_torch_abi()
+        assert result.status == "pass"
+        assert "ABI-compatible" in result.detail
+
+    def test_torch_22_with_numpy_1_passes(self) -> None:
+        from forgelm.cli.subcommands._doctor import _check_numpy_torch_abi
+
+        fake_torch = MagicMock()
+        fake_torch.__version__ = "2.2.2"
+        fake_numpy = MagicMock()
+        fake_numpy.__version__ = "1.26.4"
+        with patch.dict("sys.modules", {"torch": fake_torch, "numpy": fake_numpy}):
+            result = _check_numpy_torch_abi()
+        assert result.status == "pass"
+
+    def test_no_numpy_skips_gracefully(self, monkeypatch) -> None:
+        """numpy is an optional fast-path for the simhash backend; its
+        absence is not a doctor failure.
+
+        Uses ``monkeypatch.delitem`` so the popped ``sys.modules['numpy']``
+        is auto-restored on test teardown — a plain ``sys.modules.pop``
+        leaves numpy un-cached, and a later test that re-imports torch
+        will partially re-initialise it (no ``torch._C`` binding) and
+        every downstream ``from trl import SFTConfig`` then fails with
+        ``NameError: name '_C' is not defined``.
+        """
+        import builtins
+
+        from forgelm.cli.subcommands import _doctor
+
+        fake_torch = MagicMock()
+        fake_torch.__version__ = "2.2.2"
+        original_import = builtins.__import__
+
+        def _block_numpy(name, *args, **kwargs):
+            if name == "numpy":
+                raise ImportError("No module named 'numpy'")
+            return original_import(name, *args, **kwargs)
+
+        # Both swaps are tracked by monkeypatch so the original modules
+        # come back automatically; nothing leaks into the next test.
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+        monkeypatch.delitem(sys.modules, "numpy", raising=False)
+        monkeypatch.setattr(builtins, "__import__", _block_numpy)
+        result = _doctor._check_numpy_torch_abi()
+        assert result.status == "pass"
+        assert result.extras.get("skipped") is True
+        assert result.extras.get("reason") == "numpy_missing"
+
+    def test_no_torch_skips_gracefully(self, monkeypatch) -> None:
+        """torch.cuda probe already surfaces a missing torch as fail; the
+        ABI probe must not double-report.
+
+        ``monkeypatch.delitem`` keeps ``sys.modules['torch']`` restored
+        on teardown — see ``test_no_numpy_skips_gracefully`` for the
+        full pollution-cascade rationale (a stranded torch entry
+        breaks every subsequent TRL-loading test in the suite).
+        """
+        import builtins
+
+        from forgelm.cli.subcommands import _doctor
+
+        original_import = builtins.__import__
+
+        def _block_torch(name, *args, **kwargs):
+            if name == "torch":
+                raise ImportError("No module named 'torch'")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.delitem(sys.modules, "torch", raising=False)
+        monkeypatch.setattr(builtins, "__import__", _block_torch)
+        result = _doctor._check_numpy_torch_abi()
+        assert result.status == "pass"
+        assert result.extras.get("skipped") is True
+        assert result.extras.get("reason") == "torch_missing"
+
+    def test_handles_prerelease_version_strings(self) -> None:
+        """Tolerate prerelease ('2.2.0a0') and local-version ('2.2.0+cpu')
+        suffixes — common on dev installs."""
+        from forgelm.cli.subcommands._doctor import _check_numpy_torch_abi
+
+        fake_torch = MagicMock()
+        fake_torch.__version__ = "2.2.0+cpu"
+        fake_numpy = MagicMock()
+        fake_numpy.__version__ = "2.0.0rc1"
+        with patch.dict("sys.modules", {"torch": fake_torch, "numpy": fake_numpy}):
+            result = _check_numpy_torch_abi()
+        # 2.2 + 2.0 still triggers the fail path despite the version suffixes.
+        assert result.status == "fail"
+
+
 class TestGpuInventoryCheck:
     def test_no_torch_fails(self) -> None:
         import builtins

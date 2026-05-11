@@ -640,17 +640,640 @@ graph TD
 
 ---
 
-## Phase 10: Post-Training Completion ✅ (v0.4.0)
+## Phase 10: Post-Training Completion
 
-> **Ayrıntılar:** [phase-10-post-training.md](phase-10-post-training.md)
+**Goal:** Close the "trained, now what?" gap. After a fine-tune finishes, users should be able to sanity-check, export, and hand the model to a serving runtime (Ollama, vLLM, TGI) without leaving ForgeLM.
+**Estimated Effort:** Medium (2-3 months)
+**Priority:** High — single biggest post-9 UX gap; foundation for Phase 12 (quickstart)
 
-5 görev, 5 yeni modül, 89 yeni test. `inference.py`, `chat.py`, `fit_check.py`, `export.py`, `deploy.py`. CLI subcommand mimarisi (`forgelm chat / export / deploy`), `--fit-check` flag. Nisan 2026.
+> **Context:** External analyses of two adjacent projects (QKV-Core, Trion) plus internal retrospectives converged on the same finding: ForgeLM stops at `output_dir/` with an HF-format adapter/merged model, but the user's actual journey continues to sanity chat → quantization → serving. Competitors (Axolotl, Unsloth) leave this to external tooling. Owning this handoff — without rewriting the inference ecosystem — is a high-value, low-risk addition.
 
-**Tasks:**
-1. [x] `forgelm/inference.py` — `load_model`, `generate`, `generate_stream`, `logit_stats`, `adaptive_sample`
-2. [x] `forgelm chat` — streaming REPL, slash commands, rich rendering, Llama Guard routing
-3. [x] `forgelm export` — GGUF via llama-cpp-python, 6 quant levels, SHA-256 → model_integrity.json
-4. [x] `forgelm --fit-check` — VRAM estimator, FITS/TIGHT/OOM/UNKNOWN verdict, JSON output
-5. [x] `forgelm deploy` — ollama / vllm / tgi / hf-endpoints config dosyası üretimi
+**Status: ✅ Complete** — shipped in `v0.4.0` (April 2026)
+
+#### Tasks:
+
+1. [x] **`forgelm/inference.py` — generation + logit statistics + adaptive sampling**
+   Core API: `load_model(path, adapter=None, backend="transformers")`, `generate(model, tokenizer, prompt, **kwargs)`, `generate_stream(...)` (streaming via `TextIteratorStreamer`), `logit_stats(logits) -> {entropy, top1_prob, effective_vocab}`, `adaptive_sample(logits, temperature, top_k, top_p, entropy_threshold=6.5)`. Chat template reuse via `tokenizer.apply_chat_template`. Fallback to `"role: content"` join when no template. Shared by `chat.py`, `judge.py`, `synthetic.py`.
+   ```python
+   from forgelm.inference import load_model, generate
+   model, tok = load_model("./outputs/my_run", adapter="./outputs/my_run/adapter_model")
+   text = generate(model, tok, "Hello", max_new_tokens=200, temperature=0.7)
+   ```
+
+2. [x] **`forgelm chat` — interactive terminal loop**
+   Terminal REPL in `forgelm/chat.py`: streaming output (default), `/reset`, `/save [file]`, `/temperature 0.x`, `/system <prompt>`, `/help` commands. `rich` optional rendering. History management with 50-pair cap. The `--safety` per-turn screen flag is planned for v0.6.0+ Pro CLI (today's safety pipeline runs through the YAML `safety:` block during training/eval).
+   ```bash
+   forgelm chat ./outputs/my_run
+   ```
+
+   `forgelm chat`'s shipping form takes a positional checkpoint path
+   plus optional `--adapter`. The per-turn Llama Guard screen via
+   `--safety` is planned for v0.6.0+ Pro CLI (see Phase 13 roadmap);
+   today operators get the same screening by enabling
+   `safety: enabled: true` in the YAML config the chat REPL reads.
+   The flag-form preview (`forgelm chat ... --safety`) is NOT
+   runnable today.
+
+3. [x] **`forgelm export` — HF → GGUF conversion**
+   Wraps `llama-cpp-python`'s `convert_hf_to_gguf.py`; no reimplementation. Handles adapter merge (LoRA + base → merged fp16) before conversion. Supports quants: `q2_k`, `q3_k_m`, `q4_k_m`, `q5_k_m`, `q8_0`, `f16`. SHA-256 of output artifact appended to `model_integrity.json`. Optional dependency: `pip install forgelm[export]`.
+   ```bash
+   forgelm export ./outputs/my_run --format gguf --quant q4_k_m --output model.gguf
+   ```
+
+4. [x] **`--fit-check` — VRAM fit advisor**
+   Pre-flight memory estimator in `forgelm/fit_check.py`. Detects GPU via `torch.cuda.mem_get_info()`. Estimates peak VRAM = base (params × dtype) + LoRA adapter + optimizer state (AdamW/8bit/GaLore variants) + activations (with gradient-checkpointing scaling). Produces verdict (FITS / TIGHT / OOM / UNKNOWN) with ordered recommendations. Falls back to hypothetical mode when no GPU is detected.
+   ```bash
+   forgelm --config my.yaml --fit-check
+   # → GPU: RTX 3060 12GB; Estimated peak: 10.8 GB; Verdict: ✅ FITS
+   forgelm --config my.yaml --fit-check --output-format json
+   ```
+
+5. [x] **`forgelm deploy` — serving handoff config generation**
+   Template-based config generation in `forgelm/deploy.py`; does not run the server. Targets: `ollama` (Modelfile), `vllm` (engine config YAML), `tgi` (docker-compose.yaml), `hf-endpoints` (JSON spec). All targets support `--output-format json`.
+   ```bash
+   forgelm deploy ./outputs/my_run --target ollama --output ./Modelfile
+   forgelm deploy ./outputs/my_run --target vllm --output ./vllm_config.yaml
+   forgelm deploy ./outputs/my_run --target tgi --output ./docker-compose.yaml
+   forgelm deploy ./outputs/my_run --target hf-endpoints --output ./endpoint.json
+   ```
+
+#### Requirements:
+- All five modules must work without GPU for config generation (fit-check excepted — it reads GPU but doesn't require one, falls back to hypothetical mode).
+- `inference.py` and `chat.py` share the same load/generate primitives with `safety.py`, `judge.py`, and `synthetic.py`; refactor duplicated `model.generate()` calls into the new module.
+- Each CLI command supports `--output-format json` for pipeline integration.
+- `pip install forgelm[export]` is optional; core install must not require `llama-cpp-python`.
+- Windows/Linux/macOS compatibility for all CLI surface (GGUF export may require specific toolchains, document clearly).
+
+#### Delivery:
+- Target release: `v0.4.0` ("Post-Training Completion")
+- Each task = independent PR with tests; no cross-task blocking dependencies.
 
 ---
+
+---
+
+## Phase 10.5: Quickstart Layer & Onboarding
+
+> **Status:** ✅ **DONE** — shipped as `v0.4.5` on 2026-04-26 (PyPI). Module: [`forgelm/quickstart.py`](../../forgelm/quickstart.py); five bundled templates under [`forgelm/templates/`](../../forgelm/templates/); CLI: `forgelm quickstart <template>`; tests: [`tests/test_quickstart.py`](../../tests/test_quickstart.py); CI smoke in [nightly.yml](../../.github/workflows/nightly.yml).
+
+> **Filename history:** Originally tracked under `phase-12-quickstart.md` (the slot Quickstart held in early planning); renamed to `phase-10-5-quickstart.md` in the v0.5.2 cycle so the filename matched the current phase number, then absorbed into this multi-phase archive in the v0.5.7 cycle. The Phase 12 slot now belongs to [Data Curation Maturity](#phase-12-data-curation-maturity).
+
+**Goal:** Make "my first fine-tune" a 10-minute experience. One command, one model in the end, zero YAML writing. Without sacrificing the CI/CD-native core — quickstart generates a YAML the user can later customize.
+**Estimated Effort:** Medium (1-2 months) — **Actual: 1 week**
+**Priority:** Critical — community flywheel; directly drives EU AI Act enterprise pipeline
+
+> **Phase ordering rationale:** Reprioritized from Phase 12 to Phase 10.5. Quickstart is the primary community growth driver; stars → enterprise leads → compliance sales. EU AI Act enforcement (August 2, 2026) creates a closing window. This phase must ship before Data Ingestion (Phase 11).
+
+> **Context:** Strategic decision documented in the internal enterprise-vs-simple paradox analysis: ForgeLM adds a "Layer 0" entry point without changing its CI/CD-native identity. The same YAML schema, the same trainer, the same outputs — just wrapped in pre-built templates and opinionated defaults. Depends on Phase 10 (`chat`) for end-of-training sanity loop.
+
+#### Tasks:
+
+1. [x] **`forgelm/quickstart.py` + `forgelm quickstart <template>` CLI**
+   Takes a template name, optional model override, optional dataset override. Generates a `my_run.yaml` under `./configs/` and immediately invokes `forgelm --config ./configs/my_run.yaml`. On completion, auto-invokes `forgelm chat` unless `--no-chat` flag. Transparent about what it did — prints generated YAML path.
+   ```bash
+   forgelm quickstart customer-support
+   forgelm quickstart code-assistant --model Qwen/Qwen2.5-Coder-7B-Instruct
+   forgelm quickstart --list
+   ```
+
+2. [x] **Template library: `forgelm/templates/` + bundled sample datasets**
+   Initial five templates, each = YAML config + sample JSONL (100-500 examples, license-clean):
+   - `customer-support` (Qwen/Qwen2.5-7B-Instruct primary, HuggingFaceTB/SmolLM2-1.7B-Instruct fallback, 58 examples, QLoRA r=8, ~15 min on RTX 3060)
+   - `code-assistant` (Qwen/Qwen2.5-Coder-7B-Instruct primary, Qwen/Qwen2.5-Coder-1.5B-Instruct fallback, 59 examples, QLoRA, ~25 min)
+   - `domain-expert` (Qwen/Qwen2.5-7B-Instruct primary, HuggingFaceTB/SmolLM2-1.7B-Instruct fallback, BYOD — no bundled dataset)
+   - `medical-qa-tr` (Qwen/Qwen2.5-7B-Instruct primary, Qwen/Qwen2.5-1.5B-Instruct fallback, 49 TR examples; Turkish-language flagship)
+   - `grpo-math` (Qwen/Qwen2.5-Math-7B-Instruct primary, Qwen/Qwen2.5-Math-1.5B-Instruct fallback, 40 prompts with gold_answer field, GRPO with built-in format+correctness reward, ~45 min)
+   Each template must produce a working model on an 8-12 GB consumer GPU. `fit_check` integration: if GPU too small, quickstart auto-downsizes model choice.
+
+3. [x] **Conservative default policy for quickstart**
+   All templates ship with: QLoRA 4-bit NF4, rank=8, batch=1 with gradient accumulation, gradient checkpointing on, safety eval off (opt-in only), compliance artifacts off (opt-in only). Rationale: minimize "GPU OOM on first run" and "compliance scared me off" failure modes.
+
+4. [x] **Wizard integration — template selector first**
+   `forgelm --wizard` opens with "Start from a template?" question. If yes → pass to quickstart flow. If no → existing 10-question flow. Merges the two paths.
+
+5. [x] **End-to-end smoke test in CI**
+   Nightly CI runs: `forgelm quickstart customer-support --dry-run` for each template. Validates YAML generation + dataset parse + config validation. No GPU required (dry-run). Catches template drift early.
+
+#### Requirements:
+- Sample datasets must be license-clean (CC-BY-SA 4.0 or similar permissive, documented in `forgelm/templates/LICENSES.md`).
+- Each template has a companion YouTube video (scheduled in marketing roadmap, not this roadmap).
+- Templates are a foundation for community contributions: `CONTRIBUTING.md` should document how to add new templates; each template is an atomic PR.
+- Quickstart must not introduce a "quickstart vs real training" bifurcation — same underlying code paths, same YAML schema.
+
+#### Delivery:
+- Target release: `v0.4.5` ("Quickstart Layer")
+- Blocks on Phase 10 tasks 1 + 2 (`inference.py` and `chat.py`). Phase 10 tasks 3-5 (export, fit-check, deploy) can develop in parallel.
+
+---
+
+---
+
+## Phase 11: Document Ingestion & Data Audit
+
+> **Status:** ✅ **DONE** — shipped as `v0.5.0` (PR #11 merged to `main` 2026-04-27).
+> Modules: [`forgelm/ingestion.py`](../../forgelm/ingestion.py),
+> [`forgelm/data_audit.py`](../../forgelm/data_audit/); CLI:
+> `forgelm ingest <path>` + `forgelm --data-audit <path>`; tests:
+> [`tests/test_ingestion.py`](../../tests/test_ingestion.py),
+> [`tests/test_data_audit.py`](../../tests/test_data_audit.py); docs:
+> [`docs/guides/ingestion.md`](../guides/ingestion.md),
+> [`docs/guides/data_audit.md`](../guides/data_audit.md). Follow-up
+> work tracked in [Phase 11.5 backlog](#phase-115-ingestion-audit-polish).
+>
+**Goal:** Turn raw domain documents (PDF, DOCX, EPUB, TXT, plus structured sources) into training-ready JSONL, with automatic data quality reports that plug into EU AI Act Article 10 data governance.
+**Estimated Effort:** Medium (1-2 months) — **Actual: 1 day**
+**Priority:** High — enterprise onboarding accelerator; bridges ingestion → training → compliance audit in one tool.
+
+> **Context:** Dataset loading today goes through HuggingFace `load_dataset` + JSONL/CSV/Parquet. Enterprises arriving with directories of PDFs (legal, medical, policy manuals) have to write custom preprocessing. This module removes that friction and simultaneously generates governance artifacts that satisfy Article 10 (data collection method, quality metrics, bias declarations).
+
+### Tasks
+
+1. [x] **`forgelm/ingestion.py` — multi-format → JSONL**
+   Parsers for PDF (`pypdf`), DOCX (`python-docx`, including table cells), EPUB (`ebooklib` + `beautifulsoup4`), plain TXT, Markdown. Chunking strategies as shipped: `sliding` (fixed character window with `--overlap`) and `paragraph` (greedy paragraph packer; default). `semantic` is reserved for a follow-up phase and intentionally hidden from the CLI `--strategy` choice list — it raises `NotImplementedError` if invoked programmatically. Output is `{"text": "<chunk>"}` JSONL — recognized by `forgelm/data.py` as pre-formatted SFT input without further preprocessing. Optional dependency group: `pip install forgelm[ingestion]`.
+   ```bash
+   forgelm ingest ./book.epub --chunk-size 2048 --strategy paragraph --output data/sft.jsonl
+   forgelm ingest ./policies/ --recursive --output data/policies.jsonl
+   ```
+
+2. [x] **`forgelm/data_audit.py` — dataset quality & governance report**
+   Analyzes a JSONL dataset, produces `data_audit_report.json` with: sample count per split, column schema, text length distribution (min/max/mean/p50/p95), language detection (top-3), duplicate / near-duplicate rate (simhash-based), null/empty rate, PII flag counts (regex-based; optional `presidio` integration). Feeds Phase 8 Article 10 artifact (`data_governance_report.json`).
+   ```bash
+   forgelm --data-audit data/sft.jsonl --output audit/
+   ```
+
+3. [x] **PII detection hooks**
+   Regex-based detector for: emails, phone numbers (international formats), credit cards (Luhn-validated), IBAN, national IDs (TR, DE, FR, US SSN). Counts flags per sample; optionally masks via `--pii-mask`. Does not block training by default — surfaces in audit report.
+
+4. [x] **Near-duplicate detection across splits**
+   Simhash / MinHash across train/validation/test. Reports overlap rate. Critical for fair benchmarking — train-test leakage is a silent quality killer.
+
+### Requirements
+- Ingestion must handle malformed files gracefully (scan PDFs with no text layer → warning + empty result, not crash).
+- Audit runs on CPU; no GPU required.
+- All outputs integrate with Phase 8 compliance artifacts — data governance report references the audit JSON.
+- OCR is out of scope; document this as a limitation and suggest external tooling (Tesseract, AWS Textract).
+
+### Delivery
+- Target release: `v0.5.0`
+- Can start after Phase 10.5 (Quickstart) lands; no hard blocker on code, but UX sequencing matters.
+
+---
+
+---
+
+## Phase 11.5 — Ingestion / Audit Polish
+
+> **Note (post-consolidation):** Originally targeted `v0.5.1`, now ships
+> as part of the consolidated `v0.5.0` release alongside Phases 11, 12,
+> and 12.5 — see [releases.md](releases.md#v050-document-ingestion-data-curation-pipeline).
+> Version-label references below preserve the historical planning trail.
+>
+> **Status:** ✅ Landed for the (originally) `v0.5.1` cycle. All 12 follow-ups carved
+> out of Phase 11's review backlog have shipped. Modules touched:
+> [`forgelm/data_audit/`](../../forgelm/data_audit/),
+> [`forgelm/ingestion.py`](../../forgelm/ingestion.py),
+> [`forgelm/cli/`](../../forgelm/cli/),
+> [`forgelm/wizard/`](../../forgelm/wizard/); CLI:
+> `forgelm audit <path>` (new subcommand, with `--data-audit` preserved
+> as deprecation alias) + token-aware `forgelm ingest` flags; tests:
+> [`tests/test_data_audit.py`](../../tests/test_data_audit.py),
+> [`tests/test_ingestion.py`](../../tests/test_ingestion.py),
+> [`tests/test_cli_subcommands.py`](../../tests/test_cli_subcommands.py),
+> [`tests/test_wizard_byod.py`](../../tests/test_wizard_byod.py).
+
+**Goal:** Operational polish on top of `v0.5.0`'s ingestion + audit
+surface — no new training capabilities, but materially better handling
+for large corpora and a cleaner CLI shape.
+
+### What landed
+
+| # | Item | Where it lives | One-line takeaway |
+|---|---|---|---|
+| **1** | LSH banding for near-duplicate detection | `find_near_duplicates`, `_count_leaked_rows` in [`data_audit.py`](../../forgelm/data_audit/) | Pigeonhole-banded LSH (default `bands = threshold + 1`). Drops within-split + cross-split scans from `O(n²)` to ~`O(n × k)`; brute-force fallback when bands shrink below 4 bits. |
+| **2** | Streaming `_read_jsonl_split` | [`data_audit.py`](../../forgelm/data_audit/) | Reader is now a generator yielding `(row, parse_err, decode_err)`; `_audit_split` consumes it row-by-row via a `_StreamingAggregator` so RAM stays bounded on multi-million-row splits. |
+| **3** | Token-aware `--chunk-tokens` | [`ingestion.py`](../../forgelm/ingestion.py), [`cli.py`](../../forgelm/cli/) | New `--chunk-tokens N` + `--tokenizer MODEL` flags on `forgelm ingest`. Chunks are sized via `AutoTokenizer.encode` instead of raw character counts so they line up with `model.max_length` exactly. |
+| **4** | PDF page-level header / footer dedup | `_strip_repeating_page_lines` in [`ingestion.py`](../../forgelm/ingestion.py) | Lines that recur as the first or last non-empty line on ≥ 70 % of a PDF's pages are stripped. Reduces audit near-duplicate noise on long policy / book PDFs. |
+| **5** | Token-level `lru_cache` memo | `_token_digest` in [`data_audit.py`](../../forgelm/data_audit/) | Per-token digest is cached at module scope (`maxsize=10_000`). Distinct tokens follow Zipf, so ~10 K cache slots cover most corpus traffic. |
+| **6** | xxhash backend for simhash | `_token_digest` in [`data_audit.py`](../../forgelm/data_audit/) | Optional `xxhash` import (added to the `[ingestion]` extra) drives the digest path when present; BLAKE2b is preserved as the fallback. |
+| **7** | `forgelm audit` proper subcommand | [`cli.py`](../../forgelm/cli/) | New `forgelm audit PATH` (with `--verbose`, `--near-dup-threshold`, `--output`). The legacy `--data-audit FLAG` keeps working as a deprecation alias (logs a one-line notice). |
+| **8** | PII severity tiers | `PII_SEVERITY`, `_build_pii_severity` in [`data_audit.py`](../../forgelm/data_audit/) | Audit JSON now carries `pii_severity` with `worst_tier`, `by_tier`, and `by_type`. Notes line lead with the worst tier (e.g. `WORST tier: CRITICAL`). |
+| **9** | `summarize_report` truncation policy | [`data_audit.py`](../../forgelm/data_audit/) | Default `verbose=False` folds zero-finding splits into a single tail line. CLI exposes `--verbose` on the new `audit` subcommand for full output. |
+| **10** | Structured ingestion notes | `IngestionResult.notes_structured` in [`ingestion.py`](../../forgelm/ingestion.py) | Free-text `extra_notes` stays for humans; new `notes_structured` carries machine-readable `{key: value}` for CI/CD consumers. JSON output already exposes both. |
+| **11** | Wizard "ingest first" entry point | `_offer_ingest_for_directory` + `_prompt_dataset_path_with_ingest_offer` in [`forgelm/wizard/_byod.py`](../../forgelm/wizard/_byod.py) | Both BYOD quickstart and the full 9-step wizard now offer to run `ingest` inline when the typed path is a directory of raw documents. |
+| **12** | Atomic audit-report write | `_atomic_write_json` in [`data_audit.py`](../../forgelm/data_audit/) | Writes via `tempfile.NamedTemporaryFile` + `os.replace` so a crashed audit can never leave a half-written `data_audit_report.json` on disk. |
+
+### Measured speedups (xxhash + lru_cache hot path)
+
+Local microbenchmark on Apple Silicon, Python 3.11.2, xxhash 3.7.0
+(median of 21 runs, 50 K hashes per round; end-to-end uses 1 K texts of
+50–150 Zipfian-English tokens with the cache cleared between runs):
+
+| Scenario                                | Speedup (xxh3 vs blake2b) |
+| --------------------------------------- | ------------------------- |
+| Raw digest, short keys (2–6 chars)      | 1.31×                     |
+| Raw digest, Zipfian English (~3 chars)  | 1.34×                     |
+| Raw digest, long keys (40–80 chars)     | 1.33×                     |
+| End-to-end `compute_simhash` (cache cleared) | 1.05×                |
+
+xxhash's well-known "4–10× faster than crypto hashes" figure refers to
+C-level pure-hash benchmarks; the Python wrapping (UTF-8 encode → call →
+`intdigest`) levels the field. The bigger wall-clock win in real audits
+comes from the token-level `lru_cache` — Zipfian token frequency means
+~10 K cache slots cover the vast majority of a corpus's traffic, so a
+second pass over the same corpus runs almost entirely from cache.
+
+The benchmark script is at `tools/bench_simhash.py` (run with
+`python tools/bench_simhash.py`); it is not part of the regular `pytest`
+suite because it is wall-clock-noisy.
+
+### Behavioural deltas worth highlighting
+
+- **Default near-duplicate detection is now LSH-banded.** Behaviour at
+  the default `threshold=3` is identical to the old quadratic scan
+  (pigeonhole gives exact recall), but the cost on a 100 K row corpus
+  drops from "tens of seconds, gigabytes of comparisons" to ~seconds.
+- **Audit output JSON adds `pii_severity`.** Existing consumers that
+  read only `pii_summary` keep working — the new field is additive.
+  Pipelines that want a one-glance verdict should read
+  `pii_severity.worst_tier` and gate on `critical` / `high`.
+- **`forgelm audit PATH` is the recommended invocation.** The
+  `--data-audit` top-level flag continues to work but logs a one-line
+  deprecation notice. Plan to remove it no earlier than `v0.7.0`.
+- **`--chunk-tokens` requires `--tokenizer`.** Token-aware chunking
+  needs to know which vocab to count against; we refuse to default to a
+  hidden tokenizer because the chunk count would silently differ
+  per-model. Set both or neither.
+- **PDF dedup is opt-out by being short-doc-tolerant.** Documents
+  with fewer than 3 pages skip the dedup step entirely; the statistical
+  signal is too weak to distinguish "header" from "actual repetition"
+  on small docs.
+
+### What's next
+
+`v0.5.2` ([Phase 12 — Data Curation Maturity](#phase-12-data-curation-maturity)) is the direct continuation of this lineage: MinHash LSH dedup for >50K-row corpora, markdown-aware splitter, code/secrets leakage scan, heuristic quality filter, DOCX/Markdown table preservation. Driven by the post-`v0.5.1` competitive review that compared ForgeLM's ingestion + audit against LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling.
+
+`v0.5.3` ([Phase 14 — Multi-Stage Pipeline Chains](phase-14-pipeline-chains.md)) was reslotted from `v0.5.2` so the ingestion/audit lineage finishes uninterrupted before the trainer-orchestration surface gets reshaped.
+
+---
+
+## Phase 12: Data Curation Maturity
+
+> **Note (post-consolidation):** Originally targeted `v0.5.2`, now ships
+> as part of the consolidated `v0.5.0` release alongside Phases 11, 11.5,
+> and 12.5 — see [releases.md](releases.md#v050-document-ingestion-data-curation-pipeline).
+> Version-label references below preserve the historical planning trail.
+>
+> **Status:** ✅ **Tier 1 DONE** — landed on `development` for the (originally) `v0.5.2` cycle. All five must-have tasks shipped: MinHash LSH dedup option (`[ingestion-scale]` extra via `datasketch`), markdown-aware splitter (`--strategy markdown`), code/secrets leakage tagger (`[ingestion-secrets]` extra via `detect-secrets` with regex fallback), heuristic quality filter (`--quality-filter`), DOCX/Markdown table preservation. Tier 2 (Presidio adapter, Croissant metadata) and Tier 3 (`--all-mask` composite, wizard "audit first" hook) are deferred to a follow-up **Phase 12.5** backlog file (analogous to [Phase 11.5 section above](#phase-115-ingestion-audit-polish)). Modules: [`forgelm/data_audit.py`](../../forgelm/data_audit/), [`forgelm/ingestion.py`](../../forgelm/ingestion.py), [`forgelm/cli.py`](../../forgelm/cli/); tests: [`tests/test_data_audit_phase12.py`](../../tests/test_data_audit_phase12.py), [`tests/test_ingestion_phase12.py`](../../tests/test_ingestion_phase12.py); CLI tests added in [`tests/test_cli_subcommands.py`](../../tests/test_cli_subcommands.py).
+
+> **Note:** Phase 11 + 11.5 built the ingestion / audit lineage (Phase 11 → `v0.5.0`, Phase 11.5 → `v0.5.1`); this phase moves the same lineage from **enterprise-acceptable** to **enterprise-competitive**.
+
+**Goal:** Mature ForgeLM's `forgelm ingest` + `forgelm audit` layer along three axes — **scale** (LSH-based near-duplicate detection beyond ~50K rows, large-corpus throughput), **security** (code/secret leakage scanning + optional ML-based PII), and **quality** (markdown-aware chunking + heuristic quality filters + table structure preservation). The competitive review that followed Phase 11.5 (see [Phase 11.5 section above](#phase-115-ingestion-audit-polish), "Measured speedups" subsection, plus the 2026-04-27 ingestion-comparison synthesis) lists the exact gaps this phase closes.
+
+**Estimated Effort:** Medium (4-6 weeks) — **Actual: ~1 day** (single-author implementation, leveraging the streaming aggregator + tier-mapped pattern from Phase 11.5).
+**Priority:** High — answers the enterprise demand surfaced after the `v0.5.0` PyPI launch; sequences naturally with Phase 14 (Multi-Stage Pipeline Chains), which is reslotted to `v0.5.3`.
+
+> **Context:** Phase 11 shipped multi-format extraction (PDF/DOCX/EPUB/TXT/MD) + paragraph/sliding chunkers; Phase 11.5 added token-aware chunking, PDF page-level header/footer dedup, the `forgelm audit` subcommand, PII severity tiers, LSH-banded simhash dedup, and atomic JSON writes. The cross-tool comparison (LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling) found ForgeLM **uncontested** in the *fine-tuning + compliance* niche but **behind** in four concrete areas: (1) MinHash LSH dedup for >50K-row corpora, (2) heading-preserving markdown chunking, (3) code / credential leakage scanning, (4) DOCX/PDF table structure preservation. This phase closes those four. Layout-aware PDF parsing (Marker/Docling delegation) and embedding-based semantic dedup are **deliberately deferred to Phase 13+** — adding either would require runtime ML dependencies that conflict with the project's "we don't write our own quantization / VLM" boundary (codified in `CLAUDE.md` "What ForgeLM is not") and the air-gapped reproducibility guarantees Annex IV depends on.
+
+### Tasks
+
+#### Tier 1 — Must-have (Phase 12's thesis)
+
+1. [x] **MinHash LSH dedup option** (`[ingestion-scale]` extra, `datasketch>=1.6.0,<2.0.0`)
+   `find_near_duplicates` and `_count_leaked_rows` keep simhash + LSH banding as the **default**; an opt-in `--dedup-method minhash --jaccard-threshold 0.85` route delegates to [datasketch](https://github.com/ekzhu/datasketch) `MinHashLSH`. Simhash is ideal up to ~50K rows; MinHash LSH is the industry standard above that scale (NeMo Curator, Dolma, RedPajama all use it). Surface contract:
+   ```bash
+   forgelm audit data/large_corpus.jsonl --dedup-method minhash --jaccard-threshold 0.85
+   ```
+   ```python
+   # Programmatic:
+   forgelm.data_audit.audit_dataset(..., dedup_method="minhash", minhash_jaccard=0.85)
+   ```
+   `cross_split_overlap` and `near_duplicate_pairs` share the same method parameter. Audit JSON gains `near_duplicate_summary.method: "minhash" | "simhash"`; default-method audits stay **schema-additive** (older parsers reading `pairs_per_split` keep working unchanged) — the on-disk JSON is *not* byte-identical because `near_duplicate_summary.method` and `cross_split_overlap.method` are now always present alongside the existing fields.
+
+2. [x] **Markdown-aware splitter** (new third strategy: `--strategy markdown`)
+   `_chunk_markdown(text, max_chars_or_tokens, ...)` parses heading hierarchy (`# H1` / `## H2` / `### H3`); breaks chunks at heading boundaries; inlines the heading path **into the chunk body** (`# H1 / ## H2\n\n…`) rather than as a separate metadata field — output stays `{"text": "..."}` JSONL so SFT loss benefits from the heading signal. Code-block (` ``` `) and list-item boundaries are preserved (no mid-code-block splits). Composes with token-aware mode: `--strategy markdown --chunk-tokens 1024 --tokenizer Qwen/Qwen2.5-7B-Instruct`. Existing `paragraph` and `sliding` behaviour stays byte-identical.
+
+3. [x] **Code / secrets leakage tagger** (`[ingestion-secrets]` extra, `detect-secrets>=1.5.0,<2.0.0`)
+   Audit gains a `secrets_summary` block: AWS / GCP / Azure access keys, GitHub / GitLab / Slack tokens, OpenSSH / PGP private-key headers, JWT, OpenAI API keys (`sk-…`), generic high-entropy strings. Audit JSON shape:
+   ```json
+   {
+     "secrets_summary": {
+       "total": 3,
+       "by_type": {"aws_access_key": 1, "github_token": 2},
+       "lines_flagged": 3
+     }
+   }
+   ```
+   Ingest side: `--secrets-mask` flag mirrors `--pii-mask`'s helper pattern, replacing detected spans with `[REDACTED-SECRET]`. The `detect-secrets` package is optional; without it a regex-only fallback set (~10 common patterns) runs and an INFO log says *"install `forgelm[ingestion-secrets]` for full coverage"*. Compliance angle is **critical** — credentials leaked into an SFT corpus are memorised by the trained model; Phase 12 is the first line of defence for this risk class.
+
+4. [x] **Heuristic quality filter** (audit-side, opt-in `forgelm audit --quality-filter`)
+   Classic Gopher / C4 / RefinedWeb heuristics: mean-word-length (flag if outside 3-12 chars), alphabetic-character ratio (< 70 % → flag), end-of-line punctuation ratio (< 50 % → flag), repeated-line ratio (top-3 distinct lines covering > 30 % of non-empty lines → flag), short-paragraph ratio (`\n\n`-separated blocks with < 5 words, > 50 % of total → flag). Markdown fenced code blocks are stripped before heuristics run so legitimate code rows don't trip the prose-oriented checks. Opt-in default-off; new `quality_summary`:
+   ```json
+   {
+     "quality_summary": {
+       "samples_flagged": 47,
+       "by_check": {
+         "low_alpha_ratio": 12,
+         "low_punct_endings": 8,
+         "abnormal_mean_word_length": 3,
+         "short_paragraphs": 27,
+         "repeated_lines": 5
+       },
+       "overall_quality_score": 0.94
+     }
+   }
+   ```
+   ML-based classifiers (NeMo Curator's fastText / DeBERTa quality model) are **out of scope** — deferred to Phase 13+ (model dependency, non-deterministic, reproducibility risk).
+
+5. [x] **DOCX / Markdown table preservation**
+   `_extract_docx` replaces the current `" | "` flat join with markdown table syntax:
+   ```text
+   | Header 1 | Header 2 | Header 3 |
+   |---|---|---|
+   | Cell A1  | Cell A2  | Cell A3  |
+   ```
+   PDF tables stay flat — `pypdf`'s table support is weak and Docling delegation is Phase 13+ scope. The Markdown extractor (`.md` route) already expects markdown, so the new strategy aligns naturally. SFT use cases where this matters (code-assistant, financial-assistant, tabular Q&A) get a noticeable lift; that lift is measured post-merge, not gated on Phase 12 acceptance.
+
+#### Tier 2 — Should-have (Phase 12 if scope allows; otherwise Phase 12.5)
+
+6. [ ] **Presidio adapter** (`[ingestion-pii-ml]` extra, optional)
+   ForgeLM keeps the regex + Luhn + TC Kimlik checksum PII detector as the **default**. `--pii-engine presidio` opts into Microsoft Presidio for the ML-NER signals regex misses (person names, organisations, locations). Presidio output maps into the existing `pii_severity` table with a new tier (`person_name` → medium, `organization` → low). Scope is ingest-side only; audit contract is unchanged. Fallback: missing Presidio → INFO log *"install `forgelm[ingestion-pii-ml]` for ML-based detection"*.
+
+7. [ ] **Croissant metadata compatibility** (audit JSON, optional)
+   Audit report gains a top-level `croissant_compatible: true` flag plus a subset of Google's [Croissant ML metadata](https://github.com/mlcommons/croissant) schema fields (`@type: "sc:Dataset"`, `name`, `description`, `recordSet`, …). Combined with the EU AI Act Article 10 governance bundle, this produces a **dual-standard** artifact — both Croissant consumers and AI Act auditors can parse the same file. Opt-in: `--croissant` flag or programmatic `croissant=True`. Existing audit consumers are unaffected (additive only).
+
+#### Tier 3 — Could-have (skip if scope is exhausted)
+
+8. [ ] **`forgelm ingest --secrets-mask` + `--pii-mask` composite flag**
+   Runs both masking passes sequentially in one ingest pass (secrets first — high-entropy spans masked; PII second — remaining spans). Order matters because some secrets (GitHub tokens) partially match PII regexes (`de_id`-shaped). Single-flag shorthand: `--all-mask` enables both. Test: known fixtures combining secrets + PII, roundtrip + masked-output coverage.
+
+9. [ ] **Wizard "audit first" entry point**
+   Phase 11.5 added the ingest-first hook. Phase 12 mirrors it for symmetry: when the user provides a JSONL path, the wizard offers to run `forgelm audit` automatically; the summary is printed to stdout and the user decides whether to proceed based on the leakage / PII / quality verdicts. UX shape: *"Detected 18 emails, 1 critical-tier PII (credit card), and 7 near-duplicate pairs in your dataset. Continue training?"*. New helper: `_offer_audit_for_jsonl`.
+
+### Won't-do (deliberately out of Phase 12 scope)
+
+- ❌ **VLM-based PDF parsing** (Marker / Docling / Nemotron-Parse) — Phase 13+ scope. ForgeLM holds the "we don't write our own VLM" line (codified in `CLAUDE.md` "What ForgeLM is not"); even external delegation (Docling) adds runtime weight + risks the air-gapped guarantee. Ships as a separate optional extra in a later phase.
+- ❌ **Embedding-based semantic dedup** (NeMo Curator `semantic.py` analogue) — runtime embedding-model dependency + non-deterministic chunk counts violate Annex IV reproducibility. Deferred to Phase 13+ (only viable if a deterministic-snapshot mode is designed first).
+- ❌ **Built-in OCR** — out of scope since Phase 11; docs already point at Tesseract / AWS Textract recipes. This stays unchanged.
+- ❌ **ML-based quality classifier** (fastText / DeBERTa) — non-deterministic + model-snapshot dependency. The heuristic filter in Tier 1 #4 is sufficient for this phase; classifiers are Phase 13+.
+- ❌ **GPU/Ray-scale execution** (NeMo Curator territory) — ForgeLM's niche is *small-to-medium corpus, enterprise compliance*. 8 TB pretraining curation is NeMo Curator's job; ForgeLM should be sufficient for 100K–1M-row SFT corpora, which Phase 12 (streaming + LSH) achieves without distributed runtime.
+- ❌ **HTML extractor** — useful for enterprise scrape (intranet wikis) but scope creep. Operators can pre-process with BeautifulSoup; ForgeLM doesn't need to ingest HTML directly.
+
+### Requirements
+
+- **Backward compatibility**: Default-flag `forgelm ingest` and `forgelm audit` outputs are **schema-additive** with v0.5.1 (older parsers keep working) — they are *not* byte-identical because new always-on fields (`secrets_summary`, `near_duplicate_summary.method`, `cross_split_overlap.method`) are now part of every report. v0.5.1 audit consumers must parse v0.5.2 reports without changes; the stdout JSON envelope retains the v0.5.1 `near_duplicate_pairs_per_split` key alongside the richer `near_duplicate_summary`.
+- **Optional extras**: Every new heavy dependency (`datasketch`, `detect-secrets`, `presidio-analyzer`) goes under `pyproject.toml` `[project.optional-dependencies]` with the `ImportError` + install-hint pattern from `docs/standards/architecture.md` §3.
+- **Determinism**: Every new path (MinHash, markdown chunker, secrets scan, quality heuristics) preserves the fixed-input → fixed-output contract. Annex IV reproducibility guarantee.
+- **CLI**: All new flags appear in `forgelm audit --help` and `forgelm ingest --help`; `--output-format json` envelope is additive.
+- **Compliance**: New audit fields (`secrets_summary`, `quality_summary`) are auto-inlined into the governance bundle by `forgelm/compliance.py::_maybe_inline_audit_report` without code changes — the existing `json.load` path passes them through as-is.
+- **Documentation**: `docs/guides/ingestion.md` + TR mirror, `docs/guides/data_audit.md` + TR mirror, `docs/qms/sop_data_management.md` (new SOP step for secrets scan + quality filter), `CHANGELOG.md`, `docs/reference/usage.md` + TR mirror, `docs/standards/architecture.md` extras matrix.
+- **Tests**: At least three tests per Tier 1 task (happy path + edge case + extras-skip). MinHash needs a `test_minhash_parity_with_simhash_at_default_threshold` (LSH parity-style). Markdown splitter needs a heading-preservation test. Secrets needs known-fixture roundtrip + mask test.
+- **Smoke**: `forgelm --config config_template.yaml --dry-run` must produce v0.5.1-equivalent output; new flags have no effect on dry-run.
+- **Lint + coverage**: ruff clean, coverage stays at `fail_under=40` (Phase 12 adds new code; tests must not drop the floor).
+
+### Kill criteria
+
+For the quarterly gate review:
+
+- **Tier 1 task #1 (MinHash LSH)**: If it doesn't land within 6 weeks **and** a 100K-row smoke fixture under `forgelm audit --dedup-method minhash` doesn't beat the brute-force O(n²) baseline by ≥ 5× → demote to Tier 2, keep simhash as default, push the MinHash extra to v0.5.3.
+- **Tier 1 task #4 (Quality filter)**: If false-positive rate on industry benchmark fixtures exceeds 10 % → opt-in default-off (already the plan), document the limitation, add a *"calibrate before applying"* note for operators.
+- **Compatibility regression**: If a v0.5.1 audit consumer (the Phase 11/11.5 compliance bundle inliner) cannot parse a v0.5.2 report → kill, roll back any non-additive changes.
+- **Performance regression**: If the default simhash path slows by > 5 % vs. the Phase 11.5 baseline (`tools/bench_simhash.py`) → revisit the refactor.
+
+If fewer than three Tier 1 items land within three months, Phase 12 is reset; the "Data Curation Maturity" thesis is re-examined (refresh the competitive analysis, ask whether it's still the right work).
+
+### Delivery
+
+- **Target release: `v0.5.2`** — natural continuation of Phase 11.5 (`v0.5.1`). Phase 14 (Multi-Stage Pipeline Chains) is reslotted from `v0.5.2` to `v0.5.3`.
+- Phase 14 reslot rationale: Phase 12 is an extension of the ingestion lineage and shares thematic continuity with Phase 11.5; Phase 14 is an independent feature whose 3-6-week scope can run after Phase 12 with a parallel implementer. Phase 14 has high enterprise demand, but the EU AI Act enforcement deadline (August 2026) gives the audit / secrets surface higher near-term weight.
+- Phase 13 (Pro CLI) `v0.6.0-pro` — after Phase 12 + 14, traction-gated.
+- Roadmap table (`docs/roadmap.md` + TR mirror), the mermaid diagram, and `releases.md` are all updated by this phase doc; this file pins those commitments.
+
+### Module touchpoints
+
+| Module | Change | Risk |
+|---|---|---|
+| `forgelm/data_audit.py` | `compute_minhash`, `find_near_duplicates_minhash`, `_count_leaked_rows_minhash` (parallel API surface); `secrets_summary` builder; `quality_summary` builder; `audit_dataset(..., dedup_method=...)` parameter | Low — additive; default behaviour preserved |
+| `forgelm/ingestion.py` | `_chunk_markdown`, `_strategy_dispatch` "markdown" branch; `_extract_docx` markdown-table output; `--secrets-mask` extractor wiring | Low-medium — DOCX output shape changes; v0.5.1 fixtures must update |
+| `forgelm/cli.py` | `--strategy markdown`, `--dedup-method`, `--jaccard-threshold`, `--quality-filter`, `--secrets-mask`, `--pii-engine`, `--croissant` flags | Low — argparse additions only |
+| `forgelm/wizard.py` | (Tier 3) `_offer_audit_for_jsonl` helper; BYOD path post-validation hook | Low — opt-in pattern, symmetric with the existing `_offer_ingest_for_directory` |
+| `pyproject.toml` | New extras: `[ingestion-scale]` (datasketch), `[ingestion-secrets]` (detect-secrets), `[ingestion-pii-ml]` (presidio-analyzer); version bump `0.5.1rc1 → 0.5.2rc1` | Low |
+| `docs/guides/{ingestion,data_audit}{,-tr}.md` | New sections: markdown splitter, secrets scan, quality filter, MinHash; legacy CLI patterns preserved | Low |
+| `docs/qms/sop_data_management.md` | Quality-check checklist gains `--quality-filter` + secrets-scan rows; v0.5.1 `forgelm audit` is already documented (Phase 11.5 update) | Low |
+| `docs/standards/architecture.md` | Extras matrix gains `ingestion-scale`, `ingestion-secrets`, `ingestion-pii-ml` rows | Low |
+| `CHANGELOG.md` | New "Unreleased — Phase 12 (Data Curation Maturity, targeting v0.5.2)" section | Low |
+
+### Suggested sequencing (4-6 week plan)
+
+| Week | Work | Output |
+|---|---|---|
+| 1 | Tier 1 #1 — MinHash LSH dedup + datasketch extra + tests | `compute_minhash`, parity test, `--dedup-method` flag |
+| 2 | Tier 1 #2 — Markdown splitter + token-aware composition + tests | `_chunk_markdown`, `--strategy markdown`, heading-preservation test |
+| 3 | Tier 1 #3 — Code/secrets scan + extra + ingest `--secrets-mask` + tests | `secrets_summary`, detect-secrets integration, mask roundtrip test |
+| 4 | Tier 1 #4 + #5 — Quality filter + DOCX table preservation + tests | `quality_summary`, markdown-table output, fixture tests |
+| 5 | Tier 2 #6 — Presidio adapter (if scope allows) + Tier 2 #7 Croissant metadata | `--pii-engine presidio`, `--croissant` flag |
+| 6 | Docs + roadmap + smoke + tag prep | Guides, CHANGELOG, releases.md, `v0.5.2rc1` |
+
+Tier 3 items (composite mask, wizard audit-first) either join Weeks 5-6 if scope permits, or move to a Phase 12.5 backlog file.
+
+---
+
+---
+
+## Phase 12.5 — Data Curation Polish Backlog
+
+> **Note (post-consolidation):** Originally targeted `v0.5.3`; all four
+> backlog items now ship together with Phases 11 / 11.5 / 12 in the
+> consolidated `v0.5.0` release (see [releases.md](releases.md#v050-document-ingestion-data-curation-pipeline)).
+> The version-label references below preserve the historical planning
+> trail.
+>
+> **Follow-up to Phase 12.** Phase 12 (originally targeted `v0.5.2`) shipped the five Tier 1
+> must-haves: MinHash LSH dedup option, markdown-aware splitter,
+> code/secrets leakage tagger, heuristic quality filter, DOCX/Markdown
+> table preservation. Three Tier 2/3 items were tagged "if scope allows"
+> in the [original Phase 12 plan](#phase-12-data-curation-maturity);
+> they didn't make the same release because the Tier 1 surface was
+> already a complete coherent ship and adding more would have grown the
+> review window without proportional value. This file pins them as the
+> follow-up backlog so a future minor release can pick them up without
+> reopening the Phase 12 plan.
+>
+> **Scope:** small additions only — none require new architecture.
+> Each row is one PR.
+
+| # | Item | Source | Effort | Status |
+|---|---|---|---|---|
+| **1** | ~~**Presidio adapter** (`[ingestion-pii-ml]` extra, optional)~~ | Phase 12 plan Tier 2 #6 | S–M | ✅ Landed on `development` — `forgelm audit --pii-ml`; new `PII_ML_SEVERITY` table; opt-in `[ingestion-pii-ml]` extra (`presidio-analyzer`); ships with `v0.5.0` (consolidated release). |
+| **2** | ~~**Croissant metadata compatibility** (audit JSON)~~ | Phase 12 plan Tier 2 #7 | S | ✅ Landed on `development` — `forgelm audit --croissant`; Croissant 1.0 card under report's `croissant` key; existing keys byte-equivalent when off. Ships with `v0.5.0`. |
+| **3** | ~~**`forgelm ingest --all-mask` composite flag**~~ | Phase 12 plan Tier 3 #8 | XS | ✅ Landed on `development` — `forgelm ingest --all-mask`; set-union with explicit flags; resolved at the CLI boundary. Ships with `v0.5.0`. |
+| **4** | ~~**Wizard "audit first" entry point**~~ | Phase 12 plan Tier 3 #9 | S | ✅ Landed on `development` — `_offer_audit_for_jsonl` invoked from the three JSONL-finalisation paths in `forgelm/wizard.py`. Ships with `v0.5.0`. |
+
+### Why these landed here, not in Phase 12
+
+- **Tier 2 (#1, #2)** add new optional dependencies (`presidio-analyzer`, plus a small Croissant schema mapping). Adding two new extras at once expands the install / extras-skip test matrix; carving them into their own PR keeps each behaviour individually reviewable. Neither closes a competitive gap that mattered for the `v0.5.2` ship — Phase 12's regex+Luhn+TC-Kimlik PII detector and the EU AI Act governance bundle covered the immediate compliance surface.
+- **Tier 3 (#3, #4)** are pure UX polish. They don't unlock anything the operator cannot do today by typing two flags or running `forgelm audit` themselves; they smooth the path. Worth doing, not worth gating Phase 12 on.
+
+### Picking up an item
+
+1. Open an issue referencing the row number above.
+2. PR scope: ONE row per PR.
+3. Update this file when the row lands — strike through and link the
+   commit / PR.
+4. If a row turns out to be the wrong shape, edit it here before doing
+   the work. Stale backlog rows are worse than missing rows.
+
+### Out of scope (still)
+
+The "Won't-do" list at the bottom of [(see Phase 12 — Data Curation Maturity section)](#phase-12-data-curation-maturity) is not weakened by this backlog. VLM PDF parsing, embedding-based semantic dedup, built-in OCR, ML quality classifiers, GPU/Ray scale, and HTML extractor stay out of scope as deliberately as Phase 12 declared them.
+
+---
+
+## Phase 12.6 — Closure Cycle (38 tasks across 5 waves)
+
+> **Status:** ✅ Done — Task 33 release publish remains as POST-WAVE.
+> **Bundled into:** [v0.5.5 release](releases.md#v055-closure-cycle-bundle-phase-22-wizard-site-documentation-sweep-2026-05-10).
+> **Source review:** v0.5.0 master code review (175 findings: 8 Critical + 67 Major + 60 Minor + 40 Nit) — distilled into the Tasks 1-38 task list below.
+> **Target:** ★★★★★ across all 8 quality dimensions before v0.5.5 PyPI publish.
+
+### Why this exists as a single phase entry
+
+The v0.5.0 master code review surfaced **175 findings** plus **4 user-added scope items** (Library API support, ISO 27001 / SOC 2 alignment, GDPR right-to-erasure full implementation, Article 14 real staging). Rather than stretch these across 5 sequential patch releases, the maintainer chose **Path B — full Tasks 1-38 sweep into a single v0.5.5 tag**:
+
+- Bisectable PR-per-task history
+- One coherent surface (every task feeds the same release candidate)
+- 5/5 quality bar reached before publish, not after
+
+The 38 tasks were merged across **5 integration waves** (Wave 0/1 through Wave 5). Each wave landed via a dedicated PR onto `development`, then into `main`. This file is the index that maps every task to its wave, integration PR, and merge SHA.
+
+### Scope (in / out)
+
+**In scope:**
+
+- All 175 master-review findings (Critical → Nit)
+- 4 user-added scope items: Library API, ISO 27001 / SOC 2, GDPR full implementation, Article 14 real staging + `forgelm approve`
+- 5 ghost-feature drift items surfaced during Wave 4 + 5 (GH-001 doctor, GH-002/003 air-gap pre-cache, GH-004/005/009 verification toolbelt, GH-007 approvals listing, GH-014 reverse-pii)
+- Documentation final pass: `docs/` EN+TR, `docs/usermanuals/{en,tr}/`, `site/*`, all 10 standards files, README + CONTRIBUTING + CLAUDE.md, roadmap + roadmap-tr.md
+
+**Explicitly out of scope:**
+
+- DE / FR / ES / ZH user-manual translation (deferred to a future cycle — bilingual policy formalised in [`docs/standards/localization.md`](../standards/localization.md))
+- Cloud SaaS product (separate offering)
+- New roadmap features: Phase 13 (Pro CLI) and Phase 14 (Pipeline Chains) work
+- Marketing / GTM expansion
+
+### Wave timeline
+
+| Wave | Branch | Integration PR | Merge SHA | Date | Net new tests |
+|---|---|---|---|---|---|
+| **Wave 0** (foundation) | `closure/wave1-integration` (early bundle) | PR #19 → `main` | (see PR #19) | 2026-04-30 | baseline |
+| **Wave 1** (foundation residuals) | `closure/wave1-integration` (continuation) | PR #21 → `development` | (see PR #21) | 2026-05-02 | +0 (refactor) |
+| **Wave 2a** | `closure/wave2a-integration` | PR #28 → `development` | (see PR #28) | 2026-05-04 | → 1160 |
+| **Wave 2b** | `closure/wave2b-integration` | PR #30 → `development` | `b05edb5` | 2026-05-05 | 1160 → 1298 (+138) |
+| **Wave 3** | `closure/wave3-integration` | PR #31 → `development` | `b87c872` | 2026-05-05 | 1298 → 1374 (+76) |
+| **Wave 4** | `closure/wave4-integration` | PR #33 → `development` | `01e40ba` | 2026-05-06 | 1374 → 1411 (+37) |
+| **Wave 5** | `closure/wave5-integration` | PR #34 → `development` merged `8f9f951` | `8f9f951` | 2026-05-06 | 1411 → ~1442 (+31) |
+| **Task 33** (POST-WAVE) | release commit | tag `v0.5.5` → `main` | (post-Wave-5) | TBD | n/a |
+
+### Task inventory (38 entries)
+
+| # | Task | Wave | Status |
+|---|---|---|---|
+| 1 | Site & doc honesty + count drift sweep | Wave 0 (PR #19) | ✅ |
+| 2 | CI gates & standards drift cleanup | Wave 0 (PR #19) | ✅ |
+| 3 | Operator identity + audit forensic completeness | Wave 0 (PR #19) | ✅ |
+| 4 | Performance: lazy torch + safety/judge batching + paragraph chunker | Wave 0 (PR #19) | ✅ |
+| 5 | Notebook PyPI pin + nightly grep guard | Wave 0 (PR #19) | ✅ |
+| 6 | `forgelm verify-audit` subcommand + library function | Wave 0 (PR #19) | ✅ |
+| 7 | `safe_post` HTTP discipline extension | Wave 0 (PR #19) | ✅ |
+| 8 | Webhook lifecycle vocabulary | Wave 0 (PR #19) | ✅ |
+| 9 | Article 14: honesty fix + real staging + `forgelm approve` | Wave 1 | ✅ |
+| 10 | Pydantic Literal sweep (6 remaining fields) | Wave 1 | ✅ |
+| 11 | Wizard `_print` indirection + drop coverage omit | Wave 1 | ✅ |
+| 12 | Fixture consolidation (`tests/_helpers/`) | Wave 1 | ✅ |
+| 13 | `--data-audit` deprecation discipline | Wave 1 | ✅ |
+| 14 | `data_audit/` package split (5-PR series D-1..D-5) | Wave 1 | ✅ |
+| 15 | `cli/` package split (6-PR series C-1..C-6) | Wave 1 | ✅ |
+| 16 | Pydantic `description=` migration with CI guard (4 PR) | Wave 2b (PR #30) | ✅ |
+| 17 | `--workers N` audit determinism | Wave 2a (PR #28) | ✅ |
+| 18 | Library API support — Analysis & design | Wave 2a (PR #28) | ✅ |
+| 19 | Library API support — Implementation | Wave 2b (PR #30) | ✅ |
+| 20 | GDPR right-to-erasure — Analysis & design | Wave 2a (PR #28) | ✅ |
+| 21 | GDPR right-to-erasure — Implementation | Wave 2b (PR #30) | ✅ |
+| 22 | ISO 27001 / SOC 2 Type II — Analysis & gap assessment | Wave 4 (PR #33) | ✅ |
+| 23 | ISO 27001 / SOC 2 Type II — Implementation | Wave 4 (PR #33) | ✅ |
+| 24 | Bilingual TR mirror sweep + `tools/check_bilingual_parity.py` | Wave 3 (PR #31) | ✅ |
+| 25 | Site picker honesty + site-as-tested-surface CI guard | Wave 1 | ✅ |
+| 26 | QMS bilingual EN+TR mirror + `tools/check_anchor_resolution.py` | Wave 4 (PR #33) | ✅ |
+| 27 | Silent `except Exception:` sweep | Wave 1 | ✅ |
+| 28 | Remaining Major + Minor cleanup | Wave 3 (PR #31) | ✅ |
+| 29 | Nit sweep (40-item mass-edit) | Wave 1 | ✅ |
+| 30 | Final documentation + site finalization (EN+TR only) | Wave 4 partial + Wave 5 full sweep | ✅ |
+| 31 | Cross-OS release-tag matrix workflow | Wave 1 | ✅ |
+| 32 | `.pre-commit-config.yaml` (optional) | Wave 1 | ✅ |
+| 33 | **v0.5.5 RELEASE** (CHANGELOG, version bump, tag, PyPI) | POST-WAVE | ⏳ |
+| 34 | `forgelm doctor` env-check subcommand (GH-001) | Wave 2a (PR #28) | ✅ |
+| 35 | Air-gap pre-cache (`cache-models` + `cache-tasks`) (GH-002, GH-003) | Wave 2b (PR #30) | ✅ |
+| 36 | Compliance verification toolbelt (`safety-eval`, `verify-annex-iv`, `verify-gguf`) (GH-004/005/009) | Wave 2b (PR #30) | ✅ |
+| 37 | `forgelm approvals` listing subcommand (GH-007) | Wave 2a (PR #28) | ✅ |
+| 38 | `forgelm reverse-pii` GDPR Article 15 subcommand (GH-014) | Wave 3 (PR #31) | ✅ |
+
+**Total:** 38 tasks / ~52 PRs (multi-PR series counted separately).
+
+### Wave-by-wave outcomes
+
+#### Wave 0 / 1 (PR #19, PR #21)
+
+Foundation + the bulk of the master-review backlog — tasks 1-15, 25, 27, 29, 31, 32. Site honesty fixes, CI gates, audit log forensic completeness, performance pass, the two big package splits (`data_audit/` 5-PR series, `cli/` 6-PR series).
+
+#### Wave 2a (PR #28, 2026-05-04)
+
+5 tasks: 17 (`audit --workers N`), 18 (Library API design), 20 (GDPR design), 34 (`doctor`), 37 (`approvals`).
+
+#### Wave 2b (PR #30, 2026-05-05, merge `b05edb5`)
+
+5 tasks: 16 (Pydantic `description=` migration), 19 (Library API implementation), 21 (GDPR erasure implementation), 35 (air-gap pre-cache), 36 (compliance verification toolbelt). Suite 1160 → 1298 (+138). 6 absorption rounds + 4-agent final review + 4 followup absorption commits.
+
+#### Wave 3 (PR #31, 2026-05-05, merge `b87c872`)
+
+3 tasks: 24 (bilingual TR mirror sweep + `tools/check_bilingual_parity.py`), 28 (curated Tier 1+2 cleanup), 38 (`reverse-pii`). Suite 1298 → 1374 (+76). Behaviour changes: high-risk + unacceptable + safety-disabled now `ConfigError` (F-compliance-110); webhook timeout 5s → 10s default (F-compliance-106).
+
+#### Wave 4 (PR #33, 2026-05-06, merge `01e40ba`)
+
+4 tasks: 22 + 23 (ISO 27001 / SOC 2 alignment design + implementation), 26 (QMS bilingual mirror + `tools/check_anchor_resolution.py` + `compliance_summary.md` rewrite), 30 partial (Tier 1 ghost-feature drift + stat blocks). Suite 1374 → 1411 (+37: 16 supply-chain + 21 anchor checker). Bilingual parity scope 9/9 → 23/23 pairs.
+
+#### Wave 5 (PR #34 merged `8f9f951`, 2026-05-06)
+
+Task 30 full sweep: residual ghost-feature drift (GH-011 benchmarks, GH-016 `--export-bundle`, GH-018 deploy-targets `kserve`/`triton`, GH-020 ingest flag drift); Task A doc-triplet completion (~12 features × {guide, reference, usermanual} × {EN, TR} ≈ 50 new files — landed in commit `2a32842`); Task J `tools/check_cli_help_consistency.py` (commit `c7bedc9`); Task N anchor-checker `--strict` flip + 36-baseline cleanup (commit `fbb082d`); Tasks B/C `_meta.yaml` + `build_usermanuals.py` rebuild; Task D site/* finalization; Tasks E/F/G README + CONTRIBUTING + CLAUDE + roadmap + standards final pass; Tasks H/I/K/L/M parity strict + site-claim CI + config regen + locale policy + diagrams.
+
+#### Task 33 (POST-WAVE)
+
+The actual v0.5.5 PyPI publish:
+
+1. `pyproject.toml` `version = "0.5.5"` — already bumped during Wave 5 Task D (`4610dc6`) so `check_site_claims.py --strict` can pin the site → code version parity. Task 33 only confirms it remains `0.5.5` and adds the date to the `[0.5.5]` CHANGELOG section.
+2. CHANGELOG `[Unreleased]` → `[0.5.5] — YYYY-MM-DD`
+3. `git tag -s v0.5.5 -m "v0.5.5 — Closure Cycle Bundle"`
+4. `git push origin main v0.5.5`
+5. `publish.yml` runs: build → cross-OS matrix (12 combos) → publish (OIDC trusted publishing, no API token)
+
+The cut-release skill ([`.claude/skills/cut-release/SKILL.md`](../../.claude/skills/cut-release/SKILL.md)) walks the maintainer through the sequence step-by-step.
+
+### Quality dimensions reached
+
+Per the closure plan §1 baseline + §9 exit criteria:
+
+| Dimension | Pre-Wave-0 | Post-Wave-5 target |
+|---|---|---|
+| Business | ★★★½ | ★★★★★ |
+| Code | ★★★½ | ★★★★★ |
+| Compliance | ★★★★ | ★★★★★ |
+| Documentation | ★★★½ | ★★★★★ |
+| Localization | ★★★ | ★★★★★ (EN+TR; DE/FR/ES/ZH user-manual deferred by user decision) |
+| Performance | ★★★★ | ★★★★★ |
+| Security | ★★★★ | ★★★★★ |
+| Testing & CI/CD | ★★★½ | ★★★★★ |
+
+### Related
+
+- [`releases.md`](releases.md) — v0.5.5 release notes
+- [`risks-and-decisions.md`](risks-and-decisions.md) — closure-cycle decision log entries
+- [`CHANGELOG.md`](../../CHANGELOG.md) — `[0.5.5]` section (finalized at release; per-PR closure entries collapse into the v0.5.5 release notes)

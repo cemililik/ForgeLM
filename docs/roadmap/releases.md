@@ -42,7 +42,7 @@
 
 **Status:** Released — published to PyPI on 2026-04-26 ([release notes](https://github.com/cemililik/ForgeLM/releases/tag/v0.4.0)).
 
-Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inference, chat, GGUF export, VRAM fit-check, deployment config generation.
+Odak: [Phase 10](completed-phases.md). Full post-training handoff: inference, chat, GGUF export, VRAM fit-check, deployment config generation.
 
 ### Features:
 1. [x] **`forgelm/inference.py`** — Shared generation primitives: `load_model`, `generate`, `generate_stream` (streaming via background thread, with timeout-based deadlock guard), `logit_stats`, `adaptive_sample`. Supports transformers + peft (merge-and-unload) + unsloth backends.
@@ -60,7 +60,7 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 
 ## v0.4.5 — "Quickstart Layer" (2026-04-26)
 
-**Status:** Released — published to PyPI on 2026-04-26 ([release notes](https://github.com/cemililik/ForgeLM/releases/tag/v0.4.5)). Focus: [Phase 10.5](phase-10-5-quickstart.md) (Quickstart). One-command bundled templates, sample datasets, opinionated defaults — primary community growth driver.
+**Status:** Released — published to PyPI on 2026-04-26 ([release notes](https://github.com/cemililik/ForgeLM/releases/tag/v0.4.5)). Focus: [Phase 10.5](completed-phases.md) (Quickstart). One-command bundled templates, sample datasets, opinionated defaults — primary community growth driver.
 
 ### Features:
 1. [x] **`forgelm/quickstart.py`** — Template registry (`@dataclass(frozen=True) Template`), `auto_select_model()` GPU-aware downsizing (≥10 GB VRAM → primary model; otherwise fallback ≤2B), `run_quickstart()` end-to-end orchestrator that copies the bundled seed dataset, substitutes `model.name_or_path` and `data.dataset_name_or_path`, and writes a `configs/<template>-YYYYMMDDHHMMSS.yaml` the existing trainer accepts unchanged.
@@ -125,6 +125,26 @@ Odak: [Phase 10](phase-10-post-training.md). Full post-training handoff: inferen
 ### Hardening follow-up (tracked outside this release)
 
 - [#14 — webhook SSRF DNS-rebinding TOCTOU](https://github.com/cemililik/ForgeLM/issues/14): defence-in-depth on top of the existing `allow_private_destinations: false` default. Slated for `v0.5.1`.
+
+---
+
+## v0.5.7 — "SFT trainer trl-modernisation fix" (2026-05-10)
+
+**Status:** Released to PyPI 2026-05-10. Patch on top of v0.5.6. GitHub Release: [v0.5.7](https://github.com/cemililik/ForgeLM/releases/tag/v0.5.7).
+
+### Summary
+
+Fixes a `TypeError` in the SFT trainer that prevented every SFT training run from starting on modern `trl` (0.13+ and the 1.x line). The `max_seq_length` parameter was renamed to `max_length` on `SFTConfig` upstream; v0.5.6 still passed the old name unconditionally, so `forgelm --config <yaml>` crashed at trainer-args build time on any environment that pulled a current trl wheel — notably the Colab default `pip install forgelm` path.
+
+### Highlights
+
+- **Runtime signature detection** — `_get_training_args_for_type` now inspects `SFTConfig.__init__` and picks `max_length` (trl 0.13+) or `max_seq_length` (trl 0.12.x) at runtime, so both ends of the supported range (`trl>=0.12.0,<2.0.0`) work without intervention.
+- **Three new regression tests** in `tests/test_trainer_sft_config.py` pin the modern-trl path, the legacy-trl path, and that `packing` / `dataset_text_field` continue to be propagated.
+- **No effect on DPO / SimPO / KTO / ORPO / GRPO trainers** — those `*Config` parameter sets were not affected by the trl 0.13 rename.
+
+### Full changelog
+
+See [CHANGELOG.md `[0.5.7]`](../../CHANGELOG.md#057--2026-05-10).
 
 ---
 

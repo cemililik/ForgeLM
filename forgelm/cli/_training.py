@@ -29,8 +29,51 @@ def _report_training_error(
     sys.exit(exit_code)
 
 
+def _preflight_numpy_torch_abi(json_output: bool) -> None:
+    """Fail fast on a known torch / NumPy ABI mismatch.
+
+    The v0.5.7 ``pyproject.toml`` PEP 508 marker pins ``numpy<2`` on
+    Intel Mac (the platform where ``torch<2.3`` + ``numpy>=2`` produces
+    the cryptic ``_ARRAY_API not found`` / ``NameError: _C not defined``
+    failure mode), but the marker only fires on fresh installs and
+    ``pip install -U`` re-resolves.  A user who upgraded numpy
+    out-of-band after installing ForgeLM ends up with a silently broken
+    torch — and previously hit the failure deep inside training with no
+    actionable error.
+
+    This preflight runs the same probe as ``forgelm doctor``'s
+    ``numpy.torch_abi`` check and aborts with the exact remediation
+    command if the mismatch is present.  No-op on healthy platforms
+    (Linux, Apple Silicon, fresh-install Intel Mac), so zero false
+    positives.
+    """
+    from ._abi_check import ABI_BROKEN, compute_numpy_torch_abi_status, format_abi_remediation
+
+    status, torch_version, numpy_version = compute_numpy_torch_abi_status()
+    if status != ABI_BROKEN:
+        return
+    remediation = format_abi_remediation(torch_version, numpy_version)
+    _report_training_error(
+        json_output,
+        payload={
+            "success": False,
+            "error": "numpy_torch_abi_mismatch",
+            "torch_version": torch_version,
+            "numpy_version": numpy_version,
+            "remediation": remediation,
+        },
+        log_msg=f"Aborting before training: {remediation}",
+        exit_code=EXIT_TRAINING_ERROR,
+    )
+
+
 def _run_training_pipeline(config, args, json_output: bool) -> None:
     """Run the full training pipeline (model load → data → trainer.train → cleanup)."""
+    # Preflight: detect Intel-Mac-style torch/NumPy ABI mismatch BEFORE
+    # the heavy imports below would surface it as a cryptic NameError
+    # mid-pipeline.  No-op on healthy platforms.
+    _preflight_numpy_torch_abi(json_output)
+
     # Defer heavy imports so `--help`, `--version`, and `--dry-run` stay lightweight.
     # ImportError here means a required optional extra is missing — surface as install hint.
     try:

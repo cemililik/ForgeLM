@@ -40,7 +40,7 @@ Ortam kontrolü. Bkz. [Doctor komutu](#/getting-started/first-run).
 | Anahtar | Tip | Notlar |
 |---|---|---|
 | `success` | bool | Hiçbir probe `fail` değilse VE hiçbir probe crash etmediyse `true`; aksi halde `false`. |
-| `checks` | list[object] | Çalıştırma sırasıyla probe başına bir entry. Probe adları stabildir (örn. `python.version`, `torch.cuda`, `gpu.inventory`, `extras.qlora`, `hf_hub.reachable`, `hf_hub.offline_cache`, `disk.workspace`, `operator.identity`). |
+| `checks` | list[object] | Çalıştırma sırasıyla probe başına bir entry. Probe adları stabildir (örn. `python.version`, `torch.cuda`, `numpy.torch_abi`, `gpu.inventory`, `extras.qlora`, `hf_hub.reachable`, `hf_hub.offline_cache`, `disk.workspace`, `operator.identity`). |
 | `checks[].name` | str | Probe adı. Sürümler arası stabil; yeni probe'lar yeniden adlandırma yerine eklenir. |
 | `checks[].status` | str | `pass`, `warn`, `fail`, `crashed`'tan biri. |
 | `checks[].detail` | str | Sonuç için operatör-yüzlü tek satırlık açıklama. |
@@ -48,6 +48,30 @@ Ortam kontrolü. Bkz. [Doctor komutu](#/getting-started/first-run).
 | `summary` | object | `checks` arasında her status'ın sayısı. Toplam `len(checks)`'a eşittir. |
 
 **Exit code mapping:** `0` = tüm probe'lar `pass` veya `warn`; `1` = en az bir `fail`; `2` = en az bir `crashed` (probe raise etti; sonraki probe'lar yine de çalıştı).
+
+## `forgelm` (eğitim) — preflight abort envelope
+
+Eğitim pipeline'ı (`forgelm --config <yaml> --output-format json`) ağır stack'i import etmeden önce bir torch/NumPy ABI sanity check çalıştırır. Sağlıklı bir ortamda preflight sessizdir ve eğitim normal şekilde devam eder; bilinen Intel Mac NumPy 2 / torch 2.2 mismatch'inde preflight şu envelope ile **stdout**'a basıp exit code `2` ile abort eder:
+
+```json
+{
+  "success": false,
+  "error": "numpy_torch_abi_mismatch",
+  "torch_version": "2.2.2",
+  "numpy_version": "2.4.4",
+  "remediation": "torch 2.2.2 (compiled against NumPy 1.x) is paired with numpy 2.4.4. ... Fix with: pip install 'numpy<2' ..."
+}
+```
+
+| Anahtar | Tip | Not |
+|---|---|---|
+| `success` | bool | Bu kod yolunda her zaman `false`; sağlıklı preflight hiçbir şey emit etmez ve pipeline devam eder. |
+| `error` | str | Stabil token `"numpy_torch_abi_mismatch"`. CI tüketicileri tam bu değer üzerinden branch'leyebilir. |
+| `torch_version` | str | Preflight anında `torch.__version__`'un raporladığı versiyon string'i. |
+| `numpy_version` | str | Preflight anında `numpy.__version__`'un raporladığı versiyon string'i. |
+| `remediation` | str | İnsan-okunabilir fix talimatı, tam `pip install 'numpy<2'` komutuyla biten. `forgelm doctor` `numpy.torch_abi` probe'unun `detail` alanıyla bire bir aynı metin — tek kaynak. |
+
+**Exit code mapping:** preflight abort, `2` (`EXIT_TRAINING_ERROR`, runtime-error sınıfı) ile çıkar. Aynı `forgelm doctor` `numpy.torch_abi` probe'u önceden `status: "fail"` olarak yüzeye çıkarırdı; preflight, `doctor`'ı skip edip eğitimi doğrudan çalıştıran operatörler için ikinci savunma hattıdır.
 
 ## `forgelm approvals --pending`
 

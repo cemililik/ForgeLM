@@ -1,8 +1,10 @@
+import inspect
 import logging
 import math
 import os
 import re
 import shutil
+import sys
 from typing import Any, Dict, Optional
 
 # NOTE: Heavy ML imports (torch, transformers.EarlyStoppingCallback, trl.SFTConfig/SFTTrainer)
@@ -429,7 +431,35 @@ class ForgeTrainer:
 
             kwargs["packing"] = bool(getattr(self.config.training, "packing", False))
             kwargs["dataset_text_field"] = "text"
-            kwargs["max_seq_length"] = self.config.model.max_length
+            # Sequence-length cap parameter was renamed in trl 0.13:
+            #   trl 0.12.x: ``SFTConfig(max_seq_length=...)``
+            #   trl 0.13+ / 1.x: ``SFTConfig(max_length=...)`` — old name removed
+            # ``pyproject.toml`` pins ``trl>=0.12.0,<2.0.0``, so detect at runtime.
+            # Hard-fail (don't warn-and-continue) if neither name is exposed:
+            # silently dropping ``model.max_length`` would let TRL pick its
+            # default and produce a model trained against an unintended
+            # context window — exactly the "no silent failures" rule in
+            # docs/standards/error-handling.md.
+            sft_params = inspect.signature(SFTConfig).parameters
+            if "max_length" in sft_params:
+                kwargs["max_length"] = self.config.model.max_length
+            elif "max_seq_length" in sft_params:
+                kwargs["max_seq_length"] = self.config.model.max_length
+            else:
+                # Probe the trl version off the already-loaded module rather
+                # than re-importing — ``from trl import SFTConfig`` above
+                # left trl in ``sys.modules`` and ``SFTConfig.__module__``
+                # gives us the canonical package name without a redundant
+                # ``import trl`` line.
+                trl_module = sys.modules.get(SFTConfig.__module__.split(".", 1)[0])
+                trl_version = getattr(trl_module, "__version__", "?")
+                raise ValueError(
+                    f"SFTConfig in trl {trl_version} exposes neither "
+                    "`max_length` nor `max_seq_length` as a named parameter; cannot apply "
+                    f"the sequence-length cap from config (model.max_length={self.config.model.max_length}). "
+                    f"Detected parameters: {sorted(sft_params)}. Pin trl to a known-compatible "
+                    "version or file an issue referencing this error."
+                )
             return SFTConfig(**kwargs)
 
         elif tt == "orpo":

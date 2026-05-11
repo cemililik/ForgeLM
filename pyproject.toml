@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "forgelm"
-version = "0.5.6"
+version = "0.5.7"
 description = "Config-driven LLM fine-tuning with safety evaluation, EU AI Act compliance, 6 alignment methods, and one-command bundled quickstart templates."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -40,6 +40,14 @@ classifiers = [
 
 dependencies = [
   "torch>=2.2.0,<3.0.0",
+  # Intel Mac (x86_64) is wheel-locked to torch 2.2.x — PyTorch Foundation
+  # stopped publishing >=2.3 wheels for x86_64 Darwin. torch 2.2 was
+  # compiled against NumPy 1.x; without this marker pip pulls numpy>=2 and
+  # triggers an ABI mismatch (`_ARRAY_API not found`) that silently
+  # degrades the numpy bridge inside torch. Other platforms keep numpy
+  # unconstrained — torch 2.3+ on Linux / Apple Silicon / Windows is
+  # binary-compatible with NumPy 2.x.
+  "numpy<2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
   "transformers>=4.38.0,<5.0.0",
   "peft>=0.9.0,<1.0.0",
   "datasets>=2.21.0,<5.0.0",
@@ -136,6 +144,12 @@ chat = [
 dev = [
   "pytest>=8.0.0",
   "pytest-cov>=5.0.0",
+  # pytest-randomly shuffles test order per session so order-dependent
+  # bugs (e.g. the v0.5.7 round-3 sys.modules.pop pollution cascade)
+  # surface in CI instead of waiting for a Python micro-bump or runner
+  # change to flip collection order.  Run locally via
+  # ``pytest --randomly-seed=<n>`` to reproduce a failure.
+  "pytest-randomly>=3.15.0,<4.0.0",
   "ruff>=0.4.0",
 ]
 

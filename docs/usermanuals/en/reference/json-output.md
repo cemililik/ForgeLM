@@ -40,7 +40,7 @@ Environment check. See [Doctor command](#/getting-started/first-run).
 | Key | Type | Notes |
 |---|---|---|
 | `success` | bool | `true` when no probe `fail` AND no probe crash; `false` otherwise. |
-| `checks` | list[object] | One entry per probe in execution order. Probe names are stable (e.g. `python.version`, `torch.cuda`, `gpu.inventory`, `extras.qlora`, `hf_hub.reachable`, `hf_hub.offline_cache`, `disk.workspace`, `operator.identity`). |
+| `checks` | list[object] | One entry per probe in execution order. Probe names are stable (e.g. `python.version`, `torch.cuda`, `numpy.torch_abi`, `gpu.inventory`, `extras.qlora`, `hf_hub.reachable`, `hf_hub.offline_cache`, `disk.workspace`, `operator.identity`). |
 | `checks[].name` | str | Probe name. Stable across versions; new probes append rather than rename. |
 | `checks[].status` | str | One of `pass`, `warn`, `fail`, `crashed`. |
 | `checks[].detail` | str | Operator-facing one-line description of the result. |
@@ -48,6 +48,30 @@ Environment check. See [Doctor command](#/getting-started/first-run).
 | `summary` | object | Counts of each status across `checks`. Sum equals `len(checks)`. |
 
 **Exit code mapping:** `0` = all probes `pass` or `warn`; `1` = at least one `fail`; `2` = at least one `crashed` (probe raised; subsequent probes still ran).
+
+## `forgelm` (training) — preflight abort envelope
+
+The training pipeline (`forgelm --config <yaml> --output-format json`) runs a torch/NumPy ABI sanity check before importing the heavy stack. On a healthy environment the preflight is silent and training proceeds normally; on the known Intel Mac NumPy 2 / torch 2.2 mismatch the preflight aborts with the following envelope on **stdout** and exit code `2`:
+
+```json
+{
+  "success": false,
+  "error": "numpy_torch_abi_mismatch",
+  "torch_version": "2.2.2",
+  "numpy_version": "2.4.4",
+  "remediation": "torch 2.2.2 (compiled against NumPy 1.x) is paired with numpy 2.4.4. ... Fix with: pip install 'numpy<2' ..."
+}
+```
+
+| Key | Type | Notes |
+|---|---|---|
+| `success` | bool | Always `false` on this path; healthy preflight emits nothing and the pipeline continues. |
+| `error` | str | Stable token `"numpy_torch_abi_mismatch"`. CI consumers can branch on this exact value. |
+| `torch_version` | str | The version string `torch.__version__` reported at preflight time. |
+| `numpy_version` | str | The version string `numpy.__version__` reported at preflight time. |
+| `remediation` | str | Human-readable fix instructions ending with the exact `pip install 'numpy<2'` command. Identical text to the `forgelm doctor` `numpy.torch_abi` probe's `detail` field — same single source of truth. |
+
+**Exit code mapping:** preflight abort exits `2` (`EXIT_TRAINING_ERROR`, the runtime-error class). The same `forgelm doctor` `numpy.torch_abi` probe would have surfaced this as `status: "fail"` ahead of time; the preflight is the second line of defense for operators who skipped `doctor` and ran training directly.
 
 ## `forgelm approvals --pending`
 

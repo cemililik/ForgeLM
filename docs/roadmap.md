@@ -7,10 +7,10 @@
 | Type | Phase | Status |
 |-----|-------|--------|
 | ✅ Done | [Phase 1-9](roadmap/completed-phases.md) | SOTA upgrades, evaluation, reliability, enterprise integration, ecosystem, alignment stack, safety, EU AI Act compliance (Articles 9-17 + Annex IV), advanced safety intelligence |
-| ✅ Done | [Phase 10 — Post-Training Completion](roadmap/phase-10-post-training.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — shipped `v0.4.0` |
-| ✅ Done | [Phase 10.5 — Quickstart Layer & Onboarding](roadmap/phase-10-5-quickstart.md) | `forgelm quickstart <template>`, 5 bundled templates with seed datasets — shipped `v0.4.5` |
+| ✅ Done | [Phase 10 — Post-Training Completion](roadmap/completed-phases.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — shipped `v0.4.0` |
+| ✅ Done | [Phase 10.5 — Quickstart Layer & Onboarding](roadmap/completed-phases.md) | `forgelm quickstart <template>`, 5 bundled templates with seed datasets — shipped `v0.4.5` |
 | ✅ Done | [Phase 11 + 11.5 + 12 + 12.5 — Document Ingestion & Data Curation Pipeline](roadmap/releases.md#v050-document-ingestion-data-curation-pipeline) | `forgelm ingest`, `forgelm audit`, PII regex + simhash dedup, LSH banding, streaming reader, PII severity tiers, wizard ingest+audit, MinHash LSH dedup, markdown splitter, code/secrets scan, quality heuristics, DOCX table preservation, `--all-mask`, Croissant 1.0, Presidio NER — shipped `v0.5.0` (PyPI 2026-04-30) |
-| ✅ Done | [Phase 12.6 — Closure Cycle (37 content fazlar + 1 release tag = 38 entries across 5 waves)](roadmap/phase-12-6-closure-cycle.md) | Library API, GDPR purge + reverse-pii, ISO 27001 / SOC 2 alignment, doctor + cache subcommands, compliance verification toolbelt, bilingual mirror sweep + 4 CI guards, supply-chain security, cross-OS release matrix — bundled into `v0.5.5` (PyPI 2026-05-10) |
+| ✅ Done | [Phase 12.6 — Closure Cycle (37 content phases + 1 release tag = 38 entries across 5 waves)](roadmap/completed-phases.md) | Library API, GDPR purge + reverse-pii, ISO 27001 / SOC 2 alignment, doctor + cache subcommands, compliance verification toolbelt, bilingual mirror sweep + 4 CI guards, supply-chain security, cross-OS release matrix — bundled into `v0.5.5` (PyPI 2026-05-10) |
 | ✅ Done | Phase 22 — CLI wizard parity with the in-browser surface | `forgelm --wizard` runs the same 9-step flow as the web wizard (welcome → use-case → model → strategy → trainer → dataset → training-params → compliance → evaluation), with idempotent re-run via `--wizard-start-from <yaml>`, schema-driven defaults SOT, distinct `EXIT_WIZARD_CANCELLED = 5` exit code, state persistence under `$XDG_CACHE_HOME`, and validate-on-exit — bundled into `v0.5.5` (PyPI 2026-05-10) |
 | ✅ Done | Site documentation correction sweep | All visible YAML / artefact-path / CLI / schema claims on `site/*.html` now validate against the live `forgelm/` surface. Hero YAML demo rewritten with real Pydantic field names, compliance artefact tree redrawn against the on-disk layout, ghost YAML keys + CLI flags removed, wording aligned with live behaviour. Six-language i18n (en / tr / de / fr / es / zh) now at full parity (731 keys each) — bundled into `v0.5.5` (PyPI 2026-05-10) |
 | 📋 Planned | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO chained config, pipeline provenance artifacts → `v0.6.0` |
@@ -27,13 +27,13 @@
 
 Originally planned as four sequential PyPI tags (`v0.5.0` / `v0.5.1` / `v0.5.2` / `v0.5.3`), consolidated into one comprehensive `v0.5.0` release because the four phases form one coherent surface (ingest → polish → mature → polish) hard to use in parts.
 
-**Latest release on PyPI:** `v0.5.5` — "Closure Cycle Bundle + Phase 22 Wizard + Site Documentation Sweep" (2026-05-10).  Bundles **Phase 12.6** (Library API + GDPR purge / reverse-pii + ISO 27001 / SOC 2 alignment + doctor / cache / safety-eval / verify-* subcommands + cross-OS release matrix + supply-chain security baseline; folds in [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14)), **Phase 22** (CLI wizard parity with the in-browser surface + idempotent `--wizard-start-from` re-run + schema-driven defaults SOT + distinct `EXIT_WIZARD_CANCELLED = 5` exit code), and a **site documentation correction sweep** that brings every visible YAML / artefact-path / CLI / schema claim on `site/*.html` in line with the live code surface and restores six-language i18n parity.
+**Latest release on PyPI:** `v0.5.7` — "SFT trainer trl-modernisation fix" (2026-05-10), a follow-up patch on top of `v0.5.6` (Intel Mac install fix) and the headline `v0.5.5` "Closure Cycle Bundle + Phase 22 Wizard + Site Documentation Sweep" (2026-05-10).  v0.5.5 bundled **Phase 12.6** (Library API + GDPR purge / reverse-pii + ISO 27001 / SOC 2 alignment + doctor / cache / safety-eval / verify-* subcommands + cross-OS release matrix + supply-chain security baseline; folds in [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14)), **Phase 22** (CLI wizard parity with the in-browser surface + idempotent `--wizard-start-from` re-run + schema-driven defaults SOT + distinct `EXIT_WIZARD_CANCELLED = 5` exit code), and a **site documentation correction sweep** that brings every visible YAML / artefact-path / CLI / schema claim on `site/*.html` in line with the live code surface and restores six-language i18n parity.  v0.5.6 reverted the v0.5.5 `torch>=2.3` floor back to `torch>=2.2` to restore Intel Mac (x86_64) installability.  v0.5.7 fixes a runtime `TypeError` in the SFT trainer caused by trl 0.13 renaming `SFTConfig.max_seq_length` → `SFTConfig.max_length`.
 
 **Earlier:** `v0.5.0` — Document Ingestion + Data Curation Pipeline (2026-04-30); `v0.4.5` — Quickstart Layer (2026-04-26); `v0.4.0` — Post-Training Completion (2026-04-26).
 
 **Current state:** 19 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6, 22) shipped on PyPI under `v0.5.5`.  2 phases (13, 14) planned post-release.
 
-> **Phase 12.6 / Faz dual-axis note:** Phase 12.6 is itself a 38-task closure cycle (Faz 1-38) tracked at [`roadmap/phase-12-6-closure-cycle.md`](roadmap/phase-12-6-closure-cycle.md); per-wave PR descriptions carry the closure-task delta.
+> **Phase 12.6 task / sub-task dual-axis note:** Phase 12.6 is itself a 38-task closure cycle (Tasks 1-38) tracked at [`roadmap/completed-phases.md`](roadmap/completed-phases.md); per-wave PR descriptions carry the closure-task delta.
 
 ## Quick summary of what's planned
 
@@ -85,14 +85,7 @@ docs/
 ├── roadmap.md                                  # This file — short index
 ├── roadmap-tr.md                               # Turkish mirror
 └── roadmap/
-    ├── completed-phases.md                     # Phase 1-10 archive (detailed)
-    ├── phase-10-post-training.md               # Completed — v0.4.0
-    ├── phase-10-5-quickstart.md                # Done (Phase 10.5) — shipped as v0.4.5
-    ├── phase-11-data-ingestion.md              # Done (Phase 11) — consolidated into v0.5.0
-    ├── phase-11-5-backlog.md                   # Done (Phase 11.5) — consolidated into v0.5.0; ingestion/audit polish
-    ├── phase-12-data-curation-maturity.md      # Done (Phase 12 Tier 1) — consolidated into v0.5.0; MinHash LSH, markdown splitter, secrets scan
-    ├── phase-12-5-backlog.md                   # Done (Phase 12.5) — consolidated into v0.5.0; Presidio adapter, Croissant metadata, --all-mask, wizard audit-first
-    ├── phase-12-6-closure-cycle.md             # Done — 38 fazlar / 5 waves bundled into v0.5.5
+    ├── completed-phases.md                     # Phase 1-12.6 archive (detailed) — Phase 10 / 10.5 / 11 / 11.5 / 12 / 12.5 / 12.6 absorbed inline (each shipped as v0.4.0 / v0.4.5 / v0.5.0 / v0.5.5)
     ├── phase-13-pro-cli.md                     # Planned — v0.6.0-pro (gated)
     ├── phase-14-pipeline-chains.md             # Planned — v0.6.0 (follow-up to the v0.5.5 closure cycle)
     ├── releases.md                             # v0.3.0 → v0.6.0 release notes

@@ -7,10 +7,10 @@
 | Tür | Faz | Durum |
 |-----|-----|-------|
 | ✅ Tamam | [Faz 1-9](roadmap/completed-phases.md) | SOTA iyileştirmeleri, değerlendirme, güvenilirlik, kurumsal entegrasyon, ekosistem, hizalama stack'i, güvenlik, EU AI Act uyumluluğu (Madde 9-17 + Ek IV), gelişmiş güvenlik zekası |
-| ✅ Tamam | [Faz 10 — Post-Training Tamamlama](roadmap/phase-10-post-training.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — `v0.4.0` |
-| ✅ Tamam | [Faz 10.5 — Quickstart Katmanı ve Onboarding](roadmap/phase-10-5-quickstart.md) | `forgelm quickstart <template>`, 5 hazır template, seed veri setleri — `v0.4.5` |
+| ✅ Tamam | [Faz 10 — Post-Training Tamamlama](roadmap/completed-phases.md) | `inference.py`, `chat`, `export` (GGUF), `--fit-check`, `deploy` — `v0.4.0` |
+| ✅ Tamam | [Faz 10.5 — Quickstart Katmanı ve Onboarding](roadmap/completed-phases.md) | `forgelm quickstart <template>`, 5 hazır template, seed veri setleri — `v0.4.5` |
 | ✅ Tamam | [Faz 11 + 11.5 + 12 + 12.5 — Doküman Yutma ve Veri Curation Pipeline'ı](roadmap/releases.md#v050-document-ingestion-data-curation-pipeline) | `forgelm ingest`, `forgelm audit`, PII regex + simhash dedup, LSH banding, streaming reader, PII şiddet katmanları, wizard ingest+audit, MinHash LSH dedup, markdown splitter, code/secrets tarama, kalite heuristic'leri, DOCX tablo koruması, `--all-mask`, Croissant 1.0, Presidio NER — `v0.5.0` (PyPI 2026-04-30) |
-| ✅ Tamam | [Faz 12.6 — Kapanış Döngüsü (5 wave boyunca 38 faz)](roadmap/phase-12-6-closure-cycle.md) | Library API, GDPR purge + reverse-pii, ISO 27001 / SOC 2 alignment, doctor + cache subcommand'leri, compliance verification toolbelt, bilingual mirror sweep + 4 CI guard, supply-chain security, cross-OS release matrix — `v0.5.5` ile paketlendi (PyPI 2026-05-10) |
+| ✅ Tamam | [Faz 12.6 — Kapanış Döngüsü (5 wave boyunca 37 içerik fazı + 1 sürüm etiketi = 38 kayıt)](roadmap/completed-phases.md) | Library API, GDPR purge + reverse-pii, ISO 27001 / SOC 2 alignment, doctor + cache subcommand'leri, compliance verification toolbelt, bilingual mirror sweep + 4 CI guard, supply-chain security, cross-OS release matrix — `v0.5.5` ile paketlendi (PyPI 2026-05-10) |
 | ✅ Tamam | Faz 22 — CLI sihirbazı tarayıcı yüzeyiyle eşdeğerlik | `forgelm --wizard` artık tarayıcı sihirbazıyla aynı 9-adımlı akışı çalıştırıyor (welcome → use-case → model → strategy → trainer → dataset → training-params → compliance → evaluation), `--wizard-start-from <yaml>` ile idempotent yeniden çalıştırma, şema-güdümlü varsayılanlar SOT, ayrı `EXIT_WIZARD_CANCELLED = 5` exit kodu, `$XDG_CACHE_HOME` altında durum kalıcılığı ve çıkışta validate — `v0.5.5` ile paketlendi (PyPI 2026-05-10) |
 | ✅ Tamam | Site dokümantasyon düzeltme taraması | `site/*.html` üzerindeki tüm görünür YAML / artefakt-yolu / CLI / şema iddiaları artık live `forgelm/` yüzeyine karşı doğrulanıyor. Hero YAML demo'su gerçek Pydantic alan adlarıyla yeniden yazıldı, compliance artefakt ağacı disk düzenine göre yeniden çizildi, hayalet YAML anahtarları + CLI flag'leri kaldırıldı, ifadeler live davranışa hizalandı. Altı dilde i18n (en / tr / de / fr / es / zh) tam paritede (her biri 731 anahtar) — `v0.5.5` ile paketlendi (PyPI 2026-05-10) |
 | 📋 Planlandı | [Faz 14 — Çok Aşamalı Pipeline Zincirleri](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO config zinciri, pipeline kaynak izleri → `v0.6.0` |
@@ -27,11 +27,13 @@
 
 Başlangıçta dört ardışık PyPI tag'i (`v0.5.0` / `v0.5.1` / `v0.5.2` / `v0.5.3`) olarak planlandı, dört faz tek tutarlı yüzey (yut → cila → olgunlaş → cila) oluşturduğu için tek kapsamlı `v0.5.0` release'inde birleştirildi.
 
-**PyPI'deki son sürüm:** `v0.5.5` — "Kapanış Döngüsü Paketi + Faz 22 Sihirbaz + Site Dokümantasyon Taraması" (2026-05-10).  Şunları paketler: **Faz 12.6** (Library API + GDPR purge / reverse-pii + ISO 27001 / SOC 2 alignment + doctor / cache / safety-eval / verify-* subcommand'leri + cross-OS release matrix + supply-chain security baseline; [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14) follow-up'ını kapsar), **Faz 22** (CLI sihirbazı tarayıcı yüzeyiyle eşdeğerlik + `--wizard-start-from` ile idempotent yeniden çalıştırma + şema-güdümlü varsayılanlar SOT + ayrı `EXIT_WIZARD_CANCELLED = 5` exit kodu) ve `site/*.html` üzerindeki tüm görünür YAML / artefakt-yolu / CLI / şema iddialarını live kod yüzeyine hizalayan ve altı-dil i18n paritesini eski haline getiren bir **site dokümantasyon düzeltme taraması**.
+**PyPI'deki son sürüm:** `v0.5.7` — "SFT trainer trl-modernizasyon düzeltmesi" (2026-05-10), `v0.5.6` (Intel Mac kurulum düzeltmesi) ve `v0.5.5` "Kapanış Döngüsü Paketi + Faz 22 Sihirbaz + Site Dokümantasyon Taraması" (2026-05-10) üzerine gelen bir takip patch'i.  v0.5.5 şunları paketler: **Faz 12.6** (Library API + GDPR purge / reverse-pii + ISO 27001 / SOC 2 alignment + doctor / cache / safety-eval / verify-* subcommand'leri + cross-OS release matrix + supply-chain security baseline; [#14 webhook SSRF hardening](https://github.com/cemililik/ForgeLM/issues/14) follow-up'ını kapsar), **Faz 22** (CLI sihirbazı tarayıcı yüzeyiyle eşdeğerlik + `--wizard-start-from` ile idempotent yeniden çalıştırma + şema-güdümlü varsayılanlar SOT + ayrı `EXIT_WIZARD_CANCELLED = 5` exit kodu) ve `site/*.html` üzerindeki tüm görünür YAML / artefakt-yolu / CLI / şema iddialarını live kod yüzeyine hizalayan ve altı-dil i18n paritesini eski haline getiren bir **site dokümantasyon düzeltme taraması**.  v0.5.6, v0.5.5'teki `torch>=2.3` tabanını `torch>=2.2`'ye düşürerek Intel Mac (x86_64) kurulabilirliğini geri kazandırır.  v0.5.7, trl 0.13'ün `SFTConfig.max_seq_length` → `SFTConfig.max_length` yeniden adlandırmasından kaynaklanan SFT trainer runtime `TypeError` hatasını düzeltir.
 
 **Daha öncesi:** `v0.5.0` — Doküman Yutma + Veri Curation Pipeline'ı (2026-04-30); `v0.4.5` — Quickstart Katmanı (2026-04-26); `v0.4.0` — Post-Training Tamamlama (2026-04-26).
 
 **Güncel durum:** PyPI'da `v0.5.5` altında 19 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6, 22) yayınlandı.  Sürüm sonrası 2 faz (13, 14) planlandı.
+
+> **Faz 12.6 görev / alt-görev iki eksenli not:** Faz 12.6 kendi içinde 38 görevlik bir kapanış döngüsüdür (Görev 1-38) ve [`roadmap/completed-phases.md`](roadmap/completed-phases.md) dosyasında izlenir; her wave'in PR açıklaması o wave'in kapsadığı görev delta'sını taşır.
 
 ## Planlanan işlerin özeti
 
@@ -81,14 +83,7 @@ docs/
 ├── roadmap.md                                  # İngilizce özet index
 ├── roadmap-tr.md                               # Bu dosya — Türkçe mirror
 └── roadmap/
-    ├── completed-phases.md                     # Faz 1-10 arşivi (detaylı, İngilizce)
-    ├── phase-10-post-training.md               # Tamamlandı — v0.4.0
-    ├── phase-10-5-quickstart.md                # Tamam (Faz 10.5) — v0.4.5 olarak yayınlandı
-    ├── phase-11-data-ingestion.md              # Tamam (Faz 11) — v0.5.0'a birleştirildi
-    ├── phase-11-5-backlog.md                   # Tamam (Faz 11.5) — v0.5.0'a birleştirildi; ingestion/audit cilası
-    ├── phase-12-data-curation-maturity.md      # Tamam (Faz 12 Tier 1) — v0.5.0'a birleştirildi; MinHash LSH, markdown splitter, secrets scan
-    ├── phase-12-5-backlog.md                   # Tamam (Faz 12.5) — v0.5.0'a birleştirildi; Presidio, Croissant, --all-mask, wizard audit-first
-    ├── phase-12-6-closure-cycle.md             # Tamam — 5 wave boyunca 38 faz, v0.5.5 ile paketlenmiş
+    ├── completed-phases.md                     # Faz 1-12.6 arşivi (detaylı, İngilizce) — Faz 10 / 10.5 / 11 / 11.5 / 12 / 12.5 / 12.6 inline gömüldü (sırasıyla v0.4.0 / v0.4.5 / v0.5.0 / v0.5.5)
     ├── phase-13-pro-cli.md                     # Planlandı — v0.6.0-pro (gated)
     ├── phase-14-pipeline-chains.md             # Planlandı — v0.6.0 (v0.5.5 kapanış döngüsünün takip release'i)
     ├── releases.md                             # v0.3.0 → v0.6.0 sürüm notları

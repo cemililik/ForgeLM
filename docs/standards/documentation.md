@@ -33,7 +33,7 @@ docs/
 | End user deploying in a regulated org | `qms/` | `qms/sop_model_training.md` |
 | Contributor writing code | `standards/` | this file |
 | Contributor understanding "why" | `design/` | `design/wizard_mode.md` |
-| Planner tracking work | `roadmap/` | `roadmap/phase-10-post-training.md` |
+| Planner tracking work | `roadmap/` | `roadmap/completed-phases.md` |
 
 If a doc doesn't fit any of these, it probably doesn't belong in `docs/`. Long thinking / drafts / PR-cycle audit notes / external-repo comparisons live under gitignored working-memory directories (`docs/marketing/`, `docs/analysis/`) and **must not be linked from public docs or production code** — see "Working-memory directories" below.
 

@@ -47,6 +47,14 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Tuple
 
+from .._abi_check import (
+    ABI_BROKEN,
+    ABI_OK,
+    ABI_SKIPPED_NUMPY,
+    ABI_SKIPPED_TORCH,
+    compute_numpy_torch_abi_status,
+    format_abi_remediation,
+)
 from .._exit_codes import EXIT_CONFIG_ERROR, EXIT_SUCCESS, EXIT_TRAINING_ERROR
 from .._logging import logger
 
@@ -63,6 +71,7 @@ _STATUS_FAIL = "fail"
 _PROBE_PYTHON_VERSION = "python.version"
 _PROBE_TORCH_INSTALLED = "torch.installed"
 _PROBE_TORCH_CUDA = "torch.cuda"
+_PROBE_NUMPY_TORCH_ABI = "numpy.torch_abi"
 _PROBE_GPU_INVENTORY = "gpu.inventory"
 _PROBE_HF_HUB_REACHABLE = "hf_hub.reachable"
 _PROBE_HF_HUB_OFFLINE_CACHE = "hf_hub.offline_cache"
@@ -206,6 +215,72 @@ def _check_torch_cuda() -> _CheckResult:
             "cuda_available": True,
             "cuda_version": cuda_version,
         },
+    )
+
+
+def _check_numpy_torch_abi() -> _CheckResult:
+    """Detect a torch <-> numpy binary-ABI mismatch.
+
+    Thin doctor-side wrapper over
+    :func:`forgelm.cli._abi_check.compute_numpy_torch_abi_status`; the
+    same helper is also called as a fail-fast preflight from
+    :mod:`forgelm.cli._training` so an operator who skips ``forgelm
+    doctor`` and jumps straight to training still gets the actionable
+    remediation message rather than a cryptic
+    ``NameError: name '_C' is not defined`` from torch mid-run.
+
+    See :mod:`forgelm.cli._abi_check` for the underlying logic + the
+    full stderr-suppression caveat (torch's C++ ``_ARRAY_API not
+    found`` line is outside Python's warnings machinery).
+    """
+    status, torch_version, numpy_version = compute_numpy_torch_abi_status()
+
+    if status == ABI_SKIPPED_TORCH:
+        # The dedicated torch.cuda probe already surfaces a missing
+        # torch as fail; do not double-report here.
+        return _CheckResult(
+            name=_PROBE_NUMPY_TORCH_ABI,
+            status=_STATUS_PASS,
+            detail="torch is not installed; ABI compatibility check skipped.",
+            extras={"skipped": True, "reason": "torch_missing"},
+        )
+    if status == ABI_SKIPPED_NUMPY:
+        # numpy is an *optional* fast-path for the simhash backend
+        # (see forgelm/data_audit/_optional.py::_HAS_NUMPY) — its
+        # absence is not a doctor failure.
+        return _CheckResult(
+            name=_PROBE_NUMPY_TORCH_ABI,
+            status=_STATUS_PASS,
+            detail="numpy is not installed; ABI compatibility check skipped.",
+            extras={"skipped": True, "reason": "numpy_missing"},
+        )
+
+    extras: Dict[str, Any] = {
+        "torch_version": torch_version,
+        "numpy_version": numpy_version,
+    }
+    if status == ABI_BROKEN:
+        # ``format_abi_remediation`` is the canonical fix-instructions
+        # string — shared so the training preflight emits the same hint.
+        return _CheckResult(
+            name=_PROBE_NUMPY_TORCH_ABI,
+            status=_STATUS_FAIL,
+            detail=format_abi_remediation(torch_version, numpy_version),
+            extras=extras,
+        )
+
+    if status != ABI_OK:
+        # The four ABI_* sentinels are exhaustive today; a fifth would
+        # have to land in ``_abi_check.py`` and be added to the dispatch
+        # above.  Raise (don't ``assert``) so a future drift still
+        # surfaces under ``python -O`` — bare asserts are stripped at
+        # optimization level 1.
+        raise RuntimeError(f"unexpected ABI status {status!r} from compute_numpy_torch_abi_status()")
+    return _CheckResult(
+        name=_PROBE_NUMPY_TORCH_ABI,
+        status=_STATUS_PASS,
+        detail=f"torch {torch_version} + numpy {numpy_version} are ABI-compatible.",
+        extras=extras,
     )
 
 
@@ -786,6 +861,7 @@ def _build_check_plan(*, offline: bool) -> List[Tuple[str, Callable[[], _CheckRe
     plan: List[Tuple[str, Callable[[], _CheckResult]]] = [
         (_PROBE_PYTHON_VERSION, _check_python_version),
         (_PROBE_TORCH_CUDA, _check_torch_cuda),
+        (_PROBE_NUMPY_TORCH_ABI, _check_numpy_torch_abi),
         (_PROBE_GPU_INVENTORY, _check_gpu_inventory),
     ]
     for extra_name, module, purpose in _OPTIONAL_EXTRAS:
@@ -988,6 +1064,7 @@ __all__ = [
     "_CheckResult",
     "_check_python_version",
     "_check_torch_cuda",
+    "_check_numpy_torch_abi",
     "_check_gpu_inventory",
     "_check_optional_extra",
     "_check_hf_hub_reachable",
