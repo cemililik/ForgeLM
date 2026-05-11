@@ -850,12 +850,17 @@ class TestRoundTwoFixes:
 
         Without a language hint, ``--normalise-profile`` must NOT silently
         rewrite Nordic / mathematical characters.
+
+        Windows-fix: explicit ``encoding="utf-8"`` on the write is required
+        because ``Path.write_text`` uses the OS default codec (cp1252 on
+        Windows) which fails to encode Latin-1 Supplement characters
+        consistently with the UTF-8-first read path.
         """
         src = tmp_path / "doc.txt"
         # ``ø``, ``Õ``, ``÷`` are legitimate non-Turkish chars (Nordic /
         # Estonian / math). Without language_hint, the normaliser must
         # leave them alone.
-        src.write_text("Visit Bjørk Õrö ÷ ten.\n\nAnother paragraph.\n")
+        src.write_text("Visit Bjørk Õrö ÷ ten.\n\nAnother paragraph.\n", encoding="utf-8")
         out = tmp_path / "out.jsonl"
         ingest_path(str(src), output_path=str(out), strategy="paragraph")
         all_text = "\n".join(_read_jsonl(out))
@@ -864,9 +869,15 @@ class TestRoundTwoFixes:
         assert "÷" in all_text
 
     def test_normalise_profile_active_when_language_hint_is_tr(self, tmp_path):
-        """C-2 confirm: --language-hint tr auto-enables the turkish profile."""
+        """C-2 confirm: --language-hint tr auto-enables the turkish profile.
+
+        Windows-fix: explicit ``encoding="utf-8"`` on both the write AND
+        ``read_text_with_bom_strip`` is required because U+085F (Mandaic
+        punctuation) is outside the cp1252 codepage that Windows
+        ``Path.write_text`` defaults to.
+        """
         src = tmp_path / "doc.txt"
-        src.write_text("Body text with corruption: ø Õ ú ÷ ࡟\n\nMore body.\n")
+        src.write_text("Body text with corruption: ø Õ ú ÷ ࡟\n\nMore body.\n", encoding="utf-8")
         out = tmp_path / "out.jsonl"
         ingest_path(
             str(src),
