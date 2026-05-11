@@ -114,11 +114,16 @@ $ forgelm ingest INPUT_PATH \
     [--epub-no-skip-frontmatter] [--keep-md-frontmatter] \
     [--strip-pattern REGEX ...] [--strip-pattern-no-timeout] \
     [--page-range START-END] [--keep-frontmatter] \
-    [--strip-urls {keep,mask,strip}]
+    [--strip-urls {keep,mask,strip}] \
+    [--output-format {text,json}]
 ```
 
-Phase 15 (v0.6.0) added the `--language-hint`, `--script-sanity-threshold`,
-`--normalise-profile`, `--no-normalise-unicode`, `--no-quality-presignal`,
+Pass `--output-format json` to get the machine-readable envelope
+described in [JSON Output Contract](#/reference/json-output) — useful
+for CI gates that branch on chunk count / files-processed without
+parsing the text summary. Phase 15 (v0.6.0) added the
+`--language-hint`, `--script-sanity-threshold`, `--normalise-profile`,
+`--no-normalise-unicode`, `--no-quality-presignal`,
 `--epub-no-skip-frontmatter`, `--keep-md-frontmatter`, `--strip-pattern`,
 `--strip-pattern-no-timeout`, `--page-range`, `--keep-frontmatter`, and
 `--strip-urls` flags. See [Document Ingestion](#/data/ingestion).

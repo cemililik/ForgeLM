@@ -69,7 +69,7 @@ leaving room for legitimate mixed-script content (1 % envelope).
 # membership test is a hash lookup, not a range comparison.
 _UNIVERSAL_ALLOW: FrozenSet[str] = frozenset(
     # ASCII printables 0x20–0x7E + tab / newline / CR.
-    list(chr(c) for c in range(0x20, 0x7F))
+    [chr(c) for c in range(0x20, 0x7F)]
     + ["\t", "\n", "\r", "\f", "\v"]
     # Typographic punctuation that survives any language.
     + [

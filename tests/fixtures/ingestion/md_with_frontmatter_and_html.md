@@ -7,6 +7,11 @@ tags:
   - regression
 ---
 
+<!-- markdownlint-disable MD025 MD033 — Phase 15 fixture intentionally
+     ships a top-level `#` heading PLUS raw HTML passthrough so the
+     `_extract_markdown` helper can be exercised against both failure
+     modes in a single file. The Codacy notices are expected, not bugs. -->
+
 # Body heading
 
 This is the body content that should survive YAML-frontmatter stripping.

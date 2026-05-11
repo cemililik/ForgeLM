@@ -314,21 +314,25 @@ Pypdf, custom glyph adları içeren fontlarla bezenmiş PDF'lerde
 zaman zaman font-fallback artefaktları üretir (audit, gerçek bir
 Türkçe pilotta `ø Õ ú ÷ ࡟` ölçtü). v0.6.0 iki çözüm sunar:
 
-* **`--language-hint LANG`** her dosya ekstraksiyonundan sonra bir
+- **`--language-hint LANG`** her dosya ekstraksiyonundan sonra bir
   Unicode-block sanity kontrolü çalıştırır. Out-of-script karakter
   oranı kalibre edilmiş %1.5 eşiğini geçtiğinde (`--script-sanity-threshold`
   ile ayarlanabilir), bir WARNING tetiklenir + yapılandırılmış
   `script_sanity_summary` bloğu `notes_structured` içine düşer.
   Desteklenen diller: `tr`, `en`, `de`, `fr`, `es`, `it`, `pt`
   (CJK / Arapça Faz 16+'ya ertelendi).
-* **`--normalise-profile {turkish,none}`** çıkarılmış metne
-  dil-spesifik bir glyph normalizasyon tablosu uygular. `turkish`
-  profili (varsayılan) audit'in ölçtüğü artefaktları chunk-write
-  zamanında `İ ı ş ğ •` karşılığına eşler. `--no-normalise-unicode`
-  veya `--normalise-profile none` ile tamamen kapatılabilir.
-  Tablonun yüklendiğini doğrulamak için `forgelm doctor`'ı çalıştırın —
-  profile sağlıklı olduğunda `pypdf_normalise.turkish: pass`
-  satırını verir.
+- **`--normalise-profile {turkish,none}`** çıkarılmış metne
+  dil-spesifik bir glyph normalizasyon tablosu uygular. Modül-düzeyi
+  varsayılan **`none`** (Faz 15 round-2 / C-2: dil ipucu olmayan
+  korpusların sessizce yeniden yazılmasını önlemek için). Operatör
+  `--language-hint tr` geçirdiğinde dispatcher (CLI ve kütüphane API
+  her ikisinde de) otomatik olarak `turkish` profiline türetir; her
+  diğer ipucu (veya ipuçsuz çalışma) `none` kalır. Açık
+  `--normalise-profile turkish` her zaman kazanır.
+  `--no-normalise-unicode` veya `--normalise-profile none`
+  normalizasyonu tamamen devre dışı bırakır. Tablonun yüklendiğini
+  doğrulamak için `forgelm doctor`'ı çalıştırın — profile sağlıklı
+  olduğunda `pypdf_normalise.turkish: pass` satırını verir.
 
 ### Ingest sırasında kalite ön-sinyali (Faz 15 Görev 4)
 
@@ -428,9 +432,9 @@ raporlar; downstream audit operasyonu spot-check edebilir.
 QR-kod referansları, DOI altbilgileri veya modelin ezberleyebileceği
 sosyal-medya linkleri gömen corpus'lar için URL davranışı:
 
-* `keep` (varsayılan) — URL'leri olduğu gibi geçirir.
-* `mask` — her URL'yi `[URL]` placeholder'ı ile değiştirir.
-* `strip` — URL'leri tamamen siler.
+- `keep` (varsayılan) — URL'leri olduğu gibi geçirir.
+- `mask` — her URL'yi `[URL]` placeholder'ı ile değiştirir.
+- `strip` — URL'leri tamamen siler.
 
 URL yönetimi bilinçli olarak `--all-mask` (Faz 12.5 PII + secrets
 kısayolu) ile **bağımsızdır**. URL stripping bir content-shape

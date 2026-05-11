@@ -143,6 +143,37 @@ def _apply_turkish(text: str) -> str:
     return out
 
 
+def count_substitutions(text: str, profile: str = DEFAULT_PROFILE) -> int:
+    """Return the **exact** number of substitutions ``apply_profile`` would
+    perform on ``text``.
+
+    Phase 15 round-3 review: the previous heuristic in ``ingestion.py``
+    zipped the pre- and post-normalisation strings character-by-character
+    and added an absolute length delta. That over-counted when a
+    multi-char rule (``"ö " → "Ğ"``) shortened the text by one character
+    AND the surrounding chars happened to differ, AND it under-counted
+    when consecutive substitutions cancelled in the zip view. The exact
+    count is cheap to compute via ``text.count(src)`` for each rule
+    (multi-char rules counted first because their substitution consumes
+    one of the single-char triggers as a prefix — same precedence as
+    :func:`apply_profile`).
+    """
+    if profile == "none" or not text:
+        return 0
+    if profile != "turkish":
+        return 0
+    total = 0
+    remaining = text
+    for src, _dst in _TURKISH_MULTI:
+        hits = remaining.count(src)
+        if hits:
+            total += hits
+            remaining = remaining.replace(src, "")
+    for src in _TURKISH_SINGLE:
+        total += remaining.count(src)
+    return total
+
+
 def profile_summary(profile: str) -> Dict[str, int]:
     """Return ``{"multi": N, "single": M}`` for the named profile.
 
@@ -173,6 +204,7 @@ __all__ = [
     "PROFILES",
     "DEFAULT_PROFILE",
     "apply_profile",
+    "count_substitutions",
     "profile_summary",
     "emitted_codepoints",
 ]

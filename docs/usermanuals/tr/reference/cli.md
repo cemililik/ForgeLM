@@ -114,14 +114,19 @@ $ forgelm ingest INPUT_PATH \
     [--epub-no-skip-frontmatter] [--keep-md-frontmatter] \
     [--strip-pattern REGEX ...] [--strip-pattern-no-timeout] \
     [--page-range START-END] [--keep-frontmatter] \
-    [--strip-urls {keep,mask,strip}]
+    [--strip-urls {keep,mask,strip}] \
+    [--output-format {text,json}]
 ```
 
-Faz 15 (v0.6.0), `--language-hint`, `--script-sanity-threshold`,
-`--normalise-profile`, `--no-normalise-unicode`, `--no-quality-presignal`,
-`--epub-no-skip-frontmatter`, `--keep-md-frontmatter`, `--strip-pattern`,
-`--strip-pattern-no-timeout`, `--page-range`, `--keep-frontmatter` ve
-`--strip-urls` bayraklarını ekledi. Bkz. [Doküman Ingestion](#/data/ingestion).
+`--output-format json` ile [JSON Output Contract](#/reference/json-output)
+sayfasındaki makine-okunabilir envelope alınır — chunk count / files-
+processed üzerinden branch eden CI gate'ler için kullanışlı, metin
+özetini parse etmeye gerek yok. Faz 15 (v0.6.0), `--language-hint`,
+`--script-sanity-threshold`, `--normalise-profile`, `--no-normalise-unicode`,
+`--no-quality-presignal`, `--epub-no-skip-frontmatter`, `--keep-md-frontmatter`,
+`--strip-pattern`, `--strip-pattern-no-timeout`, `--page-range`,
+`--keep-frontmatter` ve `--strip-urls` bayraklarını ekledi. Bkz.
+[Doküman Ingestion](#/data/ingestion).
 
 ## Chat: `forgelm chat`
 

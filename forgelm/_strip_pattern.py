@@ -120,6 +120,73 @@ def validate_strip_pattern(pattern: str) -> str:
     return pattern
 
 
+_NESTED_UNBOUNDED_REJECTION_MSG = (
+    "contains a nested unbounded quantifier (e.g. `(a+)+`, `(\\w+)+`, "
+    "`(\\w+\\s+)+`), which is a textbook ReDoS shape (regex.md rule 4). "
+    "Rewrite with bounded repetition (e.g. `a{1,100}`) or split across "
+    "multiple narrower --strip-pattern flags."
+)
+
+
+def _scan_atom_end(pattern: str, i: int, n: int) -> int:
+    """Return the index just past the atom that starts at ``pattern[i]``.
+
+    An *atom* is one of: an escape pair (``\\X``), a character class
+    (``[…]`` honouring escapes), or a single literal character. Group
+    boundaries are handled by the caller, not here. Extracted from
+    :func:`_check_unbounded_quantifier_sequence` purely to keep the
+    caller below the Sonar S3776 cognitive-complexity ceiling.
+    """
+    char = pattern[i]
+    if char == "\\":
+        return i + 2
+    if char == "[":
+        j = i + 1
+        while j < n:
+            if pattern[j] == "\\":
+                j += 2
+                continue
+            if pattern[j] == "]":
+                break
+            j += 1
+        return j + 1
+    return i + 1
+
+
+def _advance_past_brace_quantifier(pattern: str, atom_end: int, n: int) -> int:
+    """Skip a ``{n,m}`` quantifier span so the outer loop won't re-parse digits."""
+    j = atom_end + 1
+    while j < n and pattern[j] != "}":
+        j += 1
+    return j + 1
+
+
+def _close_group_or_raise(
+    pattern: str,
+    i: int,
+    n: int,
+    stack: List[Tuple[int, bool]],
+) -> int:
+    """Handle ``)`` at ``pattern[i]``; raise on the nested-unbounded shape.
+
+    Pops the current group, checks the immediately-following character
+    for ``+`` / ``*``, and propagates the "this atom was unbounded" flag
+    to the parent group. Returns the post-quantifier index so the
+    caller's main loop can advance.
+    """
+    _open_idx, inner_unbounded = stack.pop() if len(stack) > 1 else (-1, False)
+    outer_quantifier = pattern[i + 1] if i + 1 < n else ""
+    if inner_unbounded and outer_quantifier in ("+", "*"):
+        raise StripPatternError(f"--strip-pattern {pattern!r} {_NESTED_UNBOUNDED_REJECTION_MSG}")
+    if stack:
+        top_open, _ = stack[-1]
+        stack[-1] = (top_open, outer_quantifier in ("+", "*"))
+    next_i = i + 1
+    if outer_quantifier in ("+", "*", "?"):
+        next_i += 1
+    return next_i
+
+
 def _check_unbounded_quantifier_sequence(pattern: str) -> None:
     """Reject patterns with two unbounded quantifiers in sequence.
 
@@ -138,7 +205,10 @@ def _check_unbounded_quantifier_sequence(pattern: str) -> None:
     The check is structural, not a full-AST parse — regex.md rule 4
     is about pattern *shape*, so an atom-by-atom forward scan is
     sufficient. The SIGALRM timeout remains the safety net for the
-    long tail of exotic variants we still miss.
+    long tail of exotic variants we still miss. Atom parsing and the
+    close-paren handler are extracted into helpers (``_scan_atom_end``,
+    ``_close_group_or_raise``, ``_advance_past_brace_quantifier``) to
+    keep this function below Sonar S3776's cognitive-complexity ceiling.
     """
     # Each stack entry is ``(open_index, last_atom_unbounded)``. The
     # bottom entry represents the implicit "outer" pattern; pushed
@@ -150,73 +220,25 @@ def _check_unbounded_quantifier_sequence(pattern: str) -> None:
     n = len(pattern)
     while i < n:
         char = pattern[i]
-
-        # ---- Group boundary handling ----
         if char == "(":
-            # Skip non-capturing / look-around prefixes uniformly.
             stack.append((i, False))
             i += 1
             continue
         if char == ")":
-            _open_idx, inner_unbounded = stack.pop() if len(stack) > 1 else (-1, False)
-            outer_quantifier = pattern[i + 1] if i + 1 < n else ""
-            if inner_unbounded and outer_quantifier in ("+", "*"):
-                raise StripPatternError(
-                    f"--strip-pattern {pattern!r} contains a nested unbounded "
-                    "quantifier (e.g. `(a+)+`, `(\\w+)+`, `(\\w+\\s+)+`), which "
-                    "is a textbook ReDoS shape (regex.md rule 4). Rewrite with "
-                    "bounded repetition (e.g. `a{1,100}`) or split across "
-                    "multiple narrower --strip-pattern flags."
-                )
-            # Parsed one atom (the group). Mark the parent group's
-            # last-atom flag based on whether THIS group carries an
-            # outer ``+`` / ``*``.
-            if stack:
-                top_open, _ = stack[-1]
-                stack[-1] = (top_open, outer_quantifier in ("+", "*"))
-            # Skip the quantifier (if any) so we don't re-process it.
-            i += 1
-            if outer_quantifier in ("+", "*", "?"):
-                i += 1
+            i = _close_group_or_raise(pattern, i, n, stack)
             continue
 
-        # ---- One atom: escape, character class, or literal ----
-        if char == "\\":
-            # Escape sequence: one atom of length 2.
-            atom_end = i + 2
-        elif char == "[":
-            # Character class: scan to matching ``]`` honouring escapes.
-            j = i + 1
-            while j < n:
-                if pattern[j] == "\\":
-                    j += 2
-                    continue
-                if pattern[j] == "]":
-                    break
-                j += 1
-            atom_end = j + 1
-        else:
-            # Plain literal (or a control char that's not a group /
-            # class / quantifier on its own). One char.
-            atom_end = i + 1
-
-        # ---- Quantifier (if any) on this atom ----
+        atom_end = _scan_atom_end(pattern, i, n)
         quantifier = pattern[atom_end] if atom_end < n else ""
-        unbounded = quantifier in ("+", "*")
         if stack:
             top_open, _ = stack[-1]
-            stack[-1] = (top_open, unbounded)
-        # Advance past the atom and its quantifier (if present).
+            stack[-1] = (top_open, quantifier in ("+", "*"))
+
         i = atom_end
         if quantifier in ("+", "*", "?"):
             i += 1
         elif quantifier == "{":
-            # ``{n,m}`` is bounded — skip the brace span so the next
-            # iteration doesn't try to parse digits as atoms.
-            j = atom_end + 1
-            while j < n and pattern[j] != "}":
-                j += 1
-            i = j + 1
+            i = _advance_past_brace_quantifier(pattern, atom_end, n)
 
 
 def _check_dotall_backreference(pattern: str, flags: int) -> None:
@@ -348,7 +370,17 @@ def _apply_one(
         raise OSError(f"strip-pattern {raw!r} exceeded {timeout_s}s (ReDoS guard)")
 
     previous_handler = signal.signal(signal.SIGALRM, _alarm)
-    previous_remaining = signal.alarm(timeout_s)
+    # Round-3 review (Gemini): the inner alarm must NOT extend an outer
+    # caller's shorter remaining budget. ``signal.alarm(N)`` returns the
+    # seconds remaining on any prior alarm; clamp our budget to the
+    # smaller of ``timeout_s`` and that outer remainder so a nested
+    # caller can never exceed the surrounding deadline.
+    previous_remaining = signal.alarm(0)
+    if previous_remaining > 0:
+        chosen = min(timeout_s, previous_remaining)
+    else:
+        chosen = timeout_s
+    signal.alarm(chosen)
     started = time.monotonic()
     try:
         new_out, subs = compiled.subn("", text)
@@ -363,9 +395,10 @@ def _apply_one(
         signal.alarm(0)
         signal.signal(signal.SIGALRM, previous_handler)
         if previous_remaining > 0:
-            # Honour an outer caller's alarm budget (same protocol the
-            # reverse-pii ReDoS guard uses). Round up partial seconds so
-            # the outer budget is preserved, never extended.
+            # Honour the outer caller's ORIGINAL remaining budget (not
+            # ``chosen``) minus the wall-clock seconds we burned. Round
+            # up partial seconds and clamp to ≥1 so we never silently
+            # cancel the outer alarm.
             elapsed = time.monotonic() - started
             remaining = max(int(previous_remaining - elapsed) + 1, 1)
             signal.alarm(remaining)

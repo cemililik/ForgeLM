@@ -38,6 +38,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from ._pypdf_normalise import DEFAULT_PROFILE as _DEFAULT_NORMALISE_PROFILE
 from ._pypdf_normalise import apply_profile as _apply_normalise_profile
+from ._pypdf_normalise import count_substitutions as _count_normalise_substitutions
 from ._script_sanity import (
     DEFAULT_THRESHOLD as _DEFAULT_SCRIPT_SANITY_THRESHOLD,
 )
@@ -284,6 +285,32 @@ def _windowed_repeating_edge_lines(
     )
 
 
+def _pop_one_page_window(
+    lines: List[str],
+    repeating_firsts: set,
+    repeating_lasts: set,
+    window: int,
+) -> Tuple[List[str], int]:
+    """Per-page worker for :func:`_pop_windowed_edges`.
+
+    Extracted so the outer aggregator stays below Sonar S3776's
+    cognitive-complexity ceiling. Returns ``(kept_lines, dropped_count)``.
+    """
+    kept: List[str] = []
+    dropped = 0
+    for idx, ln in enumerate(lines):
+        if idx < window and ln in repeating_firsts:
+            dropped += 1
+            continue
+        kept.append(ln)
+    tail_drops = 0
+    while kept and tail_drops < window and kept[-1] in repeating_lasts:
+        kept.pop()
+        dropped += 1
+        tail_drops += 1
+    return kept, dropped
+
+
 def _pop_windowed_edges(
     page_lines: List[List[str]],
     repeating_firsts: set,
@@ -296,31 +323,15 @@ def _pop_windowed_edges(
     caller can roll the count into structured ingestion notes for
     downstream visibility. Pages that end up empty after the pop are
     left as empty lists (the caller filters them out at the join step).
+    Per-page work is delegated to :func:`_pop_one_page_window`.
     """
     stripped = 0
     for lines in page_lines:
         if not lines:
             continue
-        head_keep: List[str] = []
-        # Walk the top-N window, dropping matches; keep everything else.
-        for idx, ln in enumerate(lines):
-            if idx < window and ln in repeating_firsts:
-                stripped += 1
-                continue
-            head_keep.append(ln)
-        # Walk the bottom-N window in reverse, dropping matches that
-        # weren't already removed above (a line appearing in both
-        # repeating_firsts and repeating_lasts is only counted once).
-        tail_drops: int = 0
-        while head_keep and tail_drops < window:
-            tail_idx = -1
-            if head_keep[tail_idx] in repeating_lasts:
-                head_keep.pop()
-                stripped += 1
-                tail_drops += 1
-            else:
-                break
-        lines[:] = head_keep
+        kept, dropped = _pop_one_page_window(lines, repeating_firsts, repeating_lasts, window)
+        stripped += dropped
+        lines[:] = kept
     return stripped
 
 
@@ -476,13 +487,12 @@ def _post_extract_normalise(text: str, ctx: _ExtractContext, file_path: Path) ->
     # mismatch. The check compares character identity rather than full
     # text equality so a long-document round-trip stays cheap.
     if ctx.normalise_profile and ctx.normalise_profile != "none":
+        # Round-3 review: use the exact-count helper from
+        # ``_pypdf_normalise`` instead of the previous zip-diff heuristic,
+        # which over- and under-counted on multi-char rule boundaries.
+        substitutions = _count_normalise_substitutions(text, ctx.normalise_profile)
         normalised = _apply_normalise_profile(text, ctx.normalise_profile)
-        if normalised != text:
-            # Substitution count = number of differing characters.
-            # Approximate but cheap; an exact per-glyph counter would
-            # require running the table apply twice or restructuring the
-            # normaliser's API.
-            substitutions = sum(1 for a, b in zip(text, normalised) if a != b) + abs(len(normalised) - len(text))
+        if substitutions:
             logger.info(
                 "Normalisation profile %r applied %d substitution(s) on '%s'. "
                 "Pass --no-normalise-unicode or --normalise-profile none to disable.",
@@ -650,19 +660,31 @@ operator feedback shifts the modal value.
 """
 
 _FRONTMATTER_ALPHA_RATIO_MAX: float = 0.45
-_FRONTMATTER_UNDERSCORE_RATIO_MIN: float = 0.10
+_FRONTMATTER_LEADER_RATIO_MIN: float = 0.10
 _FRONTMATTER_PAGE_NUM_PATTERN = re.compile(r"\n\d{1,3}\n")
+# Round-3 review: ToC pages commonly use **dotted** leaders (`.....`)
+# OR underscore leaders (`____`). A bare-underscore-only count missed
+# the dot-leader case on real-world publications, leaving genuine ToC
+# pages slipping past the heuristic. Combine both leader styles into a
+# single regex; runs of length ≥ 3 reliably distinguish leaders from
+# legitimate punctuation.
+_FRONTMATTER_LEADER_RUN_PATTERN = re.compile(r"[._]{3,}")
 
 
 def _is_frontmatter_page(text: str) -> bool:
-    """Apply the audit's three-signal heuristic: low alpha + high underscore + many page-numbers.
+    """Apply the audit's three-signal heuristic: low alpha + high leader ratio + many page-numbers.
 
     A page is treated as "front-matter candidate" iff **all three**
     conditions hold:
 
     * Alphabetic-character ratio < 0.45.
-    * Underscore-character ratio > 0.10 (ToC dotted leaders show up
-      as runs of ``_`` or ``.`` after pypdf extraction).
+    * Leader-character ratio > 0.10. Round-3 fix: the leader count
+      now covers BOTH underscore runs (``_____``) AND dot runs
+      (``.....``) of length ≥ 3, denominated over the non-whitespace
+      character count (parity with ``alpha_ratio``). Pre-round-3 the
+      check only counted single ``_`` characters against the raw text
+      length, which missed the dotted-leader ToC pages that the
+      docstring already promised to handle.
     * At least 5 inline-page-number matches (``\\n<1-3 digits>\\n``).
 
     Three independent signals keep the false-positive rate low — body
@@ -674,11 +696,12 @@ def _is_frontmatter_page(text: str) -> bool:
     if not non_ws:
         return False
     alpha_ratio = sum(1 for c in non_ws if c.isalpha()) / len(non_ws)
-    underscore_ratio = text.count("_") / len(text)
+    leader_chars = sum(len(m) for m in _FRONTMATTER_LEADER_RUN_PATTERN.findall(text))
+    leader_ratio = leader_chars / len(non_ws)
     page_num_hits = len(_FRONTMATTER_PAGE_NUM_PATTERN.findall(text))
     return (
         alpha_ratio < _FRONTMATTER_ALPHA_RATIO_MAX
-        and underscore_ratio > _FRONTMATTER_UNDERSCORE_RATIO_MIN
+        and leader_ratio > _FRONTMATTER_LEADER_RATIO_MIN
         and page_num_hits >= 5
     )
 
@@ -746,32 +769,31 @@ layout extraction).
 """
 
 
-def _maybe_warn_multi_column(reader: Any, path: Path, *, page_range: Optional[Tuple[int, int]] = None) -> bool:
-    """Sample the first probable text-bearing page for a two-cluster x-distribution.
+def _select_sample_pages(reader: Any, page_range: Optional[Tuple[int, int]]) -> List[Any]:
+    """Slice the first three text-bearing pages for the multi-column probe.
 
-    Walks pypdf's text fragments via the ``visitor_text`` callback,
-    accumulates per-fragment x-coordinates, and reports a two-cluster
-    distribution as a single ``WARNING``. No fix attempt — the
-    operator is expected to switch to ``--strategy sliding`` with a
-    larger chunk-size or to pre-process the PDF with a layout-aware
-    tool. Returns ``True`` iff a warning was emitted (test seam).
-
-    Round-2 review (nit on ingestion.py:803): when ``--page-range`` is
-    set the warning previously sampled pages 0-2 even if those pages
-    were going to be dropped from the actual extraction; we now respect
-    the same slice the extractor will use so the warning reflects the
-    real run, not the file's first three pages.
+    Honours ``--page-range`` when set so the warning reflects the real
+    extraction surface (round-2 review nit). Returns an empty list on
+    any slicing failure — the probe degrades to silence rather than
+    blocking the run.
     """
     try:
         if page_range is not None:
             start_1idx, end_1idx = page_range
-            sliced = reader.pages[start_1idx - 1 : end_1idx]
-            sample_pages = sliced[:3]
-        else:
-            sample_pages = reader.pages[:3]
+            return reader.pages[start_1idx - 1 : end_1idx][:3]
+        return reader.pages[:3]
     except Exception:  # noqa: BLE001 — pypdf wrapper objects may raise on slice on torn PDFs.
-        return False
+        return []
 
+
+def _collect_multi_column_samples(sample_pages: List[Any]) -> Tuple[List[float], Optional[float]]:
+    """Drive pypdf's ``visitor_text`` callback across ``sample_pages``.
+
+    Returns ``(x_positions, page_width)``. The page width comes from the
+    first page that exposes a ``mediabox``. Sampling stops once 40
+    positions have been collected — enough to call multi-column with
+    confidence without walking a 500-page document.
+    """
     x_positions: List[float] = []
     page_width: Optional[float] = None
 
@@ -780,7 +802,7 @@ def _maybe_warn_multi_column(reader: Any, path: Path, *, page_range: Optional[Tu
         # text-matrix; the horizontal offset is element 4. Pypdf calls
         # this with the documented kwargs (``font_dict`` / ``font_size``
         # under the historical CamelCase names) — the snake_case
-        # underscored names below keep Sonar python:S117 happy without
+        # underscored names here keep Sonar python:S117 happy without
         # changing the call contract.
         if text and tm is not None:
             try:
@@ -796,26 +818,53 @@ def _maybe_warn_multi_column(reader: Any, path: Path, *, page_range: Optional[Tu
         except Exception:  # noqa: BLE001 — sampling is best-effort; per-page failures from torn PDFs / unusable font tables should not block the multi-column probe.  # nosec B112
             continue
         if len(x_positions) >= 40:
-            # Enough samples to make a call; stop walking further pages.
             break
+    return x_positions, page_width
 
-    if not x_positions or page_width is None or page_width <= 0:
+
+def _is_two_cluster_distribution(x_positions: List[float], page_width: float) -> bool:
+    """Return ``True`` iff the x-positions split into two clusters past the threshold."""
+    if not x_positions or page_width <= 0:
         return False
-
-    x_positions.sort()
-    midpoint = (x_positions[0] + x_positions[-1]) / 2.0
-    left_cluster_max = max((x for x in x_positions if x <= midpoint), default=midpoint)
-    right_cluster_min = min((x for x in x_positions if x > midpoint), default=midpoint)
+    sorted_xs = sorted(x_positions)
+    midpoint = (sorted_xs[0] + sorted_xs[-1]) / 2.0
+    left_cluster_max = max((x for x in sorted_xs if x <= midpoint), default=midpoint)
+    right_cluster_min = min((x for x in sorted_xs if x > midpoint), default=midpoint)
     gap = right_cluster_min - left_cluster_max
-    if gap > _MULTI_COLUMN_SEPARATION_PCT * page_width:
-        logger.warning(
-            "Detected 2-column layout in '%s' — reading order may be scrambled. "
-            "Consider --strategy sliding with a larger --chunk-size, or pre-process "
-            "the PDF with a layout-aware tool (camelot-py / pdfplumber).",
-            path,
-        )
-        return True
-    return False
+    return gap > _MULTI_COLUMN_SEPARATION_PCT * page_width
+
+
+def _maybe_warn_multi_column(reader: Any, path: Path, *, page_range: Optional[Tuple[int, int]] = None) -> bool:
+    """Sample the first text-bearing pages for a two-cluster x-distribution.
+
+    Walks pypdf's text fragments via the ``visitor_text`` callback,
+    accumulates per-fragment x-coordinates, and reports a two-cluster
+    distribution as a single ``WARNING``. No fix attempt — the
+    operator is expected to switch to ``--strategy sliding`` with a
+    larger chunk-size or to pre-process the PDF with a layout-aware
+    tool. Returns ``True`` iff a warning was emitted (test seam).
+
+    Round-2 review (nit on ingestion.py:803): when ``--page-range`` is
+    set the warning previously sampled pages 0-2 even if those pages
+    were going to be dropped from the actual extraction; we now respect
+    the same slice the extractor will use so the warning reflects the
+    real run, not the file's first three pages.
+    """
+    sample_pages = _select_sample_pages(reader, page_range)
+    if not sample_pages:
+        return False
+    x_positions, page_width = _collect_multi_column_samples(sample_pages)
+    if page_width is None:
+        return False
+    if not _is_two_cluster_distribution(x_positions, page_width):
+        return False
+    logger.warning(
+        "Detected 2-column layout in '%s' — reading order may be scrambled. "
+        "Consider --strategy sliding with a larger --chunk-size, or pre-process "
+        "the PDF with a layout-aware tool (camelot-py / pdfplumber).",
+        path,
+    )
+    return True
 
 
 def _extract_pdf(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
@@ -974,6 +1023,16 @@ def _iter_docx_blocks(doc: Any) -> Iterable[Any]:
             yield Table(child, doc)
 
 
+def _add_part_lines_to_boilerplate(part: Any, boilerplate: set) -> None:
+    """Drain non-empty stripped lines from a header/footer part into ``boilerplate``."""
+    for paragraph in getattr(part, "paragraphs", []):
+        text = getattr(paragraph, "text", "") or ""
+        for ln in text.splitlines():
+            cleaned = ln.strip()
+            if cleaned:
+                boilerplate.add(cleaned)
+
+
 def _collect_docx_header_footer_lines(doc: Any) -> set:
     """Phase 15 Task 6 — return every line declared in a section's header / footer.
 
@@ -985,11 +1044,13 @@ def _collect_docx_header_footer_lines(doc: Any) -> set:
     only contributes one entry per unique line. Body extraction
     afterwards subtracts these lines, eliminating the
     "header bleeds into body chunk" failure mode the audit (§3.2)
-    documented.
+    documented. Per-section drain logic is delegated to
+    :func:`_add_part_lines_to_boilerplate` to keep this function below
+    Sonar S3776's cognitive-complexity ceiling.
 
-    Defensive: a malformed section (no header element) raises ``AttributeError``
-    from python-docx; we swallow it per-section so a single bad section
-    cannot kill extraction of the rest.
+    Defensive: a malformed section (no header element) raises
+    ``AttributeError`` from python-docx; we swallow it per-section so a
+    single bad section cannot kill extraction of the rest.
     """
     boilerplate: set = set()
     for section in getattr(doc, "sections", []):
@@ -1000,17 +1061,62 @@ def _collect_docx_header_footer_lines(doc: Any) -> set:
                 continue
             if part is None:
                 continue
-            for paragraph in getattr(part, "paragraphs", []):
-                text = getattr(paragraph, "text", "") or ""
-                for ln in text.splitlines():
-                    cleaned = ln.strip()
-                    if cleaned:
-                        boilerplate.add(cleaned)
+            _add_part_lines_to_boilerplate(part, boilerplate)
     return boilerplate
 
 
+_DOCX_BOILERPLATE_MAX_LEN: int = 80
+"""Max stripped-line length eligible for boilerplate subtraction (round-2 S-4).
+
+A body paragraph beginning with ``Chapter 1`` is overwhelmingly longer
+than its standalone-title-as-header counterpart, so the length floor
+protects body text from being mistakenly dropped along with the
+running-header line of the same text.
+"""
+
+
+def _strip_docx_boilerplate(text: str, boilerplate: set) -> Optional[str]:
+    """Return ``text`` minus header/footer boilerplate lines, or ``None`` if empty.
+
+    Splits the paragraph into lines, drops any line that is **short
+    enough** to plausibly be a header (≤ 80 chars) AND exactly matches
+    a header / footer entry. Returns the cleaned text on success, or
+    ``None`` when nothing survives (caller skips the paragraph).
+    """
+    kept = [
+        ln
+        for ln in text.splitlines()
+        if not (len(ln.strip()) <= _DOCX_BOILERPLATE_MAX_LEN and ln.strip() in boilerplate)
+    ]
+    cleaned = "\n".join(kept).strip()
+    return cleaned or None
+
+
+def _render_docx_block(element: Any, boilerplate: set, table_cls: Any) -> Optional[str]:
+    """Render one ``_iter_docx_blocks`` element as text, or ``None`` to skip."""
+    if isinstance(element, table_cls):
+        rendered = _docx_table_to_markdown(element)
+        return rendered or None
+    text = getattr(element, "text", "")
+    if not text or not text.strip():
+        return None
+    if not boilerplate:
+        return text
+    return _strip_docx_boilerplate(text, boilerplate)
+
+
 def _extract_docx(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
-    """Extract DOCX text with explicit header / footer subtraction (Phase 15 Task 6)."""
+    """Extract DOCX text with explicit header / footer subtraction (Phase 15 Task 6).
+
+    Round-2 review (S-4 + Sonar S3776): per-block rendering is delegated
+    to :func:`_render_docx_block` so this function stays a thin
+    open-doc → iterate-blocks → join loop below the cognitive-complexity
+    ceiling. The pre-review code subtracted EVERY paragraph line whose
+    stripped form appeared in the header / footer set, which dropped
+    legitimate body paragraphs matching a header verbatim
+    (``Chapter 1`` body vs ``Chapter 1`` header). The new helper now
+    short-circuits on lines longer than :data:`_DOCX_BOILERPLATE_MAX_LEN`.
+    """
     if ctx is None:
         ctx = _ExtractContext()
     try:
@@ -1027,47 +1133,12 @@ def _extract_docx(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
         ) from exc
 
     doc = Document(str(path))
-
-    # Phase 15 Task 6: collect every line declared in section headers /
-    # footers up front; body extraction subtracts these so a document
-    # with a 3-line repeating header across 10 pages emits zero header
-    # lines in the JSONL.
-    #
-    # Round-2 review (S-4): the pre-review code subtracted EVERY
-    # paragraph line whose stripped form appeared in the header /
-    # footer set, which incorrectly dropped legitimate body paragraphs
-    # that happened to match a header (e.g. body line ``Chapter 1`` vs
-    # header line ``Chapter 1``). We now build the set once and apply
-    # it only to **short** lines (≤ 80 chars) AND only when the line
-    # text exactly equals a header-set member after stripping — a real
-    # body paragraph is overwhelmingly longer than its title, so the
-    # length floor protects ``# Chapter 1`` body text while still
-    # catching the boilerplate ``ACME CONFIDENTIAL`` running header.
     boilerplate = _collect_docx_header_footer_lines(doc)
-    _DOCX_BOILERPLATE_MAX_LEN = 80
-
     blocks: List[str] = []
     for element in _iter_docx_blocks(doc):
-        if isinstance(element, Table):
-            rendered = _docx_table_to_markdown(element)
-            if rendered:
-                blocks.append(rendered)
-        else:
-            text = element.text
-            if not text or not text.strip():
-                continue
-            if boilerplate:
-                kept = [
-                    ln
-                    for ln in text.splitlines()
-                    if not (len(ln.strip()) <= _DOCX_BOILERPLATE_MAX_LEN and ln.strip() in boilerplate)
-                ]
-                stripped = "\n".join(kept).strip()
-                if not stripped:
-                    continue
-                text = stripped
-            blocks.append(text)
-
+        rendered = _render_docx_block(element, boilerplate, Table)
+        if rendered:
+            blocks.append(rendered)
     return "\n\n".join(blocks)
 
 
@@ -1105,8 +1176,51 @@ def _epub_item_matches_skip(item_name: str, item_type: str, skip_list: Tuple[str
     return bool(type_lc) and type_lc in skip_list
 
 
+def _resolve_spine_item(book: Any, spine_entry: Any, item_document_type: int) -> Optional[Tuple[Any, str, str]]:
+    """Look up the spine entry's manifest item; return ``(item, name, type_str)`` or ``None``.
+
+    ``None`` is returned for missing items or non-document types so the
+    caller can ``continue``. The ``type_str`` is the space-joined EPUB-3
+    manifest properties (e.g. ``"nav cover-image"``) — empty for items
+    without explicit properties.
+    """
+    item_id = spine_entry[0] if isinstance(spine_entry, (tuple, list)) else spine_entry
+    item = book.get_item_with_id(item_id)
+    if item is None or item.get_type() != item_document_type:
+        return None
+    item_name = getattr(item, "file_name", "") or getattr(item, "name", "") or ""
+    # Round-2 nit: ebooklib exposes EPUB-3 manifest properties (e.g.
+    # ``properties=["nav", "cover-image"]``) on ``item.properties``;
+    # the pre-round-2 code probed ``media_overlay`` which is always
+    # empty for nav / cover items. Join with spaces so any property
+    # token can match the skip-list via the whole-token splitter
+    # introduced for C-1.
+    item_properties = getattr(item, "properties", None) or []
+    item_type = " ".join(str(p) for p in item_properties) if item_properties else ""
+    return item, item_name, item_type
+
+
+def _emit_epub_skip_warning(path: Path, skipped_items: List[str]) -> None:
+    """Emit the Phase 15 round-1 C-1 WARNING naming skipped frontmatter items."""
+    if not skipped_items:
+        return
+    preview = ", ".join(skipped_items[:6]) + (", …" if len(skipped_items) > 6 else "")
+    logger.warning(
+        "EPUB '%s': skipped %d frontmatter / navigation item(s): %s. "
+        "Pass --epub-no-skip-frontmatter to keep these in the JSONL.",
+        path,
+        len(skipped_items),
+        preview,
+    )
+
+
 def _extract_epub(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
-    """Extract EPUB text in reading order; skip nav / cover / copyright (Phase 15 Task 7)."""
+    """Extract EPUB text in reading order; skip nav / cover / copyright (Phase 15 Task 7).
+
+    Spine resolution and the skip-WARNING surface are extracted into
+    ``_resolve_spine_item`` and ``_emit_epub_skip_warning`` to keep
+    this function below the Sonar S3776 cognitive-complexity ceiling.
+    """
     if ctx is None:
         ctx = _ExtractContext()
     try:
@@ -1132,30 +1246,13 @@ def _extract_epub(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
         options={"ignore_ncx": True, "ignore_missing_css": True},
     )
 
-    # Phase 15 Task 7: iterate book.spine (reading order) instead of
-    # book.get_items() (file order). The spine carries ``(item_id, _linear)``
-    # tuples; we resolve each id back to the document item. Items not
-    # listed in the spine are deliberately skipped — they are typically
-    # navigation / cover XHTML that the operator does not want in SFT
-    # data when ``ctx.epub_skip_frontmatter`` is on.
     chunks: List[str] = []
     skipped_items: List[str] = []
     for spine_entry in getattr(book, "spine", []):
-        item_id = spine_entry[0] if isinstance(spine_entry, (tuple, list)) else spine_entry
-        item = book.get_item_with_id(item_id)
-        if item is None:
+        resolved = _resolve_spine_item(book, spine_entry, ITEM_DOCUMENT)
+        if resolved is None:
             continue
-        if item.get_type() != ITEM_DOCUMENT:
-            continue
-        item_name = getattr(item, "file_name", "") or getattr(item, "name", "") or ""
-        # Round-2 nit: ebooklib exposes EPUB-3 manifest properties (e.g.
-        # ``properties=["nav", "cover-image"]``) on ``item.properties``;
-        # the pre-round-2 code probed ``media_overlay`` which is always
-        # empty for nav / cover items. Join with spaces so any property
-        # token can match the skip-list via the whole-token splitter
-        # introduced for C-1.
-        item_properties = getattr(item, "properties", None) or []
-        item_type = " ".join(str(p) for p in item_properties) if item_properties else ""
+        item, item_name, item_type = resolved
         if ctx.epub_skip_frontmatter and _epub_item_matches_skip(item_name, item_type, ctx.epub_skip_items):
             skipped_items.append(item_name)
             continue
@@ -1163,19 +1260,7 @@ def _extract_epub(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
         text = soup.get_text(separator="\n").strip()
         if text:
             chunks.append(text)
-    if skipped_items:
-        # Phase 15 round-1 review (C-1): silent skips are exactly the
-        # failure shape Phase 15 was launched to fix. A WARNING per
-        # ingest naming the skipped item filenames lets the operator
-        # spot a legitimate chapter that the heuristic mis-classified
-        # — recovery is via ``--epub-no-skip-frontmatter``.
-        logger.warning(
-            "EPUB '%s': skipped %d frontmatter / navigation item(s): %s. "
-            "Pass --epub-no-skip-frontmatter to keep these in the JSONL.",
-            path,
-            len(skipped_items),
-            ", ".join(skipped_items[:6]) + (", …" if len(skipped_items) > 6 else ""),
-        )
+    _emit_epub_skip_warning(path, skipped_items)
     return "\n\n".join(chunks)
 
 
@@ -2036,7 +2121,7 @@ detection in :func:`ingest_path` is not a magic-number compare.
 DEFAULT_SLIDING_OVERLAP: int = 200
 
 
-def ingest_path(
+def ingest_path(  # NOSONAR python:S107 — every kwarg is a documented operator-facing knob; collapsing them into a config dataclass would be a breaking API change for v0.5 callers that already pass these by name (per `forgelm.__all__` / `__api_version__` contract).
     input_path: str,
     *,
     output_path: str,

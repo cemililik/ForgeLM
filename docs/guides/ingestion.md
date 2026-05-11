@@ -310,17 +310,21 @@ fonts declare custom glyph names (the audit measured `ø Õ ú ÷ ࡟` for
 Turkish characters on a real-world pilot). Two mitigations ship in
 v0.6.0:
 
-* **`--language-hint LANG`** runs a Unicode-block sanity check after
+- **`--language-hint LANG`** runs a Unicode-block sanity check after
   each per-file extract. When the out-of-script char ratio exceeds the
   calibrated 1.5 % threshold (tunable via `--script-sanity-threshold`),
   a WARNING fires + a structured `script_sanity_summary` block lands
   in `notes_structured`. Supported languages: `tr`, `en`, `de`, `fr`,
   `es`, `it`, `pt` (CJK / Arabic deferred to Phase 16+).
-* **`--normalise-profile {turkish,none}`** applies a language-specific
-  glyph normalisation table to extracted text. The `turkish` profile
-  (default) maps the audit-measured artefacts back to `İ ı ş ğ •` at
-  chunk-write time. Disable entirely with `--no-normalise-unicode` or
-  `--normalise-profile none`. Verify the table loaded via
+- **`--normalise-profile {turkish,none}`** applies a language-specific
+  glyph normalisation table to extracted text. The module-level
+  default is **`none`** (Phase 15 round-2 / C-2: a hint-less corpus
+  must not be silently rewritten). When the operator passes
+  `--language-hint tr` the dispatcher (CLI and library API alike)
+  auto-derives the `turkish` profile; every other hint (and the
+  unset case) stays on `none`. An explicit `--normalise-profile turkish`
+  always wins. `--no-normalise-unicode` or `--normalise-profile none`
+  disables normalisation entirely. Verify the table loaded via
   `forgelm doctor` — it surfaces a `pypdf_normalise.turkish: pass`
   row when the profile is healthy.
 
@@ -421,9 +425,9 @@ operation.
 URL handling for corpora that embed QR-code references, DOI footers,
 or social-media links the model would memorise:
 
-* `keep` (default) — pass URLs through unchanged.
-* `mask` — replace each URL with the literal `[URL]` placeholder.
-* `strip` — delete URLs outright.
+- `keep` (default) — pass URLs through unchanged.
+- `mask` — replace each URL with the literal `[URL]` placeholder.
+- `strip` — delete URLs outright.
 
 URL handling is intentionally **independent of `--all-mask`** (the
 Phase 12.5 PII + secrets shorthand). URL stripping is a content-shape

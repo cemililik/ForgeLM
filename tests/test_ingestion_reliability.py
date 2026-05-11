@@ -763,15 +763,40 @@ class TestTask15MultiColumnWarning:
     def test_partial_token_mode_rejected_at_notebook_layer(self):
         """Notebook Cell 5 fail-fast: half-set CHUNK_TOKENS/TOKENIZER must abort.
 
-        This is a Python-level mirror of the notebook's runtime check. The
-        notebook raises ValueError if exactly one of CHUNK_TOKENS / TOKENIZER
-        is set; we re-derive the same predicate here so a regression in the
-        cell logic is caught by the test suite (the notebook itself is not
-        executed in pytest).
+        Round-3 review: the pre-round-3 version of this test recomputed
+        the predicate from hardcoded pairs and asserted a tautology, so
+        a regression deleting the notebook's fail-fast check would still
+        pass the test. We now parse the actual notebook JSON and assert
+        that Cell 5's source carries both (a) the partial-config
+        ``ValueError`` raise and (b) the predicate string the cell uses.
+        Catches accidental cell-source deletion or rewording that drops
+        the safety net.
         """
-        for chunk_tokens, tokenizer in [(512, None), (None, "Qwen/Qwen2.5-7B")]:
-            count = sum(1 for v in (chunk_tokens, tokenizer) if v)
-            assert count == 1, "partial token-mode is the very case the cell rejects"
+        import json
+        from pathlib import Path
+
+        nb_path = Path(__file__).resolve().parent.parent / "notebooks" / "ingestion_playground.ipynb"
+        assert nb_path.is_file(), f"notebook fixture missing at {nb_path}"
+
+        nb = json.loads(nb_path.read_text(encoding="utf-8"))
+        cell5_source = nb["cells"][5]["source"]
+        if isinstance(cell5_source, list):
+            cell5_text = "".join(cell5_source)
+        else:
+            cell5_text = cell5_source
+
+        # Cell 5 must compute the count via the canonical predicate AND
+        # raise ValueError when exactly one of CHUNK_TOKENS / TOKENIZER
+        # is truthy. Both substrings are pinned so a partial-deletion
+        # regression trips this test.
+        assert "_token_mode_kwargs_set" in cell5_text, (
+            "Cell 5 must compute _token_mode_kwargs_set to detect partial config"
+        )
+        assert "sum(1 for v in (CHUNK_TOKENS, TOKENIZER) if v)" in cell5_text, (
+            "Cell 5 predicate must count truthy CHUNK_TOKENS / TOKENIZER"
+        )
+        assert "raise ValueError" in cell5_text, "Cell 5 must raise ValueError on partial token-mode config"
+        assert "Token-aware chunking requires BOTH" in cell5_text, "Cell 5 error message must name both knobs"
 
 
 # ---------------------------------------------------------------------------
