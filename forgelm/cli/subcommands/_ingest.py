@@ -1,16 +1,66 @@
-"""``forgelm ingest`` dispatcher (Phase 11 raw-document → JSONL flow)."""
+"""``forgelm ingest`` dispatcher (Phase 11 raw-document → JSONL flow).
+
+Phase 15 (v0.6.0) added the script-sanity / glyph-normalisation /
+strip-pattern / page-range / front-matter / strip-urls / quality
+pre-signal knobs; they all funnel through the same dispatch path so
+the JSON envelope on the way out stays a single-source contract.
+"""
 
 from __future__ import annotations
 
 import json
 import sys
+from typing import Optional, Tuple
 
 from .._exit_codes import EXIT_CONFIG_ERROR, EXIT_TRAINING_ERROR
 from .._logging import logger
 
 
+def _parse_page_range(value: Optional[str]) -> Optional[Tuple[int, int]]:
+    """Parse ``--page-range START-END`` into a ``(start, end)`` tuple.
+
+    Raises ``ValueError`` with an operator-facing message on malformed
+    input so the surrounding ``except ValueError`` block converts it to
+    EXIT_CONFIG_ERROR.
+    """
+    if value is None:
+        return None
+    raw = value.strip()
+    if "-" not in raw:
+        raise ValueError(f"--page-range must be 'START-END' (e.g. '12-193'); got {raw!r}.")
+    parts = raw.split("-")
+    if len(parts) != 2:
+        raise ValueError(f"--page-range must be exactly two integers joined by '-'; got {raw!r}.")
+    try:
+        start = int(parts[0])
+        end = int(parts[1])
+    except ValueError as exc:
+        raise ValueError(f"--page-range parts must be integers (e.g. '12-193'); got {raw!r}.") from exc
+    return (start, end)
+
+
+def _resolve_normalise_profile(args) -> str:
+    """Resolve --normalise-profile vs --no-normalise-unicode into one knob.
+
+    Both flags are valid Phase 15 surface; ``--no-normalise-unicode`` is
+    the shortcut for ``--normalise-profile none`` and wins when both are
+    set (a future profile name does not silently re-enable normalisation
+    against the operator's intent).
+    """
+    if getattr(args, "no_normalise_unicode", False):
+        return "none"
+    profile = getattr(args, "normalise_profile", None)
+    if profile is None:
+        # Library default (turkish) is the right v0.6.0 launch profile.
+        # We pass ``None`` through so library callers can introspect the
+        # default; the ingest_path keyword falls back to the library
+        # constant.
+        return "turkish"
+    return profile
+
+
 def _run_ingest_cmd(args, output_format: str) -> None:
-    """Phase 11 dispatch: raw documents → SFT-ready JSONL."""
+    """Phase 11 dispatch (with Phase 15 knobs): raw documents → SFT-ready JSONL."""
     # Phase 12.5: --all-mask is a shorthand that ORs into the two individual
     # masking flags. Resolve it here at the CLI boundary so ``ingest_path``
     # keeps its narrow API (only ``pii_mask`` / ``secrets_mask`` booleans).
@@ -26,7 +76,27 @@ def _run_ingest_cmd(args, output_format: str) -> None:
     # ``OptionalDependencyError`` is guaranteed to be bound when the
     # ``except`` clause runs; if the import itself fails it propagates as a
     # plain ``ImportError`` (a real bug, not an operator-facing condition).
+    from ..._strip_pattern import StripPatternError
     from ...ingestion import OptionalDependencyError, ingest_path, summarize_result
+
+    # Phase 15 args (Wave 1 + Wave 2). Resolved up here so the
+    # ``ingest_path`` call below stays a single straight-line.
+    try:
+        page_range = _parse_page_range(getattr(args, "page_range", None))
+    except ValueError as exc:
+        # Malformed --page-range hits before any I/O; surface as
+        # EXIT_CONFIG_ERROR via the normal envelope.
+        if output_format == "json":
+            print(json.dumps({"success": False, "error": str(exc)}))
+        else:
+            logger.error("%s", exc)
+        sys.exit(EXIT_CONFIG_ERROR)
+    strip_patterns = getattr(args, "strip_pattern", None) or None
+    strip_pattern_timeout = None if getattr(args, "strip_pattern_no_timeout", False) else 5
+    quality_presignal = not getattr(args, "no_quality_presignal", False)
+
+    sanity_threshold_raw = getattr(args, "script_sanity_threshold", None)
+    sanity_kwargs = {} if sanity_threshold_raw is None else {"script_sanity_threshold": sanity_threshold_raw}
 
     try:
         result = ingest_path(
@@ -41,7 +111,29 @@ def _run_ingest_cmd(args, output_format: str) -> None:
             chunk_tokens=getattr(args, "chunk_tokens", None),
             overlap_tokens=getattr(args, "overlap_tokens", 0),
             tokenizer=getattr(args, "tokenizer", None),
+            language_hint=getattr(args, "language_hint", None),
+            normalise_profile=_resolve_normalise_profile(args),
+            keep_md_frontmatter=getattr(args, "keep_md_frontmatter", False),
+            epub_skip_frontmatter=not getattr(args, "epub_no_skip_frontmatter", False),
+            keep_frontmatter=getattr(args, "keep_frontmatter", False),
+            page_range=page_range,
+            strip_patterns=strip_patterns,
+            strip_pattern_timeout=strip_pattern_timeout,
+            strip_urls=getattr(args, "strip_urls", "keep"),
+            quality_presignal=quality_presignal,
+            **sanity_kwargs,
         )
+    except StripPatternError as exc:
+        # Phase 15 Wave 2: a ReDoS-prone --strip-pattern aborts the run
+        # before any I/O. StripPatternError is a ValueError subclass so it
+        # would be caught by the generic block below; routed here first so
+        # the error message says "strip-pattern" specifically, not "ingest
+        # failed". Exit code stays EXIT_CONFIG_ERROR per the contract.
+        if output_format == "json":
+            print(json.dumps({"success": False, "error": str(exc)}))
+        else:
+            logger.error("Strip-pattern rejected: %s", exc)
+        sys.exit(EXIT_CONFIG_ERROR)
     except (
         FileNotFoundError,  # NOSONAR — OSError subclass; listed explicitly so the error type is visible to readers
         ValueError,
@@ -89,6 +181,13 @@ def _run_ingest_cmd(args, output_format: str) -> None:
                     "pii_redaction_counts": result.pii_redaction_counts,
                     "secrets_redaction_counts": result.secrets_redaction_counts,
                     "pdf_header_footer_lines_stripped": result.pdf_header_footer_lines_stripped,
+                    # Phase 15 additions — additive fields, no rename of any
+                    # pre-Phase-15 key so v0.5 consumers keep parsing.
+                    "pdf_paragraph_packed_lines_stripped": result.pdf_paragraph_packed_lines_stripped,
+                    "script_sanity_triggered": result.script_sanity_triggered,
+                    "strip_pattern_substitutions": result.strip_pattern_substitutions,
+                    "urls_handled": result.urls_handled,
+                    "frontmatter_pages_dropped": result.frontmatter_pages_dropped,
                     "notes": result.extra_notes,
                     "notes_structured": result.notes_structured,
                 },

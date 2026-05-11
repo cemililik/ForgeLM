@@ -294,6 +294,138 @@ def _add_ingest_subcommand(subparsers) -> None:
         metavar="MODEL_NAME",
         help="HuggingFace model name passed to AutoTokenizer.from_pretrained when --chunk-tokens is set.",
     )
+    # ---- Phase 15 flags (Wave 1) -----------------------------------------
+    p.add_argument(
+        "--language-hint",
+        type=str,
+        default=None,
+        metavar="LANG",
+        help=(
+            "Phase 15 Wave 1: BCP-47-style language code (e.g. 'tr', 'en'). When set, the "
+            "extraction layer runs a Unicode-block sanity check after each per-file extract "
+            "and emits a WARNING (with structured notes) when the out-of-script char ratio "
+            "exceeds --script-sanity-threshold. Catches pypdf font-fallback corruption + "
+            "TXT encoding mis-routing without blocking the run. No-op when unset."
+        ),
+    )
+    p.add_argument(
+        "--script-sanity-threshold",
+        type=_non_negative_float,
+        default=None,
+        metavar="X",
+        help=(
+            "Phase 15 Wave 1: ratio (0.0-1.0) above which the script-sanity check warns "
+            "(default: library calibrated 0.015 = 1.5%%). Operators on noisy mixed-script "
+            "corpora can relax this; values < 1%% start false-positiving on legitimate "
+            "English-with-code-samples Turkish corpora."
+        ),
+    )
+    p.add_argument(
+        "--normalise-profile",
+        type=str,
+        default=None,
+        choices=["turkish", "none"],
+        help=(
+            "Phase 15 Wave 1: glyph-normalisation profile applied to extracted text. "
+            "'turkish' (default) maps known pypdf-font-fallback artefacts back to the "
+            "correct Turkish characters; 'none' disables normalisation entirely "
+            "(equivalent to --no-normalise-unicode)."
+        ),
+    )
+    p.add_argument(
+        "--no-normalise-unicode",
+        action="store_true",
+        help=(
+            "Phase 15 Wave 1: opt-out shortcut equivalent to --normalise-profile none. "
+            "Useful when the operator has already pre-normalised the corpus."
+        ),
+    )
+    p.add_argument(
+        "--no-quality-presignal",
+        action="store_true",
+        help=(
+            "Phase 15 Wave 1: skip the end-of-run quality pre-signal (default ON). The "
+            "pre-signal scans every emitted chunk for low alpha-ratio, weird-char-ratio, "
+            "and repeated-line-ratio and prints '[WARN] N/M chunks below ingestion quality "
+            "threshold' when any chunk fails. Full diagnostics still live in `forgelm audit`."
+        ),
+    )
+    p.add_argument(
+        "--epub-no-skip-frontmatter",
+        action="store_true",
+        help=(
+            "Phase 15 Wave 1: keep EPUB nav / cover / copyright / colophon / titlepage / "
+            "frontmatter items. Default is to skip them so SFT training does not learn "
+            "from boilerplate. Operators wanting raw extraction pass this flag."
+        ),
+    )
+    p.add_argument(
+        "--keep-md-frontmatter",
+        action="store_true",
+        help=(
+            "Phase 15 Wave 1: retain YAML front-matter (`---\\n...\\n---\\n`) at the start "
+            "of Markdown files. Default is to strip it so chunk 0 does not lead with "
+            "Jekyll / Hugo / MkDocs metadata."
+        ),
+    )
+    # ---- Phase 15 flags (Wave 2) -----------------------------------------
+    p.add_argument(
+        "--strip-pattern",
+        action="append",
+        default=None,
+        metavar="REGEX",
+        help=(
+            "Phase 15 Wave 2: regex applied to extracted text BEFORE chunking; every match "
+            "is deleted. Repeat for multiple patterns. Each pattern is validated up-front "
+            "for ReDoS-prone shapes (nested unbounded quantifiers, `.*?` + back-reference "
+            "under DOTALL) and aborts the run with EXIT_CONFIG_ERROR on the offender. A "
+            "5-second per-pattern SIGALRM budget bounds the worst-case match cost on POSIX."
+        ),
+    )
+    p.add_argument(
+        "--strip-pattern-no-timeout",
+        action="store_true",
+        help=(
+            "Phase 15 Wave 2: disable the per-pattern SIGALRM timeout. Only safe when the "
+            "operator has independently verified every --strip-pattern is linear under "
+            "their input distribution; the documented default of 5s is a safety net."
+        ),
+    )
+    p.add_argument(
+        "--page-range",
+        type=str,
+        default=None,
+        metavar="START-END",
+        help=(
+            "Phase 15 Wave 2: restrict PDF extraction to pages START-END (inclusive, "
+            "1-indexed). Validation failures (start < 1, start > end, start > page_count) "
+            "exit with EXIT_CONFIG_ERROR. Ignored for non-PDF inputs."
+        ),
+    )
+    p.add_argument(
+        "--keep-frontmatter",
+        action="store_true",
+        help=(
+            "Phase 15 Wave 2: opt OUT of the PDF front-matter / back-matter heuristic. "
+            "From v0.6.0 the heuristic is DEFAULT ON: the first / last 12 PDF pages are "
+            "checked against three signals (alpha < 0.45, underscore > 0.10, ≥ 5 inline "
+            "page-number matches) and dropped when all three fire. Pass --keep-frontmatter "
+            "to preserve the pre-Phase-15 behaviour (everything kept)."
+        ),
+    )
+    p.add_argument(
+        "--strip-urls",
+        type=str,
+        default="keep",
+        choices=["keep", "mask", "strip"],
+        help=(
+            "Phase 15 Wave 2: how to handle inline URLs detected in extracted text. 'keep' "
+            "(default) leaves them untouched. 'mask' replaces each URL with '[URL]'. "
+            "'strip' deletes them outright. Useful for QR-code reference noise and DOI "
+            "headers. Independent of --all-mask (Phase 12.5) — URL handling is a content-"
+            "shape decision, not a GDPR redaction."
+        ),
+    )
     _add_common_subparser_flags(p, include_output_format=True)
 
 
@@ -406,14 +538,25 @@ def _add_audit_subcommand(subparsers) -> None:
             "Must lie in [0.0, 1.0]; ignored when --dedup-method=simhash."
         ),
     )
+    # Phase 15 Task 5: --quality-filter is DEFAULT ON from v0.6.0. The audit
+    # JSON's quality_summary block always populates; operators who explicitly
+    # want the old "opt-in" behaviour pass --no-quality-filter. The argparse
+    # ``BooleanOptionalAction`` form gives both --quality-filter (no-op, kept
+    # for forward compat of explicit-on invocations) and --no-quality-filter
+    # in one flag definition. Using a plain pair of store_true / store_false
+    # would surface as two separate help-text lines; the BooleanOptionalAction
+    # form keeps the operator-facing help compact and matches the precedent
+    # set by `python -m argparse --help`.
     p.add_argument(
         "--quality-filter",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
-            "Phase 12 opt-in: run heuristic quality checks (mean word length, alphabetic-character "
-            "ratio, end-of-line punctuation ratio, repeated-line ratio, short-paragraph ratio). "
-            "Findings appear under quality_summary in the audit JSON. ML-based classifiers are "
-            "deferred to Phase 13+."
+            "Phase 15 Wave 1 (Task 5): heuristic quality checks (mean word length, alphabetic-"
+            "character ratio, end-of-line punctuation ratio, repeated-line ratio, short-paragraph "
+            "ratio). DEFAULT ON in v0.6.0+ — operators who want the pre-v0.6.0 opt-in semantics "
+            "pass --no-quality-filter. Findings land under quality_summary in the audit JSON. "
+            "ML-based classifiers are deferred to Phase 13+."
         ),
     )
     p.add_argument(

@@ -1,0 +1,4 @@
+﻿Header Line One
+A second line of body content.
+A third line follows the CRLF.
+Final line ends the file.

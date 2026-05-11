@@ -224,12 +224,37 @@ notları:
   sinyal çok zayıf.
 - Eşik `max(2, math.ceil(_PDF_REPEAT_THRESHOLD * page_count))`; böylece
   %70 kuralı tam %70'te tetiklenir, integer kesmesi altında %60'ta değil.
-- İteratiftir: her geçiş bir kenar satırını sıyırır, sonra yeniden sayar;
-  böylece çok satırlı başlıklar ("şirket adı\nCONFIDENTIAL") tamamen
-  sıyrılır, ikinci satır artık eşleşmeyen yeni bir "ilk satır" olarak
-  kalmaz.
+- **Faz 15 Görev 1** incelemeyi katı en-dış satırdan sayfa başına
+  **üst-3 / alt-3 satıra** genişletir (`_PDF_EDGE_WINDOW = 3`); böylece
+  değişken-dış-satırlı (her bölümde farklı başlık) ama bir alttaki
+  satırı sabit (yayıncı kimliği) bir corpus, dedup'ı bir-satır-daha-derin
+  sabiti soymadan dışarı kilitlenemez. Bug, döngünün *exit condition*'ıydı,
+  en-dış-satır kontrolü değildi — Faz 15 öncesi iterator, katı en-dış
+  pozisyonda recurrence bulunmadığında hemen kırılıyordu. Çözüm bir
+  window kontrolüdür, ek bir pas değildir.
+- Paragraph paketlemenin ardından **ikinci bir pas**
+  (`strip_paragraph_packed_headers`) chunker'ın orta-bloğa yapıştırdığı
+  sağ-kalan header'ları temizler. `notes_structured`'da
+  `pdf_paragraph_packed_lines_stripped` olarak görünür.
 - Toplam sıyrılan satır sayısı `IngestionResult.notes_structured` altında
   `pdf_header_footer_lines_stripped` anahtarıyla görünür.
+
+### Faz 15 sınırlamaları özeti
+
+Çok-kolonlu PDF'ler, OCR (yalnızca taranmış) PDF'leri ve RTL
+script'leri v0.6.0'da desteklenmemeye devam eder:
+
+- **Çok-kolon** — `_maybe_warn_multi_column` yalnızca WARNING tetikler;
+  okuma sırası pypdf üzerinden hâlâ sol-üst-dan-sağ-alta serileştirilir.
+  Faz 16+ yeni bir `[ingestion-tables]` extra altında camelot-py /
+  pdfplumber fallback'i ekleyebilir.
+- **OCR** — text-layer-tespit retry'ı yok. Audit'in mevcut "Taranmış
+  PDF'lerle çalışma (OCR teslim akışı)" tarifi
+  [`docs/guides/ingestion.md`](../guides/ingestion.md) içindedir;
+  otomatik `ocrmypdf` önerisi Wave 3'e ertelendi (audit §6).
+- **RTL** — Arapça / İbranice için ekstraksiyon-sıralama normalizasyonu
+  Wave 3'e ertelendi. RTL corpus'lar üzerinde çalışan operatörler bugün
+  ters-glyph sırası beklemeli ve layout-bilen bir araçla ön-işlemeli.
 
 ## Chunk stratejileri
 

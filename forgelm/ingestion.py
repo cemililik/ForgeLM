@@ -36,6 +36,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
+from ._pypdf_normalise import DEFAULT_PROFILE as _DEFAULT_NORMALISE_PROFILE
+from ._pypdf_normalise import apply_profile as _apply_normalise_profile
+from ._script_sanity import (
+    DEFAULT_THRESHOLD as _DEFAULT_SCRIPT_SANITY_THRESHOLD,
+)
+from ._script_sanity import (
+    ScriptSanityReport,
+    check_script_sanity,
+)
+from ._strip_pattern import apply_strip_patterns as _apply_strip_patterns
+
 logger = logging.getLogger("forgelm.ingestion")
 
 
@@ -56,6 +67,23 @@ class OptionalDependencyError(ImportError):
     genuine import bugs inside ``forgelm`` itself (which should propagate with
     their original traceback rather than be swallowed and re-emitted as a
     generic install hint).
+    """
+
+
+class IngestParameterError(ValueError):
+    """Raised when an operator-supplied parameter is invalid against a real file.
+
+    Phase 15 introduced page-range / strip-pattern / page-range-vs-page-count
+    validators that run *inside* the per-file extractor — the existing
+    soft-fail catch in :func:`_extract_text_for_ingest` would otherwise log
+    the failure and continue with the rest of the corpus, hiding the
+    operator's mistake. ``IngestParameterError`` propagates through the
+    soft-fail catch so the CLI dispatcher can translate it to
+    ``EXIT_CONFIG_ERROR`` per the contract.
+
+    Subclasses :class:`ValueError` so existing call sites (and the CLI's
+    documented exception-handling shape) keep working without an explicit
+    ``except`` for this subclass.
     """
 
 
@@ -82,6 +110,15 @@ class IngestionResult:
     so machine-driven pipelines do not need to regex-match the prose. The
     structured payload is stable across releases; the free-text list is
     for human consumption and may rephrase the same facts.
+
+    Phase 15 added:
+
+    * ``pdf_paragraph_packed_lines_stripped`` — second-pass header dedup
+      count surfaced for parity with the page-level
+      :attr:`pdf_header_footer_lines_stripped`.
+    * ``script_sanity_triggered`` / ``strip_pattern_substitutions`` /
+      ``urls_handled`` / ``frontmatter_pages_dropped`` —
+      operator-facing counts for the new Wave 1 / Wave 2 behaviours.
     """
 
     output_path: Path
@@ -95,6 +132,88 @@ class IngestionResult:
     extra_notes: List[str] = field(default_factory=list)
     notes_structured: Dict[str, Any] = field(default_factory=dict)
     pdf_header_footer_lines_stripped: int = 0
+    pdf_paragraph_packed_lines_stripped: int = 0
+    script_sanity_triggered: int = 0
+    strip_pattern_substitutions: int = 0
+    urls_handled: int = 0
+    frontmatter_pages_dropped: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Phase 15 — extraction context + post-extract normalisations
+# ---------------------------------------------------------------------------
+
+
+# Default skip-list for EPUB items the operator almost never wants to
+# train on (TOC, cover, copyright, colophon, title-page, front-matter).
+# Implemented as a frozenset of normalised lower-case substrings so a
+# file named ``cover.xhtml`` or an ``epub:type="cover"`` declaration both
+# match without per-source spelling drift.
+_DEFAULT_EPUB_SKIP_ITEMS: Tuple[str, ...] = (
+    "nav",
+    "toc",
+    "cover",
+    "copyright",
+    "colophon",
+    "titlepage",
+    "frontmatter",
+)
+
+
+# ``[ \t]*`` not ``\s*``: callers strip linewise so the ``\s`` form
+# would over-match newlines and tab into the YAML body. Anchored on
+# both sides so it stays a state-machine-friendly probe rather than
+# the regex we apply to the body itself.
+_YAML_FRONTMATTER_PATTERN = re.compile(r"\A---[ \t]*\n.*?\n---[ \t]*\n", re.DOTALL)
+
+
+# Operator-facing URL pattern for ``--strip-urls`` (Phase 15 Task 14).
+# Bounded character class avoids the ReDoS shape ``http\S+`` would have
+# (no greedy + lazy interaction). 2 KB upper bound (`{1,2048}`) keeps
+# the engine linear on pathologically long single-line PDFs.
+_URL_PATTERN = re.compile(r"\b(?:https?|ftp)://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]{1,2048}", re.IGNORECASE)
+
+
+@dataclass
+class _ExtractContext:
+    """Mutable context threaded through the per-file extraction path.
+
+    Bundles every Phase 15 knob so individual extractors do not balloon
+    in argument count. Mutable in three places only:
+
+    * ``dedup_state`` — counters accumulated from PDF header / footer
+      dedup (existing pre-Phase-15 behaviour).
+    * ``script_sanity_reports`` — list of :class:`ScriptSanityReport`
+      objects produced by every per-file sanity check (one entry per
+      file, triggered or not).
+    * ``frontmatter_dropped_pages`` — indices of PDF front-matter pages
+      the heuristic dropped, for inclusion in the structured notes.
+
+    Everything else is read-only after construction.
+    """
+
+    dedup_state: Optional[Dict[str, int]] = None
+    page_range: Optional[Tuple[int, int]] = None  # 1-indexed inclusive
+    normalise_profile: str = _DEFAULT_NORMALISE_PROFILE
+    language_hint: Optional[str] = None
+    script_sanity_threshold: float = _DEFAULT_SCRIPT_SANITY_THRESHOLD
+    script_sanity_reports: List[ScriptSanityReport] = field(default_factory=list)
+    keep_md_frontmatter: bool = False
+    epub_skip_frontmatter: bool = True
+    epub_skip_items: Tuple[str, ...] = _DEFAULT_EPUB_SKIP_ITEMS
+    # Phase 15 Wave 2 Task 13: front-matter / back-matter heuristic is DEFAULT ON
+    # in v0.6.0 (audit recommended; opt-out via --keep-frontmatter to preserve
+    # the pre-Phase-15 "keep every page" behaviour). The library-level default
+    # also moves from True to False so a library caller without the kwarg sees
+    # the new behaviour — operators who freeze a script + .yaml + .py can
+    # restore the pre-15 behaviour with one explicit kwarg.
+    keep_frontmatter: bool = False
+    strip_patterns: List[Tuple[str, "re.Pattern[str]"]] = field(default_factory=list)
+    strip_pattern_timeout: Optional[int] = 5
+    strip_urls_mode: str = "keep"  # keep | mask | strip
+    frontmatter_dropped_pages: List[int] = field(default_factory=list)
+    urls_handled_total: int = 0
+    strip_pattern_substitutions_total: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -104,53 +223,131 @@ class IngestionResult:
 
 _PDF_REPEAT_MIN_PAGES: int = 3
 _PDF_REPEAT_THRESHOLD: float = 0.7
+_PDF_EDGE_WINDOW: int = 3
+"""Phase 15 Task 1 — number of rows from each page edge inspected per pass.
+
+The pre-Phase-15 implementation only considered the **topmost** / **bottommost**
+line per page on each pass. That worked for the homogeneous single-line
+header case but silently exited the dedup loop the moment the outermost
+row varied per page (e.g. a per-section title on top, a page number on
+the bottom): no top/bottom recurrence at the cutoff → exit pass 1 →
+never reach the constant publication-identifier line sitting one row
+deeper. The audit (§1.1, 2026-05-11) traced 74/82 of a Turkish PDF's
+chunks back to exactly this trap.
+
+Widening the inspection to the top-3 / bottom-3 rows per page lets a
+line recurring at **any** position within that window get stripped in
+the same pass, so a variable-outer-line corpus no longer locks the
+deeper-row constant out. Three is conservative: real-world page edges
+rarely carry more than a 2-line running header + a 1-line page number
+or copyright row, so 3 catches the modal case while leaving paragraph
+text alone (a paragraph that legitimately re-appears at row 4+ across
+≥ 70 % of pages is itself almost-certainly boilerplate worth flagging,
+but we do not strip it because that is outside the documented header
+/ footer contract).
+"""
 
 
-def _repeating_edge_lines(page_lines: List[List[str]], cutoff: int) -> Tuple[set, set]:
-    """Return (repeating_first_lines, repeating_last_lines) at this pass."""
-    first_counts: Counter = Counter(lines[0] for lines in page_lines if lines)
-    last_counts: Counter = Counter(lines[-1] for lines in page_lines if lines)
+def _windowed_repeating_edge_lines(
+    page_lines: List[List[str]],
+    cutoff: int,
+    window: int = _PDF_EDGE_WINDOW,
+) -> Tuple[set, set]:
+    """Return the set of lines recurring near each page's top / bottom edge.
+
+    For each page, inspects up to ``window`` lines from the start and
+    from the end (de-duplicated per page so a 1-line page does not
+    inflate the count). A line counted at any offset within the window
+    is treated as "edge-class" — when it recurs in ≥ ``cutoff`` pages it
+    is eligible to be stripped, no matter whether it lived at the
+    absolute outermost slot on every page or shifted by one row when
+    the outer slot was occupied by a variable-content line.
+    """
+    first_counts: Counter = Counter()
+    last_counts: Counter = Counter()
+    for lines in page_lines:
+        if not lines:
+            continue
+        # ``set`` de-dupes inside a single page so a short page that
+        # happens to repeat a line wouldn't drive up the per-page count
+        # past the integer 1.
+        first_counts.update(set(lines[:window]))
+        last_counts.update(set(lines[-window:]))
     return (
         {ln for ln, n in first_counts.items() if n >= cutoff},
         {ln for ln, n in last_counts.items() if n >= cutoff},
     )
 
 
-def _pop_repeating_edges(
+def _pop_windowed_edges(
     page_lines: List[List[str]],
     repeating_firsts: set,
     repeating_lasts: set,
+    window: int = _PDF_EDGE_WINDOW,
 ) -> int:
-    """Pop the leading / trailing repeating line from each page; return total stripped."""
+    """Drop matching lines anywhere in the top-N / bottom-N window of each page.
+
+    Returns the total number of lines removed across all pages so the
+    caller can roll the count into structured ingestion notes for
+    downstream visibility. Pages that end up empty after the pop are
+    left as empty lists (the caller filters them out at the join step).
+    """
     stripped = 0
     for lines in page_lines:
-        if lines and lines[0] in repeating_firsts:
-            lines.pop(0)
-            stripped += 1
-        if lines and lines[-1] in repeating_lasts:
-            lines.pop()
-            stripped += 1
+        if not lines:
+            continue
+        head_keep: List[str] = []
+        # Walk the top-N window, dropping matches; keep everything else.
+        for idx, ln in enumerate(lines):
+            if idx < window and ln in repeating_firsts:
+                stripped += 1
+                continue
+            head_keep.append(ln)
+        # Walk the bottom-N window in reverse, dropping matches that
+        # weren't already removed above (a line appearing in both
+        # repeating_firsts and repeating_lasts is only counted once).
+        tail_drops: int = 0
+        while head_keep and tail_drops < window:
+            tail_idx = -1
+            if head_keep[tail_idx] in repeating_lasts:
+                head_keep.pop()
+                stripped += 1
+                tail_drops += 1
+            else:
+                break
+        lines[:] = head_keep
     return stripped
 
 
 def _strip_repeating_page_lines(pages: List[str]) -> Tuple[List[str], int]:
-    """Strip leading / trailing lines that repeat across pages.
+    """Strip page-edge lines that repeat across the document.
 
-    Page-level headers (company watermark, document title) and footers
-    (page number text, copyright line) end up as the first / last line
-    of every page after :func:`_extract_pdf` and inflate near-duplicate
-    counts during the audit. We iterate: at each pass we collect the
-    first and last non-empty line of every page, find lines that recur
-    in ≥ 70 % of pages (default), and pop those from the start / end of
-    every page. The pass repeats until no more lines meet the threshold,
-    so multi-line headers (e.g. ``Line 1: company name`` followed by
-    ``Line 2: CONFIDENTIAL``) are stripped fully rather than leaving the
-    second line stranded as a new "first line" that no longer matches
-    the original count.
+    Phase 15 Task 1 (audit §1.1):
+        The pre-Phase-15 implementation collected only ``lines[0]`` and
+        ``lines[-1]`` per pass and looped until no more recurrence met
+        the 70 % cutoff. The mechanism was correct in principle (it did
+        iterate) but the loop's exit condition killed it on a corpus
+        with a *variable* outer line — a per-chapter section title on
+        top, an incrementing page number on the bottom — because pass 1
+        found no recurrence at the outermost slot and broke before
+        reaching the deeper-row constant line that ought to have been
+        stripped on pass 2. Widening the inspection to the top-N /
+        bottom-N rows per page (default :data:`_PDF_EDGE_WINDOW` = 3)
+        catches a line that recurs at any position within the window
+        in a single pass.
+
+    Why ``iterative-peel alone is not enough``:
+        The same comment is duplicated inline above the loop body so a
+        future implementer reading just the docstring cannot reintroduce
+        the regression by collapsing the window back to 1. The bug is
+        the loop's *exit condition*, not the outer-most-line check — a
+        casual reviewer can easily mis-read "we already iterate" as
+        "the algorithm is correct" and patch only the symptom.
 
     Returns:
-        ``(cleaned_pages, lines_stripped)``. Caller can roll the count
-        into structured ingestion notes for downstream visibility.
+        ``(cleaned_pages, lines_stripped)``. Empty pages (after stripping)
+        are filtered out at the join step so they do not pollute the
+        downstream paragraph chunker with phantom blank pages.
 
     The dedup is a no-op on documents with fewer than 3 pages — the
     statistical signal is too weak to distinguish "header" from
@@ -166,20 +363,140 @@ def _strip_repeating_page_lines(pages: List[str]) -> Tuple[List[str], int]:
     cutoff = max(2, math.ceil(_PDF_REPEAT_THRESHOLD * len(pages)))
     total_stripped = 0
 
+    # Pass 1 / pass 2 / … : window-based detection peels one layer per
+    # pass. Iterating is still needed because once the outermost lines
+    # are stripped the next-deepest row of the next pass might now sit
+    # at offset 0 and meet the cutoff at the same window, but the
+    # iteration is no longer *gated* on the strict-outermost recurrence —
+    # so a variable-outer-line corpus is no longer locked out (audit §1.1).
     while True:
-        repeating_firsts, repeating_lasts = _repeating_edge_lines(page_lines, cutoff)
+        repeating_firsts, repeating_lasts = _windowed_repeating_edge_lines(page_lines, cutoff)
         if not repeating_firsts and not repeating_lasts:
             break
-        stripped = _pop_repeating_edges(page_lines, repeating_firsts, repeating_lasts)
+        stripped = _pop_windowed_edges(page_lines, repeating_firsts, repeating_lasts)
         if stripped == 0:
-            # Edge case: the only repeating line was already alone on a
-            # short page, so popping it left fewer pages than ``cutoff``
-            # — break instead of looping with no work.
+            # Defensive break: no edge in the current window matched
+            # despite the set being non-empty (e.g. every match was
+            # already at depth > window). Avoid an infinite loop.
             break
         total_stripped += stripped
 
     cleaned = ["\n".join(lines) for lines in page_lines if lines]
     return cleaned, total_stripped
+
+
+def strip_paragraph_packed_headers(text: str, *, threshold: float = _PDF_REPEAT_THRESHOLD) -> Tuple[str, int]:
+    """Second-pass dedup against text already glued into paragraph blocks.
+
+    Phase 15 Task 1, second part: after the page-level dedup runs and
+    the paragraph chunker greedy-packs the result, a header line that
+    survived (e.g. because it sat at row 4 on some pages and was
+    therefore outside the window) can still re-appear at the start of
+    several chunks. This helper looks at the first line of each
+    ``\\n\\n``-separated block and strips any line that recurs in
+    ``threshold`` fraction of blocks. Returns ``(cleaned_text, n_stripped)``.
+
+    Operates on already-extracted text, so it never blocks on I/O and
+    has no PDF-specific dependency. Skipping it would leave the
+    Task 1 acceptance criterion fragile: the page-level dedup catches
+    *most* runs but the audit recommends a second pass after chunker
+    packing to mop up the residue.
+    """
+    blocks = text.split("\n\n")
+    if len(blocks) < _PDF_REPEAT_MIN_PAGES:
+        return text, 0
+    first_lines: List[str] = []
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            first_lines.append("")
+            continue
+        first_lines.append(block.splitlines()[0].strip())
+    counts = Counter(ln for ln in first_lines if ln)
+    cutoff = max(2, math.ceil(threshold * len([ln for ln in first_lines if ln])))
+    repeating = {ln for ln, n in counts.items() if n >= cutoff}
+    if not repeating:
+        return text, 0
+
+    stripped = 0
+    rebuilt: List[str] = []
+    for block in blocks:
+        if not block.strip():
+            rebuilt.append(block)
+            continue
+        block_lines = block.splitlines()
+        # Drop any leading lines that match the repeating set; this
+        # mops up the survivor headers that the page-level pass missed.
+        idx = 0
+        while idx < len(block_lines) and block_lines[idx].strip() in repeating:
+            stripped += 1
+            idx += 1
+        rebuilt.append("\n".join(block_lines[idx:]))
+    return "\n\n".join(rebuilt), stripped
+
+
+def _post_extract_normalise(text: str, ctx: _ExtractContext, file_path: Path) -> str:
+    """Apply Phase 15 post-extract transforms in a deterministic order.
+
+    Order matters and is documented as a Phase 15 contract:
+
+    1. **Glyph normalisation** (Task 3) — fix pypdf font-fallback
+       artefacts before any other pass sees them. If the script-sanity
+       check sees the corrupt glyphs first the warning would fire
+       loudly even when the normaliser would have repaired them in the
+       next step.
+    2. **Script-sanity check** (Task 2) — run after normalisation so
+       the warning fires only on residual corruption. The report is
+       appended to ``ctx.script_sanity_reports`` whether or not it
+       triggered, so the structured notes can record "we checked".
+    3. **Operator strip-patterns** (Wave 2 Task 11) — applied before
+       URL handling because a pattern might legitimately delete a
+       URL-bearing line wholesale.
+    4. **URL handling** (Wave 2 Task 14) — mask / strip per
+       ``ctx.strip_urls_mode``.
+
+    Front-matter heuristic (Task 13) and PDF-specific multi-column
+    detection (Task 15) live inside :func:`_extract_pdf` itself
+    because they need pypdf state and run before this post-extract
+    pass.
+    """
+    if not text:
+        return text
+
+    # 1. Glyph normalisation. The function no-ops when profile == "none".
+    if ctx.normalise_profile and ctx.normalise_profile != "none":
+        text = _apply_normalise_profile(text, ctx.normalise_profile)
+
+    # 2. Script-sanity check. Always invoked when a language hint is
+    # configured; the helper itself silently no-ops on unknown hints so
+    # the operator can pass an unsupported code without crashing.
+    if ctx.language_hint:
+        report = check_script_sanity(
+            text,
+            language_hint=ctx.language_hint,
+            file_path=str(file_path),
+            threshold=ctx.script_sanity_threshold,
+            profile=ctx.normalise_profile,
+        )
+        ctx.script_sanity_reports.append(report)
+
+    # 3. Operator strip-patterns.
+    if ctx.strip_patterns:
+        text, subs = _apply_strip_patterns(
+            text,
+            ctx.strip_patterns,
+            timeout_s=ctx.strip_pattern_timeout,
+        )
+        ctx.strip_pattern_substitutions_total += subs
+
+    # 4. URL handling.
+    if ctx.strip_urls_mode in ("mask", "strip"):
+        replacement = "[URL]" if ctx.strip_urls_mode == "mask" else ""
+        new_text, n = _URL_PATTERN.subn(replacement, text)
+        text = new_text
+        ctx.urls_handled_total += n
+
+    return text
 
 
 def _try_pdf_decrypt(reader: Any, path: Path) -> None:
@@ -212,7 +529,12 @@ def _try_pdf_decrypt(reader: Any, path: Path) -> None:
         raise ValueError(f"PDF '{path}' is encrypted with a non-empty password. Decrypt externally before ingest.")
 
 
-def _read_pdf_pages(reader: Any, path: Path) -> List[str]:
+def _read_pdf_pages(
+    reader: Any,
+    path: Path,
+    *,
+    page_range: Optional[Tuple[int, int]] = None,
+) -> List[Tuple[int, str]]:
     """Extract per-page text; tolerate page-level failures with a loud warning.
 
     Page-level extraction failure is **not** propagated as a file-level
@@ -222,9 +544,29 @@ def _read_pdf_pages(reader: Any, path: Path) -> List[str]:
     exactly which page failed and can spot-check it. The post-loop
     "no extractable text" warning still catches the all-pages-failed
     case downstream in :func:`_extract_pdf`.
+
+    ``page_range`` (1-indexed inclusive) lets the caller restrict
+    extraction to a subset of pages. The validator in
+    :func:`_validate_page_range` enforces the bounds before we reach
+    this helper; here we only slice. Returns ``(page_index, text)`` pairs
+    so downstream callers (front-matter heuristic, multi-column warning)
+    can refer to the original page numbers in their reporting even after
+    the slice.
     """
-    pages: List[str] = []
-    for idx, page in enumerate(reader.pages):
+    total = len(reader.pages)
+    if page_range is not None:
+        start_1idx, end_1idx = page_range
+        # Clamp end to total so a range of 5-9999 on a 200-page doc
+        # silently shrinks to 5-200; the explicit out-of-range error
+        # comes from _validate_page_range, which runs at CLI dispatch.
+        end_1idx = min(end_1idx, total)
+        indices = range(start_1idx - 1, end_1idx)
+    else:
+        indices = range(total)
+
+    pages: List[Tuple[int, str]] = []
+    for idx in indices:
+        page = reader.pages[idx]
         try:
             text = page.extract_text() or ""
         except Exception as exc:  # noqa: BLE001 — best-effort: pypdf's per-page extraction surface is wide (KeyError on malformed object refs, AssertionError on broken cross-ref tables, UnicodeDecodeError on font encodings, plus its own internal errors); per-page soft-fail keeps the run going so a single bad page cannot abort a multi-thousand-document corpus ingest.  # NOSONAR
@@ -236,11 +578,202 @@ def _read_pdf_pages(reader: Any, path: Path) -> List[str]:
             )
             text = ""
         if text.strip():
-            pages.append(text)
+            pages.append((idx, text))
     return pages
 
 
-def _extract_pdf(path: Path, *, dedup_state: Optional[Dict[str, int]] = None) -> str:
+def _validate_page_range(page_range: Tuple[int, int], total_pages: int, path: Path) -> Tuple[int, int]:
+    """Validate ``page_range`` against ``total_pages``.
+
+    Raises :class:`IngestParameterError` (a :class:`ValueError` subclass)
+    with an operator-facing message on failure. The CLI dispatcher
+    translates this to ``EXIT_CONFIG_ERROR`` per the existing per-
+    subcommand pattern. Library callers see the raw exception, in line
+    with the documented contract.
+
+    Why :class:`IngestParameterError` and not plain :class:`ValueError`:
+    the per-file extractor's soft-fail catch in
+    :func:`_extract_text_for_ingest` swallows generic exceptions to keep
+    a multi-thousand-file corpus running when one bad page or one
+    locked file is in the way. An operator-supplied parameter mistake
+    is a different class of failure — it should abort the run loudly
+    rather than fold into the log. The custom subclass lets the catch
+    re-raise this one specifically.
+    """
+    start, end = page_range
+    if start < 1:
+        raise IngestParameterError(f"--page-range start ({start}) must be >= 1 for '{path}' (1-indexed).")
+    if start > end:
+        raise IngestParameterError(f"--page-range start ({start}) must be <= end ({end}) for '{path}'.")
+    if start > total_pages:
+        raise IngestParameterError(f"--page-range start ({start}) exceeds PDF page count ({total_pages}) for '{path}'.")
+    return (start, min(end, total_pages))
+
+
+# ---------------------------------------------------------------------------
+# Phase 15 Task 13 — front-matter heuristic for PDFs
+# ---------------------------------------------------------------------------
+
+_FRONTMATTER_PROBE_PAGES: int = 12
+"""Number of leading / trailing pages probed by the front-matter heuristic.
+
+The 12-page envelope matches the audit's empirical observation: ToC /
+front-matter material in a 200-page corpus rarely exceeds the first
+dozen pages, and the symmetric trailing pass catches index / glossary
+back-matter under the same envelope. Configurable in future phases if
+operator feedback shifts the modal value.
+"""
+
+_FRONTMATTER_ALPHA_RATIO_MAX: float = 0.45
+_FRONTMATTER_UNDERSCORE_RATIO_MIN: float = 0.10
+_FRONTMATTER_PAGE_NUM_PATTERN = re.compile(r"\n\d{1,3}\n")
+
+
+def _is_frontmatter_page(text: str) -> bool:
+    """Apply the audit's three-signal heuristic: low alpha + high underscore + many page-numbers.
+
+    A page is treated as "front-matter candidate" iff **all three**
+    conditions hold:
+
+    * Alphabetic-character ratio < 0.45.
+    * Underscore-character ratio > 0.10 (ToC dotted leaders show up
+      as runs of ``_`` or ``.`` after pypdf extraction).
+    * At least 5 inline-page-number matches (``\\n<1-3 digits>\\n``).
+
+    Three independent signals keep the false-positive rate low — body
+    text rarely meets even two of them simultaneously.
+    """
+    if not text:
+        return False
+    non_ws = [c for c in text if not c.isspace()]
+    if not non_ws:
+        return False
+    alpha_ratio = sum(1 for c in non_ws if c.isalpha()) / len(non_ws)
+    underscore_ratio = text.count("_") / len(text)
+    page_num_hits = len(_FRONTMATTER_PAGE_NUM_PATTERN.findall(text))
+    return (
+        alpha_ratio < _FRONTMATTER_ALPHA_RATIO_MAX
+        and underscore_ratio > _FRONTMATTER_UNDERSCORE_RATIO_MIN
+        and page_num_hits >= 5
+    )
+
+
+def _drop_frontmatter_pages(
+    pages: List[Tuple[int, str]],
+    probe: int = _FRONTMATTER_PROBE_PAGES,
+) -> Tuple[List[Tuple[int, str]], List[int]]:
+    """Drop leading + trailing front-matter pages; return the remainder + dropped indices.
+
+    Symmetric pass: the first ``probe`` pages are dropped from the
+    head while they keep matching the heuristic; the last ``probe``
+    pages similarly from the tail. Stops at the first non-matching
+    page in each direction so a real body page can never be dropped
+    mid-document.
+    """
+    if not pages:
+        return pages, []
+    dropped: List[int] = []
+    head_keep_idx = 0
+    for pg_idx, (orig_idx, text) in enumerate(pages[:probe]):
+        if _is_frontmatter_page(text):
+            dropped.append(orig_idx)
+            head_keep_idx = pg_idx + 1
+        else:
+            break
+    tail_keep_idx = len(pages)
+    for offset in range(min(probe, len(pages) - head_keep_idx)):
+        pg = pages[-(offset + 1)]
+        orig_idx, text = pg
+        if _is_frontmatter_page(text):
+            dropped.append(orig_idx)
+            tail_keep_idx = len(pages) - (offset + 1)
+        else:
+            break
+    remaining = pages[head_keep_idx:tail_keep_idx]
+    return remaining, sorted(set(dropped))
+
+
+# ---------------------------------------------------------------------------
+# Phase 15 Task 15 — multi-column PDF detection (warning only)
+# ---------------------------------------------------------------------------
+
+_MULTI_COLUMN_SEPARATION_PCT: float = 0.30
+"""Fraction-of-page-width separation between text clusters that flags 2-column."""
+
+
+def _maybe_warn_multi_column(reader: Any, path: Path) -> bool:
+    """Sample the first probable text-bearing page for a two-cluster x-distribution.
+
+    Walks pypdf's text fragments via the ``visitor_text`` callback,
+    accumulates per-fragment x-coordinates, and reports a two-cluster
+    distribution as a single ``WARNING``. No fix attempt — the
+    operator is expected to switch to ``--strategy sliding`` with a
+    larger chunk-size or to pre-process the PDF with a layout-aware
+    tool. Returns ``True`` iff a warning was emitted (test seam).
+    """
+    try:
+        sample_pages = reader.pages[:3]
+    except Exception:  # noqa: BLE001 — pypdf wrapper objects may raise on slice on torn PDFs.
+        return False
+
+    x_positions: List[float] = []
+    page_width: Optional[float] = None
+
+    def visitor(text: str, _cm: Any, tm: Any, _fontDict: Any, _fontSize: Any) -> None:
+        # ``tm`` is a 6-tuple ``(a, b, c, d, e, f)`` representing the
+        # text-matrix; the horizontal offset is element 4.
+        if text and tm is not None:
+            try:
+                x_positions.append(float(tm[4]))
+            except (TypeError, IndexError, ValueError):
+                return
+
+    for page in sample_pages:
+        try:
+            page.extract_text(visitor_text=visitor)
+            if page_width is None and getattr(page, "mediabox", None) is not None:
+                page_width = float(page.mediabox.width)
+        except Exception:  # noqa: BLE001 — sampling is best-effort.
+            continue
+        if len(x_positions) >= 40:
+            # Enough samples to make a call; stop walking further pages.
+            break
+
+    if not x_positions or page_width is None or page_width <= 0:
+        return False
+
+    x_positions.sort()
+    midpoint = (x_positions[0] + x_positions[-1]) / 2.0
+    left_cluster_max = max((x for x in x_positions if x <= midpoint), default=midpoint)
+    right_cluster_min = min((x for x in x_positions if x > midpoint), default=midpoint)
+    gap = right_cluster_min - left_cluster_max
+    if gap > _MULTI_COLUMN_SEPARATION_PCT * page_width:
+        logger.warning(
+            "Detected 2-column layout in '%s' — reading order may be scrambled. "
+            "Consider --strategy sliding with a larger --chunk-size, or pre-process "
+            "the PDF with a layout-aware tool (camelot-py / pdfplumber).",
+            path,
+        )
+        return True
+    return False
+
+
+def _extract_pdf(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
+    """Extract PDF text with Phase 15's hardened pipeline.
+
+    Phase 15 additions vs pre-15:
+
+    * ``page_range`` filtering (Wave 2 Task 12) before per-page extraction.
+    * Multi-column detection warning (Wave 2 Task 15) sampled on the
+      first three pages of the slice.
+    * Front-matter heuristic drop (Wave 2 Task 13) on the first 12 / last
+      12 pages of the slice, opt-out via ``ctx.keep_frontmatter``.
+    * Glyph-normalisation + script-sanity + strip-pattern + strip-URLs
+      are applied by :func:`_post_extract_normalise` after this function
+      returns, so this body deliberately stays PDF-specific.
+    """
+    if ctx is None:
+        ctx = _ExtractContext()
     try:
         from pypdf import PdfReader
     except ModuleNotFoundError as exc:  # pragma: no cover — covered by extras
@@ -263,8 +796,14 @@ def _extract_pdf(path: Path, *, dedup_state: Optional[Dict[str, int]] = None) ->
     if getattr(reader, "is_encrypted", False):
         _try_pdf_decrypt(reader, path)
 
-    pages = _read_pdf_pages(reader, path)
-    if not pages:
+    page_range = ctx.page_range
+    if page_range is not None:
+        page_range = _validate_page_range(page_range, len(reader.pages), path)
+
+    _maybe_warn_multi_column(reader, path)
+
+    indexed_pages = _read_pdf_pages(reader, path, page_range=page_range)
+    if not indexed_pages:
         logger.warning(
             "No extractable text in '%s'. Likely a scanned PDF without a text layer; "
             "run OCR (Tesseract / AWS Textract) before ingest.",
@@ -272,12 +811,32 @@ def _extract_pdf(path: Path, *, dedup_state: Optional[Dict[str, int]] = None) ->
         )
         return ""
 
-    cleaned_pages, stripped = _strip_repeating_page_lines(pages)
-    if dedup_state is not None and stripped:
+    if not ctx.keep_frontmatter:
+        indexed_pages, dropped = _drop_frontmatter_pages(indexed_pages)
+        if dropped:
+            ctx.frontmatter_dropped_pages.extend(dropped)
+            logger.warning(
+                "Dropped %d front-matter / back-matter page(s) from '%s' "
+                "(indices=%s). Use --keep-frontmatter to retain them.",
+                len(dropped),
+                path,
+                dropped,
+            )
+
+    page_texts = [text for _, text in indexed_pages]
+    cleaned_pages, stripped = _strip_repeating_page_lines(page_texts)
+    if ctx.dedup_state is not None and stripped:
         # Roll into the run-level structured notes so the operator can
         # tell post-hoc that header/footer dedup was actually doing work.
-        dedup_state["lines_stripped"] = dedup_state.get("lines_stripped", 0) + stripped
-    return "\n\n".join(cleaned_pages)
+        ctx.dedup_state["lines_stripped"] = ctx.dedup_state.get("lines_stripped", 0) + stripped
+
+    joined = "\n\n".join(cleaned_pages)
+    joined, secondary_stripped = strip_paragraph_packed_headers(joined)
+    if ctx.dedup_state is not None and secondary_stripped:
+        ctx.dedup_state["paragraph_packed_stripped"] = (
+            ctx.dedup_state.get("paragraph_packed_stripped", 0) + secondary_stripped
+        )
+    return joined
 
 
 def _escape_md_cell(text: Optional[str]) -> str:
@@ -355,7 +914,45 @@ def _iter_docx_blocks(doc: Any) -> Iterable[Any]:
             yield Table(child, doc)
 
 
-def _extract_docx(path: Path) -> str:
+def _collect_docx_header_footer_lines(doc: Any) -> set:
+    """Phase 15 Task 6 — return every line declared in a section's header / footer.
+
+    Word documents declare headers / footers explicitly under each
+    section's ``<w:hdr>`` / ``<w:ftr>`` parts. python-docx exposes them
+    as ``doc.sections[i].header.paragraphs`` and ``.footer.paragraphs``.
+    We collect their non-empty stripped lines into a single ``set`` so a
+    multi-section document with the same boilerplate on each section
+    only contributes one entry per unique line. Body extraction
+    afterwards subtracts these lines, eliminating the
+    "header bleeds into body chunk" failure mode the audit (§3.2)
+    documented.
+
+    Defensive: a malformed section (no header element) raises ``AttributeError``
+    from python-docx; we swallow it per-section so a single bad section
+    cannot kill extraction of the rest.
+    """
+    boilerplate: set = set()
+    for section in getattr(doc, "sections", []):
+        for source_name in ("header", "footer"):
+            try:
+                part = getattr(section, source_name, None)
+            except AttributeError:
+                continue
+            if part is None:
+                continue
+            for paragraph in getattr(part, "paragraphs", []):
+                text = getattr(paragraph, "text", "") or ""
+                for ln in text.splitlines():
+                    cleaned = ln.strip()
+                    if cleaned:
+                        boilerplate.add(cleaned)
+    return boilerplate
+
+
+def _extract_docx(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
+    """Extract DOCX text with explicit header / footer subtraction (Phase 15 Task 6)."""
+    if ctx is None:
+        ctx = _ExtractContext()
     try:
         from docx import Document
         from docx.table import Table
@@ -370,6 +967,13 @@ def _extract_docx(path: Path) -> str:
         ) from exc
 
     doc = Document(str(path))
+
+    # Phase 15 Task 6: collect every line declared in section headers /
+    # footers up front; body extraction subtracts these so a document
+    # with a 3-line repeating header across 10 pages emits zero header
+    # lines in the JSONL.
+    boilerplate = _collect_docx_header_footer_lines(doc)
+
     # Phase 12: render tables as markdown so SFT models see the header /
     # separator / body structure rather than a single ``|``-joined line.
     # Walking the body in document order keeps tables next to the
@@ -383,13 +987,43 @@ def _extract_docx(path: Path) -> str:
                 blocks.append(rendered)
         else:
             text = element.text
-            if text and text.strip():
-                blocks.append(text)
+            if not text or not text.strip():
+                continue
+            if boilerplate:
+                # Strip whole-line boilerplate hits; keep the paragraph
+                # if some of its lines are unique. Comparing on a
+                # ``strip``-ed basis matches the collection side.
+                kept = [ln for ln in text.splitlines() if ln.strip() not in boilerplate]
+                stripped = "\n".join(kept).strip()
+                if not stripped:
+                    continue
+                text = stripped
+            blocks.append(text)
 
     return "\n\n".join(blocks)
 
 
-def _extract_epub(path: Path) -> str:
+def _epub_item_matches_skip(item_name: str, item_type: str, skip_list: Tuple[str, ...]) -> bool:
+    """Return ``True`` iff the item's file name or epub:type matches the skip-list.
+
+    Substring match on the lower-cased file name catches the audit's
+    canonical examples (``cover.xhtml``, ``nav.xhtml``, ``copyright.xhtml``).
+    Exact-token match on the ``epub:type`` value catches the EPUB-3
+    explicit-typing variant (``epub:type="cover"``). Either signal is
+    sufficient to skip — the operator's opt-out path (``--epub-no-skip-frontmatter``)
+    disables the whole check rather than tuning the match logic.
+    """
+    name_lc = item_name.lower()
+    if any(token in name_lc for token in skip_list):
+        return True
+    type_lc = (item_type or "").lower()
+    return bool(type_lc) and type_lc in skip_list
+
+
+def _extract_epub(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
+    """Extract EPUB text in reading order; skip nav / cover / copyright (Phase 15 Task 7)."""
+    if ctx is None:
+        ctx = _ExtractContext()
     try:
         from bs4 import BeautifulSoup
         from ebooklib import ITEM_DOCUMENT, epub
@@ -412,9 +1046,27 @@ def _extract_epub(path: Path) -> str:
         str(path),
         options={"ignore_ncx": True, "ignore_missing_css": True},
     )
+
+    # Phase 15 Task 7: iterate book.spine (reading order) instead of
+    # book.get_items() (file order). The spine carries ``(item_id, _linear)``
+    # tuples; we resolve each id back to the document item. Items not
+    # listed in the spine are deliberately skipped — they are typically
+    # navigation / cover XHTML that the operator does not want in SFT
+    # data when ``ctx.epub_skip_frontmatter`` is on.
     chunks: List[str] = []
-    for item in book.get_items():
+    for spine_entry in getattr(book, "spine", []):
+        item_id = spine_entry[0] if isinstance(spine_entry, (tuple, list)) else spine_entry
+        item = book.get_item_with_id(item_id)
+        if item is None:
+            continue
         if item.get_type() != ITEM_DOCUMENT:
+            continue
+        item_name = getattr(item, "file_name", "") or getattr(item, "name", "") or ""
+        # ``epub:type`` lives on the manifest item under ``properties``;
+        # ebooklib stores it on ``item.media_type`` for some files and
+        # ``item.get_id`` for others. Best-effort probe.
+        item_type = getattr(item, "media_overlay", "") or ""
+        if ctx.epub_skip_frontmatter and _epub_item_matches_skip(item_name, item_type, ctx.epub_skip_items):
             continue
         soup = BeautifulSoup(item.get_content(), "html.parser")
         text = soup.get_text(separator="\n").strip()
@@ -423,11 +1075,26 @@ def _extract_epub(path: Path) -> str:
     return "\n\n".join(chunks)
 
 
-def _extract_text(path: Path) -> str:
-    raw = path.read_text(encoding="utf-8", errors="replace")
-    # Detect binary contamination — files mis-routed through the .txt extension
-    # (e.g. unzipped binaries renamed) come back as a sea of U+FFFD replacement
-    # characters. Below 1% is normal for legacy encodings; above is suspicious.
+def _read_text_with_bom_strip(path: Path) -> str:
+    """Phase 15 Task 8 — read a TXT / MD file and strip a leading UTF-8 BOM.
+
+    Why a dedicated helper: the previous behaviour passed the BOM through
+    as a literal character into chunk 0; downstream tokenisers rarely
+    handle U+FEFF correctly. We use ``encoding="utf-8-sig"`` for the
+    initial decode attempt — it strips the BOM transparently — and fall
+    back to ``encoding="utf-8"`` with ``errors="replace"`` when the
+    file is genuinely not UTF-8 (so the existing binary-contamination
+    warning still fires).
+    """
+    try:
+        raw = path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    return raw
+
+
+def _warn_if_binary_contamination(raw: str, path: Path) -> None:
+    """Existing binary-content warning, factored out for reuse."""
     if raw:
         replacement_count = raw.count("�")
         if replacement_count / max(len(raw), 1) > 0.01:
@@ -438,6 +1105,35 @@ def _extract_text(path: Path) -> str:
                 replacement_count,
                 replacement_count * 100 / len(raw),
             )
+
+
+def _extract_text(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
+    """Extract plain TXT with UTF-8 BOM stripping (Phase 15 Task 8)."""
+    if ctx is None:
+        ctx = _ExtractContext()
+    raw = _read_text_with_bom_strip(path)
+    _warn_if_binary_contamination(raw, path)
+    return raw
+
+
+def _extract_markdown(path: Path, *, ctx: Optional[_ExtractContext] = None) -> str:
+    """Extract Markdown with UTF-8 BOM + YAML-frontmatter stripping (Phase 15 Task 8).
+
+    YAML frontmatter is the ``---\\n…\\n---\\n`` block at the start of
+    the file used by Jekyll / Hugo / MkDocs / Pelican. Without
+    stripping it, chunk 0 of every imported MD file leads with
+    ``title:`` / ``date:`` / ``author:`` rows that are pure metadata
+    noise for SFT. Opt-out via ``ctx.keep_md_frontmatter`` for
+    workflows that genuinely want to train on the metadata.
+    """
+    if ctx is None:
+        ctx = _ExtractContext()
+    raw = _read_text_with_bom_strip(path)
+    _warn_if_binary_contamination(raw, path)
+    if not ctx.keep_md_frontmatter:
+        match = _YAML_FRONTMATTER_PATTERN.match(raw)
+        if match is not None:
+            raw = raw[match.end() :]
     return raw
 
 
@@ -446,7 +1142,7 @@ _EXTRACTORS: dict = {
     ".docx": _extract_docx,
     ".epub": _extract_epub,
     ".txt": _extract_text,
-    ".md": _extract_text,
+    ".md": _extract_markdown,
 }
 
 
@@ -1053,9 +1749,14 @@ class _FileOutcome:
 def _extract_text_for_ingest(
     fpath: Path,
     extractor: Callable[..., str],
-    pdf_dedup_state: Optional[Dict[str, int]],
+    ctx: _ExtractContext,
 ) -> Optional[str]:
     """Run ``extractor`` against ``fpath``; return ``None`` to mean "skip this file".
+
+    Phase 15: threads the shared :class:`_ExtractContext` into every
+    extractor (uniform signature ``(path, *, ctx)``) and applies the
+    post-extract normalisation pipeline (glyph normalise → script sanity
+    → strip-patterns → strip-URLs) before returning.
 
     ``ImportError`` re-propagates (missing optional extra is a *runtime*
     failure of the dispatched feature, not a per-file skip). All other
@@ -1063,14 +1764,21 @@ def _extract_text_for_ingest(
     silently-tolerant per-file model the CLI relies on.
     """
     try:
-        if extractor is _extract_pdf:
-            return _extract_pdf(fpath, dedup_state=pdf_dedup_state)
-        return extractor(fpath)
-    except ImportError:
+        text = extractor(fpath, ctx=ctx)
+    except (ImportError, IngestParameterError):
+        # ImportError: missing optional extra is a *runtime* failure of
+        # the dispatched feature — propagate so the CLI dispatcher can
+        # translate to EXIT_TRAINING_ERROR with a clear install-hint.
+        # IngestParameterError (Phase 15): operator-supplied parameter
+        # mistake — propagate so the run aborts with EXIT_CONFIG_ERROR
+        # instead of silently soft-failing per-file.
         raise
     except Exception as exc:  # noqa: BLE001 — best-effort: per-file dispatcher catch — each format-specific extractor (PDF/DOCX/EPUB/TXT/MD) raises its own typed ValueError above + a wide tail of corpus-data-driven failures; per-file soft-fail with skip-and-continue keeps a multi-thousand-file corpus ingest running.  ImportError stays narrow above so missing-extra failures still propagate.  # NOSONAR
         logger.warning("Skipping '%s' (extraction failed): %s", fpath, exc)
         return None
+    if not text:
+        return text
+    return _post_extract_normalise(text, ctx, fpath)
 
 
 def _select_chunks_iter(
@@ -1143,24 +1851,27 @@ def _process_one_file(
     chunk_tokens: Optional[int] = None,
     overlap_tokens: int = 0,
     tokenizer: Any = None,
-    pdf_dedup_state: Optional[Dict[str, int]] = None,
+    extract_ctx: Optional[_ExtractContext] = None,
 ) -> _FileOutcome:
     """Extract → chunk → optionally mask → emit JSONL for a single file.
 
     ``chunk_tokens`` is honoured when set: token-aware chunking takes over
     via :func:`_strategy_dispatch_tokens`, and ``chunk_size`` becomes a
-    fallback only when the tokenizer is missing. ``pdf_dedup_state`` is
-    threaded into :func:`_extract_pdf` so cross-page header/footer dedup
-    counts roll up into the run-level structured notes.
+    fallback only when the tokenizer is missing. ``extract_ctx`` carries
+    the Phase 15 extraction options + side-output state (header/footer
+    dedup counters, script-sanity reports, front-matter dropped pages,
+    etc.) so they roll up into the run-level structured notes.
 
     ImportError propagates (missing optional extra is not a per-file skip).
     Any other extraction failure is logged + counted as a skip.
     """
+    if extract_ctx is None:
+        extract_ctx = _ExtractContext()
     extractor = _select_extractor(fpath)
     if extractor is None:
         return _FileOutcome(file_skipped=True)
 
-    text = _extract_text_for_ingest(fpath, extractor, pdf_dedup_state)
+    text = _extract_text_for_ingest(fpath, extractor, extract_ctx)
     if text is None:
         return _FileOutcome(file_skipped=True)
     if not text or not text.strip():
@@ -1211,6 +1922,18 @@ def ingest_path(
     chunk_tokens: Optional[int] = None,
     overlap_tokens: int = 0,
     tokenizer: Optional[str] = None,
+    # ---- Phase 15 knobs -------------------------------------------------
+    language_hint: Optional[str] = None,
+    script_sanity_threshold: float = _DEFAULT_SCRIPT_SANITY_THRESHOLD,
+    normalise_profile: str = _DEFAULT_NORMALISE_PROFILE,
+    keep_md_frontmatter: bool = False,
+    epub_skip_frontmatter: bool = True,
+    keep_frontmatter: bool = False,
+    page_range: Optional[Tuple[int, int]] = None,
+    strip_patterns: Optional[List[str]] = None,
+    strip_pattern_timeout: Optional[int] = 5,
+    strip_urls: str = "keep",
+    quality_presignal: bool = True,
 ) -> IngestionResult:
     """Ingest a single file or a directory tree into a SFT-compatible JSONL.
 
@@ -1264,6 +1987,21 @@ def ingest_path(
     src = Path(input_path).expanduser().resolve()
     dst = Path(output_path).expanduser().resolve()
     dst.parent.mkdir(parents=True, exist_ok=True)
+
+    if strip_urls not in ("keep", "mask", "strip"):
+        raise ValueError(f"strip_urls must be one of 'keep' / 'mask' / 'strip', got {strip_urls!r}.")
+    if page_range is not None and (not isinstance(page_range, tuple) or len(page_range) != 2):
+        raise ValueError("page_range must be a (start, end) tuple of 1-indexed inclusive page numbers.")
+
+    # Phase 15 Wave 2 Task 11: compile + validate operator-supplied
+    # --strip-pattern values up-front so a malformed regex aborts the
+    # run BEFORE any I/O.  The CLI dispatcher catches StripPatternError
+    # (subclass of ValueError) and exits with EXIT_CONFIG_ERROR.
+    compiled_strip_patterns: List[Tuple[str, "re.Pattern[str]"]] = []
+    if strip_patterns:
+        from ._strip_pattern import compile_strip_patterns
+
+        compiled_strip_patterns = compile_strip_patterns(strip_patterns)
 
     chunk_size_explicit = chunk_size is not None
     effective_chunk_size = chunk_size if chunk_size_explicit else DEFAULT_CHUNK_SIZE
@@ -1339,14 +2077,45 @@ def ingest_path(
     notes: List[str] = []
     pdf_dedup_state: Dict[str, int] = {}
 
+    extract_ctx = _ExtractContext(
+        dedup_state=pdf_dedup_state,
+        page_range=page_range,
+        normalise_profile=normalise_profile,
+        language_hint=language_hint,
+        script_sanity_threshold=script_sanity_threshold,
+        keep_md_frontmatter=keep_md_frontmatter,
+        epub_skip_frontmatter=epub_skip_frontmatter,
+        keep_frontmatter=keep_frontmatter,
+        strip_patterns=compiled_strip_patterns,
+        strip_pattern_timeout=strip_pattern_timeout,
+        strip_urls_mode=strip_urls,
+    )
+
+    # Phase 15 Task 4: collect each chunk's text on the fly so the
+    # end-of-run quality pre-signal can compute its three cheap checks
+    # without re-reading the JSONL.  Only enabled when ``quality_presignal``
+    # is on; off-mode keeps the path bit-for-bit unchanged.
+    sampled_chunks: List[str] = [] if quality_presignal else []
+    quality_sample_limit = 5000  # keep memory bounded on huge corpora
+
+    def _maybe_sample(payload: str) -> None:
+        if quality_presignal and len(sampled_chunks) < quality_sample_limit:
+            sampled_chunks.append(payload)
+
     # newline="\n" pins LF on Windows. JSONL Files spec requires LF, and
     # piping through tooling (jq -c, wc -l, downstream HF dataset loaders)
     # avoids CRLF surprises. Linux/macOS default is already LF.
     with open(dst, "w", encoding=encoding, newline="\n") as out_fh:
+        # Wrap the file handle so every emitted chunk also flows through
+        # the quality-presignal sampler. The wrapper preserves existing
+        # ``out_fh.write`` semantics — callers see a normal file-like
+        # object — so we don't have to thread an extra callback through
+        # ``_emit_chunk``.
+        sampling_fh = _QualitySamplingFileHandle(out_fh, _maybe_sample) if quality_presignal else out_fh
         for fpath in files:
             outcome = _process_one_file(
                 fpath,
-                out_fh,
+                sampling_fh,
                 strategy=strategy,
                 chunk_size=effective_chunk_size,
                 overlap=overlap,
@@ -1355,7 +2124,7 @@ def ingest_path(
                 chunk_tokens=chunk_tokens,
                 overlap_tokens=overlap_tokens,
                 tokenizer=tokenizer_obj,
-                pdf_dedup_state=pdf_dedup_state,
+                extract_ctx=extract_ctx,
             )
             chunk_count += outcome.chunks_written
             total_chars += outcome.chars_written
@@ -1387,11 +2156,46 @@ def ingest_path(
         else:
             notes.append("Secrets masking enabled — no credentials detected in this corpus")
     pdf_lines_stripped = pdf_dedup_state.get("lines_stripped", 0)
+    pdf_paragraph_stripped = pdf_dedup_state.get("paragraph_packed_stripped", 0)
     if pdf_lines_stripped:
         notes.append(
             f"PDF header/footer dedup stripped {pdf_lines_stripped} repeated line(s) "
             "(reduces audit near-duplicate noise)."
         )
+    if pdf_paragraph_stripped:
+        notes.append(f"PDF post-pack dedup stripped {pdf_paragraph_stripped} survivor header line(s).")
+
+    # Phase 15 Task 4: quality pre-signal at end of run.
+    quality_presignal_payload: Optional[Dict[str, Any]] = None
+    if quality_presignal and sampled_chunks:
+        quality_presignal_payload = _compute_quality_presignal(sampled_chunks)
+        flagged = quality_presignal_payload["samples_flagged"]
+        evaluated = quality_presignal_payload["samples_evaluated"]
+        if flagged:
+            notes.append(
+                f"{flagged}/{evaluated} chunks below ingestion quality threshold. "
+                "Run `forgelm audit <output>` for detail."
+            )
+            # The audit guide names the same call shape, so the operator
+            # can grep this string to find the doc page. Emitting via
+            # logger.warning makes it visible in CI logs regardless of
+            # --output-format json/text.
+            logger.warning(
+                "[WARN] %d/%d chunks below ingestion quality threshold. Run `forgelm audit %s` for detail.",
+                flagged,
+                evaluated,
+                dst,
+            )
+
+    # Phase 15 Task 2: aggregate script-sanity reports.
+    from ._script_sanity import report_to_structured as _script_sanity_to_structured
+
+    script_sanity_summary: Optional[Dict[str, Any]] = None
+    if extract_ctx.script_sanity_reports:
+        script_sanity_summary = _script_sanity_to_structured(extract_ctx.script_sanity_reports)
+        triggered_count = script_sanity_summary.get("files_triggered", 0)
+        if triggered_count:
+            notes.append(f"Script-sanity check fired on {triggered_count} file(s) — see warnings.")
 
     structured_notes: Dict[str, Any] = {
         "files_processed": files_processed,
@@ -1405,9 +2209,24 @@ def ingest_path(
     }
     if pdf_lines_stripped:
         structured_notes["pdf_header_footer_lines_stripped"] = pdf_lines_stripped
+    if pdf_paragraph_stripped:
+        structured_notes["pdf_paragraph_packed_lines_stripped"] = pdf_paragraph_stripped
     if chunk_tokens is not None:
         structured_notes["chunk_tokens"] = chunk_tokens
         structured_notes["tokenizer"] = tokenizer
+    if script_sanity_summary is not None:
+        structured_notes["script_sanity_summary"] = script_sanity_summary
+    if extract_ctx.frontmatter_dropped_pages:
+        structured_notes["frontmatter_pages_dropped"] = sorted(set(extract_ctx.frontmatter_dropped_pages))
+    if extract_ctx.strip_pattern_substitutions_total:
+        structured_notes["strip_pattern_substitutions"] = extract_ctx.strip_pattern_substitutions_total
+        notes.append(f"--strip-pattern removed {extract_ctx.strip_pattern_substitutions_total} span(s).")
+    if extract_ctx.urls_handled_total:
+        structured_notes["urls_handled"] = extract_ctx.urls_handled_total
+        action = {"mask": "masked", "strip": "stripped"}.get(strip_urls, strip_urls)
+        notes.append(f"--strip-urls {action} {extract_ctx.urls_handled_total} URL(s).")
+    if quality_presignal_payload is not None:
+        structured_notes["quality_presignal"] = quality_presignal_payload
 
     logger.info(
         "ingest: source=%s output=%s files=%d chunks=%d chars=%d strategy=%s",
@@ -1431,7 +2250,130 @@ def ingest_path(
         extra_notes=notes,
         notes_structured=structured_notes,
         pdf_header_footer_lines_stripped=pdf_lines_stripped,
+        pdf_paragraph_packed_lines_stripped=pdf_paragraph_stripped,
+        script_sanity_triggered=(script_sanity_summary or {}).get("files_triggered", 0) if script_sanity_summary else 0,
+        strip_pattern_substitutions=extract_ctx.strip_pattern_substitutions_total,
+        urls_handled=extract_ctx.urls_handled_total,
+        frontmatter_pages_dropped=len(set(extract_ctx.frontmatter_dropped_pages)),
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 15 Task 4 — end-of-run quality pre-signal helpers
+# ---------------------------------------------------------------------------
+
+
+class _QualitySamplingFileHandle:
+    """Wrap ``out_fh`` so each written line also flows to a sampler callback.
+
+    Used by :func:`ingest_path` to feed the quality pre-signal without
+    threading an extra callback through ``_emit_chunk``. Only methods
+    the rest of the pipeline actually calls (``write`` / ``__enter__``
+    / ``__exit__``) are proxied — keeping the wrapper shallow makes it
+    trivially obvious in code review that no I/O side-effect is hidden.
+    """
+
+    __slots__ = ("_fh", "_sampler")
+
+    def __init__(self, fh: Any, sampler: Callable[[str], None]) -> None:
+        self._fh = fh
+        self._sampler = sampler
+
+    def write(self, payload: str) -> int:
+        # payload comes in as ``json.dumps({"text": ...}) + "\n"``; we
+        # extract the chunk text via a quick parse rather than splitting
+        # on the JSON shape so a future schema change can't silently
+        # corrupt the sampler.
+        try:
+            data = json.loads(payload.rstrip("\n"))
+            text = data.get("text", "") if isinstance(data, dict) else ""
+        except (json.JSONDecodeError, ValueError):
+            text = ""
+        if text:
+            self._sampler(text)
+        return self._fh.write(payload)
+
+
+def _check_alpha_ratio(text: str) -> bool:
+    """Phase 15 Task 4 — alpha-ratio cheap-check.
+
+    Returns ``True`` when the chunk fails the check (alpha ratio < 0.70).
+    Same threshold as the audit's full quality filter so the pre-signal
+    aligns with the deeper diagnostic.
+    """
+    non_ws = [c for c in text if not c.isspace()]
+    if not non_ws:
+        return True
+    alpha = sum(1 for c in non_ws if c.isalpha()) / len(non_ws)
+    return alpha < 0.70
+
+
+def _check_weird_char_ratio(text: str) -> bool:
+    """Phase 15 Task 4 — weird-character cheap-check.
+
+    Returns ``True`` when the chunk has > 5 % "weird" characters (control
+    chars + U+FFFD replacement char + isolated PUA glyphs). Catches the
+    audit's font-corruption mode without the full Unicode-block sanity
+    pass.
+    """
+    if not text:
+        return False
+    weird = sum(
+        1
+        for c in text
+        if c == "�"
+        or (ord(c) < 0x20 and c not in ("\n", "\r", "\t"))
+        or (0xE000 <= ord(c) <= 0xF8FF)
+        or (0x0800 <= ord(c) <= 0x097F and not c.isalpha())
+    )
+    return weird / len(text) > 0.05
+
+
+def _check_repeated_line_ratio(text: str) -> bool:
+    """Phase 15 Task 4 — repeated-line cheap-check.
+
+    Returns ``True`` when ≥ 30 % of a chunk's lines are duplicates.
+    Same threshold as the audit's full ``repeated_lines`` check, but
+    cheap because we work on already-emitted chunk text instead of
+    re-reading the JSONL.
+    """
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if len(lines) < 3:
+        return False
+    counts = Counter(lines)
+    repeated = sum(n for ln, n in counts.items() if n >= 2)
+    return repeated / len(lines) > 0.30
+
+
+def _compute_quality_presignal(chunks: List[str]) -> Dict[str, Any]:
+    """Apply the three Phase 15 Task 4 cheap checks to a sample of chunks.
+
+    Returns a structured payload that always carries the schema
+    callers depend on, even when nothing was flagged. The threshold,
+    sample size, and per-check counts are surfaced so downstream
+    tooling (audit, CI gates) can decide what to do — we do not block
+    the run.
+    """
+    flagged = 0
+    by_check = {"alpha_ratio": 0, "weird_chars": 0, "repeated_lines": 0}
+    for chunk in chunks:
+        chunk_flagged = False
+        if _check_alpha_ratio(chunk):
+            by_check["alpha_ratio"] += 1
+            chunk_flagged = True
+        if _check_weird_char_ratio(chunk):
+            by_check["weird_chars"] += 1
+            chunk_flagged = True
+        if _check_repeated_line_ratio(chunk):
+            by_check["repeated_lines"] += 1
+            chunk_flagged = True
+        if chunk_flagged:
+            flagged += 1
+    return {
+        "samples_evaluated": len(chunks),
+        "samples_flagged": flagged,
+        "by_check": by_check,
+    }
 
 
 def summarize_result(result: IngestionResult) -> str:

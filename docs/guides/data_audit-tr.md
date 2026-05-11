@@ -484,7 +484,7 @@ forgelm audit PATH \
   [--near-dup-threshold N] \
   [--dedup-method {simhash,minhash}] \
   [--jaccard-threshold X] \
-  [--quality-filter] \
+  [--quality-filter | --no-quality-filter] \
   [--pii-ml] \
   [--pii-ml-language LANG] \
   [--croissant] \
@@ -517,9 +517,11 @@ varsayılan simhash Hamming eşiğini (3, ≈%95 benzerlik) ezer;
 `--dedup-method` (Faz 12) near-duplicate motorunu seçer — `simhash`
 (varsayılan) veya `minhash` (`[ingestion-scale]` extra'sı şart;
 `--jaccard-threshold` cutoff'u kontrol eder, varsayılan 0.85).
-`--quality-filter` (Faz 12) heuristic kalite skorlamasını opt-in
-çalıştırır. Credential/secrets taraması **her zaman açık** — kapatma
-flag'i yoktur.
+`--quality-filter` (Faz 12, **Faz 15 Görev 5 ile v0.6.0'dan itibaren
+default-AÇIK**) heuristic kalite skorlamasını çalıştırır;
+`--no-quality-filter` v0.6.0 öncesi opt-in semantiklerini isteyen
+operatörler için opt-out sağlar. Credential/secrets taraması **her
+zaman açık** — kapatma flag'i yoktur.
 
 Eski `forgelm --data-audit PATH` flag'i deprecation alias olarak
 korunuyor; davranış aynı, sadece ek bir uyarı log'lanıyor.

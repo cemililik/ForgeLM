@@ -222,11 +222,38 @@ Implementation notes from
   signal too weak.
 - Cutoff is `max(2, math.ceil(_PDF_REPEAT_THRESHOLD * page_count))` so
   the 70 % rule fires at exactly 70 %, not 60 % under integer truncation.
-- Iterates: each pass strips one edge line, then re-counts so multi-line
-  headers ("company name\nCONFIDENTIAL") are fully stripped rather than
-  leaving the second line stranded.
+- **Phase 15 Task 1** widens the inspection from the strict outermost
+  row to the top-3 / bottom-3 rows per page (`_PDF_EDGE_WINDOW = 3`),
+  so a variable-outer-line corpus (per-chapter title on top, page number
+  on bottom) no longer locks the dedup out from peeling the
+  constant-deeper-line one row deeper. The bug was the loop's
+  *exit condition*, not the outermost-line check — the pre-Phase-15
+  iterator broke as soon as no recurrence was found at the strict
+  outermost position. The fix is a window check, not an extra pass.
+- A **second pass** runs after paragraph packing
+  (`strip_paragraph_packed_headers`) to mop up survivor headers the
+  chunker re-glued mid-block. Surfaces as
+  `pdf_paragraph_packed_lines_stripped` in `notes_structured`.
 - Total stripped line count rolls into `IngestionResult.notes_structured`
   under `pdf_header_footer_lines_stripped` for downstream visibility.
+
+### Phase 15 limitations recap
+
+Multi-column PDFs, OCR (scanned-only) PDFs, and RTL scripts remain
+unsupported in v0.6.0:
+
+- **Multi-column** — only a WARNING is emitted via
+  `_maybe_warn_multi_column`; reading order is still serialised
+  left-to-right per pypdf. Phase 16+ may add camelot-py / pdfplumber
+  fallback under a new `[ingestion-tables]` extra.
+- **OCR** — no text-layer-detection retry. The audit's existing
+  "Working with scanned PDFs (OCR handoff)" recipe in
+  [`docs/guides/ingestion.md`](../guides/ingestion.md) is the
+  operator-facing path; an automatic `ocrmypdf` recommendation is
+  Wave 3 deferred (audit §6).
+- **RTL** — extraction-order normalisation for Arabic / Hebrew is
+  Wave 3 deferred. Operators on RTL corpora today should expect
+  reverse-glyph order and pre-process with a layout-aware tool.
 
 ## Chunking strategies
 

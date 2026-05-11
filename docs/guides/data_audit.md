@@ -478,7 +478,7 @@ forgelm audit PATH \
   [--near-dup-threshold N] \
   [--dedup-method {simhash,minhash}] \
   [--jaccard-threshold X] \
-  [--quality-filter] \
+  [--quality-filter | --no-quality-filter] \
   [--pii-ml] \
   [--pii-ml-language LANG] \
   [--croissant] \
@@ -496,8 +496,10 @@ Hamming-distance cutoff of 3 (≈95 % similarity); ignored when
 `--dedup-method=minhash`. `--dedup-method` (Phase 12) selects the
 near-duplicate engine — `simhash` (default) or `minhash` (needs
 `[ingestion-scale]` extra; `--jaccard-threshold` controls the cutoff,
-default 0.85). `--quality-filter` (Phase 12) opts into the heuristic
-quality scoring. The credential/secrets scan is **always on** — there
+default 0.85). `--quality-filter` (Phase 12, **default-ON from v0.6.0
+per Phase 15 Task 5**) runs the heuristic quality scoring;
+`--no-quality-filter` opts out for operators wanting the pre-v0.6.0
+opt-in semantics. The credential/secrets scan is **always on** — there
 is no flag to disable it.
 
 > **Note:** This matches the behavior summarised at the top of this guide:

@@ -77,6 +77,8 @@ _PROBE_HF_HUB_REACHABLE = "hf_hub.reachable"
 _PROBE_HF_HUB_OFFLINE_CACHE = "hf_hub.offline_cache"
 _PROBE_DISK_WORKSPACE = "disk.workspace"
 _PROBE_OPERATOR_IDENTITY = "operator.identity"
+# Phase 15 Task 3 — pypdf font-fallback normalisation profile loaded?
+_PROBE_PYPDF_NORMALISE_TURKISH = "pypdf_normalise.turkish"
 
 # Optional extras advertised in pyproject.toml [project.optional-dependencies].
 # Each entry is ``(extra_name, importable_module, human_purpose_blurb)``.
@@ -846,6 +848,67 @@ def _check_operator_identity() -> _CheckResult:
 
 
 # ---------------------------------------------------------------------------
+# Phase 15 Task 3 — pypdf font-fallback normalisation probe
+# ---------------------------------------------------------------------------
+
+
+def _check_pypdf_normalise_turkish() -> _CheckResult:
+    """Verify the Turkish glyph-normalisation profile loads + applies cleanly.
+
+    Phase 15 Task 3 acceptance criterion: ``forgelm doctor`` must report
+    a ``pypdf_normalise.turkish: pass`` row so an operator can confirm
+    the table loaded correctly without running a test ingest. The probe
+    runs through one round-trip sample (corrupt glyphs → normalised
+    output) and fails loudly if the table is missing or the dispatcher
+    no-ops on the active profile.
+    """
+    try:
+        from ..._pypdf_normalise import (
+            DEFAULT_PROFILE,
+            apply_profile,
+            profile_summary,
+        )
+    except ImportError as exc:
+        return _CheckResult(
+            name=_PROBE_PYPDF_NORMALISE_TURKISH,
+            status=_STATUS_FAIL,
+            detail=(
+                "forgelm._pypdf_normalise import failed — Phase 15 normalisation "
+                f"profile is unreachable: {exc.__class__.__name__}: {exc}."
+            ),
+            extras={"profile": "turkish", "loaded": False},
+        )
+    summary = profile_summary("turkish")
+    sample_input = "ø Õ ú ÷ ࡟"
+    sample_output = apply_profile(sample_input, "turkish")
+    if sample_output == sample_input:
+        return _CheckResult(
+            name=_PROBE_PYPDF_NORMALISE_TURKISH,
+            status=_STATUS_FAIL,
+            detail=(
+                "Turkish glyph-normalisation profile loaded but produced no substitutions "
+                "on the canonical fixture (`ø Õ ú ÷ ࡟`). The table may have been emptied "
+                "or the dispatcher is no-opping; re-install forgelm or file a bug."
+            ),
+            extras={"profile": "turkish", "expected_substitutions": True, "actual_output": sample_output},
+        )
+    return _CheckResult(
+        name=_PROBE_PYPDF_NORMALISE_TURKISH,
+        status=_STATUS_PASS,
+        detail=(
+            f"Turkish glyph profile loaded: {summary['single']} single-char + "
+            f"{summary['multi']} multi-char substitutions. Active profile: {DEFAULT_PROFILE!r}."
+        ),
+        extras={
+            "profile": "turkish",
+            "single_substitutions": summary["single"],
+            "multi_substitutions": summary["multi"],
+            "default_profile": DEFAULT_PROFILE,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
@@ -866,6 +929,10 @@ def _build_check_plan(*, offline: bool) -> List[Tuple[str, Callable[[], _CheckRe
     ]
     for extra_name, module, purpose in _OPTIONAL_EXTRAS:
         plan.append((f"extras.{extra_name}", _make_extra_probe(extra_name, module, purpose)))
+    # Phase 15 Task 3: pypdf font-fallback normalisation probe sits next to
+    # the [ingestion] extras probe so operators can correlate "the extra is
+    # missing" with "...so the profile cannot apply" in a single glance.
+    plan.append((_PROBE_PYPDF_NORMALISE_TURKISH, _check_pypdf_normalise_turkish))
     if offline:
         plan.append((_PROBE_HF_HUB_OFFLINE_CACHE, _check_hf_cache_offline))
     else:

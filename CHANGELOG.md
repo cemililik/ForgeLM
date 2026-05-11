@@ -4,10 +4,111 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
-Review-absorption rounds 3 + 4 + 5 follow-up to v0.5.7. No public
-surface change, but training-pipeline UX, doctor robustness, and
-test-isolation guarantees improve. Round 5 closes the residual
-CodeRabbit findings against the round-3/4 commits.
+Phase 15 (Ingestion Pipeline Reliability) Wave 1 + Wave 2 landed on the
+development branch. Closes the silent-failure gap the 2026-05-11 pilot
+exposed across PDF / DOCX / EPUB / TXT / MD ingestion plus the
+user-facing playground notebook. Targeted for v0.6.0.
+
+### Added (Phase 15 Wave 1)
+
+- **`forgelm/_pypdf_normalise.py`** — Turkish glyph normalisation
+  profile (`turkish` default, `none` opt-out, future-pluggable
+  `--normalise-profile`) mapping the audit-measured pypdf font-fallback
+  artefacts (`ø Õ ú ÷ ࡟` → `İ ı ş ğ •`) back to their correct Turkish
+  characters at chunk-write time.
+- **`forgelm/_script_sanity.py`** — language-aware Unicode-block sanity
+  check (`tr` / `en` / `de` / `fr` / `es` / `it` / `pt`) that fires a
+  WARNING + structured `script_sanity_summary` block when the out-of-
+  script ratio exceeds the calibrated 1.5 % threshold. Catches both
+  pypdf font corruption and TXT encoding mis-routing.
+- **`forgelm ingest --language-hint LANG`** + `--script-sanity-threshold`
+  + `--normalise-profile {turkish,none}` + `--no-normalise-unicode` CLI
+  flags wiring Tasks 2 + 3 to the operator surface.
+- **`forgelm ingest` end-of-run quality pre-signal (Task 4)** — three
+  cheap row-level checks (alpha-ratio, weird-char ratio, repeated-line
+  ratio) emitting `[WARN] N/M chunks below ingestion quality threshold`
+  + a structured `quality_presignal` block in `notes_structured`. Opt
+  out via `--no-quality-presignal`.
+- **`forgelm doctor` pypdf-normalise diagnostic (`pypdf_normalise.turkish`)**
+  — confirms the glyph-normalisation table loaded and round-trips
+  cleanly without running a test ingest.
+- **DOCX explicit header / footer extraction (Task 6)** — `_extract_docx`
+  reads `doc.sections[i].header.paragraphs` + `.footer.paragraphs` and
+  subtracts those lines from the body before chunking.
+- **EPUB spine-order + nav / cover / copyright skip (Task 7)** —
+  `_extract_epub` iterates `book.spine` (reading order) instead of
+  file order; default skip-list (`nav`, `cover`, `copyright`,
+  `colophon`, `titlepage`, `frontmatter`) opt-out via
+  `--epub-no-skip-frontmatter`.
+- **TXT UTF-8 BOM strip + MD YAML frontmatter detection (Task 8)** —
+  `_extract_text` / new `_extract_markdown` strip the BOM via
+  `encoding="utf-8-sig"` and detect `---\n...\n---\n` YAML frontmatter;
+  `--keep-md-frontmatter` opts back in.
+- **`forgelm/ingestion.strip_paragraph_packed_headers`** — second-pass
+  dedup against paragraph-packed text catches header lines that
+  survived the page-level pass.
+- **`tests/test_ingestion_reliability.py`** — 36 regression tests
+  locking the Wave 1 + Wave 2 behaviour across PDF / DOCX / EPUB /
+  TXT / MD fixtures.
+
+### Added (Phase 15 Wave 2)
+
+- **`forgelm ingest --strip-pattern REGEX` (Task 11)** — operator-
+  controlled regex stripping with ReDoS guard. Patterns are
+  structurally validated at CLI-parse time (rejects nested unbounded
+  quantifiers like `(a+)+b` and `.*?` + back-reference under DOTALL
+  per the SonarCloud `python:S5852` shape rule), wrapped in a 5-second
+  per-pattern SIGALRM budget on POSIX. Opt out of the timeout via
+  `--strip-pattern-no-timeout`.
+- **`forgelm ingest --page-range START-END` (Task 12)** — restrict
+  PDF extraction to a contiguous page slice (1-indexed inclusive).
+  Validation failures (`start < 1`, `start > end`,
+  `start > page_count`) abort the run with `EXIT_CONFIG_ERROR` via a
+  new `IngestParameterError(ValueError)` that bypasses the per-file
+  soft-fail catch.
+- **PDF front-matter / back-matter heuristic (Task 13, default ON)** —
+  three-signal heuristic (alpha < 0.45 + underscore > 0.10 + ≥ 5
+  inline page-number matches) drops up to 12 leading + 12 trailing
+  pages and emits a WARNING + `frontmatter_pages_dropped` field in
+  `notes_structured`. Opt out via `--keep-frontmatter`.
+- **`forgelm ingest --strip-urls {keep,mask,strip}` (Task 14)** —
+  detected URLs are masked with `[URL]`, stripped outright, or kept
+  (default). Independent of `--all-mask` (URL handling is a
+  content-shape decision, not a GDPR redaction).
+- **PDF multi-column layout warning (Task 15)** — samples the first
+  three pages' Tj-text positions via pypdf's `visitor_text` callback,
+  fires a WARNING when a > 30 %-of-page-width two-cluster gap is
+  detected. No fix attempt — operator switches strategy / pre-
+  processes externally.
+
+### Changed (Phase 15)
+
+- **`forgelm audit --quality-filter` is now default-ON in v0.6.0**
+  (Task 5). Pre-v0.6.0 invocations with explicit `--quality-filter`
+  keep identical behaviour. Operators wanting the pre-v0.6.0 opt-in
+  semantics pass the new `--no-quality-filter` companion flag.
+- **`_strip_repeating_page_lines` window-based dedup (Task 1)** —
+  replaces the pre-Phase-15 outermost-row-only iteration. Catches
+  variable-outer-line + constant-deeper-line corpora (the audit §1.1
+  trap) by inspecting the top-3 / bottom-3 rows per page on every
+  pass. A second pass runs after paragraph packing to mop up survivor
+  headers.
+- **`notebooks/ingestion_playground.ipynb` (Task 9)** — Cell 5 exposes
+  `CHUNK_TOKENS` + `TOKENIZER` + `LANGUAGE_HINT` knobs; Cell 8 markdown
+  explains the new quality-filter checks; Cell 9 passes
+  `--quality-filter` explicitly for forward-compat across v0.5 → v0.6;
+  Cell 10 pretty-prints the `quality_summary` block alongside the
+  existing PII / secrets / near-duplicate / language sections.
+- **`IngestionResult` schema** — additive Phase 15 fields:
+  `pdf_paragraph_packed_lines_stripped`, `script_sanity_triggered`,
+  `strip_pattern_substitutions`, `urls_handled`,
+  `frontmatter_pages_dropped`. No pre-Phase-15 key was renamed.
+
+### Fixed (review-absorption rounds 3 + 4 + 5 follow-up to v0.5.7)
+
+(No public surface change, but training-pipeline UX, doctor robustness,
+and test-isolation guarantees improve. Round 5 closes the residual
+CodeRabbit findings against the round-3/4 commits.)
 
 ### Fixed (round 5 — CodeRabbit follow-up)
 
