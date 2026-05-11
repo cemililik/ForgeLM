@@ -14,6 +14,7 @@
 | ✅ Tamam | Faz 22 — CLI sihirbazı tarayıcı yüzeyiyle eşdeğerlik | `forgelm --wizard` artık tarayıcı sihirbazıyla aynı 9-adımlı akışı çalıştırıyor (welcome → use-case → model → strategy → trainer → dataset → training-params → compliance → evaluation), `--wizard-start-from <yaml>` ile idempotent yeniden çalıştırma, şema-güdümlü varsayılanlar SOT, ayrı `EXIT_WIZARD_CANCELLED = 5` exit kodu, `$XDG_CACHE_HOME` altında durum kalıcılığı ve çıkışta validate — `v0.5.5` ile paketlendi (PyPI 2026-05-10) |
 | ✅ Tamam | Site dokümantasyon düzeltme taraması | `site/*.html` üzerindeki tüm görünür YAML / artefakt-yolu / CLI / şema iddiaları artık live `forgelm/` yüzeyine karşı doğrulanıyor. Hero YAML demo'su gerçek Pydantic alan adlarıyla yeniden yazıldı, compliance artefakt ağacı disk düzenine göre yeniden çizildi, hayalet YAML anahtarları + CLI flag'leri kaldırıldı, ifadeler live davranışa hizalandı. Altı dilde i18n (en / tr / de / fr / es / zh) tam paritede (her biri 731 anahtar) — `v0.5.5` ile paketlendi (PyPI 2026-05-10) |
 | 📋 Planlandı | [Faz 14 — Çok Aşamalı Pipeline Zincirleri](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO config zinciri, pipeline kaynak izleri → `v0.6.0` |
+| 📋 Planlandı | [Faz 15 — Yutma Pipeline'ı Güvenilirliği](roadmap/phase-15-ingestion-reliability.md) | PDF / DOCX / EPUB / TXT / Markdown ve playground notebook UX hizalaması üzerinde `forgelm ingest`'in sessiz-başarısızlık boşluğunu kapat; yutma sırasında kalite sinyali yüzeye çıkar + audit'te `--quality-filter` varsayılan açık; çok satırlı PDF dedup'ı, Türkçe glyph normalizasyonu, DOCX header / footer çıkarımı, EPUB spine + skip, TXT / MD BOM + frontmatter; çift-golden regression fixture'ları → `v0.6.0` |
 | 📋 Planlandı | [Faz 13 — Pro CLI ve Gözlemlenebilirlik Dashboard](roadmap/phase-13-pro-cli.md) | Lisans korumalı dashboard, HPO, zamanlanmış görevler, takım config store → `v0.6.0-pro` (adoption + v0.5.5'te yayınlanan ISO/SOC 2 baseline'a bağlı) |
 
 > **Durum lejantı:** ✅ Yayınlandı (PyPI) · 🟡 main'e indi, publish bekliyor · ⏳ Planlandı
@@ -31,11 +32,13 @@ Başlangıçta dört ardışık PyPI tag'i (`v0.5.0` / `v0.5.1` / `v0.5.2` / `v0
 
 **Daha öncesi:** `v0.5.0` — Doküman Yutma + Veri Curation Pipeline'ı (2026-04-30); `v0.4.5` — Quickstart Katmanı (2026-04-26); `v0.4.0` — Post-Training Tamamlama (2026-04-26).
 
-**Güncel durum:** PyPI'da `v0.5.5` altında 19 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6, 22) yayınlandı.  Sürüm sonrası 2 faz (13, 14) planlandı.
+**Güncel durum:** PyPI'da `v0.5.5` altında 19 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6, 22) yayınlandı.  Sürüm sonrası 3 faz (13, 14, 15) planlandı; Faz 14 ve Faz 15 `v0.6.0` içinde paralel olarak yayınlanır, Faz 13 adoption gate'leri karşılandığında ayrıca `v0.6.0-pro` olarak yayınlanır.
 
 > **Faz 12.6 görev / alt-görev iki eksenli not:** Faz 12.6 kendi içinde 38 görevlik bir kapanış döngüsüdür (Görev 1-38) ve [`roadmap/completed-phases.md`](roadmap/completed-phases.md) dosyasında izlenir; her wave'in PR açıklaması o wave'in kapsadığı görev delta'sını taşır.
 
 ## Planlanan işlerin özeti
+
+> **Not:** Oklar yayınlama sırasını gösterir, faz numaralarını değil (Faz 14 ve Faz 15 v0.6.0 içinde paralel olarak yayınlanır; Faz 13 Pro katmanında ayrıca daha sonra yayınlanır).
 
 ```mermaid
 graph LR
@@ -47,7 +50,9 @@ graph LR
     P12 --> P125[Faz 12.5<br/>Veri Curation<br/>Follow-up]
     P125 --> P126[Faz 12.6<br/>Kapanış<br/>Döngüsü]
     P126 --> P14[Faz 14<br/>Pipeline<br/>Zincirleri]
+    P126 --> P15[Faz 15<br/>Yutma<br/>Güvenilirliği]
     P14 --> P13[Faz 13<br/>Pro CLI<br/>+ Dashboard]
+    P15 --> P13
 
     P10 -.-> V1[v0.4.0]
     P105 -.-> V15[v0.4.5]
@@ -57,6 +62,7 @@ graph LR
     P125 -.-> V2
     P126 -.-> V25[v0.5.5]
     P14 -.-> V23[v0.6.0]
+    P15 -.-> V23
     P13 -.-> V3[v0.6.0-pro]
 
     style P10 fill:#003300,stroke:#00ff88
@@ -66,6 +72,7 @@ graph LR
     style P12 fill:#004400,stroke:#88ff88
     style P125 fill:#004400,stroke:#88ff88
     style P14 fill:#002244,stroke:#00aaff
+    style P15 fill:#002244,stroke:#00aaff
     style P13 fill:#442200,stroke:#ffaa00
 ```
 

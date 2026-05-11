@@ -35,109 +35,35 @@ CodeRabbit findings against the round-3/4 commits.
   `[ingestion-secrets]` extra but deferred — only
   `[ingestion-pii-ml]` ultimately shipped"). Pure docs accuracy fix.
 
-### Added
+## [0.5.7] — 2026-05-11
 
-- **Early-fail ABI preflight in the training pipeline.** A new shared
-  helper at `forgelm/cli/_abi_check.py` runs the same numpy/torch
-  pairing check as `forgelm doctor`'s `numpy.torch_abi` probe, and
-  `forgelm/cli/_training.py::_run_training_pipeline` now calls it
-  before importing the heavy stack. An operator who hits a residual
-  Intel Mac NumPy 2 mismatch (drifted env, out-of-band
-  `pip install -U numpy`) now sees a single-line error with the exact
-  remediation command (`pip install 'numpy<2'`) instead of a cryptic
-  `NameError: name '_C' is not defined` from torch mid-training. The
-  PEP 508 marker in `pyproject.toml` remains the primary fix for
-  fresh installs; the preflight is the second line of defense. The
-  preflight's JSON envelope is now documented in
-  [`docs/usermanuals/{en,tr}/reference/json-output.md`](docs/usermanuals/en/reference/json-output.md)
-  so CI consumers can branch on the stable `"error":
-  "numpy_torch_abi_mismatch"` token.
-- **`tools/check_no_unguarded_sys_modules_pop.py`** — new CI guard
-  fails on `sys.modules.pop("torch"|"numpy"|"trl"|…)` or
-  `del sys.modules["…"]` without `monkeypatch.delitem` for tracked
-  teardown. Wired into the self-review gauntlet
-  ([`CLAUDE.md`](CLAUDE.md)) and `.github/workflows/ci.yml`. Round-3
-  traced 35 spurious full-suite failures to this pattern; the guard
-  makes the regression impossible to silently re-introduce.
-- **`pytest-randomly` added to `[dev]` extra.** Shuffles test order
-  per session so order-dependent bugs (the exact failure mode round-3
-  fixed) surface in CI instead of waiting for a Python micro-bump or
-  runner change. Reproduce a specific shuffle with
-  `pytest --randomly-seed=<n>`.
+Patch release on top of `v0.5.6`. Two production blockers and one UX
+gap that bit Intel Mac operators:
 
-### Fixed
+1. **SFT trainer `TypeError`** on modern `trl` (0.13 + 1.x). trl 0.13
+   renamed `SFTConfig.max_seq_length` → `max_length` and removed the
+   old kwarg; v0.5.6 was still passing `max_seq_length` unconditionally,
+   so `forgelm --config <yaml>` crashed with
+   `TypeError: SFTConfig.__init__() got an unexpected keyword argument
+   'max_seq_length'` on any environment that pulled a current trl
+   wheel (notably the Colab default `pip install forgelm` path).
+2. **NumPy 2.x ↔ torch 2.2 binary-ABI mismatch** exposed by the v0.5.6
+   Intel Mac torch revert. With `torch>=2.2.0` as the floor and no
+   upper-pin on numpy, pip resolved `numpy>=2` on Intel Mac (x86_64)
+   hosts; torch 2.2 was compiled against NumPy 1.x and silently
+   degraded its numpy bridge with `_ARRAY_API not found`.
+3. **Operator UX:** the cryptic `NameError: name '_C' is not defined`
+   that surfaced from the ABI mismatch would previously bite
+   mid-training with no actionable hint. v0.5.7 ships a doctor probe
+   and a training-pipeline preflight so the operator gets a single-line
+   `pip install 'numpy<2'` remediation instead.
 
-- **`forgelm/trainer.py::_get_training_args_for_type`** — SFT branch
-  now raises `ValueError` (not warn-and-continue) when neither
-  `max_length` nor `max_seq_length` is exposed on `SFTConfig`. Silent
-  drop of an explicit `model.max_length` YAML setting would violate
-  `docs/standards/error-handling.md` "no silent failures" — error
-  message lists the actually-detected parameters for forensics. The
-  trl version is probed off `SFTConfig.__module__` rather than a
-  duplicate `import trl` (round-4 cleanup).
-- **`tests/test_doctor.py` + `tests/test_quickstart_compat.py`** —
-  three pre-existing tests that popped `sys.modules['torch']` /
-  `sys.modules['numpy']` without restoring them now use
-  `monkeypatch.delitem` for tracked teardown. The stranded modules
-  half-initialised every subsequent `import torch` in the pytest
-  session (`torch._C` never re-bound), causing every downstream
-  `from trl import SFTConfig` and a long tail of merging / moe /
-  quickstart / wizard / judge / safety tests to fail in the full
-  suite even though they passed in isolation. Pure test-only fix; no
-  production behaviour change.
-- **`forgelm/cli/subcommands/_doctor.py::_check_numpy_torch_abi`** —
-  refactored to call into the shared `_abi_check.py` helper rather
-  than duplicating the version-parsing + threshold logic. Docstring
-  tightened to honestly note that torch's C++ `_ARRAY_API not found`
-  message is outside Python's warnings machinery and `fprintf(stderr,
-  …)`-based suppression would require fd-level redirection (which is
-  unsafe in a long-lived CLI process). Module-level `re` / `warnings`
-  imports promoted from function-local since the shared helper now
-  owns them. The exhaustive-enum guard at the end of the function now
-  raises `RuntimeError` instead of `assert` so `python -O` doesn't
-  strip the check.
-- **`forgelm/cli/_abi_check.py::compute_numpy_torch_abi_status`** —
-  fail-safe short-circuit added for `(0, 0)` version-parse fallback
-  on either side. A corporate fork with a non-semver torch tag (e.g.
-  `foo-bar`) would otherwise have its `_major_minor` collapse to
-  `(0, 0)`, trip `< (2, 3)`, and trigger a false-positive
-  `ABI_BROKEN` against any healthy numpy ≥ 2. Now: if either parses
-  to `(0, 0)`, treat as `ABI_OK` ("version unknown, do not
-  classify"). `format_abi_remediation` also gained an explicit
-  precondition check so a future call-site drift can't silently
-  emit `"torch None …"` strings.
-
-### Internal
-
-- Test docstring in [`tests/test_abi_check.py`](tests/test_abi_check.py)
-  now quotes the actual PEP 508 marker from `pyproject.toml`
-  (`sys_platform == 'darwin'`) instead of the equivalent-but-different
-  `platform_system == "Darwin"` form, so future reviewers chasing the
-  marker chain don't conclude it has drifted.
-- One leftover `(Faz 12)` in the v0.5.2 CHANGELOG entry rewritten to
-  `(Phase 12)` — English-only-in-code-and-CHANGELOG cleanup.
-
-## [0.5.7] — 2026-05-10
-
-Patch release. Fixes a runtime `TypeError` in the SFT trainer that
-prevented every SFT training run from starting on modern `trl`
-versions (0.13 and the 1.x line). The `max_seq_length` parameter was
-renamed to `max_length` on `SFTConfig` in trl 0.13 and the old name
-removed; the v0.5.6 release was still passing `max_seq_length`
-unconditionally, so `forgelm --config <yaml>` would crash with
-`TypeError: SFTConfig.__init__() got an unexpected keyword argument
-'max_seq_length'` on any environment that pulled a current trl wheel
-(notably the Colab default `pip install forgelm` path).
-
-Also closes the NumPy 2.x ↔ torch 2.2 binary-ABI mismatch that the
-v0.5.6 Intel Mac torch revert exposed. With `torch>=2.2.0` as the
-floor and no upper-pin on numpy, pip resolved `numpy>=2` on Intel Mac
-hosts; torch 2.2 was compiled against NumPy 1.x and silently
-degraded its numpy bridge with `_ARRAY_API not found`. v0.5.7 adds a
-platform-scoped marker pin (`numpy<2; sys_platform == 'darwin' and
-platform_machine == 'x86_64'`) plus a new doctor probe that surfaces
-the mismatch as a structured `fail` instead of a stderr-only
-UserWarning.
+Release engineering: this patch absorbs five review rounds against
+PRs #44 / #45 — the SFT + ABI fixes are listed under **Fixed** below;
+the UX additions (preflight + doctor probe + JSON-envelope contract +
+shared `_abi_check` helper) are under **Added**; pure test/CI
+hardening (the `sys.modules` pollution cascade fix, the new CI guard,
+pytest-randomly adoption) is under **Internal**.
 
 ### Added
 
@@ -146,10 +72,30 @@ UserWarning.
   with a `pip install 'numpy<2'` remediation hint when a torch < 2.3
   install is paired with NumPy ≥ 2 (the canonical Intel Mac install
   failure mode). Probe imports torch / numpy with warnings suppressed
-  so the probe itself does not pollute stderr with the very
-  `_ARRAY_API not found` warning it is trying to detect. Surfaces in
-  the `forgelm doctor --output-format json` envelope so CI consumers
+  so the probe itself does not emit a duplicate Python `UserWarning`
+  (the underlying torch C++ `fprintf(stderr, "_ARRAY_API not found",
+  …)` message is outside Python's warnings machinery and cannot be
+  intercepted from a long-lived CLI process — documented honestly in
+  the probe docstring). Surfaces in the
+  `forgelm doctor --output-format json` envelope so CI consumers
   catch the issue programmatically.
+- **Training-pipeline ABI preflight (`forgelm/cli/_training.py::_preflight_numpy_torch_abi`).**
+  A shared helper at `forgelm/cli/_abi_check.py` runs the same probe
+  as `forgelm doctor`, and `_run_training_pipeline` now calls it
+  before importing the heavy stack. An operator who hits a residual
+  Intel Mac NumPy 2 mismatch (env drift, out-of-band
+  `pip install -U numpy`) now sees a single-line error with the
+  exact remediation command instead of a cryptic
+  `NameError: name '_C' is not defined` from torch mid-training. The
+  PEP 508 marker in `pyproject.toml` is the primary fix for fresh
+  installs; the preflight is the second line of defense for drifted
+  environments. Any unexpected crash from the probe itself converts
+  into a structured `abi_preflight_crashed` JSON envelope (same
+  `EXIT_TRAINING_ERROR` = 2 class) rather than a raw Python
+  traceback. The two envelope shapes (`numpy_torch_abi_mismatch` +
+  `abi_preflight_crashed`) are documented in
+  [`docs/usermanuals/{en,tr}/reference/json-output.md`](docs/usermanuals/en/reference/json-output.md)
+  for CI consumers.
 
 ### Fixed
 
@@ -158,13 +104,14 @@ UserWarning.
   picks the correct sequence-length-cap parameter name. trl 0.13+
   (including the 1.x line) receives `max_length`; trl 0.12.x — still
   within the `pyproject.toml` floor `trl>=0.12.0,<2.0.0` — keeps
-  receiving `max_seq_length`. No code change for DPO / SimPO / KTO /
-  ORPO / GRPO trainers (their `*Config` parameters were not affected
-  by the rename).
-- **`tests/test_trainer_sft_config.py`** (new) — three regression
-  tests pin the modern-trl path (`max_length`), the legacy-trl path
-  (`max_seq_length`), and that `packing` / `dataset_text_field`
-  continue to be propagated.
+  receiving `max_seq_length`. If a future trl release exposes
+  neither name as a discoverable parameter, the branch now raises
+  `ValueError` (not warn-and-continue) listing the actually-detected
+  parameters — silently dropping an explicit `model.max_length` YAML
+  setting would violate `docs/standards/error-handling.md` "no silent
+  failures". No code change for DPO / SimPO / KTO / ORPO / GRPO
+  trainers (their `*Config` parameters were not affected by the
+  rename).
 - **`pyproject.toml` — Intel Mac (x86_64) NumPy 2 ABI mismatch.**
   Added `numpy<2; sys_platform == 'darwin' and platform_machine ==
   'x86_64'` so pip's resolver caps numpy at the 1.x line on the only
@@ -172,6 +119,50 @@ UserWarning.
   numpy unconstrained — torch 2.3+ on Linux / Apple Silicon / Windows
   is binary-compatible with NumPy 2.x. Affected `pip install forgelm`
   users on Intel Mac since the v0.5.6 torch revert.
+
+### Internal
+
+- **Test-pollution cascade fix.** Three pre-existing tests
+  (`tests/test_doctor.py` × 2, `tests/test_quickstart_compat.py` × 1)
+  popped `sys.modules['torch']` / `sys.modules['numpy']` without
+  restoring them; the stranded modules half-initialised every
+  subsequent `import torch` in the pytest session (`torch._C` never
+  re-bound), causing every downstream `from trl import SFTConfig` and
+  a long tail of merging / moe / quickstart / wizard / judge / safety
+  tests to fail in the full suite even though they passed in isolation
+  (35 spurious failures observed on the Intel Mac dev box). Swapped
+  for `monkeypatch.delitem` so the modules are auto-restored on test
+  teardown.
+- **New CI guard `tools/check_no_unguarded_sys_modules_pop.py`** —
+  fails on any `sys.modules.pop("torch"|"numpy"|"trl"|…)` or
+  `del sys.modules["…"]` without `monkeypatch.delitem`. Wired into
+  the self-review gauntlet (`CLAUDE.md`) and `.github/workflows/ci.yml`
+  so the regression class becomes impossible to silently re-introduce.
+- **`pytest-randomly>=3.15.0,<4.0.0` added to `[dev]` extra.**
+  Shuffles test order per session so order-dependent bugs (the
+  failure mode above) surface in CI instead of waiting for a Python
+  micro-bump or runner change to flip collection. Reproduce a
+  specific shuffle with `pytest --randomly-seed=<n>`.
+- **`forgelm/cli/_abi_check.py`** — new shared helper module carries
+  the ABI verdict + remediation logic. Both the doctor probe and the
+  training preflight consume it as a single source of truth. Includes
+  a `(0, 0)` parse-fallback short-circuit so corporate forks with
+  non-semver torch / numpy tags can't trip a false-positive
+  `ABI_BROKEN`.
+- **`forgelm/cli/subcommands/_doctor.py::_check_numpy_torch_abi`**
+  refactored to call into the shared helper rather than duplicating
+  the version-parsing + threshold logic. Exhaustive-enum guard at the
+  end now `raise`s `RuntimeError` instead of `assert`-ing, so
+  `python -O` doesn't strip the check.
+- **Documentation hygiene.** `CLAUDE.md` exit-code contract line now
+  reads `0/1/2/3/4/5` to match the canonical table in
+  `docs/standards/error-handling.md` (the standard had documented
+  `EXIT_WIZARD_CANCELLED = 5` since v0.5.5; the agent guidance was
+  stale). `docs/roadmap/completed-phases.md` Phase 12 Tier 1 status
+  line no longer advertises a `[ingestion-secrets]` extra that was
+  never published — only `[ingestion-pii-ml]` exists. One leftover
+  `(Faz 12)` Turkish residue in the v0.5.2 CHANGELOG entry rewritten
+  to `(Phase 12)`.
 
 ## [0.5.6] — 2026-05-10
 
