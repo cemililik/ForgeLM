@@ -46,10 +46,46 @@ def _preflight_numpy_torch_abi(json_output: bool) -> None:
     command if the mismatch is present.  No-op on healthy platforms
     (Linux, Apple Silicon, fresh-install Intel Mac), so zero false
     positives.
+
+    Any unexpected exception from the probe itself (a corrupted torch
+    install where ``torch.__version__`` raises ``AttributeError``, for
+    instance) converts into a structured ``abi_preflight_crashed``
+    envelope so the operator never sees a raw Python traceback
+    pre-empt the JSON contract — matching the rest of the CLI's
+    "every failure path carries a JSON envelope" rule per
+    ``docs/standards/error-handling.md``.
     """
     from ._abi_check import ABI_BROKEN, compute_numpy_torch_abi_status, format_abi_remediation
 
-    status, torch_version, numpy_version = compute_numpy_torch_abi_status()
+    try:
+        status, torch_version, numpy_version = compute_numpy_torch_abi_status()
+    except Exception as e:  # noqa: BLE001 — see docstring above: preflight
+        # is a sentinel that must NEVER let an unexpected exception escape
+        # to the user as a raw Python traceback.  CodeRabbit round-5
+        # absorption: wrap the probe so the JSON envelope contract holds
+        # even when the underlying torch / numpy install is corrupted
+        # enough that ``compute_numpy_torch_abi_status`` itself raises.
+        _report_training_error(
+            json_output,
+            payload={
+                "success": False,
+                "error": "abi_preflight_crashed",
+                "exception_class": type(e).__name__,
+                "exception_message": str(e),
+                "remediation": (
+                    "The torch/NumPy ABI preflight crashed unexpectedly. This "
+                    "usually indicates a corrupted torch or numpy install. Run "
+                    "`forgelm doctor` for the full environment diagnostic."
+                ),
+            },
+            log_msg=(
+                f"ABI preflight crashed unexpectedly ({type(e).__name__}: {e}). Run `forgelm doctor` for diagnostics."
+            ),
+            exit_code=EXIT_TRAINING_ERROR,
+            with_traceback=True,
+        )
+        return
+
     if status != ABI_BROKEN:
         return
     remediation = format_abi_remediation(torch_version, numpy_version)

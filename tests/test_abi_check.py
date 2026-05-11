@@ -209,3 +209,45 @@ class TestPreflightPassesOnHealthy:
         result = (status, "2.4.0", "1.26.4")
         with patch.object(_abi_check, "compute_numpy_torch_abi_status", return_value=result):
             _training._preflight_numpy_torch_abi(json_output=False)
+
+
+class TestPreflightHandlesProbeCrash:
+    """A crash in ``compute_numpy_torch_abi_status`` itself (corrupted
+    torch where ``torch.__version__`` raises, theoretical numpy ABI
+    poisoning that breaks the import-time machinery, etc.) must be
+    converted into a structured exit so the operator never sees a
+    raw Python traceback pre-empt the JSON envelope contract.
+
+    Round-5 absorption of CodeRabbit's MAJOR finding against the
+    round-3/4 preflight wiring."""
+
+    def _exploding_status(self):
+        raise AttributeError("module 'torch' has no attribute '__version__'")
+
+    def test_crash_exits_with_training_error_code(self, caplog):
+        with patch.object(_abi_check, "compute_numpy_torch_abi_status", side_effect=self._exploding_status):
+            with caplog.at_level("ERROR"), pytest.raises(SystemExit) as exc_info:
+                _training._preflight_numpy_torch_abi(json_output=False)
+        # Exit-code contract: the preflight crash maps to
+        # EXIT_TRAINING_ERROR (= 2 in the public table) — same class
+        # as the broken-ABI verdict, so CI/CD doesn't need to
+        # distinguish "ABI bad" from "ABI probe died".
+        assert exc_info.value.code == 2
+        # Operator-visible log must mention the actionable next step.
+        assert "forgelm doctor" in caplog.text
+        assert "ABI preflight crashed" in caplog.text
+
+    def test_crash_emits_structured_json_envelope(self, capsys):
+        with patch.object(_abi_check, "compute_numpy_torch_abi_status", side_effect=self._exploding_status):
+            with pytest.raises(SystemExit):
+                _training._preflight_numpy_torch_abi(json_output=True)
+        captured = capsys.readouterr()
+        envelope = json.loads(captured.out)
+        # Lock the key set — CI/CD consumers that parse this path
+        # need a stable shape, distinct from the "numpy_torch_abi_
+        # mismatch" envelope so they can branch on root cause.
+        assert envelope["success"] is False
+        assert envelope["error"] == "abi_preflight_crashed"
+        assert envelope["exception_class"] == "AttributeError"
+        assert "__version__" in envelope["exception_message"]
+        assert "forgelm doctor" in envelope["remediation"]

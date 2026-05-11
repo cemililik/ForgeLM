@@ -4,9 +4,36 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
-Review-absorption rounds 3 + 4 follow-up to v0.5.7. No public surface
-change, but training-pipeline UX, doctor robustness, and test-isolation
-guarantees improve.
+Review-absorption rounds 3 + 4 + 5 follow-up to v0.5.7. No public
+surface change, but training-pipeline UX, doctor robustness, and
+test-isolation guarantees improve. Round 5 closes the residual
+CodeRabbit findings against the round-3/4 commits.
+
+### Fixed (round 5 — CodeRabbit follow-up)
+
+- **`forgelm/cli/_training.py::_preflight_numpy_torch_abi`** — any
+  unexpected exception from the underlying probe (corrupted torch
+  install where `torch.__version__` raises `AttributeError`, etc.)
+  is now caught and converted into a structured
+  `abi_preflight_crashed` JSON envelope. Previously the raw Python
+  traceback would pre-empt the `--output-format json` contract that
+  every other CLI failure path honours. Exit code stays
+  `EXIT_TRAINING_ERROR` (= 2), matching the broken-ABI verdict so
+  CI/CD branching doesn't need to distinguish "ABI bad" from "ABI
+  probe died".
+- **`CLAUDE.md`** — exit-code contract was stated as `0/1/2/3/4`,
+  but the canonical table in `docs/standards/error-handling.md`
+  documented `0/1/2/3/4/5` since v0.5.5 (Phase 22 added
+  `EXIT_WIZARD_CANCELLED = 5`). CLAUDE.md now matches the actual
+  contract — the standard was right, the agent guidance was stale.
+- **`docs/roadmap/completed-phases.md::Phase 12` summary** — Tier 1
+  status line claimed a `[ingestion-secrets]` extra "via
+  `detect-secrets` with regex fallback", but that extra was never
+  published; only `[ingestion-pii-ml]` exists in `pyproject.toml`'s
+  extras surface. Reworded to record the historical plan accurately
+  ("`detect-secrets` integration was originally planned as a
+  `[ingestion-secrets]` extra but deferred — only
+  `[ingestion-pii-ml]` ultimately shipped"). Pure docs accuracy fix.
 
 ### Added
 
