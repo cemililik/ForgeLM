@@ -1277,3 +1277,158 @@ Per the closure plan §1 baseline + §9 exit criteria:
 - [`releases.md`](releases.md) — v0.5.5 release notes
 - [`risks-and-decisions.md`](risks-and-decisions.md) — closure-cycle decision log entries
 - [`CHANGELOG.md`](../../CHANGELOG.md) — `[0.5.5]` section (finalized at release; per-PR closure entries collapse into the v0.5.5 release notes)
+
+## Phase 15 — Ingestion Pipeline Reliability (v0.6.0)
+
+**Released:** PyPI 2026-05-11. Five review-absorption rounds in one
+release (Gemini + CodeRabbit + Sonar + Codacy + independent self-review).
+
+**Driver:** the 2026-05-11 ingestion pilot against a real-world Turkish-
+language formal-publication PDF surfaced six failure modes — multi-line
+running headers polluting 74/82 chunks, pypdf Type-1 font-fallback
+glyph corruption on front-matter pages, custom-bullet `U+085F` across a
+chapter-level section, recurring institutional-URL pattern noise, ToC
+underscore leaders + page-number leakage, and front-matter chunks that
+sailed through the existing pipeline silently. `forgelm ingest` reported
+mechanical success while emitting silently-bad SFT data. Phase 15 turns
+each failure mode into either an auto-correction or a loud operator-
+facing signal across all five supported formats plus the playground
+notebook.
+
+### Wave 1 — silent-failure remediation (10 tasks)
+
+1. **Window-based PDF edge dedup.** `_strip_repeating_page_lines` now
+   inspects the top-3 / bottom-3 rows per page (`_PDF_EDGE_WINDOW = 3`)
+   instead of the strict outermost row. Catches variable-outer-line +
+   constant-deeper-line corpora (audit §1.1 trap) in a single pass. A
+   second pass via `strip_paragraph_packed_headers` mops up survivor
+   headers after paragraph packing. Round-3 follow-up made the tail
+   walk symmetric to the head walk so the bottom-edge version of the
+   same trap is also closed.
+2. **Unicode / script-sanity layer.** New `forgelm/_script_sanity.py`
+   runs a per-file Unicode-block check (`tr` / `en` / `de` / `fr` /
+   `es` / `it` / `pt`) with discrete diacritic allow-lists so the
+   audit's font-fallback artefacts cannot masquerade as in-script.
+   Default 1.5 % threshold, calibrated against the pilot's 7 %
+   corruption ceiling.
+3. **Turkish pypdf glyph normalisation profile.** New
+   `forgelm/_pypdf_normalise.py` maps audit-measured artefacts
+   (`ø Õ ú ÷ ࡟`) → `İ ı ş ğ •`. Default profile flipped to `"none"`
+   in round-2; CLI dispatcher + library `ingest_path` auto-derive
+   `"turkish"` only when `--language-hint tr` is set. `forgelm doctor`
+   verifies via the new `pypdf_normalise.turkish` diagnostic probe
+   (round-trip-tested with the canonical fixture).
+4. **Ingest-time quality pre-signal.** End-of-run cheap row-level
+   checks (alpha-ratio, weird-char-ratio, repeated-line-ratio)
+   emitting `[WARN] N/M chunks below ingestion quality threshold` +
+   a structured `quality_presignal` block in `notes_structured`.
+   Round-4 added an 80-char floor so clean small corpora no longer
+   false-positive.
+5. **Audit `--quality-filter` default-on.** v0.6.0 flips the audit-
+   side default from opt-in to default-on; new `--no-quality-filter`
+   companion preserves the pre-v0.6.0 semantics.
+6. **DOCX explicit header / footer subtraction.** `_extract_docx`
+   reads `doc.sections[i].header.paragraphs` + `.footer.paragraphs`
+   and subtracts those lines from the body extraction. Round-2 added
+   an 80-char length floor so legitimate body paragraphs that happen
+   to match a header verbatim (`Chapter 1`) are not dropped.
+7. **EPUB spine-order + nav / cover / copyright skip.** `_extract_epub`
+   iterates `book.spine` (reading order) + filters items via the
+   whole-token splitter (`_EPUB_NAME_TOKEN_SPLIT`). Round-1 caught
+   the substring trap (`recovery.xhtml` matched `cover` as a
+   substring); the whole-token tokeniser fixes it. Round-3 extended
+   the splitter to the EPUB-3 manifest `properties` string so
+   `properties="nav cover-image"` matches via tokens. Round-5
+   removed the standalone `"toc"` token to avoid `historical_toc.xhtml`
+   false-positives.
+8. **TXT UTF-8 BOM strip + MD YAML frontmatter detection.** TXT reads
+   via `encoding="utf-8-sig"` on BOTH paths (round-2 fix), plus an
+   explicit leading-`﻿` strip. Markdown extractor strips
+   `^---\n…\n---\n` YAML frontmatter; opt-in retention via
+   `--keep-md-frontmatter`.
+9. **Notebook UX alignment.** `notebooks/ingestion_playground.ipynb`
+   Cells 5 / 8 / 9 / 10 rewritten — token-aware mode knobs,
+   quality-filter description, explicit `--quality-filter` flag,
+   `quality_summary` pretty-print. Fail-fast on partial
+   CHUNK_TOKENS / TOKENIZER config.
+10. **Regression fixture matrix.** `tests/fixtures/ingestion/` carries
+    TXT-BOM + MD-frontmatter + mixed-directory fixtures; PDF / DOCX /
+    EPUB fixtures synthesised in-test via the same libraries the
+    extractors call so the suite is resilient against minor-version
+    drift.
+
+### Wave 2 — strong nice-to-have (5 tasks)
+
+11. **`--strip-pattern REGEX` with ReDoS guard.** New
+    `forgelm/_strip_pattern.py` validates patterns structurally
+    (rejects nested unbounded quantifiers + DOTALL back-ref shapes)
+    and applies under a 5-second per-pattern SIGALRM budget on
+    POSIX. Round-2 caught the backward-walk escape-shape miss
+    (`(\w+)+x`, `(\d+)+x`, …); round-2 also clamped the inner
+    alarm to `min(timeout_s, previous_remaining)` so nested calls
+    cannot extend an outer deadline.
+12. **`--page-range START-END` PDF flag.** Restricts extraction to
+    a 1-indexed page slice. New `IngestParameterError(ValueError)`
+    propagates through the per-file soft-fail catch to
+    `EXIT_CONFIG_ERROR (1)` instead of silently skipping the file.
+    Round-4 switched the path interpolation to `{path!r}` so ANSI
+    escape sequences / control chars cannot leak through error
+    messages.
+13. **Front-matter / back-matter heuristic.** Three-signal heuristic
+    (alpha < 0.30 + leader ratio > 0.10 covering both underscore
+    AND dot runs + ≥ 5 inline page-number matches) drops up to
+    12 leading / 12 trailing pages with a WARNING. Default-on in
+    v0.6.0; opt-out via `--keep-frontmatter`. Round-3 added
+    dot-leader detection; round-4 tightened alpha threshold;
+    round-5 documented the calibration caveat (audit-pilot shape,
+    not realistic long-title English ToCs).
+14. **`--strip-urls {keep,mask,strip}`.** URL handling with bounded
+    character class (no upper-bound truncation as of round-2 S-5).
+    Independent of `--all-mask` — URL handling is a content-shape
+    decision, not a GDPR redaction.
+15. **Multi-column PDF detection (warning only).** Samples the first
+    3 pages' Tj-text positions via pypdf's `visitor_text` callback
+    and fires a WARNING when a > 30 %-of-page-width two-cluster gap
+    is detected. Documented as calibrated for extreme layouts;
+    histogram-based detector for publication-grade 2-column papers
+    is a Wave 3 deferred item.
+
+### Public surface changes
+
+- **`forgelm ingest`** gained 12 new flags: `--language-hint`,
+  `--script-sanity-threshold`, `--normalise-profile`,
+  `--no-normalise-unicode`, `--no-quality-presignal`,
+  `--epub-no-skip-frontmatter`, `--keep-md-frontmatter`,
+  `--strip-pattern`, `--strip-pattern-no-timeout`, `--page-range`,
+  `--keep-frontmatter`, `--strip-urls`.
+- **`forgelm audit`** `--quality-filter` flipped to default-on; new
+  `--no-quality-filter` companion.
+- **`forgelm doctor`** gained the `pypdf_normalise.turkish`
+  diagnostic probe.
+- **`IngestionResult`** gained 5 additive fields:
+  `pdf_paragraph_packed_lines_stripped`, `script_sanity_triggered`,
+  `strip_pattern_substitutions`, `urls_handled`,
+  `frontmatter_pages_dropped`. No pre-Phase-15 key was renamed.
+- **`notes_structured`** gained matching additive keys plus
+  `script_sanity_summary` and `quality_presignal`.
+- **`__api_version__`** stays at `1.0.0` — no new stable library
+  symbol was added to `forgelm.__all__`. CLI / behavioural surface
+  bumps `__version__` 0.5.7 → 0.6.0 (MINOR).
+
+### Test budget
+
+- 75+ new Phase 15 tests across 4 modules
+  (`test_pypdf_normalise.py`, `test_script_sanity.py`,
+  `test_strip_pattern.py`, `test_ingestion_reliability.py` covering
+  Tasks 1-15 + `TestRoundTwoFixes`, `TestRoundFourFixes`).
+- Full pytest suite: 1752+ pass, 14 skipped (optional extras),
+  0 failed across Python 3.10-3.13 on the publish matrix.
+- All 6 CI guards green (bilingual parity, anchor resolution, CLI
+  help consistency, no-analysis-refs, no-unguarded-sys-modules-pop,
+  wizard-defaults sync).
+
+### Related
+
+- [`docs/roadmap/phase-15-ingestion-reliability.md`](phase-15-ingestion-reliability.md) — the original phase doc with the 15 task list
+- [`CHANGELOG.md`](../../CHANGELOG.md) `[0.6.0]` section
+- PR #49 — five review-absorption rounds + tail-walk follow-up

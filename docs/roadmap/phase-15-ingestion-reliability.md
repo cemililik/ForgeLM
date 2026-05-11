@@ -1,4 +1,10 @@
-# Phase 15: Ingestion Pipeline Reliability
+# Phase 15: Ingestion Pipeline Reliability ✅
+
+> **Status:** Released in `v0.6.0` on 2026-05-11. See
+> [completed-phases.md](completed-phases.md#phase-15-ingestion-pipeline-reliability-v060)
+> for the shipped scope + [releases.md](releases.md) for the release
+> notes. This file is the original phase doc preserved for historical
+> reference.
 
 > **Note:** This file details a single planned phase. See [../roadmap.md](../roadmap.md) for the cross-phase summary.
 

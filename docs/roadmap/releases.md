@@ -128,6 +128,43 @@ Odak: [Phase 10](completed-phases.md). Full post-training handoff: inference, ch
 
 ---
 
+## v0.6.0 — "Phase 15 Ingestion Pipeline Reliability" (2026-05-11)
+
+**Status:** Released to PyPI 2026-05-11. Minor release on top of v0.5.7. Five review-absorption rounds (Gemini + CodeRabbit + Sonar + Codacy + independent self-review) ship in the same release. GitHub Release: [v0.6.0](https://github.com/cemililik/ForgeLM/releases/tag/v0.6.0).
+
+### Summary
+
+Closes the silent-failure gap the 2026-05-11 ingestion pilot exposed across PDF / DOCX / EPUB / TXT / Markdown ingestion plus the user-facing playground notebook. The pre-Phase-15 `forgelm ingest` reported mechanical success while emitting silently-bad SFT data — multi-line running headers polluting 74/82 chunks on the audit's pilot PDF, pypdf font-fallback glyph corruption (`ø Õ ú ÷`), custom-bullet `U+085F` artefacts, recurring institutional-URL noise, ToC underscore-leader leakage, and silent front-matter chunk drops. v0.6.0 turns each failure mode into either an auto-correction or a loud operator-facing signal.
+
+### Highlights
+
+- **Window-based PDF edge dedup** (`_PDF_EDGE_WINDOW = 3`) catches variable-outer-line + constant-deeper-line corpora (the audit §1.1 trap) at both top + bottom edges in a single pass; second-pass dedup mops up survivor headers after paragraph packing.
+- **Language-aware Unicode-block sanity check** (`forgelm/_script_sanity.py`, supports tr/en/de/fr/es/it/pt with discrete diacritic allow-lists) — fires WARNING + structured `script_sanity_summary` on out-of-script char ratios above 1.5 %. CLI dispatch WARN's when `--language-hint` is outside the supported list (round-5 self-review C-B).
+- **Turkish pypdf glyph normalisation profile** (`forgelm/_pypdf_normalise.py`) maps audit-measured artefacts → correct Turkish characters. Default `"none"` to prevent silent rewrites of non-Turkish text; auto-derives `"turkish"` only when `--language-hint tr` is set. `forgelm doctor` verifies via the new `pypdf_normalise.turkish` diagnostic probe.
+- **Audit `--quality-filter` flipped to default-on**; new `--no-quality-filter` companion preserves the pre-v0.6.0 opt-in semantics.
+- **Ingest-time quality pre-signal** (`[WARN] N/M chunks below ingestion quality threshold`) with an 80-char floor so clean small corpora don't false-positive.
+- **DOCX explicit header / footer subtraction** via `doc.sections[i].header.paragraphs` + `.footer.paragraphs`; 80-char length floor protects legitimate body paragraphs matching a header verbatim.
+- **EPUB spine-order + whole-token nav / cover / copyright skip** — token-splitter prevents the `recovery.xhtml` → `cover` substring trap; EPUB-3 manifest properties string also flows through the same splitter; `"toc"` token removed to avoid `historical_toc.xhtml` false-positives.
+- **TXT UTF-8 BOM strip + MD YAML frontmatter detection** with `utf-8-sig` on both decode paths + explicit leading-`﻿` strip.
+- **`forgelm ingest --strip-pattern REGEX`** with ReDoS guard — rejects nested unbounded quantifiers + DOTALL back-ref shapes including escape-shape variants (`(\w+)+x`); 5-second SIGALRM per-pattern budget on POSIX, clamped to `min(timeout_s, previous_remaining)` so nested calls cannot extend an outer deadline.
+- **`forgelm ingest --page-range START-END`** restricts PDF extraction to a 1-indexed slice. New `IngestParameterError(ValueError)` propagates through the per-file soft-fail catch to `EXIT_CONFIG_ERROR (1)`. Error messages `repr`-escape paths (`{path!r}`) to prevent ANSI / control-char injection.
+- **Front-matter / back-matter heuristic** (alpha < 0.30 + leader ratio > 0.10 covering both underscore + dot runs + ≥ 5 inline page-number matches) — default-on, opt-out via `--keep-frontmatter`. Calibrated for the audit's Turkish-pilot ToC shape.
+- **`forgelm ingest --strip-urls {keep,mask,strip}`** with bounded character class (no truncation), independent of `--all-mask`.
+- **Multi-column PDF detection** (warning only) via pypdf's `visitor_text` callback sampling.
+- **Notebook UX alignment** — `notebooks/ingestion_playground.ipynb` Cells 5 / 8 / 9 / 10 rewritten with token-aware mode knobs (fail-fast on partial config), quality-filter description, explicit `--quality-filter`, `quality_summary` pretty-print.
+
+### Public surface changes
+
+- 12 new `forgelm ingest` flags + audit `--quality-filter` default-on flip.
+- `IngestionResult` gained 5 additive fields (`pdf_paragraph_packed_lines_stripped`, `script_sanity_triggered`, `strip_pattern_substitutions`, `urls_handled`, `frontmatter_pages_dropped`). No pre-Phase-15 key was renamed.
+- `__api_version__` stays at `1.0.0` — no new stable library symbol added to `forgelm.__all__`. `__version__` bumps 0.5.7 → 0.6.0 (MINOR).
+
+### Full changelog
+
+See [CHANGELOG.md `[0.6.0]`](../../CHANGELOG.md#060--2026-05-11) for the complete list of additions, changes, and fixes (including the five review-absorption-round details).
+
+---
+
 ## v0.5.7 — "SFT trainer trl-modernisation fix" (2026-05-10)
 
 **Status:** Released to PyPI 2026-05-10. Patch on top of v0.5.6. GitHub Release: [v0.5.7](https://github.com/cemililik/ForgeLM/releases/tag/v0.5.7).
@@ -202,12 +239,12 @@ See [CHANGELOG.md `[0.5.5]`](../../CHANGELOG.md#055--2026-05-10) for the complet
 
 ---
 
-## v0.6.0 — "Pipeline Chains" (Planned)
+## v0.7.0 — "Pipeline Chains" (Planned)
 
-**Status:** Planned. Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. Next release on top of `v0.5.5`.
+**Status:** Planned. Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. Re-scheduled from v0.6.0 → v0.7.0 because v0.6.0 now ships Phase 15 (Ingestion Pipeline Reliability) after the 2026-05-11 pilot exposed the silent-failure gap that gated v0.6.0's credibility.
 
 ---
 
 ## v0.6.0-pro — "Pro CLI" (Planned, gated)
 
-Focus: [Phase 13](phase-13-pro-cli.md). Gated on traction validation — do not ship before `v0.5.5` reaches ≥1K monthly PyPI installs and ≥2 paying support contracts. The ISO 27001 / SOC 2 baseline shipped in `v0.5.5` underpins the Pro CLI's enterprise audit story.
+Focus: [Phase 13](phase-13-pro-cli.md). Gated on traction validation — do not ship before `v0.6.0` reaches ≥1K monthly PyPI installs and ≥2 paying support contracts. The ISO 27001 / SOC 2 baseline shipped in `v0.5.5` underpins the Pro CLI's enterprise audit story.

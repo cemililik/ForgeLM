@@ -4,10 +4,13 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
-Phase 15 (Ingestion Pipeline Reliability) Wave 1 + Wave 2 landed on the
-development branch. Closes the silent-failure gap the 2026-05-11 pilot
-exposed across PDF / DOCX / EPUB / TXT / MD ingestion plus the
-user-facing playground notebook. Targeted for v0.6.0.
+## [0.6.0] — 2026-05-11
+
+Phase 15 (Ingestion Pipeline Reliability) Wave 1 + Wave 2. Closes the
+silent-failure gap the 2026-05-11 pilot exposed across PDF / DOCX /
+EPUB / TXT / MD ingestion plus the user-facing playground notebook.
+Five review-absorption rounds (Gemini / CodeRabbit / Sonar / Codacy +
+independent self-review) ship in the same release.
 
 ### Added (Phase 15 Wave 1)
 
@@ -104,13 +107,60 @@ user-facing playground notebook. Targeted for v0.6.0.
   `strip_pattern_substitutions`, `urls_handled`,
   `frontmatter_pages_dropped`. No pre-Phase-15 key was renamed.
 
-### Fixed (review-absorption rounds 3 + 4 + 5 follow-up to v0.5.7)
+### Fixed (Phase 15 review-absorption — 5 rounds)
 
-(No public surface change, but training-pipeline UX, doctor robustness,
-and test-isolation guarantees improve. Round 5 closes the residual
-CodeRabbit findings against the round-3/4 commits.)
+Five review-absorption rounds (Gemini + CodeRabbit + Sonar + Codacy +
+independent self-review) shipped in the same release. Highlights:
 
-### Fixed (round 5 — CodeRabbit follow-up)
+- **`forgelm/cli/_training.py::_preflight_numpy_torch_abi`** — any
+  unexpected exception from the underlying probe (corrupted torch
+  install where `torch.__version__` raises `AttributeError`, etc.)
+  is now caught and converted into a structured
+  `abi_preflight_crashed` JSON envelope. Previously the raw Python
+  traceback would pre-empt the `--output-format json` contract that
+  every other CLI failure path honours. Exit code stays
+  `EXIT_TRAINING_ERROR` (= 2), matching the broken-ABI verdict so
+  CI/CD branching doesn't need to distinguish "ABI bad" from "ABI
+  probe died".
+- **`forgelm ingest --language-hint`** — a hint outside
+  `forgelm._script_sanity.SUPPORTED_LANGUAGES` (e.g. `zh`) now
+  triggers a WARNING at CLI dispatch time naming the supported codes
+  instead of silently no-opping the script-sanity layer. Round-5
+  self-review C-B finding.
+- **EPUB skip-list whole-token match** — `recovery.xhtml` no longer
+  matches `cover` via substring; `_epub_item_matches_skip` splits
+  filenames + EPUB-3 manifest properties on path/extension/separator
+  characters and matches whole tokens. Skipped items emit a WARNING
+  naming the affected files. Round-1 C-1 + round-3 S-C findings.
+- **Default `normalise_profile`** flipped from `"turkish"` to
+  `"none"`; CLI dispatcher + library `ingest_path` both auto-derive
+  `"turkish"` only when `--language-hint tr` is set. Prevents silent
+  rewrites of legitimate non-Turkish letters (Norwegian `ø`,
+  Estonian `Õ`, math `÷`). Round-1 C-2 finding.
+- **ReDoS validator** caught escape-shape variants (`(\w+)+x`,
+  `(\d+)+x`, `(\s+)+x`, `(\w+\s+)+x`) the pre-round-1 backward-walk
+  validator skipped, and now clamps the per-pattern SIGALRM to
+  `min(timeout_s, previous_remaining)` so nested calls cannot
+  extend an outer caller's deadline. Round-1 S-1 + round-2 alarm
+  clamp findings.
+- **Operator-controlled-string injection vector** in
+  `IngestParameterError` / decrypt-fail / `Could not open PDF`
+  messages — paths now repr-escape via `{path!r}` so ANSI escape
+  sequences / control chars / embedded quotes cannot leak into the
+  rendered error. Round-4 C-A finding.
+- **Quality-presignal false positive on clean small corpora** —
+  chunks below 80 non-whitespace characters skip the alpha-ratio
+  check so a 5-paragraph 41-char TXT no longer emits
+  `[WARN] 1/1 chunks below ingestion quality threshold`. Round-4
+  C-B finding.
+- **Front-matter heuristic** dot-leader detection
+  (`r"[._]{3,}"`), denominator parity with `alpha_ratio` (non-
+  whitespace chars), and alpha threshold tightened 0.45 → 0.30.
+  Catches dotted-leader ToCs the pre-round-3 underscore-only count
+  missed; protects realistic form templates via the 3-signal AND
+  filter. Round-3 + round-4 + round-5 findings.
+
+### Fixed (other — earlier review absorption)
 
 - **`forgelm/cli/_training.py::_preflight_numpy_torch_abi`** — any
   unexpected exception from the underlying probe (corrupted torch
@@ -1858,7 +1908,8 @@ Major release: ForgeLM goes from a basic SFT fine-tuning tool to a full-stack LL
 - Basic evaluation checks (max loss, baseline comparison)
 - Auto-revert on quality degradation
 
-[Unreleased]: https://github.com/cemililik/ForgeLM/compare/v0.5.7...HEAD
+[Unreleased]: https://github.com/cemililik/ForgeLM/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/cemililik/ForgeLM/compare/v0.5.7...v0.6.0
 [0.5.7]: https://github.com/cemililik/ForgeLM/compare/v0.5.6...v0.5.7
 [0.5.6]: https://github.com/cemililik/ForgeLM/compare/v0.5.5...v0.5.6
 [0.5.5]: https://github.com/cemililik/ForgeLM/compare/v0.5.0...v0.5.5
