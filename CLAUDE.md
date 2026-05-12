@@ -155,10 +155,11 @@ Default workflow for a non-trivial change:
      python3 tools/check_cli_help_consistency.py --strict && \
      python3 tools/check_wizard_defaults_sync.py && \
      python3 tools/check_no_analysis_refs.py && \
-     python3 tools/check_no_unguarded_sys_modules_pop.py
+     python3 tools/check_no_unguarded_sys_modules_pop.py && \
+     python3 tools/update_site_version.py --check
    ```
 
-   All ten must pass. The first four are the historical gauntlet;
+   All eleven must pass. The first four are the historical gauntlet;
    the three doc guards (Wave 3 / Wave 4 / Wave 5 additions) catch
    bilingual structural drift, broken markdown anchors, and CLI ↔ docs
    help-text drift before the PR opens. The wizard-defaults guard
@@ -170,7 +171,13 @@ Default workflow for a non-trivial change:
    The unguarded-`sys.modules`-pop guard (v0.5.7 round-4) flags any
    `sys.modules.pop("torch"|"numpy"|"trl"|…)` without
    `monkeypatch.delitem` — the v0.5.7 round-3 review traced 35
-   spurious full-suite failures to that exact pattern.
+   spurious full-suite failures to that exact pattern.  The
+   site-version guard (v0.6.0 retag cycle) re-derives the marketing
+   site's displayed version from CHANGELOG's latest released header
+   and fails the PR if any of the 15+ literals across `site/*.html`
+   and `site/js/translations.js` has drifted; the v0.5.5 → v0.6.0
+   release shipped with the hero badge still reading `v0.5.5`, which
+   this guard now prevents.
 
 ## Etiquette when communicating with the user
 

@@ -117,6 +117,7 @@ The canonical bump rule lives at the top of [`forgelm/_version.py`](../../../for
 - [ ] If a new guide was written: [`docs/guides/`](../../../docs/guides/) has it
 - [ ] [`config_template.yaml`](../../../config_template.yaml) exercises all new fields (CI dry-run uses it)
 - [ ] [`README.md`](../../../README.md) feature list still accurate
+- [ ] **Run `python3 tools/update_site_version.py`** so the 15+ version literals across `site/*.html` (JSON-LD `softwareVersion`, hero badge, `pip install` snippets) and `site/js/translations.js` (`home.hero.badge` × 6 locales) re-derive from CHANGELOG's latest released header. The companion `--check` guard runs in the repo gauntlet so the next PR fails if you forget.
 
 ### 5. Local verification
 
