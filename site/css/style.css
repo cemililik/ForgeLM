@@ -178,7 +178,11 @@
 html {
   scroll-behavior: smooth;
   font-size: 16px;
-  scroll-padding-top: 80px;
+  /* Anchor-link landings clear the fixed navbar; on notched devices
+     the navbar grew by ``env(safe-area-inset-top)``, so the scroll
+     padding has to grow with it or anchored targets hide under the
+     bar.  64px navbar + ~16px breathing room + safe-area = total. */
+  scroll-padding-top: calc(80px + env(safe-area-inset-top));
 }
 
 body {
@@ -250,7 +254,12 @@ kbd {
 .container {
   max-width: var(--max-width);
   margin: 0 auto;
-  padding: 0 1.5rem;
+  /* ``env(safe-area-inset-*)`` keeps content clear of the notch /
+     home-indicator bezel in landscape on iPhone 14+ models.  Pages
+     declare ``viewport-fit=cover`` in their viewport meta so the
+     viewport extends edge-to-edge; without this padding-max, copy
+     would slide under the bezel rendering it unreadable. */
+  padding: 0 max(1.5rem, env(safe-area-inset-right)) 0 max(1.5rem, env(safe-area-inset-left));
 }
 
 .container-narrow {
@@ -359,6 +368,14 @@ section { padding: 5rem 0; }
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
+  /* iPhone 14+ dynamic island + classic notch sit at the very top
+     of the viewport; pages declare ``viewport-fit=cover`` so the
+     navbar can extend edge-to-edge, but content must offset down
+     into safe-area-inset-top.  Doing this on the navbar (and
+     letting it grow vertically) is simpler than reserving a
+     spacer element. */
+  padding-top: env(safe-area-inset-top);
+  height: calc(64px + env(safe-area-inset-top));
 }
 
 .navbar .container {
@@ -522,34 +539,114 @@ section { padding: 5rem 0; }
   cursor: pointer;
   color: var(--text);
   padding: 0.5rem;
+  /* iOS HIG / Material Design tap-target minimum 44×44 — the touch
+     surface has to be at least that even though the icon itself is
+     24×24, otherwise the menu becomes hostile to thumb taps on a
+     phone held one-handed. */
+  min-width: 44px;
+  min-height: 44px;
 }
 .nav-hamburger svg { width: 24px; height: 24px; }
 
 @media (max-width: 880px) {
   .nav-hamburger { display: block; }
   .nav-menu, .nav-actions { display: none; }
-  .nav-menu.open, .nav-actions.open {
+
+  /* Mobile drawer — single fixed panel.  ``initNav()`` in
+     ``site/js/main.js`` relocates ``.nav-actions`` into ``.nav-menu``
+     on open so the two stack as a single overflow-scrollable column;
+     the pre-2026-05 absolute-positioned overlay (where
+     ``.nav-actions.open`` carried ``top: auto`` and ended up on top
+     of the navbar) is gone.  ``position: fixed`` decouples the drawer
+     from the navbar's positioning context so iOS Safari doesn't
+     clip the bottom of the language list when the navbar is
+     ``backdrop-filter``-blurred. */
+  .nav-menu.open {
     display: flex;
-    position: absolute;
-    top: 64px;
+    position: fixed;
+    /* Track the navbar's true height (it grows by safe-area-inset-top
+       on notched devices), so the drawer never tucks under the bar. */
+    top: calc(64px + env(safe-area-inset-top));
     left: 0; right: 0;
     background: var(--bg);
     border-bottom: 1px solid var(--border);
-    padding: 1rem 1.5rem;
+    padding: 0.75rem 1.5rem 1rem;
     flex-direction: column;
     align-items: stretch;
-    gap: 0.5rem;
+    gap: 0.35rem;
     box-shadow: var(--shadow-lg);
+    /* Cap drawer to viewport so long link lists scroll inside the
+       drawer rather than off-screen; ``-webkit-overflow-scrolling``
+       is the iOS Safari momentum-scroll opt-in. */
+    max-height: calc(100vh - 64px - env(safe-area-inset-top));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Notched-device left/right safe-area on landscape — keep the
+       drawer content clear of the home-indicator bezel. */
+    padding-left: max(1.5rem, env(safe-area-inset-left));
+    padding-right: max(1.5rem, env(safe-area-inset-right));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
-  .nav-actions.open {
-    top: auto;
-    border-bottom: none;
-    flex-direction: row;
-    padding-top: 0;
-    border-top: 0;
+  .nav-menu.open a {
+    padding: 0.85rem 1rem;
+    width: 100%;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
   }
-  .nav-menu.open { padding-bottom: 0.5rem; }
-  .nav-menu a { padding: 0.65rem 1rem; width: 100%; }
+
+  /* .nav-actions is moved INTO .nav-menu via JS on drawer open so
+     it inherits the drawer's overflow + safe-area behaviour. */
+  .nav-menu.open .nav-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    margin: 0.5rem 0 0;
+    padding: 0.75rem 0 0;
+    border-top: 1px solid var(--border);
+    gap: 0.6rem;
+  }
+  /* Language picker becomes a flat list — the desktop dropdown overlay
+     (``.lang-toggle-menu`` with ``position: absolute; right: 0``) used
+     to clip on iPhone 12 Pro when triggered from inside the mobile
+     drawer.  Inline rendering with 44px tap targets is the standard
+     mobile pattern (Stripe / Linear / Vercel). */
+  .nav-menu.open .lang-toggle { width: 100%; position: static; }
+  .nav-menu.open .lang-toggle-btn { display: none; }
+  .nav-menu.open .lang-toggle-menu {
+    display: block;
+    position: static;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    min-width: 0;
+  }
+  .nav-menu.open .lang-toggle-menu li { width: 100%; }
+  .nav-menu.open .lang-toggle-menu button {
+    padding: 0.85rem 1rem;
+    font-size: 0.95rem;
+    min-height: 44px;
+    width: 100%;
+    border-radius: var(--radius-sm);
+  }
+  /* Theme + GitHub buttons sized to the iOS tap-target floor.  The
+     theme toggle keeps its icon-only shape but expands horizontally
+     so the row reads as a list, not a stranded circle. */
+  .nav-menu.open .theme-toggle {
+    width: 100%;
+    height: 44px;
+    border-radius: var(--radius-sm);
+    justify-content: center;
+  }
+  .nav-menu.open .btn-secondary {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
 }
 
 /* ── Buttons ─────────────────────────────────────────────── */
@@ -804,6 +901,21 @@ section { padding: 5rem 0; }
 .hero-slider-dot:focus-visible {
   outline: 2px solid var(--ember-bright);
   outline-offset: 3px;
+}
+@media (hover: none) {
+  /* Touch viewports: expand the *tap target* without inflating the
+     visual pill.  A transparent ``::after`` extends the click area to
+     ~44×44 around the 24×4 dot so a thumb hits reliably; the
+     animated ``.dot-fill`` child is untouched so the auto-rotate
+     progress animation still draws over the original pill geometry.
+     ``hero-slider-controls`` gets gap relaxation so the extended
+     hitboxes don't overlap. */
+  .hero-slider-dot::after {
+    content: '';
+    position: absolute;
+    inset: -20px -10px;
+  }
+  .hero-slider-controls { gap: 1rem; }
 }
 
 .hero-slider-dot.is-active {
@@ -1292,6 +1404,16 @@ section { padding: 5rem 0; }
 }
 .copy-btn:hover { color: var(--ember-bright); border-color: var(--ember); }
 .copy-btn.copied { color: var(--success); border-color: var(--success); }
+@media (max-width: 720px) {
+  /* iOS HIG 44×44 tap-target floor — the desktop 32px copy button
+     sits on top of horizontally-scrolling code; thumb-tapping a
+     32px target while scrolling is unreliable on phones. */
+  .copy-btn {
+    min-height: 44px;
+    padding: 0.5rem 0.95rem;
+    font-size: 0.78rem;
+  }
+}
 
 /* ── Compliance grid (Articles) ──────────────────────────── */
 .articles-grid {
@@ -2615,13 +2737,29 @@ section { padding: 5rem 0; }
 .form-group select {
   width: 100%;
   padding: 0.65rem 0.875rem;
-  font: 400 0.92rem var(--font-sans);
+  /* iOS Safari auto-zooms when a form control's computed font-size is
+     below 16px, kicking the layout sideways on every focus.  Pin the
+     base size to 16px on touch viewports; desktop keeps the slightly
+     smaller (~14.7px) text via the @media-min override below. */
+  font: 400 16px var(--font-sans);
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   outline: none;
+  /* 44px minimum tap height — touch-target floor for iOS HIG. */
+  min-height: 44px;
   transition: background-color var(--transition), border-color var(--transition), color var(--transition), transform var(--transition), box-shadow var(--transition), opacity var(--transition);
+}
+@media (min-width: 720px) {
+  .form-group input,
+  .form-group textarea,
+  .form-group select {
+    /* Desktop pointers don't trigger zoom-on-focus, so the slightly
+       smaller body-text size is fine and matches the visual rhythm of
+       the rest of the form. */
+    font-size: 0.92rem;
+  }
 }
 .form-group input:focus,
 .form-group textarea:focus,

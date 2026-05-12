@@ -36,24 +36,53 @@
     return key;
   }
 
-  /* ── Nav (mobile hamburger) ──────────────────────── */
+  /* ── Nav (mobile hamburger) ──────────────────────────
+     On mobile (<880px) the hamburger opens a single drawer that
+     contains BOTH the nav links and the action buttons (language,
+     theme, GitHub).  Pre-2026-05 the two siblings were both
+     position:absolute with conflicting top offsets — .nav-actions.open
+     ended up overlaying the navbar instead of stacking below the
+     link list, which trapped the language dropdown in a corner where
+     iOS Safari clipped the bottom entries on iPhone 12 Pro.
+     Solution: relocate .nav-actions into .nav-menu when opening so
+     the drawer becomes a single fixed panel; on close, restore it to
+     its original DOM slot using a sentinel comment node so the
+     desktop layout is unchanged. */
   function initNav() {
     var hamburger = document.querySelector('.nav-hamburger');
     var menu = document.querySelector('.nav-menu');
     var actions = document.querySelector('.nav-actions');
     if (!hamburger || !menu) return;
 
+    // Sentinel marks where .nav-actions came from so we can restore it
+    // even after layout reflow.  Comment nodes don't render and survive
+    // i18n attribute mutations on neighbouring elements.
+    var actionsAnchor = null;
+    if (actions && actions.parentNode) {
+      actionsAnchor = document.createComment(' nav-actions-anchor ');
+      actions.parentNode.insertBefore(actionsAnchor, actions.nextSibling);
+    }
+
+    function setOpen(state) {
+      if (actions) {
+        if (state && actions.parentNode !== menu) {
+          menu.appendChild(actions);
+        } else if (!state && actionsAnchor && actionsAnchor.parentNode) {
+          actionsAnchor.parentNode.insertBefore(actions, actionsAnchor);
+        }
+        actions.classList.toggle('open', state);
+      }
+      menu.classList.toggle('open', state);
+      hamburger.setAttribute('aria-expanded', String(state));
+    }
+
     hamburger.addEventListener('click', function () {
-      var open = menu.classList.toggle('open');
-      if (actions) actions.classList.toggle('open', open);
-      hamburger.setAttribute('aria-expanded', String(open));
+      setOpen(!menu.classList.contains('open'));
     });
 
     menu.querySelectorAll('a').forEach(function (link) {
       link.addEventListener('click', function () {
-        menu.classList.remove('open');
-        if (actions) actions.classList.remove('open');
-        hamburger.setAttribute('aria-expanded', 'false');
+        setOpen(false);
       });
     });
   }
