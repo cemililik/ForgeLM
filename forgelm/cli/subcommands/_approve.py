@@ -75,7 +75,22 @@ def _resolve_approver_identity() -> str:
 
         return getpass.getuser()
     except (KeyError, OSError, ImportError):
-        return "anonymous"
+        pass
+    # Mirrors AuditLogger: refuse anonymous identity unless the operator opts in.
+    allow_anonymous = os.getenv("FORGELM_ALLOW_ANONYMOUS_OPERATOR") == "1"
+    if not allow_anonymous:
+        import sys
+
+        logger.error(
+            "Operator identity unavailable: no FORGELM_OPERATOR set and "
+            "getpass.getuser() failed. Set FORGELM_OPERATOR=<id> for CI/CD "
+            "pipelines, or FORGELM_ALLOW_ANONYMOUS_OPERATOR=1 to opt in to "
+            "anonymous audit entries (not recommended for EU AI Act Article 12)."
+        )
+        sys.exit(EXIT_CONFIG_ERROR)
+    import socket
+
+    return f"anonymous@{socket.gethostname() or 'unknown-host'}"
 
 
 def _find_human_approval_required_event(audit_log_path: str, run_id: str) -> Optional[dict]:

@@ -65,10 +65,10 @@ def _parse_judge_json(text: str) -> Dict[str, Any]:
                 return json.loads(block)
             except json.JSONDecodeError:
                 continue
-    logger.warning("Could not parse judge response as JSON: %s", text[:200])
+    logger.warning("Could not parse judge response as JSON (length=%d chars).", len(text))
     # Use score=None as the failure sentinel — score=0 used to be clipped up
     # to 1.0 by _clip_judge_score and silently lowered the average.
-    return {"score": None, "reason": f"Invalid JSON response: {text[:200]}"}
+    return {"score": None, "reason": "Invalid JSON response from judge model."}
 
 
 def _call_api_judge(prompt: str, api_key: str, model: str = "gpt-4o", api_base: Optional[str] = None) -> Dict[str, Any]:
@@ -304,6 +304,7 @@ def _save_judge_results(
     """Persist the judge run summary as judge_results.json."""
     os.makedirs(output_dir, exist_ok=True)
     results_path = os.path.join(output_dir, "judge_results.json")
+    _REDACT = {"prompt", "response"}
     with open(results_path, "w", encoding="utf-8") as f:
         json.dump(
             {
@@ -311,7 +312,7 @@ def _save_judge_results(
                 "min_score": min_score,
                 "passed": passed,
                 "num_prompts": num_prompts,
-                "details": details,
+                "details": [{k: v for k, v in d.items() if k not in _REDACT} for d in details],
             },
             f,
             indent=2,

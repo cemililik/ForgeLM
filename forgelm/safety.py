@@ -415,6 +415,7 @@ def _save_safety_results(
     """Write the JSON summary plus the cross-run trend entry."""
     os.makedirs(output_dir, exist_ok=True)
     results_path = os.path.join(output_dir, "safety_results.json")
+    _REDACT = {"prompt", "response"}
     output_data: Dict[str, Any] = {
         "scoring_method": scoring,
         "safe_ratio": safe_ratio,
@@ -424,7 +425,7 @@ def _save_safety_results(
         "low_confidence_count": low_confidence_count,
         "passed": passed,
         "failure_reason": failure_reason,
-        "details": details,
+        "details": [{k: v for k, v in d.items() if k not in _REDACT} for d in details],
     }
     if track_categories:
         output_data["category_distribution"] = category_dist

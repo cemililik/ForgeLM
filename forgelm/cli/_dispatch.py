@@ -218,7 +218,7 @@ def _main_inner() -> None:
                 replacement="forgelm audit",
                 version="v0.7.0 removal",
             )
-        except OSError as audit_exc:
+        except Exception as audit_exc:  # noqa: BLE001 — best-effort breadcrumb; ConfigError (anonymous operator) and OSError (read-only dir) are both non-fatal here
             # Non-fatal: the audit log is a best-effort telemetry record
             # for the deprecation notice. The DeprecationWarning has
             # already fired; the audit run itself must still proceed —

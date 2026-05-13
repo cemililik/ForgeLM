@@ -18,8 +18,11 @@ from ._logging import logger
 
 def _run_benchmark_only(config: ForgeConfig, model_path: str, output_format: str) -> None:
     """Run benchmark evaluation on an existing model without training."""
+    import json as _json
+    import os as _os
+
     from ..benchmark import run_benchmark
-    from ..model import get_model_and_tokenizer
+    from ..inference import load_model
 
     eval_cfg = config.evaluation
     if not eval_cfg or not eval_cfg.benchmark or not eval_cfg.benchmark.tasks:
@@ -28,11 +31,29 @@ def _run_benchmark_only(config: ForgeConfig, model_path: str, output_format: str
 
     bench_cfg = eval_cfg.benchmark
 
-    # Override model path to the provided one
-    config.model.name_or_path = model_path
-    logger.info("Loading model from %s for benchmark evaluation...", model_path)
-
-    model, tokenizer = get_model_and_tokenizer(config)
+    # Detect PEFT checkpoint: if the path contains adapter_config.json, load the
+    # base model from there and merge the adapter — otherwise load as a plain model.
+    adapter_cfg_path = _os.path.join(model_path, "adapter_config.json")
+    if _os.path.isfile(adapter_cfg_path):
+        with open(adapter_cfg_path) as _f:
+            _adapter_meta = _json.load(_f)
+        base_path = _adapter_meta.get("base_model_name_or_path", model_path)
+        logger.info("Detected PEFT checkpoint. Loading base model %s + adapter %s for benchmark.", base_path, model_path)
+        model, tokenizer = load_model(
+            base_path,
+            adapter=model_path,
+            backend=config.model.backend,
+            load_in_4bit=config.model.load_in_4bit,
+            trust_remote_code=getattr(config.model, "trust_remote_code", False),
+        )
+    else:
+        logger.info("Loading model from %s for benchmark evaluation...", model_path)
+        model, tokenizer = load_model(
+            model_path,
+            backend=config.model.backend,
+            load_in_4bit=config.model.load_in_4bit,
+            trust_remote_code=getattr(config.model, "trust_remote_code", False),
+        )
 
     output_dir = bench_cfg.output_dir or os.path.join(os.path.dirname(model_path), "benchmark")
 

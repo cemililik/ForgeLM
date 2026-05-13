@@ -181,40 +181,44 @@ class TrainingConfig(BaseModel):
         description="Alignment paradigm: `sft` (supervised), `orpo`, `dpo`, `simpo`, `kto`, or `grpo`.",
     )
     max_steps: int = Field(
-        default=-1, description="Hard step cap; `-1` = use `num_train_epochs`, positive value overrides epochs."
+        default=-1, ge=-1, description="Hard step cap; `-1` = use `num_train_epochs`, positive value overrides epochs."
     )
     num_train_epochs: int = Field(
         default=3,
+        ge=1,
         description="Number of training epochs (only consulted when `max_steps == -1`).",
         json_schema_extra={"wizard": True},
     )
     per_device_train_batch_size: int = Field(
         default=4,
+        ge=1,
         description="Micro-batch size per GPU.  Multiply by `gradient_accumulation_steps` × world size for effective batch.",
         json_schema_extra={"wizard": True},
     )
     gradient_accumulation_steps: int = Field(
         default=2,
+        ge=1,
         description="Number of micro-batches to accumulate before each optimiser step.",
         json_schema_extra={"wizard": True},
     )
     learning_rate: float = Field(
         default=2e-5,
+        gt=0,
         description="Peak learning rate.  LoRA / QLoRA usually tolerates 2e-4; full-finetune wants 2e-5.",
         json_schema_extra={"wizard": True},
     )
     warmup_ratio: float = Field(
-        default=0.1, description="Fraction of total steps spent warming up the learning rate from 0 → peak."
+        default=0.1, ge=0, le=1, description="Fraction of total steps spent warming up the learning rate from 0 → peak."
     )
-    weight_decay: float = Field(default=0.01, description="L2 weight-decay coefficient applied by the optimiser.")
-    eval_steps: int = Field(default=200, description="Run validation every N optimiser steps.")
-    save_steps: int = Field(default=200, description="Write a checkpoint every N optimiser steps.")
-    save_total_limit: int = Field(default=3, description="Retain at most N checkpoints (oldest evicted first).")
+    weight_decay: float = Field(default=0.01, ge=0, description="L2 weight-decay coefficient applied by the optimiser.")
+    eval_steps: int = Field(default=200, ge=1, description="Run validation every N optimiser steps.")
+    save_steps: int = Field(default=200, ge=1, description="Write a checkpoint every N optimiser steps.")
+    save_total_limit: int = Field(default=3, ge=1, description="Retain at most N checkpoints (oldest evicted first).")
     packing: bool = Field(
         default=False, description="Pack short sequences into one to maximise GPU compute utilisation."
     )
     early_stopping_patience: int = Field(
-        default=3, description="Stop training after N evals without validation-loss improvement."
+        default=3, ge=1, description="Stop training after N evals without validation-loss improvement."
     )
     orpo_beta: float = Field(default=0.1, description="ORPO odds-ratio weight (alignment paradigm parameter).")
     dpo_beta: float = Field(default=0.1, description="DPO temperature parameter.")
@@ -222,13 +226,14 @@ class TrainingConfig(BaseModel):
     simpo_beta: float = Field(default=2.0, description="SimPO scaling parameter.")
     kto_beta: float = Field(default=0.1, description="KTO loss parameter.")
     grpo_num_generations: int = Field(
-        default=4, description="GRPO: number of responses to generate per prompt during rollout."
+        default=4, ge=2, description="GRPO: number of responses to generate per prompt during rollout."
     )
     # TRL >=0.12 renamed `max_new_tokens` to `max_completion_length` on GRPOConfig.
     # We mirror the TRL spelling, but accept the legacy name via Pydantic alias
     # so existing YAML configs and templates keep working without edits.
     grpo_max_completion_length: int = Field(
         default=512,
+        ge=1,
         alias="grpo_max_new_tokens",
         description="GRPO: max tokens per generated completion (TRL field name).",
     )
