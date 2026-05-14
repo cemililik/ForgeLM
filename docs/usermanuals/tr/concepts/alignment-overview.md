@@ -10,7 +10,7 @@ Modern LLM fine-tuning'i artık tek bir algoritma değil — her biri farklı bi
 ```mermaid
 flowchart TD
     Base[Temel model<br/>ör. Qwen 2.5 / Llama 3]
-    SFT[SFT<br/>format & içerik]
+    SFT["SFT<br/>format & içerik"]
     DPO[DPO<br/>tercih hizalaması]
     SimPO[SimPO<br/>tercih, ref-free]
     KTO[KTO<br/>ikili geri bildirim]

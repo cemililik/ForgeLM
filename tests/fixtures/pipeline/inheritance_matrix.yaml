@@ -1,0 +1,58 @@
+# Phase 14 fixture — exercises every row of the inheritance matrix
+# documented in docs/roadmap/phase-14-pipeline-chains.md Task 2:
+# auto-chain, section-wholesale override, root-only sections preserved.
+
+model:
+  name_or_path: "org/root-base"
+lora:
+  r: 8
+  alpha: 16
+training:
+  trainer_type: "sft"
+  output_dir: "./out/inheritance"
+  learning_rate: 2.0e-5
+  num_train_epochs: 3
+data:
+  dataset_name_or_path: "org/root_data"
+compliance:
+  provider_name: "Acme Inc"
+  provider_contact: "compliance@acme.test"
+  system_name: "Inheritance Demo"
+  intended_purpose: "Inheritance-matrix coverage fixture."
+webhook:
+  url: "https://example.test/webhook"
+
+pipeline:
+  output_dir: "./out/inheritance"
+  stages:
+    # Stage 0 — inherits everything from root; no overrides; reads root model.
+    - name: stage_inherit_all
+
+    # Stage 1 — overrides lora wholesale; training inherited; auto-chains
+    # input model to stage_inherit_all's final_model.
+    - name: stage_lora_override
+      lora:
+        r: 32
+        alpha: 64
+      training:
+        trainer_type: "sft"
+
+    # Stage 2 — overrides training wholesale (must include trainer_type
+    # explicitly per Phase 14's audit-clarity validator); overrides data.
+    - name: stage_training_override
+      training:
+        trainer_type: "dpo"
+        output_dir: "./out/inheritance/stage2"
+        num_train_epochs: 1
+        dpo_beta: 0.1
+      data:
+        dataset_name_or_path: "org/dpo_data"
+
+    # Stage 3 — explicit model block; disables auto-chain; subsequent
+    # stages still chain from this stage's output.
+    - name: stage_explicit_model
+      model:
+        name_or_path: "meta-llama/Llama-3-8B"
+      training:
+        trainer_type: "grpo"
+        output_dir: "./out/inheritance/stage3"

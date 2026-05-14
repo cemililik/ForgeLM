@@ -185,8 +185,152 @@ def _compute_manifest_hash(artifact: Dict[str, Any]) -> str:
     return compute_annex_iv_manifest_hash(artifact)
 
 
+def _run_pipeline_mode(path: str, output_format: str) -> None:
+    """Verify a pipeline run directory's manifest + chain integrity.
+
+    Reads ``<path>/compliance/pipeline_manifest.json``, runs the in-
+    memory verifier + per-stage training_manifest existence check, and
+    prints / exits.  Extracted from :func:`_run_verify_annex_iv_cmd`
+    for Sonar python:S3776 cognitive-complexity hygiene.
+
+    Exit-code mapping (Phase 14 review-response — aligns with the
+    single-artefact path's policy in
+    :func:`_verify_artefact_and_handle_io_errors`):
+
+    - ``EXIT_SUCCESS (0)`` — empty violation list.
+    - ``EXIT_TRAINING_ERROR (2)`` — genuine runtime I/O failure on a
+      reachable path (mid-read OSError, locked manifest, …) or the
+      ``pipeline_manifest.json unreadable: …`` sentinel that
+      :func:`forgelm.compliance.verify_pipeline_manifest_at_path`
+      emits when the JSON file is reachable but unreadable.
+    - ``EXIT_CONFIG_ERROR (1)`` — everything else, including the
+      ``pipeline_manifest.json not found …`` sentinel and all
+      structural / chain-integrity violations.
+    """
+    from forgelm.compliance import verify_pipeline_manifest_at_path
+
+    # Defensive try/except: the verifier already maps OSError /
+    # JSONDecodeError to violation strings, but a future change there
+    # could let an exception bubble — fail loud rather than swallow.
+    try:
+        violations = verify_pipeline_manifest_at_path(path)
+    except OSError as exc:
+        msg = f"FAIL: pipeline manifest at {path} — runtime I/O error: {exc}"
+        if output_format == "json":
+            print(
+                json.dumps(
+                    {
+                        "success": False,
+                        "mode": "pipeline",
+                        "path": os.path.abspath(path),
+                        "violations": [str(exc)],
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(msg)
+        sys.exit(EXIT_TRAINING_ERROR)
+
+    # An "unreadable" sentinel from the verifier means the file is
+    # reachable but I/O / parse fails — runtime error, not config
+    # error.  "not found" is operator-input → config error.
+    unreadable = any("unreadable" in v for v in violations)
+
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "success": not violations,
+                    "mode": "pipeline",
+                    "path": os.path.abspath(path),
+                    "violations": violations,
+                },
+                indent=2,
+            )
+        )
+    elif not violations:
+        print(f"OK: pipeline manifest at {path}")
+    else:
+        print(f"FAIL: pipeline manifest at {path}")
+        for v in violations:
+            print(f"  - {v}")
+
+    if not violations:
+        sys.exit(EXIT_SUCCESS)
+    sys.exit(EXIT_TRAINING_ERROR if unreadable else EXIT_CONFIG_ERROR)
+
+
+def _verify_artefact_and_handle_io_errors(path: str, output_format: str) -> "VerifyAnnexIVResult":
+    """Run :func:`verify_annex_iv_artifact` with the documented I/O
+    error-mapping policy.
+
+    Extracted from :func:`_run_verify_annex_iv_cmd` for Sonar
+    python:S3776 cognitive-complexity hygiene.  Each ``except`` branch
+    exits the process via ``_output_error_and_exit`` — the function
+    only returns on success.
+
+    Exit-code mapping (per ``docs/reference/verify_annex_iv_subcommand.md``):
+
+    - ``FileNotFoundError`` / ``IsADirectoryError`` / ``JSONDecodeError`` →
+      ``EXIT_CONFIG_ERROR (1)`` (operator-actionable input error).
+    - ``OSError`` (catch-all, must follow ``FileNotFoundError`` because
+      Python's OSError hierarchy makes it a subclass) →
+      ``EXIT_TRAINING_ERROR (2)`` (genuine runtime I/O failure).
+    """
+    try:
+        return verify_annex_iv_artifact(path)
+    except (FileNotFoundError, IsADirectoryError) as exc:
+        _output_error_and_exit(
+            output_format,
+            f"Annex IV artifact not found or not a regular file: {path!r} ({exc.__class__.__name__}).",
+            EXIT_CONFIG_ERROR,
+        )
+    except json.JSONDecodeError as exc:
+        _output_error_and_exit(
+            output_format,
+            f"Annex IV artifact at {path!r} is not valid JSON: {exc.msg} (line {exc.lineno}).",
+            EXIT_CONFIG_ERROR,
+        )
+    except OSError as exc:
+        _output_error_and_exit(
+            output_format,
+            f"Could not read Annex IV artifact {path!r}: {exc}.",
+            EXIT_TRAINING_ERROR,
+        )
+
+
+def _print_artefact_result(result: "VerifyAnnexIVResult", path: str, output_format: str) -> None:
+    """Render the per-artefact verify result to stdout (JSON or text)."""
+    payload = result.to_dict()
+    payload["path"] = os.path.abspath(path)
+    if output_format == "json":
+        print(json.dumps({"success": result.valid, **payload}, indent=2))
+        return
+    if result.valid:
+        print(f"OK: {path}")
+        print(f"  {result.reason}")
+        return
+    print(f"FAIL: {path}")
+    print(f"  {result.reason}")
+    for missing in result.missing_fields:
+        print(f"    - missing: {missing}")
+
+
 def _run_verify_annex_iv_cmd(args, output_format: str) -> None:
-    """Top-level dispatcher for ``forgelm verify-annex-iv <path>``."""
+    """Top-level dispatcher for ``forgelm verify-annex-iv <path>``.
+
+    Two modes:
+
+    - **Single artefact** (default): ``<path>`` is an Annex IV JSON file
+      and the verifier checks field completeness + manifest hash.
+    - **Pipeline** (``--pipeline`` flag): ``<path>`` is a pipeline run
+      directory and the verifier reads
+      ``<path>/compliance/pipeline_manifest.json`` and runs chain-
+      integrity + stage-index + ``stopped_at`` coherence + per-stage
+      training_manifest existence checks.  Returns a list of violations
+      and exits 0 only when the list is empty.
+    """
     path = getattr(args, "path", None)
     if not path:
         _output_error_and_exit(
@@ -194,62 +338,16 @@ def _run_verify_annex_iv_cmd(args, output_format: str) -> None:
             "verify-annex-iv requires a path argument: `forgelm verify-annex-iv <annex_iv.json>`.",
             EXIT_CONFIG_ERROR,
         )
-    # Round 6 absorption: the prior `os.path.isfile()` pre-check
-    # collapsed two distinct conditions ("path doesn't exist" and
-    # "path exists but the user can't stat it") into a single
-    # `EXIT_CONFIG_ERROR`, breaking the documented exit-code
-    # contract for the permission-denied case.  Move all path
-    # validation inside the try block and let Python's exception
-    # hierarchy disambiguate: FileNotFoundError + IsADirectoryError
-    # = caller-input error (exit 1); OSError (incl. PermissionError)
-    # = genuine I/O failure on a reachable path (exit 2).
-    try:
-        result = verify_annex_iv_artifact(path)
-    except (FileNotFoundError, IsADirectoryError) as exc:
-        # Caller-input error: the path is missing or refers to a
-        # directory.  Per docs/standards/error-handling.md and the
-        # public exit-code contract in
-        # docs/reference/verify_annex_iv_subcommand.md, this is
-        # exit 1 (config / caller error).
-        _output_error_and_exit(
-            output_format,
-            f"Annex IV artifact not found or not a regular file: {path!r} ({exc.__class__.__name__}).",
-            EXIT_CONFIG_ERROR,
-        )
-    except json.JSONDecodeError as exc:
-        # Validation failure: the artifact is reachable but not parseable
-        # as JSON.  Operator-actionable input error per the public
-        # contract; routes to exit 1.
-        _output_error_and_exit(
-            output_format,
-            f"Annex IV artifact at {path!r} is not valid JSON: {exc.msg} (line {exc.lineno}).",
-            EXIT_CONFIG_ERROR,
-        )
-    except OSError as exc:
-        # Genuine runtime I/O failure on a reachable path (permission
-        # denied, mid-read I/O error, locked file, etc.).  This is the
-        # post-FileNotFoundError catch-all because Python's OSError
-        # hierarchy puts FileNotFoundError as a subclass — order
-        # matters.
-        _output_error_and_exit(
-            output_format,
-            f"Could not read Annex IV artifact {path!r}: {exc}.",
-            EXIT_TRAINING_ERROR,
-        )
 
-    payload = result.to_dict()
-    payload["path"] = os.path.abspath(path)
-    if output_format == "json":
-        print(json.dumps({"success": result.valid, **payload}, indent=2))
-    else:
-        if result.valid:
-            print(f"OK: {path}")
-            print(f"  {result.reason}")
-        else:
-            print(f"FAIL: {path}")
-            print(f"  {result.reason}")
-            for missing in result.missing_fields:
-                print(f"    - missing: {missing}")
+    # Phase 14: ``--pipeline`` mode validates the chain-level manifest.
+    if getattr(args, "pipeline", False):
+        _run_pipeline_mode(path, output_format)
+
+    # Single-artefact path: I/O errors map to documented exit codes via
+    # the helper (which sys.exits on failure); on success we render the
+    # result and exit with the artefact's validity verdict.
+    result = _verify_artefact_and_handle_io_errors(path, output_format)
+    _print_artefact_result(result, path, output_format)
     sys.exit(EXIT_SUCCESS if result.valid else EXIT_CONFIG_ERROR)
 
 

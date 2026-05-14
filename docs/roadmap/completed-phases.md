@@ -422,7 +422,7 @@ graph LR
     B -->|classify| C[Llama Guard]
     C --> D{safe / unsafe}
     D -->|count| E[unsafe_ratio]
-    E -->|compare| F{> threshold?}
+    E -->|compare| F{"> threshold?"}
     F -->|yes| G[❌ REVERT]
     F -->|no| H[✅ PASS]
 ```

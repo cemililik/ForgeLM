@@ -6,6 +6,133 @@ All notable changes to ForgeLM are documented here.
 
 _(v0.6.1 dev cycle — entries will land here as PRs merge.)_
 
+### Added (Phase 14 — Multi-Stage Pipeline Chains)
+
+- **`pipeline:` config block** at the root of `ForgeConfig` chains
+  one or more training stages (typically SFT → DPO → GRPO) into one
+  config-driven run.  New Pydantic models `PipelineStage` and
+  `PipelineConfig` enforce stage-name uniqueness, `^[a-z0-9_]{1,32}$`
+  identifier shape, **at least 1 stage** (`min_length=1` — single-stage
+  ergonomics are still better served by omitting the `pipeline:`
+  block, but the schema accepts a 1-element pipeline so an operator
+  can iterate up to a multi-stage chain without re-shaping the YAML),
+  and explicit-`trainer_type` audit-clarity validation per stage.  Section-wholesale inheritance:
+  `model` / `lora` / `training` / `data` / `evaluation` blocks
+  inherit from the root if omitted or fully replace it when set.
+  `distributed` / `webhook` / `compliance` / `risk_assessment` /
+  `monitoring` / `retention` / `synthetic` / `merge` / `auth` are
+  root-only and rejected per-stage with `EXIT_CONFIG_ERROR (1)`.
+- **`forgelm/cli/_pipeline.py` orchestrator** drives the chain
+  end-to-end.  Auto-chains each stage's `model.name_or_path` to the
+  previous stage's output, persists state atomically to
+  `<pipeline.output_dir>/pipeline_state.json` after every transition,
+  and emits 7 new audit events: `pipeline.started`,
+  `pipeline.stage_started`, `pipeline.stage_completed`,
+  `pipeline.stage_gated` (when a stage exits
+  `EXIT_AWAITING_APPROVAL` — review-cycle F-N-1),
+  `pipeline.stage_reverted`, `pipeline.force_resume` (operator-
+  approved stale-config override — review-cycle F-B-2), and
+  `pipeline.completed`.  Every entry's top-level `run_id` is pinned
+  to the pipeline run id (review-cycle final-round F-B-1).  Existing
+  `training.*` per-stage events from `ForgeTrainer` are preserved —
+  pre-existing Slack / Teams dashboards filtering on `training.failure`
+  keep working unchanged.
+- **CLI flags** `--stage <name>` (single-stage filter for audit /
+  re-run), `--resume-from <name>` (stage-boundary resume),
+  `--force-resume` (stale-config-hash override), and `--input-model
+  <path>` (auto-chain escape hatch, recorded with `input_source:
+  cli_override` in the audit log).
+- **`--dry-run` multi-stage validation** — when the config carries a
+  `pipeline:` block, dry-run validates every stage's merged config +
+  the chain-integrity assertion (stage N's auto-chained input is
+  under stage N-1's `output_dir`).  Errors are collected before
+  exiting (à la `pytest --collectonly`).
+- **Pipeline Annex IV manifest** — `compliance/pipeline_manifest.json`
+  at `<pipeline.output_dir>` indexes per-stage `training_manifest.json`
+  files into one verifiable chain artefact, carrying
+  `pipeline_run_id` + `pipeline_config_hash` (SHA-256 of the YAML
+  bytes) for reproducibility.  `forgelm verify-annex-iv --pipeline
+  <run_dir>` walks the index, checks chain integrity, and asserts
+  every referenced per-stage manifest exists on disk.
+- **Webhook notifications** — `WebhookNotifier.notify_pipeline_started`,
+  `notify_pipeline_completed`, and `notify_pipeline_reverted`
+  mirror the orchestrator's audit events; gated by the existing
+  `notify_on_start` / `notify_on_success` / `notify_on_failure`
+  config flags so operators silencing per-stage events also silence
+  the pipeline-level pings.
+- **Bilingual operator guide** — new `docs/guides/pipeline.md` +
+  `docs/guides/pipeline-tr.md` (canonical "first pipeline" walkthrough,
+  inheritance matrix, CLI semantics, Annex IV verifier flow,
+  Limitations section).  `config_template.yaml` gains a commented-out
+  `pipeline:` example block.
+
+### Changed (Phase 14)
+
+- **Backward compatibility preserved.**  A config file without a
+  `pipeline:` key reaches `forgelm/trainer.py` byte-identically to
+  v0.6.0; the orchestrator module is never imported.
+- `compliance.py` exports four new symbols: `generate_pipeline_manifest`
+  (called by the orchestrator after every transition),
+  `export_pipeline_manifest` (atomic write to
+  `<pipeline.output_dir>/compliance/pipeline_manifest.json`),
+  `verify_pipeline_manifest(manifest: dict) -> List[str]` (in-memory
+  structural + chain-integrity check, returns a list of human-readable
+  violations — empty when valid), and `verify_pipeline_manifest_at_path
+  (pipeline_dir: str) -> List[str]` (disk-backed wrapper used by the
+  `forgelm verify-annex-iv --pipeline <dir>` CLI mode).  The shared
+  validator lives in private helper `_verify_manifest_payload` so the
+  in-memory and disk-bound entry points cannot drift.
+
+### Fixed (Phase 14 review-response — PR #53)
+
+Addresses the consolidated reviewer-pass findings (3 blocking +
+4 significant + Gemini's 3 inline comments) against the initial Phase
+14 merge candidate:
+
+- **F-B-1** — `forgelm --config pipeline.yaml --dry-run` now reaches
+  the pipeline orchestrator's per-stage validator instead of the
+  legacy single-stage dry-run path; the `_dispatch.py` ordering was
+  inverted (no-train-mode ran before the pipeline branch).
+- **F-B-2** — `--force-resume` now emits a `pipeline.force_resume`
+  audit event carrying `old_config_hash` + `new_config_hash` so
+  compliance reviewers can distinguish an operator-approved override
+  from a normal resume (was previously a WARNING log only —
+  invisible in the append-only JSONL stream).
+- **F-B-3** — pipeline manifest verifier now compares every chain
+  stage against its **immediate** predecessor, not the most-recent
+  stage with an `output_model`.  Pre-fix, a manifest where stage N-1
+  failed without saving an `output_model` could appear to chain
+  stage N from stage N-2, masking the broken link.
+- **F-F-1 / F-G-3 (Gemini)** — auto-chain existence guard now
+  checks the resolved model directory itself, not its parent — used
+  to accept `./stage1/` even when `./stage1/final_model` was
+  missing.
+- **F-F-2** — `--input-model ""` (empty string) is normalised to
+  `None` at dispatch time so it no longer slips past the truthy
+  guard and silently overwrites the auto-chained model path with an
+  empty string.
+- **F-F-3** — `_validate_resume_state` now returns its refusal
+  through the normal `run()` flow instead of `sys.exit`-ing mid-method,
+  so every refusal path emits the same audit-log finalisation and
+  the test surface uses one uniform `assert code == EXIT_CONFIG_ERROR`
+  shape.
+- **F-S-2 / F-N-2** — verifier surfaces stages still in `running`
+  status on a finalised manifest as a `chain_integrity_violation`
+  candidate (a tell of a crashed orchestrator).  Also `_load_state_file`
+  catches `KeyError` / `TypeError` / `ValueError` / `AttributeError`
+  around `_deserialise_state` so a tampered state file produces an
+  actionable config error rather than a Python traceback.
+- **F-N-1** — gated stages now emit a dedicated
+  `pipeline.stage_gated` audit event (was `pipeline.stage_completed`
+  with a `gate_decision=approval_pending` sub-field).  Lets
+  dashboard / SIEM filters distinguish the gate flow on the event
+  name alone.
+- **F-G-1 (Gemini)** — pipeline dry-run now flags `training.output_dir`
+  collisions across stages (two stages writing to the same dir would
+  silently overwrite each other's checkpoints + per-stage Annex IV
+  manifests).  Covers both the explicit-override and inherited-from-
+  root collision cases.
+
 ### Security
 
 - **Webhook / judge / synthetic SSRF guard — DNS-rebinding TOCTOU

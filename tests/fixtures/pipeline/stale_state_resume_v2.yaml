@@ -1,0 +1,34 @@
+# Phase 14 fixture (v2) — paired with `stale_state_resume_v1.yaml` to
+# demonstrate the stale-state guard.  Differs from v1 in one numeric
+# value (learning_rate); the bytes are different so the SHA-256 over
+# the file content differs.  Re-running with this file against a state
+# file produced by v1 must surface the `pipeline_config_hash mismatch`
+# refusal.
+
+model:
+  name_or_path: "org/base"
+lora: {}
+training:
+  trainer_type: "sft"
+  output_dir: "./out/stale"
+  learning_rate: 1.0e-4  # ← differs from v1 (2.0e-5)
+data:
+  dataset_name_or_path: "org/sft"
+
+pipeline:
+  output_dir: "./out/stale"
+  stages:
+    - name: sft_stage
+      training:
+        trainer_type: "sft"
+        output_dir: "./out/stale/stage1"
+        learning_rate: 1.0e-4  # ← differs from v1
+      data:
+        dataset_name_or_path: "org/sft_data"
+
+    - name: dpo_stage
+      training:
+        trainer_type: "dpo"
+        output_dir: "./out/stale/stage2"
+      data:
+        dataset_name_or_path: "org/dpo_data"

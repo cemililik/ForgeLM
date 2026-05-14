@@ -1,0 +1,31 @@
+# Phase 14 fixture — invalid per-stage `distributed:` block.
+# Phase 14 reserves `distributed`, `webhook`, `compliance`,
+# `risk_assessment`, `monitoring`, `retention`, `synthetic`, `merge`,
+# and `auth` for the root level only — `PipelineStage`'s
+# ``extra="forbid"`` rejects them with the offending section name in
+# the Pydantic error.  Config load on this fixture must raise
+# `ConfigError` (mapped to EXIT_CONFIG_ERROR=1 at the CLI surface).
+
+model:
+  name_or_path: "org/base"
+lora: {}
+training:
+  trainer_type: "sft"
+  output_dir: "./out/bad"
+data:
+  dataset_name_or_path: "org/sft"
+
+pipeline:
+  output_dir: "./out/bad"
+  stages:
+    - name: sft_stage
+      training:
+        trainer_type: "sft"
+        output_dir: "./out/bad/stage1"
+      data:
+        dataset_name_or_path: "org/sft_data"
+      # The next key is the violation — distributed config is
+      # pipeline-level only.  Pydantic rejects with the key name.
+      distributed:
+        strategy: "deepspeed"
+        config_path: "./deepspeed_config.json"

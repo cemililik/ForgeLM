@@ -847,6 +847,16 @@ class ForgeConfig(BaseModel):
         default=None,
         description="Phase 21 / GDPR Article 5(1)(e) storage limitation + Article 17 erasure horizons block.",
     )
+    pipeline: Optional["PipelineConfig"] = Field(
+        default=None,
+        description=(
+            "Phase 14 — multi-stage training pipeline chain (e.g. SFT → DPO → "
+            "GRPO).  When present, the orchestrator at "
+            "``forgelm/cli/_pipeline.py`` runs each stage sequentially with "
+            "section-wholesale inheritance from this root config.  When absent, "
+            "the run path is byte-identical to v0.6.0."
+        ),
+    )
 
     def _warn_general_consistency(self) -> None:
         """Emit warnings for the broad cross-field config inconsistencies."""
@@ -1189,6 +1199,265 @@ class ConfigError(Exception):
     """Raised when configuration validation fails."""
 
     pass
+
+
+# ---------------------------------------------------------------------------
+# Phase 14 — Multi-Stage Training Pipeline Chains
+# ---------------------------------------------------------------------------
+#
+# A ``pipeline`` block at the root level chains 2+ training stages (e.g.
+# SFT → DPO → GRPO) into one config-driven run.  See
+# ``docs/roadmap/phase-14-pipeline-chains.md`` for the full design spec
+# (inheritance matrix, CLI semantics, audit-log events, Annex IV manifest).
+#
+# Layering rule: the pipeline orchestrator (``forgelm/cli/_pipeline.py``)
+# produces one flat :class:`ForgeConfig` per stage via
+# :func:`merge_pipeline_stage_config`, then hands that to a fresh
+# :class:`ForgeTrainer`.  ``forgelm/trainer.py`` is **not** aware of the
+# pipeline layer — single-stage runs remain byte-identical to v0.6.0.
+
+
+_STAGE_NAME_PATTERN = r"^[a-z0-9_]{1,32}$"
+"""Regex enforcing audit-safe pipeline stage names.
+
+The name is used in CLI flags (``--stage <name>``, ``--resume-from <name>``),
+audit-log fields, state-file keys, and webhook payloads — pinning it to a
+narrow lowercase / digit / underscore alphabet removes every escaping
+concern downstream.
+"""
+
+
+class PipelineStage(BaseModel):
+    """A single stage in a multi-stage training pipeline.
+
+    Section-wholesale override semantics — if a block is present in the
+    stage YAML it **fully replaces** the root config's block for that
+    section; if the block is omitted, the stage inherits the root.  No
+    field-level deep-merge: "if you want to inherit, omit the block; if
+    you want to override, supply the full block."
+
+    Auto-chaining: when the stage does not supply its own ``model:`` block
+    the orchestrator sets ``model.name_or_path`` to the *previous*
+    stage's ``training.output_dir/final_model`` path.  Stage 0 still reads
+    the root's ``model.name_or_path``.  An explicit per-stage ``model:``
+    block (with its required ``name_or_path``) disables auto-chaining for
+    that stage (operator escape hatch).
+
+    The pipeline-level concerns (``distributed``, ``webhook``,
+    ``compliance``, ``risk_assessment``, ``monitoring``, ``retention``,
+    ``synthetic``, ``merge``, ``auth``) live at the root only and have no
+    per-stage override field — ``extra="forbid"`` causes Pydantic to
+    reject any attempt to declare them inside a stage, with the
+    section-name preserved in the error message.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(
+        ...,
+        pattern=_STAGE_NAME_PATTERN,
+        description=(
+            "Stage identifier.  Must match ``[a-z0-9_]{1,32}`` so it can serve as "
+            "an identifier in CLI flags, audit-log fields, and state-file keys "
+            "without escaping.  Must be unique within the pipeline."
+        ),
+    )
+
+    # Section-wholesale override slots.  ``None`` (the default) means
+    # "inherit this section from the root config"; a populated value
+    # replaces the root section in full.
+    model: Optional[ModelConfig] = Field(
+        default=None,
+        description=(
+            "Per-stage model block override.  When None, the stage inherits the "
+            "root ``model`` block AND auto-chains ``model.name_or_path`` to the "
+            "previous stage's output path."
+        ),
+    )
+    lora: Optional[LoraConfigModel] = Field(
+        default=None,
+        description="Per-stage LoRA / PEFT block override.  None → inherit from root.",
+    )
+    training: Optional[TrainingConfig] = Field(
+        default=None,
+        description=(
+            "Per-stage training block override.  None → inherit from root.  "
+            "When present, ``trainer_type`` is required (Pydantic's existing "
+            "``TrainingConfig`` validation enforces this)."
+        ),
+    )
+    data: Optional[DataConfig] = Field(
+        default=None,
+        description=(
+            "Per-stage data block override.  None → inherit from root.  Pipelines "
+            "rarely reuse the same dataset across stages; supplying an explicit "
+            "per-stage data block is the common case."
+        ),
+    )
+    evaluation: Optional[EvaluationConfig] = Field(
+        default=None,
+        description=(
+            "Per-stage evaluation block override.  None → inherit from root.  "
+            "Per-stage gates (loss thresholds, auto_revert, safety, judge, human-"
+            "approval) live here; each stage may independently configure its gate."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _training_block_must_set_trainer_type_explicitly(self) -> "PipelineStage":
+        """When a stage supplies its own ``training:`` block, the YAML
+        MUST explicitly set ``trainer_type`` (each stage states its
+        alignment paradigm in the YAML — and therefore in the pipeline
+        manifest — for audit clarity).  Without this guard,
+        ``TrainingConfig.trainer_type`` would silently default to
+        ``"sft"`` and a DPO stage's manifest could carry
+        ``trainer_type: sft`` if the operator forgot the field.
+        """
+        if self.training is None:
+            return self
+        if "trainer_type" not in self.training.model_fields_set:
+            raise ValueError(
+                f"Pipeline stage {self.name!r}: when a 'training:' block is "
+                f"supplied per stage, 'trainer_type' must be set explicitly "
+                f"(each stage states its alignment paradigm for audit clarity)."
+            )
+        return self
+
+
+class PipelineConfig(BaseModel):
+    """Top-level pipeline block.
+
+    Carries the ordered list of stages (≥ 1) that the orchestrator
+    executes sequentially.  The orchestrator is responsible for chaining
+    each stage's input model to the previous stage's output and emitting
+    the ``pipeline.*`` audit events documented in the Phase 14 spec.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    output_dir: str = Field(
+        default="./pipeline_run",
+        description=(
+            "Pipeline-level output directory.  Hosts the pipeline-level audit "
+            "log, the pipeline state file (``pipeline_state.json``), and the "
+            "pipeline manifest (``compliance/pipeline_manifest.json``).  "
+            "Distinct from each stage's ``training.output_dir`` — those keep "
+            "the per-stage checkpoints + per-stage training manifest."
+        ),
+    )
+
+    stages: List[PipelineStage] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Ordered list of training stages.  Must contain at least one stage; "
+            "operators who want a single-stage run should omit the ``pipeline:`` "
+            "block entirely rather than declaring a 1-element pipeline."
+        ),
+    )
+
+    @field_validator("stages")
+    @classmethod
+    def _unique_stage_names(cls, v: List[PipelineStage]) -> List[PipelineStage]:
+        """Reject duplicate stage names early.
+
+        Duplicate names would make ``--stage <name>`` and
+        ``--resume-from <name>`` ambiguous, and would corrupt the pipeline
+        state file (which keys per-stage status on the name).
+        """
+        names = [s.name for s in v]
+        seen = set()
+        duplicates: List[str] = []
+        for n in names:
+            if n in seen and n not in duplicates:
+                duplicates.append(n)
+            seen.add(n)
+        if duplicates:
+            raise ValueError(
+                "Duplicate pipeline stage name(s): "
+                + ", ".join(repr(d) for d in duplicates)
+                + ".  Stage names must be unique within a pipeline."
+            )
+        return v
+
+
+def merge_pipeline_stage_config(
+    root_cfg: "ForgeConfig",
+    stage: PipelineStage,
+    *,
+    prev_output_model: Optional[str] = None,
+    input_model_override: Optional[str] = None,
+) -> "ForgeConfig":
+    """Materialise a flat :class:`ForgeConfig` for a single pipeline stage.
+
+    Implements the section-wholesale inheritance rule documented in
+    ``docs/roadmap/phase-14-pipeline-chains.md`` Task 2:
+
+    - For each of ``model`` / ``lora`` / ``training`` / ``data`` /
+      ``evaluation``: if the stage sets the block, the stage's block
+      replaces the root's; otherwise the root's block is preserved.
+    - The pipeline-level sections (``distributed``, ``webhook``,
+      ``compliance``, ``risk_assessment``, ``monitoring``, ``retention``,
+      ``synthetic``, ``merge``, ``auth``) are kept from the root unchanged
+      — they cannot be overridden per stage.
+
+    Auto-chain resolution (in priority order):
+
+    1. ``input_model_override`` (CLI ``--input-model`` flag) — operator
+       escape hatch.  Set ``model.name_or_path`` to this value, regardless
+       of whether the stage declared its own ``model:`` block.  The
+       caller is responsible for logging the override.
+    2. The stage declared its own ``model:`` block — keep the stage's
+       ``name_or_path``.  No auto-chain.
+    3. ``prev_output_model`` is not None — auto-chain.  Set
+       ``model.name_or_path`` to this value (typically
+       ``<prev_stage.output_dir>/final_model``).
+    4. Stage 0 with no override — keep the root's ``model.name_or_path``.
+
+    The returned :class:`ForgeConfig` carries no ``pipeline`` block (it
+    is stripped during the merge) so a downstream :class:`ForgeTrainer`
+    sees an ordinary single-stage config and behaves byte-identically to
+    a v0.6.0 single-stage run.
+    """
+    # ``model_dump(exclude_none=True)`` so we don't materialise inherited
+    # ``Optional[T] = None`` fields the root never set — the
+    # ``extra="forbid"`` re-validation below would tolerate them, but
+    # round-tripping no-op None values inflates the per-stage manifest
+    # and confuses operators reading the merged config.
+    base = root_cfg.model_dump(exclude_none=True)
+    base.pop("pipeline", None)
+
+    if stage.model is not None:
+        base["model"] = stage.model.model_dump(exclude_none=True)
+    if stage.lora is not None:
+        base["lora"] = stage.lora.model_dump(exclude_none=True)
+    if stage.training is not None:
+        base["training"] = stage.training.model_dump(exclude_none=True)
+    if stage.data is not None:
+        base["data"] = stage.data.model_dump(exclude_none=True)
+    if stage.evaluation is not None:
+        base["evaluation"] = stage.evaluation.model_dump(exclude_none=True)
+
+    # Auto-chain resolution.  See docstring above for priority order.
+    if input_model_override is not None:
+        base["model"]["name_or_path"] = input_model_override
+    elif stage.model is None and prev_output_model is not None:
+        # Stage inherited the model block AND a previous output exists —
+        # the canonical auto-chain case.
+        base["model"]["name_or_path"] = prev_output_model
+    # else: keep whatever is already in ``base["model"]["name_or_path"]``
+    # (either the stage's explicit value or the root's).
+
+    return ForgeConfig(**base)
+
+
+# Resolve the ``pipeline: Optional["PipelineConfig"]`` forward reference in
+# :class:`ForgeConfig` now that :class:`PipelineConfig` is in scope.
+# Without this, the first ``ForgeConfig(**yaml_data)`` instantiation that
+# carries a populated ``pipeline`` block fails at validation time with a
+# ``PydanticUndefinedAnnotation`` because the forward reference was never
+# late-bound.
+ForgeConfig.model_rebuild()
 
 
 def load_config(config_path: str) -> ForgeConfig:

@@ -1,0 +1,43 @@
+# Phase 14 fixture — stage 2 carries an `auto_revert` gate with a
+# trivially-impossible `max_acceptable_loss`.  In integration tests the
+# synthetic eval is wired to exceed that threshold, the trainer
+# auto-reverts stage 2's adapters, the orchestrator marks stage 3
+# `skipped_due_to_prior_revert`, and the run exits with
+# EXIT_EVAL_FAILURE (3).
+
+model:
+  name_or_path: "org/base"
+lora: {}
+training:
+  trainer_type: "sft"
+  output_dir: "./out/revert"
+data:
+  dataset_name_or_path: "org/sft"
+
+pipeline:
+  output_dir: "./out/revert"
+  stages:
+    - name: sft_stage
+      training:
+        trainer_type: "sft"
+        output_dir: "./out/revert/stage1"
+      data:
+        dataset_name_or_path: "org/sft_data"
+
+    - name: dpo_stage
+      training:
+        trainer_type: "dpo"
+        output_dir: "./out/revert/stage2"
+      data:
+        dataset_name_or_path: "org/dpo_data"
+      evaluation:
+        auto_revert: true
+        max_acceptable_loss: 0.001
+        baseline_loss: 1.0
+
+    - name: grpo_stage
+      training:
+        trainer_type: "grpo"
+        output_dir: "./out/revert/stage3"
+      data:
+        dataset_name_or_path: "org/math_data"

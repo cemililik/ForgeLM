@@ -13,7 +13,7 @@ ForgeLM LoRA / QLoRA / DoRA'yı *her* trainer'a uygular (SFT, DPO, SimPO, KTO, O
 
 ```mermaid
 flowchart TD
-    Q1{Consumer GPU'da<br/>(<24 GB) sığmalı mı?}
+    Q1{"Consumer GPU'da<br/>(<24 GB) sığmalı mı?"}
     Q2{Full-precision<br/>ağırlıklar dondurulsun mu?}
     Q3{LoRA maliyetinde<br/>maksimum kalite mi?}
     Full[Full fine-tuning]
