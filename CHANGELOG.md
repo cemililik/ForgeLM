@@ -4,7 +4,20 @@ All notable changes to ForgeLM are documented here.
 
 ## [Unreleased]
 
-_(v0.6.1 dev cycle — entries will land here as PRs merge.)_
+_(v0.7.1 dev cycle — entries will land here as PRs merge.)_
+
+## [0.7.0] — 2026-05-14
+
+Phase 14 (Multi-Stage Pipeline Chains) closes the "operators have to write
+shell wrappers to chain SFT → DPO → GRPO" gap that's lived in the issue
+queue since v0.4.  One YAML, one CLI invocation, one Annex IV manifest for
+the whole chain — including auto-chained inputs, per-stage gates,
+crash-safe resume, and 7 new pipeline-scoped audit events that join on a
+single top-level `run_id`.  The release also lands a critical SSRF
+hardening for outbound webhook / judge / synthetic destinations (issue
+#14).  Single-stage configs reach `forgelm/trainer.py` byte-identical to
+v0.6.0; the orchestrator module is never imported when no `pipeline:`
+block is present.
 
 ### Added (Phase 14 — Multi-Stage Pipeline Chains)
 
