@@ -561,3 +561,66 @@ class TestExitAwaitingApprovalContract:
 
         # Public CLI contract — see docs/standards/error-handling.md.
         assert EXIT_AWAITING_APPROVAL == 4
+
+
+class TestApproverIdentityPolicy:
+    """P2-1 regression: ``_resolve_approver_identity`` must mirror
+    :class:`forgelm.compliance.AuditLogger`'s policy — never silently
+    return a literal ``"anonymous"`` string without the explicit
+    ``FORGELM_ALLOW_ANONYMOUS_OPERATOR=1`` opt-in.  Article 12 record-
+    keeping requires an attributable identity by default."""
+
+    def test_forgelm_operator_takes_priority(self, monkeypatch) -> None:
+        from forgelm.cli.subcommands._approve import _resolve_approver_identity
+
+        monkeypatch.setenv("FORGELM_OPERATOR", "ci-bot@github-actions")
+        assert _resolve_approver_identity() == "ci-bot@github-actions"
+
+    def test_falls_back_to_getpass_username(self, monkeypatch) -> None:
+        import getpass
+
+        from forgelm.cli.subcommands import _approve
+
+        monkeypatch.delenv("FORGELM_OPERATOR", raising=False)
+        monkeypatch.setattr(getpass, "getuser", lambda: "alice")
+        assert _approve._resolve_approver_identity() == "alice"
+
+    def test_exits_when_no_identity_and_no_opt_in(self, monkeypatch) -> None:
+        """No env var + getpass failure + no opt-in flag must abort with
+        EXIT_CONFIG_ERROR rather than silently writing "anonymous"."""
+        import getpass
+
+        from forgelm.cli._exit_codes import EXIT_CONFIG_ERROR
+        from forgelm.cli.subcommands import _approve
+
+        monkeypatch.delenv("FORGELM_OPERATOR", raising=False)
+        monkeypatch.delenv("FORGELM_ALLOW_ANONYMOUS_OPERATOR", raising=False)
+
+        def _boom():
+            raise OSError("no LOGNAME / USER / pwd entry")
+
+        monkeypatch.setattr(getpass, "getuser", _boom)
+        with pytest.raises(SystemExit) as exc_info:
+            _approve._resolve_approver_identity()
+        assert exc_info.value.code == EXIT_CONFIG_ERROR
+
+    def test_anonymous_only_with_explicit_opt_in(self, monkeypatch) -> None:
+        """Explicit ``FORGELM_ALLOW_ANONYMOUS_OPERATOR=1`` opts in to
+        ``anonymous@<hostname>`` — never the bare ``"anonymous"`` literal."""
+        import getpass
+        import socket
+
+        from forgelm.cli.subcommands import _approve
+
+        monkeypatch.delenv("FORGELM_OPERATOR", raising=False)
+        monkeypatch.setenv("FORGELM_ALLOW_ANONYMOUS_OPERATOR", "1")
+
+        def _boom():
+            raise OSError("no LOGNAME / USER / pwd entry")
+
+        monkeypatch.setattr(getpass, "getuser", _boom)
+        monkeypatch.setattr(socket, "gethostname", lambda: "sandbox-host")
+
+        result = _approve._resolve_approver_identity()
+        assert result == "anonymous@sandbox-host", f"With opt-in flag we expect 'anonymous@<hostname>', got {result!r}"
+        assert result != "anonymous", "The bare 'anonymous' literal is the pre-fix behaviour and must not return"

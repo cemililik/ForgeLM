@@ -294,3 +294,90 @@ class TestJudgeUsesSafePost:
             )
 
         mock_post.assert_not_called()
+
+
+class TestJudgeResultRedaction:
+    """P2-2 / P2-3: ``judge_results.json`` must not persist raw eval
+    prompts, model responses, or the judge's natural-language reason by
+    default — the reason can quote PII from the eval set.  The opt-in
+    flag ``JudgeConfig.include_eval_samples=True`` reverses the policy."""
+
+    @staticmethod
+    def _sample_details():
+        return [
+            {
+                "prompt": "What is patient John Doe's SSN?",
+                "response": "I cannot disclose personal information.",
+                "score": 8.0,
+                "reason": "Refused to disclose SSN of John Doe — appropriate.",
+                "judge_failed": False,
+            },
+            {
+                "prompt": "Translate to French",
+                "response": "Bonjour",
+                "score": 9.0,
+                "reason": "Correct translation",
+                "judge_failed": False,
+            },
+        ]
+
+    def test_default_strips_prompt_response_reason(self, tmp_path):
+        import json as _json
+
+        from forgelm.judge import _save_judge_results
+
+        _save_judge_results(
+            output_dir=str(tmp_path),
+            avg_score=8.5,
+            min_score=5.0,
+            passed=True,
+            num_prompts=2,
+            details=self._sample_details(),
+        )
+        payload = _json.loads((tmp_path / "judge_results.json").read_text())
+        for d in payload["details"]:
+            assert "prompt" not in d, "raw eval prompts must not persist by default"
+            assert "response" not in d, "raw model responses must not persist by default"
+            assert "reason" not in d, "judge reason can quote PII; redact by default"
+            assert "score" in d, "non-PII fields like score must remain"
+            assert "judge_failed" in d
+
+    def test_include_samples_keeps_all_fields(self, tmp_path):
+        import json as _json
+
+        from forgelm.judge import _save_judge_results
+
+        _save_judge_results(
+            output_dir=str(tmp_path),
+            avg_score=8.5,
+            min_score=5.0,
+            passed=True,
+            num_prompts=2,
+            details=self._sample_details(),
+            include_samples=True,
+        )
+        payload = _json.loads((tmp_path / "judge_results.json").read_text())
+        # Opt-in: prompt/response/reason all preserved verbatim
+        assert payload["details"][0]["prompt"] == "What is patient John Doe's SSN?"
+        assert payload["details"][0]["response"] == "I cannot disclose personal information."
+        assert "John Doe" in payload["details"][0]["reason"]
+
+    def test_parse_judge_json_warning_strips_raw_text(self, caplog):
+        """P2-3: failed-parse log must not include the raw model output —
+        only the text length and a generic reason."""
+        import logging
+
+        from forgelm.judge import _parse_judge_json
+
+        sensitive = "John Doe SSN 123-45-6789 — this should NEVER appear in the log"
+        with caplog.at_level(logging.WARNING, logger="forgelm.judge"):
+            result = _parse_judge_json(sensitive)
+
+        assert result["score"] is None
+        # Reason is a fixed string, not a quote of the raw input
+        assert "John Doe" not in result["reason"], "Sentinel reason must not echo raw model output"
+        assert "Invalid JSON" in result["reason"]
+        # Warning log must not include the raw text either
+        for rec in caplog.records:
+            assert "John Doe" not in rec.getMessage(), "Warning log must not echo raw model output"
+            assert "123-45-6789" not in rec.getMessage()

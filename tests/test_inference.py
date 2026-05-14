@@ -438,6 +438,81 @@ class TestLoadModel:
         peft_model.merge_and_unload.assert_called_once()
         assert model is merged_model
 
+    def test_tokenizer_loaded_from_adapter_when_tokenizer_config_present(self, tmp_path):
+        """P2 regression: fine-tuning may add special tokens or a custom
+        chat template; if the adapter directory carries tokenizer_config.json
+        the loader must prefer it over the base model's tokenizer."""
+        adapter_dir = tmp_path / "adapter"
+        adapter_dir.mkdir()
+        (adapter_dir / "tokenizer_config.json").write_text("{}")
+
+        mock_model = MagicMock()
+        base_tokenizer = MagicMock()
+        base_tokenizer.pad_token = "pad"
+        adapter_tokenizer = MagicMock()
+        adapter_tokenizer.pad_token = "pad"
+
+        torch_stub = MagicMock()
+        torch_stub.cuda.is_available.return_value = False
+
+        transformers_stub = MagicMock()
+        transformers_stub.AutoModelForCausalLM.from_pretrained.return_value = mock_model
+
+        # AutoTokenizer.from_pretrained returns different objects for base vs adapter paths
+        def _tok_loader(path, **_kwargs):
+            return adapter_tokenizer if str(adapter_dir) in str(path) else base_tokenizer
+
+        transformers_stub.AutoTokenizer.from_pretrained.side_effect = _tok_loader
+
+        peft_stub = MagicMock()
+        peft_model = MagicMock()
+        peft_model.merge_and_unload.return_value = mock_model
+        peft_stub.PeftModel.from_pretrained.return_value = peft_model
+
+        with patch.dict(sys.modules, {"torch": torch_stub, "transformers": transformers_stub, "peft": peft_stub}):
+            from forgelm.inference import load_model
+
+            _model, tok = load_model("org/base-model", adapter=str(adapter_dir))
+
+        assert tok is adapter_tokenizer, (
+            "Adapter tokenizer must take precedence when tokenizer_config.json is present in the adapter dir"
+        )
+        # AutoTokenizer should be called with the adapter path, not the base path
+        called_paths = [call.args[0] for call in transformers_stub.AutoTokenizer.from_pretrained.call_args_list]
+        assert str(adapter_dir) in called_paths
+
+    def test_tokenizer_falls_back_to_base_when_adapter_has_no_tokenizer_config(self, tmp_path):
+        """If the adapter dir has no tokenizer_config.json (older trainer
+        runs that only saved adapter weights), use the base path."""
+        adapter_dir = tmp_path / "adapter"
+        adapter_dir.mkdir()
+        # NOTE: deliberately no tokenizer_config.json here
+
+        mock_model = MagicMock()
+        base_tokenizer = MagicMock()
+        base_tokenizer.pad_token = "pad"
+
+        torch_stub = MagicMock()
+        torch_stub.cuda.is_available.return_value = False
+
+        transformers_stub = MagicMock()
+        transformers_stub.AutoModelForCausalLM.from_pretrained.return_value = mock_model
+        transformers_stub.AutoTokenizer.from_pretrained.return_value = base_tokenizer
+
+        peft_stub = MagicMock()
+        peft_model = MagicMock()
+        peft_model.merge_and_unload.return_value = mock_model
+        peft_stub.PeftModel.from_pretrained.return_value = peft_model
+
+        with patch.dict(sys.modules, {"torch": torch_stub, "transformers": transformers_stub, "peft": peft_stub}):
+            from forgelm.inference import load_model
+
+            _model, tok = load_model("org/base-model", adapter=str(adapter_dir))
+
+        assert tok is base_tokenizer
+        called_paths = [call.args[0] for call in transformers_stub.AutoTokenizer.from_pretrained.call_args_list]
+        assert "org/base-model" in called_paths
+
     def test_unsloth_backend_raises_without_package(self):
         torch_stub = MagicMock()
         torch_stub.cuda.is_available.return_value = False

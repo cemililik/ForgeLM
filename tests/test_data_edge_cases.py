@@ -114,3 +114,48 @@ class TestWebhookTimeoutConfig:
     def test_timeout_in_full_config(self, minimal_config):
         cfg = ForgeConfig(**minimal_config(webhook={"url": "https://example.com", "timeout": 10}))
         assert cfg.webhook.timeout == 10
+
+
+class TestEnsureValidationSplit:
+    """P1-2 regression: ``train_test_split`` on a <2-row dataset raises
+    ``ValueError`` because 10% of 1 truncates to 0 test rows.  The guard
+    must skip the split and return the dataset unchanged."""
+
+    def test_single_row_dataset_skips_split_and_warns(self, caplog):
+        import logging
+
+        from datasets import Dataset, DatasetDict
+
+        from forgelm.data import _ensure_validation_split
+
+        ds = DatasetDict({"train": Dataset.from_list([{"text": "only sample"}])})
+
+        with caplog.at_level(logging.WARNING, logger="forgelm.data"):
+            result = _ensure_validation_split(ds)
+
+        assert "validation" not in result, (
+            "1-row dataset must not produce a validation split — HF train_test_split crashes on 0-row splits"
+        )
+        assert len(result["train"]) == 1
+        assert any("only 1 sample" in r.getMessage() for r in caplog.records), (
+            "Expected a warning that the validation split was skipped"
+        )
+
+    def test_empty_dataset_skips_split(self):
+        from datasets import Dataset, DatasetDict
+
+        from forgelm.data import _ensure_validation_split
+
+        ds = DatasetDict({"train": Dataset.from_list([])})
+        result = _ensure_validation_split(ds)
+        assert "validation" not in result
+
+    def test_normal_dataset_still_splits(self):
+        from datasets import Dataset, DatasetDict
+
+        from forgelm.data import _ensure_validation_split
+
+        ds = DatasetDict({"train": Dataset.from_list([{"text": f"sample {i}"} for i in range(100)])})
+        result = _ensure_validation_split(ds)
+        assert "validation" in result, "Datasets large enough must still be split for backwards compatibility"
+        assert len(result["train"]) + len(result["validation"]) == 100

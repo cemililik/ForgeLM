@@ -300,11 +300,19 @@ def _save_judge_results(
     passed: bool,
     num_prompts: int,
     details: List[Dict[str, Any]],
+    include_samples: bool = False,
 ) -> None:
-    """Persist the judge run summary as judge_results.json."""
+    """Persist the judge run summary as judge_results.json.
+
+    When ``include_samples`` is False (the default), raw ``prompt`` /
+    ``response`` / ``reason`` fields are stripped from each detail entry —
+    the judge's natural-language ``reason`` can quote PII from the eval
+    set, so privacy by default applies to it too.  Set
+    ``JudgeConfig.include_eval_samples=True`` to opt back in for debugging.
+    """
     os.makedirs(output_dir, exist_ok=True)
     results_path = os.path.join(output_dir, "judge_results.json")
-    _REDACT = {"prompt", "response"}
+    _REDACT = set() if include_samples else {"prompt", "response", "reason"}
     with open(results_path, "w", encoding="utf-8") as f:
         json.dump(
             {
@@ -333,6 +341,7 @@ def run_judge_evaluation(
     api_base: Optional[str] = None,
     # Phase 4 (closure F-performance-102) — batched fine-tuned-model generation
     batch_size: int = 8,
+    include_samples: bool = False,
 ) -> JudgeResult:
     """Evaluate fine-tuned model outputs using an LLM judge.
 
@@ -412,7 +421,9 @@ def run_judge_evaluation(
     )
 
     if output_dir:
-        _save_judge_results(output_dir, avg_score, min_score, passed, len(eval_prompts), details)
+        _save_judge_results(
+            output_dir, avg_score, min_score, passed, len(eval_prompts), details, include_samples=include_samples
+        )
 
     return JudgeResult(
         average_score=avg_score,

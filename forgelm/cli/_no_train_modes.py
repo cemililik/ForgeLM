@@ -38,7 +38,9 @@ def _run_benchmark_only(config: ForgeConfig, model_path: str, output_format: str
         with open(adapter_cfg_path) as _f:
             _adapter_meta = _json.load(_f)
         base_path = _adapter_meta.get("base_model_name_or_path", model_path)
-        logger.info("Detected PEFT checkpoint. Loading base model %s + adapter %s for benchmark.", base_path, model_path)
+        logger.info(
+            "Detected PEFT checkpoint. Loading base model %s + adapter %s for benchmark.", base_path, model_path
+        )
         model, tokenizer = load_model(
             base_path,
             adapter=model_path,

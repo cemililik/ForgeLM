@@ -62,7 +62,10 @@ def _resolve_approver_identity() -> str:
        identification, used in CI/CD and shared workstation setups).
     2. ``getpass.getuser()`` (the OS-reported username; falls back to the
        ``USER`` / ``USERNAME`` env var on its own).
-    3. ``"anonymous"`` if both fail (no valid env vars and no shell session).
+    3. If both fail, refuse to proceed unless the operator explicitly opts
+       in via ``FORGELM_ALLOW_ANONYMOUS_OPERATOR=1`` — then the identity
+       becomes ``anonymous@<hostname>``.  Loud failure beats silently
+       writing an unattributed Article 12 record-keeping event.
 
     Pulled out so the approve/reject handlers don't reach into AuditLogger's
     constructor logic and so the test harness has a single hook to monkey-patch.

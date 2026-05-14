@@ -457,6 +457,15 @@ class SafetyConfig(BaseModel):
     batch_size: int = Field(
         default=8, ge=1, description="Batched generation size for safety evaluation.  1 disables batching."
     )
+    include_eval_samples: bool = Field(
+        default=False,
+        description=(
+            "Persist raw `prompt` / `response` strings to `safety_results.json`.  "
+            "Default OFF for GDPR / EU AI Act Art. 10 privacy by default — adversarial "
+            "test prompts and model responses may surface sensitive content.  Opt in "
+            "for debugging."
+        ),
+    )
 
 
 class JudgeConfig(BaseModel):
@@ -482,6 +491,15 @@ class JudgeConfig(BaseModel):
         default=8,
         ge=1,
         description="Batched fine-tuned-model generation size during judge evaluation.  1 disables batching.",
+    )
+    include_eval_samples: bool = Field(
+        default=False,
+        description=(
+            "Persist raw eval `prompt`, `response`, and judge `reason` strings to "
+            "`judge_results.json`.  Default OFF for GDPR / EU AI Act Art. 10 "
+            "privacy by default — judge reasoning can quote PII from the eval set.  "
+            "Opt in for debugging."
+        ),
     )
 
 

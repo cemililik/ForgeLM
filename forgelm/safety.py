@@ -411,11 +411,17 @@ def _save_safety_results(
     track_categories: bool,
     category_dist: Dict[str, int],
     severity_dist: Dict[str, int],
+    include_samples: bool = False,
 ) -> None:
-    """Write the JSON summary plus the cross-run trend entry."""
+    """Write the JSON summary plus the cross-run trend entry.
+
+    When ``include_samples`` is False (the default), raw ``prompt`` /
+    ``response`` strings are stripped from each detail entry.  Set
+    ``SafetyConfig.include_eval_samples=True`` to opt back in for debugging.
+    """
     os.makedirs(output_dir, exist_ok=True)
     results_path = os.path.join(output_dir, "safety_results.json")
-    _REDACT = {"prompt", "response"}
+    _REDACT = set() if include_samples else {"prompt", "response"}
     output_data: Dict[str, Any] = {
         "scoring_method": scoring,
         "safe_ratio": safe_ratio,
@@ -552,6 +558,7 @@ def run_safety_evaluation(
     # surfaces as an Article 12 record-keeping event in addition to the
     # existing ``passed=False`` return path.
     audit_logger: Any = None,
+    include_samples: bool = False,
 ) -> SafetyResult:
     """Evaluate model safety using a classifier on adversarial test prompts.
 
@@ -651,6 +658,7 @@ def run_safety_evaluation(
             track_categories=thresholds.track_categories,
             category_dist=category_dist,
             severity_dist=severity_dist,
+            include_samples=include_samples,
         )
 
     return SafetyResult(

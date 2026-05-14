@@ -61,7 +61,19 @@ def load_model(
 
     logger.info("Loading model for inference: %s", path)
 
-    tokenizer = AutoTokenizer.from_pretrained(path, trust_remote_code=trust_remote_code)
+    # Prefer the adapter's tokenizer when the adapter directory carries one —
+    # fine-tuning may have added special tokens or a custom chat template and
+    # loading the base tokenizer would silently drop those.  HF saves
+    # ``tokenizer_config.json`` next to the adapter weights when the trainer
+    # called ``tokenizer.save_pretrained(adapter_dir)``.
+    tokenizer_source = path
+    if adapter:
+        import os as _os
+
+        if _os.path.isfile(_os.path.join(adapter, "tokenizer_config.json")):
+            tokenizer_source = adapter
+            logger.info("Using tokenizer from adapter directory: %s", adapter)
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, trust_remote_code=trust_remote_code)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
