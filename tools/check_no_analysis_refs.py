@@ -104,6 +104,9 @@ _EXEMPT: dict[str, frozenset[str]] = {
     ".gitignore": frozenset({"docs/marketing/", "docs/analysis/"}),
     # CLAUDE.md carries the policy statement that names the directories.
     "CLAUDE.md": frozenset({"docs/marketing/", "docs/analysis/"}),
+    # AGENTS.md is the agent-agnostic mirror of CLAUDE.md (Codex / Cursor /
+    # generic AI-agent surface); it restates the same gitignored-dir policy.
+    "AGENTS.md": frozenset({"docs/marketing/", "docs/analysis/"}),
     # The standards file IS the rule about these directories.
     "docs/standards/documentation.md": frozenset({"docs/marketing/", "docs/analysis/"}),
     # Localization standard names docs/marketing as a mixed-language
@@ -111,6 +114,9 @@ _EXEMPT: dict[str, frozenset[str]] = {
     "docs/standards/localization.md": frozenset({"docs/marketing/"}),
     # The skill that warns away from these dirs needs to name them.
     ".claude/skills/sync-bilingual-docs/SKILL.md": frozenset({"docs/marketing/", "docs/analysis/"}),
+    # Agent-agnostic mirror of the .claude/skills/ tree (same content,
+    # served to non-Claude agents).
+    ".agents/skills/sync-bilingual-docs/SKILL.md": frozenset({"docs/marketing/", "docs/analysis/"}),
     # Production code path filters (functional, not citations).
     "tools/check_anchor_resolution.py": frozenset({'"analysis"', "analysis/"}),
     "tools/check_yaml_snippets.py": frozenset(

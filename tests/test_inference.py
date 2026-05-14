@@ -513,15 +513,34 @@ class TestLoadModel:
         called_paths = [call.args[0] for call in transformers_stub.AutoTokenizer.from_pretrained.call_args_list]
         assert "org/base-model" in called_paths
 
-    def test_unsloth_backend_raises_without_package(self):
-        torch_stub = MagicMock()
-        torch_stub.cuda.is_available.return_value = False
+    def test_unsloth_backend_raises_without_package(self, monkeypatch):
+        """``_load_unsloth`` must surface a clear ImportError when the
+        ``unsloth`` package is not installed.
 
-        with patch.dict(sys.modules, {"torch": torch_stub, "unsloth": None}):
-            from forgelm.inference import load_model
+        Calls ``_load_unsloth`` directly instead of going through
+        :func:`load_model`: the dispatcher imports ``torch`` and
+        ``transformers`` at function-entry, and chasing the entire
+        transitive-dep MagicMock chain (``torch.__spec__``,
+        ``torch.__version__`` for safetensors, etc.) makes the test
+        order-sensitive against other TestLoadModel tests that populate
+        ``sys.modules`` with stubs.  The dispatcher is exercised by
+        ``test_basic_load_no_adapter`` and ``test_adapter_is_merged``;
+        this test owns the "unsloth not installed" failure surface only.
+        """
+        # Make ``from unsloth import FastLanguageModel`` raise — None in
+        # sys.modules is the standard sentinel that triggers ImportError.
+        monkeypatch.setitem(sys.modules, "unsloth", None)
 
-            with pytest.raises(ImportError):
-                load_model("org/model", backend="unsloth")
+        from forgelm.inference import _load_unsloth
+
+        with pytest.raises(ImportError, match="unsloth"):
+            _load_unsloth(
+                "org/model",
+                adapter=None,
+                trust_remote_code=False,
+                load_in_4bit=False,
+                load_in_8bit=False,
+            )
 
 
 # ---------------------------------------------------------------------------
