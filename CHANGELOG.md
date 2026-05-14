@@ -26,9 +26,14 @@ _(v0.6.1 dev cycle — entries will land here as PRs merge.)_
   end-to-end.  Auto-chains each stage's `model.name_or_path` to the
   previous stage's output, persists state atomically to
   `<pipeline.output_dir>/pipeline_state.json` after every transition,
-  and emits 5 new audit events: `pipeline.started`,
+  and emits 7 new audit events: `pipeline.started`,
   `pipeline.stage_started`, `pipeline.stage_completed`,
-  `pipeline.stage_reverted`, `pipeline.completed`.  Existing
+  `pipeline.stage_gated` (when a stage exits
+  `EXIT_AWAITING_APPROVAL` — review-cycle F-N-1),
+  `pipeline.stage_reverted`, `pipeline.force_resume` (operator-
+  approved stale-config override — review-cycle F-B-2), and
+  `pipeline.completed`.  Every entry's top-level `run_id` is pinned
+  to the pipeline run id (review-cycle final-round F-B-1).  Existing
   `training.*` per-stage events from `ForgeTrainer` are preserved —
   pre-existing Slack / Teams dashboards filtering on `training.failure`
   keep working unchanged.

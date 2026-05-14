@@ -210,16 +210,41 @@ def _pipeline_paths(root_cfg: ForgeConfig) -> Dict[str, str]:
 def _atomic_write_json(path: str, payload: Dict[str, Any]) -> None:
     """Write ``payload`` to ``path`` atomically.
 
-    Pattern: serialise to a sibling ``<path>.tmp`` then ``os.replace`` it
+    Pattern: serialise to a sibling temp file then ``os.replace`` it
     onto the final name — guarantees a reader on any concurrent process
     either sees the previous version or the new version, never a half-
     written file.
+
+    The temp filename is per-writer-unique (``<basename>.<pid>.<rand>.tmp``)
+    rather than a shared ``<path>.tmp`` so two writers targeting the same
+    final path don't truncate each other's tmp mid-write — pre-fix, a
+    concurrent invocation produced ``FileNotFoundError`` from
+    ``os.replace`` (the loser's tmp was unlinked by the winner's
+    rename).  Phase 14 doesn't *support* concurrent orchestrators on
+    the same ``pipeline.output_dir`` (see ``docs/guides/pipeline.md``
+    "Limitations"), but the per-writer tmp is cheap defence so an
+    accidental double-invocation surfaces as last-writer-wins rather
+    than a Python traceback.  The temp lives in the same directory as
+    ``path`` so ``os.replace`` stays a same-filesystem atomic rename.
     """
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    tmp = f"{path}.tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, sort_keys=False)
-    os.replace(tmp, path)
+    target_dir = os.path.dirname(path) or "."
+    os.makedirs(target_dir, exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, sort_keys=False)
+        os.replace(tmp, path)
+    except Exception:
+        # If the write failed before the replace, clean up the orphan
+        # temp.  After a successful replace there's nothing to remove
+        # (the tmp name no longer exists), so silently ignore that
+        # branch.  Don't swallow the original exception either; we
+        # only swallow the cleanup-of-orphan-tmp failure.
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _serialise_state(state: PipelineState) -> Dict[str, Any]:
@@ -283,6 +308,16 @@ class PipelineOrchestrator:
         self.config_hash: str = _compute_pipeline_config_hash(pipeline_yaml_bytes)
         self.output_format: str = output_format
         self.paths: Dict[str, str] = _pipeline_paths(root_cfg)
+        # Lazy-initialised audit-log writer.  Pinned to the pipeline run
+        # id on first event so every ``pipeline.*`` entry in the JSONL
+        # stream carries the same top-level ``run_id`` (Phase 14 review
+        # final-round F-B-1).  Pre-fix, ``_audit_event`` constructed a
+        # fresh ``AuditLogger`` per call → every event got a different
+        # auto-generated ``fg-<random>`` run_id, breaking SIEM-style
+        # grouping and the Article 12 record-keeping correlation
+        # contract.  The pipeline_run_id is set in state.pipeline_run_id
+        # before any event fires, so the caller passes it through.
+        self._audit_logger: Optional[Any] = None
 
     # -- run-mode entry points ------------------------------------------------
 
@@ -701,6 +736,23 @@ class PipelineOrchestrator:
             if filter_err is not None:
                 return filter_err
             prev_output_for_filter = seed
+            # Phase 14 review final-round F-B-2: surface the disk-seed
+            # path on the *predecessor* stage's manifest entry as well.
+            # When ``--stage X`` re-runs only the named stage, its
+            # predecessor is recorded as ``skipped_by_filter`` with no
+            # ``output_model``.  The filtered stage records
+            # ``input_source: "chain"`` (we auto-chained from the seed),
+            # so the strict chain verifier (F-B-3) compares stage X's
+            # ``input_model`` against ``stages[X-1].output_model`` and
+            # flags a ``chain_integrity_violation`` even though the
+            # chain is intact on disk.  We seed the predecessor's
+            # ``output_model`` here so the manifest faithfully
+            # represents "stage X-1 produced this path (in a prior
+            # run); stage X chained from it now".
+            if seed is not None:
+                filter_idx = next(i for i, s in enumerate(self.pipeline.stages) if s.name == stage_filter)
+                if filter_idx > 0:
+                    state.stages[filter_idx - 1].output_model = seed
 
         # 3. Emit pipeline.started + webhook (fresh runs only).
         if resume_from is None:
@@ -824,6 +876,24 @@ class PipelineOrchestrator:
         ``pipeline.force_resume`` audit event so reviewers see why the
         divergence was accepted).
 
+        Topology vs value-level edits (Phase 14 review final-round
+        clarification):
+
+        - **Topology change** (adding, deleting, or renaming a stage —
+          the ordered ``[s.name for s in stages]`` list changes) is
+          refused **even under** ``--force-resume`` because
+          ``state.stages[i]`` is positionally addressed and a topology
+          shift would silently overwrite a different stage's history.
+        - **Value-level edits** (different ``trainer_type``,
+          ``training.output_dir``, hyperparameters under unchanged
+          stage names) trip the hash check but are *accepted* under
+          ``--force-resume``.  This is the documented escape hatch:
+          the operator is signalling "I know the on-disk state and the
+          current config diverge; proceed and record the
+          ``pipeline.force_resume`` audit breadcrumb."  Reviewers can
+          reconstruct the divergence from the event payload's
+          ``old_config_hash`` / ``new_config_hash`` fields.
+
         Return semantics:
 
         - ``None`` — the resume is OK to proceed (no hash divergence, or
@@ -855,10 +925,17 @@ class PipelineOrchestrator:
         # stage inserted, deleted, or renamed between runs would make
         # ``state.stages[i]`` describe a different stage than
         # ``self.pipeline.stages[i]`` and the resume would silently
-        # corrupt the audit trail.  Cosmetic edits (whitespace,
-        # comments, hyperparameter values) trip the hash check but
-        # *don't* fail this guard, so ``--force-resume`` remains useful
-        # for them.
+        # corrupt the audit trail.
+        #
+        # *Value-level* edits — different ``trainer_type``,
+        # ``training.output_dir``, hyperparameters under identical
+        # stage names — trip the hash check but are *accepted by
+        # design* under ``--force-resume``.  The flag is the operator's
+        # explicit signal that they understand the on-disk state and
+        # the current config diverge; the guard's job is only to
+        # protect the positional-addressing invariant.  See
+        # ``docs/guides/pipeline.md`` "Limitations" for the documented
+        # contract.
         on_disk_names = [s.name for s in existing.stages]
         current_names = [s.name for s in self.pipeline.stages]
         if on_disk_names != current_names:
@@ -940,7 +1017,7 @@ class PipelineOrchestrator:
         manifest = generate_pipeline_manifest(state=state, root_cfg=self.root_cfg)
         _atomic_write_json(self.paths["manifest_file"], manifest)
 
-    def _audit_event(self, event: str, **fields: Any) -> None:
+    def _audit_event(self, event: str, *, pipeline_run_id: str, **fields: Any) -> None:
         """Append-only audit log entry under the **pipeline** root output dir.
 
         Two separate audit-log streams exist on a multi-stage run:
@@ -959,12 +1036,22 @@ class PipelineOrchestrator:
         with the per-stage ``training_manifest.json`` ``training_run_id``.
         See ``docs/guides/pipeline.md`` "Audit events" for the full
         join key matrix.
+
+        Phase 14 review final-round F-B-1: the ``AuditLogger`` instance
+        is cached on the orchestrator and pinned to the pipeline run
+        id, so every entry's top-level ``run_id`` field equals the
+        pipeline run id (instead of a fresh auto-generated
+        ``fg-<random>`` per event, which broke SIEM-style grouping and
+        the Article 12 correlation contract).  ``pipeline_run_id`` is
+        now a required keyword argument so callers cannot silently
+        regress this.
         """
         try:
             from ..compliance import AuditLogger
 
-            audit = AuditLogger(self.paths["root_output_dir"])
-            audit.log_event(event, **fields)
+            if self._audit_logger is None:
+                self._audit_logger = AuditLogger(self.paths["root_output_dir"], run_id=pipeline_run_id)
+            self._audit_logger.log_event(event, pipeline_run_id=pipeline_run_id, **fields)
         except Exception as exc:  # noqa: BLE001 — audit emission is best-effort telemetry; a write failure must not abort the pipeline.
             logger.warning("Failed to emit audit event %r: %s", event, exc)
 

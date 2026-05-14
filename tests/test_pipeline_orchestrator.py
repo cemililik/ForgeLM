@@ -206,6 +206,67 @@ class TestStateRoundTrip:
 
 
 # ---------------------------------------------------------------------------
+# Atomic write helper
+# ---------------------------------------------------------------------------
+
+
+class TestAtomicWriteJson:
+    """Phase 14 review final-round F-S-1 regression: ``_atomic_write_json``
+    must use a per-writer-unique temp filename so two writers targeting
+    the same final path don't truncate each other's tmp mid-write."""
+
+    def test_per_writer_temp_path_does_not_race_on_shared_tmp(self, tmp_path):
+        """Pre-fix, both writers wrote to ``<target>.tmp`` — a 16-thread
+        stress probe produced ``FileNotFoundError`` from ``os.replace``
+        (the loser's tmp was unlinked by the winner's rename).  Post-
+        fix, each writer's tmp is unique so no traceback escapes; the
+        race surfaces as last-writer-wins on the final ``path``."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        from forgelm.cli._pipeline import _atomic_write_json
+
+        target = str(tmp_path / "shared.json")
+        errors: list[BaseException] = []
+
+        def writer(i: int) -> None:
+            try:
+                _atomic_write_json(target, {"writer": i, "value": "x" * 1024})
+            except BaseException as exc:  # noqa: BLE001 — record any escape
+                errors.append(exc)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(writer, range(32)))
+
+        # No writer's tmp-vs-replace race should have escaped.
+        assert errors == [], f"Concurrent writers produced {len(errors)} exception(s): {errors[:3]}"
+        # And the final path holds *some* valid JSON (last writer wins).
+        with open(target) as f:
+            payload = json.load(f)
+        assert isinstance(payload, dict)
+        assert "writer" in payload
+
+    def test_orphan_tmp_cleaned_up_on_serialise_failure(self, tmp_path, monkeypatch):
+        """If the tmp write itself fails (disk full, permission, etc.),
+        the orphan tmp must not be left behind under the target dir.
+        Post-fix the helper's bare-except cleanup ensures we don't
+        accumulate ``*.tmp`` debris when an upstream caller passes a
+        non-JSON-serialisable payload."""
+        from forgelm.cli._pipeline import _atomic_write_json
+
+        target = str(tmp_path / "bad.json")
+        # ``json.dump`` cannot serialise a set; this triggers the
+        # try/except in the helper after the tmp file is created but
+        # before the replace.
+        try:
+            _atomic_write_json(target, {"bad": {1, 2, 3}})
+        except TypeError:
+            pass
+        # No orphan files left in tmp_path.
+        orphans = [p for p in os.listdir(str(tmp_path)) if p.endswith(".tmp")]
+        assert orphans == [], f"Orphan tmp file(s) left behind: {orphans!r}"
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator behaviour — dry-run
 # ---------------------------------------------------------------------------
 
@@ -505,6 +566,59 @@ class TestStageFilter:
         assert len(configs_seen) == 1
         assert configs_seen[0].model.name_or_path == override_path
 
+    def test_filter_middle_stage_with_disk_seed_passes_chain_verifier(self, tmp_path, monkeypatch):
+        """Phase 14 review final-round F-B-2 regression: ``--stage X``
+        on a non-first stage whose predecessor's ``final_model`` exists
+        on disk auto-chains correctly, AND the resulting pipeline
+        manifest must NOT report a ``chain_integrity_violation``.
+
+        Pre-fix, the ``skipped_by_filter`` predecessor had
+        ``output_model=null`` while the executed stage had
+        ``input_source=chain``, so the strict chain verifier (F-B-3)
+        emitted a ``chain_integrity_violation`` on every legitimate
+        ``--stage <non-first>`` run.  The fix seeds the predecessor's
+        ``output_model`` in the manifest from the resolved disk path.
+        """
+        from forgelm.compliance import verify_pipeline_manifest_at_path
+
+        cfg = _three_stage_config(tmp_path)
+        # Pre-create stage 1's on-disk output so the --stage filter can
+        # seed the chain.
+        prev_output_dir = tmp_path / "stage1" / "final_model"
+        prev_output_dir.mkdir(parents=True, exist_ok=True)
+        configs_seen = _install_trainer_mocks(monkeypatch, [TrainResult(success=True)])
+        orch = PipelineOrchestrator(cfg, b"yaml")
+        code = orch.run(stage_filter="dpo_stage")
+        assert code == EXIT_SUCCESS
+        assert len(configs_seen) == 1
+        # The DPO stage must have auto-chained from stage 1's on-disk output.
+        assert configs_seen[0].model.name_or_path == str(prev_output_dir)
+
+        # Inspect the manifest directly to confirm chain integrity is
+        # intact.  ``verify_pipeline_manifest_at_path`` additionally
+        # checks each completed stage's per-stage training_manifest
+        # exists; with a mocked trainer that file isn't actually
+        # written, so we don't assert ``violations == []`` here — we
+        # assert only the chain-integrity contract that's the subject
+        # of the F-B-2 regression.  Per-stage training_manifest
+        # existence is covered by ``test_completed_stage_with_missing_
+        # training_manifest_flagged`` in test_pipeline_compliance.py.
+        import json as _json
+
+        with open(orch.paths["manifest_file"]) as f:
+            manifest = _json.load(f)
+        sft_stage_payload, dpo_stage_payload, _grpo = manifest["stages"]
+        assert sft_stage_payload["status"] == "skipped_by_filter"
+        # The fix: predecessor's output_model is surfaced from the resolved disk path.
+        assert sft_stage_payload["output_model"] == str(prev_output_dir)
+        assert dpo_stage_payload["input_source"] == "chain"
+        assert dpo_stage_payload["input_model"] == str(prev_output_dir)
+
+        violations = verify_pipeline_manifest_at_path(str(orch.paths["root_output_dir"]))
+        assert not any("chain_integrity_violation" in v for v in violations), (
+            f"Chain integrity must hold for --stage <non-first> with disk seed; got: {violations!r}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Orchestrator behaviour — --resume-from
@@ -687,6 +801,34 @@ class TestAuditAndWebhook:
         assert event_names.count("pipeline.stage_completed") == 3
         assert "pipeline.completed" in event_names
 
+    def test_all_pipeline_events_share_same_top_level_run_id(self, tmp_path, monkeypatch):
+        """Phase 14 review final-round F-B-1 regression: every entry in
+        the pipeline-level audit log must carry the same top-level
+        ``run_id`` (the pipeline run id), so SIEM filters and Article 12
+        correlation work on a single field.  Pre-fix, ``_audit_event``
+        constructed a fresh ``AuditLogger`` per call → each entry got a
+        different auto-generated ``fg-<random>``."""
+        cfg = _three_stage_config(tmp_path)
+        results = [TrainResult(success=True), TrainResult(success=True), TrainResult(success=True)]
+        _install_trainer_mocks(monkeypatch, results)
+        orch = PipelineOrchestrator(cfg, b"yaml")
+        orch.run()
+        audit_path = os.path.join(orch.paths["root_output_dir"], "audit_log.jsonl")
+        with open(audit_path) as f:
+            entries = [json.loads(line) for line in f if line.strip()]
+        # Every entry carries a top-level ``run_id`` field; collect the
+        # set across all pipeline.* events.
+        pipeline_entries = [e for e in entries if e.get("event", "").startswith("pipeline.")]
+        assert len(pipeline_entries) >= 5, "expected at least 5 pipeline.* events on a happy 3-stage run"
+        top_level_ids = {e["run_id"] for e in pipeline_entries}
+        assert len(top_level_ids) == 1, f"All pipeline.* events must share one top-level run_id, got {top_level_ids!r}"
+        # The pinned run_id must equal the pipeline_run_id field on the
+        # entries (which is the contract: pipeline.* events carry the
+        # pipeline run id in both surfaces).
+        (top_level_id,) = top_level_ids
+        pipeline_run_ids = {e["pipeline_run_id"] for e in pipeline_entries}
+        assert pipeline_run_ids == {top_level_id}
+
     def test_webhook_failures_do_not_abort_pipeline(self, tmp_path, monkeypatch):
         """A crashing webhook notifier must not derail the pipeline.
 
@@ -700,6 +842,33 @@ class TestAuditAndWebhook:
             orch = PipelineOrchestrator(cfg, b"yaml")
             code = orch.run()
         assert code == EXIT_SUCCESS
+
+    def test_audit_events_share_one_pipeline_run_id(self, tmp_path, monkeypatch):
+        """Phase 14 review final-round F-B-1 regression: every entry in
+        ``audit_log.jsonl`` emitted by the orchestrator must carry the
+        **same** top-level ``run_id`` field (= the pipeline run id), so
+        SIEM dashboards can group all events for one pipeline run by
+        that single key.  Pre-fix, ``_audit_event`` constructed a fresh
+        ``AuditLogger`` per call and each got a different auto-
+        generated ``fg-<random>`` run_id."""
+        cfg = _three_stage_config(tmp_path)
+        _install_trainer_mocks(monkeypatch, [TrainResult(success=True)] * 3)
+        orch = PipelineOrchestrator(cfg, b"yaml")
+        orch.run()
+        audit_path = os.path.join(orch.paths["root_output_dir"], "audit_log.jsonl")
+        with open(audit_path) as f:
+            events = [json.loads(line) for line in f if line.strip()]
+        # All pipeline.* events must have identical top-level run_id.
+        run_ids = {e.get("run_id") for e in events if e.get("event", "").startswith("pipeline.")}
+        assert len(run_ids) == 1, (
+            f"Pipeline events must share one top-level run_id; got {run_ids!r} across {len(events)} entries."
+        )
+        # And that single run_id must equal the pipeline run id surfaced
+        # in each event's ``pipeline_run_id`` field.
+        pipeline_run_ids = {e.get("pipeline_run_id") for e in events if e.get("event", "").startswith("pipeline.")}
+        assert pipeline_run_ids == run_ids, (
+            f"Top-level run_id {run_ids!r} must equal pipeline_run_id {pipeline_run_ids!r}."
+        )
 
     def test_audit_event_failures_do_not_abort_pipeline(self, tmp_path, monkeypatch):
         """Phase 14 review F-N-5 regression: ``_audit_event``'s

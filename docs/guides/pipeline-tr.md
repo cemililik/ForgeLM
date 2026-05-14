@@ -269,6 +269,30 @@ Sıfır olmayan exit kodu ihlalleri keşfedildikleri sırayla listeler.
   ertelendi.
 - **Paralel aşama yürütmesi yok.**  İki aşama mantıken bağımsız olsa
   bile orkestratör onları sıralı koşturur.
+- **`pipeline.output_dir` üzerinde multi-process lock yok.**  Aynı
+  `pipeline.output_dir`'a karşı eş zamanlı iki `forgelm --config
+  pipeline.yaml` çağrısı `pipeline_state.json` + manifest üzerinde
+  race oluşturur — eş zamanlı koşular için ayrı `pipeline.output_dir`
+  seçin.  Atomic-write helper'ı writer başına benzersiz temp adı
+  kullanır, dolayısıyla race son-yazan-kazanır şeklinde yüzeyleşir
+  (FileNotFoundError traceback değil), ama kaybedenin per-stage
+  ilerlemesi kendi process'inde görünmez kalır.
+- **Stage ve pipeline `output_dir` çakışması mümkün ama audit log'u
+  iç içe geçirir.**  Bir aşamanın çözülen `training.output_dir`'ı
+  `pipeline.output_dir`'a eşit olduğunda, aşamanın `training.*`
+  olayları ile pipeline'ın `pipeline.*` olayları aynı
+  `audit_log.jsonl` dosyasına düşer (dizin başına bir dosya).
+  Hash-chain + satır-bazında flock dosyayı iç tutarlı tutar ve
+  `tests/fixtures/pipeline/inheritance_matrix.yaml` fixture'ı bu
+  layout'u kasten icra eder; ama dosya başına tek `event_kind`
+  bekleyen SIEM filtreleri ayrı dizinler kullanmalı.
+- **`--force-resume` topology guard yalnızca pozisyonel kırılmaları
+  yakalar.**  Stage ekleme, silme veya yeniden adlandırma
+  `--force-resume` altında bile reddedilir (state.stages[i] başka
+  bir aşamayı adresliyor olur).  *Value-level* düzenlemeler — aynı
+  stage adı altında farklı `trainer_type`, `training.output_dir`,
+  hyperparameter — tasarımı gereği kabul edilir; `--force-resume`
+  operatörün ayrışmayı anladığını bildiren sinyaldir.
 - **`forgelm wizard` entegrasyonu yok.**  Tek aşamalı config'ler
   wizard'la üretilebilir; pipeline'lar operatör-seviyesi ve manuel
   YAML yüzeyini kullanır.  Wizard'ın işi "çalışan bir tek aşama

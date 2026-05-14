@@ -266,6 +266,30 @@ discovered.
   deferred.
 - **No parallel stage execution.**  Even when two stages are logically
   independent, the orchestrator runs them sequentially.
+- **No multi-process locking on `pipeline.output_dir`.**  Running two
+  `forgelm --config pipeline.yaml` invocations against the same
+  `pipeline.output_dir` simultaneously will race on
+  `pipeline_state.json` + the manifest — pick distinct
+  `pipeline.output_dir` per concurrent run.  The atomic-write helper
+  uses per-writer-unique temp filenames so the race surfaces as
+  last-writer-wins (not a `FileNotFoundError` traceback), but the
+  loser's per-stage progress is invisible to its own process.
+- **Stage-vs-pipeline `output_dir` overlap is allowed but interleaves
+  the audit log.**  When a stage's resolved `training.output_dir`
+  equals `pipeline.output_dir`, the stage's `training.*` events and
+  the pipeline's `pipeline.*` events land in the same
+  `audit_log.jsonl` (one file per directory).  The hash-chain + per-
+  line flock keep the merged file internally consistent and the
+  `tests/fixtures/pipeline/inheritance_matrix.yaml` fixture
+  deliberately exercises this layout, but SIEM filters that pin a
+  single `event_kind` per file should pick distinct directories.
+- **`--force-resume` topology guard catches positional breaks only.**
+  Adding, deleting, or renaming a stage between runs is refused even
+  under `--force-resume` (state.stages[i] would address a different
+  stage than pipeline.stages[i]).  *Value-level* edits — different
+  `trainer_type`, `training.output_dir`, hyperparameters under
+  identical stage names — are accepted by design; `--force-resume`
+  is the operator's signal that they understand the divergence.
 - **No `forgelm wizard` integration.**  Single-stage configs are
   wizard-buildable; pipelines are operator-grade and use the manual
   YAML surface.  The wizard's job stays "produce a working single-stage
