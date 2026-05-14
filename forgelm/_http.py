@@ -45,10 +45,11 @@ from __future__ import annotations
 import ipaddress
 import logging
 import socket
-from typing import Any, Dict, Optional
-from urllib.parse import urlparse
+from typing import Any, Dict, MutableMapping, Optional, Tuple
+from urllib.parse import urlparse, urlunparse
 
 import requests
+from requests.structures import CaseInsensitiveDict
 
 logger = logging.getLogger("forgelm._http")
 
@@ -63,6 +64,20 @@ class HttpSafetyError(Exception):
 
 
 _MASK_HEADER_NAMES = frozenset({"authorization", "x-api-key", "proxy-authorization"})
+
+
+def _is_blocked_ip(ip: ipaddress._BaseAddress) -> bool:
+    """Single source of truth for the SSRF private-range policy.
+
+    Encapsulates the set of address kinds that ForgeLM's SSRF guard
+    refuses to send outbound payloads to: RFC1918 private space, the
+    loopback range, link-local (incl. cloud IMDS at 169.254.169.254),
+    the IETF reserved buckets, and multicast.  Used by both
+    :func:`_is_private_destination` (legacy yes/no predicate) and
+    :func:`_resolve_safe_destination` (DNS-rebinding-safe resolver) so
+    the policy cannot drift between the two call sites.
+    """
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
 
 
 def _is_private_destination(host: str) -> bool:
@@ -83,7 +98,7 @@ def _is_private_destination(host: str) -> bool:
     except ValueError:
         ip = None
     if ip is not None:
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
+        return _is_blocked_ip(ip)
     try:
         addrinfo = socket.getaddrinfo(host, None)
     except (socket.gaierror, UnicodeError):
@@ -97,15 +112,126 @@ def _is_private_destination(host: str) -> bool:
             resolved = ipaddress.ip_address(sockaddr[0])
         except ValueError:
             continue
-        if (
-            resolved.is_private
-            or resolved.is_loopback
-            or resolved.is_link_local
-            or resolved.is_reserved
-            or resolved.is_multicast
-        ):
+        if _is_blocked_ip(resolved):
             return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Issue #14 — DNS-rebinding-safe destination resolver
+# ---------------------------------------------------------------------------
+#
+# ``_is_private_destination`` above pre-resolves the host and answers a
+# yes/no question, but the actual ``requests.post`` call then does its OWN
+# DNS lookup at connect time.  Between those two lookups an attacker-
+# controlled DNS server can flip the answer (TTL=0 + rebinding to
+# 127.0.0.1 / 169.254.169.254), letting the payload + bearer token leak
+# to a private destination after passing the guard.  The resolver below
+# closes that window by returning a concrete public IP literal that the
+# call site uses to build the URL — requests then connects to that IP
+# without a second DNS round-trip.
+
+
+def _resolve_safe_destination(host: str) -> Tuple[Optional[str], Optional[str]]:
+    """Resolve *host* to a single public IP literal.
+
+    Returns ``(ip, None)`` when the host is a public destination, or
+    ``(None, reason)`` when the destination is blocked (private/loopback/
+    IMDS/multicast IP, empty host, or DNS resolution failure).
+
+    The caller substitutes the returned IP literal into the request URL
+    so ``requests`` does not re-resolve the hostname — this is the fix
+    for the DNS-rebinding TOCTOU described in issue #14.  The original
+    hostname must be propagated through the ``Host`` header (and SNI for
+    HTTPS) by the caller; this helper only owns the resolve+validate
+    step.
+
+    The picked IP is deterministic (first public address returned by
+    ``getaddrinfo``) so the test harness can mock the resolver without
+    flakiness.  When the host is already an IP literal, it is returned
+    as-is after the same private-range check.
+    """
+    if not host:
+        return None, "empty host"
+
+    # IP literal short-circuit — no DNS needed, same private-range filter
+    # applied via the shared ``_is_blocked_ip`` helper so the IP-literal
+    # path and the DNS path cannot disagree.
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        literal = None
+    if literal is not None:
+        if _is_blocked_ip(literal):
+            return None, "Private/loopback/IMDS destination"
+        return host, None
+
+    # Hostname path — one resolve, validate every returned address.  A
+    # mixed result (some public, some private) is treated as blocked
+    # because a follow-up connect could land on the private one.
+    try:
+        addrinfo = socket.getaddrinfo(host, None)
+    except (socket.gaierror, UnicodeError) as e:
+        return None, f"DNS resolution failed: {e}"
+
+    public_ip: Optional[str] = None
+    for _family, _type, _proto, _canon, sockaddr in addrinfo:
+        candidate = sockaddr[0]
+        try:
+            resolved = ipaddress.ip_address(candidate)
+        except ValueError:
+            continue
+        if _is_blocked_ip(resolved):
+            return None, "Private/loopback/IMDS destination"
+        if public_ip is None:
+            public_ip = candidate
+    if public_ip is None:
+        return None, "no public IP resolved"
+    return public_ip, None
+
+
+def _build_pinned_url(parsed_url, ip: str) -> str:
+    """Rebuild *parsed_url* with the hostname replaced by *ip*.
+
+    Preserves scheme, port, path, query, and fragment.  IPv6 literals
+    are bracketed per RFC 3986 (``https://[2001:db8::1]:443/path``).
+    Userinfo is intentionally dropped — webhook URLs may carry a token
+    in the path but never in userinfo, and stripping it removes one
+    avenue for accidental credential exposure in logs.
+    """
+    try:
+        is_ipv6 = ipaddress.ip_address(ip).version == 6
+    except ValueError:
+        is_ipv6 = False
+    netloc = f"[{ip}]" if is_ipv6 else ip
+    if parsed_url.port:
+        netloc = f"{netloc}:{parsed_url.port}"
+    return urlunparse(
+        (
+            parsed_url.scheme,
+            netloc,
+            parsed_url.path,
+            parsed_url.params,
+            parsed_url.query,
+            parsed_url.fragment,
+        )
+    )
+
+
+def _pinned_session(scheme: str) -> requests.Session:
+    """Return a ``requests.Session`` configured for IP-literal connections.
+
+    For HTTPS, mounts ``requests_toolbelt.adapters.host_header_ssl.
+    HostHeaderSSLAdapter`` so the SNI handshake and certificate
+    validation are performed against the original hostname (passed in
+    the ``Host`` header) rather than the IP literal in the URL.
+    """
+    session = requests.Session()
+    if scheme == "https":
+        from requests_toolbelt.adapters.host_header_ssl import HostHeaderSSLAdapter
+
+        session.mount("https://", HostHeaderSSLAdapter())
+    return session
 
 
 def _mask_netloc(url: str) -> str:
@@ -124,7 +250,7 @@ def _mask_netloc(url: str) -> str:
     return f"{parts.scheme}://{parts.hostname or 'unknown-host'}"
 
 
-def _mask_secrets_in_text(text: str, headers: Optional[Dict[str, str]]) -> str:
+def _mask_secrets_in_text(text: str, headers: Optional[MutableMapping[str, str]]) -> str:
     """Redact known secret-bearing header values from *text*.
 
     ``requests`` exception strings sometimes include the request URL or
@@ -206,34 +332,78 @@ def safe_post(
     elif parsed.scheme != "https":
         raise HttpSafetyError(f"Unsupported URL scheme {parsed.scheme!r}; only http(s) allowed.")
 
-    # SSRF guard.
-    host = parsed.hostname or ""
-    if not allow_private and _is_private_destination(host):
-        raise HttpSafetyError(f"Private/loopback/IMDS destination blocked: host={host or '<empty>'}")
-
     # Timeout floor — `requests` treats 0 / None as "no timeout" which can
-    # hang the trainer on a dead endpoint.
+    # hang the trainer on a dead endpoint.  Validated BEFORE the SSRF
+    # resolve so a local policy error (timeout=0, sub-floor value) is
+    # rejected without a DNS round-trip; this also keeps unit tests
+    # that exercise the timeout-floor branch hermetic.
     if not isinstance(timeout, (int, float)) or timeout < min_timeout:
         raise HttpSafetyError(f"Timeout below {min_timeout}s floor: timeout={timeout!r}")
+
+    # SSRF guard — issue #14: resolve once to a public IP literal so the
+    # connect-time DNS lookup cannot flip the verdict (DNS rebinding /
+    # TOCTOU).  When ``allow_private=True`` the operator has explicitly
+    # opted into an internal/in-cluster destination; the legacy URL is
+    # used as-is so internal DNS / split-horizon resolution still works.
+    host = parsed.hostname or ""
+    target_url = url
+    # ``CaseInsensitiveDict`` so a caller-supplied ``host`` / ``HOST`` /
+    # ``Host`` all collapse to the same key — a plain ``dict`` would
+    # preserve the caller's casing and let ``setdefault("Host", ...)``
+    # silently add a *second* Host header to the request, producing a
+    # duplicate on the wire (RFC 7230 § 5.4 forbids this).
+    request_headers: MutableMapping[str, str] = CaseInsensitiveDict(headers or {})
+    if not allow_private:
+        pinned_ip, block_reason = _resolve_safe_destination(host)
+        if block_reason:
+            raise HttpSafetyError(f"{block_reason} blocked: host={host or '<empty>'}")
+        target_url = _build_pinned_url(parsed, pinned_ip)
+        # ``Host`` is case-insensitive in HTTP/1.1; let an explicit
+        # caller override (any casing) win over the auto-derived value.
+        # Use ``netloc`` (with any userinfo stripped) rather than bare
+        # ``hostname`` so non-standard ports stay attached and IPv6
+        # literals remain bracketed per RFC 7230 § 5.4 — bare
+        # ``hostname`` would emit ``Host: example.com`` for a request to
+        # ``https://example.com:8443/`` and silently break virtual-hosted
+        # endpoints that switch on the authority-form.
+        if "Host" not in request_headers:
+            request_headers["Host"] = parsed.netloc.rsplit("@", 1)[-1]
 
     # Resolve TLS verify setting. ca_bundle (when set) wins over verify.
     verify_param: Any = ca_bundle if ca_bundle else verify
 
     try:
-        return requests.post(
-            url,
-            json=json,
-            data=data,
-            headers=headers,
-            timeout=timeout,
-            verify=verify_param,
-            # Redirect-following would bypass the up-front SSRF check —
-            # a 30x to 169.254.169.254 from an attacker-controlled host
-            # would otherwise leak the request payload to IMDS.
-            allow_redirects=False,
-        )
+        if allow_private:
+            # Legacy path: operator opted into a private destination;
+            # internal DNS / split-horizon resolution is the right model.
+            return requests.post(
+                url,
+                json=json,
+                data=data,
+                headers=request_headers,
+                timeout=timeout,
+                verify=verify_param,
+                # Redirect-following would bypass the up-front SSRF check —
+                # a 30x to 169.254.169.254 from an attacker-controlled host
+                # would otherwise leak the request payload to IMDS.
+                allow_redirects=False,
+            )
+        with _pinned_session(parsed.scheme) as session:
+            return session.post(
+                target_url,
+                json=json,
+                data=data,
+                headers=request_headers,
+                timeout=timeout,
+                verify=verify_param,
+                allow_redirects=False,
+            )
     except requests.RequestException as exc:
-        masked_reason = _mask_secrets_in_text(str(exc), headers)
+        # Mask the *outbound* header set (which includes the auto-set
+        # ``Host`` and any caller secrets) — not the raw ``headers``
+        # parameter, which may be ``None`` or stale relative to what
+        # actually went on the wire.
+        masked_reason = _mask_secrets_in_text(str(exc), request_headers)
         logger.warning(
             "safe_post failed url=%s reason=%s",
             _mask_netloc(url),
@@ -305,10 +475,9 @@ def safe_get(
     elif parsed.scheme != "https":
         raise HttpSafetyError(f"Unsupported URL scheme {parsed.scheme!r}; only http(s) allowed.")
 
-    # SSRF guard.
-    host = parsed.hostname or ""
-    if not allow_private and _is_private_destination(host):
-        raise HttpSafetyError(f"Private/loopback/IMDS destination blocked: host={host or '<empty>'}")
+    # Cheap local-policy checks first (timeout floor + method allowlist)
+    # so a misconfigured caller is rejected without a DNS round-trip;
+    # keeps unit tests for these branches hermetic.
 
     # Timeout floor.
     if not isinstance(timeout, (int, float)) or timeout < min_timeout:
@@ -319,19 +488,49 @@ def safe_get(
     if method_upper not in ("GET", "HEAD"):
         raise HttpSafetyError(f"safe_get only supports GET / HEAD, got {method!r}.")
 
+    # SSRF guard — see safe_post for the issue-#14 DNS-rebinding rationale.
+    host = parsed.hostname or ""
+    target_url = url
+    # CaseInsensitiveDict — see safe_post for the duplicate-Host-header
+    # rationale (caller may pass "host"/"HOST"/"Host" in any casing).
+    request_headers: MutableMapping[str, str] = CaseInsensitiveDict(headers or {})
+    if not allow_private:
+        pinned_ip, block_reason = _resolve_safe_destination(host)
+        if block_reason:
+            raise HttpSafetyError(f"{block_reason} blocked: host={host or '<empty>'}")
+        target_url = _build_pinned_url(parsed, pinned_ip)
+        # See safe_post: use netloc (sans userinfo) so non-standard
+        # ports and IPv6 brackets survive into the Host header per
+        # RFC 7230 § 5.4; case-insensitive containment honours an
+        # explicit caller override in any casing.
+        if "Host" not in request_headers:
+            request_headers["Host"] = parsed.netloc.rsplit("@", 1)[-1]
+
     verify_param: Any = ca_bundle if ca_bundle else verify
 
     try:
-        return requests.request(
-            method_upper,
-            url,
-            headers=headers,
-            timeout=timeout,
-            verify=verify_param,
-            allow_redirects=False,
-        )
+        if allow_private:
+            return requests.request(
+                method_upper,
+                url,
+                headers=request_headers,
+                timeout=timeout,
+                verify=verify_param,
+                allow_redirects=False,
+            )
+        with _pinned_session(parsed.scheme) as session:
+            return session.request(
+                method_upper,
+                target_url,
+                headers=request_headers,
+                timeout=timeout,
+                verify=verify_param,
+                allow_redirects=False,
+            )
     except requests.RequestException as exc:
-        masked_reason = _mask_secrets_in_text(str(exc), headers)
+        # Mask the outbound header set, not the caller's possibly-None
+        # ``headers`` parameter — see safe_post for the same rationale.
+        masked_reason = _mask_secrets_in_text(str(exc), request_headers)
         logger.warning(
             "safe_get failed url=%s method=%s reason=%s",
             _mask_netloc(url),

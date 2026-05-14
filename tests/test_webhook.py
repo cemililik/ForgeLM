@@ -10,6 +10,49 @@ from forgelm.config import ForgeConfig
 from forgelm.webhook import WebhookNotifier
 
 
+@pytest.fixture(autouse=True)
+def _stub_ssrf_resolver(monkeypatch):
+    """Auto-stub ``forgelm._http._resolve_safe_destination`` so webhook
+    tests do not require live DNS resolution of ``example.com``.
+
+    The SSRF DNS-pinning path (issue #14) added a hostname → public-IP
+    lookup before ``Session.post`` is called.  Without this stub the
+    suite is host-environment dependent (passes online, fails in
+    offline / sandbox CI runners with ``DNS resolution failed``).
+
+    The stub mirrors the real policy decision for the inputs the
+    existing SSRF-block tests use — IP literals are routed through
+    ``_is_blocked_ip`` so RFC1918 / loopback / IMDS / multicast still
+    raise, and the canonical ``localhost`` hostname is treated as
+    loopback.  All other hostnames resolve to the public sentinel
+    ``8.8.8.8``.  The dedicated coverage for the real resolver itself
+    lives in ``tests/test_http_dns_rebinding.py``.
+    """
+    import ipaddress
+
+    from forgelm import _http
+
+    def _hermetic_resolver(host):
+        if not host:
+            return None, "empty host"
+        # IP literal: keep the real policy decision intact.
+        try:
+            literal = ipaddress.ip_address(host)
+        except ValueError:
+            literal = None
+        if literal is not None:
+            if _http._is_blocked_ip(literal):
+                return None, "Private/loopback/IMDS destination"
+            return host, None
+        # Hostname: stub.  ``localhost`` is the one canonical case the
+        # existing SSRF-block test asserts on; treat it as loopback.
+        if host == "localhost":
+            return None, "Private/loopback/IMDS destination"
+        return "8.8.8.8", None
+
+    monkeypatch.setattr(_http, "_resolve_safe_destination", _hermetic_resolver)
+
+
 def _make_config(webhook_cfg=None):
     """Create a minimal ForgeConfig with optional webhook."""
     data = {
@@ -39,7 +82,7 @@ class TestWebhookNotifier:
         notifier = WebhookNotifier(config)
         notifier.notify_start(run_name="test")
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_notify_start(self, mock_post):
         config = _make_config({"url": "https://example.com/hook"})
         notifier = WebhookNotifier(config)
@@ -52,7 +95,7 @@ class TestWebhookNotifier:
         assert payload["status"] == "started"
         assert payload["run_name"] == "my_model_finetune"
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_notify_success_with_metrics(self, mock_post):
         config = _make_config({"url": "https://example.com/hook"})
         notifier = WebhookNotifier(config)
@@ -64,7 +107,7 @@ class TestWebhookNotifier:
         assert payload["event"] == "training.success"
         assert payload["metrics"]["eval_loss"] == pytest.approx(1.25)
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_notify_failure_with_reason(self, mock_post):
         config = _make_config({"url": "https://example.com/hook"})
         notifier = WebhookNotifier(config)
@@ -75,8 +118,17 @@ class TestWebhookNotifier:
         assert payload["event"] == "training.failure"
         assert payload["reason"] == "OOM error"
 
-    @patch("forgelm._http.requests.post")
-    def test_url_env_resolution(self, mock_post):
+    @patch("forgelm._http._resolve_safe_destination", return_value=("8.8.8.8", None))
+    @patch("forgelm._http.requests.Session.post")
+    def test_url_env_resolution(self, mock_post, _mock_resolve):
+        """``url_env`` resolution must drive the request to env.example.com.
+
+        Post-issue-#14 the URL passed to ``Session.post`` is rebuilt with the
+        resolved IP literal, so we assert via the ``Host`` header (which
+        carries the original hostname) instead of the URL itself.  DNS is
+        mocked because ``env.example.com`` does not resolve in real life
+        (IANA only publishes A records for ``example.com`` itself).
+        """
         config = _make_config({"url_env": "TEST_WEBHOOK_URL"})
         notifier = WebhookNotifier(config)
 
@@ -85,12 +137,12 @@ class TestWebhookNotifier:
 
         mock_post.assert_called_once()
         call_kwargs = mock_post.call_args
-        assert (
-            call_kwargs.kwargs.get("url") == "https://env.example.com/hook"
-            or call_kwargs[0][0] == "https://env.example.com/hook"
+        headers = call_kwargs.kwargs.get("headers") or {}
+        assert headers.get("Host") == "env.example.com", (
+            f"Host header should reflect the resolved env-var hostname; got {headers!r}"
         )
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_notify_on_start_disabled(self, mock_post):
         config = _make_config(
             {
@@ -102,7 +154,7 @@ class TestWebhookNotifier:
         notifier.notify_start(run_name="test")
         mock_post.assert_not_called()
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_timeout_handled_gracefully(self, mock_post):
         import requests as req
 
@@ -112,7 +164,7 @@ class TestWebhookNotifier:
         # Should not raise
         notifier.notify_start(run_name="test")
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_connection_error_handled_gracefully(self, mock_post):
         import requests as req
 
@@ -122,7 +174,7 @@ class TestWebhookNotifier:
         # Should not raise
         notifier.notify_failure(run_name="test", reason="test error")
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_payload_has_slack_attachments(self, mock_post):
         config = _make_config({"url": "https://example.com/hook"})
         notifier = WebhookNotifier(config)
@@ -134,7 +186,7 @@ class TestWebhookNotifier:
         assert len(payload["attachments"]) == 1
         assert "title" in payload["attachments"][0]
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_http_5xx_logs_warning(self, mock_post, caplog):
         """Non-2xx HTTP responses must emit a WARNING and not raise."""
         import logging
@@ -153,7 +205,7 @@ class TestWebhookNotifier:
 
         assert any("503" in r.message or "HTTP" in r.message for r in caplog.records)
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_http_4xx_logs_warning(self, mock_post, caplog):
         """HTTP 4xx response must emit a WARNING log and not raise."""
         import logging
@@ -208,7 +260,13 @@ class TestSafePostHttpDiscipline:
             safe_post(url, json={}, timeout=10.0)
 
     def test_ssrf_block_can_be_opted_out(self):
-        """allow_private=True bypasses the SSRF guard (operator opt-in)."""
+        """``allow_private=True`` bypasses the SSRF guard (operator opt-in).
+
+        The opt-in path deliberately keeps the legacy ``requests.post``
+        flow (no Session, no IP pinning) because internal DNS / split-
+        horizon resolution is the right model for an operator-blessed
+        in-cluster destination — see safe_post's ``allow_private`` branch.
+        """
         from forgelm import _http
 
         with patch.object(_http.requests, "post") as mock_post:
@@ -225,7 +283,7 @@ class TestSafePostHttpDiscipline:
         """allow_redirects=False is forwarded to requests.post."""
         from forgelm import _http
 
-        with patch.object(_http.requests, "post") as mock_post:
+        with patch.object(_http.requests.Session, "post") as mock_post:
             mock_post.return_value = MagicMock(ok=True, status_code=200)
             _http.safe_post("https://example.com/hook", json={}, timeout=10.0)
             kwargs = mock_post.call_args.kwargs
@@ -246,7 +304,7 @@ class TestSafePostHttpDiscipline:
         # back-compat path; the post is mocked, no real call is made.
         from forgelm import _http
 
-        with patch.object(_http.requests, "post") as mock_post:
+        with patch.object(_http.requests.Session, "post") as mock_post:
             mock_post.return_value = MagicMock(ok=True, status_code=200)
             _http.safe_post(
                 "http://example.com/hook",  # NOSONAR python:S5332
@@ -293,7 +351,7 @@ class TestSafePostHttpDiscipline:
         """Webhook passes min_timeout=1.0 to keep its historical floor."""
         from forgelm import _http
 
-        with patch.object(_http.requests, "post") as mock_post:
+        with patch.object(_http.requests.Session, "post") as mock_post:
             mock_post.return_value = MagicMock(ok=True, status_code=200)
             _http.safe_post(
                 "https://example.com/hook",
@@ -313,7 +371,7 @@ class TestSafePostHttpDiscipline:
 
         # NOSONAR test fixture, fragment-built (rule python:S2068 hard-coded credential false-positive)
         bearer_token = "sk-" + "supersecret123"  # noqa: S105
-        with patch.object(_http.requests, "post") as mock_post:
+        with patch.object(_http.requests.Session, "post") as mock_post:
             mock_post.side_effect = req.exceptions.ConnectionError(f"refused while sending Bearer {bearer_token}")
             with caplog.at_level(logging.WARNING, logger="forgelm._http"):
                 with pytest.raises(req.exceptions.ConnectionError):
@@ -345,7 +403,7 @@ class TestLifecycleVocabulary:
     don't silently break on a future refactor.
     """
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_notify_reverted_payload(self, mock_post):
         """Auto-revert event must serialize as event=training.reverted with masked + truncated reason."""
         config = _make_config({"url": "https://example.com/hook"})
@@ -376,7 +434,7 @@ class TestLifecycleVocabulary:
         assert len(payload["reason"]) <= 2048 + len("… (truncated)")
         assert payload["reason"].endswith("… (truncated)")
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_notify_reverted_distinct_from_failure(self, mock_post):
         """training.reverted must not collide with training.failure (dashboards rely on this split)."""
         config = _make_config({"url": "https://example.com/hook"})
@@ -392,7 +450,7 @@ class TestLifecycleVocabulary:
         # Color must signal "reverted" (warning orange), not "failed" (red).
         assert payload["attachments"][0]["color"] == "#ff9900"
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_notify_awaiting_approval_payload(self, mock_post):
         """Approval gate must serialize as event=approval.required with model_path included."""
         config = _make_config({"url": "https://example.com/hook"})
@@ -414,7 +472,7 @@ class TestLifecycleVocabulary:
         assert payload["model_path"] == "/var/forgelm/runs/abc/final_model"
         assert "/var/forgelm/runs/abc/final_model" in payload["attachments"][0]["text"]
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_notify_awaiting_approval_no_model_weights_in_payload(self, mock_post):
         """Security: approval payload must carry the staging path only, never weight bytes or tensor dumps."""
         config = _make_config({"url": "https://example.com/hook"})

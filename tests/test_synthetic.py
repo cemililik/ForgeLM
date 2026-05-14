@@ -9,6 +9,36 @@ import pytest
 from forgelm.config import ForgeConfig, load_config
 from forgelm.synthetic import SyntheticDataGenerator, SyntheticResult
 
+
+@pytest.fixture(autouse=True)
+def _stub_ssrf_resolver(monkeypatch):
+    """Auto-stub ``forgelm._http._resolve_safe_destination`` so synthetic
+    teacher tests do not require live DNS resolution of API endpoints.
+    See ``tests/test_webhook.py`` for the same pattern + full rationale.
+    Dedicated resolver coverage lives in ``tests/test_http_dns_rebinding.py``.
+    """
+    import ipaddress
+
+    from forgelm import _http
+
+    def _hermetic_resolver(host):
+        if not host:
+            return None, "empty host"
+        try:
+            literal = ipaddress.ip_address(host)
+        except ValueError:
+            literal = None
+        if literal is not None:
+            if _http._is_blocked_ip(literal):
+                return None, "Private/loopback/IMDS destination"
+            return host, None
+        if host == "localhost":
+            return None, "Private/loopback/IMDS destination"
+        return "8.8.8.8", None
+
+    monkeypatch.setattr(_http, "_resolve_safe_destination", _hermetic_resolver)
+
+
 BASE = {
     "model": {"name_or_path": "test/model"},
     "lora": {"r": 16, "alpha": 32},
@@ -285,7 +315,7 @@ class TestSyntheticUsesSafePost:
         src = inspect.getsource(synthetic.SyntheticDataGenerator._call_api_teacher)
         assert "safe_post" in src, "synthetic._call_api_teacher must use safe_post"
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_synthetic_call_goes_through_safe_post(self, mock_post):
         """A successful API teacher call routes through safe_post → requests.post."""
         mock_response = MagicMock()
@@ -313,7 +343,7 @@ class TestSyntheticUsesSafePost:
         # safe_post forwards allow_redirects=False
         assert kwargs.get("allow_redirects") is False
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_synthetic_ssrf_block_for_private_api_base(self, mock_post):
         """A private-IP api_base must be rejected before any network call."""
         from forgelm._http import HttpSafetyError

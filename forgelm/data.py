@@ -234,6 +234,13 @@ def _ensure_validation_split(dataset):
         dataset["validation"] = dataset["test"]
         return dataset
     dataset_size = len(dataset["train"])
+    if dataset_size < 2:
+        logger.warning(
+            "Training set has only %d sample(s) — cannot create a validation split. "
+            "Evaluation metrics will be unavailable for this run.",
+            dataset_size,
+        )
+        return dataset
     test_size = min(0.1, 2000 / max(dataset_size, 1))
     test_size = max(test_size, 0.01)
     logger.info(

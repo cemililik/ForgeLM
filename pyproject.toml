@@ -58,6 +58,12 @@ dependencies = [
   "tensorboard>=2.15.0,<3.0.0",
   "huggingface_hub>=0.23.2,<1.0.0",
   "requests>=2.31.0,<3.0.0",
+  # requests-toolbelt is required by forgelm._http for the HostHeaderSSLAdapter
+  # used to close the DNS-rebinding TOCTOU window in safe_post / safe_get
+  # (issue #14). Small (~30KB) and from the same requests ecosystem, so it's
+  # a hard dep rather than an optional extra — SSRF hardening must always be
+  # active, not opt-in.
+  "requests-toolbelt>=1.0.0,<2.0.0",
 ]
 
 [project.optional-dependencies]

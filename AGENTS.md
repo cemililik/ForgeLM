@@ -1,6 +1,6 @@
-# CLAUDE.md — Project Guidance for AI Agents
+# AGENTS.md — Project Guidance for AI Agents
 
-> **Audience:** Claude Code (and other AI coding agents) working on ForgeLM. Complements — does not replace — the human-facing [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/standards/](docs/standards/).
+> **Audience:** Codex (and other AI coding agents) working on ForgeLM. Complements — does not replace — the human-facing [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/standards/](docs/standards/).
 
 ## What ForgeLM is (in one line)
 
@@ -29,16 +29,16 @@ Do not invent conventions. If you cannot find the pattern for what you're about 
 
 ## Skills
 
-When a task maps to a common pattern, invoke the matching skill from [.claude/skills/](.claude/skills/):
+When a task maps to a common pattern, invoke the matching skill from [.agents/skills/](.agents/skills/):
 
 | Task | Skill |
 |---|---|
-| Adding a YAML config field | [add-config-field](.claude/skills/add-config-field/SKILL.md) |
-| Adding a larger trainer / evaluator / module feature | [add-trainer-feature](.claude/skills/add-trainer-feature/SKILL.md) |
-| Writing tests | [add-test](.claude/skills/add-test/SKILL.md) |
-| Updating bilingual docs (EN ↔ TR) | [sync-bilingual-docs](.claude/skills/sync-bilingual-docs/SKILL.md) |
-| Reviewing a PR (own or peer) | [review-pr](.claude/skills/review-pr/SKILL.md) |
-| Cutting a release | [cut-release](.claude/skills/cut-release/SKILL.md) |
+| Adding a YAML config field | [add-config-field](.agents/skills/add-config-field/SKILL.md) |
+| Adding a larger trainer / evaluator / module feature | [add-trainer-feature](.agents/skills/add-trainer-feature/SKILL.md) |
+| Writing tests | [add-test](.agents/skills/add-test/SKILL.md) |
+| Updating bilingual docs (EN ↔ TR) | [sync-bilingual-docs](.agents/skills/sync-bilingual-docs/SKILL.md) |
+| Reviewing a PR (own or peer) | [review-pr](.agents/skills/review-pr/SKILL.md) |
+| Cutting a release | [cut-release](.agents/skills/cut-release/SKILL.md) |
 
 Each skill's `SKILL.md` has the full checklist. Follow it; don't skip steps to save time.
 
@@ -94,7 +94,7 @@ ForgeLM/
 ├── CHANGELOG.md             # Keep-a-Changelog format
 ├── README.md                # User-facing project summary
 ├── CONTRIBUTING.md          # Human contributor guide
-└── CLAUDE.md                # This file
+└── AGENTS.md                # This file
 ```
 
 ## Non-negotiable project principles
@@ -190,7 +190,7 @@ Default workflow for a non-trivial change:
 ## When in doubt
 
 1. Check the relevant [docs/standards/](docs/standards/) file.
-2. Check for a matching skill in [.claude/skills/](.claude/skills/).
+2. Check for a matching skill in [.agents/skills/](.agents/skills/).
 3. Find the closest existing pattern in the codebase and follow it.
 4. Ask the user rather than guess.
 

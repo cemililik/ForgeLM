@@ -153,3 +153,60 @@ class TestEvaluationChecks:
         trainer = self._make_trainer(auto_revert=False, max_loss=0.1)
         result = trainer.execute_evaluation_checks("/tmp/nonexistent", {"eval_loss": 5.0})
         assert result is True  # auto_revert=False means always pass
+
+
+class TestTrainingArgsValidationGuard:
+    """P1-2 regression: when no validation split exists, the training-args
+    builder must downshift eval_strategy to ``"no"`` and disable
+    load_best_model_at_end / metric_for_best_model.  Otherwise HF Trainer
+    refuses to construct with ``eval_strategy="steps"`` + ``eval_dataset=None``.
+    """
+
+    def _seed_trainer(self, tmp_path, dataset):
+        from forgelm.config import ForgeConfig
+        from forgelm.trainer import ForgeTrainer
+
+        config = ForgeConfig(
+            **{
+                "model": {"name_or_path": "org/model", "max_length": 2048},
+                "lora": {},
+                "training": {"trainer_type": "sft", "output_dir": str(tmp_path)},
+                "data": {"dataset_name_or_path": "org/dataset"},
+            }
+        )
+        trainer = ForgeTrainer.__new__(ForgeTrainer)
+        trainer.model = MagicMock()
+        trainer.tokenizer = MagicMock()
+        trainer.config = config
+        trainer.dataset = dataset
+        trainer.checkpoint_dir = str(tmp_path)
+        trainer.run_name = "training_args_test"
+        trainer.notifier = MagicMock()
+        trainer.audit = MagicMock()
+        return trainer
+
+    def test_validation_present_keeps_eval_strategy(self, tmp_path):
+        trainer = self._seed_trainer(tmp_path, {"train": list(range(20)), "validation": list(range(2))})
+        kwargs = trainer._get_common_training_kwargs()
+        assert kwargs["eval_strategy"] == "steps"
+        assert kwargs["load_best_model_at_end"] is True
+        assert kwargs["metric_for_best_model"] == "eval_loss"
+        assert kwargs["greater_is_better"] is False
+
+    def test_no_validation_downshifts_eval_strategy(self, tmp_path):
+        trainer = self._seed_trainer(tmp_path, {"train": list(range(20))})
+        kwargs = trainer._get_common_training_kwargs()
+        assert kwargs["eval_strategy"] == "no", (
+            "HF Trainer rejects eval_strategy != 'no' with eval_dataset=None; "
+            "the builder must downshift when no validation split exists"
+        )
+        assert kwargs["load_best_model_at_end"] is False
+        assert kwargs["metric_for_best_model"] is None
+        assert kwargs["greater_is_better"] is None
+
+    def test_empty_validation_downshifts_eval_strategy(self, tmp_path):
+        """Empty list counts as no validation — bool(self.dataset.get('validation')) is False."""
+        trainer = self._seed_trainer(tmp_path, {"train": list(range(20)), "validation": []})
+        kwargs = trainer._get_common_training_kwargs()
+        assert kwargs["eval_strategy"] == "no"
+        assert kwargs["load_best_model_at_end"] is False

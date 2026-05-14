@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from typing import Optional, Tuple
 
 from ..config import ForgeConfig
 from ._dry_run import _run_dry_run
@@ -16,10 +17,50 @@ from ._fit_check import _run_fit_check
 from ._logging import logger
 
 
+def _resolve_benchmark_load_target(model_path: str) -> Tuple[str, Optional[str]]:
+    """Resolve ``(base_path, adapter_path_or_none)`` for the inference loader.
+
+    A PEFT checkpoint is detected by the presence of ``adapter_config.json``
+    inside ``model_path``.  When found, the base model identifier is read
+    from ``adapter_config.json::base_model_name_or_path``; the adapter
+    directory itself is returned as the second tuple element so the
+    caller can pass ``adapter=...`` to :func:`forgelm.inference.load_model`.
+
+    Exits with :data:`EXIT_CONFIG_ERROR` (with an actionable log line)
+    when the adapter config is unreadable / malformed / missing the
+    base-model field — these are all unrecoverable configuration errors
+    that would otherwise surface as confusing crashes deep inside
+    ``PeftModel.from_pretrained``.
+    """
+    adapter_cfg_path = os.path.join(model_path, "adapter_config.json")
+    if not os.path.isfile(adapter_cfg_path):
+        return model_path, None
+
+    # adapter_config.json is HF-produced JSON — explicit UTF-8 keeps the
+    # parse deterministic across Windows code-page locales.
+    try:
+        with open(adapter_cfg_path, encoding="utf-8") as f:
+            adapter_meta = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.error("Failed to read PEFT adapter_config.json at %s: %s", adapter_cfg_path, e)
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    base_path = adapter_meta.get("base_model_name_or_path")
+    if not base_path:
+        logger.error(
+            "PEFT checkpoint at %s is missing 'base_model_name_or_path' in adapter_config.json — "
+            "cannot reconstruct the base model + adapter combination.",
+            model_path,
+        )
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    return base_path, model_path
+
+
 def _run_benchmark_only(config: ForgeConfig, model_path: str, output_format: str) -> None:
     """Run benchmark evaluation on an existing model without training."""
     from ..benchmark import run_benchmark
-    from ..model import get_model_and_tokenizer
+    from ..inference import load_model
 
     eval_cfg = config.evaluation
     if not eval_cfg or not eval_cfg.benchmark or not eval_cfg.benchmark.tasks:
@@ -28,11 +69,21 @@ def _run_benchmark_only(config: ForgeConfig, model_path: str, output_format: str
 
     bench_cfg = eval_cfg.benchmark
 
-    # Override model path to the provided one
-    config.model.name_or_path = model_path
-    logger.info("Loading model from %s for benchmark evaluation...", model_path)
+    base_path, adapter_path = _resolve_benchmark_load_target(model_path)
+    if adapter_path:
+        logger.info(
+            "Detected PEFT checkpoint. Loading base model %s + adapter %s for benchmark.", base_path, adapter_path
+        )
+    else:
+        logger.info("Loading model from %s for benchmark evaluation...", base_path)
 
-    model, tokenizer = get_model_and_tokenizer(config)
+    model, tokenizer = load_model(
+        base_path,
+        adapter=adapter_path,
+        backend=config.model.backend,
+        load_in_4bit=config.model.load_in_4bit,
+        trust_remote_code=getattr(config.model, "trust_remote_code", False),
+    )
 
     output_dir = bench_cfg.output_dir or os.path.join(os.path.dirname(model_path), "benchmark")
 

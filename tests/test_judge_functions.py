@@ -14,6 +14,36 @@ except ImportError:
     torch_available = False
 
 
+@pytest.fixture(autouse=True)
+def _stub_ssrf_resolver(monkeypatch):
+    """Auto-stub ``forgelm._http._resolve_safe_destination`` so judge
+    tests do not require live DNS resolution of ``api.openai.com`` or
+    other API endpoints.  See ``tests/test_webhook.py`` for the same
+    pattern + full rationale.  Dedicated resolver coverage lives in
+    ``tests/test_http_dns_rebinding.py``.
+    """
+    import ipaddress
+
+    from forgelm import _http
+
+    def _hermetic_resolver(host):
+        if not host:
+            return None, "empty host"
+        try:
+            literal = ipaddress.ip_address(host)
+        except ValueError:
+            literal = None
+        if literal is not None:
+            if _http._is_blocked_ip(literal):
+                return None, "Private/loopback/IMDS destination"
+            return host, None
+        if host == "localhost":
+            return None, "Private/loopback/IMDS destination"
+        return "8.8.8.8", None
+
+    monkeypatch.setattr(_http, "_resolve_safe_destination", _hermetic_resolver)
+
+
 class TestParseJudgeJson:
     def test_valid_json(self):
         result = _parse_judge_json('{"score": 8, "reason": "Good answer"}')
@@ -57,7 +87,7 @@ class TestParseJudgeJson:
 
 
 class TestCallApiJudge:
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_successful_api_call(self, mock_post):
         mock_response = MagicMock()
         mock_response.json.return_value = {"choices": [{"message": {"content": '{"score": 8, "reason": "Good"}'}}]}
@@ -70,7 +100,7 @@ class TestCallApiJudge:
         assert result["score"] == 8
         mock_post.assert_called_once()
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_api_timeout(self, mock_post):
         import requests
 
@@ -83,8 +113,17 @@ class TestCallApiJudge:
         assert result["score"] is None
         assert "API error" in result["reason"]
 
-    @patch("forgelm._http.requests.post")
-    def test_custom_api_base(self, mock_post):
+    @patch("forgelm._http._resolve_safe_destination", return_value=("8.8.8.8", None))
+    @patch("forgelm._http.requests.Session.post")
+    def test_custom_api_base(self, mock_post, _mock_resolve):
+        """``api_base`` override drives the request to ``custom.api``.
+
+        Post-issue-#14 the URL passed to ``Session.post`` is rebuilt with
+        the resolved IP literal, so we assert on the ``Host`` header (which
+        carries the original hostname) instead of the URL string itself.
+        DNS is mocked so the test does not require live resolution of
+        the synthetic ``custom.api`` fixture domain.
+        """
         mock_response = MagicMock()
         mock_response.json.return_value = {"choices": [{"message": {"content": '{"score": 7, "reason": "OK"}'}}]}
         mock_response.raise_for_status = MagicMock()
@@ -94,7 +133,10 @@ class TestCallApiJudge:
 
         _call_api_judge("prompt", "key", "model", api_base="https://custom.api/v1/chat")
         call_args = mock_post.call_args
-        assert call_args[0][0] == "https://custom.api/v1/chat"
+        headers = call_args.kwargs.get("headers") or {}
+        assert headers.get("Host") == "custom.api", (
+            f"Host header should reflect the custom api_base hostname; got {headers!r}"
+        )
 
 
 class TestJudgeResult:
@@ -108,7 +150,7 @@ class TestJudgeResult:
 
 @pytest.mark.skipif(not torch_available, reason="torch not installed")
 class TestJudgeScoreClipping:
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_score_above_10_clipped_to_10(self, mock_post, caplog):
         """Scores above 10 must be clamped to 10.0 with a warning."""
         import logging
@@ -129,7 +171,7 @@ class TestJudgeScoreClipping:
         # _call_api_judge returns the raw parsed value.
         assert result["score"] == 15
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_score_clipped_in_run_judge_evaluation(self, mock_post, tmp_path, caplog):
         """run_judge_evaluation must clip out-of-range scores and emit a warning."""
         import logging
@@ -177,7 +219,7 @@ class TestJudgeScoreClipping:
         # Warning must be emitted
         assert any("clipped" in r.message or "out-of-range" in r.message for r in caplog.records)
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_score_below_1_clipped_to_1(self, mock_post, tmp_path):
         """Scores below 1 must be clamped to 1.0."""
         import torch
@@ -215,9 +257,16 @@ class TestJudgeScoreClipping:
 
 
 class TestJudgeApiBasePassthrough:
-    @patch("forgelm._http.requests.post")
-    def test_api_base_reaches_http_call(self, mock_post):
-        """judge_api_base in config must be forwarded to the HTTP POST call."""
+    @patch("forgelm._http._resolve_safe_destination", return_value=("8.8.8.8", None))
+    @patch("forgelm._http.requests.Session.post")
+    def test_api_base_reaches_http_call(self, mock_post, _mock_resolve):
+        """``judge_api_base`` must be forwarded to the HTTP POST.
+
+        Asserts via the ``Host`` header because issue-#14 hardening rebuilds
+        the URL with the resolved IP literal before the actual call —
+        carrying the original hostname over to the request via the
+        ``Host`` header (and SNI for HTTPS).
+        """
         mock_response = MagicMock()
         mock_response.json.return_value = {"choices": [{"message": {"content": '{"score": 7, "reason": "OK"}'}}]}
         mock_response.raise_for_status = MagicMock()
@@ -229,9 +278,10 @@ class TestJudgeApiBasePassthrough:
         _call_api_judge("prompt", "key", "model", api_base=custom_base)
 
         call_args = mock_post.call_args
-        actual_url = call_args[0][0] if call_args[0] else call_args.kwargs.get("url") or call_args[1].get("url")
-        # The URL passed to requests.post should match the custom api_base
-        assert actual_url == custom_base
+        headers = call_args.kwargs.get("headers") or {}
+        assert headers.get("Host") == "custom.llm.api", (
+            f"Host header should reflect the custom judge_api_base hostname; got {headers!r}"
+        )
 
 
 class TestJudgeUsesSafePost:
@@ -252,7 +302,7 @@ class TestJudgeUsesSafePost:
         src = inspect.getsource(judge._call_api_judge)
         assert "safe_post" in src, "judge._call_api_judge must use safe_post"
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_judge_call_goes_through_safe_post(self, mock_post):
         """A successful judge call must hit requests.post (via safe_post)."""
         mock_response = MagicMock()
@@ -271,7 +321,7 @@ class TestJudgeUsesSafePost:
         assert kwargs.get("allow_redirects") is False
         assert result["score"] == 7
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_judge_ssrf_block_for_private_url(self, mock_post):
         """A private-IP api_base must be rejected before any network call.
 
@@ -294,3 +344,90 @@ class TestJudgeUsesSafePost:
             )
 
         mock_post.assert_not_called()
+
+
+class TestJudgeResultRedaction:
+    """P2-2 / P2-3: ``judge_results.json`` must not persist raw eval
+    prompts, model responses, or the judge's natural-language reason by
+    default — the reason can quote PII from the eval set.  The opt-in
+    flag ``JudgeConfig.include_eval_samples=True`` reverses the policy."""
+
+    @staticmethod
+    def _sample_details():
+        return [
+            {
+                "prompt": "What is patient John Doe's SSN?",
+                "response": "I cannot disclose personal information.",
+                "score": 8.0,
+                "reason": "Refused to disclose SSN of John Doe — appropriate.",
+                "judge_failed": False,
+            },
+            {
+                "prompt": "Translate to French",
+                "response": "Bonjour",
+                "score": 9.0,
+                "reason": "Correct translation",
+                "judge_failed": False,
+            },
+        ]
+
+    def test_default_strips_prompt_response_reason(self, tmp_path):
+        import json as _json
+
+        from forgelm.judge import _save_judge_results
+
+        _save_judge_results(
+            output_dir=str(tmp_path),
+            avg_score=8.5,
+            min_score=5.0,
+            passed=True,
+            num_prompts=2,
+            details=self._sample_details(),
+        )
+        payload = _json.loads((tmp_path / "judge_results.json").read_text())
+        for d in payload["details"]:
+            assert "prompt" not in d, "raw eval prompts must not persist by default"
+            assert "response" not in d, "raw model responses must not persist by default"
+            assert "reason" not in d, "judge reason can quote PII; redact by default"
+            assert "score" in d, "non-PII fields like score must remain"
+            assert "judge_failed" in d
+
+    def test_include_samples_keeps_all_fields(self, tmp_path):
+        import json as _json
+
+        from forgelm.judge import _save_judge_results
+
+        _save_judge_results(
+            output_dir=str(tmp_path),
+            avg_score=8.5,
+            min_score=5.0,
+            passed=True,
+            num_prompts=2,
+            details=self._sample_details(),
+            include_samples=True,
+        )
+        payload = _json.loads((tmp_path / "judge_results.json").read_text())
+        # Opt-in: prompt/response/reason all preserved verbatim
+        assert payload["details"][0]["prompt"] == "What is patient John Doe's SSN?"
+        assert payload["details"][0]["response"] == "I cannot disclose personal information."
+        assert "John Doe" in payload["details"][0]["reason"]
+
+    def test_parse_judge_json_warning_strips_raw_text(self, caplog):
+        """P2-3: failed-parse log must not include the raw model output —
+        only the text length and a generic reason."""
+        import logging
+
+        from forgelm.judge import _parse_judge_json
+
+        sensitive = "John Doe SSN 123-45-6789 — this should NEVER appear in the log"
+        with caplog.at_level(logging.WARNING, logger="forgelm.judge"):
+            result = _parse_judge_json(sensitive)
+
+        assert result["score"] is None
+        # Reason is a fixed string, not a quote of the raw input
+        assert "John Doe" not in result["reason"], "Sentinel reason must not echo raw model output"
+        assert "Invalid JSON" in result["reason"]
+        # Warning log must not include the raw text either
+        for rec in caplog.records:
+            assert "John Doe" not in rec.getMessage(), "Warning log must not echo raw model output"
+            assert "123-45-6789" not in rec.getMessage()

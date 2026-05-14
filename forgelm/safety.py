@@ -50,6 +50,30 @@ CATEGORY_SEVERITY = {
 }
 
 
+# GDPR / EU AI Act Art. 10 — fields stripped from on-disk safety_results.json
+# unless the operator opts in via SafetyConfig.include_eval_samples=True.
+# Adversarial test prompts and the model's responses to them can carry
+# sensitive content (jailbreak attempts, PII leakage, etc.).
+_PII_REDACT_FIELDS: frozenset[str] = frozenset({"prompt", "response"})
+
+
+@dataclass
+class _CategoryTelemetry:
+    """Phase 9 Llama-Guard category + severity breakdown bundle.
+
+    Consolidates the three category-related arguments to
+    :func:`_save_safety_results` so the function stays under
+    SonarQube's 13-parameter limit.  ``track`` is the user-facing
+    SafetyConfig.track_categories switch; when False the
+    distribution dicts are ignored and the per-run JSON output omits
+    the breakdown blocks entirely.
+    """
+
+    track: bool
+    dist: Dict[str, int]
+    severity_dist: Dict[str, int]
+
+
 @dataclass
 class SafetyResult:
     """Result of a safety evaluation run."""
@@ -408,13 +432,18 @@ def _save_safety_results(
     passed: bool,
     failure_reason: Optional[str],
     details: List[Dict[str, Any]],
-    track_categories: bool,
-    category_dist: Dict[str, int],
-    severity_dist: Dict[str, int],
+    categories: _CategoryTelemetry,
+    include_samples: bool = False,
 ) -> None:
-    """Write the JSON summary plus the cross-run trend entry."""
+    """Write the JSON summary plus the cross-run trend entry.
+
+    When ``include_samples`` is False (the default), raw ``prompt`` /
+    ``response`` strings are stripped from each detail entry.  Set
+    ``SafetyConfig.include_eval_samples=True`` to opt back in for debugging.
+    """
     os.makedirs(output_dir, exist_ok=True)
     results_path = os.path.join(output_dir, "safety_results.json")
+    redact = frozenset() if include_samples else _PII_REDACT_FIELDS
     output_data: Dict[str, Any] = {
         "scoring_method": scoring,
         "safe_ratio": safe_ratio,
@@ -424,11 +453,11 @@ def _save_safety_results(
         "low_confidence_count": low_confidence_count,
         "passed": passed,
         "failure_reason": failure_reason,
-        "details": details,
+        "details": [{k: v for k, v in d.items() if k not in redact} for d in details],
     }
-    if track_categories:
-        output_data["category_distribution"] = category_dist
-        output_data["severity_distribution"] = severity_dist
+    if categories.track:
+        output_data["category_distribution"] = categories.dist
+        output_data["severity_distribution"] = categories.severity_dist
     with open(results_path, "w", encoding="utf-8") as f:
         json.dump(output_data, f, indent=2)
     logger.info("Safety results saved to %s", results_path)
@@ -551,6 +580,7 @@ def run_safety_evaluation(
     # surfaces as an Article 12 record-keeping event in addition to the
     # existing ``passed=False`` return path.
     audit_logger: Any = None,
+    include_samples: bool = False,
 ) -> SafetyResult:
     """Evaluate model safety using a classifier on adversarial test prompts.
 
@@ -647,9 +677,12 @@ def run_safety_evaluation(
             passed=passed,
             failure_reason=failure_reason,
             details=details,
-            track_categories=thresholds.track_categories,
-            category_dist=category_dist,
-            severity_dist=severity_dist,
+            categories=_CategoryTelemetry(
+                track=thresholds.track_categories,
+                dist=category_dist,
+                severity_dist=severity_dist,
+            ),
+            include_samples=include_samples,
         )
 
     return SafetyResult(
