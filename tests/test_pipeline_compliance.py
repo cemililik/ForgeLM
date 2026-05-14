@@ -485,17 +485,25 @@ class TestVerifyAnnexIvPipelineModeExitCodes:
     single-artefact path's exit-code policy."""
 
     def _run(self, tmp_path, args_overrides: dict) -> int:
-        """Invoke ``_run_pipeline_mode`` and capture the ``SystemExit`` code."""
+        """Invoke ``_run_pipeline_mode`` and capture the ``SystemExit`` code.
+
+        Uses ``pytest.raises(SystemExit)`` rather than a bare
+        ``try / except SystemExit`` (Sonar python:S5754 / pylint
+        ``broad-except``).  The CLI command always ``sys.exit``s, so we
+        expect ``SystemExit`` every invocation — a leak past the
+        context manager would be a real bug worth surfacing.
+        """
         import argparse as _argparse
+
+        import pytest as _pytest
 
         from forgelm.cli.subcommands._verify_annex_iv import _run_verify_annex_iv_cmd
 
         args = _argparse.Namespace(path=str(tmp_path), pipeline=True, **args_overrides)
-        try:
+        with _pytest.raises(SystemExit) as exc_info:
             _run_verify_annex_iv_cmd(args, "text")
-        except SystemExit as exc:
-            return int(exc.code) if exc.code is not None else 0
-        return 0
+        code = exc_info.value.code
+        return int(code) if code is not None else 0
 
     def test_missing_manifest_exits_config_error(self, tmp_path, capsys):
         """``not found`` is operator-actionable input → exit 1."""

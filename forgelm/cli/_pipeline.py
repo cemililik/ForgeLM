@@ -547,6 +547,114 @@ class PipelineOrchestrator:
             )
             self._notify_pipeline("completed", state)
 
+    def _stage_skip_reason(
+        self,
+        *,
+        stage: PipelineStage,
+        stage_state: PipelineStageState,
+        state: PipelineState,
+        stage_filter: Optional[str],
+        stages_to_skip_completed: List[str],
+        chain_broken: bool,
+    ) -> Optional[str]:
+        """Decide whether the stage should be skipped, and update state accordingly.
+
+        Returns one of:
+
+        - ``"filtered"`` — ``--stage X`` was set and this is not the
+          named stage.  Status set to ``skipped_by_filter``.
+        - ``"already_completed"`` — ``--resume-from`` picked this stage
+          up as already-done; caller seeds ``prev_output`` from
+          ``stage_state.output_model``.
+        - ``"chain_broken"`` — a prior stage in the same run reverted
+          or failed; status set to ``skipped_due_to_prior_revert``.
+        - ``None`` — proceed to execute.
+
+        Extracted from :meth:`run` for Sonar python:S3776 cognitive-
+        complexity hygiene.
+        """
+        if stage_filter is not None and stage.name != stage_filter:
+            stage_state.status = "skipped_by_filter"
+            stage_state.skipped_reason = f"--stage {stage_filter!r} was specified; only that stage runs."
+            self._save_state(state)
+            return "filtered"
+        if stage.name in stages_to_skip_completed:
+            return "already_completed"
+        if chain_broken:
+            stage_state.status = "skipped_due_to_prior_revert"
+            stage_state.skipped_reason = (
+                f"Stage {state.stopped_at!r} triggered auto_revert; downstream stages did not run."
+            )
+            self._save_state(state)
+            return "chain_broken"
+        return None
+
+    def _run_stage_loop(
+        self,
+        *,
+        state: PipelineState,
+        stage_filter: Optional[str],
+        stages_to_skip_completed: List[str],
+        input_model_override: Optional[str],
+        prev_output_for_filter: Optional[str],
+    ) -> int:
+        """Iterate over ``self.pipeline.stages`` and return the aggregated ``worst_exit``.
+
+        Each iteration is one of three things:
+
+        1. A skipped stage (filter / already-done / chain broken) — see
+           :meth:`_stage_skip_reason` for the routing rules.
+        2. An executed stage — :meth:`_execute_one_stage` runs the
+           trainer and :meth:`_handle_stage_outcome` records the
+           transition + audit events.
+        3. A gated stage (``EXIT_AWAITING_APPROVAL``) — the outcome
+           handler sets ``should_break`` and the loop returns early so
+           downstream stages stay ``pending`` for a subsequent
+           ``--resume-from``.
+
+        Extracted from :meth:`run` for Sonar python:S3776 cognitive-
+        complexity hygiene.
+        """
+        worst_exit: int = EXIT_SUCCESS
+        prev_output: Optional[str] = prev_output_for_filter
+        chain_broken: bool = False
+        for i, stage in enumerate(self.pipeline.stages):
+            stage_state = state.stages[i]
+            skip_reason = self._stage_skip_reason(
+                stage=stage,
+                stage_state=stage_state,
+                state=state,
+                stage_filter=stage_filter,
+                stages_to_skip_completed=stages_to_skip_completed,
+                chain_broken=chain_broken,
+            )
+            if skip_reason == "already_completed":
+                prev_output = stage_state.output_model
+                continue
+            if skip_reason is not None:
+                continue
+
+            exit_code = self._execute_one_stage(
+                index=i,
+                stage=stage,
+                state=state,
+                prev_output=prev_output,
+                stage_filter=stage_filter,
+                input_model_override=input_model_override,
+            )
+            worst_exit, new_prev_output, chain_broken_now, should_break = self._handle_stage_outcome(
+                stage=stage,
+                stage_state=stage_state,
+                exit_code=exit_code,
+                state=state,
+                worst_exit=worst_exit,
+            )
+            prev_output = new_prev_output if new_prev_output is not None else prev_output
+            chain_broken = chain_broken or chain_broken_now
+            if should_break:
+                break
+        return worst_exit
+
     def run(
         self,
         *,
@@ -605,55 +713,15 @@ class PipelineOrchestrator:
             )
             self._notify_pipeline("started", state)
 
-        # 4. Iterate stages.  The loop body delegates the actual
-        # per-stage work to ``_execute_one_stage`` + the outcome
-        # transition to ``_handle_stage_outcome``, so this method's
-        # cognitive complexity stays bounded.
-        worst_exit: int = EXIT_SUCCESS
-        prev_output: Optional[str] = prev_output_for_filter
-        chain_broken: bool = False
-        for i, stage in enumerate(self.pipeline.stages):
-            stage_state = state.stages[i]
-
-            if stage_filter is not None and stage.name != stage_filter:
-                stage_state.status = "skipped_by_filter"
-                stage_state.skipped_reason = f"--stage {stage_filter!r} was specified; only that stage runs."
-                self._save_state(state)
-                continue
-
-            if stage.name in stages_to_skip_completed:
-                prev_output = stage_state.output_model
-                continue
-
-            if chain_broken:
-                stage_state.status = "skipped_due_to_prior_revert"
-                stage_state.skipped_reason = (
-                    f"Stage {state.stopped_at!r} triggered auto_revert; downstream stages did not run."
-                )
-                self._save_state(state)
-                continue
-
-            exit_code = self._execute_one_stage(
-                index=i,
-                stage=stage,
-                state=state,
-                prev_output=prev_output,
-                stage_filter=stage_filter,
-                input_model_override=input_model_override,
-            )
-            worst_exit, new_prev_output, chain_broken_now, should_break = self._handle_stage_outcome(
-                stage=stage,
-                stage_state=stage_state,
-                exit_code=exit_code,
-                state=state,
-                worst_exit=worst_exit,
-            )
-            if new_prev_output is not None:
-                prev_output = new_prev_output
-            if chain_broken_now:
-                chain_broken = True
-            if should_break:
-                break
+        # 4. Iterate stages (delegated so this method stays at a
+        # bounded cognitive-complexity score).
+        worst_exit = self._run_stage_loop(
+            state=state,
+            stage_filter=stage_filter,
+            stages_to_skip_completed=stages_to_skip_completed,
+            input_model_override=input_model_override,
+            prev_output_for_filter=prev_output_for_filter,
+        )
 
         # 5+6. Final state + manifest + summary.
         self._finalise_pipeline(state, worst_exit)
