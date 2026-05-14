@@ -44,7 +44,7 @@ Each skill's `SKILL.md` has the full checklist. Follow it; don't skip steps to s
 
 ## Repository structure at a glance
 
-```
+```text
 ForgeLM/
 ├── forgelm/                 # Source code: ~22 single-file modules + 2 sub-packages
 │   ├── cli/                 # CLI package (Phase 15 split): _parser, _dispatch,
