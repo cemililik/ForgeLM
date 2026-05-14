@@ -852,7 +852,7 @@ class PipelineOrchestrator:
             )
         except Exception as exc:  # noqa: BLE001 — config-merge failure is a fatal stage error; routes through the standard config-error exit code.
             stage_state.error = f"Config merge failed: {exc}"
-            logger.error("Stage %r config merge failed: %s", stage.name, exc)
+            logger.exception("Stage %r config merge failed.", stage.name)
             return EXIT_CONFIG_ERROR
 
         stage_state.input_model = stage_cfg.model.name_or_path
@@ -904,7 +904,12 @@ class PipelineOrchestrator:
             dataset = prepare_dataset(stage_cfg, tokenizer)
             trainer = ForgeTrainer(model=model, tokenizer=tokenizer, config=stage_cfg, dataset=dataset)
             result = trainer.train()
-        except Exception as exc:  # noqa: BLE001 — top-of-stage catch.  ForgeTrainer.train() crosses every concern (HF load, dataset, TRL, safety, judge, audit, compliance, webhook); any uncaught exception must surface as a per-stage failure rather than a Python traceback that strands the pipeline state.
+        # Top-of-stage catch.  ForgeTrainer.train() crosses every
+        # concern (HF load, dataset, TRL, safety, judge, audit,
+        # compliance, webhook); any uncaught exception must surface as
+        # a per-stage failure rather than a Python traceback that
+        # strands the pipeline state.
+        except Exception as exc:  # noqa: BLE001
             stage_state.error = f"Trainer crashed: {exc}"
             logger.exception("Stage %r trainer crashed.", stage.name)
             return EXIT_TRAINING_ERROR

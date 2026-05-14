@@ -273,7 +273,7 @@ class TestMergeSectionWholesale:
         merged = merge_pipeline_stage_config(root, stage, prev_output_model="./prev/model")
         assert merged.evaluation is not None
         assert merged.evaluation.auto_revert is True
-        assert merged.evaluation.max_acceptable_loss == 1.5
+        assert merged.evaluation.max_acceptable_loss == pytest.approx(1.5)
 
     def test_pipeline_section_stripped_from_merged_config(self):
         """The orchestrator hands the merged ForgeConfig to a single-stage

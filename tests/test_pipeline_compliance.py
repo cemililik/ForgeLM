@@ -33,13 +33,13 @@ def _root_with_compliance() -> ForgeConfig:
     )
 
 
-def _three_stage_state(*, all_completed: bool = True) -> PipelineState:
+def _three_stage_state() -> PipelineState:
     """Build a representative 3-stage state for happy-path schema tests."""
     s1 = PipelineStageState(
         name="sft_stage",
         index=0,
         trainer_type="sft",
-        status="completed" if all_completed else "completed",
+        status="completed",
         input_model="org/base",
         input_source="root",
         output_model="./out/stage1/final_model",
@@ -382,7 +382,7 @@ class TestVerifierFlagsRunningOnFinalisedManifest:
         violations = _verify_manifest_payload(manifest)
         assert any("running" in v and "'s1'" in v for v in violations)
 
-    def test_running_stage_with_in_progress_final_status_is_OK(self):
+    def test_running_stage_with_in_progress_final_status_is_ok(self):
         """A live run is allowed to carry a ``running`` stage — the
         verifier only flags ``running`` on a *finalised* manifest."""
         s0 = PipelineStageState(

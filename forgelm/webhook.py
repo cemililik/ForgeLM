@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 import requests
@@ -173,7 +173,20 @@ class WebhookNotifier:
         metrics: Optional[Dict[str, float]] = None,
         reason: Optional[str] = None,
         model_path: Optional[str] = None,
+        **extra: Any,
     ) -> None:
+        """Build + post the webhook payload.
+
+        ``**extra`` carries event-specific fields the
+        ``notify_pipeline_*`` methods forward (stage_count, final_status,
+        stopped_at, stage_name, …) — Phase 14 review-response fix: pre-
+        fix the pipeline notifiers passed unknown kwargs to a fixed
+        signature, the resulting ``TypeError`` was swallowed by the
+        orchestrator's best-effort try/except, and pipeline webhooks
+        silently never fired.  Extras are merged into the payload under
+        their original key names so existing Slack / Teams receivers
+        that pick fields by name keep working.
+        """
         url = self._resolve_url()
         if not url:
             return
@@ -188,7 +201,7 @@ class WebhookNotifier:
         # ``model_path`` is included only for ``approval.required`` events;
         # we add the key unconditionally (even as None) to keep the schema
         # stable so downstream consumers can rely on its presence.
-        payload = {
+        payload: Dict[str, Any] = {
             "event": event,
             "run_name": run_name,
             "status": status,
@@ -198,6 +211,15 @@ class WebhookNotifier:
             # Slack-compatible formatting (receivers can ignore)
             "attachments": [{"title": title, "text": text, "color": color}],
         }
+        # Merge event-specific extras (pipeline.* events carry
+        # stage_count / final_status / stopped_at / stage_name).  Drop
+        # any extra whose key collides with a base-payload field so the
+        # contract stays stable; we don't expect collisions in practice
+        # since the pipeline notifier names are disjoint, but the guard
+        # makes the merge order explicit.
+        for key, value in extra.items():
+            if key not in payload:
+                payload[key] = value
 
         self._post_payload(url, payload, event)
 

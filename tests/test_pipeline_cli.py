@@ -54,14 +54,14 @@ def _three_stage_cfg(tmp_path):
 
 def _ns(**overrides):
     """Build an argparse.Namespace with the orchestrator-relevant fields."""
-    defaults = dict(
-        stage=None,
-        resume_from=None,
-        force_resume=False,
-        input_model=None,
-        output_format="text",
-        dry_run=False,
-    )
+    defaults = {
+        "stage": None,
+        "resume_from": None,
+        "force_resume": False,
+        "input_model": None,
+        "output_format": "text",
+        "dry_run": False,
+    }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
 

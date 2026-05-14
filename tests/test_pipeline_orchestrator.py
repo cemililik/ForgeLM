@@ -181,11 +181,11 @@ class TestStateRoundTrip:
             ],
         )
         payload = _serialise_state(state)
-        round = _deserialise_state(payload)
-        assert round.pipeline_run_id == state.pipeline_run_id
-        assert len(round.stages) == 2
-        assert round.stages[0].name == "s1"
-        assert round.stages[0].status == "completed"
+        round_tripped = _deserialise_state(payload)
+        assert round_tripped.pipeline_run_id == state.pipeline_run_id
+        assert len(round_tripped.stages) == 2
+        assert round_tripped.stages[0].name == "s1"
+        assert round_tripped.stages[0].status == "completed"
 
     def test_deserialise_tolerates_unknown_keys(self):
         """Future-forward compatibility: a newer manifest schema with
