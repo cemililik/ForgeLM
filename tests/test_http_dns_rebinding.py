@@ -174,9 +174,13 @@ class TestDnsRebindingClosed:
         not need the SSL adapter — no SNI involved."""
         from forgelm import _http
 
-        session = _http._pinned_session("http")
+        session = _http._pinned_session(
+            "http"
+        )  # NOSONAR python:S5332 — scheme fixture for the SSL-adapter dispatch branch; no outbound call.
         # Default HTTPAdapter, not HostHeaderSSLAdapter, on the http:// prefix.
-        adapter = session.get_adapter("http://example.com/")
+        adapter = session.get_adapter(
+            "http://example.com/"
+        )  # NOSONAR python:S5332 — adapter lookup fixture; no network egress.
         from requests_toolbelt.adapters.host_header_ssl import HostHeaderSSLAdapter
 
         assert not isinstance(adapter, HostHeaderSSLAdapter)
@@ -243,3 +247,144 @@ class TestSafeGetPinning:
         assert method == "GET"
         assert url == "https://8.8.8.8/api/models"
         assert headers["Host"] == "hub.example.com"
+
+    def test_safe_get_allow_private_bypasses_pinning(self):
+        """Mirror of safe_post's allow_private bypass for the read-side
+        helper — issue #14 review feedback (sourcery).  ``allow_private=True``
+        must keep the legacy ``requests.request`` flow (no Session, no
+        IP pinning) so internal DNS / split-horizon resolution still
+        resolves cluster-local registries.
+        """
+        from forgelm import _http
+
+        with (
+            patch.object(_http.socket, "getaddrinfo") as resolve_mock,
+            patch.object(_http.requests, "request") as legacy_request,
+            patch.object(_http.requests.Session, "request") as session_request,
+        ):
+            legacy_request.return_value = MagicMock(ok=True, status_code=200)
+            _http.safe_get(
+                "https://internal.registry.local/v1/models",
+                timeout=10.0,
+                allow_private=True,
+            )
+
+        resolve_mock.assert_not_called()
+        session_request.assert_not_called()
+        legacy_request.assert_called_once()
+
+
+class TestRfc7230HostHeader:
+    """Issue #14 review feedback (gemini): RFC 7230 § 5.4 requires the
+    ``Host`` header to match the request-target authority — including
+    non-standard ports and bracketed IPv6 literals.  Bare ``hostname``
+    drops both, so we use ``netloc`` (with any userinfo stripped)
+    instead.
+    """
+
+    def test_host_header_preserves_non_standard_port(self):
+        from forgelm import _http
+
+        with (
+            patch.object(_http.socket, "getaddrinfo", return_value=[(0, 0, 0, "", ("8.8.8.8", 0))]),
+            patch.object(_http.requests.Session, "post") as mock_post,
+        ):
+            mock_post.return_value = MagicMock(ok=True, status_code=200)
+            _http.safe_post("https://hooks.example.com:8443/abc", json={}, timeout=10.0)
+
+        headers = mock_post.call_args.kwargs["headers"]
+        assert headers["Host"] == "hooks.example.com:8443", (
+            f"Non-standard port must remain in the Host header per RFC 7230 § 5.4; got {headers['Host']!r}"
+        )
+
+    def test_host_header_brackets_ipv6_literal(self):
+        from forgelm import _http
+
+        # Hostname-resolved-to-IPv6 case is exercised by the URL builder
+        # test below; here we cover the IPv6-literal-in-URL form which
+        # the operator may supply when bypassing DNS entirely.
+        with patch.object(_http.requests.Session, "post") as mock_post:
+            mock_post.return_value = MagicMock(ok=True, status_code=200)
+            _http.safe_post("https://[2606:4700:4700::1111]/abc", json={}, timeout=10.0)
+
+        headers = mock_post.call_args.kwargs["headers"]
+        assert headers["Host"] == "[2606:4700:4700::1111]", (
+            f"IPv6 literal in Host header must stay bracketed per RFC 7230 § 5.4; got {headers['Host']!r}"
+        )
+
+    def test_host_header_strips_userinfo(self):
+        """If the URL carries ``user:pass@host`` userinfo, the Host
+        header must NOT echo it — that would leak the credential into
+        every outbound request, plus RFC 7230 § 5.4 explicitly forbids
+        userinfo in ``Host``.
+        """
+        from forgelm import _http
+
+        with (
+            patch.object(_http.socket, "getaddrinfo", return_value=[(0, 0, 0, "", ("8.8.8.8", 0))]),
+            patch.object(_http.requests.Session, "post") as mock_post,
+        ):
+            mock_post.return_value = MagicMock(ok=True, status_code=200)
+            _http.safe_post(
+                "https://user:pass@hooks.example.com/abc",  # noqa: S105 — userinfo fixture
+                json={},
+                timeout=10.0,
+            )
+
+        headers = mock_post.call_args.kwargs["headers"]
+        assert "@" not in headers["Host"]
+        assert headers["Host"] == "hooks.example.com"
+
+    def test_explicit_host_header_not_overridden(self):
+        """When the caller passes an explicit ``Host`` header (e.g. for
+        a reverse proxy / hostname-spoofing test setup), ``safe_post``
+        must respect it via ``setdefault`` and not overwrite — issue
+        #14 review feedback (sourcery).
+        """
+        from forgelm import _http
+
+        with (
+            patch.object(_http.socket, "getaddrinfo", return_value=[(0, 0, 0, "", ("8.8.8.8", 0))]),
+            patch.object(_http.requests.Session, "post") as mock_post,
+        ):
+            mock_post.return_value = MagicMock(ok=True, status_code=200)
+            _http.safe_post(
+                "https://hooks.example.com/abc",
+                json={},
+                headers={"Host": "operator-supplied.example.com"},
+                timeout=10.0,
+            )
+
+        headers = mock_post.call_args.kwargs["headers"]
+        assert headers["Host"] == "operator-supplied.example.com", (
+            "Caller's explicit Host header must take precedence over the auto-set value"
+        )
+
+
+class TestNoPublicIpResolvedBranch:
+    """Issue #14 review feedback (sourcery): cover the
+    ``"no public IP resolved"`` branch where ``getaddrinfo`` returns
+    only entries the resolver cannot parse as plain IP literals
+    (e.g. zone-id-suffixed IPv6 link-locals).
+    """
+
+    def test_only_unparseable_records_yields_no_public_ip(self):
+        from forgelm import _http
+
+        # All entries fail ``ipaddress.ip_address()`` — malformed IP
+        # strings of both v4 and v6 shape.  None of them is private
+        # (we never parse them) but none is public either, so the
+        # resolver must report "no public IP resolved" rather than
+        # silently letting an empty candidate set through.
+        with patch.object(
+            _http.socket,
+            "getaddrinfo",
+            return_value=[
+                (0, 0, 0, "", ("not-an-ip", 0)),
+                (0, 0, 0, "", ("999.999.999.999", 0)),
+            ],
+        ):
+            ip, err = _http._resolve_safe_destination("weird.example.com")
+
+        assert ip is None
+        assert err == "no public IP resolved"

@@ -65,6 +65,20 @@ class HttpSafetyError(Exception):
 _MASK_HEADER_NAMES = frozenset({"authorization", "x-api-key", "proxy-authorization"})
 
 
+def _is_blocked_ip(ip: ipaddress._BaseAddress) -> bool:
+    """Single source of truth for the SSRF private-range policy.
+
+    Encapsulates the set of address kinds that ForgeLM's SSRF guard
+    refuses to send outbound payloads to: RFC1918 private space, the
+    loopback range, link-local (incl. cloud IMDS at 169.254.169.254),
+    the IETF reserved buckets, and multicast.  Used by both
+    :func:`_is_private_destination` (legacy yes/no predicate) and
+    :func:`_resolve_safe_destination` (DNS-rebinding-safe resolver) so
+    the policy cannot drift between the two call sites.
+    """
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
+
+
 def _is_private_destination(host: str) -> bool:
     """Return ``True`` when *host* resolves to a non-public-internet IP.
 
@@ -83,7 +97,7 @@ def _is_private_destination(host: str) -> bool:
     except ValueError:
         ip = None
     if ip is not None:
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
+        return _is_blocked_ip(ip)
     try:
         addrinfo = socket.getaddrinfo(host, None)
     except (socket.gaierror, UnicodeError):
@@ -97,13 +111,7 @@ def _is_private_destination(host: str) -> bool:
             resolved = ipaddress.ip_address(sockaddr[0])
         except ValueError:
             continue
-        if (
-            resolved.is_private
-            or resolved.is_loopback
-            or resolved.is_link_local
-            or resolved.is_reserved
-            or resolved.is_multicast
-        ):
+        if _is_blocked_ip(resolved):
             return True
     return False
 
@@ -145,19 +153,15 @@ def _resolve_safe_destination(host: str) -> Tuple[Optional[str], Optional[str]]:
     if not host:
         return None, "empty host"
 
-    # IP literal short-circuit — no DNS needed, same private-range filter.
+    # IP literal short-circuit — no DNS needed, same private-range filter
+    # applied via the shared ``_is_blocked_ip`` helper so the IP-literal
+    # path and the DNS path cannot disagree.
     try:
         literal = ipaddress.ip_address(host)
     except ValueError:
         literal = None
     if literal is not None:
-        if (
-            literal.is_private
-            or literal.is_loopback
-            or literal.is_link_local
-            or literal.is_reserved
-            or literal.is_multicast
-        ):
+        if _is_blocked_ip(literal):
             return None, "Private/loopback/IMDS destination"
         return host, None
 
@@ -176,13 +180,7 @@ def _resolve_safe_destination(host: str) -> Tuple[Optional[str], Optional[str]]:
             resolved = ipaddress.ip_address(candidate)
         except ValueError:
             continue
-        if (
-            resolved.is_private
-            or resolved.is_loopback
-            or resolved.is_link_local
-            or resolved.is_reserved
-            or resolved.is_multicast
-        ):
+        if _is_blocked_ip(resolved):
             return None, "Private/loopback/IMDS destination"
         if public_ip is None:
             public_ip = candidate
@@ -348,8 +346,13 @@ def safe_post(
         target_url = _build_pinned_url(parsed, pinned_ip)
         # ``Host`` is case-insensitive in HTTP/1.1; set it without
         # overwriting an explicit operator override for testing/proxy
-        # scenarios.
-        request_headers.setdefault("Host", host)
+        # scenarios.  Use ``netloc`` (with any userinfo stripped) rather
+        # than bare ``hostname`` so non-standard ports stay attached and
+        # IPv6 literals remain bracketed per RFC 7230 § 5.4 — bare
+        # ``hostname`` would emit ``Host: example.com`` for a request to
+        # ``https://example.com:8443/`` and silently break virtual-hosted
+        # endpoints that switch on the authority-form.
+        request_headers.setdefault("Host", parsed.netloc.rsplit("@", 1)[-1])
 
     # Timeout floor — `requests` treats 0 / None as "no timeout" which can
     # hang the trainer on a dead endpoint.
@@ -386,7 +389,11 @@ def safe_post(
                 allow_redirects=False,
             )
     except requests.RequestException as exc:
-        masked_reason = _mask_secrets_in_text(str(exc), headers)
+        # Mask the *outbound* header set (which includes the auto-set
+        # ``Host`` and any caller secrets) — not the raw ``headers``
+        # parameter, which may be ``None`` or stale relative to what
+        # actually went on the wire.
+        masked_reason = _mask_secrets_in_text(str(exc), request_headers)
         logger.warning(
             "safe_post failed url=%s reason=%s",
             _mask_netloc(url),
@@ -467,7 +474,10 @@ def safe_get(
         if block_reason:
             raise HttpSafetyError(f"{block_reason} blocked: host={host or '<empty>'}")
         target_url = _build_pinned_url(parsed, pinned_ip)
-        request_headers.setdefault("Host", host)
+        # See safe_post: use netloc (sans userinfo) so non-standard
+        # ports and IPv6 brackets survive into the Host header per
+        # RFC 7230 § 5.4.
+        request_headers.setdefault("Host", parsed.netloc.rsplit("@", 1)[-1])
 
     # Timeout floor.
     if not isinstance(timeout, (int, float)) or timeout < min_timeout:
@@ -500,7 +510,9 @@ def safe_get(
                 allow_redirects=False,
             )
     except requests.RequestException as exc:
-        masked_reason = _mask_secrets_in_text(str(exc), headers)
+        # Mask the outbound header set, not the caller's possibly-None
+        # ``headers`` parameter — see safe_post for the same rationale.
+        masked_reason = _mask_secrets_in_text(str(exc), request_headers)
         logger.warning(
             "safe_get failed url=%s method=%s reason=%s",
             _mask_netloc(url),
