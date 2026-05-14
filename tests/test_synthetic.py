@@ -285,7 +285,7 @@ class TestSyntheticUsesSafePost:
         src = inspect.getsource(synthetic.SyntheticDataGenerator._call_api_teacher)
         assert "safe_post" in src, "synthetic._call_api_teacher must use safe_post"
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_synthetic_call_goes_through_safe_post(self, mock_post):
         """A successful API teacher call routes through safe_post → requests.post."""
         mock_response = MagicMock()
@@ -313,7 +313,7 @@ class TestSyntheticUsesSafePost:
         # safe_post forwards allow_redirects=False
         assert kwargs.get("allow_redirects") is False
 
-    @patch("forgelm._http.requests.post")
+    @patch("forgelm._http.requests.Session.post")
     def test_synthetic_ssrf_block_for_private_api_base(self, mock_post):
         """A private-IP api_base must be rejected before any network call."""
         from forgelm._http import HttpSafetyError

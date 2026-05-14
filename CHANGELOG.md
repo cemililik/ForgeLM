@@ -6,6 +6,28 @@ All notable changes to ForgeLM are documented here.
 
 _(v0.6.1 dev cycle — entries will land here as PRs merge.)_
 
+### Security
+
+- **Webhook / judge / synthetic SSRF guard — DNS-rebinding TOCTOU
+  hardening (issue #14).** Pre-fix, `_is_private_destination()`
+  pre-resolved the hostname and `requests.post()` then ran its own
+  DNS lookup at connect time; an attacker-controlled DNS server with
+  TTL=0 could return a public IP on the first lookup (passing the
+  guard) and a private IP on the second (when `requests` connected),
+  leaking the payload + bearer token to a private destination
+  (loopback, RFC1918, or cloud IMDS at `169.254.169.254`). New
+  `_resolve_safe_destination()` helper resolves the hostname exactly
+  once and `safe_post` / `safe_get` rebuild the outbound URL with the
+  returned public IP literal so `requests` never re-resolves. The
+  original hostname is preserved via the `Host` header (and SNI for
+  HTTPS) using
+  `requests_toolbelt.adapters.host_header_ssl.HostHeaderSSLAdapter`
+  so virtual-hosted endpoints (Slack / Teams / Discord) and
+  certificate validation still work correctly. `allow_private=True`
+  callers (operator-blessed internal destinations) keep the legacy
+  flow so split-horizon DNS / in-cluster resolution still works.
+  `requests-toolbelt>=1.0.0,<2.0.0` is now a hard dependency.
+
 ## [0.6.0] — 2026-05-11
 
 Phase 15 (Ingestion Pipeline Reliability) Wave 1 + Wave 2. Closes the
