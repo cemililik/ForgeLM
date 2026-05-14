@@ -81,6 +81,8 @@ These templates ship with `forgelm quickstart` and reflect what most teams use a
 | Math reasoning | `grpo-math` | GRPO with format-shaping reward |
 | Turkish medical Q&A | `medical-qa-tr` | SFT only |
 
+For any "→"-shaped row above, chain the stages with a `pipeline:` config block instead of writing two YAMLs and orchestrating manually. See [Multi-Stage Pipelines](#/training/pipelines).
+
 ## Anti-patterns
 
 :::warn
@@ -99,3 +101,4 @@ These templates ship with `forgelm quickstart` and reflect what most teams use a
 
 - [The Alignment Stack](#/concepts/alignment-overview) — broader context of post-training paradigms.
 - [Dataset Formats](#/concepts/data-formats) — what JSONL each trainer expects.
+- [Multi-Stage Pipelines](#/training/pipelines) — chain two or more trainers into one config-driven run.

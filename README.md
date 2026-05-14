@@ -119,6 +119,7 @@ See the [Quick Start Guide](docs/guides/quickstart.md) for a complete walkthroug
 | [Document Ingestion](docs/guides/ingestion.md) ([Türkçe](docs/guides/ingestion-tr.md)) | Raw PDF/DOCX/EPUB → SFT-ready JSONL |
 | [Dataset Audit](docs/guides/data_audit.md) ([Türkçe](docs/guides/data_audit-tr.md)) | Length, language, dedup, cross-split leakage, PII |
 | [Alignment (DPO/SimPO/KTO/GRPO)](docs/guides/alignment.md) | Complete post-training stack |
+| [Multi-Stage Pipelines](docs/guides/pipeline.md) ([Türkçe](docs/guides/pipeline-tr.md)) | Chain SFT → DPO → GRPO in one config-driven run |
 | [CI/CD Pipeline Integration](docs/guides/cicd_pipeline.md) | GitHub Actions, GitLab CI, Docker |
 | [Enterprise Deployment](docs/guides/enterprise_deployment.md) | Docker, air-gapped, multi-GPU |
 | [Safety & Compliance](docs/guides/safety_compliance.md) | EU AI Act, safety evaluation |
