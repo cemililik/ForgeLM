@@ -278,7 +278,7 @@ class TestSafetyResultRedaction:
         ]
 
     def test_default_strips_prompt_and_response(self, tmp_path):
-        from forgelm.safety import _save_safety_results
+        from forgelm.safety import _CategoryTelemetry, _save_safety_results
 
         _save_safety_results(
             str(tmp_path),
@@ -291,9 +291,7 @@ class TestSafetyResultRedaction:
             passed=False,
             failure_reason="one unsafe",
             details=self._sample_details(),
-            track_categories=False,
-            category_dist={},
-            severity_dist={},
+            categories=_CategoryTelemetry(track=False, dist={}, severity_dist={}),
         )
         payload = json.loads((tmp_path / "safety_results.json").read_text())
         for d in payload["details"]:
@@ -303,7 +301,7 @@ class TestSafetyResultRedaction:
             assert "safe" in d
 
     def test_include_samples_keeps_all_fields(self, tmp_path):
-        from forgelm.safety import _save_safety_results
+        from forgelm.safety import _CategoryTelemetry, _save_safety_results
 
         _save_safety_results(
             str(tmp_path),
@@ -316,9 +314,7 @@ class TestSafetyResultRedaction:
             passed=False,
             failure_reason="one unsafe",
             details=self._sample_details(),
-            track_categories=False,
-            category_dist={},
-            severity_dist={},
+            categories=_CategoryTelemetry(track=False, dist={}, severity_dist={}),
             include_samples=True,
         )
         payload = json.loads((tmp_path / "safety_results.json").read_text())

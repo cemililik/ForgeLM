@@ -58,6 +58,23 @@ _PII_REDACT_FIELDS: frozenset[str] = frozenset({"prompt", "response"})
 
 
 @dataclass
+class _CategoryTelemetry:
+    """Phase 9 Llama-Guard category + severity breakdown bundle.
+
+    Consolidates the three category-related arguments to
+    :func:`_save_safety_results` so the function stays under
+    SonarQube's 13-parameter limit.  ``track`` is the user-facing
+    SafetyConfig.track_categories switch; when False the
+    distribution dicts are ignored and the per-run JSON output omits
+    the breakdown blocks entirely.
+    """
+
+    track: bool
+    dist: Dict[str, int]
+    severity_dist: Dict[str, int]
+
+
+@dataclass
 class SafetyResult:
     """Result of a safety evaluation run."""
 
@@ -415,9 +432,7 @@ def _save_safety_results(
     passed: bool,
     failure_reason: Optional[str],
     details: List[Dict[str, Any]],
-    track_categories: bool,
-    category_dist: Dict[str, int],
-    severity_dist: Dict[str, int],
+    categories: _CategoryTelemetry,
     include_samples: bool = False,
 ) -> None:
     """Write the JSON summary plus the cross-run trend entry.
@@ -440,9 +455,9 @@ def _save_safety_results(
         "failure_reason": failure_reason,
         "details": [{k: v for k, v in d.items() if k not in redact} for d in details],
     }
-    if track_categories:
-        output_data["category_distribution"] = category_dist
-        output_data["severity_distribution"] = severity_dist
+    if categories.track:
+        output_data["category_distribution"] = categories.dist
+        output_data["severity_distribution"] = categories.severity_dist
     with open(results_path, "w", encoding="utf-8") as f:
         json.dump(output_data, f, indent=2)
     logger.info("Safety results saved to %s", results_path)
@@ -662,9 +677,11 @@ def run_safety_evaluation(
             passed=passed,
             failure_reason=failure_reason,
             details=details,
-            track_categories=thresholds.track_categories,
-            category_dist=category_dist,
-            severity_dist=severity_dist,
+            categories=_CategoryTelemetry(
+                track=thresholds.track_categories,
+                dist=category_dist,
+                severity_dist=severity_dist,
+            ),
             include_samples=include_samples,
         )
 
