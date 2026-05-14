@@ -1054,6 +1054,79 @@ def compute_annex_iv_manifest_hash(artifact: Dict[str, Any]) -> str:
 # eyeball the schema and its validator together.
 
 
+_PIPELINE_MANIFEST_REQUIRED_KEYS = (
+    "forgelm_version",
+    "pipeline_run_id",
+    "pipeline_config_hash",
+    "started_at",
+    "final_status",
+    "stages",
+)
+
+
+def _check_chain_link(idx: int, stage: Dict[str, Any], stages: List[Dict[str, Any]]) -> Optional[str]:
+    """Single-stage chain-integrity check.
+
+    Returns a violation string when stage *idx* (claiming
+    ``input_source == "chain"``) cannot be validated against its
+    immediate predecessor's ``output_model``; ``None`` when the link
+    is intact (or when the stage's ``input_source`` is not ``chain``
+    in which case the caller should never have invoked this).
+    Extracted from :func:`_verify_manifest_payload` for Sonar
+    python:S3776 cognitive-complexity hygiene.
+    """
+    if idx == 0:
+        return f"Stage {stage.get('name')!r}: input_source='chain' but no previous stage exists (stage 0 cannot chain)."
+    prev = stages[idx - 1]
+    prev_output_model = prev.get("output_model")
+    if not prev_output_model:
+        return (
+            f"chain_integrity_violation at stage {stage.get('name')!r}: claims "
+            f"input_source='chain' but previous stage {prev.get('name')!r} has "
+            f"no output_model (status={prev.get('status')!r})."
+        )
+    if stage.get("input_model") != prev_output_model:
+        return (
+            f"chain_integrity_violation at stage {stage.get('name')!r}: input_model={stage.get('input_model')!r} "
+            f"≠ previous output_model={prev_output_model!r}"
+        )
+    return None
+
+
+def _check_status_consistency(manifest: Dict[str, Any], stages: List[Dict[str, Any]]) -> List[str]:
+    """Status-consistency checks for a finalised pipeline manifest.
+
+    Covers (a) ``stopped_at`` referent existence + expected status and
+    (b) the no-``running``-stages-on-a-finalised-manifest rule (F-N-2).
+    Extracted from :func:`_verify_manifest_payload` for Sonar
+    python:S3776 cognitive-complexity hygiene.
+    """
+    violations: List[str] = []
+    stopped_at = manifest.get("stopped_at")
+    if stopped_at is not None:
+        matching = [s for s in stages if s.get("name") == stopped_at]
+        if not matching:
+            violations.append(f"stopped_at refers to unknown stage {stopped_at!r}")
+        elif matching[0].get("status") not in ("failed", "gated_pending_approval"):
+            violations.append(
+                f"stopped_at stage {stopped_at!r} has status {matching[0].get('status')!r} "
+                f"(expected `failed` or `gated_pending_approval`)"
+            )
+
+    # Running-stage consistency (N-2): a finalised manifest with a stage
+    # still in ``running`` indicates the orchestrator crashed mid-stage.
+    final_status = manifest.get("final_status")
+    if final_status and final_status != "in_progress":
+        running_stages = [s.get("name") for s in stages if s.get("status") == "running"]
+        if running_stages:
+            violations.append(
+                f"stage(s) {running_stages!r} still in `running` status on a "
+                f"finalised manifest (final_status={final_status!r}); the "
+                f"orchestrator likely crashed mid-stage without updating state."
+            )
+    return violations
+
+
 def _verify_manifest_payload(manifest: Dict[str, Any]) -> List[str]:
     """Validate a pipeline manifest's structural + chain-integrity rules.
 
@@ -1086,15 +1159,7 @@ def _verify_manifest_payload(manifest: Dict[str, Any]) -> List[str]:
     """
     violations: List[str] = []
 
-    required_top = (
-        "forgelm_version",
-        "pipeline_run_id",
-        "pipeline_config_hash",
-        "started_at",
-        "final_status",
-        "stages",
-    )
-    for key in required_top:
+    for key in _PIPELINE_MANIFEST_REQUIRED_KEYS:
         if key not in manifest:
             violations.append(f"missing required top-level key: {key!r}")
 
@@ -1108,62 +1173,16 @@ def _verify_manifest_payload(manifest: Dict[str, Any]) -> List[str]:
         if s.get("index") != expected:
             violations.append(f"stage index out of order at position {expected}: got {s.get('index')!r}")
 
-    # Chain integrity — Phase 14 review F-B-3 + F-N-3 hardening: every
-    # chain stage is compared against the **immediate** previous stage,
-    # not the most-recent stage with an ``output_model``.  Pre-fix, if
-    # stage N-1 failed without saving an ``output_model`` (or any
-    # hand-crafted manifest with a None output midway), the chain check
-    # silently skipped that gap and compared stage N against stage N-2,
-    # masking a real broken link.
+    # Chain integrity (one check per chain-stage; helper is pure).
     for idx, s in enumerate(stages):
         if s.get("input_source") != "chain":
             continue
-        if idx == 0:
-            violations.append(
-                f"Stage {s.get('name')!r}: input_source='chain' but no previous stage exists (stage 0 cannot chain)."
-            )
-            continue
-        prev = stages[idx - 1]
-        prev_output_model = prev.get("output_model")
-        if not prev_output_model:
-            violations.append(
-                f"chain_integrity_violation at stage {s.get('name')!r}: claims "
-                f"input_source='chain' but previous stage {prev.get('name')!r} has "
-                f"no output_model (status={prev.get('status')!r})."
-            )
-            continue
-        if s.get("input_model") != prev_output_model:
-            violations.append(
-                f"chain_integrity_violation at stage {s.get('name')!r}: input_model={s.get('input_model')!r} "
-                f"≠ previous output_model={prev_output_model!r}"
-            )
+        link_violation = _check_chain_link(idx, s, stages)
+        if link_violation is not None:
+            violations.append(link_violation)
 
-    # Status consistency.
-    stopped_at = manifest.get("stopped_at")
-    if stopped_at is not None:
-        matching = [s for s in stages if s.get("name") == stopped_at]
-        if not matching:
-            violations.append(f"stopped_at refers to unknown stage {stopped_at!r}")
-        elif matching[0].get("status") not in ("failed", "gated_pending_approval"):
-            violations.append(
-                f"stopped_at stage {stopped_at!r} has status {matching[0].get('status')!r} "
-                f"(expected `failed` or `gated_pending_approval`)"
-            )
-
-    # Running-stage consistency (N-2): a finalised manifest
-    # (final_status != "in_progress") with a stage in ``running`` status
-    # is a tell that the orchestrator process died mid-stage and never
-    # updated the state file.  Archival audit must surface this so the
-    # operator knows the chain wasn't actually completed.
-    final_status = manifest.get("final_status")
-    if final_status and final_status != "in_progress":
-        running_stages = [s.get("name") for s in stages if s.get("status") == "running"]
-        if running_stages:
-            violations.append(
-                f"stage(s) {running_stages!r} still in `running` status on a "
-                f"finalised manifest (final_status={final_status!r}); the "
-                f"orchestrator likely crashed mid-stage without updating state."
-            )
+    # Status consistency (stopped_at + running-on-finalised).
+    violations.extend(_check_status_consistency(manifest, stages))
 
     return violations
 

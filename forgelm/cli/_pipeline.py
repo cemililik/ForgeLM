@@ -286,6 +286,267 @@ class PipelineOrchestrator:
 
     # -- run-mode entry points ------------------------------------------------
 
+    def _prepare_resume_or_init_state(
+        self,
+        *,
+        resume_from: Optional[str],
+        force_resume: bool,
+    ) -> "tuple[Optional[PipelineState], Optional[int]]":
+        """Load + validate state for ``--resume-from`` or build a fresh state.
+
+        Returns ``(state, None)`` on success; ``(None, EXIT_CONFIG_ERROR)``
+        when the resume path is invalid (missing state file or stale-hash
+        refused without ``--force-resume``).  Extracted from
+        :meth:`run` for Sonar python:S3776 cognitive-complexity hygiene.
+        """
+        existing = self._load_state_file()
+        if resume_from is not None and existing is None:
+            logger.error(
+                "Cannot --resume-from %r: no pipeline_state.json found at %s.  Run the pipeline once first.",
+                resume_from,
+                self.paths["state_file"],
+            )
+            return None, EXIT_CONFIG_ERROR
+        if resume_from is not None:
+            refusal = self._validate_resume_state(existing, force=force_resume)
+            if refusal is not None:
+                return None, EXIT_CONFIG_ERROR
+            return existing, None
+        return self._init_state(), None
+
+    def _resolve_resume_skiplist(
+        self,
+        *,
+        state: PipelineState,
+        resume_from: str,
+    ) -> "tuple[Optional[List[str]], Optional[int]]":
+        """Compute the list of already-completed stages to skip on resume.
+
+        Returns ``(skiplist, None)`` on success or ``(None,
+        EXIT_CONFIG_ERROR)`` when ``resume_from`` names a stage that
+        doesn't exist.  Stages before the resume index whose status is
+        ``completed`` and whose ``output_model`` directory exists on
+        disk are kept-as-is.  Extracted from :meth:`run` for Sonar
+        python:S3776 cognitive-complexity hygiene.
+        """
+        try:
+            resume_idx = next(i for i, s in enumerate(self.pipeline.stages) if s.name == resume_from)
+        except StopIteration:
+            logger.error(
+                "Cannot --resume-from %r: stage name not found in pipeline (valid names: %s).",
+                resume_from,
+                ", ".join(s.name for s in self.pipeline.stages),
+            )
+            return None, EXIT_CONFIG_ERROR
+        stages_to_skip_completed: List[str] = []
+        for prior_state in state.stages[:resume_idx]:
+            if (
+                prior_state.status == "completed"
+                and prior_state.output_model
+                and os.path.isdir(prior_state.output_model)
+            ):
+                stages_to_skip_completed.append(prior_state.name)
+                logger.info(
+                    "Resuming: stage %r already completed at %s; skipping.",
+                    prior_state.name,
+                    prior_state.output_model,
+                )
+        return stages_to_skip_completed, None
+
+    def _resolve_stage_filter_setup(
+        self,
+        *,
+        stage_filter: str,
+        input_model_override: Optional[str],
+    ) -> "tuple[Optional[str], Optional[int]]":
+        """Validate ``--stage <name>`` + seed the auto-chain on a non-first stage.
+
+        Returns ``(prev_output_for_filter, None)`` on success or
+        ``(None, EXIT_CONFIG_ERROR)`` when the stage name is unknown or
+        the previous stage's output directory is missing (and no
+        ``--input-model`` override was supplied to bypass the chain).
+        Extracted from :meth:`run` for Sonar python:S3776 cognitive-
+        complexity hygiene.
+        """
+        if not any(s.name == stage_filter for s in self.pipeline.stages):
+            logger.error(
+                "Cannot --stage %r: stage name not found in pipeline (valid names: %s).",
+                stage_filter,
+                ", ".join(s.name for s in self.pipeline.stages),
+            )
+            return None, EXIT_CONFIG_ERROR
+
+        if input_model_override is not None:
+            return None, None
+
+        filter_idx = next(i for i, s in enumerate(self.pipeline.stages) if s.name == stage_filter)
+        if filter_idx == 0:
+            return None, None
+
+        prev_stage = self.pipeline.stages[filter_idx - 1]
+        prev_merged = merge_pipeline_stage_config(self.root_cfg, prev_stage, prev_output_model=None)
+        candidate = os.path.join(prev_merged.training.output_dir, "final_model")
+        if not os.path.isdir(candidate):
+            logger.error(
+                "Stage %r requires the previous stage's output at %s; "
+                "pass --input-model <path> to override or run the full pipeline first.",
+                stage_filter,
+                candidate,
+            )
+            return None, EXIT_CONFIG_ERROR
+        return candidate, None
+
+    def _handle_stage_outcome(
+        self,
+        *,
+        stage: PipelineStage,
+        stage_state: PipelineStageState,
+        exit_code: int,
+        state: PipelineState,
+        worst_exit: int,
+    ) -> "tuple[int, Optional[str], bool, bool]":
+        """Persist + audit + webhook the outcome of a single executed stage.
+
+        Returns ``(worst_exit, new_prev_output, chain_broken, should_break)``:
+
+        - ``worst_exit`` — the updated highest-priority exit code so far.
+        - ``new_prev_output`` — the auto-chain seed for the next stage
+          (``stage_state.output_model`` on success, ``None`` otherwise).
+        - ``chain_broken`` — ``True`` for any non-success outcome; the
+          caller marks downstream stages skipped on it.
+        - ``should_break`` — ``True`` only for ``EXIT_AWAITING_APPROVAL``;
+          the caller exits the stage loop immediately so a subsequent
+          ``--resume-from`` picks up the remaining stages post-approval.
+
+        Extracted from :meth:`run` for Sonar python:S3776 cognitive-
+        complexity hygiene.
+        """
+        if exit_code == EXIT_AWAITING_APPROVAL:
+            # Human-approval gate fired.  Pipeline exits; remaining
+            # stages stay ``pending`` so a subsequent ``--resume-from``
+            # picks them up after operator action.
+            stage_state.status = "gated_pending_approval"
+            state.final_status = "gated_pending_approval"
+            state.stopped_at = stage.name
+            state.finished_at = _utc_iso_now()
+            new_worst = max(worst_exit, EXIT_AWAITING_APPROVAL)
+            self._save_state(state)
+            # Phase 14 review F-N-1: dedicated ``pipeline.stage_gated``
+            # event (instead of ``pipeline.stage_completed`` with a
+            # ``gate_decision=approval_pending`` sub-field).  Lets
+            # dashboard / SIEM rules filter on the event name alone.
+            self._audit_event(
+                "pipeline.stage_gated",
+                pipeline_run_id=state.pipeline_run_id,
+                stage_name=stage.name,
+                gate_decision="approval_pending",
+                staging_path=stage_state.output_model,
+            )
+            return new_worst, None, True, True
+
+        if exit_code == EXIT_SUCCESS:
+            stage_state.status = "completed"
+            stage_state.gate_decision = "passed"
+            self._save_state(state)
+            self._audit_event(
+                "pipeline.stage_completed",
+                pipeline_run_id=state.pipeline_run_id,
+                stage_name=stage.name,
+                gate_decision="passed",
+                metrics=stage_state.metrics,
+            )
+            return worst_exit, stage_state.output_model, False, False
+
+        # Anything else (EXIT_TRAINING_ERROR / EXIT_EVAL_FAILURE):
+        # chain stops; downstream stages will skip with
+        # ``skipped_due_to_prior_revert``.
+        stage_state.status = "failed"
+        stage_state.gate_decision = "failed"
+        state.stopped_at = stage.name
+        new_worst = max(worst_exit, exit_code)
+        self._save_state(state)
+        self._audit_event(
+            "pipeline.stage_reverted" if stage_state.auto_revert_triggered else "pipeline.stage_completed",
+            pipeline_run_id=state.pipeline_run_id,
+            stage_name=stage.name,
+            gate_decision="failed",
+            auto_revert_triggered=stage_state.auto_revert_triggered,
+        )
+        self._notify_pipeline(
+            "reverted" if stage_state.auto_revert_triggered else "stage_failed",
+            state,
+            stage_state=stage_state,
+        )
+        return new_worst, None, True, False
+
+    def _execute_one_stage(
+        self,
+        *,
+        index: int,
+        stage: PipelineStage,
+        state: PipelineState,
+        prev_output: Optional[str],
+        stage_filter: Optional[str],
+        input_model_override: Optional[str],
+    ) -> int:
+        """Setup + invoke a single stage's trainer.  Returns the per-stage exit code.
+
+        Caller is responsible for translating the returned exit code
+        into the next-state transition via :meth:`_handle_stage_outcome`.
+        Extracted from :meth:`run` for Sonar python:S3776 hygiene.
+        """
+        stage_state = state.stages[index]
+        stage_state.index = index
+        stage_state.name = stage.name
+        stage_state.trainer_type = (
+            stage.training.trainer_type if stage.training else self.root_cfg.training.trainer_type
+        )
+        stage_state.started_at = _utc_iso_now()
+        stage_state.status = "running"
+        self._save_state(state)
+
+        # ``--input-model`` attaches to a single filtered stage only.
+        override_for_this_stage = (
+            input_model_override if (stage_filter is not None and stage.name == stage_filter) else None
+        )
+
+        exit_code = self._run_single_stage(
+            stage=stage,
+            stage_state=stage_state,
+            prev_output=prev_output,
+            input_model_override=override_for_this_stage,
+            state=state,
+        )
+        stage_state.exit_code = exit_code
+        stage_state.finished_at = _utc_iso_now()
+        try:
+            start_dt = datetime.fromisoformat(stage_state.started_at)
+            end_dt = datetime.fromisoformat(stage_state.finished_at)
+            stage_state.duration_seconds = (end_dt - start_dt).total_seconds()
+        except (TypeError, ValueError):
+            stage_state.duration_seconds = None
+        return exit_code
+
+    def _finalise_pipeline(self, state: PipelineState, worst_exit: int) -> None:
+        """Mark the pipeline finished + emit the terminal events.
+
+        Mirrors the run-loop tail.  Extracted from :meth:`run` for
+        Sonar python:S3776 cognitive-complexity hygiene.
+        """
+        if state.final_status == "in_progress":
+            state.final_status = "completed" if worst_exit == EXIT_SUCCESS else "stopped_at_stage"
+            state.finished_at = _utc_iso_now()
+        self._save_state(state)
+
+        if state.final_status in ("completed", "stopped_at_stage"):
+            self._audit_event(
+                "pipeline.completed",
+                pipeline_run_id=state.pipeline_run_id,
+                final_status=state.final_status,
+                stopped_at=state.stopped_at,
+            )
+            self._notify_pipeline("completed", state)
+
     def run(
         self,
         *,
@@ -311,91 +572,29 @@ class PipelineOrchestrator:
         stage's exit code.
         """
         # 1. Load (or initialise) state.
-        existing = self._load_state_file()
-        if resume_from is not None and existing is None:
-            logger.error(
-                "Cannot --resume-from %r: no pipeline_state.json found at %s.  Run the pipeline once first.",
-                resume_from,
-                self.paths["state_file"],
-            )
-            return EXIT_CONFIG_ERROR
-        if resume_from is not None:
-            refusal = self._validate_resume_state(existing, force=force_resume)
-            if refusal is not None:
-                # Library-style refusal — return the exit code through
-                # the normal ``run()`` flow rather than ``sys.exit``-ing
-                # mid-method.  Matches the surrounding error paths
-                # (missing state file, unknown stage name) and keeps the
-                # test surface uniform on ``assert code == EXIT_CONFIG_ERROR``.
-                return EXIT_CONFIG_ERROR
-            state = existing
-        else:
-            state = self._init_state()
+        state, state_err = self._prepare_resume_or_init_state(resume_from=resume_from, force_resume=force_resume)
+        if state is None:
+            return state_err  # type: ignore[return-value]
 
         # 2. Determine which stages to execute.
         stages_to_skip_completed: List[str] = []
         if resume_from is not None:
-            try:
-                resume_idx = next(i for i, s in enumerate(self.pipeline.stages) if s.name == resume_from)
-            except StopIteration:
-                logger.error(
-                    "Cannot --resume-from %r: stage name not found in pipeline (valid names: %s).",
-                    resume_from,
-                    ", ".join(s.name for s in self.pipeline.stages),
-                )
-                return EXIT_CONFIG_ERROR
-            # Mark anything before the resume point that's already
-            # ``completed`` on disk as kept-as-is.
-            for prior_state in state.stages[:resume_idx]:
-                if (
-                    prior_state.status == "completed"
-                    and prior_state.output_model
-                    and os.path.isdir(prior_state.output_model)
-                ):
-                    stages_to_skip_completed.append(prior_state.name)
-                    logger.info(
-                        "Resuming: stage %r already completed at %s; skipping.",
-                        prior_state.name,
-                        prior_state.output_model,
-                    )
+            skiplist, skiplist_err = self._resolve_resume_skiplist(state=state, resume_from=resume_from)
+            if skiplist is None:
+                return skiplist_err  # type: ignore[return-value]
+            stages_to_skip_completed = skiplist
 
-        if stage_filter is not None and not any(s.name == stage_filter for s in self.pipeline.stages):
-            logger.error(
-                "Cannot --stage %r: stage name not found in pipeline (valid names: %s).",
-                stage_filter,
-                ", ".join(s.name for s in self.pipeline.stages),
-            )
-            return EXIT_CONFIG_ERROR
-
-        # 2a. ``--stage <name>`` on a non-first stage requires the previous
-        # stage's output to already exist on disk (auto-chain resolution),
-        # unless ``--input-model`` provides an explicit override.  Refuse
-        # to silently fall back to the root ``model.name_or_path`` — that
-        # would produce a chain whose stage N is trained on the root base
-        # model, not on the previous stage's output, contradicting every
-        # operator's expectation of what ``--stage dpo_stage`` means.
+        # 2a. ``--stage`` validation + auto-chain seeding.
         prev_output_for_filter: Optional[str] = None
-        if stage_filter is not None and input_model_override is None:
-            filter_idx = next(i for i, s in enumerate(self.pipeline.stages) if s.name == stage_filter)
-            if filter_idx > 0:
-                prev_stage = self.pipeline.stages[filter_idx - 1]
-                # Project the previous stage's would-be output path by
-                # running it through the merge helper with no chain (so
-                # we get its declared ``training.output_dir`` honestly).
-                prev_merged = merge_pipeline_stage_config(self.root_cfg, prev_stage, prev_output_model=None)
-                candidate = os.path.join(prev_merged.training.output_dir, "final_model")
-                if not os.path.isdir(candidate):
-                    logger.error(
-                        "Stage %r requires the previous stage's output at %s; "
-                        "pass --input-model <path> to override or run the full "
-                        "pipeline first.",
-                        stage_filter,
-                        candidate,
-                    )
-                    return EXIT_CONFIG_ERROR
-                prev_output_for_filter = candidate
+        if stage_filter is not None:
+            seed, filter_err = self._resolve_stage_filter_setup(
+                stage_filter=stage_filter, input_model_override=input_model_override
+            )
+            if filter_err is not None:
+                return filter_err
+            prev_output_for_filter = seed
 
-        # 3. Emit pipeline.started + webhook (only on a fresh run).
+        # 3. Emit pipeline.started + webhook (fresh runs only).
         if resume_from is None:
             self._audit_event(
                 "pipeline.started",
@@ -406,31 +605,26 @@ class PipelineOrchestrator:
             )
             self._notify_pipeline("started", state)
 
-        # 4. Iterate stages.
+        # 4. Iterate stages.  The loop body delegates the actual
+        # per-stage work to ``_execute_one_stage`` + the outcome
+        # transition to ``_handle_stage_outcome``, so this method's
+        # cognitive complexity stays bounded.
         worst_exit: int = EXIT_SUCCESS
-        # When ``--stage X`` is set on a non-first stage, seed ``prev_output``
-        # with the previous stage's on-disk output path resolved above so the
-        # filtered stage auto-chains correctly.  In every other mode, the
-        # initial ``prev_output`` is None and the iteration accumulates it
-        # naturally from each completed stage.
         prev_output: Optional[str] = prev_output_for_filter
-        chain_broken: bool = False  # set when a stage auto-reverts; later stages skip
+        chain_broken: bool = False
         for i, stage in enumerate(self.pipeline.stages):
             stage_state = state.stages[i]
 
-            # --stage filter: only run the named stage; mark others skipped_by_filter.
             if stage_filter is not None and stage.name != stage_filter:
                 stage_state.status = "skipped_by_filter"
                 stage_state.skipped_reason = f"--stage {stage_filter!r} was specified; only that stage runs."
                 self._save_state(state)
                 continue
 
-            # --resume-from: skip already-completed stages with on-disk output.
             if stage.name in stages_to_skip_completed:
                 prev_output = stage_state.output_model
                 continue
 
-            # Chain-broken (prior stage reverted): mark remaining as skipped_due_to_prior_revert.
             if chain_broken:
                 stage_state.status = "skipped_due_to_prior_revert"
                 stage_state.skipped_reason = (
@@ -439,127 +633,31 @@ class PipelineOrchestrator:
                 self._save_state(state)
                 continue
 
-            # Run this stage.
-            stage_state.index = i
-            stage_state.name = stage.name
-            stage_state.trainer_type = (
-                stage.training.trainer_type if stage.training else self.root_cfg.training.trainer_type
+            exit_code = self._execute_one_stage(
+                index=i,
+                stage=stage,
+                state=state,
+                prev_output=prev_output,
+                stage_filter=stage_filter,
+                input_model_override=input_model_override,
             )
-            stage_state.started_at = _utc_iso_now()
-            stage_state.status = "running"
-            self._save_state(state)
-
-            # Resolve the input-model override only for the filtered stage
-            # (a CLI ``--input-model`` flag attaches to a single stage run).
-            override_for_this_stage = (
-                input_model_override if (stage_filter is not None and stage.name == stage_filter) else None
-            )
-
-            exit_code = self._run_single_stage(
+            worst_exit, new_prev_output, chain_broken_now, should_break = self._handle_stage_outcome(
                 stage=stage,
                 stage_state=stage_state,
-                prev_output=prev_output,
-                input_model_override=override_for_this_stage,
+                exit_code=exit_code,
                 state=state,
+                worst_exit=worst_exit,
             )
-            stage_state.exit_code = exit_code
-            stage_state.finished_at = _utc_iso_now()
-
-            # Duration calc — wrap in try/except to be robust against
-            # missing started_at on a constructor edge case.
-            try:
-                start_dt = datetime.fromisoformat(stage_state.started_at)
-                end_dt = datetime.fromisoformat(stage_state.finished_at)
-                stage_state.duration_seconds = (end_dt - start_dt).total_seconds()
-            except (TypeError, ValueError):
-                stage_state.duration_seconds = None
-
-            # Decide where the pipeline goes next, given this stage's outcome.
-            if exit_code == EXIT_AWAITING_APPROVAL:
-                # Human-approval gate fired.  Pipeline exits; remaining
-                # stages stay ``pending`` so a subsequent ``--resume-from``
-                # picks them up after operator action.
-                stage_state.status = "gated_pending_approval"
-                state.final_status = "gated_pending_approval"
-                state.stopped_at = stage.name
-                state.finished_at = _utc_iso_now()
-                worst_exit = max(worst_exit, EXIT_AWAITING_APPROVAL)
-                self._save_state(state)
-                # Phase 14 review F-N-1: dedicated ``pipeline.stage_gated``
-                # event (instead of ``pipeline.stage_completed`` with a
-                # ``gate_decision=approval_pending`` sub-field).  Lets
-                # dashboard / SIEM rules filter on the event name alone
-                # without parsing payload sub-fields — "stage_completed"
-                # reads as "stage finished cleanly" to a regex-based
-                # alert rule.
-                self._audit_event(
-                    "pipeline.stage_gated",
-                    pipeline_run_id=state.pipeline_run_id,
-                    stage_name=stage.name,
-                    gate_decision="approval_pending",
-                    staging_path=stage_state.output_model,
-                )
-                # No pipeline.completed event yet — pipeline is not done.
+            if new_prev_output is not None:
+                prev_output = new_prev_output
+            if chain_broken_now:
+                chain_broken = True
+            if should_break:
                 break
 
-            if exit_code == EXIT_SUCCESS:
-                stage_state.status = "completed"
-                stage_state.gate_decision = "passed"
-                self._save_state(state)
-                self._audit_event(
-                    "pipeline.stage_completed",
-                    pipeline_run_id=state.pipeline_run_id,
-                    stage_name=stage.name,
-                    gate_decision="passed",
-                    metrics=stage_state.metrics,
-                )
-                prev_output = stage_state.output_model
-                continue
-
-            # Anything else (EXIT_TRAINING_ERROR / EXIT_EVAL_FAILURE):
-            # the chain stops here.  Subsequent stages skip with
-            # ``skipped_due_to_prior_revert`` (the canonical reason
-            # name regardless of whether the failure was a trainer
-            # crash or a gate failure — both are "stage N failed,
-            # downstream stages did not run").
-            stage_state.status = "failed"
-            stage_state.gate_decision = "failed"
-            chain_broken = True
-            state.stopped_at = stage.name
-            worst_exit = max(worst_exit, exit_code)
-            self._save_state(state)
-            self._audit_event(
-                "pipeline.stage_reverted" if stage_state.auto_revert_triggered else "pipeline.stage_completed",
-                pipeline_run_id=state.pipeline_run_id,
-                stage_name=stage.name,
-                gate_decision="failed",
-                auto_revert_triggered=stage_state.auto_revert_triggered,
-            )
-            self._notify_pipeline(
-                "reverted" if stage_state.auto_revert_triggered else "stage_failed", state, stage_state=stage_state
-            )
-
-        # 5. Final state + manifest + pipeline.completed event.
-        if state.final_status == "in_progress":
-            if worst_exit == EXIT_SUCCESS:
-                state.final_status = "completed"
-            else:
-                state.final_status = "stopped_at_stage"
-            state.finished_at = _utc_iso_now()
-        self._save_state(state)
-
-        if state.final_status in ("completed", "stopped_at_stage"):
-            self._audit_event(
-                "pipeline.completed",
-                pipeline_run_id=state.pipeline_run_id,
-                final_status=state.final_status,
-                stopped_at=state.stopped_at,
-            )
-            self._notify_pipeline("completed", state)
-
-        # 6. Emit human-readable / JSON envelope summary.
+        # 5+6. Final state + manifest + summary.
+        self._finalise_pipeline(state, worst_exit)
         self._emit_summary(state)
-
         return worst_exit
 
     def dry_run(self) -> int:
@@ -818,6 +916,115 @@ class PipelineOrchestrator:
         except Exception as exc:  # noqa: BLE001 — best-effort notification; webhook outage must not derail the pipeline.
             logger.warning("Failed to emit pipeline webhook %r: %s", kind, exc)
 
+    @staticmethod
+    def _resolve_input_source(
+        *,
+        input_model_override: Optional[str],
+        stage_model_set: bool,
+        prev_output: Optional[str],
+    ) -> InputSourceLiteral:
+        """Resolve a stage's ``input_source`` from the priority ladder.
+
+        Priority order: CLI override > stage explicit > chain (prev
+        output) > root.  See the ``InputSourceLiteral`` docstring for
+        what each label means.  Extracted from ``_run_single_stage``
+        for Sonar python:S3776 cognitive-complexity hygiene; pure
+        function so the caller stays linear.
+        """
+        if input_model_override is not None:
+            return "cli_override"
+        if stage_model_set:
+            return "stage_explicit"
+        if prev_output is not None:
+            return "chain"
+        return "root"
+
+    def _merge_and_validate_stage(
+        self,
+        *,
+        stage: PipelineStage,
+        stage_state: PipelineStageState,
+        prev_output: Optional[str],
+        input_model_override: Optional[str],
+    ) -> Optional[Any]:
+        """Merge the per-stage ForgeConfig + run the chain-presence guard.
+
+        Returns the merged ``ForgeConfig`` on success, or ``None`` if a
+        config-error path already populated ``stage_state.error`` and
+        the caller should return ``EXIT_CONFIG_ERROR``.  Extracted from
+        ``_run_single_stage`` for Sonar python:S3776 cognitive-
+        complexity hygiene.
+        """
+        try:
+            stage_cfg = merge_pipeline_stage_config(
+                self.root_cfg,
+                stage,
+                prev_output_model=prev_output,
+                input_model_override=input_model_override,
+            )
+        except Exception as exc:  # noqa: BLE001
+            stage_state.error = f"Config merge failed: {exc}"
+            logger.exception("Stage %r config merge failed.", stage.name)
+            return None
+
+        stage_state.input_model = stage_cfg.model.name_or_path
+
+        # Chain-presence guard: when auto-chained, the previous stage's
+        # output_dir/final_model leaf must exist.  Phase 14 review F-S-1.
+        if stage_state.input_source == "chain" and not os.path.isdir(stage_cfg.model.name_or_path):
+            stage_state.error = (
+                f"Stage {stage.name!r} requires the previous stage's output at "
+                f"{stage_cfg.model.name_or_path}; pass --input-model <path> to "
+                f"override or run the full pipeline first."
+            )
+            logger.error(stage_state.error)
+            return None
+
+        return stage_cfg
+
+    def _invoke_trainer(
+        self,
+        *,
+        stage_cfg: Any,
+        stage_name: str,
+        stage_state: PipelineStageState,
+    ) -> Optional[Any]:
+        """Run a single stage's :class:`ForgeTrainer` lifecycle.
+
+        Returns the ``TrainResult`` on success, ``None`` on import /
+        runtime failure (caller maps to the right exit code via
+        ``stage_state.error``).  Extracted from ``_run_single_stage``
+        for Sonar python:S3776 cognitive-complexity hygiene.
+        """
+        # Defer heavy imports so dry-run / --stage on a different stage
+        # doesn't load torch.
+        try:
+            from ..data import prepare_dataset
+            from ..model import get_model_and_tokenizer
+            from ..trainer import ForgeTrainer
+            from ..utils import setup_authentication
+        except ImportError as e:
+            stage_state.error = f"Missing training dependency: {e}"
+            logger.error(stage_state.error)
+            return None
+
+        # Top-of-stage catch.  ForgeTrainer.train() crosses every
+        # concern (HF load, dataset, TRL, safety, judge, audit,
+        # compliance, webhook); any uncaught exception must surface as
+        # a per-stage failure rather than a Python traceback that
+        # strands the pipeline state.
+        try:
+            if not stage_cfg.model.offline:
+                setup_authentication(stage_cfg.auth.hf_token if stage_cfg.auth else None)
+            model, tokenizer = get_model_and_tokenizer(stage_cfg)
+            dataset = prepare_dataset(stage_cfg, tokenizer)
+            trainer = ForgeTrainer(model=model, tokenizer=tokenizer, config=stage_cfg, dataset=dataset)
+            return trainer.train()
+        except Exception as exc:  # noqa: BLE001
+            stage_state.error = f"Trainer crashed: {exc}"
+            logger.exception("Stage %r trainer crashed.", stage_name)
+            return None
+
     def _run_single_stage(
         self,
         *,
@@ -832,48 +1039,20 @@ class PipelineOrchestrator:
         Returns the per-stage exit code; the caller decides what to do
         with it (continue, halt, gate).
         """
-        # Resolve input source for audit clarity.
-        if input_model_override is not None:
-            stage_state.input_source = "cli_override"
-        elif stage.model is not None:
-            stage_state.input_source = "stage_explicit"
-        elif prev_output is not None:
-            stage_state.input_source = "chain"
-        else:
-            stage_state.input_source = "root"
+        stage_state.input_source = self._resolve_input_source(
+            input_model_override=input_model_override,
+            stage_model_set=stage.model is not None,
+            prev_output=prev_output,
+        )
 
-        # Merge config (any merge-time validation failure surfaces here).
-        try:
-            stage_cfg = merge_pipeline_stage_config(
-                self.root_cfg,
-                stage,
-                prev_output_model=prev_output,
-                input_model_override=input_model_override,
-            )
-        except Exception as exc:  # noqa: BLE001 — config-merge failure is a fatal stage error; routes through the standard config-error exit code.
-            stage_state.error = f"Config merge failed: {exc}"
-            logger.exception("Stage %r config merge failed.", stage.name)
+        stage_cfg = self._merge_and_validate_stage(
+            stage=stage,
+            stage_state=stage_state,
+            prev_output=prev_output,
+            input_model_override=input_model_override,
+        )
+        if stage_cfg is None:
             return EXIT_CONFIG_ERROR
-
-        stage_state.input_model = stage_cfg.model.name_or_path
-
-        # ``forgelm`` chain-presence guard: when the orchestrator
-        # auto-chained the input model from the previous stage's output,
-        # refuse to proceed unless that exact directory exists.  Phase
-        # 14 review F-S-1: pre-fix this checked ``os.path.dirname(...)``
-        # (the parent), accepting ``./stage1/`` even when ``./stage1/
-        # final_model`` was missing and letting a bad chain state fall
-        # through into ``get_model_and_tokenizer`` for a non-actionable
-        # downstream crash.
-        if stage_state.input_source == "chain":
-            if not os.path.isdir(stage_cfg.model.name_or_path):
-                stage_state.error = (
-                    f"Stage {stage.name!r} requires the previous stage's output at "
-                    f"{stage_cfg.model.name_or_path}; pass --input-model <path> to "
-                    f"override or run the full pipeline first."
-                )
-                logger.error(stage_state.error)
-                return EXIT_CONFIG_ERROR
 
         self._audit_event(
             "pipeline.stage_started",
@@ -884,34 +1063,12 @@ class PipelineOrchestrator:
             input_source=stage_state.input_source,
         )
 
-        # Defer heavy imports so dry-run / --stage on a different stage
-        # doesn't load torch.
-        try:
-            from ..data import prepare_dataset
-            from ..model import get_model_and_tokenizer
-            from ..trainer import ForgeTrainer
-            from ..utils import setup_authentication
-        except ImportError as e:
-            stage_state.error = f"Missing training dependency: {e}"
-            logger.error(stage_state.error)
-            return EXIT_TRAINING_ERROR
-
-        try:
-            if not stage_cfg.model.offline:
-                setup_authentication(stage_cfg.auth.hf_token if stage_cfg.auth else None)
-
-            model, tokenizer = get_model_and_tokenizer(stage_cfg)
-            dataset = prepare_dataset(stage_cfg, tokenizer)
-            trainer = ForgeTrainer(model=model, tokenizer=tokenizer, config=stage_cfg, dataset=dataset)
-            result = trainer.train()
-        # Top-of-stage catch.  ForgeTrainer.train() crosses every
-        # concern (HF load, dataset, TRL, safety, judge, audit,
-        # compliance, webhook); any uncaught exception must surface as
-        # a per-stage failure rather than a Python traceback that
-        # strands the pipeline state.
-        except Exception as exc:  # noqa: BLE001
-            stage_state.error = f"Trainer crashed: {exc}"
-            logger.exception("Stage %r trainer crashed.", stage.name)
+        result = self._invoke_trainer(
+            stage_cfg=stage_cfg,
+            stage_name=stage.name,
+            stage_state=stage_state,
+        )
+        if result is None:
             return EXIT_TRAINING_ERROR
 
         # Capture results onto the stage state.
