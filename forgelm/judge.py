@@ -42,6 +42,12 @@ class JudgeResult:
 
 OPENAI_API_BASE = "https://api.openai.com/v1/chat/completions"
 
+# GDPR / EU AI Act Art. 10 — fields stripped from on-disk judge_results.json
+# unless the operator opts in via JudgeConfig.include_eval_samples=True.
+# ``reason`` is included because the judge's natural-language gerekçesi may
+# quote PII from the eval prompts/responses verbatim.
+_PII_REDACT_FIELDS: frozenset[str] = frozenset({"prompt", "response", "reason"})
+
 # Single source-of-truth for the hard-failure log line so the wording
 # stays identical across the three call sites (HttpSafetyError handler,
 # JSON parse failure, no-valid-scores summary). Operators grep the audit
@@ -312,7 +318,7 @@ def _save_judge_results(
     """
     os.makedirs(output_dir, exist_ok=True)
     results_path = os.path.join(output_dir, "judge_results.json")
-    _REDACT = set() if include_samples else {"prompt", "response", "reason"}
+    redact = frozenset() if include_samples else _PII_REDACT_FIELDS
     with open(results_path, "w", encoding="utf-8") as f:
         json.dump(
             {
@@ -320,7 +326,7 @@ def _save_judge_results(
                 "min_score": min_score,
                 "passed": passed,
                 "num_prompts": num_prompts,
-                "details": [{k: v for k, v in d.items() if k not in _REDACT} for d in details],
+                "details": [{k: v for k, v in d.items() if k not in redact} for d in details],
             },
             f,
             indent=2,

@@ -18,9 +18,6 @@ from ._logging import logger
 
 def _run_benchmark_only(config: ForgeConfig, model_path: str, output_format: str) -> None:
     """Run benchmark evaluation on an existing model without training."""
-    import json as _json
-    import os as _os
-
     from ..benchmark import run_benchmark
     from ..inference import load_model
 
@@ -33,11 +30,28 @@ def _run_benchmark_only(config: ForgeConfig, model_path: str, output_format: str
 
     # Detect PEFT checkpoint: if the path contains adapter_config.json, load the
     # base model from there and merge the adapter — otherwise load as a plain model.
-    adapter_cfg_path = _os.path.join(model_path, "adapter_config.json")
-    if _os.path.isfile(adapter_cfg_path):
-        with open(adapter_cfg_path) as _f:
-            _adapter_meta = _json.load(_f)
-        base_path = _adapter_meta.get("base_model_name_or_path", model_path)
+    adapter_cfg_path = os.path.join(model_path, "adapter_config.json")
+    if os.path.isfile(adapter_cfg_path):
+        # adapter_config.json is HF-produced JSON — explicit UTF-8 keeps the
+        # parse deterministic across Windows code-page locales.
+        try:
+            with open(adapter_cfg_path, encoding="utf-8") as f:
+                adapter_meta = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            logger.error("Failed to read PEFT adapter_config.json at %s: %s", adapter_cfg_path, e)
+            sys.exit(EXIT_CONFIG_ERROR)
+        base_path = adapter_meta.get("base_model_name_or_path")
+        if not base_path:
+            # Falling back to model_path here would re-load the adapter
+            # directory as a base model — it has no base weights, so
+            # PeftModel.from_pretrained would later crash with a confusing
+            # "config.json not found" error.  Fail loud at the source.
+            logger.error(
+                "PEFT checkpoint at %s is missing 'base_model_name_or_path' in adapter_config.json — "
+                "cannot reconstruct the base model + adapter combination.",
+                model_path,
+            )
+            sys.exit(EXIT_CONFIG_ERROR)
         logger.info(
             "Detected PEFT checkpoint. Loading base model %s + adapter %s for benchmark.", base_path, model_path
         )

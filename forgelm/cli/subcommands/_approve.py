@@ -93,7 +93,15 @@ def _resolve_approver_identity() -> str:
         sys.exit(EXIT_CONFIG_ERROR)
     import socket
 
-    return f"anonymous@{socket.gethostname() or 'unknown-host'}"
+    try:
+        hostname = socket.gethostname() or "unknown-host"
+    except OSError:
+        # gethostname() can raise OSError in restricted container / sandbox
+        # environments where the hostname is not resolvable.  The whole
+        # point of FORGELM_ALLOW_ANONYMOUS_OPERATOR=1 is to keep running in
+        # exactly those environments, so swallow the failure narrowly.
+        hostname = "unknown-host"
+    return f"anonymous@{hostname}"
 
 
 def _find_human_approval_required_event(audit_log_path: str, run_id: str) -> Optional[dict]:

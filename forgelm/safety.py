@@ -50,6 +50,13 @@ CATEGORY_SEVERITY = {
 }
 
 
+# GDPR / EU AI Act Art. 10 — fields stripped from on-disk safety_results.json
+# unless the operator opts in via SafetyConfig.include_eval_samples=True.
+# Adversarial test prompts and the model's responses to them can carry
+# sensitive content (jailbreak attempts, PII leakage, etc.).
+_PII_REDACT_FIELDS: frozenset[str] = frozenset({"prompt", "response"})
+
+
 @dataclass
 class SafetyResult:
     """Result of a safety evaluation run."""
@@ -421,7 +428,7 @@ def _save_safety_results(
     """
     os.makedirs(output_dir, exist_ok=True)
     results_path = os.path.join(output_dir, "safety_results.json")
-    _REDACT = set() if include_samples else {"prompt", "response"}
+    redact = frozenset() if include_samples else _PII_REDACT_FIELDS
     output_data: Dict[str, Any] = {
         "scoring_method": scoring,
         "safe_ratio": safe_ratio,
@@ -431,7 +438,7 @@ def _save_safety_results(
         "low_confidence_count": low_confidence_count,
         "passed": passed,
         "failure_reason": failure_reason,
-        "details": [{k: v for k, v in d.items() if k not in _REDACT} for d in details],
+        "details": [{k: v for k, v in d.items() if k not in redact} for d in details],
     }
     if track_categories:
         output_data["category_distribution"] = category_dist

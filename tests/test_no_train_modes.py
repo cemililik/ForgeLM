@@ -86,26 +86,55 @@ class TestBenchmarkOnlyLoader:
             "Adapter path must be forwarded so PeftModel.from_pretrained merges the saved weights"
         )
 
-    def test_peft_checkpoint_without_base_model_falls_back_to_adapter_path(self, tmp_path, minimal_config):
-        """If adapter_config.json lacks base_model_name_or_path, fall back
-        to using the adapter dir as both base and adapter source."""
+    def test_peft_checkpoint_without_base_model_fails_loudly(self, tmp_path, minimal_config):
+        """If adapter_config.json lacks ``base_model_name_or_path`` we cannot
+        reconstruct the base model + adapter combination; falling back to
+        the adapter path would trigger a confusing ``config.json not found``
+        crash deep inside PeftModel.from_pretrained.  Exit with
+        EXIT_CONFIG_ERROR at the source instead.
+        """
+        import pytest
+
+        from forgelm.cli._exit_codes import EXIT_CONFIG_ERROR
+
         config = _bench_config(minimal_config, tmp_path / "out")
         adapter_dir = tmp_path / "adapter"
         adapter_dir.mkdir()
         (adapter_dir / "adapter_config.json").write_text(json.dumps({}))
 
         with (
-            patch("forgelm.inference.load_model", return_value=(MagicMock(), MagicMock())) as load_mock,
+            patch("forgelm.inference.load_model", return_value=(MagicMock(), MagicMock())),
             patch("forgelm.benchmark.run_benchmark", return_value=_passing_benchmark_result()),
+            pytest.raises(SystemExit) as exc_info,
         ):
             from forgelm.cli._no_train_modes import _run_benchmark_only
 
             _run_benchmark_only(config, str(adapter_dir), output_format="json")
 
-        load_mock.assert_called_once()
-        call = load_mock.call_args
-        assert call.args[0] == str(adapter_dir)
-        assert call.kwargs.get("adapter") == str(adapter_dir)
+        assert exc_info.value.code == EXIT_CONFIG_ERROR
+
+    def test_peft_checkpoint_with_corrupt_adapter_config_fails_loudly(self, tmp_path, minimal_config):
+        """A truncated / malformed adapter_config.json must surface an
+        actionable config error rather than crashing later."""
+        import pytest
+
+        from forgelm.cli._exit_codes import EXIT_CONFIG_ERROR
+
+        config = _bench_config(minimal_config, tmp_path / "out")
+        adapter_dir = tmp_path / "adapter"
+        adapter_dir.mkdir()
+        (adapter_dir / "adapter_config.json").write_text("{not valid json")
+
+        with (
+            patch("forgelm.inference.load_model", return_value=(MagicMock(), MagicMock())),
+            patch("forgelm.benchmark.run_benchmark", return_value=_passing_benchmark_result()),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            from forgelm.cli._no_train_modes import _run_benchmark_only
+
+            _run_benchmark_only(config, str(adapter_dir), output_format="json")
+
+        assert exc_info.value.code == EXIT_CONFIG_ERROR
 
     def test_get_model_and_tokenizer_not_called(self, tmp_path, minimal_config):
         """Regression for P1-1: the training-time loader must not be used —

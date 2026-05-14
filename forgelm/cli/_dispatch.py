@@ -211,6 +211,7 @@ def _main_inner() -> None:
         legacy_target = args.output or "./audit"
         try:
             from ..compliance import AuditLogger
+            from ..config import ConfigError
 
             AuditLogger(legacy_target).log_event(
                 "cli.legacy_flag_invoked",
@@ -218,7 +219,7 @@ def _main_inner() -> None:
                 replacement="forgelm audit",
                 version="v0.7.0 removal",
             )
-        except Exception as audit_exc:  # noqa: BLE001 — best-effort breadcrumb; ConfigError (anonymous operator) and OSError (read-only dir) are both non-fatal here
+        except (OSError, ConfigError) as audit_exc:
             # Non-fatal: the audit log is a best-effort telemetry record
             # for the deprecation notice. The DeprecationWarning has
             # already fired; the audit run itself must still proceed —
