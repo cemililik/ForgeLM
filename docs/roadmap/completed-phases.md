@@ -1429,6 +1429,5 @@ notebook.
 
 ### Related
 
-- [`docs/roadmap/phase-15-ingestion-reliability.md`](phase-15-ingestion-reliability.md) — the original phase doc with the 15 task list
-- [`CHANGELOG.md`](../../CHANGELOG.md) `[0.6.0]` section
+- [`CHANGELOG.md`](../../CHANGELOG.md) `[0.6.0]` section — release notes for the shipped tasks
 - PR #49 — five review-absorption rounds + tail-walk follow-up

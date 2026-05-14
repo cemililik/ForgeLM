@@ -34,13 +34,13 @@ Originally planned as four sequential PyPI tags (`v0.5.0` / `v0.5.1` / `v0.5.2` 
 
 **Earlier:** `v0.5.0` — Document Ingestion + Data Curation Pipeline (2026-04-30); `v0.4.5` — Quickstart Layer (2026-04-26); `v0.4.0` — Post-Training Completion (2026-04-26).
 
-**Current state:** 19 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6, 22) shipped on PyPI under `v0.5.5`.  3 phases (13, 14, 15) planned post-release; Phases 14 and 15 ship in parallel under `v0.6.0`, Phase 13 ships separately as `v0.6.0-pro` once adoption gates are met.
+**Current state:** 20 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6, 15, 22) shipped on PyPI through `v0.6.0`.  2 phases (13, 14) planned post-release; Phase 14 is targeted for `v0.7.0` (re-scheduled from v0.6.0 after Phase 15 displaced it via the 2026-05-11 ingestion pilot), Phase 13 ships separately as `v0.6.0-pro` once adoption gates are met.
 
 > **Phase 12.6 task / sub-task dual-axis note:** Phase 12.6 is itself a 38-task closure cycle (Tasks 1-38) tracked at [`roadmap/completed-phases.md`](roadmap/completed-phases.md); per-wave PR descriptions carry the closure-task delta.
 
 ## Quick summary of what's planned
 
-> **Note:** Arrows depict shipping order, not phase numbers (Phase 14 and Phase 15 both ship in v0.6.0 in parallel; Phase 13 ships later under the Pro tier).
+> **Note:** Arrows depict shipping order, not phase numbers (Phase 15 shipped in v0.6.0; Phase 14 is targeted for v0.7.0 after Phase 15 displaced it; Phase 13 ships later under the Pro tier).
 
 ```mermaid
 graph LR
@@ -51,8 +51,8 @@ graph LR
     P115 --> P12[Phase 12<br/>Data Curation<br/>Maturity]
     P12 --> P125[Phase 12.5<br/>Data Curation<br/>Follow-up]
     P125 --> P126[Phase 12.6<br/>Closure<br/>Cycle]
-    P126 --> P14[Phase 14<br/>Pipeline<br/>Chains]
     P126 --> P15[Phase 15<br/>Ingestion<br/>Reliability]
+    P15 --> P14[Phase 14<br/>Pipeline<br/>Chains]
     P14 --> P13[Phase 13<br/>Pro CLI<br/>+ Dashboard]
     P15 --> P13
 
@@ -63,8 +63,8 @@ graph LR
     P12 -.-> V2
     P125 -.-> V2
     P126 -.-> V25[v0.5.5]
-    P14 -.-> V23[v0.6.0]
-    P15 -.-> V23
+    P15 -.-> V23[v0.6.0 ✅ Released]
+    P14 -.-> V27[v0.7.0]
     P13 -.-> V3[v0.6.0-pro]
 
     style P10 fill:#003300,stroke:#00ff88
@@ -73,8 +73,8 @@ graph LR
     style P115 fill:#004400,stroke:#88ff88
     style P12 fill:#004400,stroke:#88ff88
     style P125 fill:#004400,stroke:#88ff88
+    style P15 fill:#004400,stroke:#88ff88
     style P14 fill:#002244,stroke:#00aaff
-    style P15 fill:#002244,stroke:#00aaff
     style P13 fill:#442200,stroke:#ffaa00
 ```
 
@@ -94,7 +94,7 @@ docs/
 └── roadmap/
     ├── completed-phases.md                     # Phase 1-12.6 archive (detailed) — Phase 10 / 10.5 / 11 / 11.5 / 12 / 12.5 / 12.6 absorbed inline (each shipped as v0.4.0 / v0.4.5 / v0.5.0 / v0.5.5)
     ├── phase-13-pro-cli.md                     # Planned — v0.6.0-pro (gated)
-    ├── phase-14-pipeline-chains.md             # Planned — v0.6.0 (follow-up to the v0.5.5 closure cycle)
+    ├── phase-14-pipeline-chains.md             # Planned — v0.7.0 (re-scheduled from v0.6.0; Phase 15 displaced it)
     ├── releases.md                             # v0.3.0 → v0.6.0 release notes
     └── risks-and-decisions.md                  # Risk matrix, opportunities, competitive positioning, decision log
 ```
