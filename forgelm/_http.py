@@ -45,10 +45,11 @@ from __future__ import annotations
 import ipaddress
 import logging
 import socket
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, MutableMapping, Optional, Tuple
 from urllib.parse import urlparse, urlunparse
 
 import requests
+from requests.structures import CaseInsensitiveDict
 
 logger = logging.getLogger("forgelm._http")
 
@@ -249,7 +250,7 @@ def _mask_netloc(url: str) -> str:
     return f"{parts.scheme}://{parts.hostname or 'unknown-host'}"
 
 
-def _mask_secrets_in_text(text: str, headers: Optional[Dict[str, str]]) -> str:
+def _mask_secrets_in_text(text: str, headers: Optional[MutableMapping[str, str]]) -> str:
     """Redact known secret-bearing header values from *text*.
 
     ``requests`` exception strings sometimes include the request URL or
@@ -338,21 +339,27 @@ def safe_post(
     # used as-is so internal DNS / split-horizon resolution still works.
     host = parsed.hostname or ""
     target_url = url
-    request_headers: Dict[str, str] = dict(headers or {})
+    # ``CaseInsensitiveDict`` so a caller-supplied ``host`` / ``HOST`` /
+    # ``Host`` all collapse to the same key — a plain ``dict`` would
+    # preserve the caller's casing and let ``setdefault("Host", ...)``
+    # silently add a *second* Host header to the request, producing a
+    # duplicate on the wire (RFC 7230 § 5.4 forbids this).
+    request_headers: MutableMapping[str, str] = CaseInsensitiveDict(headers or {})
     if not allow_private:
         pinned_ip, block_reason = _resolve_safe_destination(host)
         if block_reason:
             raise HttpSafetyError(f"{block_reason} blocked: host={host or '<empty>'}")
         target_url = _build_pinned_url(parsed, pinned_ip)
-        # ``Host`` is case-insensitive in HTTP/1.1; set it without
-        # overwriting an explicit operator override for testing/proxy
-        # scenarios.  Use ``netloc`` (with any userinfo stripped) rather
-        # than bare ``hostname`` so non-standard ports stay attached and
-        # IPv6 literals remain bracketed per RFC 7230 § 5.4 — bare
+        # ``Host`` is case-insensitive in HTTP/1.1; let an explicit
+        # caller override (any casing) win over the auto-derived value.
+        # Use ``netloc`` (with any userinfo stripped) rather than bare
+        # ``hostname`` so non-standard ports stay attached and IPv6
+        # literals remain bracketed per RFC 7230 § 5.4 — bare
         # ``hostname`` would emit ``Host: example.com`` for a request to
         # ``https://example.com:8443/`` and silently break virtual-hosted
         # endpoints that switch on the authority-form.
-        request_headers.setdefault("Host", parsed.netloc.rsplit("@", 1)[-1])
+        if "Host" not in request_headers:
+            request_headers["Host"] = parsed.netloc.rsplit("@", 1)[-1]
 
     # Timeout floor — `requests` treats 0 / None as "no timeout" which can
     # hang the trainer on a dead endpoint.
@@ -468,7 +475,9 @@ def safe_get(
     # SSRF guard — see safe_post for the issue-#14 DNS-rebinding rationale.
     host = parsed.hostname or ""
     target_url = url
-    request_headers: Dict[str, str] = dict(headers or {})
+    # CaseInsensitiveDict — see safe_post for the duplicate-Host-header
+    # rationale (caller may pass "host"/"HOST"/"Host" in any casing).
+    request_headers: MutableMapping[str, str] = CaseInsensitiveDict(headers or {})
     if not allow_private:
         pinned_ip, block_reason = _resolve_safe_destination(host)
         if block_reason:
@@ -476,8 +485,10 @@ def safe_get(
         target_url = _build_pinned_url(parsed, pinned_ip)
         # See safe_post: use netloc (sans userinfo) so non-standard
         # ports and IPv6 brackets survive into the Host header per
-        # RFC 7230 § 5.4.
-        request_headers.setdefault("Host", parsed.netloc.rsplit("@", 1)[-1])
+        # RFC 7230 § 5.4; case-insensitive containment honours an
+        # explicit caller override in any casing.
+        if "Host" not in request_headers:
+            request_headers["Host"] = parsed.netloc.rsplit("@", 1)[-1]
 
     # Timeout floor.
     if not isinstance(timeout, (int, float)) or timeout < min_timeout:

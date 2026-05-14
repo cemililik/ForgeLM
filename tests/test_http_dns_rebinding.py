@@ -360,6 +360,42 @@ class TestRfc7230HostHeader:
             "Caller's explicit Host header must take precedence over the auto-set value"
         )
 
+    def test_caller_host_header_with_different_casing_does_not_duplicate(self):
+        """Mixed-casing caller header (e.g. ``{"host": ...}``) must not
+        produce two Host entries on the wire.  Issue #14 review-round-2
+        (codex): a plain ``dict(headers or {})`` preserves the caller's
+        casing, so ``setdefault("Host", ...)`` would silently add a
+        second header alongside the caller's ``"host"`` key — invalid
+        per RFC 7230 § 5.4 and a wire-format ambiguity (``requests``
+        dedupes via its own ``CaseInsensitiveDict`` but the outbound
+        argument we send must already be single-valued so we can
+        observe it in this test).
+        """
+        from forgelm import _http
+
+        with (
+            patch.object(_http.socket, "getaddrinfo", return_value=[(0, 0, 0, "", ("8.8.8.8", 0))]),
+            patch.object(_http.requests.Session, "post") as mock_post,
+        ):
+            mock_post.return_value = MagicMock(ok=True, status_code=200)
+            _http.safe_post(
+                "https://hooks.example.com/abc",
+                json={},
+                # NB: lowercase ``host``.  A naive ``dict`` would let
+                # ``setdefault("Host", auto_value)`` add a second header
+                # because dict keys are case-sensitive.
+                headers={"host": "operator-supplied.example.com"},
+                timeout=10.0,
+            )
+
+        headers = mock_post.call_args.kwargs["headers"]
+        # Exactly one Host entry — case-insensitively — must exist.
+        host_keys = [k for k in headers.keys() if k.lower() == "host"]
+        assert len(host_keys) == 1, f"Expected exactly one Host header, got {host_keys}"
+        # The caller's explicit value must win.
+        assert headers["Host"] == "operator-supplied.example.com"
+        assert headers["host"] == "operator-supplied.example.com"
+
 
 class TestNoPublicIpResolvedBranch:
     """Issue #14 review feedback (sourcery): cover the
