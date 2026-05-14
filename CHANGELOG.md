@@ -75,6 +75,56 @@ _(v0.6.1 dev cycle — entries will land here as PRs merge.)_
   validator lives in private helper `_verify_manifest_payload` so the
   in-memory and disk-bound entry points cannot drift.
 
+### Fixed (Phase 14 review-response — PR #53)
+
+Addresses the consolidated reviewer-pass findings (3 blocking +
+4 significant + Gemini's 3 inline comments) against the initial Phase
+14 merge candidate:
+
+- **F-B-1** — `forgelm --config pipeline.yaml --dry-run` now reaches
+  the pipeline orchestrator's per-stage validator instead of the
+  legacy single-stage dry-run path; the `_dispatch.py` ordering was
+  inverted (no-train-mode ran before the pipeline branch).
+- **F-B-2** — `--force-resume` now emits a `pipeline.force_resume`
+  audit event carrying `old_config_hash` + `new_config_hash` so
+  compliance reviewers can distinguish an operator-approved override
+  from a normal resume (was previously a WARNING log only —
+  invisible in the append-only JSONL stream).
+- **F-B-3** — pipeline manifest verifier now compares every chain
+  stage against its **immediate** predecessor, not the most-recent
+  stage with an `output_model`.  Pre-fix, a manifest where stage N-1
+  failed without saving an `output_model` could appear to chain
+  stage N from stage N-2, masking the broken link.
+- **F-F-1 / F-G-3 (Gemini)** — auto-chain existence guard now
+  checks the resolved model directory itself, not its parent — used
+  to accept `./stage1/` even when `./stage1/final_model` was
+  missing.
+- **F-F-2** — `--input-model ""` (empty string) is normalised to
+  `None` at dispatch time so it no longer slips past the truthy
+  guard and silently overwrites the auto-chained model path with an
+  empty string.
+- **F-F-3** — `_validate_resume_state` now returns its refusal
+  through the normal `run()` flow instead of `sys.exit`-ing mid-method,
+  so every refusal path emits the same audit-log finalisation and
+  the test surface uses one uniform `assert code == EXIT_CONFIG_ERROR`
+  shape.
+- **F-S-2 / F-N-2** — verifier surfaces stages still in `running`
+  status on a finalised manifest as a `chain_integrity_violation`
+  candidate (a tell of a crashed orchestrator).  Also `_load_state_file`
+  catches `KeyError` / `TypeError` / `ValueError` / `AttributeError`
+  around `_deserialise_state` so a tampered state file produces an
+  actionable config error rather than a Python traceback.
+- **F-N-1** — gated stages now emit a dedicated
+  `pipeline.stage_gated` audit event (was `pipeline.stage_completed`
+  with a `gate_decision=approval_pending` sub-field).  Lets
+  dashboard / SIEM filters distinguish the gate flow on the event
+  name alone.
+- **F-G-1 (Gemini)** — pipeline dry-run now flags `training.output_dir`
+  collisions across stages (two stages writing to the same dir would
+  silently overwrite each other's checkpoints + per-stage Annex IV
+  manifests).  Covers both the explicit-override and inherited-from-
+  root collision cases.
+
 ### Security
 
 - **Webhook / judge / synthetic SSRF guard — DNS-rebinding TOCTOU

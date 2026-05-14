@@ -569,9 +569,20 @@ class PipelineOrchestrator:
         mirroring ``pytest --collectonly``.  Returns
         :data:`EXIT_CONFIG_ERROR (1)` if any stage fails validation,
         :data:`EXIT_SUCCESS (0)` otherwise.
+
+        Additionally checks that no two stages resolve to the same
+        ``training.output_dir`` — colliding output dirs would cause one
+        stage's checkpoints and per-stage Annex-IV manifest to overwrite
+        another's, breaking the chain of custody silently (Phase 14
+        review F-G-1).  Because stage-level ``training`` blocks
+        *inherit* the root ``training`` block wholesale unless the
+        stage supplies a full override, two stages that both inherit
+        end up sharing the root's ``output_dir`` — that's the canonical
+        misconfiguration this guard catches.
         """
         errors: List[str] = []
         prev_output: Optional[str] = None
+        seen_dirs: Dict[str, str] = {}  # abs output_dir -> first stage that claimed it
         for stage in self.pipeline.stages:
             try:
                 merged = merge_pipeline_stage_config(
@@ -582,6 +593,21 @@ class PipelineOrchestrator:
             except Exception as exc:  # noqa: BLE001 — best-effort: collect every per-stage validation error for a single operator report instead of stopping at the first.
                 errors.append(f"Stage {stage.name!r}: merge failed: {exc}")
                 continue
+
+            # Collision check (Phase 14 review F-G-1): every stage must
+            # write its checkpoints + per-stage manifest into a distinct
+            # directory.  Comparing absolute paths so ``./out`` and
+            # ``out/`` collide as one.
+            abs_out = os.path.abspath(merged.training.output_dir)
+            if abs_out in seen_dirs:
+                errors.append(
+                    f"Stage {stage.name!r}: training.output_dir collides with stage "
+                    f"{seen_dirs[abs_out]!r} (both resolve to {abs_out!r}); per-stage "
+                    "checkpoints and manifests would overwrite each other.  Set a "
+                    "unique 'training.output_dir' in each stage."
+                )
+            else:
+                seen_dirs[abs_out] = stage.name
 
             # Project the output path the next stage would auto-chain to.
             prev_output = os.path.join(merged.training.output_dir, "final_model")
@@ -697,7 +723,10 @@ class PipelineOrchestrator:
         # with a clear message.
         try:
             return _deserialise_state(payload)
-        except (KeyError, TypeError, ValueError) as e:
+        except (KeyError, TypeError, ValueError, AttributeError) as e:
+            # AttributeError covers the case where ``stages`` items aren't
+            # dicts (e.g. an attacker wrote ``stages: [null, "foo"]``) —
+            # ``s.items()`` then raises AttributeError on the str / None.
             logger.warning(
                 "pipeline_state.json at %s is structurally invalid (%s); treating as missing.",
                 path,

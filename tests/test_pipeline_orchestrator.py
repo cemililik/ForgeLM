@@ -228,6 +228,66 @@ class TestDryRun:
         assert not os.path.exists(orch.paths["state_file"])
         assert not os.path.exists(orch.paths["manifest_file"])
 
+    def test_dry_run_flags_output_dir_collision(self, tmp_path, monkeypatch):
+        """Phase 14 review F-G-1 (Gemini): two stages resolving to the
+        same ``training.output_dir`` would silently overwrite each
+        other's checkpoints and per-stage Annex-IV manifests, breaking
+        the chain of custody.  Dry-run must surface the collision as
+        EXIT_CONFIG_ERROR before any GPU work."""
+        shared_dir = str(tmp_path / "shared_out")
+        cfg = ForgeConfig(
+            model={"name_or_path": "org/base"},
+            lora={"r": 8},
+            training={"trainer_type": "sft", "output_dir": str(tmp_path)},
+            data={"dataset_name_or_path": "org/sft"},
+            pipeline={
+                "output_dir": str(tmp_path / "pipeline_run"),
+                "stages": [
+                    {
+                        "name": "sft_stage",
+                        "training": {"trainer_type": "sft", "output_dir": shared_dir},
+                        "data": {"dataset_name_or_path": "org/sft"},
+                    },
+                    {
+                        "name": "dpo_stage",
+                        "training": {"trainer_type": "dpo", "output_dir": shared_dir},
+                        "data": {"dataset_name_or_path": "org/dpo"},
+                    },
+                ],
+            },
+        )
+        _install_trainer_mocks(monkeypatch, [])
+        orch = PipelineOrchestrator(cfg, b"yaml")
+        code = orch.dry_run()
+        assert code == EXIT_CONFIG_ERROR
+
+    def test_dry_run_flags_inherited_output_dir_collision(self, tmp_path, monkeypatch):
+        """Two stages that both *inherit* the root ``training`` block
+        (no per-stage override) end up sharing the root's output_dir
+        by construction — the most common form of the F-G-1 footgun.
+        Verify the guard catches it even when the collision is
+        inherited rather than explicit."""
+        cfg = ForgeConfig(
+            model={"name_or_path": "org/base"},
+            lora={"r": 8},
+            training={"trainer_type": "sft", "output_dir": str(tmp_path / "root_out")},
+            data={"dataset_name_or_path": "org/sft"},
+            pipeline={
+                "output_dir": str(tmp_path / "pipeline_run"),
+                # Note: no per-stage training: block — both stages inherit
+                # the root training.output_dir.  Setting data: per stage
+                # so the merge succeeds, isolating the collision.
+                "stages": [
+                    {"name": "s1", "data": {"dataset_name_or_path": "org/d1"}},
+                    {"name": "s2", "data": {"dataset_name_or_path": "org/d2"}},
+                ],
+            },
+        )
+        _install_trainer_mocks(monkeypatch, [])
+        orch = PipelineOrchestrator(cfg, b"yaml")
+        code = orch.dry_run()
+        assert code == EXIT_CONFIG_ERROR
+
 
 # ---------------------------------------------------------------------------
 # Orchestrator behaviour — happy path
