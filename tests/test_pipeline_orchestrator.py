@@ -226,12 +226,17 @@ class TestAtomicWriteJson:
         from forgelm.cli._pipeline import _atomic_write_json
 
         target = str(tmp_path / "shared.json")
-        errors: list[BaseException] = []
+        errors: list[Exception] = []
 
         def writer(i: int) -> None:
+            # OSError covers the FileNotFoundError race that the
+            # shared-tmp implementation produced; pre-fix this branch
+            # captured the escapes for the assertion below.  ``Exception``
+            # is wide-enough to surface any unexpected escape too without
+            # tripping the Sonar ``catch-BaseException`` rule.
             try:
                 _atomic_write_json(target, {"writer": i, "value": "x" * 1024})
-            except BaseException as exc:  # noqa: BLE001 — record any escape
+            except Exception as exc:  # noqa: BLE001 — test probe: record any escape
                 errors.append(exc)
 
         with ThreadPoolExecutor(max_workers=8) as pool:
