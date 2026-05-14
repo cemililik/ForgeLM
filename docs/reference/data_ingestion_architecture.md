@@ -207,7 +207,7 @@ graph TD
     PAGES[per-page text] --> SPLIT[Split into lines]
     SPLIT --> WINDOW[Inspect top-3 / bottom-3 rows<br/>per page _PDF_EDGE_WINDOW = 3]
     WINDOW --> COUNT[Count line frequency<br/>across pages]
-    COUNT --> CHECK{>= 70 percent of pages?}
+    COUNT --> CHECK{">= 70 percent of pages?"}
     CHECK -- yes --> POP[Pop matching window lines<br/>any offset within the window]
     POP --> WINDOW
     CHECK -- no --> JOIN[Re-join pages with double newline]

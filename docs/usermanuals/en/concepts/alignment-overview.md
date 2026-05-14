@@ -10,7 +10,7 @@ Modern LLM fine-tuning is no longer a single algorithm — it's a *stack* of pos
 ```mermaid
 flowchart TD
     Base[Base model<br/>e.g. Qwen 2.5 / Llama 3]
-    SFT[SFT<br/>format & content]
+    SFT["SFT<br/>format & content"]
     DPO[DPO<br/>preference alignment]
     SimPO[SimPO<br/>preference, ref-free]
     KTO[KTO<br/>binary feedback]
