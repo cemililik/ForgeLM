@@ -779,6 +779,32 @@ class PipelineOrchestrator:
             )
             logger.error(msg)
             return msg
+
+        # Topology guard (Phase 14 review-response): even under
+        # ``--force-resume`` we refuse if the stage *topology* has
+        # changed — count or ordered names — because the on-disk state
+        # file's ``stages[i]`` payload is positionally addressed.  A
+        # stage inserted, deleted, or renamed between runs would make
+        # ``state.stages[i]`` describe a different stage than
+        # ``self.pipeline.stages[i]`` and the resume would silently
+        # corrupt the audit trail.  Cosmetic edits (whitespace,
+        # comments, hyperparameter values) trip the hash check but
+        # *don't* fail this guard, so ``--force-resume`` remains useful
+        # for them.
+        on_disk_names = [s.name for s in existing.stages]
+        current_names = [s.name for s in self.pipeline.stages]
+        if on_disk_names != current_names:
+            msg = (
+                f"Refusing to --resume-from even with --force-resume: pipeline "
+                f"stage topology has changed.\n"
+                f"  on-disk stages:  {on_disk_names!r}\n"
+                f"  current stages:  {current_names!r}\n"
+                "Stage names / count / order must match the on-disk state.  "
+                "Start a fresh pipeline run instead."
+            )
+            logger.error(msg)
+            return msg
+
         old_hash = existing.pipeline_config_hash
         logger.warning(
             "Resuming with --force-resume despite pipeline_config_hash mismatch: %s → %s.",

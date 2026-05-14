@@ -8,12 +8,15 @@ _(v0.6.1 dev cycle — entries will land here as PRs merge.)_
 
 ### Added (Phase 14 — Multi-Stage Pipeline Chains)
 
-- **`pipeline:` config block** at the root of `ForgeConfig` chains 2+
-  training stages (typically SFT → DPO → GRPO) into one
+- **`pipeline:` config block** at the root of `ForgeConfig` chains
+  one or more training stages (typically SFT → DPO → GRPO) into one
   config-driven run.  New Pydantic models `PipelineStage` and
   `PipelineConfig` enforce stage-name uniqueness, `^[a-z0-9_]{1,32}$`
-  identifier shape, ≥1-stage minimum, and explicit-`trainer_type`
-  audit-clarity validation per stage.  Section-wholesale inheritance:
+  identifier shape, **at least 1 stage** (`min_length=1` — single-stage
+  ergonomics are still better served by omitting the `pipeline:`
+  block, but the schema accepts a 1-element pipeline so an operator
+  can iterate up to a multi-stage chain without re-shaping the YAML),
+  and explicit-`trainer_type` audit-clarity validation per stage.  Section-wholesale inheritance:
   `model` / `lora` / `training` / `data` / `evaluation` blocks
   inherit from the root if omitted or fully replace it when set.
   `distributed` / `webhook` / `compliance` / `risk_assessment` /

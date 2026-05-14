@@ -1168,21 +1168,37 @@ def _verify_manifest_payload(manifest: Dict[str, Any]) -> List[str]:
         violations.append("`stages` must be a list")
         return violations
 
-    # Index monotonicity.
-    for expected, s in enumerate(stages):
+    # Phase 14 review-response: per-item type-guard.  A tampered
+    # manifest (``stages: [null, "foo"]``) would otherwise raise
+    # ``AttributeError`` on ``s.get(...)`` partway through the
+    # verifier.  Surface as a structured violation so the disk wrapper
+    # (and any future caller) gets a clean list back.  We filter the
+    # malformed items out of the rest of the checks because the
+    # downstream helpers also expect dicts.
+    well_formed_stages: List[Dict[str, Any]] = []
+    for idx, s in enumerate(stages):
+        if not isinstance(s, dict):
+            violations.append(f"stage at index {idx} is not an object (got {type(s).__name__})")
+            continue
+        well_formed_stages.append(s)
+
+    # Index monotonicity (on the well-formed subset; mis-indexing of
+    # a malformed entry would be a noise violation on top of the
+    # already-reported type error).
+    for expected, s in enumerate(well_formed_stages):
         if s.get("index") != expected:
             violations.append(f"stage index out of order at position {expected}: got {s.get('index')!r}")
 
     # Chain integrity (one check per chain-stage; helper is pure).
-    for idx, s in enumerate(stages):
+    for idx, s in enumerate(well_formed_stages):
         if s.get("input_source") != "chain":
             continue
-        link_violation = _check_chain_link(idx, s, stages)
+        link_violation = _check_chain_link(idx, s, well_formed_stages)
         if link_violation is not None:
             violations.append(link_violation)
 
     # Status consistency (stopped_at + running-on-finalised).
-    violations.extend(_check_status_consistency(manifest, stages))
+    violations.extend(_check_status_consistency(manifest, well_formed_stages))
 
     return violations
 
@@ -1793,11 +1809,21 @@ def verify_pipeline_manifest_at_path(pipeline_dir: str) -> List[str]:
 
     # Disk-only check: each completed stage's training_manifest must
     # exist.  The in-memory verifier cannot see the filesystem.
-    for s in manifest.get("stages", []):
+    # Phase 14 review-response: type-guard each stage entry so a
+    # tampered manifest (``stages: [null, "foo"]``) surfaces as a
+    # violation rather than raising ``AttributeError`` on ``s.get``.
+    raw_stages = manifest.get("stages")
+    if not isinstance(raw_stages, list):
+        # In-memory verifier already flagged this; nothing more to
+        # check on disk.
+        return violations
+    for idx, s in enumerate(raw_stages):
+        if not isinstance(s, dict):
+            violations.append(f"stage at index {idx} is not an object (got {type(s).__name__})")
+            continue
         name = s.get("name", "<unnamed>")
         per_stage_manifest = s.get("training_manifest")
-        if per_stage_manifest and s.get("status") == "completed":
-            if not os.path.isfile(per_stage_manifest):
-                violations.append(f"Stage {name!r}: training_manifest at {per_stage_manifest!r} is missing.")
+        if per_stage_manifest and s.get("status") == "completed" and not os.path.isfile(per_stage_manifest):
+            violations.append(f"Stage {name!r}: training_manifest at {per_stage_manifest!r} is missing.")
 
     return violations

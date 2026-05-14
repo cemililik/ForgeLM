@@ -426,6 +426,35 @@ class TestVerifyPipelineManifestAtPath:
         assert len(violations) == 1
         assert "unreadable" in violations[0]
 
+    def test_disk_wrapper_type_guards_non_dict_stage_items(self, tmp_path):
+        """Phase 14 review-response regression: a tampered manifest where
+        ``stages`` contains non-dict items (``null`` / a string / etc.)
+        must surface as a violation, not crash with ``AttributeError``
+        inside the disk-only loop's ``s.get(...)`` calls."""
+        from forgelm.compliance import verify_pipeline_manifest_at_path
+
+        manifest_dir = tmp_path / "compliance"
+        manifest_dir.mkdir()
+        # Build a manifest payload with two malformed stage entries.
+        bad_manifest = {
+            "forgelm_version": "0.7.0",
+            "pipeline_run_id": "pl_x",
+            "pipeline_config_hash": "sha256:abc",
+            "started_at": "2026-06-15T12:00:00+00:00",
+            "final_status": "in_progress",
+            "stages": [
+                None,
+                "this-should-be-a-dict",
+                {"name": "ok", "index": 2, "trainer_type": "sft", "status": "pending"},
+            ],
+        }
+        import json as _json
+
+        (manifest_dir / "pipeline_manifest.json").write_text(_json.dumps(bad_manifest))
+        violations = verify_pipeline_manifest_at_path(str(tmp_path))
+        assert any("stage at index 0 is not an object" in v for v in violations)
+        assert any("stage at index 1 is not an object" in v for v in violations)
+
     def test_completed_stage_with_missing_training_manifest_flagged(self, tmp_path):
         """The disk wrapper layers a per-stage training_manifest
         existence check on top of the in-memory verifier — the
@@ -446,6 +475,84 @@ class TestVerifyPipelineManifestAtPath:
         (manifest_dir / "pipeline_manifest.json").write_text(_json.dumps(manifest))
         violations = verify_pipeline_manifest_at_path(str(tmp_path))
         assert any("training_manifest" in v and "is missing" in v for v in violations)
+
+
+class TestVerifyAnnexIvPipelineModeExitCodes:
+    """Phase 14 review-response regression: ``forgelm verify-annex-iv
+    --pipeline <dir>`` must map I/O failures to ``EXIT_TRAINING_ERROR``
+    (2) and operator-input errors (``not found``, structural / chain-
+    integrity violations) to ``EXIT_CONFIG_ERROR`` (1).  Mirrors the
+    single-artefact path's exit-code policy."""
+
+    def _run(self, tmp_path, args_overrides: dict) -> int:
+        """Invoke ``_run_pipeline_mode`` and capture the ``SystemExit`` code."""
+        import argparse as _argparse
+
+        from forgelm.cli.subcommands._verify_annex_iv import _run_verify_annex_iv_cmd
+
+        args = _argparse.Namespace(path=str(tmp_path), pipeline=True, **args_overrides)
+        try:
+            _run_verify_annex_iv_cmd(args, "text")
+        except SystemExit as exc:
+            return int(exc.code) if exc.code is not None else 0
+        return 0
+
+    def test_missing_manifest_exits_config_error(self, tmp_path, capsys):
+        """``not found`` is operator-actionable input → exit 1."""
+        code = self._run(tmp_path, {})
+        assert code == 1  # EXIT_CONFIG_ERROR
+        captured = capsys.readouterr().out
+        assert "FAIL: pipeline manifest" in captured
+        assert "not found" in captured
+
+    def test_unreadable_manifest_exits_training_error(self, tmp_path, capsys):
+        """Reachable file that can't be parsed → exit 2 (runtime I/O)."""
+        manifest_dir = tmp_path / "compliance"
+        manifest_dir.mkdir()
+        (manifest_dir / "pipeline_manifest.json").write_text("{not valid json")
+        code = self._run(tmp_path, {})
+        assert code == 2  # EXIT_TRAINING_ERROR
+        captured = capsys.readouterr().out
+        assert "unreadable" in captured
+
+    def test_chain_integrity_violation_exits_config_error(self, tmp_path, capsys):
+        """Structural / chain violations on a readable manifest →
+        exit 1 (operator-fixable config error)."""
+        import json as _json
+
+        manifest_dir = tmp_path / "compliance"
+        manifest_dir.mkdir()
+        bad_chain_manifest = {
+            "forgelm_version": "0.7.0",
+            "pipeline_run_id": "pl_x",
+            "pipeline_config_hash": "sha256:abc",
+            "started_at": "2026-06-15T12:00:00+00:00",
+            "final_status": "completed",
+            "stages": [
+                {
+                    "name": "s0",
+                    "index": 0,
+                    "trainer_type": "sft",
+                    "status": "completed",
+                    "input_source": "root",
+                    "output_model": "./s0/out",
+                },
+                {
+                    "name": "s1",
+                    "index": 1,
+                    "trainer_type": "dpo",
+                    "status": "completed",
+                    "input_source": "chain",
+                    "input_model": "tampered/different/path",  # ≠ s0.output_model
+                    "output_model": "./s1/out",
+                },
+            ],
+        }
+        (manifest_dir / "pipeline_manifest.json").write_text(_json.dumps(bad_chain_manifest))
+        code = self._run(tmp_path, {})
+        assert code == 1  # EXIT_CONFIG_ERROR
+        captured = capsys.readouterr().out
+        assert "chain_integrity_violation" in captured
 
 
 class TestVerifyOnPartialFilterRun:

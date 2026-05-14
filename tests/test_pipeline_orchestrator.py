@@ -598,6 +598,62 @@ class TestResumeFrom:
             "Audit event must record hashes, not raw YAML bytes."
         )
 
+    def test_force_resume_refuses_when_stage_topology_changed(self, tmp_path, monkeypatch):
+        """Phase 14 review-response regression: ``--force-resume`` must
+        still refuse when the on-disk state's stage list disagrees with
+        the current pipeline (count, names, or order).  Without this
+        guard, a renamed/inserted/deleted stage between runs would let
+        the orchestrator address ``state.stages[i]`` from the old shape
+        while iterating ``self.pipeline.stages[i]`` from the new shape,
+        silently corrupting the audit trail."""
+        cfg = _three_stage_config(tmp_path)
+        _install_trainer_mocks(monkeypatch, [TrainResult(success=False, error="x")])
+        orch1 = PipelineOrchestrator(cfg, b"yaml v1")
+        orch1.run()
+
+        # Build a *different* topology (rename middle stage) while keeping
+        # the YAML hash changed too, so force_resume is the only thing
+        # standing between us and a resume.
+        renamed_cfg = ForgeConfig(
+            model={"name_or_path": "org/base"},
+            lora={"r": 8},
+            training={"trainer_type": "sft", "output_dir": str(tmp_path)},
+            data={"dataset_name_or_path": "org/sft"},
+            pipeline={
+                "output_dir": str(tmp_path / "pipeline_run"),
+                "stages": [
+                    {
+                        "name": "sft_stage",
+                        "training": {"trainer_type": "sft", "output_dir": str(tmp_path / "stage1")},
+                        "data": {"dataset_name_or_path": "org/sft_data"},
+                    },
+                    {
+                        "name": "renamed_middle",  # was 'dpo_stage'
+                        "training": {"trainer_type": "dpo", "output_dir": str(tmp_path / "stage2")},
+                        "data": {"dataset_name_or_path": "org/dpo_data"},
+                    },
+                    {
+                        "name": "grpo_stage",
+                        "training": {"trainer_type": "grpo", "output_dir": str(tmp_path / "stage3")},
+                        "data": {"dataset_name_or_path": "org/math_data"},
+                    },
+                ],
+            },
+        )
+        _install_trainer_mocks(monkeypatch, [TrainResult(success=True), TrainResult(success=True)])
+        orch2 = PipelineOrchestrator(renamed_cfg, b"yaml v2 (renamed)")
+        code = orch2.run(resume_from="grpo_stage", force_resume=True)
+        assert code == EXIT_CONFIG_ERROR
+        # No pipeline.force_resume audit event should have been emitted —
+        # topology mismatch is refused *before* the audit hook.
+        audit_path = os.path.join(orch2.paths["root_output_dir"], "audit_log.jsonl")
+        if os.path.exists(audit_path):
+            with open(audit_path) as f:
+                events = [json.loads(line) for line in f if line.strip()]
+            assert not any(e.get("event") == "pipeline.force_resume" for e in events), (
+                "pipeline.force_resume must not fire when topology has changed."
+            )
+
     def test_resume_with_unknown_stage_name_fails(self, tmp_path, monkeypatch):
         cfg = _three_stage_config(tmp_path)
         _install_trainer_mocks(monkeypatch, [TrainResult(success=False, error="x")])

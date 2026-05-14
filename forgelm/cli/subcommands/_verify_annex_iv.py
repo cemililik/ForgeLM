@@ -192,10 +192,51 @@ def _run_pipeline_mode(path: str, output_format: str) -> None:
     memory verifier + per-stage training_manifest existence check, and
     prints / exits.  Extracted from :func:`_run_verify_annex_iv_cmd`
     for Sonar python:S3776 cognitive-complexity hygiene.
+
+    Exit-code mapping (Phase 14 review-response — aligns with the
+    single-artefact path's policy in
+    :func:`_verify_artefact_and_handle_io_errors`):
+
+    - ``EXIT_SUCCESS (0)`` — empty violation list.
+    - ``EXIT_TRAINING_ERROR (2)`` — genuine runtime I/O failure on a
+      reachable path (mid-read OSError, locked manifest, …) or the
+      ``pipeline_manifest.json unreadable: …`` sentinel that
+      :func:`forgelm.compliance.verify_pipeline_manifest_at_path`
+      emits when the JSON file is reachable but unreadable.
+    - ``EXIT_CONFIG_ERROR (1)`` — everything else, including the
+      ``pipeline_manifest.json not found …`` sentinel and all
+      structural / chain-integrity violations.
     """
     from forgelm.compliance import verify_pipeline_manifest_at_path
 
-    violations = verify_pipeline_manifest_at_path(path)
+    # Defensive try/except: the verifier already maps OSError /
+    # JSONDecodeError to violation strings, but a future change there
+    # could let an exception bubble — fail loud rather than swallow.
+    try:
+        violations = verify_pipeline_manifest_at_path(path)
+    except OSError as exc:
+        msg = f"FAIL: pipeline manifest at {path} — runtime I/O error: {exc}"
+        if output_format == "json":
+            print(
+                json.dumps(
+                    {
+                        "success": False,
+                        "mode": "pipeline",
+                        "path": os.path.abspath(path),
+                        "violations": [str(exc)],
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(msg)
+        sys.exit(EXIT_TRAINING_ERROR)
+
+    # An "unreadable" sentinel from the verifier means the file is
+    # reachable but I/O / parse fails — runtime error, not config
+    # error.  "not found" is operator-input → config error.
+    unreadable = any("unreadable" in v for v in violations)
+
     if output_format == "json":
         print(
             json.dumps(
@@ -214,7 +255,10 @@ def _run_pipeline_mode(path: str, output_format: str) -> None:
         print(f"FAIL: pipeline manifest at {path}")
         for v in violations:
             print(f"  - {v}")
-    sys.exit(EXIT_SUCCESS if not violations else EXIT_CONFIG_ERROR)
+
+    if not violations:
+        sys.exit(EXIT_SUCCESS)
+    sys.exit(EXIT_TRAINING_ERROR if unreadable else EXIT_CONFIG_ERROR)
 
 
 def _verify_artefact_and_handle_io_errors(path: str, output_format: str) -> "VerifyAnnexIVResult":

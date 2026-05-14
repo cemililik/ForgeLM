@@ -1,6 +1,6 @@
 # Multi-Stage Training Pipelines
 
-Phase 14 — added in `v0.7.0`.
+Phase 14 — targeted for `v0.7.0` (currently on the `Unreleased` line of the CHANGELOG).
 
 ForgeLM's `pipeline:` config block chains 2 or more training stages
 (typically SFT → DPO → GRPO) into one config-driven, dry-run-validatable,
