@@ -89,6 +89,11 @@ _PUBLIC_GLOBS: Tuple[str, ...] = (
     "site/**/*.css",
     "site/**/*.md",
     ".claude/**/*.md",
+    # Agent-agnostic mirror tree (Codex / Cursor / generic AI surface).
+    # Without this glob, ``.agents/`` skill docs would never be scanned
+    # for prohibited references — and any matching entry in ``_EXEMPT``
+    # below would be silently ineffective.  See PR #51 review feedback.
+    ".agents/**/*.md",
 )
 
 # Files where a path-string match is INTENTIONAL (functional path filter

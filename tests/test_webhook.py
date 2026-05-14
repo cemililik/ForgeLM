@@ -10,6 +10,49 @@ from forgelm.config import ForgeConfig
 from forgelm.webhook import WebhookNotifier
 
 
+@pytest.fixture(autouse=True)
+def _stub_ssrf_resolver(monkeypatch):
+    """Auto-stub ``forgelm._http._resolve_safe_destination`` so webhook
+    tests do not require live DNS resolution of ``example.com``.
+
+    The SSRF DNS-pinning path (issue #14) added a hostname → public-IP
+    lookup before ``Session.post`` is called.  Without this stub the
+    suite is host-environment dependent (passes online, fails in
+    offline / sandbox CI runners with ``DNS resolution failed``).
+
+    The stub mirrors the real policy decision for the inputs the
+    existing SSRF-block tests use — IP literals are routed through
+    ``_is_blocked_ip`` so RFC1918 / loopback / IMDS / multicast still
+    raise, and the canonical ``localhost`` hostname is treated as
+    loopback.  All other hostnames resolve to the public sentinel
+    ``8.8.8.8``.  The dedicated coverage for the real resolver itself
+    lives in ``tests/test_http_dns_rebinding.py``.
+    """
+    import ipaddress
+
+    from forgelm import _http
+
+    def _hermetic_resolver(host):
+        if not host:
+            return None, "empty host"
+        # IP literal: keep the real policy decision intact.
+        try:
+            literal = ipaddress.ip_address(host)
+        except ValueError:
+            literal = None
+        if literal is not None:
+            if _http._is_blocked_ip(literal):
+                return None, "Private/loopback/IMDS destination"
+            return host, None
+        # Hostname: stub.  ``localhost`` is the one canonical case the
+        # existing SSRF-block test asserts on; treat it as loopback.
+        if host == "localhost":
+            return None, "Private/loopback/IMDS destination"
+        return "8.8.8.8", None
+
+    monkeypatch.setattr(_http, "_resolve_safe_destination", _hermetic_resolver)
+
+
 def _make_config(webhook_cfg=None):
     """Create a minimal ForgeConfig with optional webhook."""
     data = {

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from typing import Optional, Tuple
 
 from ..config import ForgeConfig
 from ._dry_run import _run_dry_run
@@ -16,7 +17,7 @@ from ._fit_check import _run_fit_check
 from ._logging import logger
 
 
-def _resolve_benchmark_load_target(model_path: str) -> tuple[str, str | None]:
+def _resolve_benchmark_load_target(model_path: str) -> Tuple[str, Optional[str]]:
     """Resolve ``(base_path, adapter_path_or_none)`` for the inference loader.
 
     A PEFT checkpoint is detected by the presence of ``adapter_config.json``

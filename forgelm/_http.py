@@ -332,6 +332,14 @@ def safe_post(
     elif parsed.scheme != "https":
         raise HttpSafetyError(f"Unsupported URL scheme {parsed.scheme!r}; only http(s) allowed.")
 
+    # Timeout floor — `requests` treats 0 / None as "no timeout" which can
+    # hang the trainer on a dead endpoint.  Validated BEFORE the SSRF
+    # resolve so a local policy error (timeout=0, sub-floor value) is
+    # rejected without a DNS round-trip; this also keeps unit tests
+    # that exercise the timeout-floor branch hermetic.
+    if not isinstance(timeout, (int, float)) or timeout < min_timeout:
+        raise HttpSafetyError(f"Timeout below {min_timeout}s floor: timeout={timeout!r}")
+
     # SSRF guard — issue #14: resolve once to a public IP literal so the
     # connect-time DNS lookup cannot flip the verdict (DNS rebinding /
     # TOCTOU).  When ``allow_private=True`` the operator has explicitly
@@ -360,11 +368,6 @@ def safe_post(
         # endpoints that switch on the authority-form.
         if "Host" not in request_headers:
             request_headers["Host"] = parsed.netloc.rsplit("@", 1)[-1]
-
-    # Timeout floor — `requests` treats 0 / None as "no timeout" which can
-    # hang the trainer on a dead endpoint.
-    if not isinstance(timeout, (int, float)) or timeout < min_timeout:
-        raise HttpSafetyError(f"Timeout below {min_timeout}s floor: timeout={timeout!r}")
 
     # Resolve TLS verify setting. ca_bundle (when set) wins over verify.
     verify_param: Any = ca_bundle if ca_bundle else verify
@@ -472,6 +475,19 @@ def safe_get(
     elif parsed.scheme != "https":
         raise HttpSafetyError(f"Unsupported URL scheme {parsed.scheme!r}; only http(s) allowed.")
 
+    # Cheap local-policy checks first (timeout floor + method allowlist)
+    # so a misconfigured caller is rejected without a DNS round-trip;
+    # keeps unit tests for these branches hermetic.
+
+    # Timeout floor.
+    if not isinstance(timeout, (int, float)) or timeout < min_timeout:
+        raise HttpSafetyError(f"Timeout below {min_timeout}s floor: timeout={timeout!r}")
+
+    # Method policy — only GET / HEAD allowed (read-side helper).
+    method_upper = method.upper()
+    if method_upper not in ("GET", "HEAD"):
+        raise HttpSafetyError(f"safe_get only supports GET / HEAD, got {method!r}.")
+
     # SSRF guard — see safe_post for the issue-#14 DNS-rebinding rationale.
     host = parsed.hostname or ""
     target_url = url
@@ -489,15 +505,6 @@ def safe_get(
         # explicit caller override in any casing.
         if "Host" not in request_headers:
             request_headers["Host"] = parsed.netloc.rsplit("@", 1)[-1]
-
-    # Timeout floor.
-    if not isinstance(timeout, (int, float)) or timeout < min_timeout:
-        raise HttpSafetyError(f"Timeout below {min_timeout}s floor: timeout={timeout!r}")
-
-    # Method policy — only GET / HEAD allowed (read-side helper).
-    method_upper = method.upper()
-    if method_upper not in ("GET", "HEAD"):
-        raise HttpSafetyError(f"safe_get only supports GET / HEAD, got {method!r}.")
 
     verify_param: Any = ca_bundle if ca_bundle else verify
 
