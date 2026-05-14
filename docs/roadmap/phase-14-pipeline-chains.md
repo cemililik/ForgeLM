@@ -12,7 +12,7 @@
 
 > **Context:** Enterprise ML teams running production post-training pipelines currently write 3+ separate config files, manually set `model.name_or_path` to each stage's output, copy LoRA / safety / compliance config blocks between them, and orchestrate execution themselves with shell scripts.  Every manual copy is an opportunity to drift — a LoRA `r` value that matches across stages by accident becomes one that mismatches after the next config edit.  A `pipeline:` config key that chains stages solves the orchestration *and* the drift problem in one move, while remaining fully config-driven, dry-run-validatable, and Annex-IV-traceable.
 
-### Tasks
+## Tasks
 
 1. [ ] **`pipeline:` config section in `ForgeConfig`**
    New optional `pipeline.stages: List[PipelineStage]` section.  Each stage is a partial training config override layered onto the root config (see Task 2 for the merge semantics).  Stages execute sequentially; each stage's `model.name_or_path` is automatically set to the previous stage's `training.output_dir/final_model` (or, if the previous stage gated on human approval, to the staging path after approval).  Stage names must be unique within a pipeline and match `^[a-z0-9_]{1,32}$` so they can serve as identifiers in CLI flags (`--stage <name>`, `--resume-from <name>`) and audit-log fields without escaping.
@@ -195,7 +195,7 @@
    - Webhook stub asserts that `pipeline.started` fires once, `pipeline.stage_completed` fires per stage, `pipeline.completed` fires once, payload schema matches the documented spec.
    - The existing single-stage `training.*` event vocabulary is unchanged; existing webhook consumers see no new events on non-pipeline runs.
 
-### Requirements
+## Requirements
 
 - **Backward compatibility, byte-identical.** A config file without a `pipeline:` key produces *exactly* the same `forgelm/trainer.py` execution path as v0.6.0.  `forgelm/trainer.py` itself is unmodified by Phase 14; the pipeline orchestrator is a layer above it.  Regression test: re-run an existing single-stage config through Phase 14 code and assert the output JSONL / manifest / checkpoint bytes match a v0.6.0 reference fixture.
 - **Each stage is independently testable** via `forgelm --config pipeline.yaml --stage <name>` (Task 4 partial-run rules).
@@ -208,7 +208,7 @@
 - **Test budget.**  ≥ 30 new tests across `tests/test_pipeline_config.py` (inheritance matrix), `tests/test_pipeline_orchestrator.py` (orchestrator state machine), `tests/test_pipeline_cli.py` (flag interactions), `tests/test_pipeline_compliance.py` (manifest schema + Annex IV verification).  Coverage delta target: `+3 %` overall, with new pipeline modules ≥ 90 % line coverage.
 - **Honest framing in user-facing docs.**  The "Limitations" section of `docs/guides/pipeline.md` calls out: (a) no intra-stage checkpoint resume (deferred), (b) no DAG semantics (sequential only), (c) no parallel stage execution (sequential only), (d) no `forgelm wizard` integration.  Operators see what does *not* work before they hit it.
 
-### Test fixture sketch (Phase 15-style matrix)
+## Test fixture sketch (Phase 15-style matrix)
 
 Committed under `tests/fixtures/pipeline/`:
 
@@ -223,7 +223,7 @@ Committed under `tests/fixtures/pipeline/`:
 
 Each fixture has a golden pipeline manifest committed alongside; regression suite runs `forgelm` against the fixture (with mocked trainers via the existing `MagicMock(ForgeTrainer)` pattern) and byte-compares.
 
-### Delivery
+## Delivery
 
 - **Target release:** `v0.7.0`.  Re-slotted from the earlier `v0.6.0` placeholder; Phase 15 (Ingestion Pipeline Reliability) displaced it after the 2026-05-11 ingestion pilot exposed silent-failure gaps that demanded a focused release — see [completed-phases.md#phase-15-ingestion-pipeline-reliability-v060](completed-phases.md#phase-15-ingestion-pipeline-reliability-v060).
 - **Entry gate (all must hold before the first Phase 14 PR opens):**
@@ -241,14 +241,14 @@ Each fixture has a golden pipeline manifest committed alongside; regression suit
 
 ---
 
-### Cross-references
+## Cross-references
 
 - **Code surface affected:** [`forgelm/config.py`](../../forgelm/config.py) (new `PipelineStage` + `PipelineConfig` models, root-level `pipeline` field), [`forgelm/cli/_parser.py`](../../forgelm/cli/_parser.py) (`--stage`, `--resume-from`, `--force-resume`, `--input-model`), [`forgelm/cli/_dispatch.py`](../../forgelm/cli/_dispatch.py) + new `forgelm/cli/_pipeline.py` (orchestrator), [`forgelm/compliance.py`](../../forgelm/compliance.py) (`generate_pipeline_manifest`, `verify_annex_iv --pipeline` mode), [`forgelm/webhook.py`](../../forgelm/webhook.py) (`notify_pipeline_*` methods).  [`forgelm/trainer.py`](../../forgelm/trainer.py) is **not** modified — the orchestrator composes existing `ForgeTrainer` instances per stage.
 - **User-facing surfaces to add/update:** new `docs/guides/pipeline.md` + `-tr.md` (planned, created by Phase 14 implementation), updates to [`docs/reference/configuration.md`](../reference/configuration.md) + `-tr.md`, new `docs/guides/cli.md` + `-tr.md` (planned), and [`config_template.yaml`](../../config_template.yaml) gains a commented-out `pipeline:` example block.
 - **Standards consulted:** [`docs/standards/error-handling.md`](../standards/error-handling.md) (exit code stability), [`docs/standards/architecture.md`](../standards/architecture.md) (layering — orchestrator above trainer), [`docs/standards/testing.md`](../standards/testing.md) (fixture matrix discipline), [`docs/standards/localization.md`](../standards/localization.md) (EN ↔ TR mirror).
 - **Pattern reference:** Phase 15's review-absorption discipline + fixture matrix is the working model — see [completed-phases.md#phase-15-ingestion-pipeline-reliability-v060](completed-phases.md#phase-15-ingestion-pipeline-reliability-v060).
 
-### Release-time follow-up (deferred to the `v0.7.0` `cut-release` cycle)
+## Release-time follow-up (deferred to the `v0.7.0` `cut-release` cycle)
 
 Phase 14 implementation ships on the `development` branch ahead of the
 PyPI tag.  The two operator-facing surfaces below are intentionally not

@@ -28,14 +28,16 @@ pipeline:
     # Stage 0 — inherits everything from root; no overrides; reads root model.
     - name: stage_inherit_all
 
-    # Stage 1 — overrides lora wholesale; training inherited; auto-chains
-    # input model to stage_inherit_all's final_model.
+    # Stage 1 — overrides lora wholesale; training inherited from
+    # root (no ``training:`` block here, so the wholesale-inheritance
+    # path applies and the stage gets root's full training block,
+    # including ``trainer_type: sft``, ``output_dir``, ``learning_rate``,
+    # and ``num_train_epochs``).  Auto-chains input model to
+    # stage_inherit_all's final_model.
     - name: stage_lora_override
       lora:
         r: 32
         alpha: 64
-      training:
-        trainer_type: "sft"
 
     # Stage 2 — overrides training wholesale (must include trainer_type
     # explicitly per Phase 14's audit-clarity validator); overrides data.

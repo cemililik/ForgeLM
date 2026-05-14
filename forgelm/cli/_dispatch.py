@@ -180,12 +180,14 @@ def _dispatch_legacy_data_audit(args) -> None:
     # so `pytest -W error::DeprecationWarning` and `python -Wd` tooling
     # surface it, plus an append-only audit-log event so operators who
     # only read the JSONL trail see the migration signal too. Cadence
-    # for the v0.7.0 removal follows the "Deprecation cadence" section
+    # for the v0.8.0 removal follows the "Deprecation cadence" section
     # in ``docs/standards/release.md`` (one-minor warning window
-    # minimum).
+    # minimum).  Originally targeted v0.7.0; pushed one minor out to
+    # v0.8.0 at the v0.7.0 cut to preserve the one-minor warning
+    # window for operators who only upgrade once per minor release.
     warnings.warn(
         "`forgelm --data-audit PATH` is deprecated and will be removed "
-        "in v0.7.0. Use the `forgelm audit PATH` subcommand instead — "
+        "in v0.8.0. Use the `forgelm audit PATH` subcommand instead — "
         "same behaviour, same output. "
         "See docs/standards/release.md#deprecation-cadence for the removal timeline.",
         DeprecationWarning,
@@ -204,7 +206,7 @@ def _dispatch_legacy_data_audit(args) -> None:
             "cli.legacy_flag_invoked",
             flag="--data-audit",
             replacement="forgelm audit",
-            version="v0.7.0 removal",
+            version="v0.8.0 removal",
         )
     except (OSError, ConfigError) as audit_exc:
         logger.warning(

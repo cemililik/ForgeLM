@@ -85,6 +85,15 @@ _GRANDFATHERED_OVER_CEILING: frozenset[str] = frozenset(
         "forgelm/config.py",
         "forgelm/cli/_parser.py",
         "forgelm/cli/subcommands/_doctor.py",
+        # Phase 14 (v0.7.0) — multi-stage pipeline orchestrator
+        # at ~1060 LOC: orchestrator state machine + manifest
+        # builder + audit/webhook hooks + 6 helper methods that the
+        # SonarCloud cognitive-complexity refactor cycle pulled out
+        # of the original ``run()`` body.  A sub-package split
+        # (``forgelm/cli/_pipeline/{__init__,_state,_events,
+        # _verify}.py``) is tracked for the v0.7.x cycle and will
+        # land alongside the Phase 15 audit-package split pattern.
+        "forgelm/cli/_pipeline.py",
     }
 )
 
