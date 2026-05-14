@@ -131,7 +131,11 @@ class TestDatasetFingerprint:
         assert fp["size_bytes"] > 0
 
     def test_hub_dataset(self):
-        fp = compute_dataset_fingerprint("HuggingFaceH4/ultrachat_200k")
+        with (
+            mock.patch("forgelm.compliance._fingerprint_hf_metadata"),
+            mock.patch("forgelm.compliance._fingerprint_hf_revision"),
+        ):
+            fp = compute_dataset_fingerprint("HuggingFaceH4/ultrachat_200k")
         assert fp["source"] == "huggingface_hub"
         assert fp["dataset_id"] == "HuggingFaceH4/ultrachat_200k"
 

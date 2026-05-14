@@ -62,7 +62,10 @@ def _resolve_approver_identity() -> str:
        identification, used in CI/CD and shared workstation setups).
     2. ``getpass.getuser()`` (the OS-reported username; falls back to the
        ``USER`` / ``USERNAME`` env var on its own).
-    3. ``"anonymous"`` if both fail (no valid env vars and no shell session).
+    3. If both fail, refuse to proceed unless the operator explicitly opts
+       in via ``FORGELM_ALLOW_ANONYMOUS_OPERATOR=1`` — then the identity
+       becomes ``anonymous@<hostname>``.  Loud failure beats silently
+       writing an unattributed Article 12 record-keeping event.
 
     Pulled out so the approve/reject handlers don't reach into AuditLogger's
     constructor logic and so the test harness has a single hook to monkey-patch.
@@ -75,7 +78,30 @@ def _resolve_approver_identity() -> str:
 
         return getpass.getuser()
     except (KeyError, OSError, ImportError):
-        return "anonymous"
+        pass
+    # Mirrors AuditLogger: refuse anonymous identity unless the operator opts in.
+    allow_anonymous = os.getenv("FORGELM_ALLOW_ANONYMOUS_OPERATOR") == "1"
+    if not allow_anonymous:
+        import sys
+
+        logger.error(
+            "Operator identity unavailable: no FORGELM_OPERATOR set and "
+            "getpass.getuser() failed. Set FORGELM_OPERATOR=<id> for CI/CD "
+            "pipelines, or FORGELM_ALLOW_ANONYMOUS_OPERATOR=1 to opt in to "
+            "anonymous audit entries (not recommended for EU AI Act Article 12)."
+        )
+        sys.exit(EXIT_CONFIG_ERROR)
+    import socket
+
+    try:
+        hostname = socket.gethostname() or "unknown-host"
+    except OSError:
+        # gethostname() can raise OSError in restricted container / sandbox
+        # environments where the hostname is not resolvable.  The whole
+        # point of FORGELM_ALLOW_ANONYMOUS_OPERATOR=1 is to keep running in
+        # exactly those environments, so swallow the failure narrowly.
+        hostname = "unknown-host"
+    return f"anonymous@{hostname}"
 
 
 def _find_human_approval_required_event(audit_log_path: str, run_id: str) -> Optional[dict]:

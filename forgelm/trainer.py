@@ -287,6 +287,16 @@ class ForgeTrainer:
         _train_size = len(self.dataset.get("train", [])) if self.dataset else 0
         logging_steps = max(1, min(50, _train_size // 100)) if _train_size > 0 else 50
 
+        # When no validation split exists (e.g. tiny dataset from
+        # `_ensure_validation_split`'s <2-row guard), HF Trainer refuses to
+        # accept `eval_strategy != "no"` with a `None` eval_dataset.  Disable
+        # the eval-coupled args together so the training run still succeeds
+        # — auto-revert / best-model selection just don't apply without an
+        # eval set, and `_validate_evaluation_config` already warns the user.
+        has_validation = bool(self.dataset and self.dataset.get("validation"))
+        eval_strategy = "steps" if has_validation else "no"
+        load_best_model_at_end = has_validation
+
         kwargs = {
             "output_dir": self.checkpoint_dir,
             "max_steps": self.config.training.max_steps,
@@ -299,12 +309,12 @@ class ForgeTrainer:
             "eval_steps": self.config.training.eval_steps,
             "save_steps": self.config.training.save_steps,
             "logging_steps": logging_steps,
-            "eval_strategy": "steps",
+            "eval_strategy": eval_strategy,
             "save_strategy": "steps",
             "save_total_limit": self.config.training.save_total_limit,
-            "load_best_model_at_end": True,
-            "metric_for_best_model": "eval_loss",
-            "greater_is_better": False,
+            "load_best_model_at_end": load_best_model_at_end,
+            "metric_for_best_model": "eval_loss" if has_validation else None,
+            "greater_is_better": False if has_validation else None,
             "gradient_checkpointing": torch.cuda.is_available(),
             "optim": "adamw_torch_fused" if torch.cuda.is_available() else "adamw_torch",
             "bf16": torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
@@ -1329,6 +1339,7 @@ class ForgeTrainer:
             thresholds=thresholds,
             batch_size=getattr(safety_cfg, "batch_size", 8),
             audit_logger=self.audit,
+            include_samples=getattr(safety_cfg, "include_eval_samples", False),
         )
 
     def _run_judge_if_configured(self):
@@ -1357,6 +1368,7 @@ class ForgeTrainer:
             output_dir=output_dir,
             api_base=getattr(judge_cfg, "judge_api_base", None),
             batch_size=judge_cfg.batch_size,
+            include_samples=getattr(judge_cfg, "include_eval_samples", False),
         )
 
     def _export_compliance_if_needed(self, metrics: Dict[str, float], result: TrainResult) -> None:

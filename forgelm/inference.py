@@ -20,6 +20,24 @@ logger = logging.getLogger("forgelm.inference")
 # ---------------------------------------------------------------------------
 
 
+def _pick_tokenizer_source(path: str, adapter: Optional[str]) -> str:
+    """Return the directory the tokenizer should be loaded from.
+
+    Prefer the adapter directory when it carries ``tokenizer_config.json``
+    — fine-tuning may have added special tokens or a custom chat template,
+    and loading the base tokenizer would silently drop those.  HF saves
+    ``tokenizer_config.json`` next to the adapter weights when the trainer
+    called ``tokenizer.save_pretrained(adapter_dir)``.
+    """
+    if adapter:
+        import os as _os
+
+        if _os.path.isfile(_os.path.join(adapter, "tokenizer_config.json")):
+            logger.info("Using tokenizer from adapter directory: %s", adapter)
+            return adapter
+    return path
+
+
 def load_model(
     path: str,
     adapter: Optional[str] = None,
@@ -61,7 +79,8 @@ def load_model(
 
     logger.info("Loading model for inference: %s", path)
 
-    tokenizer = AutoTokenizer.from_pretrained(path, trust_remote_code=trust_remote_code)
+    tokenizer_source = _pick_tokenizer_source(path, adapter)
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, trust_remote_code=trust_remote_code)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
