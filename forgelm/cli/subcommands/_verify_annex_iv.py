@@ -186,7 +186,19 @@ def _compute_manifest_hash(artifact: Dict[str, Any]) -> str:
 
 
 def _run_verify_annex_iv_cmd(args, output_format: str) -> None:
-    """Top-level dispatcher for ``forgelm verify-annex-iv <path>``."""
+    """Top-level dispatcher for ``forgelm verify-annex-iv <path>``.
+
+    Two modes:
+
+    - **Single artefact** (default): ``<path>`` is an Annex IV JSON file
+      and the verifier checks field completeness + manifest hash.
+    - **Pipeline** (``--pipeline`` flag): ``<path>`` is a pipeline run
+      directory and the verifier reads
+      ``<path>/compliance/pipeline_manifest.json`` and runs chain-
+      integrity + stage-index + ``stopped_at`` coherence + per-stage
+      training_manifest existence checks.  Returns a list of violations
+      and exits 0 only when the list is empty.
+    """
     path = getattr(args, "path", None)
     if not path:
         _output_error_and_exit(
@@ -194,6 +206,33 @@ def _run_verify_annex_iv_cmd(args, output_format: str) -> None:
             "verify-annex-iv requires a path argument: `forgelm verify-annex-iv <annex_iv.json>`.",
             EXIT_CONFIG_ERROR,
         )
+
+    # Phase 14: ``--pipeline`` mode validates the chain-level manifest.
+    if getattr(args, "pipeline", False):
+        from forgelm.compliance import verify_pipeline_manifest_at_path
+
+        violations = verify_pipeline_manifest_at_path(path)
+        if output_format == "json":
+            print(
+                json.dumps(
+                    {
+                        "success": not violations,
+                        "mode": "pipeline",
+                        "path": os.path.abspath(path),
+                        "violations": violations,
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            if not violations:
+                print(f"OK: pipeline manifest at {path}")
+            else:
+                print(f"FAIL: pipeline manifest at {path}")
+                for v in violations:
+                    print(f"  - {v}")
+        sys.exit(EXIT_SUCCESS if not violations else EXIT_CONFIG_ERROR)
+
     # Round 6 absorption: the prior `os.path.isfile()` pre-check
     # collapsed two distinct conditions ("path doesn't exist" and
     # "path exists but the user can't stat it") into a single

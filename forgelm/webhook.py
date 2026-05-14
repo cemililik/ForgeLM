@@ -333,3 +333,105 @@ class WebhookNotifier:
             color="#ff9900",
             reason=masked_reason,
         )
+
+    # ----------------------------------------------------------------------
+    # Phase 14 — pipeline-level notifications
+    # ----------------------------------------------------------------------
+    #
+    # The pipeline orchestrator drives multi-stage runs and emits its own
+    # ``pipeline.*`` events alongside (not replacing) the existing per-stage
+    # ``training.*`` events that each ``ForgeTrainer`` instance still fires.
+    # Pre-existing Slack / Teams dashboards filtering on ``training.failure``
+    # therefore keep working unchanged; pipeline-aware dashboards can
+    # additionally subscribe to the new ``pipeline.*`` event vocabulary.
+
+    def notify_pipeline_started(self, run_id: str, stage_count: int) -> None:
+        """Post a "pipeline started" notification.
+
+        Fires once per pipeline run, before any stage executes.  Operators
+        running long chains use this signal to confirm the orchestrator
+        accepted the config and started the first stage.
+        """
+        if not (self.config and self.config.notify_on_start):
+            return
+        self._send(
+            event="pipeline.started",
+            run_name=run_id,
+            status="started",
+            title=f"Pipeline Started: {run_id}",
+            text=f"Multi-stage training pipeline began with {stage_count} stage(s).",
+            color="#0052cc",
+            stage_count=stage_count,
+        )
+
+    def notify_pipeline_completed(
+        self,
+        run_id: str,
+        final_status: str,
+        stopped_at: Optional[str],
+    ) -> None:
+        """Post a "pipeline completed" notification.
+
+        Fires once per pipeline run, after the final stage transition
+        (success, failure, or revert).  ``stopped_at`` names the failing
+        stage when the chain halted; ``None`` on full success.
+
+        Piggy-backs on ``notify_on_success`` when the pipeline finished
+        cleanly and on ``notify_on_failure`` when it stopped early —
+        matches the existing single-stage notification policy so
+        operators don't see pipeline pings they explicitly silenced.
+        """
+        succeeded = final_status == "completed"
+        if succeeded:
+            if not (self.config and self.config.notify_on_success):
+                return
+            color = "#36a64f"
+            title = f"Pipeline Succeeded: {run_id}"
+            text = "All stages completed successfully."
+        else:
+            if not (self.config and self.config.notify_on_failure):
+                return
+            color = "#cc0000"
+            title = f"Pipeline Stopped: {run_id}"
+            text = f"Pipeline halted at stage {stopped_at!r} with final_status={final_status!r}."
+
+        self._send(
+            event="pipeline.completed",
+            run_name=run_id,
+            status=final_status,
+            title=title,
+            text=text,
+            color=color,
+            final_status=final_status,
+            stopped_at=stopped_at,
+        )
+
+    def notify_pipeline_reverted(self, run_id: str, stage_name: str, reason: str) -> None:
+        """Post a "pipeline stage auto-reverted" notification.
+
+        Distinct from ``notify_pipeline_completed(final_status='stopped_at_stage')``:
+        this fires *at the moment* a stage auto-reverts, before downstream
+        stages are marked skipped.  Operators monitoring a long chain see
+        the revert event in near-real-time rather than waiting for the
+        final summary at the end of the run.
+
+        The reason is masked + truncated identically to
+        :meth:`notify_failure` so a leaked stack trace cannot smuggle
+        secrets via this path either.
+        """
+        if not (self.config and self.config.notify_on_failure):
+            return
+        masked_reason = self._mask_and_truncate_reason(reason)
+        self._send(
+            event="pipeline.stage_reverted",
+            run_name=run_id,
+            status="reverted",
+            title=f"Pipeline Stage Reverted: {run_id}",
+            text=(
+                f"Stage {stage_name!r} triggered auto-revert; downstream stages "
+                f"will not run.\n\nReason: {masked_reason}"
+            ),
+            color="#ff9900",
+            stage_name=stage_name,
+            reason=masked_reason,
+        )

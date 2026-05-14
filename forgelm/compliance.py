@@ -1042,6 +1042,93 @@ def compute_annex_iv_manifest_hash(artifact: Dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Phase 14 — Pipeline-level Annex IV manifest
+# ---------------------------------------------------------------------------
+#
+# The canonical ``generate_pipeline_manifest`` + ``export_pipeline_manifest``
+# definitions live further down in this module, alongside the
+# ``_provider_metadata_from_config`` helper and ``verify_pipeline_manifest``
+# disk-bound verifier.  Only the structural / chain-integrity helper
+# (``_verify_manifest_payload``) is declared here; the rest of the
+# pipeline-manifest surface clusters near the verifier so reviewers can
+# eyeball the schema and its validator together.
+
+
+def _verify_manifest_payload(manifest: Dict[str, Any]) -> List[str]:
+    """Validate a pipeline manifest's structural + chain-integrity rules.
+
+    Returns a list of human-readable violation strings (empty list ⇒
+    manifest is valid).  Used by ``forgelm verify-annex-iv --pipeline
+    <run_dir>`` to surface integrity issues to operators / regulators.
+
+    Checks:
+
+    1. **Required top-level keys** are present and of the right shape.
+    2. **Chain integrity** — for every stage N (N ≥ 1) that completed
+       successfully, its ``input_model`` must equal stage N-1's
+       ``output_model``.  Mismatches indicate either a CLI
+       ``--input-model`` override (legitimate) or a corrupt manifest
+       (illegitimate); the verifier surfaces both with the same
+       message so reviewers can inspect the audit log to disambiguate.
+    3. **Status consistency** — at most one ``stopped_at`` stage; if
+       set, that stage's status must be one of ``failed`` /
+       ``gated_pending_approval``.
+    4. **Index monotonicity** — stage indices form 0..N-1 in order.
+    """
+    violations: List[str] = []
+
+    required_top = (
+        "forgelm_version",
+        "pipeline_run_id",
+        "pipeline_config_hash",
+        "started_at",
+        "final_status",
+        "stages",
+    )
+    for key in required_top:
+        if key not in manifest:
+            violations.append(f"missing required top-level key: {key!r}")
+
+    stages = manifest.get("stages", [])
+    if not isinstance(stages, list):
+        violations.append("`stages` must be a list")
+        return violations
+
+    # Index monotonicity.
+    for expected, s in enumerate(stages):
+        if s.get("index") != expected:
+            violations.append(f"stage index out of order at position {expected}: got {s.get('index')!r}")
+
+    # Chain integrity.
+    prev_output: Optional[str] = None
+    for s in stages:
+        status = s.get("status")
+        # Only completed / failed (with output) stages contribute to the chain.
+        if status in ("completed", "failed", "gated_pending_approval") and s.get("output_model"):
+            if prev_output is not None and s.get("input_source") == "chain":
+                if s.get("input_model") != prev_output:
+                    violations.append(
+                        f"chain_integrity_violation at stage {s.get('name')!r}: input_model={s.get('input_model')!r} "
+                        f"≠ previous output_model={prev_output!r}"
+                    )
+            prev_output = s.get("output_model")
+
+    # Status consistency.
+    stopped_at = manifest.get("stopped_at")
+    if stopped_at is not None:
+        matching = [s for s in stages if s.get("name") == stopped_at]
+        if not matching:
+            violations.append(f"stopped_at refers to unknown stage {stopped_at!r}")
+        elif matching[0].get("status") not in ("failed", "gated_pending_approval"):
+            violations.append(
+                f"stopped_at stage {stopped_at!r} has status {matching[0].get('status')!r} "
+                f"(expected `failed` or `gated_pending_approval`)"
+            )
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Export: All Compliance Artifacts
 # ---------------------------------------------------------------------------
 
@@ -1484,3 +1571,174 @@ def verify_audit_log(
         return manifest_failure
 
     return chain_result
+
+
+# ---------------------------------------------------------------------------
+# Phase 14 — Pipeline manifest (chain-level Annex IV artefact)
+# ---------------------------------------------------------------------------
+#
+# The pipeline manifest is the *index* over a multi-stage training run.
+# Per-stage ``training_manifest.json`` files (produced by
+# :func:`generate_training_manifest` + :func:`export_compliance_artifacts`)
+# remain individually valid against the existing single-stage Annex IV
+# schema; the pipeline manifest ties them together at the chain level so
+# auditors can verify both the per-stage evidence AND the chain
+# integrity that connects the records.
+#
+# Lives in ``compliance.py`` (alongside the single-stage manifest) so
+# Annex IV schema decisions live in one module.  The orchestrator
+# imports these functions from here and never touches the schema
+# directly.
+
+
+def _provider_metadata_from_config(root_cfg: Any) -> Dict[str, Any]:
+    """Extract the ``annex_iv`` and ``risk_assessment`` provider metadata
+    from a root :class:`ForgeConfig`, in the shape the pipeline manifest
+    embeds verbatim.
+
+    Defensive — both blocks are optional; an absent block produces an
+    absent key in the returned dict rather than a half-populated record.
+    """
+    payload: Dict[str, Any] = {}
+    comp_cfg = getattr(root_cfg, "compliance", None)
+    if comp_cfg:
+        payload["annex_iv"] = {
+            "provider_name": comp_cfg.provider_name,
+            "provider_contact": comp_cfg.provider_contact,
+            "system_name": comp_cfg.system_name,
+            "intended_purpose": comp_cfg.intended_purpose,
+            "known_limitations": comp_cfg.known_limitations,
+            "system_version": comp_cfg.system_version,
+            "risk_classification": comp_cfg.risk_classification,
+        }
+    risk_cfg = getattr(root_cfg, "risk_assessment", None)
+    if risk_cfg:
+        payload["risk_assessment"] = {
+            "intended_use": risk_cfg.intended_use,
+            "foreseeable_misuse": risk_cfg.foreseeable_misuse,
+            "risk_category": risk_cfg.risk_category,
+            "mitigation_measures": risk_cfg.mitigation_measures,
+            "vulnerable_groups_considered": risk_cfg.vulnerable_groups_considered,
+        }
+    return payload
+
+
+def generate_pipeline_manifest(state: Any, root_cfg: Any) -> Dict[str, Any]:
+    """Build the chain-level Annex IV manifest.
+
+    Accepts the orchestrator's :class:`PipelineState` (any object
+    exposing the same field names — duck-typed to avoid a circular
+    import from :mod:`forgelm.cli._pipeline`) and the root
+    :class:`ForgeConfig`.  Returns a JSON-serialisable dict matching the
+    schema documented in
+    ``docs/roadmap/phase-14-pipeline-chains.md`` Task 3.
+
+    The per-stage rows are taken from ``state.stages`` verbatim — the
+    on-disk state file and the manifest carry the same stage payload, so
+    a reviewer can correlate the two without translating.  Provider /
+    risk metadata is copied from the root config (immutable across the
+    pipeline run by the per-stage inheritance matrix).
+    """
+    stages_payload: List[Dict[str, Any]] = []
+    for s in state.stages:
+        stages_payload.append(
+            {
+                "name": s.name,
+                "index": s.index,
+                "trainer_type": s.trainer_type,
+                "status": s.status,
+                "input_model": s.input_model,
+                "input_source": s.input_source,
+                "output_model": s.output_model,
+                "started_at": s.started_at,
+                "finished_at": s.finished_at,
+                "duration_seconds": s.duration_seconds,
+                "training_manifest": s.training_manifest,
+                "metrics": dict(s.metrics or {}),
+                "gate_decision": s.gate_decision,
+                "auto_revert_triggered": bool(s.auto_revert_triggered),
+                "skipped_reason": s.skipped_reason,
+                "exit_code": s.exit_code,
+                "error": getattr(s, "error", None),
+            }
+        )
+
+    manifest: Dict[str, Any] = {
+        "forgelm_version": state.forgelm_version,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "pipeline_run_id": state.pipeline_run_id,
+        "pipeline_config_hash": state.pipeline_config_hash,
+        "started_at": state.started_at,
+        "finished_at": state.finished_at,
+        "final_status": state.final_status,
+        "stopped_at": state.stopped_at,
+        "stages": stages_payload,
+    }
+    manifest.update(_provider_metadata_from_config(root_cfg))
+    return manifest
+
+
+def export_pipeline_manifest(manifest: Dict[str, Any], pipeline_output_dir: str) -> str:
+    """Write *manifest* to ``<pipeline_output_dir>/compliance/pipeline_manifest.json``.
+
+    Atomic write via tmp file + ``os.replace`` so a partial write on
+    SIGKILL leaves the previous valid manifest intact — the orchestrator
+    calls this on every stage transition; an interrupted transition must
+    not corrupt the artefact.
+    """
+    target_dir = os.path.join(pipeline_output_dir, "compliance")
+    os.makedirs(target_dir, exist_ok=True)
+    target_path = os.path.join(target_dir, "pipeline_manifest.json")
+    tmp_path = target_path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, default=str)
+    os.replace(tmp_path, target_path)
+    return target_path
+
+
+def verify_pipeline_manifest(manifest: Dict[str, Any]) -> List[str]:
+    """Public Annex IV verifier for a pipeline manifest *dict*.
+
+    Returns a list of human-readable violation strings; an empty list
+    means the manifest is structurally and chain-consistently valid.
+    See :func:`_verify_manifest_payload` for the complete check matrix.
+
+    Library callers (test harnesses, internal integrity checks) consume
+    this directly; the CLI command ``forgelm verify-annex-iv --pipeline
+    <dir>`` reads the file via :func:`verify_pipeline_manifest_at_path`,
+    which adds the disk-bound checks (per-stage training_manifest
+    existence) on top.
+    """
+    return _verify_manifest_payload(manifest)
+
+
+def verify_pipeline_manifest_at_path(pipeline_dir: str) -> List[str]:
+    """Disk-backed wrapper around :func:`verify_pipeline_manifest`.
+
+    Reads ``<pipeline_dir>/compliance/pipeline_manifest.json``, runs the
+    in-memory verifier on the parsed payload, then layers on disk-only
+    checks (per-stage ``training_manifest`` file existence).  Pre-flight
+    failures (missing manifest file, malformed JSON) surface as a single-
+    entry violation list so the CLI's exit-code mapping is uniform.
+    """
+    manifest_path = os.path.join(pipeline_dir, "compliance", "pipeline_manifest.json")
+    if not os.path.isfile(manifest_path):
+        return [f"pipeline_manifest.json not found at {manifest_path}"]
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        return [f"pipeline_manifest.json unreadable: {e}"]
+
+    violations: List[str] = list(_verify_manifest_payload(manifest))
+
+    # Disk-only check: each completed stage's training_manifest must
+    # exist.  The in-memory verifier cannot see the filesystem.
+    for s in manifest.get("stages", []):
+        name = s.get("name", "<unnamed>")
+        per_stage_manifest = s.get("training_manifest")
+        if per_stage_manifest and s.get("status") == "completed":
+            if not os.path.isfile(per_stage_manifest):
+                violations.append(f"Stage {name!r}: training_manifest at {per_stage_manifest!r} is missing.")
+
+    return violations

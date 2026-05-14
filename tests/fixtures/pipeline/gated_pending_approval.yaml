@@ -1,0 +1,33 @@
+# Phase 14 fixture — stage 1 carries `require_human_approval: true`.
+# Orchestrator must exit EXIT_AWAITING_APPROVAL (4); downstream stages
+# must stay `pending` (not `skipped_due_to_prior_revert`) so a
+# subsequent `forgelm approve <run_id>` + `--resume-from dpo_stage`
+# picks the chain back up.
+
+model:
+  name_or_path: "org/base"
+lora: {}
+training:
+  trainer_type: "sft"
+  output_dir: "./out/gated"
+data:
+  dataset_name_or_path: "org/sft"
+
+pipeline:
+  output_dir: "./out/gated"
+  stages:
+    - name: sft_stage
+      training:
+        trainer_type: "sft"
+        output_dir: "./out/gated/stage1"
+      data:
+        dataset_name_or_path: "org/sft_data"
+      evaluation:
+        require_human_approval: true
+
+    - name: dpo_stage
+      training:
+        trainer_type: "dpo"
+        output_dir: "./out/gated/stage2"
+      data:
+        dataset_name_or_path: "org/dpo_data"

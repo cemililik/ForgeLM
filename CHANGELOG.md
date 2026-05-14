@@ -6,6 +6,75 @@ All notable changes to ForgeLM are documented here.
 
 _(v0.6.1 dev cycle — entries will land here as PRs merge.)_
 
+### Added (Phase 14 — Multi-Stage Pipeline Chains)
+
+- **`pipeline:` config block** at the root of `ForgeConfig` chains 2+
+  training stages (typically SFT → DPO → GRPO) into one
+  config-driven run.  New Pydantic models `PipelineStage` and
+  `PipelineConfig` enforce stage-name uniqueness, `^[a-z0-9_]{1,32}$`
+  identifier shape, ≥1-stage minimum, and explicit-`trainer_type`
+  audit-clarity validation per stage.  Section-wholesale inheritance:
+  `model` / `lora` / `training` / `data` / `evaluation` blocks
+  inherit from the root if omitted or fully replace it when set.
+  `distributed` / `webhook` / `compliance` / `risk_assessment` /
+  `monitoring` / `retention` / `synthetic` / `merge` / `auth` are
+  root-only and rejected per-stage with `EXIT_CONFIG_ERROR (1)`.
+- **`forgelm/cli/_pipeline.py` orchestrator** drives the chain
+  end-to-end.  Auto-chains each stage's `model.name_or_path` to the
+  previous stage's output, persists state atomically to
+  `<pipeline.output_dir>/pipeline_state.json` after every transition,
+  and emits 5 new audit events: `pipeline.started`,
+  `pipeline.stage_started`, `pipeline.stage_completed`,
+  `pipeline.stage_reverted`, `pipeline.completed`.  Existing
+  `training.*` per-stage events from `ForgeTrainer` are preserved —
+  pre-existing Slack / Teams dashboards filtering on `training.failure`
+  keep working unchanged.
+- **CLI flags** `--stage <name>` (single-stage filter for audit /
+  re-run), `--resume-from <name>` (stage-boundary resume),
+  `--force-resume` (stale-config-hash override), and `--input-model
+  <path>` (auto-chain escape hatch, recorded with `input_source:
+  cli_override` in the audit log).
+- **`--dry-run` multi-stage validation** — when the config carries a
+  `pipeline:` block, dry-run validates every stage's merged config +
+  the chain-integrity assertion (stage N's auto-chained input is
+  under stage N-1's `output_dir`).  Errors are collected before
+  exiting (à la `pytest --collectonly`).
+- **Pipeline Annex IV manifest** — `compliance/pipeline_manifest.json`
+  at `<pipeline.output_dir>` indexes per-stage `training_manifest.json`
+  files into one verifiable chain artefact, carrying
+  `pipeline_run_id` + `pipeline_config_hash` (SHA-256 of the YAML
+  bytes) for reproducibility.  `forgelm verify-annex-iv --pipeline
+  <run_dir>` walks the index, checks chain integrity, and asserts
+  every referenced per-stage manifest exists on disk.
+- **Webhook notifications** — `WebhookNotifier.notify_pipeline_started`,
+  `notify_pipeline_completed`, and `notify_pipeline_reverted`
+  mirror the orchestrator's audit events; gated by the existing
+  `notify_on_start` / `notify_on_success` / `notify_on_failure`
+  config flags so operators silencing per-stage events also silence
+  the pipeline-level pings.
+- **Bilingual operator guide** — new `docs/guides/pipeline.md` +
+  `docs/guides/pipeline-tr.md` (canonical "first pipeline" walkthrough,
+  inheritance matrix, CLI semantics, Annex IV verifier flow,
+  Limitations section).  `config_template.yaml` gains a commented-out
+  `pipeline:` example block.
+
+### Changed (Phase 14)
+
+- **Backward compatibility preserved.**  A config file without a
+  `pipeline:` key reaches `forgelm/trainer.py` byte-identically to
+  v0.6.0; the orchestrator module is never imported.
+- `compliance.py` exports four new symbols: `generate_pipeline_manifest`
+  (called by the orchestrator after every transition),
+  `export_pipeline_manifest` (atomic write to
+  `<pipeline.output_dir>/compliance/pipeline_manifest.json`),
+  `verify_pipeline_manifest(manifest: dict) -> List[str]` (in-memory
+  structural + chain-integrity check, returns a list of human-readable
+  violations — empty when valid), and `verify_pipeline_manifest_at_path
+  (pipeline_dir: str) -> List[str]` (disk-backed wrapper used by the
+  `forgelm verify-annex-iv --pipeline <dir>` CLI mode).  The shared
+  validator lives in private helper `_verify_manifest_payload` so the
+  in-memory and disk-bound entry points cannot drift.
+
 ### Security
 
 - **Webhook / judge / synthetic SSRF guard — DNS-rebinding TOCTOU

@@ -754,7 +754,25 @@ def _add_verify_annex_iv_subcommand(subparsers) -> None:
             "Exits 0 on valid; 1 on missing field or hash mismatch."
         ),
     )
-    p.add_argument("path", help="Path to the Annex IV JSON artifact (typically `compliance/annex_iv_<run>.json`).")
+    p.add_argument(
+        "path",
+        help=(
+            "Path to the Annex IV JSON artifact (typically "
+            "``compliance/annex_iv_<run>.json``).  When ``--pipeline`` is set, "
+            "this is interpreted as a pipeline run directory containing "
+            "``compliance/pipeline_manifest.json`` instead."
+        ),
+    )
+    p.add_argument(
+        "--pipeline",
+        action="store_true",
+        help=(
+            "Phase 14: interpret ``path`` as a pipeline run directory and "
+            "validate the chain-level ``pipeline_manifest.json`` (chain "
+            "integrity, stage-index ordering, ``stopped_at`` coherence, "
+            "per-stage training_manifest existence)."
+        ),
+    )
     _add_common_subparser_flags(p, include_output_format=True)
 
 
@@ -1229,6 +1247,54 @@ def parse_args():
     )
     parser.add_argument(
         "--merge", action="store_true", help="Run model merging from the merge section of your config. No training."
+    )
+    # Phase 14 — multi-stage pipeline chains.  Active only when the
+    # ``pipeline:`` block is present in the config; documented at
+    # docs/guides/pipeline.md.
+    parser.add_argument(
+        "--stage",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help=(
+            "Multi-stage pipelines only: run a single named stage in isolation "
+            "(audit / re-run scenarios).  Non-first stages require the previous "
+            "stage's on-disk output, or an explicit --input-model override."
+        ),
+    )
+    parser.add_argument(
+        "--resume-from",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help=(
+            "Multi-stage pipelines only: resume an interrupted run from a named "
+            "stage onward.  Already-completed stages whose output_model paths "
+            "exist on disk are skipped; refuses to run if the on-disk "
+            "pipeline_config_hash differs from the current YAML (unless "
+            "--force-resume is also set)."
+        ),
+    )
+    parser.add_argument(
+        "--force-resume",
+        action="store_true",
+        help=(
+            "Multi-stage pipelines only: bypass the --resume-from stale-config "
+            "guard.  The override is logged at WARNING and recorded in the "
+            "audit event."
+        ),
+    )
+    parser.add_argument(
+        "--input-model",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Multi-stage pipelines only: when used with --stage, replaces the "
+            "auto-chained input model with this path.  The audit-log entry "
+            "records ``input_source: cli_override`` so reviewers see the chain "
+            "was broken intentionally."
+        ),
     )
     parser.add_argument(
         "--output-format",

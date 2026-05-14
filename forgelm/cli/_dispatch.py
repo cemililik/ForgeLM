@@ -262,4 +262,26 @@ def _main_inner() -> None:
     config = _load_config_or_exit(args.config, json_output)
     _apply_offline_flag(config, args.offline)
     _maybe_run_no_train_mode(config, args)
+
+    # Phase 14 — multi-stage pipeline branch.  When the YAML carries a
+    # ``pipeline:`` block, hand control to the orchestrator instead of
+    # the single-stage trainer.  Single-stage configs (the v0.6.0 default)
+    # skip this branch entirely and reach the trainer as before.
+    if config.pipeline is not None:
+        from ._pipeline import run_pipeline_from_args
+
+        # Re-read the YAML *bytes* so the orchestrator can hash them for
+        # the ``--resume-from`` stale-config guard.  We deliberately
+        # don't trust ``yaml.dump(config.model_dump())`` here — comments
+        # and key order would be lost, and the hash is meant to prove
+        # the on-disk artefact, not the parsed semantic content.
+        try:
+            with open(args.config, "rb") as f:
+                pipeline_yaml_bytes = f.read()
+        except OSError as e:
+            logger.error("Failed to re-read pipeline YAML for hashing: %s", e)
+            sys.exit(EXIT_CONFIG_ERROR)
+
+        sys.exit(run_pipeline_from_args(config, pipeline_yaml_bytes, args))
+
     _run_training_pipeline(config, args, json_output)

@@ -1,6 +1,6 @@
 # Phase 14: Multi-Stage Training Pipeline Chains
 
-> **Status:** Planning.  Targeted for `v0.7.0` (originally `v0.6.0`; Phase 15 displaced it after the 2026-05-11 ingestion pilot — see [completed-phases.md#phase-15-ingestion-pipeline-reliability-v060](completed-phases.md#phase-15-ingestion-pipeline-reliability-v060)).  No hard blockers; `v0.6.0` has shipped, Phase 14 can start.
+> **Status:** Implementation complete on `development` (branch `feat/phase-14-pipeline-chains`).  Awaiting `v0.7.0` PyPI tag for the final "Done" promotion to [completed-phases.md](completed-phases.md).  Originally targeted for `v0.6.0`; Phase 15 displaced it after the 2026-05-11 ingestion pilot — see [completed-phases.md#phase-15-ingestion-pipeline-reliability-v060](completed-phases.md#phase-15-ingestion-pipeline-reliability-v060).
 
 > **Note:** This file details a single planned phase.  See [../roadmap.md](../roadmap.md) for the cross-phase summary.
 
@@ -245,5 +245,18 @@ Each fixture has a golden pipeline manifest committed alongside; regression suit
 - **User-facing surfaces to add/update:** new `docs/guides/pipeline.md` + `-tr.md` (planned, created by Phase 14 implementation), updates to [`docs/reference/configuration.md`](../reference/configuration.md) + `-tr.md`, new `docs/guides/cli.md` + `-tr.md` (planned), and [`config_template.yaml`](../../config_template.yaml) gains a commented-out `pipeline:` example block.
 - **Standards consulted:** [`docs/standards/error-handling.md`](../standards/error-handling.md) (exit code stability), [`docs/standards/architecture.md`](../standards/architecture.md) (layering — orchestrator above trainer), [`docs/standards/testing.md`](../standards/testing.md) (fixture matrix discipline), [`docs/standards/localization.md`](../standards/localization.md) (EN ↔ TR mirror).
 - **Pattern reference:** Phase 15's review-absorption discipline + fixture matrix is the working model — see [completed-phases.md#phase-15-ingestion-pipeline-reliability-v060](completed-phases.md#phase-15-ingestion-pipeline-reliability-v060).
+
+### Release-time follow-up (deferred to the `v0.7.0` `cut-release` cycle)
+
+Phase 14 implementation ships on the `development` branch ahead of the
+PyPI tag.  The two operator-facing surfaces below are intentionally not
+edited inside this PR — they are released-product surfaces and stay
+v0.6.0-shaped until `cut-release` actually tags `v0.7.0`:
+
+- **`docs/usermanuals/_meta.yaml` + `docs/usermanuals/{en,tr,de,fr,es,zh}/training/pipeline.md`** — new training-section page mirroring `docs/guides/pipeline.md`.  TOC entry needs 6 locale titles (`en`/`tr` mandatory; `de`/`fr`/`es`/`zh` fall back to EN per `docs/standards/localization.md`).
+- **`site/features.html` + `site/index.html` + `site/js/translations.js`** — new "Multi-stage training pipelines" feature card and a hook into the existing `home.pipeline` (alignment-stack) section so the two distinct senses of the word "pipeline" don't collide visually.  6-language i18n keys (`features.pipeline.title`, `features.pipeline.body`, `home.pipeline.chain.cta`) gated at full parity by `tools/check_site_claims.py`.
+- **`tools/update_site_version.py`** — Phase 14 ships under the `v0.7.0` literal bump, which the version guard rewrites across `site/*.html` and `site/js/translations.js` automatically.
+
+The `cut-release` skill ([.claude/skills/cut-release/SKILL.md](../../.claude/skills/cut-release/SKILL.md)) walks these in order at `v0.7.0` tag time.
 
 ---
