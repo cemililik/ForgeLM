@@ -62,7 +62,7 @@
    | `model.name_or_path` | **Auto-chained** (overrides root after stage 0) | Set to previous stage's `training.output_dir/final_model`.  Stage 0 still reads root `model.name_or_path`.  An explicit per-stage `model.name_or_path` is allowed and disables auto-chaining for that stage (operator escape hatch). |
    | `model.*` (other fields) | Inherited unless `model:` block overridden | `backend`, `load_in_4bit`, `trust_remote_code`, `max_length`, `chat_template` follow the root unless the stage supplies a full `model:` block. |
    | `lora` | Inherited unless `lora:` block overridden | Critical edge case: stage 2 DPO with a *different* `lora.r` than stage 1 SFT means stage 2 is **a fresh LoRA over the merged SFT model**, not a continuation of SFT's LoRA.  Documented in the operator guide. |
-   | `data` | **Must be overridden per stage** | Pipelines that don't change the dataset between stages are vanishingly rare; explicit per-stage data is a forcing function against accidental dataset reuse. |
+   | `data` | Inherited unless `data:` block overridden (strongly discouraged) | Pipelines that don't change the dataset between stages are vanishingly rare — almost every real chain has SFT use a curated SFT dataset, DPO use a preference pairs dataset, and GRPO use a math/reward dataset.  The schema does not *force* a per-stage override (operators may legitimately rerun the same dataset against a different trainer for ablation studies), but the operator guide flags the inheritance case as a smell and the dry-run summary prints a warning when two consecutive stages share the same `dataset_name_or_path`. |
    | `training` | Inherited unless `training:` block overridden | `trainer_type` is required per stage; the validator rejects a stage with no `training.trainer_type` even if the root supplies one (each stage explicitly states its alignment paradigm for audit clarity). |
    | `evaluation` | Inherited unless `evaluation:` block overridden | Per-stage gates (Task 5) live here; a stage that wants different `auto_revert` / `safety` config supplies a full `evaluation:` block. |
    | `distributed` | Inherited (always); no per-stage override | Distributed strategy must be consistent across the pipeline run.  Per-stage `distributed:` blocks rejected at load with a clear error. |
@@ -181,8 +181,10 @@
    **Audit-log events (extends the existing 5-event vocabulary):**
    - `pipeline.started` — run id, config hash, stage count, stage names
    - `pipeline.stage_started` — stage name, index, input model, input source (chain/cli_override/root)
-   - `pipeline.stage_completed` — stage name, metrics summary, gate decision
+   - `pipeline.stage_completed` — stage name, metrics summary, gate decision (`passed` / `failed`)
+   - `pipeline.stage_gated` — stage name, gate decision `approval_pending`, staging path (emitted instead of `stage_completed` when a stage exits `EXIT_AWAITING_APPROVAL`; lets dashboard / SIEM rules filter on the event name alone — Phase 14 review F-N-1)
    - `pipeline.stage_reverted` — stage name, auto-revert reason, halt-pipeline=true
+   - `pipeline.force_resume` — operator-approved stale-hash override; carries `old_config_hash` + `new_config_hash` so reviewers can correlate to the audit trail (Phase 14 review F-B-2)
    - `pipeline.completed` — final status, total duration, stage count
 
    These events live alongside (not replacing) the existing per-stage `training.*` events emitted by `ForgeTrainer`.  Webhook notifier (`forgelm/webhook.py`) gains `notify_pipeline_started` / `notify_pipeline_completed` / `notify_pipeline_reverted` methods that wrap the existing 5-event vocabulary so Slack / Teams dashboards filtering on `event=training.failure` continue to work; pipeline-aware dashboards can additionally filter on the new `pipeline.*` events.

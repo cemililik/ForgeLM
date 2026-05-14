@@ -261,12 +261,16 @@ def _main_inner() -> None:
 
     config = _load_config_or_exit(args.config, json_output)
     _apply_offline_flag(config, args.offline)
-    _maybe_run_no_train_mode(config, args)
 
-    # Phase 14 — multi-stage pipeline branch.  When the YAML carries a
-    # ``pipeline:`` block, hand control to the orchestrator instead of
-    # the single-stage trainer.  Single-stage configs (the v0.6.0 default)
-    # skip this branch entirely and reach the trainer as before.
+    # Phase 14 — multi-stage pipeline branch MUST run BEFORE
+    # ``_maybe_run_no_train_mode``.  The single-stage no-train modes
+    # (``--dry-run``, ``--fit-check``, ``--benchmark-only``, ``--merge``,
+    # ``--generate-data``, ``--compliance-export``) call ``sys.exit``
+    # internally; if they ran first on a pipeline config, the orchestrator
+    # would never reach the multi-stage validation path and the documented
+    # ``--dry-run`` per-stage error collection contract (Phase 14 Task 4)
+    # would be silently violated — the operator would see the legacy
+    # single-stage dry-run summary instead.
     if config.pipeline is not None:
         from ._pipeline import run_pipeline_from_args
 
@@ -284,4 +288,6 @@ def _main_inner() -> None:
 
         sys.exit(run_pipeline_from_args(config, pipeline_yaml_bytes, args))
 
+    # Single-stage path — unchanged from v0.6.0.
+    _maybe_run_no_train_mode(config, args)
     _run_training_pipeline(config, args, json_output)

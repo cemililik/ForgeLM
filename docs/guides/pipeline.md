@@ -104,7 +104,7 @@ inherit, omit the block; if you want to override, supply the full block."
 | `model.name_or_path` | **Auto-chained** (overrides root from stage 1 onward) | Set to previous stage's `training.output_dir/final_model`.  Stage 0 reads root `model.name_or_path`.  An explicit per-stage `model:` block disables auto-chaining for that stage (escape hatch). |
 | `model.*` (other fields) | Inherited unless `model:` block overridden | `backend`, `load_in_4bit`, `trust_remote_code`, `max_length`, `chat_template` follow the root. |
 | `lora` | Inherited unless `lora:` block overridden | **Critical edge case:** stage 2 DPO with a *different* `lora.r` than stage 1 SFT means stage 2 is **a fresh LoRA over the merged SFT model**, not a continuation of SFT's LoRA.  Operator-visible behaviour. |
-| `data` | Inherited unless `data:` block overridden | Pipelines rarely reuse the same dataset across stages; explicit per-stage data is the common case. |
+| `data` | Inherited unless `data:` block overridden (strongly discouraged) | The schema does **not** force a per-stage override — operators may rerun the same dataset against a different trainer for ablation studies — but pipelines that legitimately reuse the same dataset across stages are vanishingly rare in production. The operator guide flags inheritance as a smell; almost every real chain has SFT use a curated SFT dataset, DPO use a preference-pairs dataset, and GRPO use a math/reward dataset. |
 | `training` | Inherited unless `training:` block overridden | `trainer_type` MUST be set explicitly per stage (audit-clarity validator).  Other fields wholesale-replaced when the block is overridden. |
 | `evaluation` | Inherited unless `evaluation:` block overridden | Per-stage gates (loss thresholds, auto_revert, safety, judge, human-approval) live here. |
 | `distributed` | Root only — **per-stage rejected** | Distributed strategy must be consistent across the run. |
@@ -208,8 +208,10 @@ The orchestrator emits these events into the pipeline-level
 
 - `pipeline.started` — run id, config hash, stage count, stage names
 - `pipeline.stage_started` — stage name, index, input model, input source
-- `pipeline.stage_completed` — stage name, gate decision, metrics summary
+- `pipeline.stage_completed` — stage name, gate decision (`passed` / `failed`), metrics summary
+- `pipeline.stage_gated` — stage name, gate decision `approval_pending`, staging path (emitted when a stage exits `EXIT_AWAITING_APPROVAL`)
 - `pipeline.stage_reverted` — stage name, auto-revert reason
+- `pipeline.force_resume` — operator-approved stale-hash override with `old_config_hash` + `new_config_hash`
 - `pipeline.completed` — final status, stopped-at stage (if any)
 
 These events live alongside the existing `training.*` events that each

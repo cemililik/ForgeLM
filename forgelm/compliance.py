@@ -1064,15 +1064,24 @@ def _verify_manifest_payload(manifest: Dict[str, Any]) -> List[str]:
     Checks:
 
     1. **Required top-level keys** are present and of the right shape.
-    2. **Chain integrity** — for every stage N (N ≥ 1) that completed
-       successfully, its ``input_model`` must equal stage N-1's
-       ``output_model``.  Mismatches indicate either a CLI
-       ``--input-model`` override (legitimate) or a corrupt manifest
-       (illegitimate); the verifier surfaces both with the same
-       message so reviewers can inspect the audit log to disambiguate.
+    2. **Chain integrity** — for every stage N with
+       ``input_source == "chain"``, the *immediate* previous stage's
+       ``output_model`` must match its ``input_model``.  If the previous
+       stage has no ``output_model`` (e.g. failed before saving) the
+       chain link is unreconstructible and the verifier flags it as a
+       ``chain_integrity_violation`` (Phase 14 review F-B-3 hardening:
+       pre-fix the verifier walked across stages that *had* an
+       output_model, silently accepting a manifest whose chain could
+       not actually be reconstructed).  Stages with
+       ``input_source != "chain"`` (``root`` / ``stage_explicit`` /
+       ``cli_override``) intentionally break the chain — by design,
+       reviewers inspect the audit log to validate them.
     3. **Status consistency** — at most one ``stopped_at`` stage; if
        set, that stage's status must be one of ``failed`` /
-       ``gated_pending_approval``.
+       ``gated_pending_approval``.  Additionally, a finalised manifest
+       (``final_status != "in_progress"``) must not carry any stage
+       still in ``running`` status — that indicates a process crash
+       mid-stage that the archive must surface (Phase 14 review F-N-2).
     4. **Index monotonicity** — stage indices form 0..N-1 in order.
     """
     violations: List[str] = []
@@ -1099,19 +1108,35 @@ def _verify_manifest_payload(manifest: Dict[str, Any]) -> List[str]:
         if s.get("index") != expected:
             violations.append(f"stage index out of order at position {expected}: got {s.get('index')!r}")
 
-    # Chain integrity.
-    prev_output: Optional[str] = None
-    for s in stages:
-        status = s.get("status")
-        # Only completed / failed (with output) stages contribute to the chain.
-        if status in ("completed", "failed", "gated_pending_approval") and s.get("output_model"):
-            if prev_output is not None and s.get("input_source") == "chain":
-                if s.get("input_model") != prev_output:
-                    violations.append(
-                        f"chain_integrity_violation at stage {s.get('name')!r}: input_model={s.get('input_model')!r} "
-                        f"≠ previous output_model={prev_output!r}"
-                    )
-            prev_output = s.get("output_model")
+    # Chain integrity — Phase 14 review F-B-3 + F-N-3 hardening: every
+    # chain stage is compared against the **immediate** previous stage,
+    # not the most-recent stage with an ``output_model``.  Pre-fix, if
+    # stage N-1 failed without saving an ``output_model`` (or any
+    # hand-crafted manifest with a None output midway), the chain check
+    # silently skipped that gap and compared stage N against stage N-2,
+    # masking a real broken link.
+    for idx, s in enumerate(stages):
+        if s.get("input_source") != "chain":
+            continue
+        if idx == 0:
+            violations.append(
+                f"Stage {s.get('name')!r}: input_source='chain' but no previous stage exists (stage 0 cannot chain)."
+            )
+            continue
+        prev = stages[idx - 1]
+        prev_output_model = prev.get("output_model")
+        if not prev_output_model:
+            violations.append(
+                f"chain_integrity_violation at stage {s.get('name')!r}: claims "
+                f"input_source='chain' but previous stage {prev.get('name')!r} has "
+                f"no output_model (status={prev.get('status')!r})."
+            )
+            continue
+        if s.get("input_model") != prev_output_model:
+            violations.append(
+                f"chain_integrity_violation at stage {s.get('name')!r}: input_model={s.get('input_model')!r} "
+                f"≠ previous output_model={prev_output_model!r}"
+            )
 
     # Status consistency.
     stopped_at = manifest.get("stopped_at")
@@ -1123,6 +1148,21 @@ def _verify_manifest_payload(manifest: Dict[str, Any]) -> List[str]:
             violations.append(
                 f"stopped_at stage {stopped_at!r} has status {matching[0].get('status')!r} "
                 f"(expected `failed` or `gated_pending_approval`)"
+            )
+
+    # Running-stage consistency (N-2): a finalised manifest
+    # (final_status != "in_progress") with a stage in ``running`` status
+    # is a tell that the orchestrator process died mid-stage and never
+    # updated the state file.  Archival audit must surface this so the
+    # operator knows the chain wasn't actually completed.
+    final_status = manifest.get("final_status")
+    if final_status and final_status != "in_progress":
+        running_stages = [s.get("name") for s in stages if s.get("status") == "running"]
+        if running_stages:
+            violations.append(
+                f"stage(s) {running_stages!r} still in `running` status on a "
+                f"finalised manifest (final_status={final_status!r}); the "
+                f"orchestrator likely crashed mid-stage without updating state."
             )
 
     return violations
@@ -1659,7 +1699,7 @@ def generate_pipeline_manifest(state: Any, root_cfg: Any) -> Dict[str, Any]:
                 "auto_revert_triggered": bool(s.auto_revert_triggered),
                 "skipped_reason": s.skipped_reason,
                 "exit_code": s.exit_code,
-                "error": getattr(s, "error", None),
+                "error": s.error,
             }
         )
 

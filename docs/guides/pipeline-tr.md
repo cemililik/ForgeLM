@@ -105,7 +105,7 @@ etmek istiyorsan tam bloğu yaz."
 | `model.name_or_path` | **Otomatik zincirlenir** (aşama 1'den itibaren root'u geçer) | Önceki aşamanın `training.output_dir/final_model` değerine ayarlanır.  Aşama 0 root'un `model.name_or_path`'ini okur.  Aşamada explicit `model:` bloğu otomatik zincirlemeyi o aşama için devre dışı bırakır (kaçış kapısı). |
 | `model.*` (diğer alanlar) | `model:` bloğu override edilmediyse miras alınır | `backend`, `load_in_4bit`, `trust_remote_code`, `max_length`, `chat_template` root'u izler. |
 | `lora` | `lora:` bloğu override edilmediyse miras alınır | **Kritik edge case:** aşama 2 DPO, aşama 1 SFT'den *farklı* bir `lora.r` ile gelirse aşama 2 **birleştirilmiş SFT modelinin üstüne taze bir LoRA**dır, SFT'nin LoRA'sının devamı değil.  Operatör-görünür davranış. |
-| `data` | `data:` bloğu override edilmediyse miras alınır | Pipeline'lar aşamalar arası nadiren aynı dataset'i kullanır; aşama bazında explicit data yaygın kullanım. |
+| `data` | `data:` bloğu override edilmediyse miras alınır (önerilmez) | Şema aşama bazında override'ı **zorunlu kılmıyor** — operatörler farklı bir trainer'a karşı aynı veri setini ablation için yeniden koşturabilir — ama production'da aşamalar arası aynı dataset'i kullanan pipeline'lar son derece nadirdir. Operator kılavuzu inheritance'ı bir kötü-koku olarak işaretler; gerçek pipeline'ların neredeyse tümünde SFT küratör SFT dataset'i kullanır, DPO preference-pairs dataset'i, GRPO matematik/ödül dataset'i. |
 | `training` | `training:` bloğu override edilmediyse miras alınır | `trainer_type` her aşamada explicit set EDİLMEK ZORUNDADIR (audit-clarity doğrulayıcısı).  Diğer alanlar blok override edildiğinde wholesale yer değiştirir. |
 | `evaluation` | `evaluation:` bloğu override edilmediyse miras alınır | Aşama bazında gate'ler (loss eşikleri, auto_revert, safety, judge, human-approval) burada yaşar. |
 | `distributed` | Sadece root — **aşamada reddedilir** | Distributed strateji koşu boyunca tutarlı olmak zorundadır. |
@@ -210,8 +210,10 @@ altında) emit eder:
 
 - `pipeline.started` — run id, config hash, stage count, stage names
 - `pipeline.stage_started` — stage name, index, input model, input source
-- `pipeline.stage_completed` — stage name, gate decision, metrics summary
+- `pipeline.stage_completed` — stage name, gate decision (`passed` / `failed`), metrics summary
+- `pipeline.stage_gated` — stage name, gate decision `approval_pending`, staging path (bir aşama `EXIT_AWAITING_APPROVAL` ile çıkış yaptığında emit edilir)
 - `pipeline.stage_reverted` — stage name, auto-revert reason
+- `pipeline.force_resume` — operatör onaylı stale-hash override, `old_config_hash` + `new_config_hash` taşır
 - `pipeline.completed` — final status, stopped-at stage (varsa)
 
 Bu olaylar mevcut her aşamanın `ForgeTrainer`'inin emit etmeye devam

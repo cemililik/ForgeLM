@@ -29,8 +29,6 @@ import os
 import types
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from forgelm.cli._exit_codes import (
     EXIT_AWAITING_APPROVAL,
     EXIT_CONFIG_ERROR,
@@ -365,6 +363,38 @@ class TestHumanApprovalGate:
         assert payload["stages"][1]["status"] == "pending"
         assert payload["stages"][2]["status"] == "pending"
 
+    def test_gated_stage_emits_dedicated_stage_gated_audit_event(self, tmp_path, monkeypatch):
+        """Phase 14 review F-N-1 regression: a stage exiting
+        ``EXIT_AWAITING_APPROVAL`` must emit a dedicated
+        ``pipeline.stage_gated`` audit event (not
+        ``pipeline.stage_completed`` with a sub-field).  This lets
+        dashboard / SIEM filters distinguish the gate flow on the event
+        name alone."""
+        cfg = _three_stage_config(tmp_path)
+        staging = str(tmp_path / "stage1" / "final_model.staging")
+        os.makedirs(staging, exist_ok=True)
+        _install_trainer_mocks(monkeypatch, [TrainResult(success=True, staging_path=staging)])
+        orch = PipelineOrchestrator(cfg, b"yaml bytes")
+        orch.run()
+        audit_path = os.path.join(orch.paths["root_output_dir"], "audit_log.jsonl")
+        with open(audit_path) as f:
+            events = [json.loads(line) for line in f if line.strip()]
+        gated_events = [e for e in events if e.get("event") == "pipeline.stage_gated"]
+        assert len(gated_events) == 1, (
+            f"Expected exactly one pipeline.stage_gated event, got {[e.get('event') for e in events]!r}"
+        )
+        evt = gated_events[0]
+        assert evt["stage_name"] == "sft_stage"
+        assert evt["gate_decision"] == "approval_pending"
+        assert evt["staging_path"] == staging
+        # Counter-assert: the legacy stage_completed event must NOT have
+        # fired for this stage (preventing a future regression where both
+        # events are emitted in parallel and the dashboard double-counts).
+        completed_for_sft = [
+            e for e in events if e.get("event") == "pipeline.stage_completed" and e.get("stage_name") == "sft_stage"
+        ]
+        assert completed_for_sft == []
+
 
 # ---------------------------------------------------------------------------
 # Orchestrator behaviour — --stage filter
@@ -455,10 +485,12 @@ class TestResumeFrom:
         orch1 = PipelineOrchestrator(cfg, b"original yaml")
         orch1.run()
         # Operator edited the YAML; resume against a different hash.
+        # Post-Phase-14-review: refusal flows back through ``run()`` as a
+        # plain return value (not ``sys.exit`` mid-method) so the audit-
+        # log + summary path runs uniformly on every refusal.
         orch2 = PipelineOrchestrator(cfg, b"edited yaml")
-        with pytest.raises(SystemExit) as exc_info:
-            orch2.run(resume_from="dpo_stage")
-        assert exc_info.value.code == EXIT_CONFIG_ERROR
+        code = orch2.run(resume_from="dpo_stage")
+        assert code == EXIT_CONFIG_ERROR
 
     def test_force_resume_accepts_stale_hash_with_warning(self, tmp_path, monkeypatch, caplog):
         import logging
@@ -472,8 +504,39 @@ class TestResumeFrom:
         with caplog.at_level(logging.WARNING, logger="forgelm.pipeline"):
             code = orch2.run(resume_from="dpo_stage", force_resume=True)
         assert code == EXIT_SUCCESS
-        warning_emitted = any("pipeline_config_hash mismatch" in r.message for r in caplog.records)
-        assert warning_emitted
+
+    def test_force_resume_emits_audit_event_with_both_hashes(self, tmp_path, monkeypatch):
+        """Phase 14 review F-B-2 regression: ``--force-resume`` must
+        emit a ``pipeline.force_resume`` audit event carrying both the
+        old and new ``pipeline_config_hash`` so a compliance reviewer
+        can distinguish an operator-approved override from a normal
+        resume.  Pre-fix, only a WARNING log line was emitted — invisible
+        in the append-only audit-log JSONL stream."""
+        cfg = _three_stage_config(tmp_path)
+        _install_trainer_mocks(monkeypatch, [TrainResult(success=False, error="x")])
+        orch1 = PipelineOrchestrator(cfg, b"yaml v1")
+        orch1.run()
+
+        _install_trainer_mocks(monkeypatch, [TrainResult(success=True), TrainResult(success=True)])
+        orch2 = PipelineOrchestrator(cfg, b"yaml v2 (operator edited)")
+        orch2.run(resume_from="dpo_stage", force_resume=True)
+
+        audit_path = os.path.join(orch2.paths["root_output_dir"], "audit_log.jsonl")
+        assert os.path.exists(audit_path)
+        with open(audit_path) as f:
+            events = [json.loads(line) for line in f if line.strip()]
+        force_resume_events = [e for e in events if e.get("event") == "pipeline.force_resume"]
+        assert len(force_resume_events) == 1, (
+            f"Expected exactly one pipeline.force_resume audit event, got "
+            f"{len(force_resume_events)}: {[e.get('event') for e in events]!r}"
+        )
+        evt = force_resume_events[0]
+        assert "old_config_hash" in evt
+        assert "new_config_hash" in evt
+        assert evt["old_config_hash"] != evt["new_config_hash"]
+        assert "yaml v1" not in str(evt) and "yaml v2" not in str(evt), (
+            "Audit event must record hashes, not raw YAML bytes."
+        )
 
     def test_resume_with_unknown_stage_name_fails(self, tmp_path, monkeypatch):
         cfg = _three_stage_config(tmp_path)
@@ -521,3 +584,47 @@ class TestAuditAndWebhook:
             orch = PipelineOrchestrator(cfg, b"yaml")
             code = orch.run()
         assert code == EXIT_SUCCESS
+
+    def test_audit_event_failures_do_not_abort_pipeline(self, tmp_path, monkeypatch):
+        """Phase 14 review F-N-5 regression: ``_audit_event``'s
+        documented ``except Exception`` swallow path must be reached and
+        the pipeline must continue.  An audit-write failure (read-only
+        filesystem, disk full, malformed audit logger config) is
+        documented as best-effort — the orchestrator emits a WARNING and
+        carries on; the test patches ``AuditLogger.log_event`` to raise
+        and asserts the run completes with the expected exit code."""
+        cfg = _three_stage_config(tmp_path)
+        _install_trainer_mocks(monkeypatch, [TrainResult(success=True)] * 3)
+
+        from forgelm.compliance import AuditLogger as _RealAuditLogger
+
+        original_log_event = _RealAuditLogger.log_event
+
+        def _raising_log_event(self, event, **fields):
+            if event.startswith("pipeline."):
+                raise OSError("Disk full / read-only audit log")
+            return original_log_event(self, event, **fields)
+
+        monkeypatch.setattr(_RealAuditLogger, "log_event", _raising_log_event)
+        orch = PipelineOrchestrator(cfg, b"yaml")
+        code = orch.run()
+        assert code == EXIT_SUCCESS
+
+    def test_emit_summary_json_output_is_round_trippable(self, tmp_path, monkeypatch, capsys):
+        """Phase 14 review F-N-7 regression: the ``output_format='json'``
+        branch of ``_emit_summary`` is the dispatcher contract for
+        ``forgelm --config pipeline.yaml --output-format json`` — it
+        must print a single JSON object that round-trips through
+        ``json.loads`` and carries the per-stage payload reviewers
+        consume programmatically."""
+        cfg = _three_stage_config(tmp_path)
+        _install_trainer_mocks(monkeypatch, [TrainResult(success=True)] * 3)
+        orch = PipelineOrchestrator(cfg, b"yaml", output_format="json")
+        code = orch.run()
+        assert code == EXIT_SUCCESS
+        out = capsys.readouterr().out
+        # The JSON object is the only thing on stdout; logger goes to stderr.
+        payload = json.loads(out)
+        assert payload["final_status"] == "completed"
+        assert len(payload["stages"]) == 3
+        assert all(s["status"] == "completed" for s in payload["stages"])

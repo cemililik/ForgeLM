@@ -268,6 +268,186 @@ class TestVerifyOnAutoRevertScenario:
         assert _verify_manifest_payload(manifest) == []
 
 
+class TestStrictChainIntegrity:
+    """Phase 14 review F-B-3 + F-N-3 regression: the verifier must
+    compare every chain stage against its **immediate** predecessor,
+    not the most-recent stage that happens to carry an
+    ``output_model``.  Without this, a broken/missing prev output is
+    silently bridged.
+    """
+
+    def test_chain_stage_with_prev_missing_output_flagged(self):
+        """Stage 0 completed normally, stage 1 failed without saving an
+        output, stage 2 claims input_source='chain'.  Pre-fix the
+        verifier compared stage 2 against stage 0's output, masking the
+        gap; the strict check now flags it."""
+        s0 = PipelineStageState(
+            name="s0",
+            index=0,
+            trainer_type="sft",
+            status="completed",
+            input_source="root",
+            output_model="./out/s0/final_model",
+        )
+        s1 = PipelineStageState(
+            name="s1",
+            index=1,
+            trainer_type="dpo",
+            status="failed",
+            input_model="./out/s0/final_model",
+            input_source="chain",
+            output_model=None,  # crashed before save
+        )
+        s2 = PipelineStageState(
+            name="s2",
+            index=2,
+            trainer_type="grpo",
+            status="completed",
+            input_model="./out/s0/final_model",  # plausibly stale
+            input_source="chain",
+            output_model="./out/s2/final_model",
+        )
+        state = PipelineState(
+            pipeline_run_id="pl_x",
+            pipeline_config_hash="sha256:abc",
+            forgelm_version="0.7.0",
+            started_at="2026-06-15T12:00:00+00:00",
+            final_status="stopped_at_stage",
+            stopped_at="s1",
+            stages=[s0, s1, s2],
+        )
+        manifest = generate_pipeline_manifest(state, _root_with_compliance())
+        violations = _verify_manifest_payload(manifest)
+        assert any("chain_integrity_violation" in v and "'s2'" in v for v in violations), (
+            f"Expected stage 's2' to fail chain integrity due to gap; got: {violations!r}"
+        )
+
+    def test_chain_stage_at_index_zero_flagged(self):
+        """Stage 0 cannot have input_source='chain' (there is no
+        previous stage)."""
+        s0 = PipelineStageState(
+            name="s0",
+            index=0,
+            trainer_type="sft",
+            status="completed",
+            input_source="chain",  # wrong — no prev exists
+            input_model="./somewhere",
+            output_model="./out/s0/final_model",
+        )
+        state = PipelineState(
+            pipeline_run_id="pl_x",
+            pipeline_config_hash="sha256:abc",
+            forgelm_version="0.7.0",
+            started_at="2026-06-15T12:00:00+00:00",
+            final_status="completed",
+            stages=[s0],
+        )
+        manifest = generate_pipeline_manifest(state, _root_with_compliance())
+        violations = _verify_manifest_payload(manifest)
+        assert any("'s0'" in v and "stage 0 cannot chain" in v for v in violations)
+
+
+class TestVerifierFlagsRunningOnFinalisedManifest:
+    """Phase 14 review F-N-2: a finalised manifest carrying a stage in
+    ``running`` status is a tell that the orchestrator crashed
+    mid-stage.  The verifier surfaces it so an archival audit catches
+    the orphan."""
+
+    def test_running_stage_with_completed_final_status_flagged(self):
+        s0 = PipelineStageState(
+            name="s0",
+            index=0,
+            trainer_type="sft",
+            status="completed",
+            input_source="root",
+            output_model="./out/s0/final_model",
+        )
+        s1 = PipelineStageState(
+            name="s1",
+            index=1,
+            trainer_type="dpo",
+            status="running",
+            input_source="chain",
+            input_model="./out/s0/final_model",
+        )
+        state = PipelineState(
+            pipeline_run_id="pl_x",
+            pipeline_config_hash="sha256:abc",
+            forgelm_version="0.7.0",
+            started_at="2026-06-15T12:00:00+00:00",
+            final_status="completed",
+            stages=[s0, s1],
+        )
+        manifest = generate_pipeline_manifest(state, _root_with_compliance())
+        violations = _verify_manifest_payload(manifest)
+        assert any("running" in v and "'s1'" in v for v in violations)
+
+    def test_running_stage_with_in_progress_final_status_is_OK(self):
+        """A live run is allowed to carry a ``running`` stage — the
+        verifier only flags ``running`` on a *finalised* manifest."""
+        s0 = PipelineStageState(
+            name="s0",
+            index=0,
+            trainer_type="sft",
+            status="running",
+            input_source="root",
+        )
+        state = PipelineState(
+            pipeline_run_id="pl_x",
+            pipeline_config_hash="sha256:abc",
+            forgelm_version="0.7.0",
+            started_at="2026-06-15T12:00:00+00:00",
+            final_status="in_progress",
+            stages=[s0],
+        )
+        manifest = generate_pipeline_manifest(state, _root_with_compliance())
+        violations = _verify_manifest_payload(manifest)
+        assert all("running" not in v for v in violations)
+
+
+class TestVerifyPipelineManifestAtPath:
+    """Phase 14 review F-N-6: cover the disk-backed wrapper that the
+    CLI ``forgelm verify-annex-iv --pipeline`` actually invokes."""
+
+    def test_missing_manifest_returns_single_violation(self, tmp_path):
+        from forgelm.compliance import verify_pipeline_manifest_at_path
+
+        violations = verify_pipeline_manifest_at_path(str(tmp_path))
+        assert len(violations) == 1
+        assert "pipeline_manifest.json not found" in violations[0]
+
+    def test_malformed_manifest_returns_single_violation(self, tmp_path):
+        from forgelm.compliance import verify_pipeline_manifest_at_path
+
+        manifest_dir = tmp_path / "compliance"
+        manifest_dir.mkdir()
+        (manifest_dir / "pipeline_manifest.json").write_text("{not valid json")
+        violations = verify_pipeline_manifest_at_path(str(tmp_path))
+        assert len(violations) == 1
+        assert "unreadable" in violations[0]
+
+    def test_completed_stage_with_missing_training_manifest_flagged(self, tmp_path):
+        """The disk wrapper layers a per-stage training_manifest
+        existence check on top of the in-memory verifier — the
+        difference between the two surfaces.  This test pins that the
+        wrapper actually reaches that branch."""
+        from forgelm.compliance import verify_pipeline_manifest_at_path
+
+        manifest_dir = tmp_path / "compliance"
+        manifest_dir.mkdir()
+        state = _three_stage_state()
+        # Wire training_manifest paths that don't exist on disk so the
+        # disk wrapper's existence check has something to fail against.
+        for s in state.stages:
+            s.training_manifest = str(tmp_path / s.name / "compliance" / "training_manifest.json")
+        manifest = generate_pipeline_manifest(state, _root_with_compliance())
+        import json as _json
+
+        (manifest_dir / "pipeline_manifest.json").write_text(_json.dumps(manifest))
+        violations = verify_pipeline_manifest_at_path(str(tmp_path))
+        assert any("training_manifest" in v and "is missing" in v for v in violations)
+
+
 class TestVerifyOnPartialFilterRun:
     """A ``--stage X`` run produces a manifest where other stages have
     ``status: skipped_by_filter``; verifier should accept it."""

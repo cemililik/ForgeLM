@@ -34,12 +34,19 @@ Key responsibilities:
   events alongside the existing per-stage ``training.*`` vocabulary; the
   webhook notifier gains ``notify_pipeline_*`` methods that the orchestrator
   calls at the same transitions.
-- **Exit-code routing** — the pipeline exits with the highest-priority
-  per-stage exit code: ``EXIT_AWAITING_APPROVAL (4)`` if any stage gated
-  pending approval, then ``EXIT_TRAINING_ERROR (2)`` for trainer
-  crashes, then ``EXIT_EVAL_FAILURE (3)`` for gate failures, then
-  ``EXIT_CONFIG_ERROR (1)`` for orchestrator-level config issues, then
-  ``EXIT_SUCCESS (0)``.
+- **Exit-code routing** — the pipeline aggregates per-stage outcomes
+  via ``worst_exit = max(worst_exit, code)``, which gives the
+  precedence order
+  ``EXIT_AWAITING_APPROVAL (4)`` > ``EXIT_EVAL_FAILURE (3)`` >
+  ``EXIT_TRAINING_ERROR (2)`` > ``EXIT_CONFIG_ERROR (1)`` >
+  ``EXIT_SUCCESS (0)``.  In practice an approval gate causes an
+  immediate ``break`` (no later stages run) and any other failure
+  sets ``chain_broken = True`` (downstream stages skip), so the
+  precedence rule is reached only when a single stage produces a
+  single non-zero code.  Numeric ordering of the exit-code constants
+  matches the documented severity ramp — operators reading the exit
+  code in a shell only see the "worst" outcome from a single stage
+  that ran.
 """
 
 from __future__ import annotations
@@ -49,7 +56,6 @@ import json
 import logging
 import os
 import secrets
-import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
@@ -293,11 +299,16 @@ class PipelineOrchestrator:
         ``stage_filter`` and ``resume_from`` are mutually exclusive; the
         caller (CLI parser) validates this before reaching here.
 
-        Exit-code precedence (highest first):
-        ``EXIT_TRAINING_ERROR (2)`` for a trainer crash, ``EXIT_AWAITING_APPROVAL (4)``
-        for a gated stage, ``EXIT_EVAL_FAILURE (3)`` for a gate failure
-        / auto-revert, ``EXIT_CONFIG_ERROR (1)`` for orchestrator-level
-        config issues, ``EXIT_SUCCESS (0)`` otherwise.
+        Exit-code aggregation uses ``worst_exit = max(worst_exit, code)``
+        across stages, giving the numeric precedence:
+        ``EXIT_AWAITING_APPROVAL (4)`` > ``EXIT_EVAL_FAILURE (3)`` >
+        ``EXIT_TRAINING_ERROR (2)`` > ``EXIT_CONFIG_ERROR (1)`` >
+        ``EXIT_SUCCESS (0)``.  An approval gate triggers an immediate
+        ``break`` (later stages stay ``pending``) and any other non-zero
+        outcome sets ``chain_broken = True`` (later stages skip with
+        ``skipped_due_to_prior_revert``), so multi-stage compounding is
+        rare — in practice the return value reflects the single failing
+        stage's exit code.
         """
         # 1. Load (or initialise) state.
         existing = self._load_state_file()
@@ -309,7 +320,14 @@ class PipelineOrchestrator:
             )
             return EXIT_CONFIG_ERROR
         if resume_from is not None:
-            self._validate_resume_state(existing, force=force_resume)
+            refusal = self._validate_resume_state(existing, force=force_resume)
+            if refusal is not None:
+                # Library-style refusal — return the exit code through
+                # the normal ``run()`` flow rather than ``sys.exit``-ing
+                # mid-method.  Matches the surrounding error paths
+                # (missing state file, unknown stage name) and keeps the
+                # test surface uniform on ``assert code == EXIT_CONFIG_ERROR``.
+                return EXIT_CONFIG_ERROR
             state = existing
         else:
             state = self._init_state()
@@ -467,11 +485,19 @@ class PipelineOrchestrator:
                 state.finished_at = _utc_iso_now()
                 worst_exit = max(worst_exit, EXIT_AWAITING_APPROVAL)
                 self._save_state(state)
+                # Phase 14 review F-N-1: dedicated ``pipeline.stage_gated``
+                # event (instead of ``pipeline.stage_completed`` with a
+                # ``gate_decision=approval_pending`` sub-field).  Lets
+                # dashboard / SIEM rules filter on the event name alone
+                # without parsing payload sub-fields — "stage_completed"
+                # reads as "stage finished cleanly" to a regex-based
+                # alert rule.
                 self._audit_event(
-                    "pipeline.stage_completed",
+                    "pipeline.stage_gated",
                     pipeline_run_id=state.pipeline_run_id,
                     stage_name=stage.name,
                     gate_decision="approval_pending",
+                    staging_path=stage_state.output_model,
                 )
                 # No pipeline.completed event yet — pipeline is not done.
                 break
@@ -594,7 +620,7 @@ class PipelineOrchestrator:
             stages=stages,
         )
 
-    def _validate_resume_state(self, existing: PipelineState, *, force: bool) -> None:
+    def _validate_resume_state(self, existing: PipelineState, *, force: bool) -> Optional[str]:
         """Stale-state guard for ``--resume-from``.
 
         If the on-disk state file's ``pipeline_config_hash`` differs from
@@ -602,28 +628,54 @@ class PipelineOrchestrator:
         file between the failed run and the resume call — resuming
         against a different config silently produces a chain whose
         history doesn't match its current shape.  We refuse unless
-        ``--force-resume`` is set (logged at WARNING, recorded in the
-        audit event so reviewers see why the divergence was accepted).
+        ``--force-resume`` is set (logged at WARNING **and** emitted as a
+        ``pipeline.force_resume`` audit event so reviewers see why the
+        divergence was accepted).
+
+        Return semantics:
+
+        - ``None`` — the resume is OK to proceed (no hash divergence, or
+          divergence accepted via ``--force-resume``).
+        - error-string — the resume must abort; the caller maps this to
+          ``EXIT_CONFIG_ERROR``.  Using a return value (rather than
+          ``sys.exit`` mid-method) keeps the orchestrator's exit policy
+          consistent with the rest of ``run()`` — every refusal flows
+          back through the same ``return`` branch, the same audit-log
+          finalisation runs, and the test surface uses a uniform
+          ``assert code == EXIT_CONFIG_ERROR`` shape.
         """
         if existing.pipeline_config_hash == self.config_hash:
-            return
+            return None
         if not force:
-            logger.error(
-                "Refusing to --resume-from: pipeline_config_hash mismatch.\n"
-                "  on-disk: %s\n  current: %s\n"
-                "Pass --force-resume to override (logged for audit).",
-                existing.pipeline_config_hash,
-                self.config_hash,
+            msg = (
+                f"Refusing to --resume-from: pipeline_config_hash mismatch.\n"
+                f"  on-disk: {existing.pipeline_config_hash}\n"
+                f"  current: {self.config_hash}\n"
+                "Pass --force-resume to override (logged for audit)."
             )
-            sys.exit(EXIT_CONFIG_ERROR)
+            logger.error(msg)
+            return msg
+        old_hash = existing.pipeline_config_hash
         logger.warning(
             "Resuming with --force-resume despite pipeline_config_hash mismatch: %s → %s.",
-            existing.pipeline_config_hash,
+            old_hash,
             self.config_hash,
+        )
+        # Append-only audit event so a reviewer reading the JSONL stream
+        # later can distinguish an operator-approved stale-config resume
+        # from a normal resume.  Emitted BEFORE the stored hash is
+        # updated so the event payload still records both sides of the
+        # divergence.
+        self._audit_event(
+            "pipeline.force_resume",
+            pipeline_run_id=existing.pipeline_run_id,
+            old_config_hash=old_hash,
+            new_config_hash=self.config_hash,
         )
         # Update the stored hash to match the now-trusted current config
         # so subsequent transitions don't trip the guard again.
         existing.pipeline_config_hash = self.config_hash
+        return None
 
     def _load_state_file(self) -> Optional[PipelineState]:
         path = self.paths["state_file"]
@@ -635,7 +687,23 @@ class PipelineOrchestrator:
         except (OSError, json.JSONDecodeError) as e:
             logger.warning("Failed to read pipeline_state.json at %s: %s.  Treating as missing.", path, e)
             return None
-        return _deserialise_state(payload)
+        # Phase 14 review F-R1-S4: a tampered state file (wrong shape,
+        # missing required keys, ``stages`` not a list of dicts, etc.)
+        # could crash ``_deserialise_state`` with an opaque
+        # ``TypeError`` / ``KeyError`` traceback instead of producing
+        # an actionable config-error path.  Catch the common shape
+        # failures here and treat the file as missing — the caller's
+        # ``--resume-from`` branch then surfaces ``EXIT_CONFIG_ERROR``
+        # with a clear message.
+        try:
+            return _deserialise_state(payload)
+        except (KeyError, TypeError, ValueError) as e:
+            logger.warning(
+                "pipeline_state.json at %s is structurally invalid (%s); treating as missing.",
+                path,
+                e,
+            )
+            return None
 
     def _save_state(self, state: PipelineState) -> None:
         """Persist state file + refresh pipeline manifest.
@@ -652,12 +720,24 @@ class PipelineOrchestrator:
         _atomic_write_json(self.paths["manifest_file"], manifest)
 
     def _audit_event(self, event: str, **fields: Any) -> None:
-        """Append-only audit log entry under the root output dir.
+        """Append-only audit log entry under the **pipeline** root output dir.
 
-        Reuses the existing :class:`forgelm.compliance.AuditLogger` so
-        the pipeline events land in the same JSONL stream as the
-        per-stage ``training.*`` events from each :class:`ForgeTrainer`.
-        Reviewers can grep one file for the full chain.
+        Two separate audit-log streams exist on a multi-stage run:
+
+        - **Pipeline-level** (this method): ``<pipeline.output_dir>/
+          audit_log.jsonl`` — carries ``pipeline.*`` lifecycle events
+          (started / stage_started / stage_completed / stage_gated /
+          stage_reverted / force_resume / completed).
+        - **Stage-level** (emitted by each ``ForgeTrainer``):
+          ``<stage.training.output_dir>/audit_log.jsonl`` — carries the
+          existing ``training.*`` vocabulary unchanged from a single-
+          stage v0.6.0 run.
+
+        Both files are append-only JSONL.  Reviewers can correlate by
+        joining on ``pipeline_run_id`` (present in every pipeline event)
+        with the per-stage ``training_manifest.json`` ``training_run_id``.
+        See ``docs/guides/pipeline.md`` "Audit events" for the full
+        join key matrix.
         """
         try:
             from ..compliance import AuditLogger
@@ -748,12 +828,16 @@ class PipelineOrchestrator:
 
         stage_state.input_model = stage_cfg.model.name_or_path
 
-        # ``forgelm`` ``--input-model`` partial-run guard: when the
-        # operator filters to a non-first stage and the previous stage's
-        # output directory does not exist, refuse to fabricate it.
+        # ``forgelm`` chain-presence guard: when the orchestrator
+        # auto-chained the input model from the previous stage's output,
+        # refuse to proceed unless that exact directory exists.  Phase
+        # 14 review F-S-1: pre-fix this checked ``os.path.dirname(...)``
+        # (the parent), accepting ``./stage1/`` even when ``./stage1/
+        # final_model`` was missing and letting a bad chain state fall
+        # through into ``get_model_and_tokenizer`` for a non-actionable
+        # downstream crash.
         if stage_state.input_source == "chain":
-            expected_dir = os.path.dirname(stage_cfg.model.name_or_path)
-            if not os.path.isdir(expected_dir):
+            if not os.path.isdir(stage_cfg.model.name_or_path):
                 stage_state.error = (
                     f"Stage {stage.name!r} requires the previous stage's output at "
                     f"{stage_cfg.model.name_or_path}; pass --input-model <path> to "
@@ -857,7 +941,14 @@ def run_pipeline_from_args(
     stage_filter = getattr(args, "stage", None)
     resume_from = getattr(args, "resume_from", None)
     force_resume = bool(getattr(args, "force_resume", False))
-    input_model_override = getattr(args, "input_model", None)
+    # Phase 14 review F-F-2: argparse cannot reject an empty string
+    # value for ``--input-model "" --stage X`` at parse time, and the
+    # downstream merge helper uses ``is not None`` rather than a truthy
+    # check, so the empty string would silently overwrite the auto-
+    # chained model path.  Normalise to ``None`` here so the rest of the
+    # orchestrator sees "no override" rather than "override with nothing".
+    raw_input_model = getattr(args, "input_model", None)
+    input_model_override = raw_input_model if raw_input_model else None
     output_format = getattr(args, "output_format", "text")
     dry_run = bool(getattr(args, "dry_run", False))
 

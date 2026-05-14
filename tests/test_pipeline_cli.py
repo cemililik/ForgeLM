@@ -15,6 +15,8 @@ import os
 import types
 from unittest.mock import MagicMock
 
+import pytest
+
 from forgelm.cli._exit_codes import EXIT_CONFIG_ERROR, EXIT_SUCCESS
 from forgelm.cli._pipeline import run_pipeline_from_args
 from forgelm.config import ForgeConfig
@@ -66,9 +68,11 @@ def _ns(**overrides):
 
 def _install_fake_trainer(monkeypatch, results):
     iterator = iter(results)
+    instantiated_configs: list = []
 
     class _FakeForgeTrainer:
         def __init__(self, *, model, tokenizer, config, dataset):
+            instantiated_configs.append(config)
             os.makedirs(os.path.join(config.training.output_dir, "final_model"), exist_ok=True)
             self.config = config
 
@@ -94,6 +98,8 @@ def _install_fake_trainer(monkeypatch, results):
     fake_utils.setup_authentication = lambda token: None
     monkeypatch.setitem(__import__("sys").modules, "forgelm.utils", fake_utils)
 
+    return instantiated_configs
+
 
 class TestFlagInteractionGuards:
     """Argparse alone cannot express "X and Y are mutually exclusive
@@ -110,6 +116,28 @@ class TestFlagInteractionGuards:
         args = _ns(input_model="some/path")
         code = run_pipeline_from_args(cfg, b"yaml", args)
         assert code == EXIT_CONFIG_ERROR
+
+    def test_empty_input_model_normalised_to_none(self, tmp_path, monkeypatch):
+        """Phase 14 review F-F-2 regression: ``--input-model ""``
+        (empty string) used to slip past the dispatcher's truthy
+        check and propagate through ``merge_pipeline_stage_config``
+        (``is not None`` branch), silently overwriting the auto-chained
+        model path with the empty string.  The orchestrator now
+        normalises a falsy ``--input-model`` value to ``None`` before
+        dispatch so it never reaches the merge helper.
+        """
+        cfg = _three_stage_cfg(tmp_path)
+        # Pre-create stage 1's output so the chain check on stage 2 is
+        # not the failure point — the test asserts the empty override
+        # is normalised, not that the chain is broken.
+        (tmp_path / "stage1" / "final_model").mkdir(parents=True, exist_ok=True)
+        configs_seen = _install_fake_trainer(monkeypatch, [TrainResult(success=True)])
+        args = _ns(stage="dpo_stage", input_model="")
+        code = run_pipeline_from_args(cfg, b"yaml", args)
+        assert code == EXIT_SUCCESS
+        # The stage's input_model must come from the auto-chain (stage
+        # 1's on-disk final_model), NOT from the empty string override.
+        assert configs_seen[0].model.name_or_path == str(tmp_path / "stage1" / "final_model")
 
     def test_force_resume_without_resume_from_is_noop(self, tmp_path, monkeypatch):
         """``--force-resume`` without ``--resume-from`` is meaningless
@@ -161,3 +189,131 @@ class TestDispatchToRun:
         args = _ns(stage="ghost")
         code = run_pipeline_from_args(cfg, b"yaml", args)
         assert code == EXIT_CONFIG_ERROR
+
+
+class TestTopLevelDispatchOrdering:
+    """Regression for the Phase 14 review F-B-1: the single-stage
+    ``--dry-run`` path inside ``_maybe_run_no_train_mode`` MUST NOT run
+    before the orchestrator dispatch when the YAML carries a
+    ``pipeline:`` block.  Otherwise ``forgelm --config pipeline.yaml
+    --dry-run`` falls through to the legacy single-stage dry-run summary
+    and the documented per-stage chain-integrity validation never fires.
+
+    Exercises the actual top-level ``main()`` (not just
+    ``run_pipeline_from_args``) by writing a YAML to disk and invoking
+    the CLI in-process via the installed entry point.
+    """
+
+    def test_pipeline_dry_run_routes_to_orchestrator_not_legacy(self, tmp_path, monkeypatch, caplog):
+        import logging
+        import sys as _sys
+
+        import yaml
+
+        yaml_path = tmp_path / "pipeline.yaml"
+        yaml_path.write_text(
+            yaml.safe_dump(
+                {
+                    "model": {"name_or_path": "org/base"},
+                    "lora": {},
+                    "training": {"trainer_type": "sft"},
+                    "data": {"dataset_name_or_path": "org/data"},
+                    "pipeline": {
+                        "output_dir": str(tmp_path / "pipeline_run"),
+                        "stages": [
+                            {
+                                "name": "sft_stage",
+                                "training": {"trainer_type": "sft", "output_dir": str(tmp_path / "s1")},
+                                "data": {"dataset_name_or_path": "org/sft"},
+                            },
+                            {
+                                "name": "dpo_stage",
+                                "training": {"trainer_type": "dpo", "output_dir": str(tmp_path / "s2")},
+                                "data": {"dataset_name_or_path": "org/dpo"},
+                            },
+                        ],
+                    },
+                }
+            )
+        )
+
+        from forgelm.cli._dispatch import main as cli_main
+
+        monkeypatch.setattr(_sys, "argv", ["forgelm", "--config", str(yaml_path), "--dry-run"])
+        with caplog.at_level(logging.INFO, logger="forgelm.pipeline"):
+            with pytest.raises(SystemExit) as exc_info:
+                cli_main()
+        # The orchestrator's dry-run exits 0 on a clean validation; the
+        # legacy single-stage dry-run would also exit 0 here, so the
+        # discriminator below is the orchestrator's INFO log line —
+        # ``Pipeline dry-run OK: <n> stage(s) validated`` is emitted
+        # only by ``PipelineOrchestrator.dry_run``.  The legacy
+        # single-stage dry-run path lives at ``forgelm.cli._dry_run`` and
+        # emits a different log surface.
+        assert exc_info.value.code == 0
+        orchestrator_log_emitted = any("pipeline dry-run ok" in r.message.lower() for r in caplog.records)
+        assert orchestrator_log_emitted, (
+            "Dispatcher routed --dry-run through the legacy single-stage path "
+            "instead of the pipeline orchestrator (Phase 14 F-B-1 regression). "
+            f"Captured records: {[r.message for r in caplog.records]!r}"
+        )
+
+    def test_pipeline_branch_runs_before_no_train_modes_on_pipeline_config(self, tmp_path, monkeypatch):
+        """Structural assertion: importing ``_dispatch`` and following
+        the code path on a ``config.pipeline is not None`` config must
+        invoke ``run_pipeline_from_args`` strictly before
+        ``_maybe_run_no_train_mode``.  Sentinels track the call order."""
+        import yaml
+
+        from forgelm.cli import _dispatch
+
+        yaml_path = tmp_path / "pipeline.yaml"
+        yaml_path.write_text(
+            yaml.safe_dump(
+                {
+                    "model": {"name_or_path": "org/base"},
+                    "lora": {},
+                    "training": {"trainer_type": "sft"},
+                    "data": {"dataset_name_or_path": "org/data"},
+                    "pipeline": {
+                        "output_dir": str(tmp_path / "pipeline_run"),
+                        "stages": [
+                            {
+                                "name": "sft_stage",
+                                "training": {"trainer_type": "sft", "output_dir": str(tmp_path / "s1")},
+                                "data": {"dataset_name_or_path": "org/sft"},
+                            },
+                        ],
+                    },
+                }
+            )
+        )
+
+        call_order: list[str] = []
+
+        def _fake_maybe_no_train(config, args):
+            call_order.append("no_train_mode")
+
+        def _fake_run_pipeline(config, yaml_bytes, args):
+            call_order.append("pipeline_dispatch")
+            return 0
+
+        monkeypatch.setattr(_dispatch, "_maybe_run_no_train_mode", _fake_maybe_no_train)
+        import forgelm.cli._pipeline as _pipeline_mod
+
+        monkeypatch.setattr(_pipeline_mod, "run_pipeline_from_args", _fake_run_pipeline)
+        # The dispatcher imports run_pipeline_from_args lazily inside
+        # main() — patch the function on the source module so the lazy
+        # import resolves to our fake.
+        import sys
+
+        monkeypatch.setattr(sys, "argv", ["forgelm", "--config", str(yaml_path)])
+        with pytest.raises(SystemExit):
+            _dispatch.main()
+        # Pipeline dispatch must fire; no_train_mode must NOT have run
+        # before it.
+        assert call_order == ["pipeline_dispatch"], (
+            f"Expected pipeline_dispatch first (and only), got {call_order!r}.  "
+            f"Phase 14 F-B-1 regression: legacy no-train path executed before "
+            f"the pipeline branch on a pipeline config."
+        )
