@@ -308,7 +308,8 @@ Sıfır olmayan exit kodu ihlalleri keşfedildikleri sırayla listeler.
 
 ## Cross-references
 
-- Faz 14 tasarım dokümanı: [docs/roadmap/phase-14-pipeline-chains.md](../roadmap/phase-14-pipeline-chains.md)
+- Faz 14 yayınlanan kapsam: [docs/roadmap/completed-phases.md](../roadmap/completed-phases.md#phase-14-multi-stage-pipeline-chains-v070)
+- Faz 14.5 takip planı: [docs/roadmap/phase-14-5-pipeline-hardening.md](../roadmap/phase-14-5-pipeline-hardening.md)
 - Roadmap girişi: [docs/roadmap-tr.md](../roadmap-tr.md)
 - Annex IV doğrulayıcısı: `forgelm verify-annex-iv --pipeline <run_dir>` (CLI help'e bakın)
 - Audit log standardı: [docs/standards/logging-observability.md](../standards/logging-observability.md)

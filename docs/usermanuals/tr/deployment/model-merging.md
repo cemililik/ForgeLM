@@ -169,7 +169,7 @@ merge_adapters(
 :::
 
 :::tip
-Keşif birleştirmesi için küçük bir `(algoritma, parametre)` kombinasyonu grid'i üretip her birini değerlendirin. Bunu otomatikleştiren bir `forgelm merge-sweep` yardımcısı **v0.6.0+ pipeline-chains scope** için planlanmıştır (Phase 14 roadmap; v0.5.5'te yok — bkz. [phase-14-pipeline-chains](../../../roadmap/phase-14-pipeline-chains.md)). O zamana kadar her `(algoritma, parametre)` çiftini `forgelm` ile bir kez çağıran küçük bir shell döngüsü yazın.
+Keşif birleştirmesi için küçük bir `(algoritma, parametre)` kombinasyonu grid'i üretip her birini değerlendirin. Bunu otomatikleştiren bir `forgelm merge-sweep` yardımcısı **Faz 14 sonrası** planlanmaya devam ediyor — Faz 14'ün kendisi çok-aşamalı SFT/DPO/GRPO pipeline zincirlemesini `v0.7.0` ile yayınladı (bkz. [Faz 14 completed-phases girişi](../../../roadmap/completed-phases.md#phase-14-multi-stage-pipeline-chains-v070)) ama merge-sweep CLI'sını içermedi; o yardımcı explicit operatör talebini bekliyor. O zamana kadar her `(algoritma, parametre)` çiftini `forgelm` ile bir kez çağıran küçük bir shell döngüsü yazın.
 :::
 
 ## Bkz.

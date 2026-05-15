@@ -14,6 +14,7 @@
 | ✅ Done | Phase 22 — CLI wizard parity with the in-browser surface | `forgelm --wizard` runs the same 9-step flow as the web wizard (welcome → use-case → model → strategy → trainer → dataset → training-params → compliance → evaluation), with idempotent re-run via `--wizard-start-from <yaml>`, schema-driven defaults SOT, distinct `EXIT_WIZARD_CANCELLED = 5` exit code, state persistence under `$XDG_CACHE_HOME`, and validate-on-exit — bundled into `v0.5.5` (PyPI 2026-05-10) |
 | ✅ Done | Site documentation correction sweep | All visible YAML / artefact-path / CLI / schema claims on `site/*.html` now validate against the live `forgelm/` surface. Hero YAML demo rewritten with real Pydantic field names, compliance artefact tree redrawn against the on-disk layout, ghost YAML keys + CLI flags removed, wording aligned with live behaviour. Six-language i18n (en / tr / de / fr / es / zh) now at full parity (731 keys each) — bundled into `v0.5.5` (PyPI 2026-05-10) |
 | ✅ Done | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/completed-phases.md#phase-14-multi-stage-pipeline-chains-v070) | SFT → DPO → GRPO chained config, pipeline provenance artifacts, 7 new pipeline-scoped audit events, `forgelm verify-annex-iv --pipeline` mode — shipped `v0.7.0` (PyPI 2026-05-15; re-scheduled from v0.6.0 after Phase 15 displaced it via the 2026-05-11 ingestion pilot) |
+| 📋 Planned | [Phase 14.5 — Pipeline Hardening](roadmap/phase-14-5-pipeline-hardening.md) | Four v0.7.0 review-deferred items: canonical pipeline manifest hash + non-chain-field tamper detection, per-stage `training_manifest.json` deep-parse validation, webhook `pipeline.*` event vocabulary documentation, `WebhookNotifier._send(**extra)` explicit allowlist → `v0.7.x` patch cycle |
 | ✅ Done | [Phase 15 — Ingestion Pipeline Reliability](roadmap/completed-phases.md#phase-15-ingestion-pipeline-reliability-v060) | Wave 1 + Wave 2 + 5 review-absorption rounds: window-based multi-line PDF dedup, Turkish glyph normalisation profile (language-hint-coupled default), language-aware Unicode-block sanity check, ingest-time quality pre-signal, default-on audit `--quality-filter`, DOCX explicit header/footer subtraction, EPUB spine + whole-token nav/cover skip, TXT UTF-8 BOM + MD YAML frontmatter strip, notebook playground alignment, plus Wave 2 `--strip-pattern` (ReDoS-guarded), `--page-range`, front-matter heuristic, `--strip-urls`, multi-column warning — shipped `v0.6.0` (PyPI 2026-05-11) |
 | 📋 Planned | [Phase 13 — Pro CLI & Observability Dashboard](roadmap/phase-13-pro-cli.md) | License-gated dashboard, HPO, scheduled jobs, team config store → `v0.6.0-pro` (gated on adoption + ISO/SOC 2 baseline shipped in v0.5.5) |
 
@@ -55,6 +56,7 @@ graph LR
     P125 --> P126[Phase 12.6<br/>Closure<br/>Cycle]
     P126 --> P15[Phase 15<br/>Ingestion<br/>Reliability]
     P15 --> P14[Phase 14<br/>Pipeline<br/>Chains]
+    P14 --> P145[Phase 14.5<br/>Pipeline<br/>Hardening]
     P14 --> P13[Phase 13<br/>Pro CLI<br/>+ Dashboard]
     P15 --> P13
 
@@ -67,6 +69,7 @@ graph LR
     P126 -.-> V25[v0.5.5]
     P15 -.-> V23[v0.6.0 ✅ Released]
     P14 -.-> V27[v0.7.0 ✅ Released]
+    P145 -.-> V275[v0.7.x]
     P13 -.-> V3[v0.6.0-pro]
 
     style P10 fill:#003300,stroke:#00ff88
@@ -96,7 +99,7 @@ docs/
 └── roadmap/
     ├── completed-phases.md                     # Phase 1-12.6 archive (detailed) — Phase 10 / 10.5 / 11 / 11.5 / 12 / 12.5 / 12.6 absorbed inline (each shipped as v0.4.0 / v0.4.5 / v0.5.0 / v0.5.5)
     ├── phase-13-pro-cli.md                     # Planned — v0.6.0-pro (gated)
-    ├── phase-14-pipeline-chains.md             # Done — shipped v0.7.0 (PyPI 2026-05-15; re-scheduled from v0.6.0 after Phase 15 displaced it)
+    ├── phase-14-5-pipeline-hardening.md        # Planned — v0.7.x patch cycle (4 review-deferred items from Phase 14)
     ├── releases.md                             # v0.3.0 → v0.7.0 release notes
     └── risks-and-decisions.md                  # Risk matrix, opportunities, competitive positioning, decision log
 ```

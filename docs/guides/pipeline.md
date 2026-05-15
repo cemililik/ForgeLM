@@ -305,7 +305,8 @@ discovered.
 
 ## Cross-references
 
-- Phase 14 design doc: [docs/roadmap/phase-14-pipeline-chains.md](../roadmap/phase-14-pipeline-chains.md)
+- Phase 14 shipped scope: [docs/roadmap/completed-phases.md](../roadmap/completed-phases.md#phase-14-multi-stage-pipeline-chains-v070)
+- Phase 14.5 follow-up plan: [docs/roadmap/phase-14-5-pipeline-hardening.md](../roadmap/phase-14-5-pipeline-hardening.md)
 - Roadmap entry: [docs/roadmap.md](../roadmap.md)
 - Annex IV verifier: `forgelm verify-annex-iv --pipeline <run_dir>` (see CLI help)
 - Audit log standard: [docs/standards/logging-observability.md](../standards/logging-observability.md)

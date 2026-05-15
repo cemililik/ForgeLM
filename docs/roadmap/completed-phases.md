@@ -912,7 +912,7 @@ suite because it is wall-clock-noisy.
 
 `v0.5.2` ([Phase 12 — Data Curation Maturity](#phase-12-data-curation-maturity)) is the direct continuation of this lineage: MinHash LSH dedup for >50K-row corpora, markdown-aware splitter, code/secrets leakage scan, heuristic quality filter, DOCX/Markdown table preservation. Driven by the post-`v0.5.1` competitive review that compared ForgeLM's ingestion + audit against LLaMA-Factory / Axolotl / Unsloth / NeMo Curator / Dolma / RedPajama / LlamaIndex / LangChain / Marker / Docling.
 
-`v0.5.3` ([Phase 14 — Multi-Stage Pipeline Chains](phase-14-pipeline-chains.md)) was reslotted from `v0.5.2` so the ingestion/audit lineage finishes uninterrupted before the trainer-orchestration surface gets reshaped.
+`v0.5.3` ([Phase 14 — Multi-Stage Pipeline Chains](#phase-14-multi-stage-pipeline-chains-v070)) was reslotted from `v0.5.2` so the ingestion/audit lineage finishes uninterrupted before the trainer-orchestration surface gets reshaped — Phase 14 ultimately shipped in `v0.7.0` after Phase 15 displaced it post-2026-05-11 pilot.
 
 ---
 
@@ -1532,7 +1532,7 @@ module is never imported on the single-stage path.  `git diff` on
 - [`../usermanuals/en/training/pipelines.md`](../usermanuals/en/training/pipelines.md) ([Türkçe](../usermanuals/tr/training/pipelines.md)) — sidebar user manual page
 - [`../reference/configuration.md`](../reference/configuration.md#pipeline-optional-multi-stage-training-chains-phase-14) ([Türkçe](../reference/configuration-tr.md#pipeline-isteğe-bağlı-çok-aşamalı-eğitim-zincirleri-faz-14)) — schema
 - [`../reference/usage.md`](../reference/usage.md) ([Türkçe](../reference/usage-tr.md)) — CLI surface
-- [`phase-14-pipeline-chains.md`](phase-14-pipeline-chains.md) — design spec (kept for historical reference)
+- [`phase-14-5-pipeline-hardening.md`](phase-14-5-pipeline-hardening.md) — Phase 14.5 follow-up (v0.7.x review-deferred items: manifest hash, per-stage deep parse, webhook vocab, `_send` allowlist)
 - [`../../CHANGELOG.md`](../../CHANGELOG.md) `[0.7.0]` — full shipped-task list
 - PR #53 — Phase 14 implementation + 5 review-absorption rounds
 - PR #54 — v0.7.0 release prep + post-release review (10 findings)
