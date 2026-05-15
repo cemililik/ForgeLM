@@ -192,7 +192,13 @@ def render_python_json(defaults: Dict[str, Dict[str, Any]]) -> str:
 
 
 def render_js_literal(defaults: Dict[str, Dict[str, Any]]) -> str:
-    """Render as a tiny JS asset that exposes ``globalThis.WIZARD_DEFAULTS``."""
+    """Render as a tiny JS asset that exposes ``globalThis.WIZARD_DEFAULTS``.
+
+    Uses a guarded global lookup (``globalThis`` with a ``window``
+    fallback) so the asset still loads on browsers older than ES2020
+    where ``globalThis`` is undefined, and so non-browser bundlers
+    that polyfill ``window`` keep working without a ReferenceError.
+    """
     body = json.dumps(defaults, indent=2, ensure_ascii=False)
     return (
         "/**\n"
@@ -205,7 +211,8 @@ def render_js_literal(defaults: Dict[str, Dict[str, Any]]) -> str:
         " * for-byte.  Loaded BEFORE wizard.js in the HTML pages that\n"
         " * mount the wizard modal.\n"
         " */\n"
-        f"globalThis.WIZARD_DEFAULTS = {body};\n"
+        "(typeof globalThis !== 'undefined' ? globalThis : window)"
+        f".WIZARD_DEFAULTS = {body};\n"
     )
 
 

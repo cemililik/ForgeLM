@@ -874,6 +874,44 @@ class TestUniqueFilenamePrompt:
         result = wizard._next_free_filename(str(tmp_path / "x.yaml"))
         assert result == str(tmp_path / "x_3.yaml")
 
+    # PR #57 Gemini review absorption — case-insensitive extension
+    # check + tilde expansion.  Pre-fix, ``my_config.YAML`` got a
+    # second ``.yaml`` appended (producing ``my_config.YAML.yaml``)
+    # and ``~/cfg.yaml`` flowed through unexpanded so
+    # ``_atomic_yaml_write`` would later create a literal ``~``
+    # directory in the wizard's CWD instead of writing under HOME.
+
+    def test_uppercase_yaml_extension_not_doubled(self, tmp_path):
+        """``.YAML`` (any case) counts as a yaml extension — no double-``.yaml``."""
+        target = tmp_path / "config.YAML"
+        target.write_text("old\n", encoding="utf-8")
+        with patch("builtins.input", side_effect=_input_returning(str(target), "y")):
+            result = wizard._prompt_unique_filename("Save as", "default.yaml")
+        assert result == str(target), "case-insensitive ext check must not append a second .yaml"
+
+    def test_uppercase_yml_extension_not_doubled(self, tmp_path):
+        """``.YML`` (any case) counts as a yaml extension — no double-``.yaml``."""
+        target = tmp_path / "config.YML"
+        target.write_text("old\n", encoding="utf-8")
+        with patch("builtins.input", side_effect=_input_returning(str(target), "y")):
+            result = wizard._prompt_unique_filename("Save as", "default.yaml")
+        assert result == str(target), "case-insensitive ext check must accept .YML too"
+
+    def test_tilde_path_expands_to_home(self, tmp_path, monkeypatch):
+        """``~/foo.yaml`` resolves to ``$HOME/foo.yaml`` before the existence check."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        # POSIX Path.expanduser reads HOME on every platform we support;
+        # Windows reads USERPROFILE.  Cover the Windows env var too so the
+        # test runs deterministically on the cross-OS publish matrix.
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        with patch("builtins.input", side_effect=_input_returning("~/myconf.yaml")):
+            result = wizard._prompt_unique_filename("Save as", "default.yaml")
+        assert "~" not in result, "tilde must be expanded, not passed through literally"
+        # Resolve both sides because macOS prefixes /private to /var/* tmp paths.
+        from pathlib import Path as _P
+
+        assert _P(result).resolve() == (_P(str(tmp_path)) / "myconf.yaml").resolve()
+
 
 class TestNonTtyRefusal:
     """B3 — wizard refuses to launch when stdin is not a TTY."""

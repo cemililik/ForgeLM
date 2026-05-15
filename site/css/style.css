@@ -372,10 +372,13 @@ section { padding: 5rem 0; }
      navbar can extend edge-to-edge, but content must offset down
      into safe-area-inset-top.  Doing this on the navbar (and
      letting it grow vertically) is simpler than reserving a
-     spacer element.  ``env()`` resolves to ``0px`` on non-notch
-     devices so the 64px baseline is preserved (CSS S4656 also
-     rejected the prior duplicate ``height: 64px`` declaration). */
-  padding-top: env(safe-area-inset-top);
+     spacer element.  Both ``env(..., 0px)`` calls carry an explicit
+     fallback so browsers that don't understand the ``env()``
+     function still render a valid value (PR #57 Gemini review); on
+     non-notch devices the inset is 0px so the 64px baseline is
+     preserved (CSS S4656 also rejected the prior duplicate
+     ``height: 64px`` declaration). */
+  padding-top: env(safe-area-inset-top, 0px);
   height: calc(64px + env(safe-area-inset-top, 0px));
 }
 
