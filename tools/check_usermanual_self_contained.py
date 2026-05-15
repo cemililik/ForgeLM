@@ -105,7 +105,7 @@ def _extract_links(source: Path) -> Iterable[Link]:
         # legitimately mention ``docs/...`` paths as literal data,
         # not as clickable links.
         stripped = line.lstrip()
-        if stripped.startswith("```") or stripped.startswith("~~~"):
+        if stripped.startswith(("```", "~~~")):
             in_code_block = not in_code_block
             continue
         if in_code_block:
