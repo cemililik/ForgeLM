@@ -172,7 +172,10 @@ class TestAuditSubcommand:
         evt = legacy_events[0]
         assert evt["flag"] == "--data-audit"
         assert evt["replacement"] == "forgelm audit"
-        assert evt["version"] == "v0.7.0 removal"
+        # v0.7.0 cut-release moved the removal target out one minor to
+        # v0.8.0 (preserves the one-minor warning window per
+        # docs/standards/release.md#deprecation-cadence).
+        assert evt["version"] == "v0.8.0 removal"
 
         # Sanity: the deprecated path still produced the report — the
         # warning is purely informational.
