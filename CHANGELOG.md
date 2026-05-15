@@ -14,8 +14,9 @@ queue since v0.4.  One YAML, one CLI invocation, one Annex IV manifest for
 the whole chain — including auto-chained inputs, per-stage gates,
 crash-safe resume, and 7 new pipeline-scoped audit events that join on a
 single top-level `run_id`.  The release also lands a critical SSRF
-hardening for outbound webhook / judge / synthetic destinations (issue
-#14).  Single-stage configs reach `forgelm/trainer.py` byte-identical to
+hardening for outbound webhook / judge / synthetic destinations
+(issue [#14](https://github.com/cemililik/ForgeLM/issues/14)).
+Single-stage configs reach `forgelm/trainer.py` byte-identical to
 v0.6.0; the orchestrator module is never imported when no `pipeline:`
 block is present.
 

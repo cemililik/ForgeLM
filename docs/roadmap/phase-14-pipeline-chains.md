@@ -1,7 +1,7 @@
 # Phase 14: Multi-Stage Training Pipeline Chains
 
 > **Status:** Implementation complete on `development` (branch `feat/phase-14-pipeline-chains`).  Awaiting `v0.7.0` PyPI tag for the final "Done" promotion to [completed-phases.md](completed-phases.md).  Originally targeted for `v0.6.0`; Phase 15 displaced it after the 2026-05-11 ingestion pilot — see [completed-phases.md#phase-15-ingestion-pipeline-reliability-v060](completed-phases.md#phase-15-ingestion-pipeline-reliability-v060).
-
+>
 > **Note:** This file details a single planned phase.  See [../roadmap.md](../roadmap.md) for the cross-phase summary.
 
 **Goal:** Enable a single config file to define a sequential SFT → DPO → GRPO training pipeline, with each stage using the previous stage's output as its base model.  Eliminate the current requirement for manual config management across stages while preserving the existing single-stage workflow byte-identically.
@@ -132,6 +132,7 @@
    - The per-stage `training_manifest.json` files remain individually valid against the existing single-stage Annex IV schema — no field is renamed or removed at the stage level.
 
 4. [ ] **CLI surface**
+
    ```bash
    # End-to-end pipeline run
    forgelm --config pipeline.yaml
@@ -226,11 +227,11 @@ Each fixture has a golden pipeline manifest committed alongside; regression suit
 ## Delivery
 
 - **Target release:** `v0.7.0`.  Re-slotted from the earlier `v0.6.0` placeholder; Phase 15 (Ingestion Pipeline Reliability) displaced it after the 2026-05-11 ingestion pilot exposed silent-failure gaps that demanded a focused release — see [completed-phases.md#phase-15-ingestion-pipeline-reliability-v060](completed-phases.md#phase-15-ingestion-pipeline-reliability-v060).
-- **Entry gate (all must hold before the first Phase 14 PR opens):**
-  - The 6 regression fixtures listed above are committed as zero-byte placeholders under `tests/fixtures/pipeline/` so the file paths are locked.
-  - The Phase 14 issue (`#TBD`) is opened on GitHub referencing this file.
-  - A Phase 14 GitHub label is created so review-round PRs can be grouped.
-  - Baseline coverage of `forgelm/config.py` and `forgelm/compliance.py` measured against the v0.6.0 tag and recorded in the Phase 14 issue (consistent with the Phase 15 entry-gate discipline).
+- **Entry gate (all must have held prior to the first Phase 14 PR):**
+  - The 6 regression fixtures listed above were committed as zero-byte placeholders under `tests/fixtures/pipeline/` so the file paths were locked.
+  - The Phase 14 issue (`#TBD`) was opened on GitHub referencing this file.
+  - A Phase 14 GitHub label was created so review-round PRs could be grouped.
+  - Baseline coverage of `forgelm/config.py` and `forgelm/compliance.py` was measured against the v0.6.0 tag and recorded in the Phase 14 issue (consistent with the Phase 15 entry-gate discipline).
 - **CHANGELOG plan:** every Wave 1 task lands a one-line bullet under `[Unreleased]` per Keep-a-Changelog convention; at `v0.7.0` tag time the `[Unreleased]` block is renamed to `[0.7.0] — YYYY-MM-DD` per the existing release ritual.
 - **Validation gate to ship Phase 14:** all 6 regression fixtures pass byte-comparison; bilingual parity + CLI help consistency guards green; full `pytest tests/` green; new `forgelm verify-annex-iv --pipeline <run_dir>` validator returns exit 0 on every fixture's golden manifest.  At least one end-to-end manual run against a 3-stage real pipeline (operator-supplied datasets) is signed off in the Phase 14 issue before the release tag.
 - **Wave 2 / deferred items** (separate follow-up phases, not part of v0.7.0):

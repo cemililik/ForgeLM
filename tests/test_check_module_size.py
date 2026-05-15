@@ -284,6 +284,10 @@ class TestWalkForgelm:
         "forgelm/config.py",
         "forgelm/cli/_parser.py",
         "forgelm/cli/subcommands/_doctor.py",
+        # Phase 14 (v0.7.0): pipeline orchestrator — must stay in
+        # lockstep with ``_GRANDFATHERED_OVER_CEILING`` in
+        # ``tools/check_module_size.py``.
+        "forgelm/cli/_pipeline.py",
     ],
 )
 def test_grandfathered_module_exists_in_tree(rel_path: str):
