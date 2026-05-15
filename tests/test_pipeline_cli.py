@@ -135,6 +135,19 @@ class TestFlagInteractionGuards:
         args = _ns(stage="dpo_stage", input_model="")
         code = run_pipeline_from_args(cfg, b"yaml", args)
         assert code == EXIT_SUCCESS
+        # Defensive guard (Sonar python:S1244 / S6395 Critical,
+        # post-release review): assert the trainer was instantiated
+        # before reaching for ``configs_seen[0]`` below.  If the stage
+        # silently exits ``EXIT_SUCCESS`` *without* invoking
+        # ``_FakeForgeTrainer`` (e.g. a future dispatch-order change
+        # short-circuits the run), the failure should surface as a
+        # clear "no stage ran" message rather than as an opaque
+        # IndexError on the next line.
+        assert configs_seen, (
+            "stage 'dpo_stage' should have instantiated the fake trainer "
+            "exactly once; got an empty configs_seen list — the orchestrator "
+            "exited EXIT_SUCCESS without invoking _FakeForgeTrainer."
+        )
         # The stage's input_model must come from the auto-chain (stage
         # 1's on-disk final_model), NOT from the empty string override.
         assert configs_seen[0].model.name_or_path == str(tmp_path / "stage1" / "final_model")

@@ -274,7 +274,11 @@ def _main_inner() -> None:
     # Run before the config-required check so operators can audit raw data
     # without writing a YAML. Phase 11.5 promoted the same code path to
     # `forgelm audit PATH` (a real subcommand); the legacy flag is preserved
-    # as an alias and slated for removal in v0.7.0.
+    # as an alias and slated for removal in v0.8.0.  (Removal originally
+    # targeted v0.7.0; pushed one minor out at the v0.7.0 cut to preserve
+    # the documented one-minor warning window — see the matching
+    # DeprecationWarning message + audit-event ``version`` field below
+    # and ``docs/standards/release.md#deprecation-cadence``.)
     if getattr(args, "data_audit", None):
         _dispatch_legacy_data_audit(args)
 

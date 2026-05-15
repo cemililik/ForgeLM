@@ -34,9 +34,23 @@ jobs:
         # breakage early. The notify-failure job dedups against existing
         # 'nightly-failure' issues to bound noise (see also: testing.md
         # CI gates discussion). Do NOT add `|| true` here.
+        #
+        # This list MUST mirror ``pyproject.toml`` ``[project].dependencies``
+        # because the next step (``pip install -e . --no-deps``) does not
+        # install transitive deps.  When a new runtime dependency lands in
+        # pyproject, add it here too or the matrix job will crash in
+        # ``import forgelm`` before any test runs.  Each entry below maps
+        # 1:1 to a pyproject line; the comment after each call out the
+        # source-of-truth.
         run: |
           pip install --upgrade pip
-          pip install torch transformers peft datasets accelerate trl pydantic pyyaml tensorboard huggingface_hub requests
+          # Core: torch / transformers / peft / datasets / accelerate /
+          # trl / pydantic / pyyaml / tensorboard / huggingface_hub /
+          # requests / requests-toolbelt (the last needed by
+          # forgelm._http for HostHeaderSSLAdapter; SSRF DNS-rebinding
+          # hardening, issue #14, v0.6.0).
+          pip install torch transformers peft datasets accelerate trl \
+            pydantic pyyaml tensorboard huggingface_hub requests requests-toolbelt
           pip install pytest pytest-cov ruff
 
       - name: Install ForgeLM (editable, no deps — already installed above)
@@ -201,6 +215,12 @@ jobs:
           python-version: "3.10"
 
       - name: Install minimum dependency versions
+        # This list MUST mirror the documented minimums in
+        # ``pyproject.toml`` ``[project].dependencies`` because the
+        # next step (``pip install -e . --no-deps``) does not install
+        # transitive deps.  When a new runtime dependency lands in
+        # pyproject, add it here too or the job will crash in ``import
+        # forgelm`` before any test runs.
         run: |
           pip install --upgrade pip
           # Install TRL first (most restrictive), let pip resolve transitive deps
@@ -210,7 +230,8 @@ jobs:
             "peft==0.11.0" \
             "pydantic==2.0.0" \
             "pyyaml==6.0.1" \
-            "tensorboard==2.15.0"
+            "tensorboard==2.15.0" \
+            "requests-toolbelt==1.0.0"
           pip install pytest pytest-cov
 
       - name: Install ForgeLM
