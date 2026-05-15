@@ -602,9 +602,9 @@ class ForgeTrainer:
             try:
                 shutil.rmtree(final_path)
                 logger.info("Reverted artifacts deleted successfully.")
-            except OSError as e:
-                logger.error(
-                    "Failed to delete reverted artifacts at %s: %s. Manual cleanup may be required.", final_path, e
+            except OSError:
+                logger.exception(
+                    "Failed to delete reverted artifacts at %s. Manual cleanup may be required.", final_path
                 )
 
         # Lifecycle event: dashboards distinguish "training.reverted" (gate
@@ -1160,11 +1160,9 @@ class ForgeTrainer:
 
         try:
             from .benchmark import run_benchmark
-        except ImportError as e:
-            logger.error(
-                "Benchmark evaluation requested but lm-eval is not installed: %s. "
-                "Install with: pip install forgelm[eval]",
-                e,
+        except ImportError:
+            logger.exception(
+                "Benchmark evaluation requested but lm-eval is not installed. Install with: pip install forgelm[eval]"
             )
             return None
 
@@ -1313,8 +1311,8 @@ class ForgeTrainer:
 
         try:
             from .safety import run_safety_evaluation
-        except ImportError as e:
-            logger.error("Safety evaluation import failed: %s", e)
+        except ImportError:
+            logger.exception("Safety evaluation import failed")
             return None
 
         safety_cfg = eval_cfg.safety
@@ -1350,8 +1348,8 @@ class ForgeTrainer:
 
         try:
             from .judge import run_judge_evaluation
-        except ImportError as e:
-            logger.error("Judge evaluation import failed: %s", e)
+        except ImportError:
+            logger.exception("Judge evaluation import failed")
             return None
 
         judge_cfg = eval_cfg.llm_judge

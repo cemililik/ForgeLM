@@ -8,7 +8,7 @@
  * for-byte.  Loaded BEFORE wizard.js in the HTML pages that
  * mount the wizard modal.
  */
-window.WIZARD_DEFAULTS = {
+globalThis.WIZARD_DEFAULTS = {
   "model": {
     "max_length": 2048
   },

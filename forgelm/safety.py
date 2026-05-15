@@ -499,7 +499,7 @@ def _load_safety_classifier(classifier_path: str, audit_logger: Any) -> Any:
             trust_remote_code=False,
         )
     except Exception as e:  # noqa: BLE001 — best-effort: HF pipeline surface raises a wide error tail (OSError/ValueError/RuntimeError/HFValidationError/repo errors); we re-raise as RuntimeError below so the caller still sees the failure.
-        logger.error("Failed to load safety classifier: %s", e)
+        logger.exception("Failed to load safety classifier")
         # Closure plan Faz 3 (F-compliance-120): emit a record-keeping event
         # so safety classifier outages are visible in the EU AI Act Article 12
         # audit trail, not only in process logs. Best-effort: a failure here

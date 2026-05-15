@@ -542,12 +542,12 @@ class TestStepMachineDriver:
         def step0(state):
             state.config.setdefault("model", {})["name"] = "from-step-0"
 
-        def step1_first(state):
-            # First entry: mutate then back out.
-            attempts["step-1"] += 1
-            if attempts["step-1"] == 1:
-                state.config["leaked"] = "should-not-survive"
-                raise wizard.WizardBack
+        # NOTE: the back-out path is exercised via ``step1_combined``
+        # below (line ~570).  An earlier draft kept a separate
+        # ``step1_first`` here for symmetry with ``step0`` /
+        # ``step0_after_back``, but the combined version is the one
+        # the test actually wires into ``_make_steps`` so the standalone
+        # ``step1_first`` was dead code (SonarCloud python:S5603).
 
         def step0_after_back(state):
             # Re-running step 0 — the leaked key from step 1's first
@@ -1008,7 +1008,7 @@ class TestSafetyFieldUnion:
             section = wizard._collect_safety_config()
         assert section["enabled"] is True
         assert section["classifier"] == "meta-llama/Llama-Guard-3-8B"
-        assert section["max_safety_regression"] == 0.05
+        assert section["max_safety_regression"] == pytest.approx(0.05)
         assert section["scoring"] == "binary"
 
     def test_confidence_weighted_includes_min_confidence(self):
@@ -1027,8 +1027,8 @@ class TestSafetyFieldUnion:
         ):
             section = wizard._collect_safety_config()
         assert section["scoring"] == "confidence_weighted"
-        assert section["min_classifier_confidence"] == 0.7
-        assert section["min_safety_score"] == 0.85
+        assert section["min_classifier_confidence"] == pytest.approx(0.7)
+        assert section["min_safety_score"] == pytest.approx(0.85)
 
 
 class TestJudgeMinScoreSchemaParity:
@@ -1040,7 +1040,7 @@ class TestJudgeMinScoreSchemaParity:
             side_effect=_input_returning("y", "gpt-4o-mini", "OPENAI_API_KEY", ""),
         ):
             section = wizard._collect_judge()
-        assert section["min_score"] == 5.0
+        assert section["min_score"] == pytest.approx(5.0)
 
 
 class TestQLoraQuantFlagsEmitted:
@@ -1096,7 +1096,7 @@ class TestWebhookConfigDefaultsParity:
             ),
         ):
             wizard._orchestrator._step_evaluation(state)
-        assert state.config["evaluation"]["max_acceptable_loss"] == 2.0
+        assert state.config["evaluation"]["max_acceptable_loss"] == pytest.approx(2.0)
 
 
 # ---------------------------------------------------------------------------
@@ -1357,7 +1357,7 @@ class TestStartFromYAMLLoad:
         assert state.experience == "expert"
         assert state.use_case == wizard._MANUAL_USE_CASE
         assert state.config["training"]["trainer_type"] == "dpo"
-        assert state.config["training"]["dpo_beta"] == 0.2
+        assert state.config["training"]["dpo_beta"] == pytest.approx(0.2)
         # ``copy.deepcopy`` invariant — mutating returned state must
         # not bleed into the source dict.
         state.config["mutated"] = "by-test"
@@ -1509,7 +1509,7 @@ class TestPRDA1StrategyHonorsExisting:
         # is the existing one when Enter was pressed).
         assert state.config["lora"]["method"] == "dora"
         # Non-prompted fields preserved via setdefault.
-        assert state.config["lora"]["dropout"] == 0.05
+        assert state.config["lora"]["dropout"] == pytest.approx(0.05)
         assert state.config["lora"]["bias"] == "lora_only"
 
     def test_target_modules_extended_preserved(self, isolated_state_dir):
@@ -1594,9 +1594,9 @@ class TestPRDA2EvaluationHonorsExisting:
         ):
             wizard._orchestrator._step_evaluation(state)
         assert state.config["evaluation"]["benchmark"]["tasks"] == ["mmlu", "arc_easy"]
-        assert state.config["evaluation"]["benchmark"]["min_score"] == 0.6
+        assert state.config["evaluation"]["benchmark"]["min_score"] == pytest.approx(0.6)
         assert state.config["evaluation"]["llm_judge"]["judge_model"] == "gpt-4o"
-        assert state.config["evaluation"]["llm_judge"]["min_score"] == 7.0
+        assert state.config["evaluation"]["llm_judge"]["min_score"] == pytest.approx(7.0)
 
     def test_existing_benchmark_and_judge_dropped_on_explicit_no(self, isolated_state_dir):
         # Operator explicitly disables previously-enabled gates on a

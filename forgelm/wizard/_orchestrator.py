@@ -1081,19 +1081,22 @@ def _prompt_unique_filename(question: str, default: str) -> str:
     free integer (``my_config_2.yaml``) so the operator never loses
     work without typing ``y``.
     """
-    while True:
-        raw = _prompt(question, default).strip()
-        if not raw:
-            raw = default
-        if not raw.endswith((".yaml", ".yml")):
-            raw += ".yaml"
-        if not Path(raw).exists():
-            return raw
-        if _prompt_yes_no(f"  '{raw}' already exists.  Overwrite?", default=False):
-            return raw
-        suffixed = _next_free_filename(raw)
-        _print(f"  Will save as '{suffixed}' instead.")
-        return suffixed
+    # Single pass: every branch returns, so an explicit ``while True``
+    # was misleading (SonarCloud python:S1751).  The decline path picks
+    # an auto-suffix instead of re-prompting — the suffix call is the
+    # documented contract that the operator never loses work.
+    raw = _prompt(question, default).strip()
+    if not raw:
+        raw = default
+    if not raw.endswith((".yaml", ".yml")):
+        raw += ".yaml"
+    if not Path(raw).exists():
+        return raw
+    if _prompt_yes_no(f"  '{raw}' already exists.  Overwrite?", default=False):
+        return raw
+    suffixed = _next_free_filename(raw)
+    _print(f"  Will save as '{suffixed}' instead.")
+    return suffixed
 
 
 def _next_free_filename(path: str) -> str:

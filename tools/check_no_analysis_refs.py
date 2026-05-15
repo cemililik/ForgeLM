@@ -41,6 +41,14 @@ from typing import List, Tuple
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# Centralised directory literals for the exemption table below — they
+# appear many times across the rule definitions, so naming them once
+# avoids the SonarCloud python:S1192 duplicated-literal flag and gives
+# any future rename a single point of edit.
+_ANALYSIS_DIR = "docs/analysis/"
+_MARKETING_DIR = "docs/marketing/"
+_BOTH_DIRS = frozenset({_MARKETING_DIR, _ANALYSIS_DIR})
+
 # Pattern matches any reference to ``docs/analysis/`` or
 # ``docs/marketing/`` inside Markdown links, code-quoted strings, plain
 # prose, or ``analysis/`` / ``marketing/`` relative paths from inside
@@ -106,33 +114,33 @@ _PUBLIC_GLOBS: Tuple[str, ...] = (
 # to avoid hiding real regressions.
 _EXEMPT: dict[str, frozenset[str]] = {
     # The gitignore itself names the paths it ignores.
-    ".gitignore": frozenset({"docs/marketing/", "docs/analysis/"}),
+    ".gitignore": _BOTH_DIRS,
     # CLAUDE.md carries the policy statement that names the directories.
-    "CLAUDE.md": frozenset({"docs/marketing/", "docs/analysis/"}),
+    "CLAUDE.md": _BOTH_DIRS,
     # AGENTS.md is the agent-agnostic mirror of CLAUDE.md (Codex / Cursor /
     # generic AI-agent surface); it restates the same gitignored-dir policy.
-    "AGENTS.md": frozenset({"docs/marketing/", "docs/analysis/"}),
+    "AGENTS.md": _BOTH_DIRS,
     # The standards file IS the rule about these directories.
-    "docs/standards/documentation.md": frozenset({"docs/marketing/", "docs/analysis/"}),
+    "docs/standards/documentation.md": _BOTH_DIRS,
     # Localization standard names docs/marketing as a mixed-language
     # exception in the bilingual policy table.
-    "docs/standards/localization.md": frozenset({"docs/marketing/"}),
+    "docs/standards/localization.md": frozenset({_MARKETING_DIR}),
     # The skill that warns away from these dirs needs to name them.
-    ".claude/skills/sync-bilingual-docs/SKILL.md": frozenset({"docs/marketing/", "docs/analysis/"}),
+    ".claude/skills/sync-bilingual-docs/SKILL.md": _BOTH_DIRS,
     # Agent-agnostic mirror of the .claude/skills/ tree (same content,
     # served to non-Claude agents).
-    ".agents/skills/sync-bilingual-docs/SKILL.md": frozenset({"docs/marketing/", "docs/analysis/"}),
+    ".agents/skills/sync-bilingual-docs/SKILL.md": _BOTH_DIRS,
     # Production code path filters (functional, not citations).
     "tools/check_anchor_resolution.py": frozenset({'"analysis"', "analysis/"}),
     "tools/check_yaml_snippets.py": frozenset(
-        {'"docs/analysis/"', '"docs/marketing/"', "docs/analysis/", "docs/marketing/"}
+        {f'"{_ANALYSIS_DIR}"', f'"{_MARKETING_DIR}"', _ANALYSIS_DIR, _MARKETING_DIR}
     ),
-    "tests/test_check_bilingual_parity.py": frozenset({"docs/marketing/", "docs/analysis/"}),
+    "tests/test_check_bilingual_parity.py": _BOTH_DIRS,
     # This guard itself contains the prohibited substrings as patterns.
     "tools/check_no_analysis_refs.py": frozenset(
         {
-            "docs/marketing/",
-            "docs/analysis/",
+            _MARKETING_DIR,
+            _ANALYSIS_DIR,
             # Regex docstring carries explanatory example patterns that
             # match the broadened relative form (``analysis/code_reviews/x.md``
             # and ``marketing/strategy/``).  These are documentation of
@@ -145,8 +153,8 @@ _EXEMPT: dict[str, frozenset[str]] = {
     # marketing directory ("internal only"); that's a policy mention,
     # not a content citation, and the explicit "(gitignored)" suffix
     # marks it as such.
-    "docs/roadmap.md": frozenset({"`docs/marketing/`"}),
-    "docs/roadmap-tr.md": frozenset({"`docs/marketing/`"}),
+    "docs/roadmap.md": frozenset({f"`{_MARKETING_DIR}`"}),
+    "docs/roadmap-tr.md": frozenset({f"`{_MARKETING_DIR}`"}),
 }
 
 

@@ -146,8 +146,8 @@ def iter_audit_events(
         return
     try:
         fh = open(audit_log_path, "r", encoding="utf-8")
-    except OSError as exc:
-        logger.error("Cannot open audit log %s: %s", audit_log_path, exc)
+    except OSError:
+        logger.exception("Cannot open audit log %s", audit_log_path)
         return
     skipped_lines = 0
     with fh:

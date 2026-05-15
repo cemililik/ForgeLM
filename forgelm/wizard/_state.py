@@ -56,7 +56,7 @@ def _load_defaults() -> Dict[str, Dict[str, Any]]:
         path = files("forgelm.wizard").joinpath("_defaults.json")
         with path.open("r", encoding="utf-8") as fh:
             data = json.load(fh)
-    except (ModuleNotFoundError, FileNotFoundError, OSError):
+    except (ModuleNotFoundError, OSError):  # FileNotFoundError is an OSError subclass.
         # Source-only environment without the JSON — fall back to
         # hardcoded values below.  Logged only in debug to keep the
         # wizard's startup quiet.
@@ -500,7 +500,7 @@ def _save_config_to_file(config: Dict[str, Any], requested_filename: str) -> str
         logger.info("Wizard config saved to %s", requested_filename)
         return requested_filename
     except OSError as e:
-        logger.error("Could not save wizard config to %s: %s", requested_filename, e)
+        logger.exception("Could not save wizard config to %s", requested_filename)
         _print(f"\n  Error: Could not save config to {requested_filename}: {e}")
 
     from datetime import datetime as _dt
@@ -516,7 +516,7 @@ def _save_config_to_file(config: Dict[str, Any], requested_filename: str) -> str
         logger.info("Wizard config saved to fallback location %s", fallback)
         return fallback
     except OSError as e:
-        logger.error("Fallback wizard config save also failed (%s): %s", fallback, e)
+        logger.exception("Fallback wizard config save also failed (%s)", fallback)
         _print(f"  Fallback save also failed ({fallback}): {e}")
         raise
 

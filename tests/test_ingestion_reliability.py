@@ -1009,7 +1009,7 @@ class TestRoundFourFixes:
         )
         assert _is_frontmatter_page(toc)
 
-    def test_frontmatter_protects_realistic_form_template_via_3signal_AND(self):
+    def test_frontmatter_protects_realistic_form_template_via_3signal_and(self):
         """S-E round-4: real form templates have NO inline page numbers, so the
         3-signal AND filter (alpha + leader + page-num-count) protects them
         even when alpha + leader trip individually."""
