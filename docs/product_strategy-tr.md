@@ -40,7 +40,7 @@ ForgeLM, LLM ince ayarını (fine-tuning) **güvenli, denetlenebilir ve tekrarla
 
 ### 3. Config-Tabanlı CI/CD
 
-ForgeLM'in temel mimari kimliği: bir YAML dosyası bir eğitim çalışmasını eksiksiz tanımlar. Python kodu gerekmez, ortam değişkeni aranmaz, notebook durumu yok.
+ForgeLM'in temel mimari kimliği: bir YAML dosyası bir eğitim çalışmasını eksiksiz tanımlar. İmperatif kod gerekmez, ortam değişkeni aranmaz, gizli çalışma durumu yok.
 
 - **Tek YAML girer, ince ayarlı model + compliance kanıtları çıkar** — deterministik ve sürüm kontrollü
 - **Anlamlı çıkış kodları** pipeline orkestrasyonu için: 0 (başarı), 1 (config/doğrulama hatası), 2 (eğitim hatası), 3 (değerlendirme/güvenlik hatası), 4 (insan onayı bekleniyor)

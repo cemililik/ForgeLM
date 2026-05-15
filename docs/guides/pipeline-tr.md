@@ -297,18 +297,20 @@ Sıfır olmayan exit kodu ihlalleri keşfedildikleri sırayla listeler.
   wizard'la üretilebilir; pipeline'lar operatör-seviyesi ve manuel
   YAML yüzeyini kullanır.  Wizard'ın işi "çalışan bir tek aşama
   config'i üret, büyüdüğünde elle pipeline'a düzenle" olarak kalır.
-- **Notebook entegrasyonu yok.**  `notebooks/` altındaki 11 demo
-  notebook bireysel eğitim paradigmalarını kapsar; uçtan uca pipeline
-  demosu her notebook'un setup boilerplate'ini üç kez tekrar ederdi.
-  `tests/fixtures/pipeline/` altındaki fixture suite, reviewer'lara
-  bir notebook'la aynı yüzeyi verir — üstüne golden manifest'le
-  byte-comparable olma avantajıyla.
+- **Pakete dahil bir pipeline-demo notebook'u yok.**  `notebooks/`
+  altındaki 11 demo notebook her eğitim paradigmasını ayrı ayrı zaten
+  kapsar ve önerilen etkileşimli yüzey olmaya devam eder; uçtan uca
+  bir pipeline demosu her notebook'un setup boilerplate'ini üç kez
+  tekrarlardı.  `tests/fixtures/pipeline/` altındaki fixture suite,
+  reviewer'lara bir notebook'la aynı yüzeyi verir — üstüne golden
+  manifest'le byte-comparable olma avantajıyla.
 
 ---
 
 ## Cross-references
 
-- Faz 14 tasarım dokümanı: [docs/roadmap/phase-14-pipeline-chains.md](../roadmap/phase-14-pipeline-chains.md)
+- Faz 14 yayınlanan kapsam: [docs/roadmap/completed-phases.md](../roadmap/completed-phases.md#phase-14-multi-stage-pipeline-chains-v070)
+- Faz 14.5 takip planı: [docs/roadmap/phase-14-5-pipeline-hardening.md](../roadmap/phase-14-5-pipeline-hardening.md)
 - Roadmap girişi: [docs/roadmap-tr.md](../roadmap-tr.md)
 - Annex IV doğrulayıcısı: `forgelm verify-annex-iv --pipeline <run_dir>` (CLI help'e bakın)
 - Audit log standardı: [docs/standards/logging-observability.md](../standards/logging-observability.md)

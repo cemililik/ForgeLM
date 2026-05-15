@@ -36,11 +36,10 @@ Aksi takdirde sığmayacak bir modeli sığdırmak için üç ortogonal araç. B
 ## Daha fazla okumak için nereye
 
 - VRAM-vs-throughput tabloları, her stratejinin ne zaman kullanılacağı ve yaygın tuzaklarla derin rehber:
-  [`docs/guides/performance-tr.md`](../../../guides/performance-tr.md)
-- Tam konfigürasyon referansı (her düğme, her varsayılan):
-  [`docs/reference/configuration-tr.md`](../../../reference/configuration-tr.md)
-- Projenin dayattığı lazy-import standardı:
-  [`docs/standards/coding.md`](../../../standards/coding.md)
+  [`performance-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/guides/performance-tr.md) (GitHub kaynağı).
+- Tam konfigürasyon referansı (her düğme, her varsayılan) — bu manual içinde [Konfigürasyon](#/reference/configuration)'da da bulunur.
+- Projenin dayattığı lazy-import katkıda bulunan standardı:
+  [`coding.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/standards/coding.md) (GitHub kaynağı).
 
 ## Ayrıca bakınız
 

@@ -144,6 +144,5 @@ Section-wholesale semantics: if a stage names a block it *replaces* root's entir
 
 ## See also
 
-- [Multi-Stage Pipelines — operator guide](../../../guides/pipeline.md) — full walkthrough with the 6 design fixtures.
-- [Choosing a Trainer](../concepts/choosing-trainer.md) — when to pick which trainer; pipelines come after the per-trainer choice.
-- [Annex IV Compliance](../compliance/annex-iv.md) — the per-stage manifest format the chain-level manifest indexes.
+- [Choosing a Trainer](#/concepts/choosing-trainer) — when to pick which trainer; pipelines come after the per-trainer choice.
+- [Annex IV Compliance](#/compliance/annex-iv) — the per-stage manifest format the chain-level manifest indexes.

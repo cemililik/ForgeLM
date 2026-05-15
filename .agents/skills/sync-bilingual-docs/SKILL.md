@@ -14,6 +14,7 @@ Any change to these paths or their siblings:
 - `docs/product_strategy.md` / `product_strategy-tr.md`
 - `docs/roadmap.md` / `roadmap-tr.md`
 - `docs/reference/*.md` (has matching `-tr.md`)
+- `docs/usermanuals/{en,tr}/**/*.md` (the static-site SPA viewer source)
 
 Do **not** use for:
 - `docs/standards/*` (English only)
@@ -25,6 +26,24 @@ Do **not** use for:
 Do **not** reference any file under gitignored working-memory directories
 (`docs/marketing/`, `docs/analysis/`) from the bilingual docs you edit —
 those paths are local-only and won't resolve in fresh clones.
+
+**`docs/usermanuals/` is link-isolated.** Pages there feed the static-site
+SPA viewer (`site/usermanual.html`), which only renders SPA hash-router
+routes (`#/<section>/<page>`) and external HTTPS URLs. Repo-relative
+links like `../../../guides/foo.md` or even intra-manual paths like
+`../concepts/choosing-trainer.md` 404 in the SPA. When you edit a
+usermanual page, every link MUST be one of:
+
+1. A SPA route `#/<section>/<page>` where the target file exists under
+   `docs/usermanuals/<lang>/<section>/<page>.md`.
+2. An absolute HTTPS URL (use `https://github.com/cemililik/ForgeLM/blob/main/<path>`
+   for project files that live outside the manual — guides, references,
+   QMS templates, source files, the roadmap).
+3. A pure same-file anchor (`#heading-slug`).
+
+The guard `tools/check_usermanual_self_contained.py --strict` enforces
+this; see `docs/standards/documentation.md` "User-manual link discipline"
+for the full ruleset.
 
 ## Required reading
 

@@ -294,18 +294,20 @@ discovered.
   wizard-buildable; pipelines are operator-grade and use the manual
   YAML surface.  The wizard's job stays "produce a working single-stage
   config you can hand-edit into a pipeline if you outgrow it."
-- **No notebook integration.**  The 11 demo notebooks under
-  `notebooks/` cover individual training paradigms; an end-to-end
-  pipeline demo would duplicate every notebook's setup boilerplate
-  three times.  The fixture suite under `tests/fixtures/pipeline/`
-  gives reviewers exactly the same surface as a notebook would, with
-  the advantage of being byte-comparable to a golden manifest.
+- **No bundled pipeline-demo notebook.**  The 11 demo notebooks under
+  `notebooks/` already cover each training paradigm individually and
+  remain the recommended interactive surface; an end-to-end pipeline
+  demo would duplicate every notebook's setup boilerplate three times.
+  The fixture suite under `tests/fixtures/pipeline/` gives reviewers
+  exactly the same surface as a notebook would, with the advantage of
+  being byte-comparable to a golden manifest.
 
 ---
 
 ## Cross-references
 
-- Phase 14 design doc: [docs/roadmap/phase-14-pipeline-chains.md](../roadmap/phase-14-pipeline-chains.md)
+- Phase 14 shipped scope: [docs/roadmap/completed-phases.md](../roadmap/completed-phases.md#phase-14-multi-stage-pipeline-chains-v070)
+- Phase 14.5 follow-up plan: [docs/roadmap/phase-14-5-pipeline-hardening.md](../roadmap/phase-14-5-pipeline-hardening.md)
 - Roadmap entry: [docs/roadmap.md](../roadmap.md)
 - Annex IV verifier: `forgelm verify-annex-iv --pipeline <run_dir>` (see CLI help)
 - Audit log standard: [docs/standards/logging-observability.md](../standards/logging-observability.md)

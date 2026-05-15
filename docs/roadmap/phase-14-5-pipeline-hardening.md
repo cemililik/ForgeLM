@@ -1,0 +1,142 @@
+# Phase 14.5: Pipeline Hardening (post-release review deferrals)
+
+> **Status:** Planned for `v0.7.x` cycle.  Originates as the 4 review findings explicitly deferred during the v0.7.0 release cut (see PR #54 + the `risks-and-decisions.md` "2026-05-15 — v0.7.0 release review deferrals" section).  Wave 2 carry-overs from Phase 14 (intra-stage resume, DAG pipelines, parallel exec, wizard pipeline path) are tracked at the bottom as **future phases**, not in-flight Phase 14.5 work.
+>
+> **Note:** This file details a single planned phase.  See [../roadmap.md](../roadmap.md) for the cross-phase summary; the Phase 14 design + shipped scope is archived in [completed-phases.md#phase-14-multi-stage-pipeline-chains-v070](completed-phases.md#phase-14-multi-stage-pipeline-chains-v070).
+
+**Goal:** Close the four pipeline-manifest + webhook hygiene items that v0.7.0 deliberately deferred because each one carried a non-trivial design surface (golden-manifest regeneration, recursive Annex IV verification, webhook schema documentation, structured-payload typing).  Each item is small in code surface but needs careful test-fixture management; bundling them into one focused sub-phase isolates the change so Phase 15-style review absorption can land cleanly.
+
+**Priority:** Medium — none of the four blocks production usage.  The chain-level Annex IV manifest already passes the structural verifier; per-stage manifests retain their existing canonical hashes; webhook receivers tolerate the new event names as plain strings; the `**extra` payload merge is caller-controlled (orchestrator-internal).  Hardening lands on the v0.7.x cycle as bandwidth allows.
+
+**Estimated Effort:** Medium (~1-2 weeks across all four tasks + their review absorption).
+
+> **Context:** PR #54 review pass classified all four findings as "real refactor / hardening opportunity, not a release blocker".  The deferrals are tracked here (and as `F-PR54-...` rows in `risks-and-decisions.md`) so the work cannot drift.
+
+## Tasks
+
+1. [ ] **Canonical pipeline manifest hash** (HIGH 6)
+   The chain-level `compliance/pipeline_manifest.json` does not carry a canonical hash of its own bytes.  Structural verifier (`_verify_manifest_payload`) catches chain-integrity / index / status drift but accepts edits to non-chain fields (provider metadata, metrics, `final_status`, per-stage `error` strings) without protest.  Single-artefact Annex IV already pins this surface via `compute_annex_iv_manifest_hash()`; pipeline manifest should mirror that pattern.
+
+   ```python
+   # forgelm/compliance.py — new helper alongside compute_annex_iv_manifest_hash
+   def compute_pipeline_manifest_hash(manifest: Dict[str, Any]) -> str:
+       """SHA-256 of the manifest's canonical JSON serialisation.
+
+       Canonical = sorted keys, no extraneous whitespace, no manifest_hash
+       field itself.  Mirrors the single-artefact pattern at
+       `compute_annex_iv_manifest_hash`.
+       """
+       payload = {k: v for k, v in manifest.items() if k != "manifest_hash"}
+       canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+       return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
+   ```
+
+   - **`generate_pipeline_manifest`** stamps `manifest["manifest_hash"]` at write time.
+   - **`_verify_manifest_payload`** re-computes the hash and adds a `manifest_hash_mismatch` violation when the on-disk value diverges.
+   - **Golden fixtures** under `tests/fixtures/pipeline/` re-baseline once; backward-compat note in CHANGELOG for operators who pinned a manifest hash in external systems.
+   - **CLI:** `forgelm verify-annex-iv --pipeline <dir>` exit-code mapping stays: hash mismatch → `EXIT_CONFIG_ERROR (1)` (manifest is operator-fixable; treat the same as a chain-integrity violation).
+
+2. [ ] **Per-stage `training_manifest.json` deep parse validation** (HIGH 7)
+   `verify_pipeline_manifest_at_path` currently checks `os.path.isfile(per_stage_manifest)` only.  A zero-byte / malformed-JSON / tampered file still passes the existence check; the verifier reports "OK" while one of the per-stage Annex IV artefacts is rotten.
+
+   ```python
+   # forgelm/compliance.py — verify_pipeline_manifest_at_path additions
+   from .compliance import verify_annex_iv_artifact  # already public
+
+   for idx, stage in enumerate(well_formed_stages):
+       per_stage_manifest = stage.get("training_manifest")
+       if per_stage_manifest and stage.get("status") == "completed":
+           # Existing existence check stays; ADD deep verification:
+           try:
+               result = verify_annex_iv_artifact(per_stage_manifest)
+           except (OSError, json.JSONDecodeError) as e:
+               violations.append(
+                   f"Stage {stage.get('name')!r}: per-stage manifest at "
+                   f"{per_stage_manifest!r} unreadable: {e}"
+               )
+               continue
+           if not result.valid:
+               violations.append(
+                   f"Stage {stage.get('name')!r}: per-stage manifest at "
+                   f"{per_stage_manifest!r} failed Annex IV verification: "
+                   f"{result.reason} (missing: {result.missing_fields})"
+               )
+   ```
+
+   - **Recursive verification semantics** — pipeline verifier becomes the chain-level aggregator over per-stage verifiers; documented contract in `docs/reference/verify_annex_iv_subcommand.md` (+ TR mirror).
+   - **Performance bound** — N stages × O(1) per-stage verifier; manifests are small (~kB).  No need for parallelism.
+   - **Exit-code mapping** — per-stage failures are operator-fixable (regenerate the per-stage manifest from training_run output, or accept that the run is lost and start fresh); route to `EXIT_CONFIG_ERROR (1)` alongside the existing chain-integrity violations.
+   - **Tests:** extend `tests/test_pipeline_compliance.py::TestVerifyPipelineManifestAtPath` with `test_per_stage_manifest_zero_byte`, `test_per_stage_manifest_malformed_json`, `test_per_stage_manifest_missing_required_field`.
+
+3. [ ] **Webhook `pipeline.*` event vocabulary documentation** (MEDIUM 10)
+   v0.7.0 introduced 7 new `pipeline.*` event names alongside the pre-existing 5-event `training.*` vocabulary.  The receiver-side contract (Slack / Teams / Discord webhook adapters; Make.com / Zapier flows; downstream enum-validating consumers) was implicit — `event` is documented as a string, not a frozen enum — but never explicitly enumerated in a single canonical reference.  v0.7.0's CHANGELOG lists the seven new events, but a downstream consumer searching for the authoritative list has to read CHANGELOG.
+
+   Three sub-tasks:
+
+   - **Add `docs/reference/webhook_schema.md` + `-tr.md`** as the canonical reference.  Sections: per-event payload shape, `event_kind` discriminator (`"training"` vs `"pipeline"`), backward-compat note for pre-v0.7.0 enum-validating receivers.
+   - **Update `docs/standards/webhook_schema.md`** (if it exists; otherwise add) with the explicit "event field is an open-ended string, not a frozen enum" rule + the post-v0.7.0 vocabulary.
+   - **Optional:** add a `WebhookNotifier.SUPPORTED_EVENTS: frozenset[str]` class constant + a `tools/check_webhook_event_vocabulary.py` `--strict` guard so the documented vocabulary cannot drift from the actual emission sites.
+
+4. [ ] **`WebhookNotifier._send(**extra)` explicit allowlist** (MEDIUM 11)
+   PR #53's blocker fix added `**extra` to `_send` so `notify_pipeline_*` could pass `stage_count` / `final_status` / `stopped_at` / `stage_name` through to the receiver payload.  Today `**extra` accepts any keyword the caller passes; in practice all callers are orchestrator-internal (controlled), but a future contributor passing external user input through `_send` would have nothing stopping that input from landing in the payload.
+
+   ```python
+   # forgelm/webhook.py
+   _ALLOWED_PIPELINE_EXTRAS: frozenset[str] = frozenset({
+       "stage_count", "final_status", "stopped_at",
+       "stage_name", "gate_decision", "staging_path",
+   })
+
+   def _send(self, *, event, ..., **extra) -> None:
+       ...
+       unknown = set(extra) - _ALLOWED_PIPELINE_EXTRAS
+       if unknown:
+           logger.warning(
+               "Webhook _send received unknown extras (dropped): %s",
+               sorted(unknown),
+           )
+       for key in _ALLOWED_PIPELINE_EXTRAS & set(extra):
+           if key not in payload:
+               payload[key] = extra[key]
+   ```
+
+   - **Allowlist enumerated against actual emission sites** — single source of truth in the module.
+   - **`tests/test_webhook.py`** gets a new `TestSendExtrasAllowlist` class: every `_ALLOWED_PIPELINE_EXTRAS` member must be emitted by at least one `notify_pipeline_*` method; an unexpected extra triggers the WARN log + drop.
+   - **Optional follow-up:** typed `WebhookPayload` `TypedDict` so static type checkers catch unknown keys at edit time.
+
+## Requirements
+
+- **Backward compatibility, byte-identical.**  Pre-v0.7.x configs without a `pipeline:` block continue to reach `forgelm/trainer.py` byte-identical to v0.6.0 — orchestrator surface unchanged.
+- **No fixture mass-regeneration.**  Existing `tests/fixtures/pipeline/*.yaml` and their golden manifests are *amended*, not replaced.  Each task that touches a fixture adds a single migration commit.
+- **Webhook contract widening, not narrowing.**  Adding `_send` allowlist is the only narrowing; the documented vocabulary surface widens (more events, more fields).  No receiver should need to update *unless* they were already hard-validating the pre-v0.7.0 `event` enum (in which case CHANGELOG calls it out as a breaking change for v0.7.x).
+- **Test surface preserved.**  All 222 existing pipeline + webhook + verification tests stay green.  Each task adds tests; none rewrite existing assertions except where the contract genuinely tightens (Task 1's hash-mismatch addition).
+
+## Validation gate to ship Phase 14.5
+
+- All 4 tasks land with regression tests (a single `_ALLOWED_PIPELINE_EXTRAS` test counts).
+- `forgelm verify-annex-iv --pipeline <dir>` exit 0 on every existing `tests/fixtures/pipeline/` golden manifest after the hash + deep-parse rules apply.
+- Bilingual parity + anchor resolution + CLI help consistency guards green at PR open.
+- `__api_version__` bumps MINOR if **any** of (a) `compute_pipeline_manifest_hash` is added to `forgelm.__all__`, (b) `verify_pipeline_manifest_at_path` signature changes, (c) `WebhookNotifier._send` adds a parameter that downstream library consumers could observe.  Otherwise stays.
+
+## Delivery
+
+- **Target release:** `v0.7.1` (patch) if all 4 tasks ship together within the v0.7.x cycle.  If only Tasks 1 + 2 land, prefer `v0.7.1` patch (manifest hardening) + `v0.7.2` patch (webhook hygiene) split.
+- **Entry gate:** PR #54 is merged + v0.7.0 PyPI tag verified (already true at the time this file lands).
+- **CHANGELOG plan:** each task lands a one-line bullet under `[Unreleased]` per Keep-a-Changelog convention; at `v0.7.1` tag time the `[Unreleased]` block is renamed to `[0.7.1] — YYYY-MM-DD`.
+- **Wave 2 / future-phase carry-overs** (NOT part of Phase 14.5; tracked here only so the items aren't lost):
+  - Intra-stage HF `Trainer.train(resume_from_checkpoint=...)` integration — would let `--resume-from` pick up mid-stage rather than at stage boundaries.  Gated on `Trainer` API stability + concrete operator demand.
+  - DAG pipelines (non-linear stage dependencies) — requires a config-schema redesign (`needs:` / `depends_on:` per stage) and explicit dependency declaration; horizon `v0.8.x` or later.
+  - Parallel stage execution (independent branches running concurrently) — gated on the DAG schema; same horizon.
+  - `forgelm wizard` pipeline path — gated on operator demand after v0.7.0 ships.  Wizard currently emits single-stage configs only (documented limitation in `docs/guides/pipeline.md`).
+
+---
+
+## Cross-references
+
+- **Phase 14 shipped scope:** [completed-phases.md#phase-14-multi-stage-pipeline-chains-v070](completed-phases.md#phase-14-multi-stage-pipeline-chains-v070)
+- **Pipeline operator guide:** [`../guides/pipeline.md`](../guides/pipeline.md) ([Türkçe](../guides/pipeline-tr.md))
+- **Pipeline schema reference:** [`../reference/configuration.md`](../reference/configuration.md#pipeline-optional-multi-stage-training-chains-phase-14) ([Türkçe](../reference/configuration-tr.md#pipeline-isteğe-bağlı-çok-aşamalı-eğitim-zincirleri-faz-14))
+- **CLI surface:** [`../reference/usage.md`](../reference/usage.md) ([Türkçe](../reference/usage-tr.md))
+- **Deferred-findings tracking:** [risks-and-decisions.md](risks-and-decisions.md) — "2026-05-15 — v0.7.0 release review deferrals" section
+- **Code surface (planned):** [`forgelm/compliance.py`](../../forgelm/compliance.py) (`compute_pipeline_manifest_hash` + `verify_pipeline_manifest_at_path` deep-parse), [`forgelm/webhook.py`](../../forgelm/webhook.py) (`_ALLOWED_PIPELINE_EXTRAS`), `docs/reference/webhook_schema.md` (new file)
+- **Pattern reference:** Phase 15's review-absorption discipline + fixture amendment model is the working precedent.

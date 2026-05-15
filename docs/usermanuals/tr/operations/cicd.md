@@ -5,7 +5,7 @@ description: ForgeLM'i öngörülebilir exit kodlarıyla GitHub Actions, GitLab 
 
 # CI/CD Hatları
 
-ForgeLM, etkileşimli bir notebook olarak değil, CI/CD hattının bir adımı olarak çalışmak üzere tasarlandı. Her komutun öngörülebilir bir exit kodu, her çıktının yapılandırılmış bir formatı (JSON veya JSONL) ve her kapının net bir verdict'i var — arada gri bölge yok.
+ForgeLM, CI/CD hattının bir adımı olarak temiz şekilde yerleşmek üzere tasarlandı. Her komutun öngörülebilir bir exit kodu, her çıktının yapılandırılmış bir formatı (JSON veya JSONL) ve her kapının net bir verdict'i var — arada gri bölge yok. Aynı exit-kod kontratı; terminalden, notebook'tan veya bir orchestrator'dan çalıştırsanız da geçerli.
 
 ## Exit-kod kontratı
 

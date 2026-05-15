@@ -239,9 +239,44 @@ See [CHANGELOG.md `[0.5.5]`](../../CHANGELOG.md#055--2026-05-10) for the complet
 
 ---
 
-## v0.7.0 — "Pipeline Chains" (Planned)
+## v0.7.0 — "Pipeline Chains" (2026-05-15)
 
-**Status:** Planned. Focus: [Phase 14](phase-14-pipeline-chains.md). Multi-stage SFT → DPO → GRPO chained config, pipeline provenance artifacts for EU AI Act Annex IV compliance. Re-scheduled from v0.6.0 → v0.7.0 because v0.6.0 now ships Phase 15 (Ingestion Pipeline Reliability) after the 2026-05-11 pilot exposed the silent-failure gap that gated v0.6.0's credibility.
+**Status:** Released to PyPI 2026-05-15 via the cross-OS publish workflow ([`.github/workflows/publish.yml`](../../.github/workflows/publish.yml)) — all 12 wheel-install matrix combos (3 OS × 4 Python) green before OIDC trusted publish. GitHub Release: [v0.7.0](https://github.com/cemililik/ForgeLM/releases/tag/v0.7.0).
+
+### Summary
+
+v0.7.0 ships [Phase 14 — Multi-Stage Pipeline Chains](completed-phases.md#phase-14-multi-stage-pipeline-chains-v070): one YAML, one CLI invocation, one Annex IV manifest covering SFT → DPO → GRPO (or any sequence of supported trainers).  Re-scheduled from v0.6.0 → v0.7.0 because v0.6.0 shipped Phase 15 (Ingestion Pipeline Reliability) after the 2026-05-11 pilot exposed the silent-failure gap that gated v0.6.0's credibility.  v0.7.0 also folds in the critical DNS-rebinding TOCTOU SSRF hardening (issue #14) on the webhook / judge / synthetic outbound paths.
+
+### Highlights
+
+- **`pipeline:` config block** at the root of `ForgeConfig` chains one or more training stages with section-wholesale inheritance (`model` / `lora` / `training` / `data` / `evaluation`) and root-only enforcement for cross-stage concerns (`distributed` / `webhook` / `compliance` / `risk_assessment` / `monitoring` / `retention` / `synthetic` / `merge` / `auth`).  New Pydantic models `PipelineStage` + `PipelineConfig` enforce stage-name uniqueness, `^[a-z0-9_]{1,32}$` identifier shape, ≥1-stage minimum, and explicit-`trainer_type` audit-clarity validation per stage.
+- **Pipeline orchestrator** (`forgelm/cli/_pipeline.py`) drives the chain end-to-end with auto-chained `model.name_or_path`, atomic state persistence to `<pipeline.output_dir>/pipeline_state.json`, and **7 new pipeline-scoped audit events** all sharing a single top-level `run_id` for SIEM-style grouping: `pipeline.started`, `pipeline.stage_started`, `pipeline.stage_completed`, `pipeline.stage_gated`, `pipeline.stage_reverted`, `pipeline.force_resume`, `pipeline.completed`.
+- **CLI flags** `--stage <name>`, `--resume-from <name>`, `--force-resume`, `--input-model <path>`.  `--dry-run` collects every per-stage validation error before exiting + runs the cross-stage `training.output_dir` collision guard as a pre-flight.  Pipeline-only flags rejected on non-pipeline configs (and vice versa) with explicit `EXIT_CONFIG_ERROR`.
+- **Pipeline Annex IV manifest** (`compliance/pipeline_manifest.json`) + `forgelm verify-annex-iv --pipeline <run_dir>` mode.  Structural + chain-integrity verification, per-stage `training_manifest.json` existence check.
+- **Webhook integration**: `WebhookNotifier.notify_pipeline_started / _completed / _reverted` mirror the orchestrator's audit events; pre-existing `training.*` consumers see no new events on non-pipeline runs.
+- **Security — DNS-rebinding TOCTOU SSRF hardening (issue #14)** — `_resolve_safe_destination` resolves the hostname exactly once and rebuilds the outbound URL with the returned public IP literal so `requests` never re-resolves at connect time; original hostname preserved via `Host` header + SNI using `requests_toolbelt.adapters.host_header_ssl.HostHeaderSSLAdapter`.  `requests-toolbelt>=1.0.0,<2.0.0` is now a hard dependency.
+- **Documentation surface**: bilingual operator guide (`docs/guides/pipeline.md` + `pipeline-tr.md`), sidebar user-manual page (`docs/usermanuals/{en,tr}/training/pipelines.md`), `docs/reference/configuration.{md,-tr.md}` schema reference, `docs/reference/usage.{md,-tr.md}` CLI surface, site marketing surface refresh (features card, 4th hero slide, 6-language i18n).
+
+### Public surface changes
+
+- New `pipeline:` config block (optional — omitting it preserves v0.6.0 byte-identical single-stage path; orchestrator module is never imported on non-pipeline configs).
+- New CLI flags: `--stage`, `--resume-from`, `--force-resume`, `--input-model`; new verify mode: `verify-annex-iv --pipeline`.
+- `__api_version__` stays at `1.0.0` — Phase 14 added symbols only inside `forgelm.compliance` / `forgelm.config` submodules; none re-exported in `forgelm.__all__`.  `__version__` bumps `0.6.0 → 0.7.0` (MINOR).
+- Deprecation cadence: `--data-audit PATH` removal target pushed from v0.7.0 → **v0.8.0** to preserve the one-minor warning window (per `docs/standards/release.md#deprecation-cadence`).
+
+### Review-absorption history
+
+PR #53 (Phase 14 implementation) absorbed **5 review rounds**: 3 blocking + 4 significant + 14 nitpicks across dispatch order, force-resume audit event, strict chain integrity, `--input-model` empty-string normalisation, exit-code consistency, `--stage <non-first>` chain integrity, audit-run-id pinning, topology guard unconditional execution, `output_dir` collision in `run()`, pipeline-only-flag rejection on non-pipeline configs, reference docs + roadmap state cleanup.  PR #54 (release prep) absorbed an additional **10 of 14 findings** (3 blockers + 5 HIGH + 2 MEDIUM); the remaining 4 are tracked as [Phase 14.5 — Pipeline Hardening](phase-14-5-pipeline-hardening.md) for the v0.7.x cycle.
+
+### Full changelog
+
+See [CHANGELOG.md `[0.7.0]`](../../CHANGELOG.md#070--2026-05-14) for the complete list of additions, changes, fixes (including the review-absorption-round details), and the SSRF Security entry.
+
+---
+
+## v0.7.x — "Pipeline Hardening" (Planned)
+
+**Status:** Planned. Focus: [Phase 14.5](phase-14-5-pipeline-hardening.md).  Four review-deferred items from v0.7.0: canonical pipeline manifest hash + non-chain-field tamper detection, per-stage `training_manifest.json` deep-parse validation, webhook `pipeline.*` event vocabulary documentation, `WebhookNotifier._send(**extra)` explicit allowlist.  Targets the v0.7.x patch cycle (v0.7.1 or split across v0.7.1 / v0.7.2 depending on bandwidth).
 
 ---
 

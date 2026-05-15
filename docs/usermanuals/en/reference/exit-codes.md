@@ -82,7 +82,7 @@ stage('Train') {
 | `${HF_TOKEN}` set in YAML but env var missing | 1 |
 | `--config` points to non-existent file | 1 |
 | Final loss is NaN / OOM / I/O failure mid-training | 2 |
-| `forgelm verify-audit` chain break or HMAC mismatch | 1 (during the v0.5.5 cycle EXIT_CONFIG_ERROR covers both option errors and integrity failures; see [`verify-audit` reference](../../../reference/verify_audit.md) for the v0.6.x deprecation note) |
+| `forgelm verify-audit` chain break or HMAC mismatch | 1 (during the v0.5.5 cycle EXIT_CONFIG_ERROR covers both option errors and integrity failures; see the in-manual [Verify Audit](#/compliance/verify-audit) page for the v0.6.x deprecation note) |
 | DPO run, Llama Guard S5 regressed beyond tolerance | 3 |
 | Benchmark hellaswag dropped below floor | 3 |
 | `evaluation.require_human_approval: true` and no approval signed | 4 |

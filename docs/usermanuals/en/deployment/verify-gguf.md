@@ -10,7 +10,7 @@ description: Three-layer integrity check for exported GGUF model files before se
 ## When to use it
 
 - **Before loading a GGUF into a serving runtime.** A clean `verify-gguf` exit is the minimum signal the file is what the exporter wrote.
-- **In CI/CD release gates after GGUF export.** Run after every `forgelm export` step and **fail the release on any non-zero exit code** (the public contract follows the `0/1/2/3/4` set documented in [error-handling.md](../../../standards/error-handling.md); `1` is the most common gate trip — caller/input + integrity-mismatch — but `2` covers genuine I/O failures on existing files, and other non-zero codes propagate from upstream pipelines).
+- **In CI/CD release gates after GGUF export.** Run after every `forgelm export` step and **fail the release on any non-zero exit code** (the public contract follows the `0/1/2/3/4` set; see the in-manual [Exit Codes](#/reference/exit-codes) reference. `1` is the most common gate trip — caller/input + integrity-mismatch — but `2` covers genuine I/O failures on existing files, and other non-zero codes propagate from upstream pipelines).
 - **When receiving a GGUF from a third-party trainer or model hub.** Recompute the magic + metadata + SHA-256 layers to detect drift between what they sent and what they signed.
 - **After moving a GGUF between machines.** Any byte-level corruption in transit shows up as a SHA-256 mismatch.
 
@@ -156,4 +156,4 @@ Install with `pip install gguf` to add the metadata layer back. This matches the
 - [GGUF Export](#/deployment/gguf-export) — the production side that writes the sidecar this verifier consumes.
 - [Verify Audit](#/compliance/verify-audit) — companion verifier on the compliance surface.
 - [Verify Annex IV](#/compliance/annex-iv) — companion verifier for the technical-documentation artifact.
-- [`verify_gguf_subcommand.md`](../../../reference/verify_gguf_subcommand.md) — the reference doc with full flag table and library-symbol citations.
+- [`verify_gguf_subcommand.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/verify_gguf_subcommand.md) — the reference doc with full flag table and library-symbol citations (GitHub source).

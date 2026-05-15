@@ -239,6 +239,20 @@ jobs:
         # to ``monkeypatch.delitem`` (auto-restores on teardown).
         run: python3 tools/check_no_unguarded_sys_modules_pop.py
 
+      - name: User-manual self-contained link guard (strict)
+        # Post-v0.7.0 cycle: the docs/usermanuals/ tree is the source of
+        # truth for the static-site SPA viewer (site/usermanual.html +
+        # site/js/guide.js).  The viewer only resolves SPA hash-router
+        # routes ``#/<section>/<page>`` and external HTTPS URLs.
+        # Anything else — repo-relative ``../../../guides/...`` paths,
+        # intra-manual ``../section/page.md`` paths, SPA routes that
+        # point at a non-existent page — 404s when the user clicks.
+        # This guard walks every *.md under docs/usermanuals/ and
+        # fails the gate on any link that would break in the SPA.
+        # See docs/standards/documentation.md "User-manual link
+        # discipline" for the full ruleset.
+        run: python3 tools/check_usermanual_self_contained.py --strict
+
       - name: License check
         run: |
           test -f LICENSE || (echo "LICENSE file missing" && exit 1)

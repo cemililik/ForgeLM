@@ -4,7 +4,7 @@
 
 ## What ForgeLM is (in one line)
 
-A **config-driven, enterprise-grade LLM fine-tuning toolkit** — YAML in, fine-tuned model + compliance artifacts out. Built for CI/CD pipelines, not notebooks. Covers SFT → DPO → SimPO → KTO → ORPO → GRPO, with integrated safety evaluation, EU AI Act compliance, and auto-revert on quality regression.
+A **config-driven, enterprise-grade LLM fine-tuning toolkit** — YAML in, fine-tuned model + compliance artifacts out. Drives the same workflow from a terminal, a notebook, or a CI/CD pipeline step. Covers SFT → DPO → SimPO → KTO → ORPO → GRPO, with integrated safety evaluation, EU AI Act compliance, and auto-revert on quality regression.
 
 Not a framework for training from scratch. Not an inference engine. Not a GUI. Read [docs/product_strategy.md](docs/product_strategy.md) for the 5-minute background.
 
@@ -76,6 +76,7 @@ ForgeLM/
 │                            # check_bilingual_parity, check_cli_help_consistency,
 │                            # check_field_descriptions, check_no_analysis_refs,
 │                            # check_pip_audit, check_bandit, check_site_claims,
+│                            # check_usermanual_self_contained,
 │                            # check_wizard_defaults_sync, generate_sbom,
 │                            # generate_wizard_defaults, build_usermanuals
 ├── docs/
@@ -156,10 +157,11 @@ Default workflow for a non-trivial change:
      python3 tools/check_wizard_defaults_sync.py && \
      python3 tools/check_no_analysis_refs.py && \
      python3 tools/check_no_unguarded_sys_modules_pop.py && \
+     python3 tools/check_usermanual_self_contained.py --strict && \
      python3 tools/update_site_version.py --check
    ```
 
-   All eleven must pass. The first four are the historical gauntlet;
+   All twelve must pass. The first four are the historical gauntlet;
    the three doc guards (Wave 3 / Wave 4 / Wave 5 additions) catch
    bilingual structural drift, broken markdown anchors, and CLI ↔ docs
    help-text drift before the PR opens. The wizard-defaults guard
@@ -172,12 +174,18 @@ Default workflow for a non-trivial change:
    `sys.modules.pop("torch"|"numpy"|"trl"|…)` without
    `monkeypatch.delitem` — the v0.5.7 round-3 review traced 35
    spurious full-suite failures to that exact pattern.  The
-   site-version guard (v0.6.0 retag cycle) re-derives the marketing
-   site's displayed version from CHANGELOG's latest released header
-   and fails the PR if any of the 15+ literals across `site/*.html`
-   and `site/js/translations.js` has drifted; the v0.5.5 → v0.6.0
-   release shipped with the hero badge still reading `v0.5.5`, which
-   this guard now prevents.
+   usermanual self-contained guard (post-v0.7.0 cycle) blocks any
+   link inside `docs/usermanuals/` that would 404 in the static SPA
+   viewer: every link must be either a `#/<section>/<page>` SPA
+   route backed by a real manual page or an absolute HTTPS URL.
+   Repo-relative `../../../guides/...` references fail the gate —
+   see `docs/standards/documentation.md` "User-manual link
+   discipline".  The site-version guard (v0.6.0 retag cycle)
+   re-derives the marketing site's displayed version from CHANGELOG's
+   latest released header and fails the PR if any of the 15+ literals
+   across `site/*.html` and `site/js/translations.js` has drifted; the
+   v0.5.5 → v0.6.0 release shipped with the hero badge still reading
+   `v0.5.5`, which this guard now prevents.
 
 ## Etiquette when communicating with the user
 

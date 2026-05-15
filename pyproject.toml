@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "forgelm"
-version = "0.7.0"
+version = "0.7.1rc1"
 description = "Config-driven LLM fine-tuning with safety evaluation, EU AI Act compliance, 6 alignment methods, and one-command bundled quickstart templates."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -231,6 +231,14 @@ line-length = 120
 [tool.ruff.lint]
 select = ["F", "E9", "W", "B", "I"]
 ignore = ["B008", "B905"]
+
+# Pylint config (consumed by Codacy's pylint plugin).  Pylint's default
+# max-line-length is 100, but the project formatter is ruff @ 120 (see
+# [tool.ruff] above).  Without this alignment, ruff format reflows long
+# f-strings back to single lines that pylint then flags — a no-win.
+# Pinning pylint to 120 keeps the two tools in agreement.
+[tool.pylint.format]
+max-line-length = 120
 
 # Bandit static-analysis config (consumed by Codacy + standalone bandit).
 # - tests/ is excluded from the broader scan; we still scan the package itself.
