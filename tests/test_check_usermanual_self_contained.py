@@ -280,3 +280,75 @@ class TestExitContract:
         assert rc == 1
         err = capsys.readouterr().err
         assert "does not exist" in err
+
+
+# ---------------------------------------------------------------------------
+# §6 — SPA route with #anchor suffix: the viewer appends one via
+#       history.replaceState when the reader clicks a TOC entry, so the
+#       canonical route form MUST accept ``#/<section>/<page>#<heading>``
+#       as long as the backing .md file exists.
+# ---------------------------------------------------------------------------
+
+
+class TestSpaRouteAnchorSuffix:
+    def test_spa_route_with_anchor_passes_when_page_exists(self, tmp_path: Path):
+        tool = _load_tool()
+        usermanuals = _build_manual_tree(tmp_path)
+        _write_page(
+            usermanuals,
+            "en",
+            "training",
+            "pipelines",
+            "# Pipelines\n\n[SFT details](#/training/sft#hyperparameters)\n",
+        )
+        broken = tool._collect_broken(list(tool._walk_manual_files(usermanuals)), usermanuals)
+        assert broken == []
+
+    def test_spa_route_with_anchor_fails_when_page_missing(self, tmp_path: Path):
+        tool = _load_tool()
+        usermanuals = _build_manual_tree(tmp_path)
+        _write_page(
+            usermanuals,
+            "en",
+            "training",
+            "pipelines",
+            "# Pipelines\n\n[Ghost](#/standards/release#deprecation)\n",
+        )
+        broken = tool._collect_broken(list(tool._walk_manual_files(usermanuals)), usermanuals)
+        assert len(broken) == 1
+        assert "no backing file" in broken[0].reason
+
+
+# ---------------------------------------------------------------------------
+# §7 — Markdown link title parsing: ``[text](url "title")`` and
+#       ``[text](url 'title')`` are valid CommonMark; the title is
+#       presentational and must not be appended to the href.
+# ---------------------------------------------------------------------------
+
+
+class TestLinkTitleStripping:
+    def test_spa_route_with_double_quoted_title_passes(self, tmp_path: Path):
+        tool = _load_tool()
+        usermanuals = _build_manual_tree(tmp_path)
+        _write_page(
+            usermanuals,
+            "en",
+            "training",
+            "pipelines",
+            '# Pipelines\n\n[SFT](#/training/sft "Supervised fine-tuning")\n',
+        )
+        broken = tool._collect_broken(list(tool._walk_manual_files(usermanuals)), usermanuals)
+        assert broken == []
+
+    def test_external_url_with_single_quoted_title_passes(self, tmp_path: Path):
+        tool = _load_tool()
+        usermanuals = _build_manual_tree(tmp_path)
+        _write_page(
+            usermanuals,
+            "en",
+            "training",
+            "pipelines",
+            "# Pipelines\n\n[GitHub](https://github.com/foo/bar 'repo home')\n",
+        )
+        broken = tool._collect_broken(list(tool._walk_manual_files(usermanuals)), usermanuals)
+        assert broken == []

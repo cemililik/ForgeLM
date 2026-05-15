@@ -65,14 +65,21 @@ _SKIP_HREF_PATTERNS = (
     re.compile(r"^#(?!/)"),
 )
 
-# SPA hash-router form recognised by site/js/guide.js — ``#/<section>/<page>``.
-# Section/page slugs are kebab-case alphanumerics matching the
-# directory naming under docs/usermanuals/<lang>/.
-_SPA_ROUTE_RE = re.compile(r"^#/(?P<section>[a-z0-9][a-z0-9-]*)/(?P<page>[a-z0-9][a-z0-9-]*)$")
+# SPA hash-router form recognised by site/js/guide.js — ``#/<section>/<page>``
+# with an optional ``#<heading>`` suffix that the viewer appends via
+# ``history.replaceState`` when the reader clicks a TOC entry (see
+# site/js/guide.js:343).  Section/page slugs are kebab-case alphanumerics
+# matching the directory naming under docs/usermanuals/<lang>/.
+_SPA_ROUTE_RE = re.compile(
+    r"^#/(?P<section>[a-z0-9][a-z0-9-]*)/(?P<page>[a-z0-9][a-z0-9-]*)"
+    r"(?:#(?P<anchor>[A-Za-z0-9][A-Za-z0-9_.-]*))?$",
+)
 
 
 @dataclass(frozen=True)
 class Link:
+    """An inline Markdown link extracted from a user-manual page."""
+
     source: Path
     line: int
     text: str
@@ -81,6 +88,8 @@ class Link:
 
 @dataclass(frozen=True)
 class BrokenLink:
+    """A link that would 404 in the SPA viewer, with the failure reason."""
+
     link: Link
     reason: str
 
@@ -115,6 +124,11 @@ def _extract_links(source: Path) -> Iterable[Link]:
             href_part = match.group(2).strip()
             if not href_part:
                 continue
+            # Markdown allows an optional title after the URL:
+            # ``[text](url "title")`` or ``[text](url 'title')``.  Take
+            # only the URL portion — the title is presentational and
+            # would otherwise be appended to the href and fail validation.
+            href_part = href_part.split(None, 1)[0]
             yield Link(source=source, line=line_no, text=text_part, href=href_part)
 
 
@@ -151,9 +165,10 @@ def _validate_spa_route(
         return BrokenLink(link, "source file is not under docs/usermanuals/")
     target = lang_root / section / f"{page}.md"
     if not target.is_file():
+        expected = f"docs/usermanuals/{lang_root.name}/{section}/{page}.md"
         return BrokenLink(
             link,
-            f"SPA route {href!r} has no backing file at docs/usermanuals/{lang_root.name}/{section}/{page}.md",
+            f"SPA route {href!r} has no backing file at {expected}",
         )
     return None
 
@@ -296,12 +311,14 @@ def _report_broken(
     for entry in broken:
         print(f"  {_format_broken(entry, repo_root)}")
     print(
-        f"\n{len(broken)} broken link(s) across {md_count} markdown file(s) under docs/usermanuals/.",
+        f"\n{len(broken)} broken link(s) across {md_count} markdown "
+        "file(s) under docs/usermanuals/.",
     )
     return 1 if strict else 0
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entry point. Returns 0 on success, 1 on any unresolved link."""
     args = _build_argparser().parse_args(argv)
     repo_root: Path = args.repo_root
     usermanuals_root = repo_root / "docs" / "usermanuals"
@@ -316,7 +333,8 @@ def main(argv: list[str] | None = None) -> int:
     if not broken:
         if not args.quiet:
             print(
-                f"OK: {len(md_files)} user-manual page(s) checked; every link is self-contained or external.",
+                f"OK: {len(md_files)} user-manual page(s) checked; "
+                "every link is self-contained or external.",
             )
         return 0
     return _report_broken(broken, len(md_files), repo_root, args.strict)
