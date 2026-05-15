@@ -26,8 +26,11 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import types
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from forgelm.cli._exit_codes import (
     EXIT_AWAITING_APPROVAL,
@@ -215,6 +218,22 @@ class TestAtomicWriteJson:
     must use a per-writer-unique temp filename so two writers targeting
     the same final path don't truncate each other's tmp mid-write."""
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason=(
+            "POSIX-specific race semantics — the original bug this test pins "
+            "was ``os.replace`` raising ``FileNotFoundError`` because the "
+            "loser's shared tmp was unlinked by the winner's rename, which "
+            "is a POSIX rename-over-target invariant.  On Windows, "
+            "``os.replace`` to a same-target path raises a different error "
+            "(``PermissionError: Access is denied``) when concurrent writers "
+            "briefly hold a handle on the destination — that's a file-lock "
+            "race, not the tmp-rename race the F-S-1 fix addresses.  Per-"
+            "writer-unique tmp filenames already eliminate the POSIX bug; "
+            "Windows's concurrent-replace semantics are not in scope for "
+            "the pipeline orchestrator's atomic-write contract."
+        ),
+    )
     def test_per_writer_temp_path_does_not_race_on_shared_tmp(self, tmp_path):
         """Pre-fix, both writers wrote to ``<target>.tmp`` — a 16-thread
         stress probe produced ``FileNotFoundError`` from ``os.replace``
