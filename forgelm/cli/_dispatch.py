@@ -297,6 +297,27 @@ def _main_inner() -> None:
     if config.pipeline is not None:
         _dispatch_pipeline_mode(config, args)
 
+    # Phase 14 post-release review: pipeline-only flags must not
+    # silently route through the single-stage training path.  Pre-fix,
+    # ``forgelm --config single_stage.yaml --stage dpo_stage`` would
+    # ignore ``--stage`` and run the root YAML's trainer — surprising
+    # the operator who expected the flag to be load-bearing.
+    _PIPELINE_ONLY_FLAGS = (
+        ("stage", "--stage"),
+        ("resume_from", "--resume-from"),
+        ("force_resume", "--force-resume"),
+        ("input_model", "--input-model"),
+    )
+    for attr, flag_name in _PIPELINE_ONLY_FLAGS:
+        if getattr(args, attr, None):
+            logger.error(
+                "`%s` requires a config with a `pipeline:` block — this is a "
+                "multi-stage orchestrator flag.  Either add `pipeline:` to "
+                "the YAML or remove the flag.",
+                flag_name,
+            )
+            sys.exit(EXIT_CONFIG_ERROR)
+
     # Single-stage path — unchanged from v0.6.0.
     _maybe_run_no_train_mode(config, args)
     _run_training_pipeline(config, args, json_output)

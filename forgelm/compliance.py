@@ -1799,10 +1799,19 @@ def verify_pipeline_manifest_at_path(pipeline_dir: str) -> List[str]:
     manifest_path = os.path.join(pipeline_dir, "compliance", "pipeline_manifest.json")
     if not os.path.isfile(manifest_path):
         return [f"pipeline_manifest.json not found at {manifest_path}"]
+    # Phase 14 post-release review: separate the two failure modes via
+    # distinct sentinel prefixes so the CLI can map them to the right
+    # exit code (mirrors the single-artifact verifier in
+    # _verify_annex_iv.py — FileNotFoundError / JSONDecodeError →
+    # EXIT_CONFIG_ERROR (1) (operator-actionable input), OSError →
+    # EXIT_TRAINING_ERROR (2) (genuine runtime I/O failure on a
+    # reachable path)).
     try:
         with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
-    except (OSError, json.JSONDecodeError) as e:
+    except json.JSONDecodeError as e:
+        return [f"pipeline_manifest.json invalid JSON: {e}"]
+    except OSError as e:
         return [f"pipeline_manifest.json unreadable: {e}"]
 
     violations: List[str] = list(_verify_manifest_payload(manifest))

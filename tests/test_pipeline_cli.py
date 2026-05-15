@@ -139,6 +139,26 @@ class TestFlagInteractionGuards:
         # 1's on-disk final_model), NOT from the empty string override.
         assert configs_seen[0].model.name_or_path == str(tmp_path / "stage1" / "final_model")
 
+    def test_no_train_single_stage_flags_rejected_on_pipeline_config(self, tmp_path):
+        """Phase 14 post-release review BLOCKER 1: pipeline dispatch
+        routes BEFORE ``_maybe_run_no_train_mode`` (F-B-1 fix on PR
+        #53), so without an explicit reject ``--fit-check`` /
+        ``--merge`` / ``--generate-data`` / ``--compliance-export`` /
+        ``--benchmark-only`` would silently trigger a full pipeline
+        training run instead of the single-stage operation the
+        operator asked for.  Each unsupported flag must EXIT_CONFIG_ERROR."""
+        cfg = _three_stage_cfg(tmp_path)
+        for flag, value in [
+            ("fit_check", True),
+            ("merge", "./some/checkpoint"),
+            ("generate_data", "./data.jsonl"),
+            ("compliance_export", "./out"),
+            ("benchmark_only", "mmlu"),
+        ]:
+            args = _ns(**{flag: value})
+            code = run_pipeline_from_args(cfg, b"yaml", args)
+            assert code == EXIT_CONFIG_ERROR, f"flag {flag!r} should be rejected on pipeline config"
+
     def test_force_resume_without_resume_from_is_noop(self, tmp_path, monkeypatch):
         """``--force-resume`` without ``--resume-from`` is meaningless
         but not an error — the orchestrator simply ignores it on a
@@ -317,3 +337,41 @@ class TestTopLevelDispatchOrdering:
             f"Phase 14 F-B-1 regression: legacy no-train path executed before "
             f"the pipeline branch on a pipeline config."
         )
+
+    def test_pipeline_only_flags_rejected_on_non_pipeline_config(self, tmp_path, monkeypatch):
+        """Phase 14 post-release review HIGH 5: pipeline-only flags
+        (``--stage`` / ``--resume-from`` / ``--force-resume`` /
+        ``--input-model``) must be rejected with EXIT_CONFIG_ERROR
+        when the config has no ``pipeline:`` block.  Pre-fix they were
+        silently ignored, surprising operators who expected the flag
+        to be load-bearing."""
+        import sys
+        import yaml
+
+        from forgelm.cli import _dispatch
+
+        # Single-stage config — no pipeline: block.
+        yaml_path = tmp_path / "single.yaml"
+        yaml_path.write_text(
+            yaml.safe_dump(
+                {
+                    "model": {"name_or_path": "org/base"},
+                    "lora": {"r": 8},
+                    "training": {"trainer_type": "sft", "output_dir": str(tmp_path / "out")},
+                    "data": {"dataset_name_or_path": "org/data"},
+                }
+            )
+        )
+
+        for flag in ("--stage", "--resume-from", "--input-model"):
+            monkeypatch.setattr(
+                sys,
+                "argv",
+                ["forgelm", "--config", str(yaml_path), flag, "dpo_stage"],
+            )
+            with pytest.raises(SystemExit) as exc_info:
+                _dispatch.main()
+            assert exc_info.value.code == EXIT_CONFIG_ERROR, (
+                f"flag {flag!r} should exit EXIT_CONFIG_ERROR on a non-pipeline config; "
+                f"got exit={exc_info.value.code}"
+            )

@@ -300,3 +300,72 @@ uzatmasını engeller.
 | Alan | Tip | Varsayılan | Açıklama |
 |------|-----|-----------|----------|
 | `hf_token` | string | `null` | HuggingFace tokeni (tercih: `HUGGINGFACE_TOKEN` ortam değişkeni) |
+
+---
+
+## `pipeline` (İsteğe bağlı — Çok Aşamalı Eğitim Zincirleri, Faz 14)
+
+2+ eğitim aşamasını (tipik olarak SFT → DPO → GRPO) tek bir config-tabanlı koşuda zincirler: otomatik zincirleme, aşama bazında kapılar, crash-safe resume ve zincir seviyesi Annex IV manifesti.  Atlandığında ForgeLM v0.6.0 tek-aşamalı koşusu ile byte-byte aynı davranır; orkestratör modülü import edilmez.  Operatör adım adım: [Çok Aşamalı Pipeline kılavuzu](../guides/pipeline-tr.md).
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `output_dir` | string | `"./pipeline_run"` | Zincir seviyesi artefakların kök dizini: `pipeline_state.json`, `compliance/pipeline_manifest.json` ve pipeline-kapsamlı `audit_log.jsonl`.  Aşama bazında trainer artefaktları her aşamanın kendi `training.output_dir`'ı altında kalır. |
+| `stages` | `List[PipelineStage]` | `[]` (en az 1 zorunlu) | Sıralı aşama listesi.  Her aşamanın `model.name_or_path`'ı, aşama explicit `model:` bloğu vermediği sürece, önceki aşamanın `training.output_dir/final_model`'ına otomatik ayarlanır. |
+
+### `pipeline.stages[].*` — PipelineStage alanları
+
+`PipelineStage`, root config üzerine bindirilen aşama bazında bir override'dır.  Bölüm-toptan miras: bir blok atlanırsa root'un bloğu birebir miras alınır; blok verilirse root'unkini TAMAMEN değiştirir (deep-merge yok).
+
+| Alan | Tip | Varsayılan | Açıklama |
+|------|-----|-----------|----------|
+| `name` | string | — (zorunlu) | `^[a-z0-9_]{1,32}$` deseniyle eşleşen aşama tanımlayıcısı.  Pipeline içinde benzersiz.  `--stage <ad>`, `--resume-from <ad>`, audit-log payload'larında ve aşama bazında manifest girdilerinde kullanılır. |
+| `model` | `Optional[ModelConfig]` | `null` | Root `model:` bloğunun aşama bazında override'ı.  `null` iken önceki aşamanın `final_model`'ından otomatik zincirlenir (aşama 0 için root).  Set edildiğinde o aşama için otomatik zincirleme devre dışı (operatör kaçış kapısı). |
+| `lora` | `Optional[LoraConfig]` | `null` | Aşama bazında LoRA config.  `null` ise root'tan toptan miras alınır. |
+| `training` | `Optional[TrainingConfig]` | `null` | Aşama bazında training config.  `null` ise root'tan toptan miras alınır.  **Verildiğinde `trainer_type` AÇIKÇA SET EDİLMEK ZORUNDA** — her aşama hangi hizalama paradigmasını koştuğunu manifestte audit-clarity için kaydeder. |
+| `data` | `Optional[DataConfig]` | `null` | Aşama bazında data config.  `null` ise root'tan toptan miras alınır; aşama bazında override norm — her aşama tipik olarak farklı bir dataset tüketir (SFT/DPO/preference/vb.). |
+| `evaluation` | `Optional[EvaluationConfig]` | `null` | Aşama bazında kapılar (loss eşikleri, `auto_revert`, safety, judge, human-approval).  Her aşama kendi kapısını bağımsız konfigüre edebilir. |
+
+Sadece-root bölümleri — **aşama seviyesinde reddedilir**, `EXIT_CONFIG_ERROR (1)`: `distributed`, `webhook`, `compliance`, `risk_assessment`, `monitoring`, `retention`, `synthetic`, `merge`, `auth`.  Bunlar pipeline seviyesi konulardır (distributed stratejisi koşu boyunca tutarlı kalır; compliance metadata tüm zinciri kapsar; vb.).
+
+### Örnek
+
+```yaml
+# Root varsayılanları — blok atlayan aşamalarca miras alınır.
+model: { name_or_path: "meta-llama/Llama-3-8B" }
+lora: { r: 8, alpha: 16 }
+training: { trainer_type: "sft", output_dir: "./placeholder" }
+data: { dataset_name_or_path: "./placeholder.jsonl" }
+
+pipeline:
+  output_dir: "./pipeline_run"
+  stages:
+    - name: sft_stage
+      training: { trainer_type: "sft", output_dir: "./pipeline_run/stage1_sft" }
+      data: { dataset_name_or_path: "./data/sft.jsonl" }
+    - name: dpo_stage
+      training: { trainer_type: "dpo", output_dir: "./pipeline_run/stage2_dpo", dpo_beta: 0.1 }
+      data: { dataset_name_or_path: "./data/preferences.jsonl" }
+    - name: grpo_stage
+      training: { trainer_type: "grpo", output_dir: "./pipeline_run/stage3_grpo" }
+      data: { dataset_name_or_path: "./data/math_prompts.jsonl" }
+```
+
+### CLI yüzeyi
+
+| Flag | Etki |
+|------|------|
+| `--stage <ad>` | Sadece adı verilen aşamayı yalıtılmış olarak koşar (audit / re-run senaryoları).  Önceki aşamanın disk üzerindeki çıktısından otomatik zincirler. |
+| `--resume-from <ad>` | Adı verilen aşamadan itibaren devam eder; tamamlanmış (veya operatör tarafından onaylanmış gated) aşamalar disk üzerinde çıktıları varsa atlanır. |
+| `--force-resume` | Resume sırasındaki `pipeline_config_hash` uyuşmazlığını kabul eder (log'lanır + `pipeline.force_resume` ile audit'lenir).  Aşama topoloji uyuşmazlığı (sayı / isim / sıra) bu flag'le bile reddedilir. |
+| `--input-model <yol>` | Operatör kaçış kapısı — `--stage` hedefi için otomatik zincirlenen modeli override eder.  Audit log `input_source: cli_override` ile kaydedilir. |
+| `--dry-run` | Her aşamanın merge edilmiş config'ini + cross-stage zincir bütünlüğünü + `training.output_dir` çakışma kontrolünü herhangi bir GPU tahsisi olmadan doğrular; tüm hataları çıkmadan önce toplar. |
+
+`--fit-check`, `--merge`, `--generate-data`, `--compliance-export`, `--benchmark-only` flag'leri tek-aşama operasyonlarıdır ve `pipeline:` bloğu mevcut olduğunda dispatch zamanında reddedilir — ya `pipeline:` bloğunu kaldırın ya da flag'i kaldırın.
+
+### Doğrulayıcı
+
+```bash
+forgelm verify-annex-iv --pipeline <pipeline.output_dir>
+```
+
+Zincir seviyesi manifestin yapısal alanlarını, zincir bütünlüğünü (her `input_source: chain` aşaması kendi önceki aşamasının `output_model`'ına eşleşir), aşama bazında `training_manifest.json` varlığını ve `stopped_at` / running-status tutarlılığını doğrular.  Temiz manifest için `0`, config / zincir ihlali için `1`, runtime I/O hatası için `2` ile çıkar.

@@ -13,7 +13,7 @@
 | ✅ Tamam | [Faz 12.6 — Kapanış Döngüsü (5 wave boyunca 37 içerik fazı + 1 sürüm etiketi = 38 kayıt)](roadmap/completed-phases.md) | Library API, GDPR purge + reverse-pii, ISO 27001 / SOC 2 alignment, doctor + cache subcommand'leri, compliance verification toolbelt, bilingual mirror sweep + 4 CI guard, supply-chain security, cross-OS release matrix — `v0.5.5` ile paketlendi (PyPI 2026-05-10) |
 | ✅ Tamam | Faz 22 — CLI sihirbazı tarayıcı yüzeyiyle eşdeğerlik | `forgelm --wizard` artık tarayıcı sihirbazıyla aynı 9-adımlı akışı çalıştırıyor (welcome → use-case → model → strategy → trainer → dataset → training-params → compliance → evaluation), `--wizard-start-from <yaml>` ile idempotent yeniden çalıştırma, şema-güdümlü varsayılanlar SOT, ayrı `EXIT_WIZARD_CANCELLED = 5` exit kodu, `$XDG_CACHE_HOME` altında durum kalıcılığı ve çıkışta validate — `v0.5.5` ile paketlendi (PyPI 2026-05-10) |
 | ✅ Tamam | Site dokümantasyon düzeltme taraması | `site/*.html` üzerindeki tüm görünür YAML / artefakt-yolu / CLI / şema iddiaları artık live `forgelm/` yüzeyine karşı doğrulanıyor. Hero YAML demo'su gerçek Pydantic alan adlarıyla yeniden yazıldı, compliance artefakt ağacı disk düzenine göre yeniden çizildi, hayalet YAML anahtarları + CLI flag'leri kaldırıldı, ifadeler live davranışa hizalandı. Altı dilde i18n (en / tr / de / fr / es / zh) tam paritede (her biri 731 anahtar) — `v0.5.5` ile paketlendi (PyPI 2026-05-10) |
-| 📋 Planlandı | [Faz 14 — Çok Aşamalı Pipeline Zincirleri](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO config zinciri, pipeline kaynak izleri → `v0.7.0` (v0.6.0'dan yeniden planlandı; 2026-05-11 yutma pilotunun ardından Faz 15 önceliği aldı) |
+| 🟡 Merge edildi | [Faz 14 — Çok Aşamalı Pipeline Zincirleri](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO config zinciri, pipeline kaynak izleri, 7 yeni pipeline-kapsamlı audit olayı, `forgelm verify-annex-iv --pipeline` modu — `development` üzerinde tamamlandı; `v0.7.0` PyPI tag'i release-bekleyen adım (v0.6.0'dan yeniden planlandı; 2026-05-11 yutma pilotunun ardından Faz 15 önceliği aldı) |
 | ✅ Tamam | [Faz 15 — Yutma Pipeline'ı Güvenilirliği](roadmap/completed-phases.md#phase-15-ingestion-pipeline-reliability-v060) | Wave 1 + Wave 2 + 5 review-absorption turu: window tabanlı çok satırlı PDF dedup'ı, Türkçe glyph normalizasyon profili (language-hint'e bağlı default), dil-farkında Unicode block sağlamlık kontrolü, ingest-time kalite ön-sinyali, default-on audit `--quality-filter`, DOCX explicit header/footer çıkarımı, EPUB spine + whole-token nav/cover skip, TXT UTF-8 BOM + MD YAML frontmatter strip, notebook playground hizalama, ek olarak Wave 2 `--strip-pattern` (ReDoS-korumalı), `--page-range`, front-matter heuristic, `--strip-urls`, multi-column uyarı — `v0.6.0` ile yayınlandı (PyPI 2026-05-11) |
 | 📋 Planlandı | [Faz 13 — Pro CLI ve Gözlemlenebilirlik Dashboard](roadmap/phase-13-pro-cli.md) | Lisans korumalı dashboard, HPO, zamanlanmış görevler, takım config store → `v0.6.0-pro` (adoption + v0.5.5'te yayınlanan ISO/SOC 2 baseline'a bağlı) |
 
@@ -32,7 +32,7 @@ Başlangıçta dört ardışık PyPI tag'i (`v0.5.0` / `v0.5.1` / `v0.5.2` / `v0
 
 **Daha öncesi:** `v0.5.0` — Doküman Yutma + Veri Curation Pipeline'ı (2026-04-30); `v0.4.5` — Quickstart Katmanı (2026-04-26); `v0.4.0` — Post-Training Tamamlama (2026-04-26).
 
-**Güncel durum:** PyPI'da `v0.6.0` üzerinden 20 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6, 15, 22) yayınlandı.  Sürüm sonrası 2 faz (13, 14) planlandı; Faz 14 `v0.7.0` için hedeflendi (v0.6.0'dan yeniden planlandı; 2026-05-11 yutma pilotunun ardından Faz 15 önceliği aldı), Faz 13 adoption gate'leri karşılandığında ayrıca `v0.6.0-pro` olarak yayınlanır.
+**Güncel durum:** PyPI'da `v0.6.0` üzerinden 20 faz (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6, 15, 22) yayınlandı.  Faz 14 (Çok Aşamalı Pipeline Zincirleri) `development` üzerinde merge edildi; `v0.7.0` PyPI tag'i bekleniyor.  Faz 13 adoption gate'leri karşılandığında ayrıca `v0.6.0-pro` olarak yayınlanır.
 
 > **Faz 12.6 görev / alt-görev iki eksenli not:** Faz 12.6 kendi içinde 38 görevlik bir kapanış döngüsüdür (Görev 1-38) ve [`roadmap/completed-phases.md`](roadmap/completed-phases.md) dosyasında izlenir; her wave'in PR açıklaması o wave'in kapsadığı görev delta'sını taşır.
 
@@ -92,7 +92,7 @@ docs/
 └── roadmap/
     ├── completed-phases.md                     # Faz 1-12.6 arşivi (detaylı, İngilizce) — Faz 10 / 10.5 / 11 / 11.5 / 12 / 12.5 / 12.6 inline gömüldü (sırasıyla v0.4.0 / v0.4.5 / v0.5.0 / v0.5.5)
     ├── phase-13-pro-cli.md                     # Planlandı — v0.6.0-pro (gated)
-    ├── phase-14-pipeline-chains.md             # Planlandı — v0.7.0 (v0.6.0'dan yeniden planlandı; Faz 15 önceliği aldı)
+    ├── phase-14-pipeline-chains.md             # development'ta merge edildi — v0.7.0 tag bekleniyor (v0.6.0'dan yeniden planlandı; Faz 15 önceliği aldı)
     ├── releases.md                             # v0.3.0 → v0.6.0 sürüm notları
     └── risks-and-decisions.md                  # Risk matrisi, fırsatlar, rekabet analizi, karar günlüğü
 ```

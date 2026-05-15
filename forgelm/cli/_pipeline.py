@@ -373,17 +373,34 @@ class PipelineOrchestrator:
                 ", ".join(s.name for s in self.pipeline.stages),
             )
             return None, EXIT_CONFIG_ERROR
+        # Phase 14 post-release review: a stage that exited with
+        # ``EXIT_AWAITING_APPROVAL`` is recorded with
+        # ``status == "gated_pending_approval"`` rather than
+        # ``"completed"``.  After an operator runs ``forgelm approve``
+        # and the promoted-model directory exists on disk, a
+        # subsequent ``--resume-from <later_stage>`` MUST skip the
+        # gated stage too — otherwise the orchestrator would re-train
+        # it, the next stage would auto-chain from the freshly-trained
+        # output instead of the operator-approved one, and the audit
+        # log would carry two ``pipeline.stage_started`` events for the
+        # same stage_index.  Treat ``gated_pending_approval`` the same
+        # as ``completed`` for skip-eligibility: presence of an
+        # ``output_model`` directory on disk is what proves the stage
+        # produced a real artefact, regardless of which status label
+        # it carries.
+        _SKIPPABLE_STATUSES = {"completed", "gated_pending_approval"}
         stages_to_skip_completed: List[str] = []
         for prior_state in state.stages[:resume_idx]:
             if (
-                prior_state.status == "completed"
+                prior_state.status in _SKIPPABLE_STATUSES
                 and prior_state.output_model
                 and os.path.isdir(prior_state.output_model)
             ):
                 stages_to_skip_completed.append(prior_state.name)
                 logger.info(
-                    "Resuming: stage %r already completed at %s; skipping.",
+                    "Resuming: stage %r (%s) already produced output at %s; skipping.",
                     prior_state.name,
+                    prior_state.status,
                     prior_state.output_model,
                 )
         return stages_to_skip_completed, None
@@ -690,6 +707,46 @@ class PipelineOrchestrator:
                 break
         return worst_exit
 
+    def _check_output_dir_collisions(self) -> Optional[str]:
+        """Pre-flight: detect two stages writing to the same ``training.output_dir``.
+
+        Returns ``None`` on clean, or a single human-readable error
+        string listing every collision.  Phase 14 post-release review:
+        previously this check lived only in :meth:`dry_run`, so an
+        operator running ``forgelm --config pipeline.yaml`` without
+        first running ``--dry-run`` could overwrite per-stage manifests
+        and checkpoints across stages silently.  Now called from both
+        :meth:`dry_run` and :meth:`run` so the guard is unmissable.
+        """
+        prev_output: Optional[str] = None
+        seen_dirs: Dict[str, str] = {}
+        collisions: List[str] = []
+        for stage in self.pipeline.stages:
+            try:
+                merged = merge_pipeline_stage_config(
+                    self.root_cfg,
+                    stage,
+                    prev_output_model=prev_output,
+                )
+            except Exception:  # noqa: BLE001 — merge failures surface via the per-stage pipeline error path; the collision check is purely about output_dir layout.
+                continue
+            abs_out = os.path.abspath(merged.training.output_dir)
+            if abs_out in seen_dirs:
+                collisions.append(
+                    f"Stage {stage.name!r}: training.output_dir collides with stage "
+                    f"{seen_dirs[abs_out]!r} (both resolve to {abs_out!r})."
+                )
+            else:
+                seen_dirs[abs_out] = stage.name
+            prev_output = os.path.join(merged.training.output_dir, "final_model")
+        if collisions:
+            return (
+                "Pre-flight: per-stage `training.output_dir` collision(s) detected; "
+                "per-stage checkpoints and manifests would overwrite each other.  "
+                "Set a unique `training.output_dir` in each stage.\n  " + "\n  ".join(collisions)
+            )
+        return None
+
     def run(
         self,
         *,
@@ -714,6 +771,15 @@ class PipelineOrchestrator:
         rare — in practice the return value reflects the single failing
         stage's exit code.
         """
+        # 0. Pre-flight: output_dir collisions across stages.  Same
+        # guard that ``dry_run`` runs; mirrored here so an operator
+        # who skipped ``--dry-run`` doesn't silently overwrite
+        # per-stage checkpoints + manifests.
+        collision_msg = self._check_output_dir_collisions()
+        if collision_msg is not None:
+            logger.error(collision_msg)
+            return EXIT_CONFIG_ERROR
+
         # 1. Load (or initialise) state.
         state, state_err = self._prepare_resume_or_init_state(resume_from=resume_from, force_resume=force_resume)
         if state is None:
@@ -906,26 +972,16 @@ class PipelineOrchestrator:
           finalisation runs, and the test surface uses a uniform
           ``assert code == EXIT_CONFIG_ERROR`` shape.
         """
-        if existing.pipeline_config_hash == self.config_hash:
-            return None
-        if not force:
-            msg = (
-                f"Refusing to --resume-from: pipeline_config_hash mismatch.\n"
-                f"  on-disk: {existing.pipeline_config_hash}\n"
-                f"  current: {self.config_hash}\n"
-                "Pass --force-resume to override (logged for audit)."
-            )
-            logger.error(msg)
-            return msg
-
-        # Topology guard (Phase 14 review-response): even under
-        # ``--force-resume`` we refuse if the stage *topology* has
-        # changed — count or ordered names — because the on-disk state
-        # file's ``stages[i]`` payload is positionally addressed.  A
-        # stage inserted, deleted, or renamed between runs would make
-        # ``state.stages[i]`` describe a different stage than
-        # ``self.pipeline.stages[i]`` and the resume would silently
-        # corrupt the audit trail.
+        # Topology guard runs UNCONDITIONALLY — even on hash match —
+        # because the YAML's bytes hash does not constrain the
+        # on-disk state file's contents.  A direct edit / corruption /
+        # truncation of ``pipeline_state.json`` could leave the same
+        # ``pipeline_config_hash`` recorded inside while the
+        # ``stages[]`` array drifts (missing entries, wrong order,
+        # tampered ``output_model`` paths).  Without this check, a
+        # ``state.stages[i]`` whose name doesn't match
+        # ``self.pipeline.stages[i]`` would silently overwrite the
+        # wrong stage's history.
         #
         # *Value-level* edits — different ``trainer_type``,
         # ``training.output_dir``, hyperparameters under identical
@@ -940,12 +996,25 @@ class PipelineOrchestrator:
         current_names = [s.name for s in self.pipeline.stages]
         if on_disk_names != current_names:
             msg = (
-                f"Refusing to --resume-from even with --force-resume: pipeline "
-                f"stage topology has changed.\n"
+                f"Refusing to --resume-from: pipeline stage topology disagrees "
+                f"with the on-disk state file (this is refused even with "
+                f"--force-resume because state.stages[i] is positionally "
+                f"addressed).\n"
                 f"  on-disk stages:  {on_disk_names!r}\n"
                 f"  current stages:  {current_names!r}\n"
-                "Stage names / count / order must match the on-disk state.  "
-                "Start a fresh pipeline run instead."
+                "Inspect / regenerate the state file before resuming."
+            )
+            logger.error(msg)
+            return msg
+
+        if existing.pipeline_config_hash == self.config_hash:
+            return None
+        if not force:
+            msg = (
+                f"Refusing to --resume-from: pipeline_config_hash mismatch.\n"
+                f"  on-disk: {existing.pipeline_config_hash}\n"
+                f"  current: {self.config_hash}\n"
+                "Pass --force-resume to override (logged for audit)."
             )
             logger.error(msg)
             return msg
@@ -1330,6 +1399,37 @@ def run_pipeline_from_args(
     if input_model_override and not stage_filter:
         logger.error("`--input-model` requires `--stage <name>`.")
         return EXIT_CONFIG_ERROR
+
+    # Phase 14 post-release review: reject single-stage no-train flags
+    # on a ``pipeline:`` config.  ``_dispatch.py`` routes here BEFORE
+    # ``_maybe_run_no_train_mode`` (the F-B-1 fix on PR #53 was
+    # explicit: otherwise the legacy no-train modes would ``sys.exit``
+    # before the orchestrator's per-stage validation could run), but
+    # that means ``--fit-check`` / ``--merge`` / ``--generate-data`` /
+    # ``--compliance-export`` / ``--benchmark-only`` would silently
+    # trigger a full pipeline training run instead of the single-stage
+    # operation the operator asked for.  Reject them explicitly with
+    # an actionable error so the operator either drops the flag or
+    # switches to a single-stage config.  ``--dry-run`` IS supported
+    # on pipelines (collects every per-stage validation error before
+    # exiting) and is handled below.
+    _UNSUPPORTED_ON_PIPELINE = (
+        ("fit_check", "--fit-check"),
+        ("merge", "--merge"),
+        ("generate_data", "--generate-data"),
+        ("compliance_export", "--compliance-export"),
+        ("benchmark_only", "--benchmark-only"),
+    )
+    for attr, flag_name in _UNSUPPORTED_ON_PIPELINE:
+        if getattr(args, attr, None):
+            logger.error(
+                "`%s` is not supported when the config carries a `pipeline:` "
+                "block.  These flags operate on a single-stage config; either "
+                "drop the `pipeline:` block or remove the flag.  Use `--dry-run` "
+                "for multi-stage validation without GPU allocation.",
+                flag_name,
+            )
+            return EXIT_CONFIG_ERROR
 
     orchestrator = PipelineOrchestrator(
         root_cfg=root_cfg,

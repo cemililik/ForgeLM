@@ -348,3 +348,72 @@ silently extend the retention horizon by re-using a stale workspace.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `hf_token` | string | `null` | HuggingFace token (prefer `HUGGINGFACE_TOKEN` env var) |
+
+---
+
+## `pipeline` (Optional — Multi-Stage Training Chains, Phase 14)
+
+Chains 2+ training stages (typically SFT → DPO → GRPO) into one config-driven run with auto-chaining, per-stage gates, crash-safe resume, and a chain-level Annex IV manifest.  When omitted, ForgeLM behaves byte-identically to a v0.6.0 single-stage run; the orchestrator module is not imported.  Full operator walkthrough: [Multi-Stage Pipelines guide](../guides/pipeline.md).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `output_dir` | string | `"./pipeline_run"` | Root directory for chain-level artefacts: `pipeline_state.json`, `compliance/pipeline_manifest.json`, and the pipeline-scoped `audit_log.jsonl`.  Per-stage trainer artefacts continue to live under each stage's own `training.output_dir`. |
+| `stages` | `List[PipelineStage]` | `[]` (required: ≥ 1) | Ordered list of stages.  Each stage's `model.name_or_path` is auto-set to the previous stage's `training.output_dir/final_model` unless the stage supplies an explicit `model:` block. |
+
+### `pipeline.stages[].*` — PipelineStage fields
+
+A `PipelineStage` is a per-stage override layered onto the root config.  Section-wholesale inheritance: omitting a block inherits root's wholesale; supplying a block REPLACES root's wholesale (no deep-merge).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | — (required) | Stage identifier matching `^[a-z0-9_]{1,32}$`.  Unique within the pipeline.  Used as the identifier in `--stage <name>`, `--resume-from <name>`, audit-log payloads, and per-stage manifest entries. |
+| `model` | `Optional[ModelConfig]` | `null` | Per-stage override of the root `model:` block.  When `null`, auto-chains from the previous stage's `final_model` (or root for stage 0).  When set, disables the auto-chain for that stage (operator escape hatch). |
+| `lora` | `Optional[LoraConfig]` | `null` | Per-stage LoRA config.  Inherits root wholesale when `null`. |
+| `training` | `Optional[TrainingConfig]` | `null` | Per-stage training config.  Inherits root wholesale when `null`.  **When supplied, `trainer_type` MUST be set explicitly** — every stage records its alignment paradigm in the manifest for audit clarity. |
+| `data` | `Optional[DataConfig]` | `null` | Per-stage data config.  Inherits root wholesale when `null`; per-stage override is the norm because each stage typically consumes a different dataset (SFT/DPO/preference/etc.). |
+| `evaluation` | `Optional[EvaluationConfig]` | `null` | Per-stage gates (loss thresholds, `auto_revert`, safety, judge, human-approval).  Each stage may independently configure its gate. |
+
+Root-only sections — **rejected at the stage level** with `EXIT_CONFIG_ERROR (1)`: `distributed`, `webhook`, `compliance`, `risk_assessment`, `monitoring`, `retention`, `synthetic`, `merge`, `auth`.  These are pipeline-level concerns (distributed strategy stays consistent across the run; compliance metadata covers the whole chain; etc.).
+
+### Example
+
+```yaml
+# Root defaults — inherited by stages that omit a block.
+model: { name_or_path: "meta-llama/Llama-3-8B" }
+lora: { r: 8, alpha: 16 }
+training: { trainer_type: "sft", output_dir: "./placeholder" }
+data: { dataset_name_or_path: "./placeholder.jsonl" }
+
+pipeline:
+  output_dir: "./pipeline_run"
+  stages:
+    - name: sft_stage
+      training: { trainer_type: "sft", output_dir: "./pipeline_run/stage1_sft" }
+      data: { dataset_name_or_path: "./data/sft.jsonl" }
+    - name: dpo_stage
+      training: { trainer_type: "dpo", output_dir: "./pipeline_run/stage2_dpo", dpo_beta: 0.1 }
+      data: { dataset_name_or_path: "./data/preferences.jsonl" }
+    - name: grpo_stage
+      training: { trainer_type: "grpo", output_dir: "./pipeline_run/stage3_grpo" }
+      data: { dataset_name_or_path: "./data/math_prompts.jsonl" }
+```
+
+### CLI surface
+
+| Flag | Effect |
+|------|--------|
+| `--stage <name>` | Run only the named stage in isolation (audit / re-run scenarios).  Auto-chains from the previous stage's on-disk output. |
+| `--resume-from <name>` | Resume from the named stage onward; already-completed (or human-approved gated) stages with on-disk output are skipped. |
+| `--force-resume` | Accept a `pipeline_config_hash` mismatch on resume (logged + audited via `pipeline.force_resume`).  Stage topology mismatch (count / names / order) is refused even with this flag. |
+| `--input-model <path>` | Operator escape hatch — overrides the auto-chained model for the `--stage` target.  Audit-logged with `input_source: cli_override`. |
+| `--dry-run` | Validates every stage's merged config + cross-stage chain integrity + `training.output_dir` collision check before any GPU is allocated; collects all errors before exiting. |
+
+The `--fit-check`, `--merge`, `--generate-data`, `--compliance-export`, `--benchmark-only` flags are single-stage operations and are rejected at dispatch time when a `pipeline:` block is present — drop the `pipeline:` block or remove the flag.
+
+### Verifier
+
+```bash
+forgelm verify-annex-iv --pipeline <pipeline.output_dir>
+```
+
+Validates the chain-level manifest's structural fields, chain-integrity (every stage with `input_source: chain` matches its immediate predecessor's `output_model`), per-stage `training_manifest.json` existence, and `stopped_at` / running-status consistency.  Exit `0` on clean manifest, `1` on config / chain violation, `2` on runtime I/O failure.

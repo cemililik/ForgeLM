@@ -13,7 +13,7 @@
 | ✅ Done | [Phase 12.6 — Closure Cycle (37 content phases + 1 release tag = 38 entries across 5 waves)](roadmap/completed-phases.md) | Library API, GDPR purge + reverse-pii, ISO 27001 / SOC 2 alignment, doctor + cache subcommands, compliance verification toolbelt, bilingual mirror sweep + 4 CI guards, supply-chain security, cross-OS release matrix — bundled into `v0.5.5` (PyPI 2026-05-10) |
 | ✅ Done | Phase 22 — CLI wizard parity with the in-browser surface | `forgelm --wizard` runs the same 9-step flow as the web wizard (welcome → use-case → model → strategy → trainer → dataset → training-params → compliance → evaluation), with idempotent re-run via `--wizard-start-from <yaml>`, schema-driven defaults SOT, distinct `EXIT_WIZARD_CANCELLED = 5` exit code, state persistence under `$XDG_CACHE_HOME`, and validate-on-exit — bundled into `v0.5.5` (PyPI 2026-05-10) |
 | ✅ Done | Site documentation correction sweep | All visible YAML / artefact-path / CLI / schema claims on `site/*.html` now validate against the live `forgelm/` surface. Hero YAML demo rewritten with real Pydantic field names, compliance artefact tree redrawn against the on-disk layout, ghost YAML keys + CLI flags removed, wording aligned with live behaviour. Six-language i18n (en / tr / de / fr / es / zh) now at full parity (731 keys each) — bundled into `v0.5.5` (PyPI 2026-05-10) |
-| 📋 Planned | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO chained config, pipeline provenance artifacts → `v0.7.0` (re-scheduled from v0.6.0; Phase 15 displaced it after the 2026-05-11 pilot) |
+| 🟡 Merged | [Phase 14 — Multi-Stage Pipeline Chains](roadmap/phase-14-pipeline-chains.md) | SFT → DPO → GRPO chained config, pipeline provenance artifacts, 7 new pipeline-scoped audit events, `forgelm verify-annex-iv --pipeline` mode — implementation complete on `development`; `v0.7.0` PyPI tag is the release-pending step (re-scheduled from v0.6.0; Phase 15 displaced it after the 2026-05-11 pilot) |
 | ✅ Done | [Phase 15 — Ingestion Pipeline Reliability](roadmap/completed-phases.md#phase-15-ingestion-pipeline-reliability-v060) | Wave 1 + Wave 2 + 5 review-absorption rounds: window-based multi-line PDF dedup, Turkish glyph normalisation profile (language-hint-coupled default), language-aware Unicode-block sanity check, ingest-time quality pre-signal, default-on audit `--quality-filter`, DOCX explicit header/footer subtraction, EPUB spine + whole-token nav/cover skip, TXT UTF-8 BOM + MD YAML frontmatter strip, notebook playground alignment, plus Wave 2 `--strip-pattern` (ReDoS-guarded), `--page-range`, front-matter heuristic, `--strip-urls`, multi-column warning — shipped `v0.6.0` (PyPI 2026-05-11) |
 | 📋 Planned | [Phase 13 — Pro CLI & Observability Dashboard](roadmap/phase-13-pro-cli.md) | License-gated dashboard, HPO, scheduled jobs, team config store → `v0.6.0-pro` (gated on adoption + ISO/SOC 2 baseline shipped in v0.5.5) |
 
@@ -34,7 +34,7 @@ Originally planned as four sequential PyPI tags (`v0.5.0` / `v0.5.1` / `v0.5.2` 
 
 **Earlier:** `v0.5.0` — Document Ingestion + Data Curation Pipeline (2026-04-30); `v0.4.5` — Quickstart Layer (2026-04-26); `v0.4.0` — Post-Training Completion (2026-04-26).
 
-**Current state:** 20 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6, 15, 22) shipped on PyPI through `v0.6.0`.  2 phases (13, 14) planned post-release; Phase 14 is targeted for `v0.7.0` (re-scheduled from v0.6.0 after Phase 15 displaced it via the 2026-05-11 ingestion pilot), Phase 13 ships separately as `v0.6.0-pro` once adoption gates are met.
+**Current state:** 20 phases (1, 2, 2.5, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 10.5, 11, 11.5, 12, 12.5, 12.6, 15, 22) shipped on PyPI through `v0.6.0`.  Phase 14 (Multi-Stage Pipeline Chains) is merged on `development` and pending the `v0.7.0` PyPI tag.  Phase 13 ships separately as `v0.6.0-pro` once adoption gates are met.
 
 > **Phase 12.6 task / sub-task dual-axis note:** Phase 12.6 is itself a 38-task closure cycle (Tasks 1-38) tracked at [`roadmap/completed-phases.md`](roadmap/completed-phases.md); per-wave PR descriptions carry the closure-task delta.
 
@@ -94,7 +94,7 @@ docs/
 └── roadmap/
     ├── completed-phases.md                     # Phase 1-12.6 archive (detailed) — Phase 10 / 10.5 / 11 / 11.5 / 12 / 12.5 / 12.6 absorbed inline (each shipped as v0.4.0 / v0.4.5 / v0.5.0 / v0.5.5)
     ├── phase-13-pro-cli.md                     # Planned — v0.6.0-pro (gated)
-    ├── phase-14-pipeline-chains.md             # Planned — v0.7.0 (re-scheduled from v0.6.0; Phase 15 displaced it)
+    ├── phase-14-pipeline-chains.md             # Merged on development — v0.7.0 tag pending (re-scheduled from v0.6.0; Phase 15 displaced it)
     ├── releases.md                             # v0.3.0 → v0.6.0 release notes
     └── risks-and-decisions.md                  # Risk matrix, opportunities, competitive positioning, decision log
 ```

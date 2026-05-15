@@ -193,19 +193,26 @@ def _run_pipeline_mode(path: str, output_format: str) -> None:
     prints / exits.  Extracted from :func:`_run_verify_annex_iv_cmd`
     for Sonar python:S3776 cognitive-complexity hygiene.
 
-    Exit-code mapping (Phase 14 review-response — aligns with the
+    Exit-code mapping (Phase 14 post-release review — now mirrors the
     single-artefact path's policy in
     :func:`_verify_artefact_and_handle_io_errors`):
 
     - ``EXIT_SUCCESS (0)`` — empty violation list.
+    - ``EXIT_CONFIG_ERROR (1)`` — operator-actionable input error:
+      ``pipeline_manifest.json not found …`` (wrong directory),
+      ``pipeline_manifest.json invalid JSON: …`` (reachable but
+      corrupted on disk — operator can regenerate or fix), or any
+      structural / chain-integrity violation.
     - ``EXIT_TRAINING_ERROR (2)`` — genuine runtime I/O failure on a
-      reachable path (mid-read OSError, locked manifest, …) or the
-      ``pipeline_manifest.json unreadable: …`` sentinel that
-      :func:`forgelm.compliance.verify_pipeline_manifest_at_path`
-      emits when the JSON file is reachable but unreadable.
-    - ``EXIT_CONFIG_ERROR (1)`` — everything else, including the
-      ``pipeline_manifest.json not found …`` sentinel and all
-      structural / chain-integrity violations.
+      reachable path: ``pipeline_manifest.json unreadable: …``
+      sentinel from a non-parse OSError (locked file, mid-read I/O
+      failure) or an uncaught OSError that bubbles past the verifier.
+
+    Note: the previous release mapped ``invalid JSON`` to
+    ``EXIT_TRAINING_ERROR`` because the verifier emitted a shared
+    "unreadable" sentinel for both ``OSError`` and ``JSONDecodeError``.
+    The verifier now emits distinct prefixes so the CLI can
+    differentiate the two on the sentinel alone.
     """
     from forgelm.compliance import verify_pipeline_manifest_at_path
 
@@ -232,10 +239,11 @@ def _run_pipeline_mode(path: str, output_format: str) -> None:
             print(msg)
         sys.exit(EXIT_TRAINING_ERROR)
 
-    # An "unreadable" sentinel from the verifier means the file is
-    # reachable but I/O / parse fails — runtime error, not config
-    # error.  "not found" is operator-input → config error.
-    unreadable = any("unreadable" in v for v in violations)
+    # Sentinel-based exit-code routing.  Only the OSError-shaped
+    # ``unreadable`` sentinel maps to EXIT_TRAINING_ERROR; everything
+    # else (``invalid JSON``, ``not found``, structural / chain
+    # violations) is operator-actionable → EXIT_CONFIG_ERROR.
+    runtime_io_error = any("unreadable" in v for v in violations)
 
     if output_format == "json":
         print(
@@ -258,7 +266,7 @@ def _run_pipeline_mode(path: str, output_format: str) -> None:
 
     if not violations:
         sys.exit(EXIT_SUCCESS)
-    sys.exit(EXIT_TRAINING_ERROR if unreadable else EXIT_CONFIG_ERROR)
+    sys.exit(EXIT_TRAINING_ERROR if runtime_io_error else EXIT_CONFIG_ERROR)
 
 
 def _verify_artefact_and_handle_io_errors(path: str, output_format: str) -> "VerifyAnnexIVResult":

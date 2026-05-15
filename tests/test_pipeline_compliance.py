@@ -424,7 +424,12 @@ class TestVerifyPipelineManifestAtPath:
         (manifest_dir / "pipeline_manifest.json").write_text("{not valid json")
         violations = verify_pipeline_manifest_at_path(str(tmp_path))
         assert len(violations) == 1
-        assert "unreadable" in violations[0]
+        # Phase 14 post-release review: parse failures now use the
+        # distinct ``invalid JSON`` sentinel so the CLI can route them
+        # to EXIT_CONFIG_ERROR (operator-actionable) rather than the
+        # OSError-shaped ``unreadable`` sentinel which routes to
+        # EXIT_TRAINING_ERROR.
+        assert "invalid JSON" in violations[0]
 
     def test_disk_wrapper_type_guards_non_dict_stage_items(self, tmp_path):
         """Phase 14 review-response regression: a tampered manifest where
@@ -513,15 +518,22 @@ class TestVerifyAnnexIvPipelineModeExitCodes:
         assert "FAIL: pipeline manifest" in captured
         assert "not found" in captured
 
-    def test_unreadable_manifest_exits_training_error(self, tmp_path, capsys):
-        """Reachable file that can't be parsed → exit 2 (runtime I/O)."""
+    def test_invalid_json_manifest_exits_config_error(self, tmp_path, capsys):
+        """Reachable file that fails to parse as JSON → exit 1
+        (operator-actionable input error).  Phase 14 post-release
+        review: previously this conflated JSONDecodeError with
+        runtime I/O failure and routed to EXIT_TRAINING_ERROR (exit 2);
+        now the verifier emits a distinct ``invalid JSON`` sentinel so
+        the CLI maps parse failures to EXIT_CONFIG_ERROR (1) — the
+        operator can regenerate or fix the manifest, this isn't a
+        production-time I/O failure."""
         manifest_dir = tmp_path / "compliance"
         manifest_dir.mkdir()
         (manifest_dir / "pipeline_manifest.json").write_text("{not valid json")
         code = self._run(tmp_path, {})
-        assert code == 2  # EXIT_TRAINING_ERROR
+        assert code == 1  # EXIT_CONFIG_ERROR
         captured = capsys.readouterr().out
-        assert "unreadable" in captured
+        assert "invalid JSON" in captured
 
     def test_chain_integrity_violation_exits_config_error(self, tmp_path, capsys):
         """Structural / chain violations on a readable manifest →

@@ -638,6 +638,77 @@ class TestResumeFrom:
         code = orch.run(resume_from="dpo_stage")
         assert code == EXIT_CONFIG_ERROR
 
+    def test_output_dir_collision_rejected_in_run_not_only_dry_run(self, tmp_path, monkeypatch):
+        """Phase 14 post-release review HIGH 4: pre-fix the
+        ``training.output_dir`` collision guard only fired during
+        ``--dry-run``.  An operator who skipped dry-run could
+        silently overwrite per-stage manifests + checkpoints across
+        stages.  ``run()`` must execute the same pre-flight."""
+        # Two stages writing to the same directory.
+        cfg = ForgeConfig(
+            model={"name_or_path": "org/base"},
+            lora={"r": 8},
+            training={"trainer_type": "sft", "output_dir": str(tmp_path)},
+            data={"dataset_name_or_path": "org/sft"},
+            pipeline={
+                "output_dir": str(tmp_path / "pipeline_run"),
+                "stages": [
+                    {
+                        "name": "sft_stage",
+                        "training": {"trainer_type": "sft", "output_dir": str(tmp_path / "collide")},
+                        "data": {"dataset_name_or_path": "org/sft_data"},
+                    },
+                    {
+                        "name": "dpo_stage",
+                        "training": {"trainer_type": "dpo", "output_dir": str(tmp_path / "collide")},
+                        "data": {"dataset_name_or_path": "org/dpo_data"},
+                    },
+                ],
+            },
+        )
+        _install_trainer_mocks(monkeypatch, [TrainResult(success=True), TrainResult(success=True)])
+        orch = PipelineOrchestrator(cfg, b"yaml")
+        # Note: NOT calling dry_run() — invoking run() directly.
+        code = orch.run()
+        assert code == EXIT_CONFIG_ERROR
+
+    def test_resume_skips_gated_pending_approval_with_on_disk_output(self, tmp_path, monkeypatch):
+        """Phase 14 post-release review BLOCKER 2: a stage that exited
+        with ``EXIT_AWAITING_APPROVAL`` is recorded as
+        ``status="gated_pending_approval"``.  After ``forgelm approve``
+        promotes the staging path and the operator runs
+        ``--resume-from <later_stage>``, the gated stage MUST be
+        treated like a completed stage (skip + reuse the on-disk
+        ``output_model``).  Pre-fix, only ``status=="completed"``
+        stages were skipped — so the gated SFT would re-train, the
+        DPO stage would chain from the freshly-trained output instead
+        of the operator-approved one, and the audit log would carry
+        two ``pipeline.stage_started`` events for the same stage_index."""
+        cfg = _three_stage_config(tmp_path)
+        # First run: SFT stage hits a human-approval gate and exits 4.
+        _install_trainer_mocks(monkeypatch, [TrainResult(success=False, staging_path=str(tmp_path / "stage1" / "final_model"))])
+        orch1 = PipelineOrchestrator(cfg, b"yaml")
+        code1 = orch1.run()
+        assert code1 == EXIT_AWAITING_APPROVAL
+        # Sanity: state recorded SFT as gated, with staging_path as output_model.
+        with open(orch1.paths["state_file"]) as f:
+            payload = json.load(f)
+        assert payload["stages"][0]["status"] == "gated_pending_approval"
+        assert payload["stages"][0]["output_model"] is not None
+
+        # Simulate operator approval — output_model directory already
+        # exists on disk from the mock setup.  Now resume from DPO.
+        results_run2 = [TrainResult(success=True), TrainResult(success=True)]
+        configs_seen2 = _install_trainer_mocks(monkeypatch, results_run2)
+        orch2 = PipelineOrchestrator(cfg, b"yaml")
+        code2 = orch2.run(resume_from="dpo_stage")
+        assert code2 == EXIT_SUCCESS
+        # Only DPO + GRPO ran; SFT was skipped because its gated output exists on disk.
+        assert len(configs_seen2) == 2
+        # DPO must have auto-chained from the gated SFT's output_model,
+        # not been re-trained.
+        assert configs_seen2[0].training.trainer_type == "dpo"
+
     def test_resume_skips_completed_stages(self, tmp_path, monkeypatch):
         cfg = _three_stage_config(tmp_path)
         # First run: stage 1 completes, stage 2 fails (training crash).
@@ -716,6 +787,37 @@ class TestResumeFrom:
         assert "yaml v1" not in str(evt) and "yaml v2" not in str(evt), (
             "Audit event must record hashes, not raw YAML bytes."
         )
+
+    def test_topology_guard_runs_even_on_hash_match(self, tmp_path, monkeypatch):
+        """Phase 14 post-release review BLOCKER 3: a tampered or
+        truncated ``pipeline_state.json`` could carry the same
+        ``pipeline_config_hash`` as the current YAML (operator never
+        edited the YAML) but a damaged ``stages[]`` array — fewer
+        entries, wrong order, or hand-edited names.  Pre-fix,
+        ``_validate_resume_state`` returned ``None`` immediately on
+        hash match without running the topology check, so the resume
+        would proceed against a corrupted state file and
+        ``state.stages[i]`` would silently overwrite the wrong stage's
+        history.  Topology guard must now run UNCONDITIONALLY."""
+        cfg = _three_stage_config(tmp_path)
+        _install_trainer_mocks(monkeypatch, [TrainResult(success=False, error="x")])
+        orch1 = PipelineOrchestrator(cfg, b"yaml")
+        orch1.run()
+
+        # Surgically truncate the on-disk state to TWO stages while
+        # keeping the YAML (hence the hash) unchanged.  This simulates
+        # disk corruption / hand-edit / partial-write tamper.
+        with open(orch1.paths["state_file"]) as f:
+            payload = json.load(f)
+        payload["stages"] = payload["stages"][:2]
+        with open(orch1.paths["state_file"], "w") as f:
+            json.dump(payload, f)
+
+        _install_trainer_mocks(monkeypatch, [TrainResult(success=True), TrainResult(success=True)])
+        orch2 = PipelineOrchestrator(cfg, b"yaml")
+        # Hash MATCHES (same YAML bytes) but topology drifted — must refuse.
+        code = orch2.run(resume_from="dpo_stage")
+        assert code == EXIT_CONFIG_ERROR
 
     def test_force_resume_refuses_when_stage_topology_changed(self, tmp_path, monkeypatch):
         """Phase 14 review-response regression: ``--force-resume`` must

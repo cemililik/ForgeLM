@@ -82,6 +82,44 @@ forgelm --config my_config.yaml --resume ./checkpoints/checkpoint-500
 forgelm --config my_config.yaml --offline
 ```
 
+### Multi-Stage Pipelines (Phase 14, v0.7.0)
+
+When the config carries a `pipeline:` block, the same `forgelm --config ...` invocation runs the full chain (typically SFT → DPO → GRPO) with auto-chained model paths and a single Annex IV manifest covering every stage.
+
+```bash
+# Run the entire chain end-to-end
+forgelm --config pipeline.yaml
+
+# Dry-run validates every stage's merged config + the cross-stage chain
+# integrity + per-stage training.output_dir collision check, with no GPU
+# allocation; collects all errors before exiting
+forgelm --config pipeline.yaml --dry-run
+
+# Re-run a single named stage in isolation (audit / re-run scenarios).
+# Auto-chains from the previous stage's on-disk output_dir/final_model.
+forgelm --config pipeline.yaml --stage dpo_stage
+
+# Override the auto-chained input model for the filtered stage (operator
+# escape hatch — audit-logged with input_source: cli_override)
+forgelm --config pipeline.yaml --stage dpo_stage --input-model ./other/checkpoint
+
+# Resume from a named stage onward; already-completed (or human-approved
+# gated) stages with on-disk output are skipped at INFO log level
+forgelm --config pipeline.yaml --resume-from dpo_stage
+
+# Accept a stale pipeline_config_hash on resume (logged + audited via the
+# pipeline.force_resume event).  Stage topology mismatch (count / names /
+# order) is refused even with this flag.
+forgelm --config pipeline.yaml --resume-from dpo_stage --force-resume
+
+# Verify a finished pipeline's chain-level Annex IV manifest
+forgelm verify-annex-iv --pipeline ./pipeline_run
+```
+
+**Single-stage flag rejection:** `--fit-check`, `--merge`, `--generate-data`, `--compliance-export`, `--benchmark-only` are not supported when the config carries a `pipeline:` block — drop the block or remove the flag.  Conversely, `--stage`, `--resume-from`, `--force-resume`, `--input-model` require a `pipeline:` block — running them against a single-stage config exits with `EXIT_CONFIG_ERROR (1)` rather than silently ignoring the flag.
+
+Full operator walkthrough: [Multi-Stage Pipelines guide](../guides/pipeline.md).  Schema details: [`pipeline` config block](configuration.md#pipeline-optional-multi-stage-training-chains-phase-14).
+
 ### VRAM Fit Check
 
 Before training, estimate whether your config fits in GPU memory:
