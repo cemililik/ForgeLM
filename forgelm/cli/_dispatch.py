@@ -163,6 +163,99 @@ def main():
         sys.exit(EXIT_TRAINING_ERROR)
 
 
+def _dispatch_legacy_data_audit(args) -> None:
+    """Handle ``forgelm --data-audit PATH`` (deprecated flag).
+
+    Pulled out of ``_main_inner`` for Sonar python:S3776 cognitive-
+    complexity hygiene.  Emits the standard deprecation
+    ``DeprecationWarning`` + an audit-log breadcrumb (best-effort), then
+    delegates to the canonical ``_run_data_audit`` and ``sys.exit``s.
+    Calls back to ``_main_inner`` are impossible — this function always
+    terminates the process.
+    """
+    json_output = args.output_format == "json"
+    log_level = "WARNING" if args.quiet else args.log_level
+    _setup_logging(log_level, json_format=json_output)
+    # Phase 13 (Faz 13): emit a structured Python ``DeprecationWarning``
+    # so `pytest -W error::DeprecationWarning` and `python -Wd` tooling
+    # surface it, plus an append-only audit-log event so operators who
+    # only read the JSONL trail see the migration signal too. Cadence
+    # for the v0.8.0 removal follows the "Deprecation cadence" section
+    # in ``docs/standards/release.md`` (one-minor warning window
+    # minimum).  Originally targeted v0.7.0; pushed one minor out to
+    # v0.8.0 at the v0.7.0 cut to preserve the one-minor warning
+    # window for operators who only upgrade once per minor release.
+    warnings.warn(
+        "`forgelm --data-audit PATH` is deprecated and will be removed "
+        "in v0.8.0. Use the `forgelm audit PATH` subcommand instead — "
+        "same behaviour, same output. "
+        "See docs/standards/release.md#deprecation-cadence for the removal timeline.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    # Audit-log event: append-only Article 12 record of the legacy
+    # invocation so compliance reviewers can prove the operator was
+    # warned.  Best-effort — a read-only output dir must not abort the
+    # actual audit run.
+    legacy_target = args.output or "./audit"
+    try:
+        from ..compliance import AuditLogger
+        from ..config import ConfigError
+
+        AuditLogger(legacy_target).log_event(
+            "cli.legacy_flag_invoked",
+            flag="--data-audit",
+            replacement="forgelm audit",
+            version="v0.8.0 removal",
+        )
+    except (OSError, ConfigError) as audit_exc:
+        logger.warning(
+            "Failed to emit deprecation audit event to %s: %s",
+            legacy_target,
+            audit_exc,
+        )
+    # Late import via the package facade so monkeypatched
+    # ``forgelm.cli._run_data_audit`` references resolve correctly.
+    from forgelm import cli as _cli_facade
+
+    _cli_facade._run_data_audit(
+        args.data_audit,
+        args.output,
+        args.output_format,
+    )
+    sys.exit(EXIT_SUCCESS)
+
+
+def _dispatch_pipeline_mode(config, args) -> None:
+    """Handle a config that carries a ``pipeline:`` block.
+
+    Pulled out of ``_main_inner`` for Sonar python:S3776 cognitive-
+    complexity hygiene.  Re-reads the YAML *bytes* (not the parsed
+    semantic content — regulators audit the on-disk artefact) and
+    routes to :func:`forgelm.cli._pipeline.run_pipeline_from_args`.
+    Always terminates the process via ``sys.exit``.
+
+    Layering rule (Phase 14 F-B-1): this branch MUST run before
+    ``_maybe_run_no_train_mode``.  The single-stage no-train modes
+    (``--dry-run``, ``--fit-check``, ``--benchmark-only``,
+    ``--merge``, ``--generate-data``, ``--compliance-export``)
+    ``sys.exit`` internally; if they ran first on a pipeline config,
+    the orchestrator would never reach the multi-stage validation path
+    and the documented ``--dry-run`` per-stage error-collection
+    contract would be silently violated.
+    """
+    from ._pipeline import run_pipeline_from_args
+
+    try:
+        with open(args.config, "rb") as f:
+            pipeline_yaml_bytes = f.read()
+    except OSError as e:
+        logger.error("Failed to re-read pipeline YAML for hashing: %s", e)
+        sys.exit(EXIT_CONFIG_ERROR)
+
+    sys.exit(run_pipeline_from_args(config, pipeline_yaml_bytes, args))
+
+
 def _main_inner() -> None:
     """Entry-point body — extracted so ``main`` can wrap a single
     ``KeyboardInterrupt`` handler around every step from argparse to
@@ -181,70 +274,13 @@ def _main_inner() -> None:
     # Run before the config-required check so operators can audit raw data
     # without writing a YAML. Phase 11.5 promoted the same code path to
     # `forgelm audit PATH` (a real subcommand); the legacy flag is preserved
-    # as an alias and slated for removal in v0.7.0 — Phase 13 wires up the
-    # deprecation signalling at this dispatch site.
+    # as an alias and slated for removal in v0.8.0.  (Removal originally
+    # targeted v0.7.0; pushed one minor out at the v0.7.0 cut to preserve
+    # the documented one-minor warning window — see the matching
+    # DeprecationWarning message + audit-event ``version`` field below
+    # and ``docs/standards/release.md#deprecation-cadence``.)
     if getattr(args, "data_audit", None):
-        json_output = args.output_format == "json"
-        log_level = "WARNING" if args.quiet else args.log_level
-        _setup_logging(log_level, json_format=json_output)
-        # Phase 13 (Faz 13): emit a structured Python ``DeprecationWarning``
-        # so `pytest -W error::DeprecationWarning` and `python -Wd` tooling
-        # surface it, plus an append-only audit-log event so operators who
-        # only read the JSONL trail see the migration signal too. Cadence
-        # for the v0.7.0 removal follows the "Deprecation cadence" section
-        # in ``docs/standards/release.md`` (one-minor warning window
-        # minimum).
-        warnings.warn(
-            "`forgelm --data-audit PATH` is deprecated and will be removed "
-            "in v0.7.0. Use the `forgelm audit PATH` subcommand instead — "
-            "same behaviour, same output. "
-            "See docs/standards/release.md#deprecation-cadence for the removal timeline.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        # Audit-log event: append-only Article 12 record of the legacy
-        # invocation so compliance reviewers can prove the operator was
-        # warned. The logger writes to ``<target>/audit_log.jsonl`` next to
-        # the report this run is about to produce. Resolve the target the
-        # same way ``_run_data_audit`` does (default ``./audit``) so the
-        # event lands in the same directory as the report.
-        legacy_target = args.output or "./audit"
-        try:
-            from ..compliance import AuditLogger
-            from ..config import ConfigError
-
-            AuditLogger(legacy_target).log_event(
-                "cli.legacy_flag_invoked",
-                flag="--data-audit",
-                replacement="forgelm audit",
-                version="v0.7.0 removal",
-            )
-        except (OSError, ConfigError) as audit_exc:
-            # Non-fatal: the audit log is a best-effort telemetry record
-            # for the deprecation notice. The DeprecationWarning has
-            # already fired; the audit run itself must still proceed —
-            # losing the legacy-flag breadcrumb is preferable to aborting
-            # a working pipeline because the output dir is read-only.
-            # Logged at WARNING (not debug) per
-            # docs/standards/error-handling.md "Best-effort artefact
-            # carve-out" hygiene item 2: audit-trail visibility trumps
-            # log noise for low-frequency, structured events like a
-            # legacy-flag invocation against a read-only output dir.
-            logger.warning(
-                "Failed to emit deprecation audit event to %s: %s",
-                legacy_target,
-                audit_exc,
-            )
-        # Late import via the package facade so monkeypatched
-        # ``forgelm.cli._run_data_audit`` references resolve correctly.
-        from forgelm import cli as _cli_facade
-
-        _cli_facade._run_data_audit(
-            args.data_audit,
-            args.output,
-            args.output_format,
-        )
-        sys.exit(EXIT_SUCCESS)
+        _dispatch_legacy_data_audit(args)
 
     _maybe_run_wizard(args)
 
@@ -261,5 +297,31 @@ def _main_inner() -> None:
 
     config = _load_config_or_exit(args.config, json_output)
     _apply_offline_flag(config, args.offline)
+
+    if config.pipeline is not None:
+        _dispatch_pipeline_mode(config, args)
+
+    # Phase 14 post-release review: pipeline-only flags must not
+    # silently route through the single-stage training path.  Pre-fix,
+    # ``forgelm --config single_stage.yaml --stage dpo_stage`` would
+    # ignore ``--stage`` and run the root YAML's trainer — surprising
+    # the operator who expected the flag to be load-bearing.
+    _PIPELINE_ONLY_FLAGS = (
+        ("stage", "--stage"),
+        ("resume_from", "--resume-from"),
+        ("force_resume", "--force-resume"),
+        ("input_model", "--input-model"),
+    )
+    for attr, flag_name in _PIPELINE_ONLY_FLAGS:
+        if getattr(args, attr, None):
+            logger.error(
+                "`%s` requires a config with a `pipeline:` block — this is a "
+                "multi-stage orchestrator flag.  Either add `pipeline:` to "
+                "the YAML or remove the flag.",
+                flag_name,
+            )
+            sys.exit(EXIT_CONFIG_ERROR)
+
+    # Single-stage path — unchanged from v0.6.0.
     _maybe_run_no_train_mode(config, args)
     _run_training_pipeline(config, args, json_output)

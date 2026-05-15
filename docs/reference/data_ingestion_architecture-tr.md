@@ -209,7 +209,7 @@ graph TD
     PAGES[sayfa başına metin] --> SPLIT[Satırlara böl]
     SPLIT --> WINDOW[Sayfa başına üst-3 / alt-3 satırı incele<br/>_PDF_EDGE_WINDOW = 3]
     WINDOW --> COUNT[Tüm sayfalarda satır<br/>frekansını say]
-    COUNT --> CHECK{>= yüzde 70 sayfa?}
+    COUNT --> CHECK{">= yüzde 70 sayfa?"}
     CHECK -- evet --> POP[Eşleşen window satırlarını çıkar<br/>window içinde herhangi bir offset]
     POP --> WINDOW
     CHECK -- hayır --> JOIN[Sayfaları çift yeni satırla birleştir]

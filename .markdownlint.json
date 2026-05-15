@@ -3,8 +3,10 @@
   "//1": "MD051 (link-fragments-valid): docs use SPA hash-router routes like `#/data/audit` for in-app navigation; markdownlint's anchor-resolution doesn't understand SPA conventions and would flag every cross-reference.",
   "//2": "MD014 (commands-show-output): shell examples in operator docs deliberately show only the command (`$ forgelm audit ...`) without sample output — output snippets rot quickly across versions and would force a doc update on every CLI banner change.",
   "//3": "MD013 (line-length): bilingual (EN+TR) reference + design docs intentionally carry long lines for paragraph-style explanations, table cells, and prose with long inline links. The 80-col limit is a code-style holdover that hurts readability of documentation; the project's bilingual_parity guard already enforces structural alignment, and the rest of the prose stays human-readable at any reasonable width.",
+  "//4": "MD025 (single-h1): docs/usermanuals/<lang>/<section>/<page>.md pages use a YAML frontmatter `title:` AND a body `# Heading` by design — the frontmatter title feeds the sidebar nav and SPA page title, the body H1 is the visible page heading. Every page in docs/usermanuals/ follows this pattern; disabling MD025 keeps the established docs convention intact.",
   "default": true,
   "MD051": false,
   "MD014": false,
-  "MD013": false
+  "MD013": false,
+  "MD025": false
 }

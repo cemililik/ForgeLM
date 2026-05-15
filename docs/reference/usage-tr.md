@@ -61,6 +61,46 @@ forgelm --config my_config.yaml --resume ./checkpoints/checkpoint-500
 forgelm --config my_config.yaml --offline              # İzole mod (HF Hub yok)
 ```
 
+### Çok Aşamalı Pipeline'lar (Faz 14, v0.7.0)
+
+Config bir `pipeline:` bloğu taşıdığında aynı `forgelm --config ...` çağrısı tüm zinciri uçtan uca koşar (tipik olarak SFT → DPO → GRPO): otomatik zincirlenen model yolları ve tüm aşamaları kapsayan tek bir Annex IV manifesti ile.
+
+```bash
+# Tüm zinciri uçtan uca koş
+forgelm --config pipeline.yaml
+
+# Dry-run her aşamanın merge edilmiş config'ini + aşamalar arası zincir
+# bütünlüğünü + aşama bazında training.output_dir çakışma kontrolünü GPU
+# tahsisi yapmadan doğrular; tüm hataları çıkmadan önce toplar
+forgelm --config pipeline.yaml --dry-run
+
+# Tek bir adlı aşamayı yalıtılmış olarak yeniden koştur (audit / re-run
+# senaryoları).  Önceki aşamanın disk üzerindeki output_dir/final_model'ından
+# otomatik zincirler.
+forgelm --config pipeline.yaml --stage dpo_stage
+
+# Filtrelenen aşamanın otomatik zincirlenen giriş modelini override et
+# (operatör kaçış kapısı — input_source: cli_override ile audit'lenir)
+forgelm --config pipeline.yaml --stage dpo_stage --input-model ./other/checkpoint
+
+# Adı verilen aşamadan itibaren devam et; tamamlanmış (veya operatör
+# tarafından onaylanmış gated) aşamalar disk üzerinde çıktıları varsa
+# INFO log seviyesinde atlanır
+forgelm --config pipeline.yaml --resume-from dpo_stage
+
+# Resume sırasındaki stale pipeline_config_hash'i kabul et (log'lanır +
+# pipeline.force_resume eventi ile audit'lenir).  Aşama topoloji
+# uyuşmazlığı (sayı / isim / sıra) bu flag'le bile reddedilir.
+forgelm --config pipeline.yaml --resume-from dpo_stage --force-resume
+
+# Biten bir pipeline'ın zincir seviyesi Annex IV manifestini doğrula
+forgelm verify-annex-iv --pipeline ./pipeline_run
+```
+
+**Tek-aşama flag reddi:** Config bir `pipeline:` bloğu taşıdığında `--fit-check`, `--merge`, `--generate-data`, `--compliance-export`, `--benchmark-only` desteklenmez — ya bloğu kaldırın ya da flag'i kaldırın.  Tersine, `--stage`, `--resume-from`, `--force-resume`, `--input-model` `pipeline:` bloğu gerektirir — tek-aşama config'e karşı çalıştırıldıklarında flag'i sessizce yok saymak yerine `EXIT_CONFIG_ERROR (1)` ile çıkar.
+
+Operatör adım adım: [Çok Aşamalı Pipeline kılavuzu](../guides/pipeline-tr.md).  Şema detayları: [`pipeline` config bloğu](configuration-tr.md#pipeline-isteğe-bağlı-çok-aşamalı-eğitim-zincirleri-faz-14).
+
 ### VRAM Fit Check
 
 Eğitim öncesi config'inizin GPU belleğine sığıp sığmayacağını tahmin edin:

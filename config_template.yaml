@@ -223,3 +223,33 @@ data:
 #   ephemeral_artefact_retention_days: 90   # compliance bundles + audit reports
 #   raw_documents_retention_days: 90        # ingested raw docs (PDF/DOCX/EPUB/TXT/MD)
 #   enforce: "log_only"               # "log_only" | "warn_on_excess" | "block_on_excess"
+
+# Phase 14 — Multi-stage training pipeline chains (SFT → DPO → GRPO).
+# Uncomment the ``pipeline:`` block below to run multiple training stages
+# back-to-back; each stage's input model is auto-chained to the previous
+# stage's output_dir/final_model.  Stages inherit unset config blocks
+# from the root (above).  See docs/guides/pipeline.md.
+# pipeline:
+#   output_dir: "./pipeline_run"   # pipeline-level dir (state + manifest live here)
+#   stages:
+#     - name: sft_stage
+#       training:
+#         trainer_type: "sft"
+#         output_dir: "./pipeline_run/stage1_sft"
+#         num_train_epochs: 3
+#       data:
+#         dataset_name_or_path: "./data/sft.jsonl"
+#     - name: dpo_stage
+#       training:
+#         trainer_type: "dpo"
+#         output_dir: "./pipeline_run/stage2_dpo"
+#         num_train_epochs: 1
+#         dpo_beta: 0.1
+#       data:
+#         dataset_name_or_path: "./data/preferences.jsonl"
+#     - name: grpo_stage
+#       training:
+#         trainer_type: "grpo"
+#         output_dir: "./pipeline_run/stage3_grpo"
+#       data:
+#         dataset_name_or_path: "./data/math_prompts.jsonl"

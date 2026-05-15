@@ -32,7 +32,7 @@ flowchart LR
     F -->|regression| G[Auto-revert]
     G --> E
     F -->|pass| H[Annex IV<br/>artifacts]
-    H --> I[Export &<br/>deploy]
+    H --> I["Export &<br/>deploy"]
     classDef start fill:#1c2030,stroke:#f97316,color:#e6e7ec
     classDef ok fill:#161a24,stroke:#22c55e,color:#e6e7ec
     classDef warn fill:#161a24,stroke:#eab308,color:#e6e7ec

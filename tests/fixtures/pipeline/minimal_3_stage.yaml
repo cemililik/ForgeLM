@@ -1,0 +1,42 @@
+# Phase 14 fixture — minimal 3-stage SFT → DPO → GRPO pipeline.
+# Used as the happy-path smoke baseline for parser + orchestrator tests.
+
+model:
+  name_or_path: "org/base-model"
+lora:
+  r: 8
+  alpha: 16
+training:
+  trainer_type: "sft"
+  output_dir: "./out/pipeline_smoke"
+  num_train_epochs: 1
+data:
+  dataset_name_or_path: "org/sft_dataset"
+
+pipeline:
+  output_dir: "./out/pipeline_smoke"
+  stages:
+    - name: sft_stage
+      training:
+        trainer_type: "sft"
+        output_dir: "./out/pipeline_smoke/stage1_sft"
+        num_train_epochs: 3
+      data:
+        dataset_name_or_path: "org/sft_dataset"
+
+    - name: dpo_stage
+      training:
+        trainer_type: "dpo"
+        output_dir: "./out/pipeline_smoke/stage2_dpo"
+        num_train_epochs: 1
+        dpo_beta: 0.1
+      data:
+        dataset_name_or_path: "org/dpo_preferences"
+
+    - name: grpo_stage
+      training:
+        trainer_type: "grpo"
+        output_dir: "./out/pipeline_smoke/stage3_grpo"
+        grpo_num_generations: 4
+      data:
+        dataset_name_or_path: "org/math_prompts"

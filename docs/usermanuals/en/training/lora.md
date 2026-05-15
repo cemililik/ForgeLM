@@ -13,9 +13,9 @@ ForgeLM applies LoRA / QLoRA / DoRA to *every* trainer (SFT, DPO, SimPO, KTO, OR
 
 ```mermaid
 flowchart TD
-    Q1{Need to fit on a<br/>consumer GPU<br/>(<24 GB)?}
-    Q2{Want full-precision<br/>weights kept frozen?}
-    Q3{Need maximum<br/>quality at LoRA cost?}
+    Q1{"Need to fit on a<br/>consumer GPU<br/>(<24 GB)?"}
+    Q2{"Want full-precision<br/>weights kept frozen?"}
+    Q3{"Need maximum<br/>quality at LoRA cost?"}
     Full[Full fine-tuning]
     LoRA([LoRA])
     QLoRA([QLoRA])

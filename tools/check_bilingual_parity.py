@@ -74,6 +74,7 @@ _PAIRS: Tuple[Tuple[str, str], ...] = (
     ("docs/guides/iso_soc2_deployer_guide.md", "docs/guides/iso_soc2_deployer_guide-tr.md"),
     ("docs/guides/library_api.md", "docs/guides/library_api-tr.md"),
     ("docs/guides/performance.md", "docs/guides/performance-tr.md"),
+    ("docs/guides/pipeline.md", "docs/guides/pipeline-tr.md"),
     ("docs/guides/quickstart.md", "docs/guides/quickstart-tr.md"),
     ("docs/guides/safety_compliance.md", "docs/guides/safety_compliance-tr.md"),
     ("docs/guides/troubleshooting.md", "docs/guides/troubleshooting-tr.md"),
@@ -111,6 +112,14 @@ _PAIRS: Tuple[Tuple[str, str], ...] = (
     ("docs/reference/verify_annex_iv_subcommand.md", "docs/reference/verify_annex_iv_subcommand-tr.md"),
     ("docs/reference/verify_audit.md", "docs/reference/verify_audit-tr.md"),
     ("docs/reference/verify_gguf_subcommand.md", "docs/reference/verify_gguf_subcommand-tr.md"),
+    # docs/usermanuals/ — newly mirrored Phase 14 page.  The rest of
+    # docs/usermanuals/{en,tr}/ is structural-parity-validated by the
+    # ``_meta.yaml``-driven nav build in ``tools/build_usermanuals.py``
+    # (every EN page MUST have a TR counterpart at the same relative
+    # path); registering pipelines.md here adds the *heading-spine*
+    # parity check on top, matching the discipline applied to
+    # docs/guides/pipeline{,-tr}.md.
+    ("docs/usermanuals/en/training/pipelines.md", "docs/usermanuals/tr/training/pipelines.md"),
 )
 
 # Match a Markdown ATX heading prefix: 1-6 leading hashes followed by

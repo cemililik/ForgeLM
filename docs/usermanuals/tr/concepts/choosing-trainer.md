@@ -81,6 +81,8 @@ QLoRA bu sayıları ~3-4× düşürür. Full precision'da 22 GB isteyen 7B DPO k
 | Matematik akıl yürütme | `grpo-math` | format-shaping reward'lı GRPO |
 | Türkçe medikal Q&A | `medical-qa-tr` | Sadece SFT |
 
+Yukarıdaki "→" işaretli satırlar için, iki ayrı YAML yazıp elle orkestre etmek yerine aşamaları bir `pipeline:` config bloğuyla zincirleyin. Bkz. [Çok Aşamalı Pipeline'lar](#/training/pipelines).
+
 ## Anti-pattern'ler
 
 :::warn
@@ -99,3 +101,4 @@ QLoRA bu sayıları ~3-4× düşürür. Full precision'da 22 GB isteyen 7B DPO k
 
 - [Alignment Yığını](#/concepts/alignment-overview) — daha geniş bağlam.
 - [Dataset Formatları](#/concepts/data-formats) — her trainer'ın beklediği JSONL.
+- [Çok Aşamalı Pipeline'lar](#/training/pipelines) — iki veya daha fazla trainer'ı tek config-tabanlı koşuda zincirle.

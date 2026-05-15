@@ -118,6 +118,14 @@ sections:
         title: { en: ORPO, tr: ORPO, de: ORPO, fr: ORPO, es: ORPO, zh: ORPO }
       - id: grpo
         title: { en: GRPO, tr: GRPO, de: GRPO, fr: GRPO, es: GRPO, zh: GRPO }
+      - id: pipelines
+        title:
+          en: Multi-Stage Pipelines
+          tr: Çok Aşamalı Pipeline'lar
+          de: Mehrstufige Pipelines
+          fr: Pipelines multi-étapes
+          es: Pipelines multi-etapa
+          zh: 多阶段流水线
       - id: lora
         title:
           en: LoRA, QLoRA, DoRA

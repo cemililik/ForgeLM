@@ -119,9 +119,9 @@ class TestCountCodeLines:
 
 
 class TestGrandfatheredSet:
-    def test_contains_seven_modules(self):
+    def test_contains_expected_modules(self):
         tool = _load_tool()
-        assert len(tool._GRANDFATHERED_OVER_CEILING) == 7
+        assert len(tool._GRANDFATHERED_OVER_CEILING) == 8
 
     def test_contains_expected_paths(self):
         tool = _load_tool()
@@ -133,6 +133,10 @@ class TestGrandfatheredSet:
             "forgelm/config.py",
             "forgelm/cli/_parser.py",
             "forgelm/cli/subcommands/_doctor.py",
+            # Phase 14 (v0.7.0): pipeline orchestrator — sub-package
+            # split tracked for v0.7.x alongside the Phase 15 audit
+            # split pattern.
+            "forgelm/cli/_pipeline.py",
         }
         assert set(tool._GRANDFATHERED_OVER_CEILING) == expected
 
@@ -280,6 +284,10 @@ class TestWalkForgelm:
         "forgelm/config.py",
         "forgelm/cli/_parser.py",
         "forgelm/cli/subcommands/_doctor.py",
+        # Phase 14 (v0.7.0): pipeline orchestrator — must stay in
+        # lockstep with ``_GRANDFATHERED_OVER_CEILING`` in
+        # ``tools/check_module_size.py``.
+        "forgelm/cli/_pipeline.py",
     ],
 )
 def test_grandfathered_module_exists_in_tree(rel_path: str):

@@ -9,10 +9,33 @@ many concerns and should be split into a sub-package
 (``module_name/`` directory with the same public import path).
 
 This guard catches **future drift** without forcing an immediate
-refactor of the seven modules that already sit over the ceiling at
-PR #29 HEAD.  Those seven are recorded in
-:data:`_GRANDFATHERED_OVER_CEILING`; their splits are tracked for
-the v0.6.x cycle (see ``docs/roadmap/risks-and-decisions.md``).
+refactor of the modules that already sit over the ceiling, recorded
+in :data:`_GRANDFATHERED_OVER_CEILING`.
+
+Grandfather policy
+~~~~~~~~~~~~~~~~~~
+
+The initial seven entries (Wave 2-9, PR #29 HEAD audit) are tracked
+for a v0.6.x sub-package split (see
+``docs/roadmap/risks-and-decisions.md``).
+
+New entries added after PR #29 are admitted **only** when the
+sub-package split is non-trivial enough to materially risk
+behavioural regression at the release-prep stage — i.e. the kind of
+split that needs its own PR / Wave with isolated tests rather than
+being bundled into a feature PR.  Every new entry MUST carry:
+
+* an inline comment naming the **phase** + **release cycle** in
+  which the split lands;
+* a follow-up tracking artefact (roadmap entry, issue, or
+  ``risks-and-decisions.md`` row) so the deferred work can't get
+  lost.
+
+The current addition beyond the original seven is
+``forgelm/cli/_pipeline.py`` (Phase 14, v0.7.0; split tracked for
+v0.7.x alongside the Phase 15 audit-package split pattern).  See
+that file's inline comment in :data:`_GRANDFATHERED_OVER_CEILING`
+below for the tracking pointer.
 
 LOC metric
 ----------
@@ -85,6 +108,15 @@ _GRANDFATHERED_OVER_CEILING: frozenset[str] = frozenset(
         "forgelm/config.py",
         "forgelm/cli/_parser.py",
         "forgelm/cli/subcommands/_doctor.py",
+        # Phase 14 (v0.7.0) — multi-stage pipeline orchestrator
+        # at ~1060 LOC: orchestrator state machine + manifest
+        # builder + audit/webhook hooks + 6 helper methods that the
+        # SonarCloud cognitive-complexity refactor cycle pulled out
+        # of the original ``run()`` body.  A sub-package split
+        # (``forgelm/cli/_pipeline/{__init__,_state,_events,
+        # _verify}.py``) is tracked for the v0.7.x cycle and will
+        # land alongside the Phase 15 audit-package split pattern.
+        "forgelm/cli/_pipeline.py",
     }
 )
 
