@@ -686,7 +686,9 @@ class TestResumeFrom:
         two ``pipeline.stage_started`` events for the same stage_index."""
         cfg = _three_stage_config(tmp_path)
         # First run: SFT stage hits a human-approval gate and exits 4.
-        _install_trainer_mocks(monkeypatch, [TrainResult(success=False, staging_path=str(tmp_path / "stage1" / "final_model"))])
+        _install_trainer_mocks(
+            monkeypatch, [TrainResult(success=False, staging_path=str(tmp_path / "stage1" / "final_model"))]
+        )
         orch1 = PipelineOrchestrator(cfg, b"yaml")
         code1 = orch1.run()
         assert code1 == EXIT_AWAITING_APPROVAL

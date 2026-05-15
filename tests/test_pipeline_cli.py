@@ -346,6 +346,7 @@ class TestTopLevelDispatchOrdering:
         silently ignored, surprising operators who expected the flag
         to be load-bearing."""
         import sys
+
         import yaml
 
         from forgelm.cli import _dispatch
@@ -372,6 +373,5 @@ class TestTopLevelDispatchOrdering:
             with pytest.raises(SystemExit) as exc_info:
                 _dispatch.main()
             assert exc_info.value.code == EXIT_CONFIG_ERROR, (
-                f"flag {flag!r} should exit EXIT_CONFIG_ERROR on a non-pipeline config; "
-                f"got exit={exc_info.value.code}"
+                f"flag {flag!r} should exit EXIT_CONFIG_ERROR on a non-pipeline config; got exit={exc_info.value.code}"
             )
