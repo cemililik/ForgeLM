@@ -144,6 +144,5 @@ Section-wholesale semantiği: bir aşama bir bloğu adıyla anarsa root'unkini *
 
 ## Ayrıca bakınız
 
-- [Çok Aşamalı Pipeline'lar — operatör kılavuzu](../../../guides/pipeline-tr.md) — 6 tasarım fixture'ı ile tam walkthrough.
-- [Trainer Seçimi](../concepts/choosing-trainer.md) — hangi trainer ne zaman seçilir; pipeline'lar trainer seçiminden sonra gelir.
-- [Annex IV Uyumluluk](../compliance/annex-iv.md) — zincir-seviyesi manifestin indekslediği aşama-bazında manifest formatı.
+- [Trainer Seçimi](#/concepts/choosing-trainer) — hangi trainer ne zaman seçilir; pipeline'lar trainer seçiminden sonra gelir.
+- [Annex IV Uyumluluk](#/compliance/annex-iv) — zincir-seviyesi manifestin indekslediği aşama-bazında manifest formatı.

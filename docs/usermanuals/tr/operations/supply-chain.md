@@ -71,11 +71,11 @@ ForgeLM proje-seviyesi bir ignore listesi yayınlamaz **— her suppression oper
 ## Daha fazla okumak için nereye
 
 - Tam referans (severity politikası, suppression syntax'ı, ilgili ISO/SOC 2 kontrolleri):
-  [`docs/reference/supply_chain_security-tr.md`](../../../reference/supply_chain_security-tr.md)
+  [`supply_chain_security-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/supply_chain_security-tr.md) (GitHub kaynağı).
 - Operatör denetim cookbook'u (Q4 SBOM'u yürür, Q5 erişim kontrollerini yürür, Q7 olay müdahalesini yürür):
-  [`docs/guides/iso_soc2_deployer_guide-tr.md`](../../../guides/iso_soc2_deployer_guide-tr.md)
+  [`iso_soc2_deployer_guide-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/guides/iso_soc2_deployer_guide-tr.md) (GitHub kaynağı).
 - SBOM emitter kaynağı (pure stdlib, sıfır dep):
-  [`tools/generate_sbom.py`](../../../../tools/generate_sbom.py)
+  [`tools/generate_sbom.py`](https://github.com/cemililik/ForgeLM/blob/main/tools/generate_sbom.py) (GitHub kaynağı).
 
 ## Ayrıca bakınız
 

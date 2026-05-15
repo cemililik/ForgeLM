@@ -71,11 +71,11 @@ ForgeLM does **not** ship a project-level ignore list — every suppression is d
 ## Where to read more
 
 - The full reference (severity policy, suppression syntax, related ISO/SOC 2 controls):
-  [`docs/reference/supply_chain_security.md`](../../../reference/supply_chain_security.md)
+  [`supply_chain_security.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/supply_chain_security.md) (GitHub source).
 - The deployer audit cookbook (Q4 walks the SBOM, Q5 walks access controls, Q7 walks incident response):
-  [`docs/guides/iso_soc2_deployer_guide.md`](../../../guides/iso_soc2_deployer_guide.md)
+  [`iso_soc2_deployer_guide.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/guides/iso_soc2_deployer_guide.md) (GitHub source).
 - The SBOM emitter source (pure stdlib, zero deps):
-  [`tools/generate_sbom.py`](../../../../tools/generate_sbom.py)
+  [`tools/generate_sbom.py`](https://github.com/cemililik/ForgeLM/blob/main/tools/generate_sbom.py) (GitHub source).
 
 ## See also
 

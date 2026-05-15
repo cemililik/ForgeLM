@@ -32,8 +32,8 @@ $ forgelm --config configs/run.yaml
 ## Wire-format events
 
 ForgeLM emits exactly **five** webhook events. The table below is the
-canonical surface mirrored in
-[`docs/reference/audit_event_catalog.md`](#/reference/audit-event-catalog):
+canonical surface mirrored in the
+[Audit Event Catalog on GitHub](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/audit_event_catalog.md):
 
 | Event | When fired | Gated by |
 |---|---|---|
@@ -58,8 +58,8 @@ provider-specific templates:
 }
 ```
 
-Payload keys vary by event; the full per-event field list is in
-[`docs/reference/audit_event_catalog.md`](#/reference/audit-event-catalog)
+Payload keys vary by event; the full per-event field list is in the
+[Audit Event Catalog on GitHub](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/audit_event_catalog.md)
 under the *Webhook lifecycle events* table.
 
 ## Slack / Teams / Discord ingestion

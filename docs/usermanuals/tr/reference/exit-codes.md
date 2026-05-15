@@ -82,7 +82,7 @@ stage('Train') {
 | YAML'da `${HF_TOKEN}` ama env var yok | 1 |
 | `--config` var olmayan dosyaya işaret ediyor | 1 |
 | Eğitim ortasında final loss NaN / OOM / I/O hatası | 2 |
-| `forgelm verify-audit` zincir kopması veya HMAC uyuşmazlığı | 1 (v0.5.5 döngüsünde EXIT_CONFIG_ERROR hem opsiyon hatalarını hem bütünlük arızalarını kapsar; v0.6.x deprecation notu için bkz. [`verify-audit` referansı](../../../reference/verify_audit-tr.md)) |
+| `forgelm verify-audit` zincir kopması veya HMAC uyuşmazlığı | 1 (v0.5.5 döngüsünde EXIT_CONFIG_ERROR hem opsiyon hatalarını hem bütünlük arızalarını kapsar; v0.6.x deprecation notu için bkz. manuel içindeki [Audit Log Doğrulama](#/compliance/verify-audit) sayfası) |
 | DPO koşusu, Llama Guard S5 toleransı aştı | 3 |
 | Benchmark hellaswag floor altına düştü | 3 |
 | `evaluation.require_human_approval: true` ve onay imzalanmamış | 4 |

@@ -60,9 +60,9 @@ There is **no** `compliance.annex_iv: true` knob — Annex IV emission is driven
 | **13** | Transparency | Auto-generated model card listing capabilities, limitations, training summary. |
 | **14** | Human oversight | Optional `evaluation.require_human_approval: true` blocks promotion until a human signs off. |
 | **15** | Accuracy & robustness | Benchmark gates + safety eval + cybersecurity (PII / secrets at ingest). |
-| **16-17** | Conformity & QMS | Declaration scaffold + QMS SOPs in `docs/qms/`. |
+| **16-17** | Conformity & QMS | Declaration scaffold + QMS SOPs shipped alongside the toolkit. |
 
-For the full mapping with code references, see the [Compliance summary](../../../reference/compliance_summary.md).
+For the full mapping with code references, see the [Compliance summary on GitHub](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/compliance_summary.md).
 
 ## What ForgeLM doesn't claim
 

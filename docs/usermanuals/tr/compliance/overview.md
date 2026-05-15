@@ -60,9 +60,9 @@ checkpoints/run/
 | **13** | Şeffaflık | Otomatik üretilen model card; yetenekleri, sınırları, eğitim özetini listeler. |
 | **14** | İnsan gözetimi | Opsiyonel `evaluation.require_human_approval: true` insan imzalayana kadar terfi engeller. |
 | **15** | Doğruluk ve sağlamlık | Benchmark kapıları + güvenlik eval + cybersec (ingest'te PII / sırlar). |
-| **16-17** | Uygunluk ve QMS | Beyan iskeleti + `docs/qms/`'deki QMS SOP'ları. |
+| **16-17** | Uygunluk ve QMS | Beyan iskeleti + toolkit ile birlikte gelen QMS SOP'ları. |
 
-Tam kod referansları için [Compliance özeti](../../../reference/compliance_summary.md).
+Tam kod referansları için [GitHub'daki Compliance özeti](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/compliance_summary.md).
 
 ## ForgeLM'in iddia *etmediği*
 

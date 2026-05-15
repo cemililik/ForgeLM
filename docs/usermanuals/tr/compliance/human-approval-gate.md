@@ -7,7 +7,7 @@ description: İnsan Gözetimi'nin deployer-yüzlü tamamlayıcısı — Madde 14
 
 Bu sayfa [İnsan Gözetimi](#/compliance/human-oversight)'nin deployer-yüzlü tamamlayıcısıdır. Daha kısa olan İnsan Gözetimi sayfası operatör hızlı-referansıdır; bu sayfa kapıyı uçtan uca ayağa kaldırırken bir deployer'ın ihtiyaç duyduğu wiring detaylarını — CI entegrasyonu, görev ayrılığı, audit-kanıt doğrulama — toplar.
 
-Tam walkthrough için bkz. [`docs/guides/human_approval_gate-tr.md`](../../../guides/human_approval_gate-tr.md). Flag-başına referanslar için bkz. [`docs/reference/approve_subcommand-tr.md`](../../../reference/approve_subcommand-tr.md) ve [`docs/reference/approvals_subcommand-tr.md`](../../../reference/approvals_subcommand-tr.md).
+Tam walkthrough için bkz. [GitHub'daki insan onay kapısı deployer kılavuzu](https://github.com/cemililik/ForgeLM/blob/main/docs/guides/human_approval_gate-tr.md). Flag-başına referanslar için bkz. GitHub'daki [`approve_subcommand-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/approve_subcommand-tr.md) ve [`approvals_subcommand-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/approvals_subcommand-tr.md).
 
 ## Kapı ne zaman ateşlenir
 
@@ -27,7 +27,7 @@ Bu flag ile, bu config'i tüketen her koşum eval başarılı olduktan **sonra**
 
 Başarısız bir eval yine 3 (`EXIT_EVAL_FAILURE`) ile çıkar ve kapıya asla ulaşmaz.
 
-> **Not:** Operatör strict-tier config'i `forgelm --wizard` ile üretirken iptal ederse (Ctrl-C, non-tty reddi, kaydetmeyi reddetme), wizard 5 (`EXIT_WIZARD_CANCELLED`) ile çıkar — bkz. [Çıkış Kodları](../reference/exit-codes.md) — ve trainer pipeline'a hiç ulaşmaz. Yalnızca exit 0'ı "wizard temiz tamamlandı" olarak ele alan CI pipeline'ları, exit 5'i ayrı olarak ele alıp "config üretilmedi" mesajını yüzeylemeli, generic başarısızlık olarak işlememelidir.
+> **Not:** Operatör strict-tier config'i `forgelm --wizard` ile üretirken iptal ederse (Ctrl-C, non-tty reddi, kaydetmeyi reddetme), wizard 5 (`EXIT_WIZARD_CANCELLED`) ile çıkar — bkz. [Çıkış Kodları](#/reference/exit-codes) — ve trainer pipeline'a hiç ulaşmaz. Yalnızca exit 0'ı "wizard temiz tamamlandı" olarak ele alan CI pipeline'ları, exit 5'i ayrı olarak ele alıp "config üretilmedi" mesajını yüzeylemeli, generic başarısızlık olarak işlememelidir.
 
 ## CI wiring
 
@@ -68,7 +68,7 @@ forgelm reject   <run_id> --output-dir <dir> --comment "..."  # staged modeli at
 
 ## Görev ayrılığı (Madde 14 + ISO A.5.3 + SOC 2 CC1.5)
 
-Onaylayanın `FORGELM_OPERATOR`'ı trainer'ınkinden FARKLI OLMALIDIR. ForgeLM bunu zorunlu kılmaz — bu deployer-tarafı IdP kontrolüdür — ancak audit zinciri her ikisini kaydeder; ihlal [`docs/qms/access_control.md`](../../../qms/access_control.md) §6'daki kanonik `jq -rs` cookbook'uyla post-hoc tespit edilebilir:
+Onaylayanın `FORGELM_OPERATOR`'ı trainer'ınkinden FARKLI OLMALIDIR. ForgeLM bunu zorunlu kılmaz — bu deployer-tarafı IdP kontrolüdür — ancak audit zinciri her ikisini kaydeder; ihlal [GitHub'daki `access_control.md` QMS şablonunun](https://github.com/cemililik/ForgeLM/blob/main/docs/qms/access_control.md) §6'sındaki kanonik `jq -rs` cookbook'uyla post-hoc tespit edilebilir:
 
 ```bash
 jq -rs '
@@ -87,7 +87,7 @@ Desen: CI runner'ları makine-okunabilir kimlik kullanır (`gha:Acme/pipelines:t
 
 ## Yayılan audit event'leri
 
-Üç event kapının tam yaşam döngüsünü tarif eder (bkz. [Audit Event Kataloğu](#/reference/audit-event-catalog)):
+Üç event kapının tam yaşam döngüsünü tarif eder (bkz. [GitHub'daki Audit Event Kataloğu](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/audit_event_catalog.md)):
 
 | Event | Kim yayar | Ne zaman |
 |---|---|---|
@@ -149,7 +149,7 @@ jq -rs '
 
 - [İnsan Gözetimi](#/compliance/human-oversight) — operatör hızlı-referans tamamlayıcısı.
 - [Audit Log](#/compliance/audit-log) — `human_approval.*` event'lerinin kaydedildiği yer.
-- [`docs/guides/human_approval_gate-tr.md`](../../../guides/human_approval_gate-tr.md) — tam deployer akışı.
-- [`docs/reference/approve_subcommand-tr.md`](../../../reference/approve_subcommand-tr.md) — `approve` / `reject` flag-başına referans.
-- [`docs/reference/approvals_subcommand-tr.md`](../../../reference/approvals_subcommand-tr.md) — `approvals` flag-başına referans.
-- [`docs/qms/access_control.md`](../../../qms/access_control.md) §6 — kanonik segregation-of-duties cookbook.
+- [İnsan onay kapısı deployer kılavuzu](https://github.com/cemililik/ForgeLM/blob/main/docs/guides/human_approval_gate-tr.md) — tam deployer akışı (GitHub kaynağı).
+- [`approve_subcommand-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/approve_subcommand-tr.md) — `approve` / `reject` flag-başına referans (GitHub kaynağı).
+- [`approvals_subcommand-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/approvals_subcommand-tr.md) — `approvals` flag-başına referans (GitHub kaynağı).
+- [`access_control.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/qms/access_control.md) §6 — kanonik segregation-of-duties cookbook (GitHub QMS şablonu).

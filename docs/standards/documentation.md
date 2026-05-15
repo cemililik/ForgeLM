@@ -1,10 +1,11 @@
 # Documentation Standard
 
 > **Scope:** All markdown under [`docs/`](../), plus `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, and docstrings in [`forgelm/`](../../forgelm/).
-> **Enforced by:** Review + three `--strict` CI guards under [`tools/`](../../tools/):
+> **Enforced by:** Review + four `--strict` CI guards under [`tools/`](../../tools/):
 > - [`tools/check_bilingual_parity.py`](../../tools/check_bilingual_parity.py) — H2/H3/H4 spine sync between `*.md` and `*-tr.md` mirrors (Wave 3 / Faz 24).
 > - [`tools/check_anchor_resolution.py`](../../tools/check_anchor_resolution.py) — every relative markdown link with a `#anchor` fragment resolves to a real heading in the target file (Wave 4 / Faz 26; flipped to `--strict` in Wave 5 after the 36-baseline cleanup).
 > - [`tools/check_cli_help_consistency.py`](../../tools/check_cli_help_consistency.py) — every flag in CLI `--help` output appears in [`docs/usermanuals/{en,tr}/reference/cli.md`](../usermanuals/en/reference/cli.md) and vice-versa (Wave 5 / Faz 30 Task J).
+> - [`tools/check_usermanual_self_contained.py`](../../tools/check_usermanual_self_contained.py) — every link inside `docs/usermanuals/` either targets another in-manual page (via the SPA hash-router form `#/<section>/<page>`) or an external HTTPS URL; cross-directory `../../../guides/...` references fail the gate.
 > Every PR runs these gates; passing locally before pushing avoids CI round-trips.
 
 ## Directory topology
@@ -107,6 +108,68 @@ Rules:
 **External links:** full HTTPS URL. Prefer stable archives (arxiv.org, github.com) over transient news sites.
 
 **Anchor links:** use GitHub's auto-generated slug format (lowercase, hyphens) — e.g. an anchor `#the-standards` referring back to a heading in the same file. Avoid deep anchors into other files — they break silently when the target's headings change.
+
+## User-manual link discipline (`docs/usermanuals/`)
+
+`docs/usermanuals/{en,tr}/**/*.md` is the source of truth for the static
+user-manual viewer shipped on the marketing site (the SPA-style viewer
+backed by [`site/guide.html`](../../site/guide.html) and
+[`site/js/guide.js`](../../site/js/guide.js); both consume the JS bags
+emitted by [`tools/build_usermanuals.py`](../../tools/build_usermanuals.py)).
+The viewer **only** knows how to render two kinds of in-content link:
+
+| Form | Example | Resolved by |
+|---|---|---|
+| SPA hash-router route | `[Audit Log](#/compliance/audit-log)` | `site/js/guide.js` → loads `docs/usermanuals/<lang>/compliance/audit-log.md` |
+| External HTTPS URL | `[Phase 13 roadmap](https://github.com/cemililik/ForgeLM/blob/main/docs/roadmap.md)` | The browser, in a new tab |
+
+Any other form — a repo-relative path like `../../../guides/foo.md`, an
+intra-manual path like `../concepts/choosing-trainer.md`, or a SPA route
+to a page that doesn't exist (e.g. `#/standards/release`) — renders as a
+broken link in the SPA because the browser tries to GET it relative to
+the viewer's HTML page and 404s.
+
+**The rule:** every link inside `docs/usermanuals/` MUST satisfy one of:
+
+1. SPA hash-router route `#/<section>/<page>` where
+   `docs/usermanuals/<lang>/<section>/<page>.md` exists.
+2. External HTTPS URL (use this for guides, references, QMS templates,
+   source files, roadmap sub-files — anything that lives outside the
+   manual but is still public on GitHub).
+3. Pure same-file anchor (`#heading-slug`).
+4. `mailto:` / `tel:` / `javascript:` (rare; allowed if needed).
+
+**Anti-patterns to avoid** — the bracket / paren pieces are split below
+so the anchor-resolution guard does not chase these forward-references
+when it scans this standard. Do NOT copy these forms into a usermanual
+page; they are shown only as cautionary examples.
+
+- Repo-relative cross-directory link: link text `Configuration`, href
+  `../../../reference/configuration.md`. It walks out of the manual
+  tree, so the SPA browser GET 404s. **Fix:** if the topic also has an
+  in-manual page, use the SPA route `#/reference/configuration`;
+  otherwise use the absolute GitHub URL.
+- Intra-manual relative path: link text `Choosing a Trainer`, href
+  `../concepts/choosing-trainer.md`. The SPA does not intercept these
+  click handlers; they resolve as plain browser navigation and 404.
+  **Fix:** use the SPA route `#/concepts/choosing-trainer`.
+- SPA route to a non-existent page: link text `release.md`, href
+  `#/standards/release`. The manual has no `standards/` section.
+  **Fix:** the standards live outside the manual; link to the GitHub
+  source instead.
+
+The guard [`tools/check_usermanual_self_contained.py`](../../tools/check_usermanual_self_contained.py)
+walks every `*.md` under `docs/usermanuals/` and fails on any link that
+violates the rule. Run it locally before opening a PR:
+
+```bash
+python3 tools/check_usermanual_self_contained.py --strict
+```
+
+Fenced code blocks are skipped — sample JSON / shell / YAML output that
+literally mentions `docs/...` paths as data (e.g. a `forgelm purge
+--check-policy` envelope's `note` field) is not a clickable link and
+does not count as a violation.
 
 ## Docstrings (in code)
 

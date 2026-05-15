@@ -42,12 +42,12 @@ assert "torch" not in sys.modules     # tests/test_library_api.py ile pinlenir
 
 ## Daha fazla okumak için nereye
 
-- Her imza ve işlenmiş örnek dahil tam referans docs ağacında:
-  [`docs/reference/library_api_reference-tr.md`](../../../reference/library_api_reference-tr.md)
+- Her imza ve işlenmiş örnek dahil tam referans toolkit ile birlikte GitHub'da yayımlanır:
+  [`library_api_reference-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/library_api_reference-tr.md).
 - Uçtan uca üç pipeline deseni ve yaygın tuzaklar dahil derin rehber:
-  [`docs/guides/library_api-tr.md`](../../../guides/library_api-tr.md)
+  [`library_api-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/guides/library_api-tr.md) (GitHub kaynağı).
 - Faz 18 tasarım gerekçesi (kararlılık katmanları, tip kontratı, deprecation cadence):
-  [`docs/design/library_api.md`](../../../design/library_api.md)
+  [`library_api.md` tasarım notu](https://github.com/cemililik/ForgeLM/blob/main/docs/design/library_api.md) (GitHub kaynağı).
 
 ## Ayrıca bakınız
 

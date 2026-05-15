@@ -31,24 +31,26 @@ Derin rehber her birini tam `jq` / CLI komutu + döndürdüğü artefakt ile yan
 
 ## Daha fazla okumak için nereye
 
+Aşağıdaki dosyaların tümü toolkit ile birlikte GitHub'da yayımlanır — depoda yer alırlar ama manual görüntüleyicisinin parçası değildirler.
+
 - Derin rehber — tam operatör cookbook'u, on-iki maddelik kurulum checklist'i, yaygın tuzaklar:
-  [`docs/guides/iso_soc2_deployer_guide-tr.md`](../../../guides/iso_soc2_deployer_guide-tr.md)
+  [`iso_soc2_deployer_guide-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/guides/iso_soc2_deployer_guide-tr.md)
 - Tam ISO 27001:2022 Annex A kontrol eşlemesi × ForgeLM kanıtı:
-  [`docs/reference/iso27001_control_mapping-tr.md`](../../../reference/iso27001_control_mapping-tr.md)
+  [`iso27001_control_mapping-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/iso27001_control_mapping-tr.md)
 - Tam SOC 2 Trust Services Criteria eşlemesi:
-  [`docs/reference/soc2_trust_criteria_mapping-tr.md`](../../../reference/soc2_trust_criteria_mapping-tr.md)
+  [`soc2_trust_criteria_mapping-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/reference/soc2_trust_criteria_mapping-tr.md)
 - Önceden doldurulmuş 93-kontrollü Statement of Applicability matrisi:
-  [`docs/qms/statement_of_applicability-tr.md`](../../../qms/statement_of_applicability-tr.md)
+  [`statement_of_applicability-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/qms/statement_of_applicability-tr.md)
 - Önceden doldurulmuş risk register:
-  [`docs/qms/risk_treatment_plan-tr.md`](../../../qms/risk_treatment_plan-tr.md)
+  [`risk_treatment_plan-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/qms/risk_treatment_plan-tr.md)
 - Substrate-tarafı şifreleme rehberliği:
-  [`docs/qms/encryption_at_rest-tr.md`](../../../qms/encryption_at_rest-tr.md)
+  [`encryption_at_rest-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/qms/encryption_at_rest-tr.md)
 - Operatör kimliği + secret yönetimi:
-  [`docs/qms/access_control-tr.md`](../../../qms/access_control-tr.md)
+  [`access_control-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/qms/access_control-tr.md)
 - Olay müdahale runbook'u:
-  [`docs/qms/sop_incident_response-tr.md`](../../../qms/sop_incident_response-tr.md)
+  [`sop_incident_response-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/qms/sop_incident_response-tr.md)
 - Değişiklik yönetimi runbook'u:
-  [`docs/qms/sop_change_management-tr.md`](../../../qms/sop_change_management-tr.md)
+  [`sop_change_management-tr.md`](https://github.com/cemililik/ForgeLM/blob/main/docs/qms/sop_change_management-tr.md)
 
 ## Ayrıca bakınız
 
