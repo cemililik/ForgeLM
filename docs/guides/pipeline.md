@@ -294,12 +294,13 @@ discovered.
   wizard-buildable; pipelines are operator-grade and use the manual
   YAML surface.  The wizard's job stays "produce a working single-stage
   config you can hand-edit into a pipeline if you outgrow it."
-- **No notebook integration.**  The 11 demo notebooks under
-  `notebooks/` cover individual training paradigms; an end-to-end
-  pipeline demo would duplicate every notebook's setup boilerplate
-  three times.  The fixture suite under `tests/fixtures/pipeline/`
-  gives reviewers exactly the same surface as a notebook would, with
-  the advantage of being byte-comparable to a golden manifest.
+- **No bundled pipeline-demo notebook.**  The 11 demo notebooks under
+  `notebooks/` already cover each training paradigm individually and
+  remain the recommended interactive surface; an end-to-end pipeline
+  demo would duplicate every notebook's setup boilerplate three times.
+  The fixture suite under `tests/fixtures/pipeline/` gives reviewers
+  exactly the same surface as a notebook would, with the advantage of
+  being byte-comparable to a golden manifest.
 
 ---
 

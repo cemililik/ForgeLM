@@ -297,12 +297,13 @@ Sıfır olmayan exit kodu ihlalleri keşfedildikleri sırayla listeler.
   wizard'la üretilebilir; pipeline'lar operatör-seviyesi ve manuel
   YAML yüzeyini kullanır.  Wizard'ın işi "çalışan bir tek aşama
   config'i üret, büyüdüğünde elle pipeline'a düzenle" olarak kalır.
-- **Notebook entegrasyonu yok.**  `notebooks/` altındaki 11 demo
-  notebook bireysel eğitim paradigmalarını kapsar; uçtan uca pipeline
-  demosu her notebook'un setup boilerplate'ini üç kez tekrar ederdi.
-  `tests/fixtures/pipeline/` altındaki fixture suite, reviewer'lara
-  bir notebook'la aynı yüzeyi verir — üstüne golden manifest'le
-  byte-comparable olma avantajıyla.
+- **Pakete dahil bir pipeline-demo notebook'u yok.**  `notebooks/`
+  altındaki 11 demo notebook her eğitim paradigmasını ayrı ayrı zaten
+  kapsar ve önerilen etkileşimli yüzey olmaya devam eder; uçtan uca
+  bir pipeline demosu her notebook'un setup boilerplate'ini üç kez
+  tekrarlardı.  `tests/fixtures/pipeline/` altındaki fixture suite,
+  reviewer'lara bir notebook'la aynı yüzeyi verir — üstüne golden
+  manifest'le byte-comparable olma avantajıyla.
 
 ---
 

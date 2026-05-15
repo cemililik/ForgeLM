@@ -5,7 +5,7 @@ description: Wire ForgeLM into GitHub Actions, GitLab CI, or Jenkins with predic
 
 # CI/CD Pipelines
 
-ForgeLM is designed to run as a CI/CD pipeline step, not as an interactive notebook. Every command has a predictable exit code, every output is structured (JSON or JSONL), and every gate either passes or fails — no in-between.
+ForgeLM is designed to slot cleanly into a CI/CD pipeline step. Every command has a predictable exit code, every output is structured (JSON or JSONL), and every gate either passes or fails — no in-between. The same exit-code contract applies whether you launch a run from a terminal, a notebook, or an orchestrator.
 
 ## The exit-code contract
 
