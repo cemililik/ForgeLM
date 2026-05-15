@@ -1431,3 +1431,108 @@ notebook.
 
 - [`CHANGELOG.md`](../../CHANGELOG.md) `[0.6.0]` section — release notes for the shipped tasks
 - PR #49 — five review-absorption rounds + tail-walk follow-up
+
+## Phase 14 — Multi-Stage Pipeline Chains (v0.7.0)
+
+**Released:** PyPI 2026-05-15.  Five review-absorption rounds + a
+post-release follow-up round (Gemini + CodeRabbit + Sonar + Codacy +
+independent self-review).  Originally targeted v0.6.0; displaced by
+Phase 15 after the 2026-05-11 ingestion pilot demanded a focused
+release.
+
+**Driver:** Enterprise ML teams running production post-training
+pipelines wrote 3+ separate config files, manually set
+`model.name_or_path` to each stage's output, copied LoRA / safety /
+compliance config blocks between them, and orchestrated execution
+themselves with shell scripts.  Every manual copy was an opportunity
+to drift — a LoRA `r` value that matched across stages by accident
+became one that mismatched after the next config edit.  Phase 14
+introduces a `pipeline:` config key that chains stages and solves the
+orchestration *and* the drift problem in one move, while remaining
+fully config-driven, dry-run-validatable, and Annex-IV-traceable.
+
+### What shipped
+
+- **`pipeline:` config block** at the root of `ForgeConfig` chains
+  one or more training stages (typically SFT → DPO → GRPO) into one
+  config-driven run.  Section-wholesale inheritance for `model` /
+  `lora` / `training` / `data` / `evaluation`; root-only enforcement
+  for `distributed` / `webhook` / `compliance` / `risk_assessment` /
+  `monitoring` / `retention` / `synthetic` / `merge` / `auth`.
+- **Pipeline orchestrator** (`forgelm/cli/_pipeline.py`) drives the
+  chain end-to-end: auto-chains each stage's `model.name_or_path` to
+  the previous stage's `training.output_dir/final_model`, persists
+  state atomically to `<pipeline.output_dir>/pipeline_state.json`
+  after every transition, emits 7 new pipeline-scoped audit events
+  (`pipeline.started`, `pipeline.stage_started`,
+  `pipeline.stage_completed`, `pipeline.stage_gated`,
+  `pipeline.stage_reverted`, `pipeline.force_resume`,
+  `pipeline.completed`), all sharing a single top-level `run_id` so
+  SIEM-style grouping works on one field.
+- **CLI flags** `--stage <name>`, `--resume-from <name>`,
+  `--force-resume`, `--input-model <path>`.  `--dry-run` collects
+  every per-stage validation error before exiting (à la `pytest
+  --collectonly`) and runs the cross-stage `training.output_dir`
+  collision guard as a pre-flight.
+- **Pipeline Annex IV manifest**
+  (`compliance/pipeline_manifest.json`) indexes per-stage
+  `training_manifest.json` files into one verifiable chain artefact;
+  `forgelm verify-annex-iv --pipeline <run_dir>` walks the index,
+  checks chain integrity, and asserts every referenced per-stage
+  manifest exists on disk.
+- **Webhook integration**: `WebhookNotifier.notify_pipeline_started
+  / _completed / _reverted` mirror the orchestrator's audit events;
+  pre-existing Slack / Teams dashboards filtering on `training.*`
+  events keep working unchanged.
+- **Bilingual operator guide** (`docs/guides/pipeline.md` +
+  `pipeline-tr.md`) + sidebar user-manual page
+  (`docs/usermanuals/{en,tr}/training/pipelines.md`) +
+  `docs/reference/configuration.{md,-tr.md}` schema reference +
+  `docs/reference/usage.{md,-tr.md}` CLI surface.  Site marketing
+  surface refresh (features card, 4th hero slide, 6-language i18n).
+
+### Security — SSRF DNS-rebinding hardening (issue #14)
+
+`v0.7.0` also folds in the webhook / judge / synthetic outbound
+DNS-rebinding TOCTOU fix from PR #52.  `_resolve_safe_destination`
+resolves the hostname exactly once and rebuilds the outbound URL
+with the returned public IP literal so `requests` never re-resolves
+at connect time; the original hostname is preserved via the `Host`
+header (and SNI for HTTPS) using
+`requests_toolbelt.adapters.host_header_ssl.HostHeaderSSLAdapter`.
+`requests-toolbelt>=1.0.0,<2.0.0` is now a hard dependency.
+
+### Backward compatibility
+
+A config file without a `pipeline:` key reaches
+`forgelm/trainer.py` **byte-identical to v0.6.0**; the orchestrator
+module is never imported on the single-stage path.  `git diff` on
+`forgelm/trainer.py` across the Phase 14 PR is empty.
+
+### Review-absorption history
+
+- **PR #53 review cycles** (5 rounds): 3 blocking + 4 significant +
+  14 nitpicks across dispatch order (F-B-1), force-resume audit
+  event (F-B-2), strict chain integrity (F-B-3), `--input-model`
+  empty-string normalisation (F-F-2), exit-code policy
+  consistency (F-F-3), `--stage <non-first>` chain integrity
+  (post-release BLOCKER 2), audit-run-id pinning (post-release
+  BLOCKER 1), topology guard runs unconditionally (post-release
+  BLOCKER 3), `output_dir` collision in `run()` (post-release HIGH 4),
+  pipeline-only-flag rejection on non-pipeline configs (post-release
+  HIGH 5), reference docs + roadmap state cleanup.
+- **PR #54 release-prep + post-release review**: 10 of 14 findings
+  applied (3 blockers + 5 HIGH + 2 MEDIUM), 4 deferred to v0.7.x
+  follow-up (canonical manifest hash, per-stage manifest deep
+  parse, webhook event vocabulary docs, `_send` allowlist).
+
+### Cross-references
+
+- [`../guides/pipeline.md`](../guides/pipeline.md) ([Türkçe](../guides/pipeline-tr.md)) — operator walkthrough
+- [`../usermanuals/en/training/pipelines.md`](../usermanuals/en/training/pipelines.md) ([Türkçe](../usermanuals/tr/training/pipelines.md)) — sidebar user manual page
+- [`../reference/configuration.md`](../reference/configuration.md#pipeline-optional-multi-stage-training-chains-phase-14) ([Türkçe](../reference/configuration-tr.md#pipeline-isteğe-bağlı-çok-aşamalı-eğitim-zincirleri-faz-14)) — schema
+- [`../reference/usage.md`](../reference/usage.md) ([Türkçe](../reference/usage-tr.md)) — CLI surface
+- [`phase-14-pipeline-chains.md`](phase-14-pipeline-chains.md) — design spec (kept for historical reference)
+- [`../../CHANGELOG.md`](../../CHANGELOG.md) `[0.7.0]` — full shipped-task list
+- PR #53 — Phase 14 implementation + 5 review-absorption rounds
+- PR #54 — v0.7.0 release prep + post-release review (10 findings)
