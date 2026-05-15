@@ -311,8 +311,7 @@ def _report_broken(
     for entry in broken:
         print(f"  {_format_broken(entry, repo_root)}")
     print(
-        f"\n{len(broken)} broken link(s) across {md_count} markdown "
-        "file(s) under docs/usermanuals/.",
+        f"\n{len(broken)} broken link(s) across {md_count} markdown file(s) under docs/usermanuals/.",
     )
     return 1 if strict else 0
 
@@ -333,8 +332,7 @@ def main(argv: list[str] | None = None) -> int:
     if not broken:
         if not args.quiet:
             print(
-                f"OK: {len(md_files)} user-manual page(s) checked; "
-                "every link is self-contained or external.",
+                f"OK: {len(md_files)} user-manual page(s) checked; every link is self-contained or external.",
             )
         return 0
     return _report_broken(broken, len(md_files), repo_root, args.strict)

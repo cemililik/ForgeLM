@@ -232,6 +232,14 @@ line-length = 120
 select = ["F", "E9", "W", "B", "I"]
 ignore = ["B008", "B905"]
 
+# Pylint config (consumed by Codacy's pylint plugin).  Pylint's default
+# max-line-length is 100, but the project formatter is ruff @ 120 (see
+# [tool.ruff] above).  Without this alignment, ruff format reflows long
+# f-strings back to single lines that pylint then flags — a no-win.
+# Pinning pylint to 120 keeps the two tools in agreement.
+[tool.pylint.format]
+max-line-length = 120
+
 # Bandit static-analysis config (consumed by Codacy + standalone bandit).
 # - tests/ is excluded from the broader scan; we still scan the package itself.
 # - No `skips` entry: B101 (assert_used) is left enabled repo-wide so any
