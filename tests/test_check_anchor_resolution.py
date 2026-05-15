@@ -139,24 +139,24 @@ class TestResolveRelativePath:
     def test_mailto_skipped(self, tmp_path: Path):
         tool = _load_tool()
         source = _write(tmp_path / "src.md", "[email](mailto:me@example.com)\n")
-        assert tool._resolve_link(list(tool._extract_links(source))[0], tmp_path) is None
+        assert tool._resolve_link(next(iter(tool._extract_links(source))), tmp_path) is None
 
     def test_spa_hash_router_skipped(self, tmp_path: Path):
         tool = _load_tool()
         source = _write(tmp_path / "src.md", "[ref](#/reference/usage)\n")
-        assert tool._resolve_link(list(tool._extract_links(source))[0], tmp_path) is None
+        assert tool._resolve_link(next(iter(tool._extract_links(source))), tmp_path) is None
 
     def test_tel_skipped(self, tmp_path: Path):
         # F-W4-TR-04 absorption: tel: scheme must be in skip list.
         tool = _load_tool()
         source = _write(tmp_path / "src.md", "[call](tel:+15551234567)\n")
-        assert tool._resolve_link(list(tool._extract_links(source))[0], tmp_path) is None
+        assert tool._resolve_link(next(iter(tool._extract_links(source))), tmp_path) is None
 
     def test_javascript_skipped(self, tmp_path: Path):
         # F-W4-TR-04 absorption: javascript: scheme must be in skip list.
         tool = _load_tool()
         source = _write(tmp_path / "src.md", "[js](javascript:void(0))\n")
-        assert tool._resolve_link(list(tool._extract_links(source))[0], tmp_path) is None
+        assert tool._resolve_link(next(iter(tool._extract_links(source))), tmp_path) is None
 
     def test_image_link_missing_target_flagged(self, tmp_path: Path):
         # F-W4-TR-06 absorption: image-link regex parity with link form.
@@ -171,7 +171,7 @@ class TestResolveRelativePath:
         tool = _load_tool()
         _write(tmp_path / "ok.png", "")
         source = _write(tmp_path / "src.md", "![ok](ok.png)\n")
-        assert tool._resolve_link(list(tool._extract_links(source))[0], tmp_path) is None
+        assert tool._resolve_link(next(iter(tool._extract_links(source))), tmp_path) is None
 
 
 class TestResolveAnchor:

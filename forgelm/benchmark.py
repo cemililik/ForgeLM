@@ -141,7 +141,7 @@ def run_benchmark(
     try:
         lm_obj = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=batch_size)
     except Exception as e:  # noqa: BLE001 — best-effort: lm-eval HFLM wrapper construction crosses HF model introspection (AttributeError on architecture mismatch), tokenizer compatibility (ValueError), CUDA init (RuntimeError), and lm-eval-internal config parsing; surfacing as BenchmarkResult(passed=False) is the documented hard-failure surface so the trainer auto-revert gate can react.  # NOSONAR
-        logger.error("Failed to initialize lm-eval model wrapper: %s", e)
+        logger.exception("Failed to initialize lm-eval model wrapper")
         return BenchmarkResult(passed=False, failure_reason=f"Model wrapper initialization failed: {e}")
 
     task_kwargs: Dict[str, Any] = {}
@@ -151,7 +151,7 @@ def run_benchmark(
     try:
         results = lm_eval.simple_evaluate(model=lm_obj, tasks=tasks, limit=limit, **task_kwargs)
     except Exception as e:  # noqa: BLE001 — best-effort: lm-eval simple_evaluate runs a wide task surface (dataset download OSError, task spec ValueError, model.generate RuntimeError on CUDA OOM/dtype mismatch, lm-eval-internal AssertionError); BenchmarkResult(passed=False) is the documented hard-failure surface for the auto-revert gate.  # NOSONAR
-        logger.error("Benchmark evaluation failed: %s", e)
+        logger.exception("Benchmark evaluation failed")
         return BenchmarkResult(passed=False, failure_reason=f"Evaluation execution failed: {e}")
 
     raw_results = results.get("results", {})

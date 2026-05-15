@@ -69,11 +69,39 @@ RUN if [ "$INSTALL_UNSLOTH" = "true" ]; then \
 # --- Stage 3: Final runtime image ---
 FROM deps AS runtime
 
-# Copy full source
+# UID/GID for the non-root runtime user.  Default 1000 matches the
+# canonical "first non-system user" id on most Linux distros, which is
+# the most common host UID for bind-mount permission alignment.
+# Override at build time when the host uses a different UID or when the
+# base image already has a user at UID/GID 1000:
+#
+#     docker build --build-arg FORGELM_UID=1001 \
+#                  --build-arg FORGELM_GID=1001 -t forgelm .
+#
+# The values are propagated into groupadd/useradd below; bind-mounted
+# volumes (configs/, data/, output/) must be owned by the same UID on
+# the host for the container to write into them.
+ARG FORGELM_UID=1000
+ARG FORGELM_GID=1000
+
+# Copy source. `.dockerignore` excludes tests/, notebooks/, docs/, .git/,
+# build artefacts, and AI-agent working directories so the runtime image
+# stays minimal and free of non-production material (SonarCloud S6470).
 COPY . .
 
-# Install with full source (non-editable for production)
-RUN python3 -m pip install --no-cache-dir .
+# Install the package, create the non-root runtime user, and hand
+# ownership of /workspace + /home/forgelm to it — collapsed into a
+# single RUN per SonarCloud docker:S7031 (one logical step per layer)
+# and to drop UID 0 at runtime per S6471.  The `forgelm` user is a
+# system account (--system) with the configurable UID/GID above.
+RUN python3 -m pip install --no-cache-dir . \
+    && groupadd --system --gid "${FORGELM_GID}" forgelm \
+    && useradd --system --uid "${FORGELM_UID}" --gid forgelm \
+       --create-home --home-dir /home/forgelm forgelm \
+    && mkdir -p /workspace \
+    && chown -R forgelm:forgelm /workspace /home/forgelm
+
+USER forgelm
 
 # Default working directory for user configs/data
 WORKDIR /workspace

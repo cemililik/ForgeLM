@@ -7,7 +7,7 @@ the schema default, and writes two artefacts:
 1. ``forgelm/wizard/_defaults.json`` — Python consumer; loaded via
    :mod:`importlib.resources` from :func:`forgelm.wizard._state._load_defaults`.
 2. ``site/js/wizard_defaults.js`` — Web consumer; emitted as a tiny script
-   that sets ``window.WIZARD_DEFAULTS = {...}`` so :file:`site/js/wizard.js`'s
+   that sets ``globalThis.WIZARD_DEFAULTS = {...}`` so :file:`site/js/wizard.js`'s
    ``defaultState()`` can read schema-aligned values without a build step.
 
 Run after any schema default change::
@@ -192,7 +192,13 @@ def render_python_json(defaults: Dict[str, Dict[str, Any]]) -> str:
 
 
 def render_js_literal(defaults: Dict[str, Dict[str, Any]]) -> str:
-    """Render as a tiny JS asset that exposes ``window.WIZARD_DEFAULTS``."""
+    """Render as a tiny JS asset that exposes ``globalThis.WIZARD_DEFAULTS``.
+
+    Uses a guarded global lookup (``globalThis`` with a ``window``
+    fallback) so the asset still loads on browsers older than ES2020
+    where ``globalThis`` is undefined, and so non-browser bundlers
+    that polyfill ``window`` keep working without a ReferenceError.
+    """
     body = json.dumps(defaults, indent=2, ensure_ascii=False)
     return (
         "/**\n"
@@ -205,7 +211,8 @@ def render_js_literal(defaults: Dict[str, Dict[str, Any]]) -> str:
         " * for-byte.  Loaded BEFORE wizard.js in the HTML pages that\n"
         " * mount the wizard modal.\n"
         " */\n"
-        f"window.WIZARD_DEFAULTS = {body};\n"
+        "(typeof globalThis !== 'undefined' ? globalThis : window)"
+        f".WIZARD_DEFAULTS = {body};\n"
     )
 
 

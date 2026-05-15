@@ -1,8 +1,14 @@
+# Trimmed build context for the runtime image. Anything not directly
+# needed at runtime (CLI imports forgelm/ + pyproject metadata only) is
+# excluded so `COPY . .` in the runtime stage stays minimal and does not
+# inadvertently ship tests, docs, AI-agent working directories, or local
+# build artefacts into the published image (SonarCloud S6470).
+
 # Git
 .git
 .gitignore
 
-# Python
+# Python build artefacts
 __pycache__
 *.py[cod]
 *.egg-info
@@ -10,23 +16,53 @@ dist
 build
 .eggs
 
-# IDE
+# OS / IDE
+.DS_Store
 .idea
 .vscode
 *.swp
 
-# Docs (not needed in runtime image)
+# Docs (full tree — runtime image does not serve docs)
 docs/
+site/
 
-# Test artifacts
+# Tests, notebooks, examples — not shipped in the runtime image
+tests/
+notebooks/
+examples/
+
+# AI-agent working directories (project-local, ignored from runtime image)
+.claude/
+.agents/
+
+# Test / coverage artefacts
 .pytest_cache
 htmlcov
 coverage.xml
 .coverage
 
-# Training artifacts (user mounts these)
+# Training artefacts (user mounts these at runtime)
 checkpoints/
+configs/
+output/
 *.tar.gz
 
-# CI
+# CI / linting / agent metadata
 .github/
+.codacy.yaml
+.pre-commit-config.yaml
+.markdownlint.json
+sonar-project.properties
+
+# Repository-level docs the runtime image does not need
+AGENTS.md
+CLAUDE.md
+CHANGELOG.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+
+# Build tooling not needed by the installed package
+tools/
+MANIFEST.in
+requirements*.txt
+docker-compose.yaml

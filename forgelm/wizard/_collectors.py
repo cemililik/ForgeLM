@@ -82,7 +82,7 @@ def _default_safety_probes_path() -> str:
 
         probe = files("forgelm.safety_prompts").joinpath("default_probes.jsonl")
         return str(probe)
-    except (ModuleNotFoundError, FileNotFoundError, ImportError):
+    except (FileNotFoundError, ImportError):  # ModuleNotFoundError is an ImportError subclass.
         # Fallback: best-effort guess at the package directory.
         return str(Path(__file__).resolve().parent.parent / "safety_prompts" / "default_probes.jsonl")
 

@@ -104,6 +104,23 @@
    - **`tests/test_webhook.py`** gets a new `TestSendExtrasAllowlist` class: every `_ALLOWED_PIPELINE_EXTRAS` member must be emitted by at least one `notify_pipeline_*` method; an unexpected extra triggers the WARN log + drop.
    - **Optional follow-up:** typed `WebhookPayload` `TypedDict` so static type checkers catch unknown keys at edit time.
 
+5. [ ] **Cognitive Complexity refactor — SonarCloud S3776** (LOW 12)
+   SonarCloud's `python:S3776` flagged six functions whose cognitive complexity exceeds the 15-allowed ceiling.  None are correctness defects (every call site is covered by the existing test suite) — they are readability/maintainability deferrals from earlier phases that accumulated branches over successive review-cycles.  Splitting them is deliberately scoped here rather than in a feature PR because the change shape is mechanical (extract helpers, no behaviour change) and benefits from being audited as one block against the existing test suite.
+
+   | Function | File | CC | Likely seam |
+   |---|---|---|---|
+   | `safe_post` | `forgelm/_http.py:272` | 17 → ≤15 | Pull the header-mask + SSRF resolve + retry-on-rebind branches into `_prepare_request_headers`, `_resolve_pinned_host`, `_retry_once_on_rebind` helpers. |
+   | `safe_get` | `forgelm/_http.py:415` | 18 → ≤15 | Same seam as `safe_post`; the two share enough structure that a private `_dispatch(method, ...)` is a natural extraction. |
+   | `_parse_webhook_value` | `forgelm/wizard/_collectors.py:96` | 17 → ≤15 | Lift the scheme / private-IP / env-prefix decision tree into a `_classify_webhook_input(raw) -> _Classification` enum-returning helper. |
+   | `_step_model` | `forgelm/wizard/_orchestrator.py:277` | 19 → ≤15 | Each of (preset apply, manual entry, env-var resolve, validation echo) becomes a `_substep_*` helper sharing the same `_WizardState` argument. |
+   | `_step_evaluation` | `forgelm/wizard/_orchestrator.py:652` | 26 → ≤15 | Largest split: auto-revert / safety / benchmark / judge / webhook / synthetic each become a private `_step_evaluation_<section>` helper.  Phase 22's existing `_collect_*` helpers point at the seam already. |
+   | `_print_preflight_checklist` | `forgelm/wizard/_orchestrator.py:1155` | 20 → ≤15 | Pull each check (VRAM, dataset, write-permission) into its own `_check_*` predicate returning a `(ok, message)` tuple; the orchestrator just formats and prints. |
+
+   - **Approach** — pure-mechanical extraction, no behaviour change.  Each function lands its own commit with the test surface unchanged (just regression coverage for the helpers if they become individually testable).
+   - **Verification** — the SonarCloud `python:S3776` issue count drops from 6 → 0 on the next analysis run; the per-function CC is visible in the SonarCloud "Measures" tab.
+   - **Tests** — no new behaviour to test; the existing wizard / `_http` SSRF / webhook tests stay green.  Add a docstring on each helper noting the parent function it was extracted from so future readers can follow the seam back.
+   - **Tracking** — SonarCloud issues marked WONTFIX with comment "Tracked in Phase 14.5 Task 5 (S3776 refactor)" until this task ships, at which point the next scan will auto-resolve them.
+
 ## Requirements
 
 - **Backward compatibility, byte-identical.**  Pre-v0.7.x configs without a `pipeline:` block continue to reach `forgelm/trainer.py` byte-identical to v0.6.0 — orchestrator surface unchanged.

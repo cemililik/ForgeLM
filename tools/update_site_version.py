@@ -99,6 +99,12 @@ class Rewrite:
         return new_text, n
 
 
+# Shared template for the "keep group 1, substitute version" pattern —
+# three of the four rewrites use this exact form, so naming it removes
+# the SonarCloud python:S1192 duplicated-literal flag and centralises
+# the regex back-reference convention.
+_TEMPLATE_GROUP1_VERSION = r"\g<1>{version}"
+
 # JSON-LD ``"softwareVersion": "X.Y.Z"`` inside a SoftwareApplication
 # structured-data block.  The leading ``softwareVersion":`` anchor keeps
 # the substitution scoped to JSON-LD; unrelated literal versions inside
@@ -106,7 +112,7 @@ class Rewrite:
 RW_JSONLD_SOFTWARE_VERSION = Rewrite(
     label='JSON-LD "softwareVersion"',
     pattern=re.compile(r'("softwareVersion"\s*:\s*")(\d+\.\d+\.\d+)(")'),
-    template=r"\g<1>{version}\g<3>",
+    template=_TEMPLATE_GROUP1_VERSION + r"\g<3>",
 )
 
 # Hero-badge fallback inside the HTML body — the visible literal that
@@ -115,7 +121,7 @@ RW_JSONLD_SOFTWARE_VERSION = Rewrite(
 RW_HERO_BADGE_HTML = Rewrite(
     label="hero badge HTML fallback",
     pattern=re.compile(r"(Open source\s*·\s*Apache 2\.0\s*·\s*v)\d+\.\d+\.\d+"),
-    template=r"\g<1>{version}",
+    template=_TEMPLATE_GROUP1_VERSION,
 )
 
 # Localised hero-badge strings in translations.js.  Multilingual prefixes
@@ -124,7 +130,7 @@ RW_HERO_BADGE_HTML = Rewrite(
 RW_HERO_BADGE_I18N = Rewrite(
     label="hero badge i18n (translations.js)",
     pattern=re.compile(r"(·\s*Apache 2\.0\s*·\s*v)\d+\.\d+\.\d+"),
-    template=r"\g<1>{version}",
+    template=_TEMPLATE_GROUP1_VERSION,
 )
 
 # ``pip install forgelm==X.Y.Z`` and the extras variants in quickstart.html.
@@ -132,7 +138,7 @@ RW_HERO_BADGE_I18N = Rewrite(
 RW_PIP_INSTALL = Rewrite(
     label="pip install pin",
     pattern=re.compile(r"(forgelm(?:\[[a-z-]+\])?==)(\d+\.\d+\.\d+)"),
-    template=r"\g<1>{version}",
+    template=_TEMPLATE_GROUP1_VERSION,
 )
 
 
