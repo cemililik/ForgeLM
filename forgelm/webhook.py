@@ -191,7 +191,11 @@ class WebhookNotifier:
         if not url:
             return
 
-        if url.startswith("http://"):
+        # Intentional plaintext-scheme detection: HTTPS is the documented
+        # recommendation but plaintext is supported for closed-network
+        # receivers, and the SSRF guard in ``forgelm._http`` still applies.
+        # The warning below makes the unencrypted path loud in operator logs.
+        if url.startswith("http://"):  # NOSONAR python:S5332
             logger.warning("Webhook URL uses HTTP (not HTTPS). Data will be sent unencrypted.")
 
         # Sanitize metrics — only include numeric values

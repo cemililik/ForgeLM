@@ -69,11 +69,24 @@ RUN if [ "$INSTALL_UNSLOTH" = "true" ]; then \
 # --- Stage 3: Final runtime image ---
 FROM deps AS runtime
 
-# Copy full source
+# Copy source. `.dockerignore` excludes tests/, notebooks/, docs/, .git/,
+# build artefacts, and AI-agent working directories so the runtime image
+# stays minimal and free of non-production material (SonarCloud S6470).
 COPY . .
 
 # Install with full source (non-editable for production)
 RUN python3 -m pip install --no-cache-dir .
+
+# Drop to a non-root user for the runtime stage so the container does not
+# execute training workloads as UID 0 (SonarCloud S6471). The `/workspace`
+# mount point is owned by the forgelm user so bind-mounted configs and
+# output directories remain writable.
+RUN groupadd --system --gid 1000 forgelm \
+    && useradd --system --uid 1000 --gid forgelm --create-home --home-dir /home/forgelm forgelm \
+    && mkdir -p /workspace \
+    && chown -R forgelm:forgelm /workspace /home/forgelm
+
+USER forgelm
 
 # Default working directory for user configs/data
 WORKDIR /workspace
