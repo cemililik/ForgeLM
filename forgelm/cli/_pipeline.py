@@ -728,7 +728,22 @@ class PipelineOrchestrator:
                     stage,
                     prev_output_model=prev_output,
                 )
-            except Exception:  # noqa: BLE001 — merge failures surface via the per-stage pipeline error path; the collision check is purely about output_dir layout.
+            except Exception as exc:  # noqa: BLE001 — see DEBUG log below
+                # Merge failures are intentionally skipped here because
+                # they re-surface through the per-stage pipeline-error
+                # path with full diagnostics — the pre-flight's job is
+                # scoped to ``output_dir`` layout only.  Codacy / bandit
+                # B112 flagged the bare ``continue`` as a silent-skip
+                # anti-pattern; logging the exception at DEBUG keeps the
+                # skip *traceable* without aborting the pre-flight on
+                # what is by-design a per-stage local failure.
+                logger.debug(
+                    "Pre-flight skipped collision check for stage %r: merge raised %s (%s); "
+                    "the per-stage run path will surface the same error.",
+                    stage.name,
+                    type(exc).__name__,
+                    exc,
+                )
                 continue
             abs_out = os.path.abspath(merged.training.output_dir)
             if abs_out in seen_dirs:
